@@ -1,0 +1,306 @@
+import { useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
+import { cn } from "@/lib/cn";
+import { InlineText } from "@/components/ui/InlineText";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
+import { CategoryPicker } from "./CategoryPicker";
+import { guidelineForCategory } from "@/lib/guidelines";
+import { FACTOR_TEMPLATES, type FactorTemplate } from "./factorTemplates";
+import type {
+  Factor,
+  FactorType,
+  OntologyTerm,
+} from "@/features/experiment/types";
+
+/**
+ * Compact factors table at the top of the design tab.
+ *
+ * Single-click selects a row (the FactorValueList renders for the
+ * selected factor). Double-click on an editable cell starts inline
+ * edit; the Type column uses a `<select>` since it's a small enum.
+ *
+ * Per-row "modified" badge fires when any factor field differs from
+ * the saved server state — see DesignEditor → diff.factorsChanged.
+ */
+export function FactorList({
+  factors,
+  selectedId,
+  modifiedFactorIds,
+  addedFactorIds,
+  onSelect,
+  onFactorFieldsChange,
+  onAddFactor,
+  onAddFactorFromTemplate,
+  onDeleteFactor,
+}: {
+  factors: Factor[];
+  selectedId: number | null;
+  /** Factor IDs whose name / category / description / type differ from
+   *  the saved server state. Used only for the modified badge — the
+   *  per-FV diff is shown elsewhere. */
+  modifiedFactorIds: Set<number>;
+  /** Factor IDs the curator has added in this draft (not yet in
+   *  saved). Surfaced as a "new" badge. */
+  addedFactorIds: Set<number>;
+  onSelect: (id: number) => void;
+  onFactorFieldsChange: (
+    factorId: number,
+    patch: Partial<{
+      name: string;
+      description: string;
+      type: FactorType;
+      category: OntologyTerm;
+    }>,
+  ) => void;
+  onAddFactor: () => void;
+  onAddFactorFromTemplate: (template: FactorTemplate) => void;
+  onDeleteFactor: (factorId: number) => void;
+}) {
+  // Tracks which factor (if any) the curator is in the process of
+  // deleting — set when they click the per-row trash icon, cleared
+  // on confirm / cancel. Replaces the old toolbar-scoped boolean
+  // since deletion now targets the clicked row, not the selected
+  // one.
+  const [factorPendingDelete, setFactorPendingDelete] =
+    useState<Factor | null>(null);
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const templateMenuRef = useRef<HTMLDivElement | null>(null);
+  // Close on outside click. Cheaper than a full Popper / floating-ui
+  // dance for a 8-row menu.
+  useEffect(() => {
+    if (!templateMenuOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (
+        templateMenuRef.current &&
+        !templateMenuRef.current.contains(e.target as Node)
+      ) {
+        setTemplateMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [templateMenuOpen]);
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200">
+        <div className="flex items-center gap-3">
+          <span className="section-h">Experimental factors</span>
+          <span className="text-xs text-slate-400">
+            {factors.length} factors · double-click a cell to edit
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={onAddFactor}
+            title="Add a blank factor (you'll need to set its category)"
+          >
+            + factor
+          </button>
+          <div className="relative" ref={templateMenuRef}>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setTemplateMenuOpen((o) => !o)}
+              title="Insert a factor pre-filled for a common case (treatment, genotype, disease, …) — saves the category + predicate hunt"
+              aria-haspopup="menu"
+              aria-expanded={templateMenuOpen}
+            >
+              + from template ▾
+            </button>
+            {templateMenuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 z-30 mt-1 w-72 max-h-96 overflow-auto bg-white border border-slate-200 rounded-md shadow-lg py-1"
+              >
+                {FACTOR_TEMPLATES.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    role="menuitem"
+                    className="w-full text-left px-3 py-1.5 hover:bg-slate-50 focus:bg-slate-100 focus:outline-none"
+                    onClick={() => {
+                      setTemplateMenuOpen(false);
+                      onAddFactorFromTemplate(tpl);
+                    }}
+                  >
+                    <div className="text-sm text-slate-900">{tpl.label}</div>
+                    <div className="text-[11px] text-slate-500">
+                      {tpl.description}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-xs text-slate-600 uppercase tracking-wide">
+          <tr>
+            {/* 6px selection indicator column. Empty header. */}
+            <th className="w-1.5 p-0" aria-hidden />
+            <th className="text-left px-3 py-1.5 w-1/4">Name</th>
+            <th className="text-left px-3 py-1.5 w-1/4">Category</th>
+            <th className="text-left px-3 py-1.5">Description</th>
+            <th className="text-left px-3 py-1.5 w-32">Type</th>
+            <th className="text-left px-3 py-1.5 w-20">Factor ID</th>
+            <th className="px-2 py-1.5 w-10" aria-label="actions" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {factors.map((f) => {
+            const selected = f.id === selectedId;
+            const isAdded = addedFactorIds.has(f.id);
+            const modified = !isAdded && modifiedFactorIds.has(f.id);
+            return (
+              <tr
+                key={f.id}
+                onClick={() => onSelect(f.id)}
+                className={cn(
+                  "cursor-pointer transition-colors",
+                  selected
+                    ? "bg-blue-100 hover:bg-blue-100"
+                    : "hover:bg-slate-50",
+                )}
+              >
+                {/* Selection indicator. A solid blue bar on selected
+                    rows is more legible than a faint background tint
+                    alone — clear cue at a glance which row's FVs the
+                    panel below is showing. */}
+                <td
+                  className={cn(
+                    "p-0",
+                    selected ? "bg-blue-600" : "bg-transparent",
+                  )}
+                  aria-hidden
+                />
+                <td className="px-3 py-2 font-medium align-top">
+                  <div className="flex items-center gap-2">
+                    <InlineText
+                      value={f.name}
+                      placeholder="factor name"
+                      onCommit={(name) => onFactorFieldsChange(f.id, { name })}
+                    />
+                    {isAdded ? <NewBadge /> : null}
+                    {modified ? <ModifiedBadge /> : null}
+                  </div>
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <span className="inline-flex items-center gap-1.5">
+                    <CategoryPicker
+                      value={f.category}
+                      placeholder="category"
+                      onCommit={(next) => {
+                        if (next) {
+                          onFactorFieldsChange(f.id, { category: next });
+                        }
+                        // Disallow null category on a Factor — every
+                        // factor must have one. Picker returning null
+                        // (empty input) is a no-op here.
+                      }}
+                    />
+                    {(() => {
+                      const g = f.category
+                        ? guidelineForCategory(f.category.label)
+                        : null;
+                      return g ? <GuidelinePopup snippet={g} /> : null;
+                    })()}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-slate-700 align-top">
+                  <InlineText
+                    value={f.description}
+                    placeholder="add description"
+                    onCommit={(description) =>
+                      onFactorFieldsChange(f.id, { description })
+                    }
+                  />
+                </td>
+                <td
+                  className="px-3 py-2 text-slate-600 align-top"
+                  // The select handles its own click; stop propagation
+                  // so opening the dropdown doesn't also toggle the
+                  // row selection (it would, but harmlessly).
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <select
+                    value={f.type}
+                    onChange={(e) =>
+                      onFactorFieldsChange(f.id, {
+                        type: e.target.value as FactorType,
+                      })
+                    }
+                    className="text-xs border border-slate-300 rounded px-1 py-0.5 bg-white"
+                  >
+                    <option value="categorical">categorical</option>
+                    <option value="continuous">continuous</option>
+                  </select>
+                </td>
+                <td className="px-3 py-2 text-slate-400 font-mono text-xs align-top">
+                  {f.id}
+                </td>
+                <td
+                  className="px-2 py-2 align-top"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setFactorPendingDelete(f)}
+                    title={`Delete "${f.name || "(unnamed)"}"`}
+                    aria-label={`Delete "${f.name || "(unnamed)"}"`}
+                    className="text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded p-1 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <ConfirmModal
+        open={factorPendingDelete !== null}
+        title={`Delete factor "${factorPendingDelete?.name || "(unnamed)"}"`}
+        body={
+          (factorPendingDelete?.factor_values.length ?? 0) > 0
+            ? `Removes ${factorPendingDelete!.factor_values.length} factor value${
+                factorPendingDelete!.factor_values.length === 1 ? "" : "s"
+              } and any sample assignments under this factor.\n\nNothing is committed until you click Commit at the bottom.`
+            : "This factor has no values yet — safe to delete.\n\nNothing is committed until you click Commit at the bottom."
+        }
+        confirmLabel="delete factor"
+        onConfirm={() => {
+          if (factorPendingDelete) onDeleteFactor(factorPendingDelete.id);
+          setFactorPendingDelete(null);
+        }}
+        onCancel={() => setFactorPendingDelete(null)}
+      />
+    </div>
+  );
+}
+
+function ModifiedBadge() {
+  return (
+    <span
+      className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800"
+      title="factor fields differ from saved"
+    >
+      modified
+    </span>
+  );
+}
+
+function NewBadge() {
+  return (
+    <span
+      className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800"
+      title="added in this draft, not yet committed"
+    >
+      new
+    </span>
+  );
+}

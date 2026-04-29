@@ -1,0 +1,44 @@
+// AUTO-GENERATED — do not edit by hand.
+//
+// Source: gemma-curation-agents/data/predicates.json
+// Regenerate via:
+//   cd ../gemma-curation-agents && python scripts/sync_predicates_to_ui.py
+//
+// Edit the JSON and re-run the script. Both the JSON and this file
+// must be committed. The agents Python loads the JSON directly; the
+// UI imports this generated module so both halves of the system
+// agree on the predicate allow-list.
+
+export interface PredicateDef {
+  label: string;
+  uri: string;
+  description: string;
+}
+
+export const PREDICATES: readonly PredicateDef[] = [
+  { label: "has role", uri: "http://purl.obolibrary.org/obo/RO_0000087", description: "Baseline role assignment, e.g. DMSO has role reference substance role." },
+  { label: "has_genotype", uri: "http://purl.obolibrary.org/obo/GENO_0000222", description: "Gene-level perturbation. E.g. Sox2 has_genotype homozygous negative." },
+  { label: "has phenotype", uri: "http://purl.obolibrary.org/obo/RO_0002200", description: "Phenotypic descriptor / gene product level. E.g. Foxp3 has phenotype increased gene product level." },
+  { label: "adjacent to", uri: "http://purl.obolibrary.org/obo/RO_0002220", description: "Tissue is physically next to the entity of interest, or cell co-culturing. E.g. control adjacent to disease." },
+  { label: "delivered at dose", uri: "http://purl.obolibrary.org/obo/TGEMO_00166", description: "Dose attached to a treatment. E.g. drug delivered at dose 5 uM." },
+  { label: "delivered for duration", uri: "http://purl.obolibrary.org/obo/TGEMO_00167", description: "Duration attached to a treatment. E.g. drug delivered for duration 24 h." },
+  { label: "delivered to", uri: "http://purl.obolibrary.org/obo/TGEMO_00183", description: "Organism part / cell where the treatment was delivered. E.g. drug delivered to hippocampus." },
+  { label: "derives from cell line", uri: "http://purl.obolibrary.org/obo/CLO_0037210", description: "Sample / cell line is derived from a named CLO cell line." },
+  { label: "derives from cell", uri: "http://purl.obolibrary.org/obo/CLO_0037209", description: "Sample is derived from a CL cell type." },
+  { label: "derives from part of", uri: "http://purl.obolibrary.org/obo/ENVO_01003004", description: "Sample is derived from part of an organism part (UBERON)." },
+  { label: "derives from", uri: "http://purl.obolibrary.org/obo/RO_0001000", description: "Catch-all when none of the `derives from x` cases fit." },
+  { label: "has child with disease", uri: "http://purl.obolibrary.org/obo/TGEMO_00201", description: "Sample from a parent whose child has a specific disease." },
+  { label: "has developmental stage", uri: "http://purl.obolibrary.org/obo/TGEMO_00168", description: "Linking exact age to a UBERON developmental stage." },
+  { label: "has disease", uri: "http://purl.obolibrary.org/obo/RO_0016002", description: "Sample modified to have a disease (not from a patient with it). Confluence: Use-of-predicates-in-factor-values." },
+  { label: "has modifier", uri: "http://purl.obolibrary.org/obo/RO_0002573", description: "Object differs from its original form, or organism-part location qualifier (e.g. dorsal). Distinct from `induced by` and `has phenotype`." },
+  { label: "induced by", uri: "http://purl.obolibrary.org/obo/TGEMO_00171", description: "Disease/phenotype caused by a drug or surgery. E.g. Parkinson disease induced by MPTP." },
+  { label: "located in", uri: "http://purl.obolibrary.org/obo/RO_0001025", description: "Localising a disease, genotype, or other FV. E.g. disease located in hippocampus." },
+  { label: "positive for product of gene", uri: "http://purl.obolibrary.org/obo/TGEMO_00169", description: "Marker-positive cell type/line. E.g. CD4 T cell positive for product of gene CD25." },
+  { label: "negative for product of gene", uri: "http://purl.obolibrary.org/obo/TGEMO_00170", description: "Marker-negative cell type/line." },
+  { label: "sampled after", uri: "http://purl.obolibrary.org/obo/TGEMO_00202", description: "Timepoint sampled after a treatment / disease event." },
+  { label: "toward", uri: "http://purl.obolibrary.org/obo/RO_0002503", description: "Direction of a phenotype response. E.g. response to + toward + treatment." },
+] as const;
+
+export const KNOWN_PREDICATE_URIS: ReadonlySet<string> = new Set(
+  PREDICATES.map((p) => p.uri),
+);

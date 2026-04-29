@@ -1,0 +1,466 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    @apply bg-white text-slate-900;
+  }
+}
+
+@layer components {
+  /*
+    Default term = resolved (URI present). Per Paul, 2026-04-28:
+    resolved → green, free-text → grey italic. Replaces the old
+    blue default. The Term component picks ``free`` automatically
+    when ``uri`` is null so callers don't have to think about it.
+  */
+  .term {
+    @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs leading-4
+           whitespace-nowrap max-w-full overflow-hidden
+           bg-emerald-50 text-emerald-800 border border-emerald-200;
+  }
+  .term.free      { @apply bg-stone-50 text-stone-600 border-stone-200 italic; }
+  .term.predicate { @apply bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200; }
+  /*
+    ``.term.baseline`` used to apply an emerald wash, but green is
+    the house-standard cue for "ontology-resolved" — overloading
+    it for baseline made the two states visually indistinguishable.
+    Baseline status is now signalled only by the separate
+    ``pill.baseline`` chip, leaving the term itself to render with
+    its normal ontology / free-text colours.
+   */
+  .term.baseline  { /* no-op: see comment above */ }
+
+  .pill { @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.7rem] leading-4; }
+  .pill.high     { @apply bg-emerald-100 text-emerald-800; }
+  .pill.medium   { @apply bg-yellow-100 text-yellow-800; }
+  .pill.low      { @apply bg-red-100 text-red-800; }
+  .pill.pending  { @apply bg-amber-100 text-amber-800; }
+  .pill.accepted { @apply bg-emerald-100 text-emerald-800; }
+  .pill.rejected { @apply bg-red-100 text-red-800; }
+  .pill.needs    { @apply bg-indigo-100 text-indigo-800; }
+  /*
+    Sky-blue palette so the "★ baseline" pill reads as a status
+    marker without colliding with the emerald that means
+    "ontology-resolved" elsewhere.
+   */
+  .pill.baseline { @apply bg-sky-100 text-sky-800; }
+
+  .btn { @apply inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded border border-slate-300 bg-white hover:bg-slate-50; }
+  .btn.primary { @apply bg-blue-700 text-white border-blue-700 hover:bg-blue-800; }
+  .btn.success { @apply bg-emerald-700 text-white border-emerald-700 hover:bg-emerald-800; }
+  .btn.danger  { @apply bg-rose-700 text-white border-rose-700 hover:bg-rose-800; }
+  .btn.warn    { @apply bg-amber-700 text-white border-amber-700 hover:bg-amber-800; }
+  .btn.ghost   { @apply bg-transparent border-transparent text-slate-600 hover:bg-slate-100; }
+
+  .card { @apply bg-white border border-slate-200 rounded-lg; }
+
+  .section-h { @apply text-xs uppercase tracking-wider text-slate-600 font-semibold; }
+
+  .diff-add { @apply bg-emerald-50 border-l-[3px] border-emerald-500 px-2 py-1; }
+  .diff-del { @apply bg-rose-50 border-l-[3px] border-rose-500 px-2 py-1 line-through text-rose-900/80; }
+}
+
+/* ---------------------------------------------------------------------------
+   Dark mode overrides.
+
+   Written as plain `.dark .x` selectors instead of `@apply dark:bg-...`
+   inside `@layer components` because the latter is fragile across
+   Tailwind / Vite restarts and was failing silently in dev. Plain CSS
+   property values avoid any dependency on Tailwind's dark-variant JIT
+   for these specific surfaces.
+
+   Targets only the shared utility classes and a few high-traffic
+   structural classes. The long tail of inline `bg-white` on feature
+   panels is not covered yet — those need patching in their own files.
+   --------------------------------------------------------------------------- */
+
+html.dark body {
+  background-color: rgb(15 23 42);  /* slate-900 */
+  color: rgb(226 232 240);          /* slate-200 */
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: rgb(15 23 42);  /* slate-900 */
+  color: rgb(226 232 240);          /* slate-200 */
+  border-color: rgb(51 65 85);      /* slate-700 */
+}
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: rgb(100 116 139);          /* slate-500 */
+}
+html.dark input[type="search"],
+html.dark input[type="text"],
+html.dark input[type="email"],
+html.dark input[type="password"],
+html.dark input[type="number"] {
+  color-scheme: dark;
+}
+
+/* Cards: lift the background slightly above the body so they read
+   as raised surfaces. Using slate-800 rather than slate-900 keeps the
+   contrast curators expect. */
+html.dark .card {
+  background-color: rgb(30 41 59);   /* slate-800 */
+  border-color: rgb(51 65 85);       /* slate-700 */
+}
+
+/* Buttons. Default ghost button keeps a transparent background. */
+html.dark .btn {
+  background-color: rgb(30 41 59);   /* slate-800 */
+  color: rgb(226 232 240);
+  border-color: rgb(51 65 85);
+}
+html.dark .btn:hover {
+  background-color: rgb(51 65 85);   /* slate-700 */
+}
+html.dark .btn.primary {
+  background-color: rgb(37 99 235);
+  border-color: rgb(37 99 235);
+}
+html.dark .btn.primary:hover {
+  background-color: rgb(59 130 246);
+}
+html.dark .btn.success {
+  background-color: rgb(5 150 105);
+  border-color: rgb(5 150 105);
+}
+html.dark .btn.danger {
+  background-color: rgb(225 29 72);
+  border-color: rgb(225 29 72);
+}
+html.dark .btn.warn {
+  background-color: rgb(217 119 6);
+  border-color: rgb(217 119 6);
+}
+html.dark .btn.ghost {
+  background-color: transparent;
+  border-color: transparent;
+  color: rgb(203 213 225);           /* slate-300 */
+}
+html.dark .btn.ghost:hover {
+  background-color: rgb(30 41 59);
+}
+
+/* Section headers and other muted labels. */
+html.dark .section-h {
+  color: rgb(203 213 225);           /* slate-300 */
+}
+
+/* Term chips: dim the saturated light-mode colours so they read on
+   the dark surface without glaring. Default (resolved) is now
+   green; free-text is slate-italic. */
+html.dark .term {
+  background-color: rgb(6 78 59 / 0.35);     /* emerald-900 / 35% */
+  color: rgb(167 243 208);                   /* emerald-200 */
+  border-color: rgb(6 78 59);                /* emerald-900 */
+}
+html.dark .term.free {
+  background-color: rgb(30 41 59);           /* slate-800 */
+  color: rgb(203 213 225);                   /* slate-300 */
+  border-color: rgb(51 65 85);               /* slate-700 */
+}
+html.dark .term.predicate {
+  background-color: rgb(112 26 117 / 0.4);   /* fuchsia-900 / 40% */
+  color: rgb(245 208 254);                   /* fuchsia-200 */
+  border-color: rgb(112 26 117);
+}
+/* ``.term.baseline`` is a no-op — see the light-theme comment. */
+
+/* Pills (status badges). Keep the hue cue but dim. */
+html.dark .pill.high,
+html.dark .pill.accepted {
+  background-color: rgb(6 78 59 / 0.5);
+  color: rgb(167 243 208);
+}
+html.dark .pill.medium {
+  background-color: rgb(113 63 18 / 0.5);
+  color: rgb(254 240 138);
+}
+html.dark .pill.low,
+html.dark .pill.rejected {
+  background-color: rgb(127 29 29 / 0.5);
+  color: rgb(254 202 202);
+}
+html.dark .pill.pending {
+  background-color: rgb(120 53 15 / 0.5);
+  color: rgb(253 230 138);
+}
+html.dark .pill.needs {
+  background-color: rgb(49 46 129 / 0.5);
+  color: rgb(199 210 254);
+}
+html.dark .pill.baseline {
+  background-color: rgb(12 74 110 / 0.5);    /* sky-900 / 50% */
+  color: rgb(186 230 253);                   /* sky-200 */
+}
+
+html.dark .diff-add {
+  background-color: rgb(6 78 59 / 0.4);
+}
+html.dark .diff-del {
+  background-color: rgb(136 19 55 / 0.4);
+  color: rgb(254 202 202 / 0.8);
+}
+
+/* Catch-alls for inline `bg-white` / `border-slate-*` that aren't
+   wrapped in a component class. */
+html.dark .bg-white {
+  background-color: rgb(30 41 59);    /* slate-800, same as .card */
+}
+html.dark .border-slate-200 {
+  border-color: rgb(51 65 85);        /* slate-700 */
+}
+html.dark .border-slate-100 {
+  border-color: rgb(30 41 59);        /* slate-800 */
+}
+html.dark .bg-slate-50 {
+  background-color: rgb(15 23 42);    /* slate-900 — slightly under the card */
+}
+html.dark .bg-slate-100 {
+  background-color: rgb(30 41 59);    /* slate-800 */
+}
+
+/* Foreground catch-alls. Map the light-mode slate text scale onto
+   a dark-mode equivalent so hard-coded `text-slate-700` etc. read
+   on dark surfaces. We invert the brightness ramp: dark-on-light
+   becomes light-on-dark, with the same relative emphasis (heading
+   text stays brightest; muted captions stay muted).
+
+   Caveat: these also fire on the few places where dark slate text
+   sits on a coloured (amber-50, blue-50, …) surface that *isn't*
+   flipped — those will read as too-light text on a too-light
+   background. Acceptable trade-off for now; those callsites are
+   rare and easy to spot on a dark-mode walkthrough. */
+html.dark .text-slate-900 { color: rgb(241 245 249); }   /* slate-100 */
+html.dark .text-slate-800 { color: rgb(226 232 240); }   /* slate-200 */
+html.dark .text-slate-700 { color: rgb(226 232 240); }   /* slate-200 */
+html.dark .text-slate-600 { color: rgb(203 213 225); }   /* slate-300 */
+html.dark .text-slate-500 { color: rgb(148 163 184); }   /* slate-400 */
+html.dark .text-slate-400 { color: rgb(100 116 139); }   /* slate-500 */
+html.dark .text-slate-300 { color: rgb(71 85 105); }     /* slate-600 */
+
+/* Tag chips (direct = green / inferred = amber) keep their hue but
+   need to read on the slate-800 card background. The original
+   `bg-emerald-100` etc. show as pale wash-outs in dark mode —
+   noticeable in the screenshot. Dim the surface, lift the text. */
+html.dark .bg-emerald-100 {
+  background-color: rgb(6 78 59 / 0.45);
+}
+html.dark .bg-amber-100 {
+  background-color: rgb(120 53 15 / 0.45);
+}
+html.dark .bg-emerald-50 {
+  background-color: rgb(6 78 59 / 0.25);
+}
+html.dark .bg-amber-50 {
+  background-color: rgb(120 53 15 / 0.25);
+}
+html.dark .text-emerald-900,
+html.dark .text-emerald-800 { color: rgb(167 243 208); }   /* emerald-200 */
+html.dark .text-emerald-700 { color: rgb(110 231 183 / 0.85); }
+html.dark .text-amber-900,
+html.dark .text-amber-800 { color: rgb(253 230 138); }     /* amber-200 */
+html.dark .text-amber-700 { color: rgb(252 211 77 / 0.85); }
+html.dark .border-emerald-300 { border-color: rgb(6 95 70 / 0.6); }
+html.dark .border-emerald-200 { border-color: rgb(6 78 59 / 0.6); }
+html.dark .border-amber-300 { border-color: rgb(146 64 14 / 0.6); }
+html.dark .border-amber-200 { border-color: rgb(120 53 15 / 0.6); }
+
+/* Blue links — hard-coded `text-blue-700` is too dark on slate-800. */
+html.dark .text-blue-700 { color: rgb(96 165 250); }       /* blue-400 */
+html.dark .text-blue-600 { color: rgb(96 165 250); }
+html.dark .text-blue-800,
+html.dark .text-blue-900 { color: rgb(147 197 253); }      /* blue-300 */
+html.dark .bg-blue-50 { background-color: rgb(30 58 138 / 0.35); }
+
+/* Rose / red error text on dark cards. */
+html.dark .text-rose-700,
+html.dark .text-rose-800,
+html.dark .text-rose-900 { color: rgb(254 202 202); }      /* rose-200 */
+html.dark .bg-rose-50 { background-color: rgb(127 29 29 / 0.4); }
+html.dark .border-rose-200 { border-color: rgb(127 29 29 / 0.6); }
+html.dark .border-rose-300 { border-color: rgb(159 18 57 / 0.6); }
+
+/* Tab underline on the active tab — the active border is
+   `border-blue-600` in light mode; keep it visible. */
+html.dark .border-blue-600 { border-color: rgb(96 165 250); }
+
+/* Round-out the colour catch-alls so the long tail of feature
+   panels (DesignEditor, ExperimentList, QuantitationTypesPanel,
+   etc.) doesn't read as light-on-light. Sky / indigo / fuchsia /
+   stone / yellow / red were noticed as gaps. Same dim-bg + lift-
+   text pattern as the existing palettes above. */
+html.dark .bg-sky-50 { background-color: rgb(7 89 133 / 0.25); }
+html.dark .bg-sky-100 { background-color: rgb(7 89 133 / 0.4); }
+html.dark .text-sky-700 { color: rgb(125 211 252); }
+html.dark .text-sky-800 { color: rgb(186 230 253); }
+html.dark .border-sky-200 { border-color: rgb(7 89 133 / 0.6); }
+
+html.dark .bg-indigo-50 { background-color: rgb(49 46 129 / 0.25); }
+html.dark .bg-indigo-100 { background-color: rgb(49 46 129 / 0.5); }
+html.dark .text-indigo-700 { color: rgb(165 180 252); }
+html.dark .text-indigo-800 { color: rgb(199 210 254); }
+html.dark .border-indigo-200 { border-color: rgb(49 46 129 / 0.6); }
+
+html.dark .bg-fuchsia-50 { background-color: rgb(112 26 117 / 0.25); }
+html.dark .bg-fuchsia-100 { background-color: rgb(112 26 117 / 0.4); }
+html.dark .text-fuchsia-700 { color: rgb(240 171 252); }
+html.dark .text-fuchsia-800 { color: rgb(245 208 254); }
+html.dark .border-fuchsia-200 { border-color: rgb(112 26 117 / 0.6); }
+
+html.dark .bg-stone-50 { background-color: rgb(28 25 23); }       /* stone-950 */
+html.dark .text-stone-600 { color: rgb(168 162 158); }            /* stone-400 */
+html.dark .border-stone-200 { border-color: rgb(68 64 60); }      /* stone-700 */
+
+html.dark .bg-yellow-50 { background-color: rgb(113 63 18 / 0.25); }
+html.dark .bg-yellow-100 { background-color: rgb(113 63 18 / 0.5); }
+html.dark .text-yellow-700 { color: rgb(253 224 71); }
+html.dark .text-yellow-800 { color: rgb(254 240 138); }
+html.dark .border-yellow-200 { border-color: rgb(113 63 18 / 0.6); }
+
+html.dark .bg-red-50 { background-color: rgb(127 29 29 / 0.25); }
+html.dark .bg-red-100 { background-color: rgb(127 29 29 / 0.5); }
+html.dark .text-red-700 { color: rgb(252 165 165); }
+html.dark .text-red-800 { color: rgb(254 202 202); }
+html.dark .border-red-200 { border-color: rgb(127 29 29 / 0.6); }
+
+/* Modality chip palette (banner) — violet/sky/amber light-mode
+   chips need dim equivalents for dark mode, same pattern as the
+   tag chips. */
+html.dark .bg-violet-100 { background-color: rgb(76 29 149 / 0.45); }
+html.dark .text-violet-900 { color: rgb(221 214 254); }
+html.dark .border-violet-300 { border-color: rgb(91 33 182 / 0.6); }
+html.dark .bg-sky-100 { background-color: rgb(7 89 133 / 0.45); }
+html.dark .text-sky-900 { color: rgb(186 230 253); }
+html.dark .border-sky-300 { border-color: rgb(12 74 110 / 0.6); }
+
+/* Mid-tone backgrounds used for inline pills (column-header
+   badges, etc.). Without these, `bg-slate-200` and `bg-blue-200`
+   stayed light in dark mode while their text was flipped to
+   light — pills became invisible. */
+html.dark .bg-slate-200 { background-color: rgb(51 65 85); }     /* slate-700 */
+html.dark .bg-blue-200  { background-color: rgb(30 58 138); }     /* blue-900 */
+html.dark .bg-emerald-200 { background-color: rgb(6 95 70); }     /* emerald-800 */
+html.dark .bg-amber-200 { background-color: rgb(146 64 14); }     /* amber-800 */
+html.dark .bg-violet-200 { background-color: rgb(91 33 182); }    /* violet-800 */
+
+/* Opacity-modifier variants of slate / coloured text. Tailwind
+   compiles `text-emerald-700/70` to a *separate* class name from
+   `text-emerald-700`, so the unmodified catch-all above doesn't
+   fire. Mirror the same families with the `/70`, `/80`, `/60`
+   suffixes used in the codebase. */
+html.dark .text-emerald-700\/70 { color: rgb(110 231 183 / 0.85); }
+html.dark .text-emerald-900\/60 { color: rgb(167 243 208 / 0.7); }
+html.dark .text-emerald-900\/90 { color: rgb(167 243 208 / 0.95); }
+html.dark .text-amber-700\/70 { color: rgb(252 211 77 / 0.85); }
+html.dark .text-amber-900\/70 { color: rgb(253 230 138 / 0.85); }
+html.dark .text-amber-900\/60 { color: rgb(253 230 138 / 0.7); }
+html.dark .text-amber-900\/80 { color: rgb(253 230 138 / 0.9); }
+html.dark .text-blue-900\/70 { color: rgb(147 197 253 / 0.85); }
+html.dark .text-blue-900\/80 { color: rgb(147 197 253 / 0.9); }
+html.dark .text-rose-900\/80 { color: rgb(254 202 202 / 0.85); }
+html.dark .text-rose-900\/90 { color: rgb(254 202 202 / 0.95); }
+html.dark .text-slate-500\/80 { color: rgb(148 163 184 / 0.9); }
+html.dark .text-slate-600\/80 { color: rgb(203 213 225 / 0.9); }
+
+/* Tag-bar chip text — `text-violet-900/75` and friends were
+   compiling to dim purple text rendered AT 75% on top of a dark
+   slate-violet background, which is what the user reported as
+   unreadable. Map the dark-mode replacement to the *light* end of
+   the violet ramp (violet-100 / violet-300) at the original alpha
+   so the contrast holds. Same fix for the inferred-tag value text
+   and the AUTO marker. */
+html.dark .text-violet-700\/70 { color: rgb(196 181 253 / 0.85); }   /* violet-300 @ alpha */
+html.dark .text-violet-900\/75 { color: rgb(237 233 254 / 0.9); }    /* violet-100 @ alpha */
+html.dark .text-emerald-900\/75 { color: rgb(167 243 208 / 0.9); }   /* mirror for direct chips */
+html.dark .text-emerald-900\/80 { color: rgb(167 243 208 / 0.95); }
+html.dark .text-emerald-700\/60 { color: rgb(110 231 183 / 0.75); }
+html.dark .text-amber-900\/90 { color: rgb(253 230 138 / 0.95); }
+html.dark .text-amber-700\/90 { color: rgb(252 211 77 / 0.95); }
+html.dark .text-blue-900\/60 { color: rgb(147 197 253 / 0.75); }
+
+html.dark .bg-violet-50\/40 { background-color: rgb(76 29 149 / 0.18); }
+html.dark .bg-amber-50\/50 { background-color: rgb(120 53 15 / 0.25); }
+html.dark .bg-amber-500\/60 { background-color: rgb(146 64 14 / 0.6); }
+html.dark .bg-amber-950\/40 { background-color: rgb(120 53 15 / 0.4); }
+html.dark .bg-blue-50\/50 { background-color: rgb(30 58 138 / 0.22); }
+html.dark .bg-blue-900\/40 { background-color: rgb(30 58 138 / 0.4); }
+html.dark .bg-emerald-200\/60 { background-color: rgb(6 78 59 / 0.45); }
+html.dark .bg-rose-50\/40 { background-color: rgb(127 29 29 / 0.2); }
+html.dark .bg-rose-50\/50 { background-color: rgb(127 29 29 / 0.25); }
+
+html.dark .border-amber-200\/70 { border-color: rgb(120 53 15 / 0.55); }
+html.dark .border-amber-300\/60 { border-color: rgb(146 64 14 / 0.5); }
+html.dark .border-emerald-300\/60 { border-color: rgb(6 95 70 / 0.55); }
+
+/* Background opacity variants — same fix family. Each callsite that
+   uses an alpha modifier (``bg-emerald-50/60`` etc.) compiles to a
+   distinct generated class, so the bare ``.bg-emerald-50`` rule
+   above doesn't fire. We mirror the families that show up in the
+   codebase: pre-publish section cards (emerald-100/70 + 50/60),
+   the Proposed-paper block (violet-50/60), tag-bar value chips
+   (emerald-50/60 + violet-50/60), and the various amber/rose
+   informational washes the diagnostics + sample-tab use. */
+html.dark .bg-blue-50\/60 { background-color: rgb(30 58 138 / 0.25); }
+html.dark .bg-blue-50\/70 { background-color: rgb(30 58 138 / 0.3); }
+html.dark .bg-amber-50\/40 { background-color: rgb(120 53 15 / 0.2); }
+html.dark .bg-amber-50\/30 { background-color: rgb(120 53 15 / 0.15); }
+html.dark .bg-amber-50\/60 { background-color: rgb(120 53 15 / 0.3); }
+html.dark .bg-emerald-50\/40 { background-color: rgb(6 78 59 / 0.2); }
+html.dark .bg-emerald-50\/50 { background-color: rgb(6 78 59 / 0.25); }
+html.dark .bg-emerald-50\/60 { background-color: rgb(6 78 59 / 0.3); }
+html.dark .bg-emerald-50\/70 { background-color: rgb(6 78 59 / 0.35); }
+html.dark .bg-emerald-100\/70 { background-color: rgb(6 78 59 / 0.5); }
+html.dark .bg-rose-50\/70 { background-color: rgb(127 29 29 / 0.3); }
+html.dark .bg-slate-50\/50 { background-color: rgb(15 23 42 / 0.5); }
+
+/* Violet wasn't fully covered — only `bg-violet-100` and a couple
+   of text utilities. The Proposed-paper block (Overview > Publications)
+   uses `bg-violet-50/60` + `border-violet-200` + `text-violet-800`
+   and rendered as a near-white blob in dark mode. Same pattern as
+   the other coloured surfaces above. */
+html.dark .bg-violet-50 { background-color: rgb(76 29 149 / 0.2); }
+html.dark .bg-violet-50\/60 { background-color: rgb(76 29 149 / 0.18); }
+html.dark .text-violet-700 { color: rgb(196 181 253); }   /* violet-300 */
+html.dark .text-violet-800 { color: rgb(221 214 254); }   /* violet-200 */
+html.dark .text-violet-900 { color: rgb(237 233 254); }   /* violet-100 — already declared above */
+html.dark .text-violet-950 { color: rgb(245 243 255); }   /* violet-50 */
+html.dark .border-violet-200 { border-color: rgb(76 29 149 / 0.55); }
+html.dark .border-violet-400 { border-color: rgb(91 33 182); }
+
+/* Border tints used by the pre-publish section cards (emerald-400)
+   and a few "warning" surfaces (rose-400). Without these the
+   ready / warning state is visually flat — the card uses the same
+   border colour as an idle slate-200 section. */
+html.dark .border-emerald-400 { border-color: rgb(6 95 70); }
+html.dark .border-rose-400 { border-color: rgb(159 18 57); }
+
+
+/* Hover-state catch-alls. Tailwind's `dark:hover:bg-...` variants
+   in inline className strings aren't reliably JIT-ing in this
+   project (same issue we hit with @apply earlier), so override
+   the most-used hover backgrounds at the raw-CSS level. The
+   target is "barely perceptible" — these hover tints are
+   affordance hints, not selection markers, and pure black-ish
+   surfaces show contrast easily. */
+html.dark .hover\:bg-blue-50\/60:hover,
+html.dark .hover\:bg-blue-50:hover {
+  background-color: rgb(51 65 85 / 0.25);   /* slate-700 @ 25% */
+}
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-100:hover {
+  background-color: rgb(51 65 85 / 0.35);   /* slate-700 @ 35% */
+}
+html.dark .hover\:bg-amber-50:hover,
+html.dark .hover\:bg-amber-100:hover {
+  background-color: rgb(120 53 15 / 0.3);
+}
+html.dark .hover\:bg-emerald-50:hover,
+html.dark .hover\:bg-emerald-100:hover {
+  background-color: rgb(6 78 59 / 0.3);
+}

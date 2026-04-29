@@ -1,0 +1,715 @@
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMe } from "@/api/session";
+import { LoginPage } from "@/features/auth/LoginPage";
+import { ExperimentList } from "@/features/landing/ExperimentList";
+import { ImportPrompt } from "@/features/landing/ImportPrompt";
+import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
+import {
+  parseRoute,
+  navigate,
+  experimentRoute,
+  type Route,
+  type ExperimentTab,
+} from "@/routes";
+import {
+  ExperimentBanner,
+  TopBar,
+  type TabId,
+} from "@/features/experiment/ExperimentBanner";
+import { ProposalCardV2 } from "@/features/proposal/ProposalCardV2";
+import { ToastProvider } from "@/components/ui/Toast";
+import { ProposalReviewProvider } from "@/features/proposal/ProposalReviewContext";
+import { DesignEditor } from "@/features/design/DesignEditor";
+import { SampleDetailsPanel } from "@/features/samples/SampleDetailsPanel";
+import { TagsPanel } from "@/features/tags/TagsPanel";
+import { DiagnosticsPanel } from "@/features/diagnostics/DiagnosticsPanel";
+import { HistoryPanel } from "@/features/history/HistoryPanel";
+import { OverviewPanel } from "@/features/overview/OverviewPanel";
+import { QuantitationTypesPanel } from "@/features/quantitation/QuantitationTypesPanel";
+import { CommitBar } from "@/features/design/CommitBar";
+import { validateDesign } from "@/features/experiment/types";
+import {
+  DesignDraftProvider,
+  useDesignDraft,
+} from "@/features/design/DesignDraftContext";
+import { NotesDrawer } from "@/features/notes/NotesDrawer";
+import {
+  useProposalsForExperiment,
+  useTriggerProposal,
+} from "@/api/proposals";
+import { useToast } from "@/components/ui/Toast";
+import { Spinner } from "@/components/ui/Spinner";
+import { ApiError } from "@/api/client";
+import {
+  useCurationDetails,
+  useUpdateCurationDetails,
+} from "@/api/curation";
+import type { Proposal } from "@/api/types";
+
+/**
+ * v0 single-page shell. Hard-coded to GSE277245 for now; routing
+ * comes after we have a real experiment-list endpoint to land on.
+ *
+ * The Design draft buffer (uncommitted edits to factors / FVs /
+ * statements / tags) lives in `DesignDraftProvider` so all tabs
+ * share one in-progress draft and the `<CommitBar/>` at the bottom
+ * is the single point of commit.
+ */
+/** React-side hook over the hash router in @/routes. */
+function useRoute(): Route {
+  const [route, setRoute] = useState(parseRoute);
+  useEffect(() => {
+    const onChange = () => setRoute(parseRoute());
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+  return route;
+}
+
+export default function App() {
+  const route = useRoute();
+  const { data: me, isLoading: meLoading, error: meError } = useMe();
+
+  if (meLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-slate-500 bg-white dark:bg-slate-950 dark:text-slate-400">
+        loading session…
+      </div>
+    );
+  }
+  if (meError || me === undefined || me === null) {
+    return <LoginPage />;
+  }
+
+  const reviewer = me.username;
+  const fullName = me.full_name;
+
+  if (route.kind === "landing") {
+    return (
+      <ExperimentList
+        reviewer={fullName || reviewer}
+        onSelect={(id) => navigate(`#/experiments/${id}`)}
+      />
+    );
+  }
+
+  if (route.kind === "inbox") {
+    return <ProposalsInbox reviewer={fullName || reviewer} />;
+  }
+
+  return (
+    <ToastProvider>
+      <ProposalReviewProvider>
+        <DesignDraftProvider experimentId={route.id} reviewer={reviewer}>
+          <Shell
+            experimentId={route.id}
+            reviewer={reviewer}
+            fullName={fullName}
+            initialTab={route.tab}
+          />
+        </DesignDraftProvider>
+      </ProposalReviewProvider>
+    </ToastProvider>
+  );
+}
+
+function Shell({
+  experimentId,
+  reviewer,
+  fullName,
+  initialTab,
+}: {
+  experimentId: number;
+  reviewer: string;
+  fullName: string;
+  initialTab?: string;
+}) {
+  // Map a free-form route tab onto the local TabId enum (or onto the
+  // notes drawer, which isn't a tab in the bar). Unknown tabs fall
+  // back to "overview" — same as no tab specified.
+  const initial = mapRouteTab(initialTab);
+  const [activeTab, setActiveTab] = useState<TabId>(initial.tab);
+  const [notesOpen, setNotesOpen] = useState(initial.notesOpen);
+
+  // React to route changes — App re-renders this Shell with a new
+  // ``initialTab`` whenever the hash changes. Without this effect
+  // the local tab state was sticky after first mount, so calls like
+  // ``navigate(experimentRoute(id, "samples"))`` from elsewhere in
+  // the app updated the URL but didn't switch the visible tab. Most
+  // visible breakage was the v2 ProposalCard's "review on Samples
+  // tab" button (caught 2026-04-29).
+  useEffect(() => {
+    const next = mapRouteTab(initialTab);
+    setActiveTab(next.tab);
+    setNotesOpen(next.notesOpen);
+  }, [initialTab]);
+
+  const { draft, loadError, staleCacheDiscarded } = useDesignDraft();
+
+  // ALL hooks must run on every render in the same order. Run the
+  // proposals query unconditionally, then branch — putting the
+  // 404-redirect AFTER the hook means flipping ``loadError`` between
+  // 404 and non-404 across renders doesn't change the hook order.
+  // (Earlier this hook was below the conditional return, which
+  // would Rules-of-Hooks-violate when loadError flipped.)
+  const {
+    data,
+    isLoading,
+    isFetching: proposalsFetching,
+    error,
+  } = useProposalsForExperiment(experimentId);
+
+  // If the experiment id resolves to nothing in storage, the
+  // /design GET 404s. Show the import prompt instead of the
+  // generic error.
+  if (loadError && /\b404\b/.test(loadError)) {
+    return <ImportPrompt experimentId={experimentId} />;
+  }
+
+  const externalSource = draft?.external_source ?? null;
+  const shortName = draft?.experiment_short_name ?? `experiment ${experimentId}`;
+  const firstPub = draft?.publications?.[0];
+  const pubLabel = firstPub?.citation || firstPub?.title || null;
+  const pmid = firstPub?.pubmed_id || null;
+  const pending = (data?.items ?? []).filter((p) => p.status === "pending");
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <TopBar
+        experimentId={experimentId}
+        experimentShortName={shortName}
+        reviewer={fullName || reviewer}
+      />
+      <ExperimentBanner
+        experimentId={experimentId}
+        shortName={shortName}
+        title={draft?.title ?? ""}
+        taxon={draft?.taxon ?? ""}
+        nSamples={draft?.biomaterials.length ?? 0}
+        assay={draft?.assay ?? ""}
+        platform={draft?.platform ?? ""}
+        pubLabel={pubLabel}
+        pmid={pmid}
+        loadedAt={draft?.loaded_at ?? ""}
+        loadedBy={draft?.loaded_by ?? ""}
+        externalSource={externalSource}
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          // Keep the URL in sync with the visible tab. Without
+          // this, manual tab-bar clicks drift the URL away from
+          // ``activeTab``, and a later ``navigate`` to the same
+          // route-tab from elsewhere (e.g. ProposalCard's "Preview
+          // in samples table") is a no-op — the hash doesn't
+          // change so ``hashchange`` doesn't fire and the visible
+          // tab stays put.
+          setActiveTab(tab);
+          navigate(experimentRoute(experimentId, tabIdToRouteTab(tab)));
+        }}
+        notesOpen={notesOpen}
+        onToggleNotes={() => {
+          const next = !notesOpen;
+          setNotesOpen(next);
+          // ``notes`` is a virtual route-tab that maps back to
+          // overview + notesOpen. When closing the drawer, drop
+          // back to the current tab.
+          navigate(
+            experimentRoute(
+              experimentId,
+              next ? "notes" : tabIdToRouteTab(activeTab),
+            ),
+          );
+        }}
+      />
+      {notesOpen ? (
+        <NotesDrawer
+          experimentId={experimentId}
+          reviewer={reviewer}
+          onClose={() => setNotesOpen(false)}
+        />
+      ) : null}
+
+      {staleCacheDiscarded ? (
+        <div className="bg-amber-50 border-b border-amber-200 dark:bg-amber-950/40 dark:border-amber-900">
+          <div className="mx-auto w-full max-w-[1800px] px-4 py-2 text-xs text-amber-900 flex items-center gap-2 dark:text-amber-200">
+            <span className="font-semibold">Stale draft discarded.</span>
+            <span>
+              You had unsaved changes from a previous session, but the
+              experiment has been re-saved on the server since. Starting
+              fresh from the current saved state.
+            </span>
+          </div>
+        </div>
+      ) : null}
+
+      <MainGrid
+        activeTab={activeTab}
+        experimentId={experimentId}
+        reviewer={reviewer}
+        proposalsLoading={isLoading}
+        proposalsFetching={proposalsFetching}
+        proposalsError={error ? (error as Error).message : null}
+        pendingProposals={pending}
+      />
+
+      <footer className="border-t border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800">
+        <div className="mx-auto w-full max-w-[1800px] px-4 py-1.5 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-3">
+            <span>
+              connected to{" "}
+              <span className="font-mono">
+                {import.meta.env.VITE_GEMMA_CURATION_URL ?? "/rest (proxied)"}
+              </span>
+            </span>
+          </div>
+          {/*
+            Removed the "⌘K commands" footer hint — the shortcut
+            isn't wired (there's no command palette). Bringing it
+            back when there's a real palette to open.
+          */}
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/**
+ * Main grid that hosts the active tab body and the proposals
+ * sidebar. The sidebar is collapsible and auto-collapses when
+ * there are no pending proposals — claws back ~25% of viewport
+ * for the editor, which matters when a curator is working on a
+ * wide table (Sample Details) or a wide cohort (sample
+ * assignment with many FVs).
+ */
+function MainGrid({
+  activeTab,
+  experimentId,
+  reviewer,
+  proposalsLoading,
+  proposalsError,
+  pendingProposals,
+  proposalsFetching,
+}: {
+  activeTab: TabId;
+  experimentId: number;
+  reviewer: string;
+  proposalsLoading: boolean;
+  proposalsError: string | null;
+  pendingProposals: Proposal[];
+  proposalsFetching: boolean;
+}) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const triggerProposal = useTriggerProposal(experimentId);
+  const hasProposals = pendingProposals.length > 0;
+  // Wraps useTriggerProposal so the sidebar button doesn't have to
+  // care about toast wiring or error mapping. Pipeline runs are
+  // 30-90s for a fresh skeleton, seconds on a cache hit; the
+  // mutation's ``isPending`` keeps the button disabled until the
+  // submitted proposal lands and the proposals query refetches.
+  function requestProposal() {
+    triggerProposal.mutate(
+      // Numeric Gemma ID works as the accession — the pipeline's
+      // reference resolver accepts numeric id, GSE accession, or
+      // Gemma shortName interchangeably.
+      //
+      // ``fresh_skeleton: true`` is the right default for the UI
+      // button: it tells the proposer to ignore any curated factors
+      // / tags already on the experiment for this run. Without it,
+      // the pipeline silently skips and returns a proposal with no
+      // factors when the experiment already has curation in its
+      // Design (e.g. from a previously accepted-and-committed
+      // proposal, or from running a test-iteration script). This
+      // is purely a per-run flag — it doesn't mutate the DB, so
+      // clicking propose stays state-neutral.
+      {
+        accession: String(experimentId),
+        // ``refresh_cache: true`` means: ignore any existing cache
+        // entry for this skeleton hash, re-run the LLM, then write
+        // the new result. Without it, a second curator click after
+        // a previous successful run would replay the cached output
+        // instead of producing a fresh proposal — the curator
+        // explicitly asked for a re-run, so honour that.
+        // ``use_cache: true`` keeps the **write** side on so future
+        // ad-hoc runs (e.g. CLI ``gca propose-curation``) can hit
+        // the result we just produced.
+        body: {
+          use_cache: true,
+          refresh_cache: true,
+          fresh_skeleton: true,
+        },
+      },
+      {
+        onSuccess: (proposal) => {
+          toast.show(
+            `New proposal ready (${proposal.factors.length} factor${
+              proposal.factors.length === 1 ? "" : "s"
+            }, ${proposal.tags.length} tag${
+              proposal.tags.length === 1 ? "" : "s"
+            }).`,
+            "success",
+          );
+        },
+        onError: (err) => {
+          // 409 = a propose call for this accession is already in
+          // flight (curator double-clicked, or the polling daemon
+          // beat them to it). That's a soft state — surface it as a
+          // neutral toast rather than a red error so the curator
+          // doesn't think something broke.
+          if (err instanceof ApiError && err.status === 409) {
+            toast.show(
+              "Proposal already in progress — wait for it to land.",
+              "info",
+            );
+            return;
+          }
+          toast.show(
+            `Proposal request failed: ${(err as Error).message}`,
+            "error",
+            8000,
+          );
+        },
+      },
+    );
+  }
+  // Default-open. Curators want the proposals panel visible by
+  // default so they notice newly-submitted proposals; if they want
+  // the editor full-width they can collapse it explicitly.
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Sidebar width. Default 320 = Tailwind's old ``lg:w-80``. Curators
+  // who want more room for the v2 ProposalCard's verify-N or edit
+  // affordances drag the left edge wider; persists via localStorage.
+  const SIDEBAR_MIN = 240;
+  const SIDEBAR_MAX = 720;
+  const SIDEBAR_DEFAULT = 320;
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    try {
+      const stored = window.localStorage.getItem("gemma-sidebar-width");
+      const n = stored ? parseInt(stored, 10) : NaN;
+      return Number.isFinite(n) && n >= SIDEBAR_MIN
+        ? Math.min(SIDEBAR_MAX, n)
+        : SIDEBAR_DEFAULT;
+    } catch {
+      return SIDEBAR_DEFAULT;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("gemma-sidebar-width", String(sidebarWidth));
+    } catch {
+      // localStorage unavailable — width still works in-memory.
+    }
+  }, [sidebarWidth]);
+  // Drag handler for the resize gutter. Captures the starting cursor
+  // X and width, then updates width on mousemove until mouseup. The
+  // handler runs only on lg+ layouts (handle is hidden below lg
+  // because the aside stacks vertically there).
+  function startResize(e: React.MouseEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    function onMove(ev: MouseEvent) {
+      // Drag left → wider. ``startX - ev.clientX`` is positive when
+      // the cursor moves left.
+      const delta = startX - ev.clientX;
+      setSidebarWidth(
+        Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startWidth + delta)),
+      );
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+  return (
+    <main className="mx-auto w-full max-w-[1800px] px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
+      <section className="flex-1 min-w-0 space-y-4">
+        {activeTab === "overview" ? (
+          <OverviewPanel />
+        ) : activeTab === "design" ? (
+          <DesignEditor experimentId={experimentId} />
+        ) : activeTab === "samples" ? (
+          <SampleDetailsPanel experimentId={experimentId} />
+        ) : activeTab === "tags" ? (
+          <TagsPanel experimentId={experimentId} />
+        ) : activeTab === "diagnostics" ? (
+          <DiagnosticsPanel experimentId={experimentId} />
+        ) : activeTab === "history" ? (
+          <HistoryPanel experimentId={experimentId} />
+        ) : (
+          <QuantitationTypesPanel experimentId={experimentId} />
+        )}
+
+        <SharedCommitBar experimentId={experimentId} reviewer={reviewer} />
+      </section>
+
+      <aside
+        className={
+          sidebarOpen
+            ? "shrink-0 space-y-3 relative"
+            : "lg:w-10 shrink-0 flex flex-col items-stretch relative"
+        }
+        style={
+          sidebarOpen
+            ? { width: `${sidebarWidth}px` }
+            : undefined
+        }
+      >
+        {/* Resize gutter. Sits at the left edge of the open sidebar;
+            drag horizontally to widen / narrow. Hidden when the
+            sidebar is collapsed (no need) and below lg (where the
+            layout stacks vertically — aside is full-width). */}
+        {sidebarOpen ? (
+          <div
+            onMouseDown={startResize}
+            className="hidden lg:block absolute -left-1 top-0 bottom-0 w-2 cursor-col-resize z-10 group"
+            title="drag to resize the proposals sidebar"
+            role="separator"
+            aria-orientation="vertical"
+          >
+            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-200 group-hover:bg-blue-400 group-active:bg-blue-500 transition-colors" />
+          </div>
+        ) : null}
+        {sidebarOpen ? (
+          <div className="card text-xs text-slate-600 px-2 py-1.5 flex items-center gap-2">
+            <span className="font-semibold flex-1">
+              Proposals
+              {hasProposals ? (
+                <span className="ml-1 text-amber-700">
+                  ({pendingProposals.length})
+                </span>
+              ) : null}
+            </span>
+            {/*
+              Phase 1 deployment hook. Triggers POST /propose/{id}
+              on the proposer service via the Vite dev proxy. The
+              pipeline runs synchronously; expect 30-90s on a fresh
+              skeleton and a few seconds on a cache hit.
+
+              Hidden once a pending proposal exists — the proposal
+              card's "redo with notes" is the canonical retry path
+              (it threads curator feedback + the model-tier picker
+              into the new run). Without this gate the curator has
+              two ways to fire a fresh proposal and the second one
+              just 409s on the proposer service. Re-appears once
+              the curator accepts / rejects / clears the pending
+              proposal.
+
+              We still show the in-flight "proposing…" state when
+              the trigger is pending and no proposal has landed
+              yet — without that the curator gets no feedback
+              during the 30-90s pipeline run on a from-scratch
+              propose.
+            */}
+            {pendingProposals.length === 0 || triggerProposal.isPending ? (
+              <button
+                type="button"
+                onClick={requestProposal}
+                disabled={triggerProposal.isPending}
+                title={
+                  triggerProposal.isPending
+                    ? "the proposer is running — this can take 30-90s for a fresh skeleton"
+                    : "ask the proposer agent to build a fresh proposal for this experiment"
+                }
+                className={
+                  "px-1.5 py-0.5 rounded text-[10px] font-medium inline-flex items-center gap-1 " +
+                  (triggerProposal.isPending
+                    ? "bg-slate-200 text-slate-500 cursor-progress"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200")
+                }
+              >
+                {triggerProposal.isPending ? (
+                  <>
+                    <Spinner />
+                    proposing…
+                  </>
+                ) : (
+                  "+ propose"
+                )}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="px-2 py-1 rounded border border-slate-200 text-[10px] uppercase tracking-wide font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 inline-flex items-center gap-1"
+              onClick={() => setSidebarOpen(false)}
+              title="collapse proposals"
+              aria-label="collapse proposals"
+            >
+              <span aria-hidden>›</span>
+              <span>hide</span>
+            </button>
+          </div>
+        ) : (
+          /*
+            Collapsed state: turn the whole narrow aside into one
+            tall click target. Vertical-rl writing mode reads top-
+            down; the small chevron at top reinforces "click to
+            open". Pending-count badge sits below so it's visible
+            without expanding.
+          */
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            title={`Open proposals${hasProposals ? ` (${pendingProposals.length} pending)` : ""}`}
+            className="card lg:flex-1 lg:min-h-[12rem] hover:bg-slate-50 flex flex-col items-center gap-3 py-3 text-slate-600 hover:text-slate-900 transition-colors"
+          >
+            <span aria-hidden className="text-base leading-none">
+              ‹
+            </span>
+            <span
+              className="text-[11px] font-semibold tracking-widest uppercase"
+              style={{ writingMode: "vertical-rl" }}
+            >
+              Proposals
+            </span>
+            {hasProposals ? (
+              <span className="text-[10px] uppercase tracking-wide font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-auto">
+                {pendingProposals.length}
+              </span>
+            ) : null}
+          </button>
+        )}
+
+        {sidebarOpen ? (
+          proposalsLoading ? (
+            <div className="card p-3 text-xs text-slate-500">
+              loading proposals…
+            </div>
+          ) : proposalsError ? (
+            <div className="card p-3 text-xs text-rose-700">
+              {proposalsError}
+              <p className="mt-1 text-slate-500 text-[11px]">
+                Is the mock API running? <code>./run_mock.sh</code>
+              </p>
+            </div>
+          ) : !hasProposals ? (
+            <div className="card p-3 text-xs text-slate-500">
+              No pending proposals for experiment {experimentId}.
+            </div>
+          ) : (
+            pendingProposals.map((p) => (
+              <ProposalCardV2
+                key={p.proposal_id ?? Math.random()}
+                proposal={p}
+                reviewer={reviewer}
+                triggerProposal={triggerProposal}
+              />
+            ))
+          )
+        ) : null}
+      </aside>
+    </main>
+  );
+}
+
+/** Renders the shared CommitBar at the bottom of the active tab.
+ *  The bar reads its diff + commit/discard handlers from the
+ *  draft context, so any edit on any tab surfaces here. */
+function SharedCommitBar({
+  experimentId,
+  reviewer,
+}: {
+  experimentId: number;
+  reviewer: string;
+}) {
+  const { diff, draft, commit, discard, saving, saveError } = useDesignDraft();
+  // Compute the validator state from the draft so the bar can gate
+  // commit on baseline correctness without a round-trip to the
+  // server. validateDesign is cheap (linear in factors × FVs).
+  const validation = draft ? validateDesign(draft) : null;
+  // For stamping baseline-override reasons onto curation_note: read
+  // the current note (so we can append rather than replace), and
+  // get the updater. Both are scoped to this experiment.
+  const curation = useCurationDetails(experimentId);
+  const updateCuration = useUpdateCurationDetails(experimentId, reviewer);
+  return (
+    <CommitBar
+      diff={diff}
+      saving={saving}
+      saveError={saveError}
+      validation={validation}
+      draft={draft}
+      onCommit={(overrides) => {
+        commit();
+        if (overrides.length === 0) return;
+        // Stamp override reasons onto curation_note so the audit
+        // trail records which baseline gates the curator waived
+        // and why. Best-effort — if the curation_note update
+        // fails (e.g. 401), the design commit still goes through;
+        // we don't want a missed stamp to block the curator's
+        // primary action.
+        const stamp = formatBaselineOverrideStamp(
+          overrides,
+          reviewer,
+          new Date(),
+        );
+        const existing = (curation.data?.curation_note ?? "").trimEnd();
+        const next = existing ? `${existing}\n${stamp}` : stamp;
+        updateCuration.mutate({ curation_note: next });
+      }}
+      onDiscard={discard}
+    />
+  );
+}
+
+function formatBaselineOverrideStamp(
+  overrides: { factorLabel: string; reason: string }[],
+  reviewer: string,
+  when: Date,
+): string {
+  const date = when.toISOString().slice(0, 10);
+  const who = reviewer ? ` by ${reviewer}` : "";
+  const items = overrides
+    .map((o) => `${o.factorLabel}${o.reason ? ` — ${o.reason}` : ""}`)
+    .join("; ");
+  return `[${date}] baseline override${who}: ${items}`;
+}
+
+/**
+ * Reverse of ``mapRouteTab``: turn a local TabId into the
+ * route-level slug. ``qt`` (TabId) ⇄ ``quantitation`` (route) is
+ * the only divergence; the rest are passthroughs. Used when the UI
+ * pushes a new URL after a tab-bar click so the URL stays the
+ * single source of truth for "which tab is showing".
+ */
+function tabIdToRouteTab(tabId: TabId): ExperimentTab {
+  if (tabId === "qt") return "quantitation";
+  return tabId;
+}
+
+/**
+ * Translate a route-level tab id (loose, comes from a URL the user
+ * may have typed or shared) into the local TabId enum used by the
+ * tab bar, plus a flag for whether the notes drawer should be open.
+ * The route allows ``"proposals"`` as a virtual tab — the proposals
+ * sidebar is always visible, so we just land on overview and let the
+ * sidebar attract the eye.
+ */
+function mapRouteTab(tab: string | undefined): {
+  tab: TabId;
+  notesOpen: boolean;
+} {
+  if (tab === "notes") return { tab: "overview", notesOpen: true };
+  if (tab === "quantitation") return { tab: "qt", notesOpen: false };
+  if (
+    tab === "overview" ||
+    tab === "design" ||
+    tab === "samples" ||
+    tab === "tags" ||
+    tab === "diagnostics" ||
+    tab === "history" ||
+    tab === "qt"
+  ) {
+    return { tab, notesOpen: false };
+  }
+  // ``proposals`` and unknown tabs both land on overview; the
+  // proposals sidebar is always there.
+  return { tab: "overview", notesOpen: false };
+}
+

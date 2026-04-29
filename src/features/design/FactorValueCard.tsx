@@ -1,0 +1,388 @@
+import { useState } from "react";
+import { Pill } from "@/components/ui/Pill";
+import { InlineText } from "@/components/ui/InlineText";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import {
+  StatementEditor,
+  StatementGroupEditor,
+  groupStatementsBySubject,
+} from "./StatementEditor";
+import {
+  templatesFor,
+  type StatementTemplate,
+} from "./statementTemplates";
+import {
+  factorRequiresBaseline,
+  type FactorValue,
+  type OntologyTerm,
+} from "@/features/experiment/types";
+import type { FvChange } from "./diff";
+
+export function FactorValueCard({
+  fv,
+  factorCategory,
+  change,
+  onLabelChange,
+  onToggleBaseline,
+  onDelete,
+  onAddStatement,
+  onAddSiblingStatement,
+  onAddStatementFromTemplate,
+  onAssignRemaining,
+  remainingCount,
+  onStatementChange,
+  onStatementDelete,
+}: {
+  fv: FactorValue;
+  factorCategory: OntologyTerm | null;
+  change: FvChange | null;
+  onLabelChange: (label: string) => void;
+  onToggleBaseline: () => void;
+  onDelete: () => void;
+  onAddStatement: () => void;
+  /** Append a statement that inherits the seed's category + subject
+   *  (predicate / object blank). Used by the "+ sibling" action in
+   *  a ``StatementGroupEditor`` where the curator's intent is
+   *  "another claim about this same subject". Optional — when
+   *  absent, sibling-add falls back to a blank statement via
+   *  ``onAddStatement``. */
+  onAddSiblingStatement?: (seed: FactorValue["statements"][number]) => void;
+  onAddStatementFromTemplate?: (template: StatementTemplate) => void;
+  onAssignRemaining?: () => void;
+  remainingCount?: number;
+  onStatementChange: (index: number, next: FactorValue["statements"][number]) => void;
+  onStatementDelete: (index: number) => void;
+}) {
+  const isAdded = change?.kind === "added";
+  const isModified = change?.kind === "modified";
+  const isRemoved = change?.kind === "removed";
+  const [confirming, setConfirming] = useState(false);
+
+  // Skip the modal on truly empty FVs (no label, no statements,
+  // no samples) — those are obvious mistakes, click-to-undo is
+  // worse than the friction of an extra modal.
+  const hasContent =
+    !!fv.free_text_label.trim() ||
+    fv.statements.some(
+      (s) =>
+        s.subject?.label?.trim() ||
+        s.predicate?.label?.trim() ||
+        s.object?.label?.trim(),
+    ) ||
+    fv.biomaterial_short_names.length > 0;
+
+  const before = change?.before;
+  const labelChanged = change?.kind === "modified" && change.fields?.label;
+  const baselineChanged = change?.kind === "modified" && change.fields?.baseline;
+  const stmtsChanged = change?.kind === "modified" && change.fields?.statements;
+  const bmsChanged = change?.kind === "modified" && change.fields?.biomaterials;
+
+  // Visual treatment per change-kind. The card stays in flow; only the
+  // border + badge varies.
+  const borderClass = isAdded
+    ? "border-l-4 border-l-emerald-500"
+    : isModified
+      ? "border-l-4 border-l-amber-500"
+      : isRemoved
+        ? "border-l-4 border-l-rose-500 bg-rose-50/50"
+        : "";
+
+  // For removed (tombstone) cards, dim everything and disable controls.
+  const tombstoneText = isRemoved ? "line-through text-slate-500" : "";
+
+  return (
+    <article
+      className={
+        "px-3 py-3 border-b border-slate-100 " + borderClass
+      }
+    >
+      <header className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            className="rounded border-slate-300"
+            disabled={isRemoved}
+          />
+          <span className={"font-medium text-sm " + tombstoneText}>
+            {isRemoved ? (
+              <span>{fv.free_text_label || <em>(blank)</em>}</span>
+            ) : (
+              <InlineText
+                value={fv.free_text_label}
+                placeholder="free-text label"
+                onCommit={onLabelChange}
+              />
+            )}
+          </span>
+          {labelChanged && before ? (
+            <span
+              className="text-xs text-slate-400 line-through"
+              title="previous label"
+            >
+              {before.free_text_label || "(blank)"}
+            </span>
+          ) : null}
+
+          {isRemoved ? (
+            fv.is_baseline ? (
+              <span className="text-xs text-slate-400 line-through">
+                baseline
+              </span>
+            ) : null
+          ) : factorRequiresBaseline(factorCategory) ? (
+            <button
+              type="button"
+              onClick={onToggleBaseline}
+              title={fv.is_baseline ? "Unmark as baseline" : "Mark as baseline"}
+              className="cursor-pointer"
+            >
+              {fv.is_baseline ? (
+                <Pill variant="baseline">★ baseline</Pill>
+              ) : (
+                <span className="text-xs text-slate-400 hover:text-slate-700 underline">
+                  set baseline
+                </span>
+              )}
+            </button>
+          ) : null
+          /*
+            Block / batch factors are nuisance variables — there's
+            no natural baseline. Suppress the "set baseline" link
+            entirely; the validator + commit gate also skip the
+            baseline-required check for these categories.
+          */}
+          {baselineChanged && before ? (
+            <span
+              className="text-[11px] text-amber-700"
+              title="baseline flag changed"
+            >
+              (was {before.is_baseline ? "baseline" : "non-baseline"})
+            </span>
+          ) : null}
+
+          {/*
+            Metadata (FV id + sample count) was a separate slate-400
+            line that read as visual noise on every FV. Compressed to
+            just the sample count — the id stays in a tooltip on the
+            title for cases the curator needs it. The "(was N)"
+            change marker still surfaces inline because it's an edit
+            signal, not metadata.
+          */}
+          <span
+            className="text-xs text-slate-400"
+            title={`FV id ${fv.id}`}
+          >
+            {fv.biomaterial_short_names.length} samples
+            {bmsChanged && before ? (
+              <span
+                className="ml-1 text-amber-700"
+                title="sample assignment changed"
+              >
+                (was {before.biomaterial_short_names.length})
+              </span>
+            ) : null}
+          </span>
+
+          <ChangeBadge change={change} />
+        </div>
+        <div className="flex items-center gap-2">
+          {isRemoved ? (
+            <span className="text-xs text-rose-700">deleted (uncommitted)</span>
+          ) : (
+            <>
+              {onAssignRemaining && (remainingCount ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  className="btn ghost text-xs text-indigo-700"
+                  onClick={onAssignRemaining}
+                  title={`Assign all ${remainingCount} unassigned sample(s) to this FV`}
+                >
+                  assign remaining {remainingCount}
+                </button>
+              ) : null}
+              <button
+                className="btn ghost text-xs text-rose-700"
+                onClick={() => {
+                  if (hasContent) setConfirming(true);
+                  else onDelete();
+                }}
+              >
+                delete FV
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+      <div className="ml-6">
+        <ol
+          className={
+            "space-y-1.5 " +
+            (stmtsChanged
+              ? "border-l-2 border-amber-200 pl-2 -ml-2"
+              : isRemoved
+                ? "opacity-60"
+                : "")
+          }
+        >
+          {/*
+            Group statements by (category, subject). Singletons —
+            the common case, one statement per FV — render inline
+            via the original ``StatementEditor`` so we don't bloat
+            the editor vertically. Multi-statement groups render
+            via ``StatementGroupEditor`` with one shared subject
+            and stacked predicate/object rows (matches Gemma's
+            "delivered at dose X / delivered for duration Y" layout).
+          */}
+          {isRemoved
+            ? fv.statements.map((s, i) => (
+                <li key={i}>
+                  <ReadonlyStatement statement={s} />
+                </li>
+              ))
+            : groupStatementsBySubject(fv.statements).map((group, gi) => (
+                <li key={`grp-${gi}`}>
+                  {group.statements.length === 1 ? (
+                    <StatementEditor
+                      statement={group.statements[0]}
+                      factorCategory={factorCategory}
+                      onChange={(next) =>
+                        onStatementChange(group.indices[0], next)
+                      }
+                      onDelete={() => onStatementDelete(group.indices[0])}
+                    />
+                  ) : (
+                    <StatementGroupEditor
+                      statements={group.statements}
+                      factorCategory={factorCategory}
+                      onChange={(localIdx, next) =>
+                        onStatementChange(group.indices[localIdx], next)
+                      }
+                      onDelete={(localIdx) =>
+                        onStatementDelete(group.indices[localIdx])
+                      }
+                      onAddSibling={() => {
+                        // Sibling = "another claim about the same
+                        // subject" — seed the new statement with the
+                        // group head's category + subject so the
+                        // curator only fills in predicate + object.
+                        // Falls back to a blank statement when the
+                        // parent didn't wire the sibling handler.
+                        if (onAddSiblingStatement) {
+                          onAddSiblingStatement(group.statements[0]);
+                        } else {
+                          onAddStatement();
+                        }
+                      }}
+                    />
+                  )}
+                </li>
+              ))}
+          {isRemoved ? null : (
+            <li>
+              {/*
+                Compact add-row. Both buttons render as inline
+                text-only links instead of full button chrome —
+                they're affordances, not primary actions, so they
+                shouldn't claim a button-sized slot of their own.
+              */}
+              <span className="inline-flex items-center gap-2 text-[11px]">
+                <button
+                  type="button"
+                  className="text-slate-500 hover:text-slate-800 underline underline-offset-2"
+                  onClick={onAddStatement}
+                  title="Add a new statement under this factor value"
+                >
+                  + statement
+                </button>
+                {onAddStatementFromTemplate &&
+                templatesFor(factorCategory).length > 0 ? (
+                  <select
+                    className="text-[11px] border-0 bg-transparent text-slate-400 hover:text-slate-700 cursor-pointer max-w-[7rem] truncate underline underline-offset-2 decoration-dotted"
+                    value=""
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      const tpl = templatesFor(factorCategory).find(
+                        (t) => t.id === id,
+                      );
+                      if (tpl) onAddStatementFromTemplate(tpl);
+                      e.target.value = "";
+                    }}
+                    title="Insert a Confluence-pattern statement"
+                  >
+                    <option value="">+ tpl…</option>
+                    {templatesFor(factorCategory).map((t) => (
+                      <option key={t.id} value={t.id} title={t.description}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </span>
+            </li>
+          )}
+        </ol>
+      </div>
+
+      <ConfirmModal
+        open={confirming}
+        title={`Delete factor value "${fv.free_text_label || "(unnamed)"}"`}
+        body={
+          fv.biomaterial_short_names.length > 0
+            ? `Removes ${fv.biomaterial_short_names.length} sample assignment${
+                fv.biomaterial_short_names.length === 1 ? "" : "s"
+              } and ${fv.statements.length} statement${
+                fv.statements.length === 1 ? "" : "s"
+              }.\n\nNothing is committed until you click Commit at the bottom.`
+            : `Removes ${fv.statements.length} statement${
+                fv.statements.length === 1 ? "" : "s"
+              }.\n\nNothing is committed until you click Commit at the bottom.`
+        }
+        confirmLabel="delete FV"
+        onConfirm={() => {
+          onDelete();
+          setConfirming(false);
+        }}
+        onCancel={() => setConfirming(false)}
+      />
+    </article>
+  );
+}
+
+function ChangeBadge({ change }: { change: FvChange | null }) {
+  if (!change) return null;
+  const map = {
+    added: { label: "new", cls: "bg-emerald-100 text-emerald-800" },
+    modified: { label: "modified", cls: "bg-amber-100 text-amber-800" },
+    removed: { label: "deleted", cls: "bg-rose-100 text-rose-800" },
+  } as const;
+  const m = map[change.kind];
+  return (
+    <span
+      className={
+        "text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded " +
+        m.cls
+      }
+    >
+      {m.label}
+    </span>
+  );
+}
+
+/** Read-only rendering of a Statement, used for tombstone tiles. */
+function ReadonlyStatement({
+  statement,
+}: {
+  statement: FactorValue["statements"][number];
+}) {
+  const subj = statement.subject?.label || "(blank)";
+  const pred = statement.predicate?.label;
+  const obj = statement.object?.label;
+  return (
+    <div className="text-sm text-slate-500 line-through">
+      <span>{subj}</span>
+      {pred ? <span className="mx-1">{pred}</span> : null}
+      {obj ? <span>{obj}</span> : null}
+    </div>
+  );
+}
