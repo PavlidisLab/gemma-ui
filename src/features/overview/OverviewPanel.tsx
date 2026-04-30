@@ -780,7 +780,7 @@ function TagBar({
  *  through ``charUriLookup`` at split-time, so per-value chips
  *  render ontology-resolved when the underlying characteristic_uris
  *  carry term URIs. */
-function augmentInferredFromBiomaterials(
+export function augmentInferredFromBiomaterials(
   tags: Tag[],
   biomaterials: Biomaterial[],
 ): Tag[] {
