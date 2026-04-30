@@ -732,6 +732,15 @@ export function ProposalCardV2({
   // Ref-guarded by ``proposal_id`` so a different proposal landing
   // (e.g. after redo-with-notes) re-runs the seeding for its own
   // zero-coverage factors.
+  //
+  // The ``${fi}:${vi}`` keys are positional — they assume
+  // ``proposal.factors`` is stable for the lifetime of a given
+  // ``proposal_id``. Today proposals are immutable once submitted
+  // (the server doesn't edit a pending proposal in place; redo-
+  // with-notes mints a new id), so factor indices don't drift
+  // under us. If pending proposals ever grow in-place edits, this
+  // effect needs a key strategy keyed on factor identity rather
+  // than index.
   const autoUncheckedForProposalId = useRef<string | null>(null);
   useEffect(() => {
     const pid = proposal.proposal_id ?? "";

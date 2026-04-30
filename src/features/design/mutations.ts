@@ -444,7 +444,9 @@ export function applyProposalToDesign(
       // by the same logic as a hand-typed tag (the curator's signoff
       // is the assertion). Provenance of the *proposal* (which agent
       // drafted it) lives in audit/feedback logs, not the evidence
-      // code.
+      // code. Note: a subsequent ``--strip-curation`` re-import
+      // treats IC as a curator artifact and drops it, which is the
+      // desired behaviour for skeletonize.
       evidence_code: "IC",
     });
   }

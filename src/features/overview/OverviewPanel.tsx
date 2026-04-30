@@ -731,10 +731,7 @@ function TagBar({
       <span className="text-[11px] uppercase tracking-wide text-slate-500 mr-1">
         tags
       </span>
-      <EditableDirectTagGroups
-        tags={direct}
-        charUriLookup={charUriLookup}
-      />
+      <EditableDirectTagGroups tags={direct} />
       <TagGroups
         tags={inferred}
         variant="inferred"
@@ -807,8 +804,21 @@ function augmentInferredFromBiomaterials(
   }
   if (valuesByCat.size === 0) return tags;
 
+  // Categories that already have a direct (curator-attached) tag.
+  // The synth shouldn't steal a category the curator has explicitly
+  // claimed — surfacing both the direct tag AND a BM-derived synth
+  // for the same category gives the curator two competing signals.
+  // Skip the synth for those categories.
+  const directCats = new Set<string>();
+  for (const t of tags) {
+    if (t.inferred) continue;
+    const k = (t.category.label || "").toLowerCase();
+    if (k) directCats.add(k);
+  }
+
   // Drop existing inferred tags whose category is covered by
-  // biomaterial characteristics — the synth will supersede.
+  // biomaterial characteristics AND not already claimed by a direct
+  // tag — the synth will supersede those.
   const augmented: Tag[] = [];
   for (const t of tags) {
     if (!t.inferred) {
@@ -816,7 +826,7 @@ function augmentInferredFromBiomaterials(
       continue;
     }
     const k = (t.category.label || "").toLowerCase();
-    if (valuesByCat.has(k)) continue;
+    if (valuesByCat.has(k) && !directCats.has(k)) continue;
     augmented.push(t);
   }
 
@@ -825,6 +835,7 @@ function augmentInferredFromBiomaterials(
   // entries; never round-tripped to the server.
   let nextSynthId = -1;
   for (const [catKey, valSet] of valuesByCat.entries()) {
+    if (directCats.has(catKey)) continue;
     const sortedValues = Array.from(valSet).sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
@@ -1056,16 +1067,7 @@ function TagGroups({
   charUriLookup: Map<string, string>;
 }) {
   if (tags.length === 0) return null;
-  // Group key on label only (URI is a noisy distinguisher: same-named
-  // categories with one URI-resolved and one not should still merge).
-  const groups = new Map<string, { category: Tag["category"]; tags: Tag[] }>();
-  for (const t of tags) {
-    const k = (t.category.label || t.category.uri || "").toLowerCase();
-    if (!groups.has(k)) {
-      groups.set(k, { category: t.category, tags: [] });
-    }
-    groups.get(k)!.tags.push(t);
-  }
+  const groups = groupTagsByCategoryLabel(tags);
   return (
     <>
       {[...groups.values()].map((g) => (
@@ -1086,21 +1088,9 @@ function TagGroups({
  *  one annotation at a time, so comma-split synth doesn't apply
  *  here). Multi-tag categories collapse the same way as ``TagGroups``
  *  does for inferred. */
-function EditableDirectTagGroups({
-  tags,
-}: {
-  tags: Tag[];
-  charUriLookup: Map<string, string>;
-}) {
+function EditableDirectTagGroups({ tags }: { tags: Tag[] }) {
   if (tags.length === 0) return null;
-  const groups = new Map<string, { category: Tag["category"]; tags: Tag[] }>();
-  for (const t of tags) {
-    const k = (t.category.label || t.category.uri || "").toLowerCase();
-    if (!groups.has(k)) {
-      groups.set(k, { category: t.category, tags: [] });
-    }
-    groups.get(k)!.tags.push(t);
-  }
+  const groups = groupTagsByCategoryLabel(tags);
   return (
     <>
       {[...groups.values()].map((g) => (
@@ -1112,6 +1102,25 @@ function EditableDirectTagGroups({
       ))}
     </>
   );
+}
+
+/** Group tags by lowercased category label (URI fallback when the
+ *  label is empty). Used by both the inferred ``TagGroups`` path and
+ *  the editable direct path so a future change to the grouping key
+ *  (e.g. include ``inferred_source`` in the key) only has to land
+ *  in one place. */
+function groupTagsByCategoryLabel(
+  tags: Tag[],
+): Map<string, { category: Tag["category"]; tags: Tag[] }> {
+  const groups = new Map<string, { category: Tag["category"]; tags: Tag[] }>();
+  for (const t of tags) {
+    const k = (t.category.label || t.category.uri || "").toLowerCase();
+    if (!groups.has(k)) {
+      groups.set(k, { category: t.category, tags: [] });
+    }
+    groups.get(k)!.tags.push(t);
+  }
+  return groups;
 }
 
 function EditableDirectGroupChip({
@@ -1299,14 +1308,16 @@ function TagGroupChip({
   // Inferred-source provenance shorthand. Most groups share one
   // source (all BM, all FV); a mixed group renders both joined with
   // "/". For the placeholder/empty case we fall back to "auto" so the
-  // chip still signals inferred-ness.
+  // chip still signals inferred-ness. Sort the codes so the rendered
+  // order is stable (e.g. always "BM/FV", never "FV/BM" depending on
+  // which tag was first in the list).
   const sources =
     variant === "inferred"
       ? Array.from(
           new Set(
             tags.map((t) => inferredSourceTag(t.inferred_source)).filter(Boolean),
           ),
-        )
+        ).sort()
       : [];
   const sourceLabel =
     variant === "inferred" ? (sources.length > 0 ? sources.join("/") : "auto") : "";
@@ -1314,7 +1325,8 @@ function TagGroupChip({
   // Evidence-code mix across the group's tags. When all tags share
   // one code (the common case), use it for both the border style and
   // the badge. Mixed groups fall back to dashed (lower-trust wins
-  // for the visual cue) and render the codes joined.
+  // for the visual cue) and render the codes joined. Sorted for
+  // stable rendering — same input, same output.
   const evCodes =
     variant === "inferred"
       ? Array.from(
@@ -1323,7 +1335,7 @@ function TagGroupChip({
               .map((t) => (t.evidence_code || "").trim().toUpperCase())
               .filter(Boolean),
           ),
-        )
+        ).sort()
       : [];
   // Mixed-code groups: the lower-trust code wins for the visual
   // cue. Only solid when *every* tag in the group is curator-
