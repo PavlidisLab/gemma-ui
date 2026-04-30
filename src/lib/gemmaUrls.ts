@@ -22,6 +22,35 @@ export function experimentAuditTrailUrl(experimentId: number): string {
   return `${GEMMA_WEB_URL}/expressionExperiment/showExpressionExperimentAuditTrail.html?id=${experimentId}`;
 }
 
+/**
+ * Build the external-database URL for an individual sample
+ * accession (per-biomaterial / per-bio_assay short_name), so a row
+ * in the sample table can link out to the source-database page.
+ *
+ * GEO is the dominant case — biomaterial / bio_assay short_name on
+ * GEO-imported datasets is the GSM accession. Other databases either
+ * don't expose a per-sample page (CELLxGENE, SRA at this granularity)
+ * or use accession schemes our short_name doesn't follow; for those
+ * we return ``null`` rather than guess a URL that 404s.
+ *
+ * Pattern-guarded: even when ``database === "GEO"``, a short_name
+ * that doesn't match the ``GSM\d+`` shape is treated as not-a-GSM
+ * (some datasets store internal aliases there). Skip the link
+ * rather than send curators to a broken page.
+ */
+export function sampleExternalUrl(
+  database: string | undefined | null,
+  accession: string | undefined | null,
+): string | null {
+  const acc = (accession || "").trim();
+  if (!acc) return null;
+  const db = (database || "").toUpperCase();
+  if (db === "GEO" && /^GSM\d+$/i.test(acc)) {
+    return `https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${encodeURIComponent(acc)}`;
+  }
+  return null;
+}
+
 export function platformPageUrl(
   shortName: string | null | undefined,
   id: number | null | undefined,

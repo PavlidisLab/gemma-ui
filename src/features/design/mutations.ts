@@ -601,10 +601,30 @@ export function setStatement(
   index: number,
   next: Statement,
 ): Design {
-  return mapFactorValue(design, factorId, fvId, (fv) => ({
-    ...fv,
-    statements: fv.statements.map((s, i) => (i === index ? next : s)),
-  }));
+  return mapFactorValue(design, factorId, fvId, (fv) => {
+    // Sync ``free_text_label`` off the primary statement's subject
+    // when (a) we're editing the primary statement (index 0) and
+    // (b) the existing label is either blank or matches the
+    // previous subject label — i.e. it was auto-derived rather
+    // than explicitly customised by the curator. Without this, a
+    // curator who changes an FV's ontology term sees the new
+    // subject everywhere except in surfaces that read
+    // ``free_text_label`` first (Sample-details factor cells, FV
+    // dropdowns), making the edit invisible there. Caught
+    // 2026-04-30 on the Samples tab.
+    const prev = fv.statements[index];
+    const prevLabel = prev?.subject?.label ?? "";
+    const nextLabel = next?.subject?.label ?? "";
+    const labelWasAutoDerived =
+      (fv.free_text_label || "") === "" ||
+      (fv.free_text_label || "") === prevLabel;
+    const shouldSyncLabel = index === 0 && labelWasAutoDerived;
+    return {
+      ...fv,
+      free_text_label: shouldSyncLabel ? nextLabel : fv.free_text_label,
+      statements: fv.statements.map((s, i) => (i === index ? next : s)),
+    };
+  });
 }
 
 export function deleteStatement(

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { removeAppliedProposalFromDesign } from "./mutations";
-import type { Design, Factor, Tag } from "@/features/experiment/types";
+import { removeAppliedProposalFromDesign, setStatement } from "./mutations";
+import type {
+  Design,
+  Factor,
+  FactorValue,
+  Statement,
+  Tag,
+} from "@/features/experiment/types";
 
 /**
  * Tests for ``removeAppliedProposalFromDesign`` — the inverse of
@@ -176,6 +182,82 @@ describe("removeAppliedProposalFromDesign — factors", () => {
       [{ category: { label: "disease" }, name_in_design: "" }],
     );
     expect(next.factors).toEqual([]);
+  });
+});
+
+describe("setStatement — free_text_label sync", () => {
+  function stmt(label: string, uri: string | null = null): Statement {
+    return { subject: { label, uri } };
+  }
+  function fv(
+    id: number,
+    free_text_label: string,
+    statements: Statement[],
+  ): FactorValue {
+    return {
+      id,
+      free_text_label,
+      is_baseline: false,
+      biomaterial_short_names: [],
+      statements,
+    };
+  }
+  function designWithFactor(values: FactorValue[]): Design {
+    const f: Factor = {
+      id: 10,
+      name: "disease",
+      category: { label: "disease", uri: null },
+      description: "",
+      type: "categorical",
+      factor_values: values,
+    };
+    return {
+      experiment_id: 1,
+      experiment_short_name: "GSE1",
+      factors: [f],
+      biomaterials: [],
+      tags: [],
+    };
+  }
+
+  it("syncs free_text_label when it matched the previous subject (auto-derived case)", () => {
+    const d = designWithFactor([fv(1, "MDD", [stmt("MDD")])]);
+    const next = setStatement(d, 10, 1, 0, stmt("major depressive disorder"));
+    expect(next.factors[0].factor_values[0].free_text_label).toBe(
+      "major depressive disorder",
+    );
+  });
+
+  it("syncs free_text_label when it was blank", () => {
+    const d = designWithFactor([fv(1, "", [stmt("control")])]);
+    const next = setStatement(d, 10, 1, 0, stmt("reference subject role"));
+    expect(next.factors[0].factor_values[0].free_text_label).toBe(
+      "reference subject role",
+    );
+  });
+
+  it("does NOT touch free_text_label when curator customised it", () => {
+    const d = designWithFactor([fv(1, "Affected (MDD)", [stmt("MDD")])]);
+    const next = setStatement(d, 10, 1, 0, stmt("major depressive disorder"));
+    // Curator's "Affected (MDD)" was different from the subject
+    // label "MDD", so it's their choice — leave it alone.
+    expect(next.factors[0].factor_values[0].free_text_label).toBe(
+      "Affected (MDD)",
+    );
+  });
+
+  it("does NOT sync when editing a non-primary statement", () => {
+    const d = designWithFactor([
+      fv(1, "MDD", [stmt("MDD"), stmt("genetic predisposition")]),
+    ]);
+    const next = setStatement(
+      d,
+      10,
+      1,
+      1, // editing the second statement
+      stmt("environmental exposure"),
+    );
+    expect(next.factors[0].factor_values[0].free_text_label).toBe("MDD");
   });
 });
 

@@ -7,6 +7,7 @@ import {
   setBiomaterialName,
 } from "@/features/design/mutations";
 import { InlineText } from "@/components/ui/InlineText";
+import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { InlineFvPicker } from "@/components/ui/InlineFvPicker";
 import { useStickyState } from "@/lib/useStickyState";
 import { useEscape } from "@/lib/useEscape";
@@ -930,7 +931,31 @@ function SampleTable({
                         : repr.short_name
                     }
                   >
-                    {repr.short_name}
+                    {(() => {
+                      // Link out to the source-database page when the
+                      // biomaterial's short_name matches a known per-
+                      // sample accession scheme (GSM on GEO today).
+                      // Falls back to plain text otherwise — internal
+                      // aliases / CELLxGENE / etc. don't have a stable
+                      // public URL.
+                      const url = sampleExternalUrl(
+                        design.external_source?.database,
+                        repr.short_name,
+                      );
+                      if (!url) return repr.short_name;
+                      return (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-700 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                          title={`open ${repr.short_name} in source database`}
+                        >
+                          {repr.short_name}
+                        </a>
+                      );
+                    })()}
                     {isGroup ? (
                       <span
                         className="ml-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wide px-1 py-0 rounded bg-violet-100 text-violet-900 border border-violet-200"
@@ -977,6 +1002,10 @@ function SampleTable({
                         }
                         return allAssays.map((a, i) => {
                           const dupName = (a.name ?? "") === (repr.name ?? "");
+                          const url = sampleExternalUrl(
+                            design.external_source?.database,
+                            a.short_name,
+                          );
                           return (
                             <div
                               key={`${a.short_name}-${i}`}
@@ -987,9 +1016,22 @@ function SampleTable({
                                   : `${a.short_name} · ${a.name}`
                               }
                             >
-                              <span className="font-mono text-[10px] text-slate-500">
-                                {a.short_name}
-                              </span>
+                              {url ? (
+                                <a
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-mono text-[10px] text-blue-700 hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title={`open ${a.short_name} in source database`}
+                                >
+                                  {a.short_name}
+                                </a>
+                              ) : (
+                                <span className="font-mono text-[10px] text-slate-500">
+                                  {a.short_name}
+                                </span>
+                              )}
                               {!dupName && a.name ? (
                                 <span className="text-slate-700 ml-1">
                                   {a.name}
@@ -1748,14 +1790,18 @@ function BulkAssignModal({
   useEscape(true, onCancel);
   return (
     <div
-      className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center px-4"
+      className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center px-4 py-4"
       onClick={onCancel}
     >
+      {/* Cap the modal at 90vh and turn the body into a flex-grow
+          scroll region. Without this, a large bucket list (e.g.
+          GSE45642.2's ~30 subject ids) blows past the viewport top
+          and bottom and the action buttons become unreachable. */}
       <div
-        className="bg-white rounded shadow-lg max-w-2xl w-full"
+        className="bg-white rounded shadow-lg max-w-2xl w-full max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between gap-3">
+        <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
           <span className="font-semibold text-slate-800 text-sm">
             Bulk assign
           </span>
@@ -1782,7 +1828,7 @@ function BulkAssignModal({
             ×
           </button>
         </div>
-        <div className="px-3 py-3">
+        <div className="px-3 py-3 overflow-y-auto flex-1 min-h-0">
           <BulkAssignPanel
             // Remount on factor change so suggested-plan recomputes
             // against the new FV labels.
