@@ -550,13 +550,39 @@ function buildItems({
   const allAssigned = validation.factors.every(
     (s) => s.unassigned_biomaterials.length === 0,
   );
-  const baselinesOk = validation.factors.every((s) => s.baseline_count === 1);
+  // Factors that don't require a baseline (block / batch / organism
+  // part / cell type — see ``factorRequiresBaseline``) flow through
+  // regardless of their baseline_count. Otherwise this check would
+  // light up the moment a curator accepts a cell-type or organism-
+  // part proposal, with no way to override (the checklist's auto
+  // rows aren't curator-toggleable).
+  const baselinesOk = validation.factors.every(
+    (s) => !s.baseline_required || s.baseline_count === 1,
+  );
   const noUnknownPredicates = validation.factors.every(
     (s) => s.unknown_predicates === 0,
   );
 
   const prefQts = (qts ?? []).filter((q) => q.is_preferred);
   const maskedPrefQts = (qts ?? []).filter((q) => q.is_masked_preferred);
+  // Gemma's preferred-QT model:
+  //
+  //   - The first-class preferred QT (often "raw" in curator-speak,
+  //     even when it's something like RMA: the curator's chosen
+  //     entry point) has ``is_preferred = true`` and
+  //     ``is_masked_preferred = false``.
+  //   - The processed view of that — what DEA operates on, sometimes
+  //     auto-derived by Gemma — carries ``is_masked_preferred = true``
+  //     and is what the QT panel labels "processed".
+  //
+  // The DEA-correctness rule is "exactly one masked-preferred
+  // (processed) QT". Multiple ``is_preferred`` rows alongside it are
+  // expected (the raw + the processed view both carry the flag) and
+  // shouldn't fail the check. Heuristics on ``is_normalized`` /
+  // ``is_recomputed_from_raw_data`` get this wrong: an RMA QT and
+  // its derived "Processed version" both have those true.
+  const processedPrefQts = maskedPrefQts;
+  const rawPrefQts = prefQts.filter((q) => !q.is_masked_preferred);
 
   const failEvents = (events ?? []).filter((e) => isFailureEvent(e));
 
@@ -755,10 +781,16 @@ function buildItems({
       kind: "auto",
       id: "batch-as-efc",
       label: "Batch information shows up as an EFC",
-      ok: !!batchFactor,
+      // Informational, not blocking. Many GEO datasets ship without
+      // batch metadata; the curator has separate tools to attempt
+      // recovery (date_run heuristics etc.) and should investigate
+      // when it matters, but the publish checklist shouldn't gate
+      // on it. The reason text still differentiates the two cases
+      // so a curator scanning the list sees the actual state.
+      ok: true,
       reason: batchFactor
         ? `factor "${batchFactor.name || "(unnamed)"}" detected as batch / block`
-        : "no batch / block factor found — confirm if expected",
+        : "no batch / block factor found — recover via date_run heuristics if needed",
       details: batchFactor ? (
         <Inline>
           <Chip>{batchFactor.factor_values.length} levels</Chip>
@@ -973,13 +1005,19 @@ function buildItems({
           kind: "auto" as const,
           id: "qt-pref",
           label: "Correct rows set as Pref",
-          ok: prefQts.length === 1,
+          // Pass when there's exactly one preferred *processed* QT.
+          // A preferred raw QT alongside it is fine — that's the
+          // canonical raw signal, not a duplicate. Multiple processed
+          // prefs is the real failure, and so is zero (DEA needs one).
+          ok: processedPrefQts.length === 1,
           reason:
-            prefQts.length === 0
-              ? "no preferred QT — Gemma needs exactly one for DEA"
-              : prefQts.length > 1
-                ? `${prefQts.length} preferred QTs — should be exactly one`
-                : `1 preferred QT (${prefQts[0].name || `QT ${prefQts[0].id}`}) — visually confirm it's the right one`,
+            processedPrefQts.length === 0
+              ? rawPrefQts.length > 0
+                ? "preferred raw QT(s) but no preferred processed QT — DEA needs one"
+                : "no preferred QT — Gemma needs exactly one preferred processed QT for DEA"
+              : processedPrefQts.length > 1
+                ? `${processedPrefQts.length} preferred processed QTs — should be exactly one`
+                : `1 preferred processed QT (${processedPrefQts[0].name || `QT ${processedPrefQts[0].id}`})${rawPrefQts.length > 0 ? ` + ${rawPrefQts.length} preferred raw` : ""} — visually confirm it's the right one`,
           details: (
             <div className="text-[11px] text-slate-700 space-y-0.5">
               {prefQts.length === 0 ? (
@@ -1020,19 +1058,24 @@ function buildItems({
           kind: "auto" as const,
           id: "qt-scale",
           label: "Scale column set correctly",
+          // Read the scale off the preferred *processed* QT — the
+          // raw side has its own scale (COUNT / LINEAR) and isn't
+          // what DEA operates on. Skip the check when there's not
+          // exactly one processed pref (qt-pref already flags that).
           ok:
-            prefQts.length === 1 && !isSuspectScale(prefQts[0].scale),
+            processedPrefQts.length === 1 &&
+            !isSuspectScale(processedPrefQts[0].scale),
           reason:
-            prefQts.length === 0
-              ? "no preferred QT to read a scale from"
-              : prefQts.length > 1
-                ? "multiple preferred QTs — pick one before checking scale"
-                : isSuspectScale(prefQts[0].scale)
-                  ? `scale "${prefQts[0].scale || "(empty)"}" is OTHER / UNKNOWN — confirm the actual scale`
-                  : `scale: ${prefQts[0].scale}`,
+            processedPrefQts.length === 0
+              ? "no preferred processed QT to read a scale from"
+              : processedPrefQts.length > 1
+                ? "multiple preferred processed QTs — pick one before checking scale"
+                : isSuspectScale(processedPrefQts[0].scale)
+                  ? `scale "${processedPrefQts[0].scale || "(empty)"}" is OTHER / UNKNOWN — confirm the actual scale`
+                  : `scale: ${processedPrefQts[0].scale}`,
           details: (
             <Inline>
-              {prefQts.map((q) => (
+              {processedPrefQts.map((q) => (
                 <Chip
                   key={q.id}
                   tone={isSuspectScale(q.scale) ? "amber" : "default"}

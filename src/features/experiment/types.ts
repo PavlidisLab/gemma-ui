@@ -180,12 +180,15 @@ export interface Design {
 // ---------------------------------------------------------------------------
 
 /**
- * Some factor types don't take a baseline. Batch / block factors
- * are the canonical case — they're nuisance variables, not
- * experimental conditions, so there's no "untreated" or
- * "wild-type" reference value to mark. Gemma uses ``block`` as the
- * category label (sometimes ``batch``); both should bypass the
- * baseline-required validation.
+ * Some factor types don't take a baseline.
+ *
+ *  - ``block`` / ``batch`` — nuisance variables (date_run codes,
+ *    scan-batch ids, …), no "untreated" reference.
+ *  - ``organism part`` / ``cell type`` — panels of tissues or cell
+ *    types where any choice of baseline for DEA is arbitrary. The
+ *    proposer doesn't pick one and the curator shouldn't be forced
+ *    to either; DEA contrasts get specified at analysis time, not
+ *    at curation time.
  *
  * Returns ``true`` for factors that need exactly one baseline FV;
  * ``false`` for factors where baselines are meaningless and the
@@ -194,6 +197,8 @@ export interface Design {
 const NO_BASELINE_CATEGORIES = new Set<string>([
   "block",
   "batch",
+  "organism part",
+  "cell type",
 ]);
 
 export function factorRequiresBaseline(
