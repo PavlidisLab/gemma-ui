@@ -9,6 +9,7 @@ import { useLogout } from "@/api/session";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { experimentRoute, navigate, type ExperimentTab } from "@/routes";
 import { useState } from "react";
+import { useStickyState } from "@/lib/useStickyState";
 
 /**
  * Landing page: lists experiments imported into the mock. Click
@@ -32,13 +33,16 @@ export function ExperimentList({
   const [importRef, setImportRef] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   // Status pill filter: "all", "troubled", "needs_attention", "proposals", "notes".
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useStickyState<StatusFilter>(
+    "experiments.statusFilter",
+    "all",
+  );
   // Sort: keyed by column id, ascending or descending. Default is the
   // server's order (newest-first by updated_at).
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
-    key: "updated_at",
-    dir: "desc",
-  });
+  const [sort, setSort] = useStickyState<{ key: SortKey; dir: SortDir }>(
+    "experiments.sort",
+    { key: "updated_at", dir: "desc" },
+  );
 
   // Debounce the search query so we don't hammer Gemma on every key.
   const debounced = useDebouncedValue(importRef, 250);

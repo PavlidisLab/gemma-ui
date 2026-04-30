@@ -110,25 +110,42 @@ export function CommitBar({
     : "text-amber-900";
 
   return (
-    <div className="sticky bottom-0 z-10">
+    // Sticks to the top of the page-content section, right-aligned
+    // so it doesn't fight with the banner's title text. Sat below
+    // the banner + tabs nav (which are above the section in the
+    // DOM) and pins on scroll. ``z-30`` keeps it above page content
+    // but below modal overlays (z-50).
+    //
+    // Earlier iterations parked the bar at the bottom (sticky
+    // bottom-0) — Paul wanted the bottom freed up — and at fixed
+    // top-2 right-2 — that collided with the TopBar's user-info
+    // strip. Sticky-top inside the section is the clean middle:
+    // bottom is free, top-of-page user info is unobscured.
+    // Renders inline in the experiment banner action row, next to
+    // Status / publish. No floating / sticky wrapper — the banner's
+    // own ``flex items-center`` handles layout, and the chip just
+    // disappears when the draft is clean (``return null`` above).
+    // Keeps everything top-and-right without the previous full-page
+    // sticky bar that obscured the actual page content.
+    <div className="inline-block">
       <div className={wrapperCls}>
-        <div className="px-3 py-2 flex items-center gap-3 flex-wrap">
-          <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${labelCls}`}>
-            <span className={`inline-block w-2 h-2 rounded-full ${dotCls}`} />
-            {blocked ? "blocked: baseline issue" : "uncommitted changes"}
+        <div className="px-2 py-1 flex items-center gap-2 whitespace-nowrap">
+          <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${labelCls}`}>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotCls}`} />
+            {blocked ? "blocked" : "uncommitted"}
           </span>
-          <span className={`text-xs ${labelCls}/80`}>
+          <span className={`text-[10px] ${labelCls}/80 truncate max-w-[20rem]`} title={parts.join(" · ") || "minor edits"}>
             {parts.length ? parts.join(" · ") : "minor edits"}
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1">
             {saveError ? (
-              <span className="text-xs text-rose-700" title={saveError}>
+              <span className="text-[10px] text-rose-700" title={saveError}>
                 save failed
               </span>
             ) : null}
             <button
               type="button"
-              className="btn ghost text-xs"
+              className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:bg-slate-100"
               onClick={onDiscard}
               disabled={saving}
             >
@@ -136,7 +153,7 @@ export function CommitBar({
             </button>
             <button
               type="button"
-              className="btn primary text-xs"
+              className="text-[11px] px-2 py-0.5 rounded bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50"
               onClick={() => {
                 const overrides: BaselineOverride[] = baselineProblem
                   .filter((f) => overrideState[f.factor_id]?.checked)

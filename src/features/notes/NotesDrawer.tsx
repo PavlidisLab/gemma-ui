@@ -5,6 +5,7 @@ import {
   type CurationDetails,
 } from "@/api/curation";
 import { cn } from "@/lib/cn";
+import { useEscape } from "@/lib/useEscape";
 
 interface ResolveCtx {
   field: "troubled" | "needs_attention";
@@ -54,6 +55,7 @@ export function NotesDrawer({
   // dated entry. Setting the flag (off → on) doesn't go through the
   // modal — only the off transition does.
   const [resolving, setResolving] = useState<ResolveCtx | null>(null);
+  useEscape(resolving !== null, () => setResolving(null));
   const [resolveText, setResolveText] = useState("");
 
   // Initialise the textarea from the saved record.

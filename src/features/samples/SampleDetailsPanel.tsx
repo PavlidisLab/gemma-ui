@@ -8,6 +8,8 @@ import {
 } from "@/features/design/mutations";
 import { InlineText } from "@/components/ui/InlineText";
 import { InlineFvPicker } from "@/components/ui/InlineFvPicker";
+import { useStickyState } from "@/lib/useStickyState";
+import { useEscape } from "@/lib/useEscape";
 import type {
   Biomaterial,
   Design,
@@ -54,8 +56,15 @@ interface SortState {
  */
 export function SampleDetailsPanel({ experimentId }: { experimentId: number }) {
   const { draft, saved, apply, isLoading, loadError } = useDesignDraft();
+  // ``filter`` (the search box) stays ephemeral — re-typing on a
+  // new experiment is fine, and a stale filter from a different
+  // experiment would just hide rows confusingly. Sort preference
+  // is sticky: curators tend to want one sort across experiments.
   const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<SortState>({ key: "short_name", dir: "asc" });
+  const [sort, setSort] = useStickyState<SortState>(
+    "samples.sort",
+    { key: "short_name", dir: "asc" },
+  );
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   if (isLoading) {
@@ -225,10 +234,14 @@ function SampleTable({
 
   // Column-filtering state: a substring search over column labels,
   // and a toggle that hides any column whose value is identical
-  // across every visible row. Both are view-only — local to this
-  // component, not persisted.
+  // across every visible row. ``hideConstant`` is sticky across
+  // experiments — curators consistently want or don't want
+  // constant columns; the column-filter substring is ephemeral.
   const [colFilter, setColFilter] = useState("");
-  const [hideConstant, setHideConstant] = useState(false);
+  const [hideConstant, setHideConstant] = useStickyState<boolean>(
+    "samples.hideConstant",
+    false,
+  );
   // Bulk-assign modal (factor → FV mapping by characteristic). Null
   // when closed; carries the currently-targeted factor when open.
   const [bulkAssignFactor, setBulkAssignFactor] = useState<Factor | null>(null);
@@ -246,7 +259,10 @@ function SampleTable({
       ),
     [design.biomaterials],
   );
-  const [collapseGroups, setCollapseGroups] = useState<boolean>(true);
+  const [collapseGroups, setCollapseGroups] = useStickyState<boolean>(
+    "samples.collapseGroups",
+    true,
+  );
 
   // Per-column constancy is keyed off the full biomaterial set,
   // not the filtered subset — "constant" means "never varies in
@@ -1729,6 +1745,7 @@ function BulkAssignModal({
 }) {
   const [factorId, setFactorId] = useState<number>(initialFactor.id);
   const factor = factors.find((f) => f.id === factorId) ?? initialFactor;
+  useEscape(true, onCancel);
   return (
     <div
       className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center px-4"

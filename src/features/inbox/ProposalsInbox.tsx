@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useAllProposals } from "@/api/proposals";
 import { useLogout } from "@/api/session";
 import { experimentRoute, navigate } from "@/routes";
 import type { Proposal, ProposalStatus } from "@/api/types";
+import { useStickyState } from "@/lib/useStickyState";
 
 /**
  * Cross-experiment inbox of agent-submitted curation proposals.
@@ -17,7 +18,10 @@ import type { Proposal, ProposalStatus } from "@/api/types";
  * flow stays in `ProposalCard` so we don't fork the feedback UX.
  */
 export function ProposalsInbox({ reviewer }: { reviewer: string }) {
-  const [statusFilter, setStatusFilter] = useState<ProposalStatus>("pending");
+  const [statusFilter, setStatusFilter] = useStickyState<ProposalStatus>(
+    "proposals.inbox.statusFilter",
+    "pending",
+  );
   const { data, isLoading, error, refetch, isFetching } = useAllProposals({
     status: statusFilter,
   });

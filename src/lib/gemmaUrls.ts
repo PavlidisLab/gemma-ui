@@ -26,11 +26,16 @@ export function platformPageUrl(
   shortName: string | null | undefined,
   id: number | null | undefined,
 ): string | null {
-  if (shortName) {
-    return `${GEMMA_WEB_URL}/arrays/showArrayDesign.html?shortName=${encodeURIComponent(shortName)}`;
-  }
+  // Prefer the numeric ID — short_names aren't a stable Gemma
+  // identifier (they can rename when an array_design is merged
+  // into a successor), and ``Generic_*`` short_names in particular
+  // are reused across taxa. ID is the primary key. Fall back to
+  // short_name only when no ID is recorded.
   if (id != null) {
     return `${GEMMA_WEB_URL}/arrays/showArrayDesign.html?id=${id}`;
+  }
+  if (shortName) {
+    return `${GEMMA_WEB_URL}/arrays/showArrayDesign.html?shortName=${encodeURIComponent(shortName)}`;
   }
   return null;
 }

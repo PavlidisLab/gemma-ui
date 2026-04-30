@@ -248,6 +248,23 @@ function ValidationSummary({
     (n, { state }) => n + factorIssueCount(state),
     0,
   );
+  // Empty-design branch: ``validateDesign`` flips ``ok=false`` when
+  // the design has zero factors (so an accept-then-reject doesn't
+  // leave a hollow "✓ design valid"). When that's the only reason
+  // the validator is amber, ``factorRows`` is empty and totalIssues
+  // is 0 — surfacing "⚠ design has 0 issues" reads as nonsense.
+  // Render the actual root cause instead.
+  if (factorCount === 0) {
+    return (
+      <div className="card border-amber-200 bg-amber-50/40 px-3 py-2 text-xs text-amber-900 space-y-1">
+        <div className="font-semibold">⚠ design has no factors</div>
+        <div className="text-amber-900/70 italic">
+          Add at least one factor on the Design tab — or accept the
+          agent's proposal once it lands.
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="card border-amber-200 bg-amber-50/40 px-3 py-2 text-xs text-amber-900 space-y-1.5">
       <div>

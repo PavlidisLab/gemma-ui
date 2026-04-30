@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ApiError } from "@/api/client";
@@ -7,7 +7,7 @@ import { useCurationDetails } from "@/api/curation";
 import { useLogout, useMe } from "@/api/session";
 import { useDatasetVisibility, usePublishExperiment } from "@/api/datasets";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
-import { experimentPageUrl } from "@/lib/gemmaUrls";
+import { experimentPageUrl, platformPageUrl } from "@/lib/gemmaUrls";
 import {
   inferModality,
   modalityLabel,
@@ -52,7 +52,13 @@ export function ExperimentBanner({
   taxon,
   nSamples,
   assay,
+  technologyType,
   platform,
+  platformShortName,
+  platformId,
+  originalPlatform,
+  originalPlatformShortName,
+  originalPlatformId,
   pubLabel,
   pmid,
   loadedAt,
@@ -62,6 +68,7 @@ export function ExperimentBanner({
   onTabChange,
   notesOpen,
   onToggleNotes,
+  commitBar,
 }: {
   experimentId: number;
   shortName: string;
@@ -69,7 +76,18 @@ export function ExperimentBanner({
   taxon: string;
   nSamples: number;
   assay: string;
+  /** Gemma technology classifier — ``ONECOLOR`` / ``TWOCOLOR`` /
+   *  ``DUALMODE`` (microarray), ``SEQUENCING`` / ``GENELIST``
+   *  (RNA-seq, often with a generic stand-in array_design),
+   *  ``OTHER``. We use it to decide whether to surface the
+   *  array_design as a real platform or as a stub link. */
+  technologyType: string;
   platform: string;
+  platformShortName: string;
+  platformId: number | null;
+  originalPlatform: string;
+  originalPlatformShortName: string;
+  originalPlatformId: number | null;
   pubLabel: string | null;
   pmid: string | null;
   loadedAt: string;
@@ -81,6 +99,10 @@ export function ExperimentBanner({
   onTabChange: (id: TabId) => void;
   notesOpen: boolean;
   onToggleNotes: () => void;
+  /** Inline commit-status chip rendered in the action row. App-level
+   *  composition pulls in the design draft + validation. Renders
+   *  null when the draft is clean, so passing it always is fine. */
+  commitBar?: ReactNode;
 }) {
   const sourceLink = externalSourceLink(externalSource);
   // ``experimentPageUrl`` reads ``VITE_GEMMA_WEB_URL`` so a staging
@@ -113,8 +135,16 @@ export function ExperimentBanner({
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
             <span>{taxon}</span>
             <span>{nSamples} samples</span>
-            <span>{assay}</span>
-            <span>{platform}</span>
+            <PlatformLine
+              technologyType={technologyType}
+              assay={assay}
+              platform={platform}
+              platformShortName={platformShortName}
+              platformId={platformId}
+              originalPlatform={originalPlatform}
+              originalPlatformShortName={originalPlatformShortName}
+              originalPlatformId={originalPlatformId}
+            />
             {pubLabel ? (
               <span>
                 Pub:{" "}
@@ -207,6 +237,7 @@ export function ExperimentBanner({
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 shrink-0">
+          {commitBar}
           <NotesButton
             experimentId={experimentId}
             open={notesOpen}
@@ -218,7 +249,13 @@ export function ExperimentBanner({
             link-out to Gemma's full DWR history); a banner-level
             duplicate that didn't work was just clutter.
           */}
-          <SaveDraftButton />
+          {/*
+            ``SaveDraftButton`` retired here — the floating CommitBar
+            (``SharedCommitBar`` in App.tsx) covers the same action
+            with a richer surface (discard + per-factor baseline
+            overrides + change summary), and showing both invited the
+            collision the curator noticed in the top-right.
+           */}
           <PublishButton experimentId={experimentId} />
         </div>
       </div>
@@ -374,7 +411,7 @@ function NotesButton({
       onClick={onToggle}
       title={title}
     >
-      curation
+      Status
       {troubled ? (
         <span
           className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-rose-500 align-middle"
@@ -440,6 +477,142 @@ function modalityClasses(m: Modality): string {
     default:
       return "bg-slate-100 text-slate-700 border-slate-300";
   }
+}
+
+/**
+ * Platform line for the banner metadata strip. Replaces a naive
+ * ``{assay} · {platform}`` render that was showing curators
+ * misleading text — for RNA-seq experiments Gemma stores a
+ * ``Generic platform for Mus musculus, indexed by NCBI IDs``
+ * stand-in array_design, and the technology_type field carries the
+ * machine code (``GENELIST`` / ``SEQUENCING`` / ``ONECOLOR`` / …)
+ * that's not the curator's vocabulary.
+ *
+ * Behaviour:
+ *
+ *   - Modality already shows up as the chip next to the title, so
+ *     we don't repeat the technology_type code here.
+ *   - For real wet-lab platforms (microarrays, named sequencers
+ *     when Gemma has them) we render the platform name as a link
+ *     to the Gemma platform record.
+ *   - For Gemma stub platforms (``Generic_*`` short_name, or
+ *     ``GENELIST`` / ``OTHER`` technology_type with a stub-shaped
+ *     name) we suppress the misleading "Generic platform for…"
+ *     text and surface only a subdued "Gemma platform: <link>" so
+ *     the curator can still navigate to the platform record but
+ *     isn't fooled into thinking the experiment is on that array.
+ *   - When ``original_platform`` differs from ``platform`` (Gemma
+ *     auto-switched the array_design — common for older platforms
+ *     that have been merged into a successor) we surface it as
+ *     "originally <name>" so the curator sees the source-DB
+ *     identity. Linked when we have a short_name / id.
+ */
+function PlatformLine({
+  technologyType,
+  assay,
+  platform,
+  platformShortName,
+  platformId,
+  originalPlatform,
+  originalPlatformShortName,
+  originalPlatformId,
+}: {
+  technologyType: string;
+  assay: string;
+  platform: string;
+  platformShortName: string;
+  platformId: number | null;
+  originalPlatform: string;
+  originalPlatformShortName: string;
+  originalPlatformId: number | null;
+}) {
+  // Gemma stub detection: technology_type is GENELIST / OTHER, or
+  // the short_name starts with "Generic_". The latter catches stubs
+  // that arrived without a tech_type field (older imports, manual
+  // uploads). Empty platform string is also "no info to show".
+  const tt = (technologyType || "").toUpperCase();
+  const isStub =
+    !platform ||
+    tt === "GENELIST" ||
+    tt === "OTHER" ||
+    /^Generic[_ ]/i.test(platformShortName);
+  const platformUrl = platformPageUrl(platformShortName, platformId);
+  const origUrl = platformPageUrl(
+    originalPlatformShortName,
+    originalPlatformId,
+  );
+  const showOriginal =
+    !!originalPlatform &&
+    originalPlatform !== platform &&
+    !/^Generic[_ ]/i.test(originalPlatformShortName);
+
+  if (isStub) {
+    // Suppress the misleading "Generic platform for…" name; surface
+    // only a subdued link to the Gemma platform record so curators
+    // can still get there. If there's no link target either, drop
+    // the line entirely — the modality chip already says RNA-seq.
+    if (!platformUrl) return null;
+    return (
+      <span className="text-slate-400">
+        platform:{" "}
+        <a
+          href={platformUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-slate-500 hover:text-slate-700 hover:underline"
+          title="Gemma stand-in platform — open the platform record"
+        >
+          {platformShortName || "Gemma stub"}
+          <span className="ml-0.5">↗</span>
+        </a>
+      </span>
+    );
+  }
+
+  // Real platform — name as link.
+  return (
+    <span className="inline-flex items-baseline gap-1.5 flex-wrap">
+      {platformUrl ? (
+        <a
+          href={platformUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-700 hover:underline"
+          title={`open platform ${platformShortName || ""} on Gemma`}
+        >
+          {platform}
+          <span className="ml-0.5 text-[10px]">↗</span>
+        </a>
+      ) : (
+        <span>{platform}</span>
+      )}
+      {showOriginal ? (
+        <span className="text-slate-400 italic">
+          (originally{" "}
+          {origUrl ? (
+            <a
+              href={origUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-500 hover:text-slate-700 hover:underline not-italic"
+            >
+              {originalPlatform}
+            </a>
+          ) : (
+            originalPlatform
+          )}
+          )
+        </span>
+      ) : null}
+      {/* Fallback: surface the raw assay code only when the
+          modality classifier isn't going to disambiguate (i.e.
+          the chip would say "unknown"). Avoids the redundant
+          GENELIST / ONECOLOR strings in the common case. */}
+      {assay && tt === "" ? (
+        <span className="text-slate-400">· {assay}</span>
+      ) : null}
+    </span>
+  );
 }
 
 /**
@@ -527,49 +700,6 @@ function PublishButton({ experimentId }: { experimentId: number }) {
   );
 }
 
-function SaveDraftButton() {
-  const { diff, commit, saving } = useDesignDraft();
-  const t = diff.totals;
-  const totalChanges =
-    t.addedFvs +
-    t.modifiedFvs +
-    t.removedFvs +
-    t.addedFactors +
-    t.removedFactors +
-    t.factorFieldsChanged +
-    t.addedTags +
-    t.modifiedTags +
-    t.removedTags;
-
-  return (
-    <button
-      type="button"
-      className={cn(
-        "btn relative",
-        diff.isDirty && !saving && "ring-2 ring-amber-300",
-      )}
-      onClick={() => commit()}
-      disabled={!diff.isDirty || saving}
-      title={
-        saving
-          ? "saving…"
-          : diff.isDirty
-            ? `save ${totalChanges} pending change${totalChanges === 1 ? "" : "s"} to Gemma`
-            : "no pending changes"
-      }
-    >
-      {saving ? "saving…" : "save"}
-      {diff.isDirty && !saving ? (
-        <span
-          className="ml-1 inline-flex items-center justify-center text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded bg-amber-100 text-amber-900"
-          aria-label={`${totalChanges} pending changes`}
-        >
-          {totalChanges}
-        </span>
-      ) : null}
-    </button>
-  );
-}
 
 /** Header bar above the banner. */
 export function TopBar({

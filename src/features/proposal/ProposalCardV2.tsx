@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import { useStickyState } from "@/lib/useStickyState";
+import { useEscape } from "@/lib/useEscape";
 import { Pill } from "@/components/ui/Pill";
 import { Term } from "@/components/ui/Term";
 import type {
@@ -611,7 +613,10 @@ export function ProposalCardV2({
   const [moreOpen, setMoreOpen] = useState(false);
   const [variedOpen, setVariedOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
-  const [tab, setTab] = useState<"review" | "decisions" | "details">("review");
+  const [tab, setTab] = useStickyState<"review" | "decisions" | "details">(
+    "proposal.tab",
+    "review",
+  );
   // (verify-N expander state removed 2026-04-29 — reassignment
   // moved to the Samples tab. The v2 card now exposes a single
   // "review on Samples tab →" button instead of per-factor
@@ -622,6 +627,7 @@ export function ProposalCardV2({
   // sent) and warns when the textarea is empty (re-running with no
   // guidance just burns LLM credits and produces the same proposal).
   const [redoConfirm, setRedoConfirm] = useState(false);
+  useEscape(redoConfirm, () => setRedoConfirm(false));
   // Model tier the retry runs on. Defaults to "standard" (matches
   // the proposer service's design-proposer default); curator can
   // bump to "strong" for a tougher experiment.

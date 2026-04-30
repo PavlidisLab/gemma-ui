@@ -188,7 +188,13 @@ function Shell({
         taxon={draft?.taxon ?? ""}
         nSamples={draft?.biomaterials.length ?? 0}
         assay={draft?.assay ?? ""}
+        technologyType={draft?.technology_type ?? ""}
         platform={draft?.platform ?? ""}
+        platformShortName={draft?.platform_short_name ?? ""}
+        platformId={draft?.platform_id ?? null}
+        originalPlatform={draft?.original_platform ?? ""}
+        originalPlatformShortName={draft?.original_platform_short_name ?? ""}
+        originalPlatformId={draft?.original_platform_id ?? null}
         pubLabel={pubLabel}
         pmid={pmid}
         loadedAt={draft?.loaded_at ?? ""}
@@ -220,6 +226,9 @@ function Shell({
             ),
           );
         }}
+        commitBar={
+          <SharedCommitBar experimentId={experimentId} reviewer={reviewer} />
+        }
       />
       {notesOpen ? (
         <NotesDrawer
@@ -430,6 +439,12 @@ function MainGrid({
   return (
     <main className="mx-auto w-full max-w-[1800px] px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
       <section className="flex-1 min-w-0 space-y-4">
+        {/* CommitBar moved into the ExperimentBanner action row
+            (passed as the ``commitBar`` slot, beside Status /
+            publish). Earlier sticky-top placement obscured the
+            actual page content; inline-in-banner keeps the chip
+            visible without stealing real estate. */}
+
         {activeTab === "overview" ? (
           <OverviewPanel />
         ) : activeTab === "design" ? (
@@ -445,8 +460,6 @@ function MainGrid({
         ) : (
           <QuantitationTypesPanel experimentId={experimentId} />
         )}
-
-        <SharedCommitBar experimentId={experimentId} reviewer={reviewer} />
       </section>
 
       <aside

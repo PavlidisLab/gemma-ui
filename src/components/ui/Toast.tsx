@@ -81,13 +81,17 @@ function ToastViewport({
   onDismiss: (id: number) => void;
 }) {
   // Render to the document directly so we don't get clipped by an
-  // ancestor's overflow:hidden. ``fixed inset-x-0 bottom-4`` centres
-  // the column horizontally; pointer-events-none on the container so
-  // the page underneath stays clickable except where a toast is.
+  // ancestor's overflow:hidden. Top-right column so the curator's
+  // attention is drawn there for celebratory / failure messages
+  // (matches the CommitBar's home now). ``z-50`` puts toasts above
+  // the CommitBar (z-30) on the rare case both want the same
+  // pixels — overlap is brief because toasts auto-dismiss.
+  // ``pointer-events-none`` lets clicks fall through except on the
+  // toast pills themselves.
   if (toasts.length === 0) return null;
   return (
     <div
-      className="fixed inset-x-0 bottom-4 flex flex-col items-center gap-2 z-50 pointer-events-none"
+      className="fixed top-2 right-2 flex flex-col items-end gap-2 z-50 pointer-events-none"
       role="status"
       aria-live="polite"
     >

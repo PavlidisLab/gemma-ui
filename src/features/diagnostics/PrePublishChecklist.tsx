@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useStickyState } from "@/lib/useStickyState";
 import { useCurationDetails } from "@/api/curation";
 import { useQuantitationTypes, type QuantitationType } from "@/api/quantitation";
 import { useAuditEvents, type AuditEvent } from "@/api/history";
@@ -140,7 +141,10 @@ export function PrePublishChecklist({ experimentId }: { experimentId: number }) 
   // this map we derive its open state from completion (open until
   // ready, then auto-collapse). Once the curator clicks the header
   // their preference sticks.
-  const [sectionOpen, setSectionOpen] = useState<Record<string, boolean>>({});
+  const [sectionOpen, setSectionOpen] = useStickyState<Record<string, boolean>>(
+    "checklist.sectionOpen",
+    {},
+  );
 
   // Reset ticks if the experiment changes (component reuse across
   // navigations) or the design-update signal advances past what we
