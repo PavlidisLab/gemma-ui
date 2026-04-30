@@ -87,6 +87,12 @@ export interface SubtaskDecision {
   /** Free-form scope tag — "factor:42" / "fv:813" / "tag:7" / ""
    *  (proposal-wide). UI groups decisions by this. */
   target_id: string;
+  /** Structured confidence tier. Optional; existing subtasks leave
+   *  it unset. ``zero`` is the kill switch — the UI auto-unchecks
+   *  the targeted entity (e.g. zero-coverage factors are removed
+   *  from the accept set by default). Eval scoring treats ``zero``
+   *  as a coverage failure regardless of UI filtering. */
+  confidence?: "zero" | "low" | "medium" | "high";
 }
 
 export interface ProposalEvidence {

@@ -108,6 +108,14 @@ export interface Tag {
    *  (`BioMaterial` / `FactorValue` / etc.) — surfaced as a hover
    *  tooltip on the chip. Empty for direct tags. */
   inferred_source?: string;
+  /** GO-style evidence code from Gemma's `AnnotationValueObject.
+   *  evidenceCode` — IC ("Inferred by Curator"), IEA ("Inferred from
+   *  Electronic Annotation"), IDA ("Inferred from Direct Assay"), TAS
+   *  ("Traceable Author Statement"), etc. Empty when Gemma sent
+   *  null. The UI styles chips by code so curator-asserted (IC)
+   *  annotations are visually distinct from electronically-propagated
+   *  (IEA) ones. */
+  evidence_code?: string;
 }
 
 /**

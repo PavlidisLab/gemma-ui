@@ -22,7 +22,6 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { ProposalReviewProvider } from "@/features/proposal/ProposalReviewContext";
 import { DesignEditor } from "@/features/design/DesignEditor";
 import { SampleDetailsPanel } from "@/features/samples/SampleDetailsPanel";
-import { TagsPanel } from "@/features/tags/TagsPanel";
 import { DiagnosticsPanel } from "@/features/diagnostics/DiagnosticsPanel";
 import { HistoryPanel } from "@/features/history/HistoryPanel";
 import { OverviewPanel } from "@/features/overview/OverviewPanel";
@@ -145,7 +144,47 @@ function Shell({
     setNotesOpen(next.notesOpen);
   }, [initialTab]);
 
-  const { draft, loadError, staleCacheDiscarded } = useDesignDraft();
+  const { draft, loadError, staleCacheDiscarded, diff } = useDesignDraft();
+
+  // Guard against accidental navigation away with uncommitted edits.
+  // Drafts are persisted to localStorage so a refresh recovers them,
+  // but a tab close on a workstation other than the curator's leaves
+  // the work stranded — prompt before that happens. The browser
+  // shows a generic confirmation; ``returnValue`` non-empty is what
+  // triggers it across Chrome / Firefox / Safari.
+  useEffect(() => {
+    if (!diff.isDirty) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [diff.isDirty]);
+
+  // In-app navigation guard: hash changes that take the curator off
+  // this experiment (back to landing, inbox, or a different
+  // experiment) prompt for confirmation when the design has
+  // uncommitted edits. Tab switches inside the same experiment are
+  // allowed without a prompt — the draft survives.
+  useEffect(() => {
+    if (!diff.isDirty) return;
+    const currentExperimentPrefix = `#/experiments/${experimentId}`;
+    function onHashChange(e: HashChangeEvent) {
+      const next = new URL(e.newURL).hash;
+      if (next.startsWith(currentExperimentPrefix)) return;
+      const ok = window.confirm(
+        "You have uncommitted changes on this experiment. Leave anyway? (Your draft will be saved locally and restored on return.)",
+      );
+      if (!ok) {
+        // Revert to the previous URL.
+        const prev = new URL(e.oldURL).hash;
+        window.location.hash = prev;
+      }
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [diff.isDirty, experimentId]);
 
   // ALL hooks must run on every render in the same order. Run the
   // proposals query unconditionally, then branch — putting the
@@ -451,8 +490,6 @@ function MainGrid({
           <DesignEditor experimentId={experimentId} />
         ) : activeTab === "samples" ? (
           <SampleDetailsPanel experimentId={experimentId} />
-        ) : activeTab === "tags" ? (
-          <TagsPanel experimentId={experimentId} />
         ) : activeTab === "diagnostics" ? (
           <DiagnosticsPanel experimentId={experimentId} />
         ) : activeTab === "history" ? (
@@ -710,11 +747,13 @@ function mapRouteTab(tab: string | undefined): {
 } {
   if (tab === "notes") return { tab: "overview", notesOpen: true };
   if (tab === "quantitation") return { tab: "qt", notesOpen: false };
+  // Tags retired 2026-04-30 — folded into Overview. Existing
+  // bookmarks / inbound URLs still resolve to a sensible page.
+  if (tab === "tags") return { tab: "overview", notesOpen: false };
   if (
     tab === "overview" ||
     tab === "design" ||
     tab === "samples" ||
-    tab === "tags" ||
     tab === "diagnostics" ||
     tab === "history" ||
     tab === "qt"

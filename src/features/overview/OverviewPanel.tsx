@@ -1,19 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
 import { useImportFromGemma } from "@/api/datasets";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { InlineText } from "@/components/ui/InlineText";
+import { CategoryPicker } from "@/features/design/CategoryPicker";
+import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
 import { platformPageUrl } from "@/lib/gemmaUrls";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { shortenUri } from "@/lib/curie";
 import {
   addPublication,
+  addTag,
   deletePublication,
+  deleteTag,
   setDesignDescription,
   setDesignShortName,
   setDesignTitle,
+  setTagCategory,
+  setTagValue,
 } from "@/features/design/mutations";
 import {
   ONTOLOGY_GUIDELINE,
@@ -26,6 +32,7 @@ import {
 import type {
   Biomaterial,
   Factor,
+  OntologyTerm,
   Publication,
   Tag,
 } from "@/features/experiment/types";
@@ -55,7 +62,16 @@ export function OverviewPanel() {
     draft?.experiment_id ?? -1,
   );
   const paperEvidence = useMemo(() => {
-    const list = proposalsList?.items ?? [];
+    // Only surface paper evidence tied to a *pending* proposal.
+    // Accepted / rejected proposals carry stale excerpts that the
+    // curator already adjudicated — keeping them visible led to a
+    // "Proposed paper" card sitting on the page with no matching
+    // entry in the proposals sidebar (the proposal was already
+    // rejected or accepted), confusing curators about what's
+    // actionable. A new pending proposer run brings its own evidence.
+    const list = (proposalsList?.items ?? []).filter(
+      (p) => p.status === "pending",
+    );
     // Newest first by submitted_at, then by proposal_id as tiebreak.
     const sorted = [...list].sort((a, b) =>
       (b.submitted_at || "").localeCompare(a.submitted_at || ""),
@@ -131,7 +147,7 @@ export function OverviewPanel() {
           </div>
           <ResyncButton />
         </div>
-        {meta && (meta.tags?.length ?? 0) > 0 ? (
+        {meta ? (
           <TagBar
             tags={meta.tags ?? []}
             biomaterials={meta.biomaterials ?? []}
@@ -628,6 +644,22 @@ function ResyncButton() {
  * click when a category has >1 value (e.g. 20 cell types).
  * Read-only — the Tags tab is where curators edit.
  */
+/** Inferred-tag categories that pollute the panel without informing
+ *  the curator.
+ *
+ *  - ``individual`` ships as a sample-id list (e.g. ``101, 102, 103,
+ *    …``) that swamps the bar.
+ *  - ``labelling`` / ``labeling`` is almost always ``biotin`` on
+ *    legacy Affymetrix arrays — universal, uninformative, noise. (If
+ *    a curator ever attaches it as a *direct* tag, that's an
+ *    explicit choice and stays visible — only the inferred form is
+ *    filtered.) */
+const INFERRED_HIDE_CATEGORIES = new Set<string>([
+  "individual",
+  "labelling",
+  "labeling",
+]);
+
 function TagBar({
   tags,
   biomaterials,
@@ -635,6 +667,9 @@ function TagBar({
   tags: Tag[];
   biomaterials: Biomaterial[];
 }) {
+  const { draft, apply } = useDesignDraft();
+  const [adding, setAdding] = useState(false);
+
   // Build a (category-label, value-label) → URI lookup from
   // ``biomaterial.characteristic_uris``. Used to recover the URI
   // on a tag value that came in as part of a comma-joined synth
@@ -654,9 +689,10 @@ function TagBar({
   // need to see every level on the overview header.
   const visibleTags = tags.filter((t) => {
     const cat = (t.category.label || "").trim().toLowerCase();
-    return cat !== "block" && cat !== "batch";
+    if (cat === "block" || cat === "batch") return false;
+    if (t.inferred && INFERRED_HIDE_CATEGORIES.has(cat)) return false;
+    return true;
   });
-  if (visibleTags.length === 0) return null;
 
   // FV-source synth tags (one per factor, FV labels comma-joined)
   // are the canonical representation of a factor category. Direct
@@ -668,22 +704,24 @@ function TagBar({
   const fvSynthCats = new Set(
     visibleTags
       .filter((t) => t.inferred && t.inferred_source === "FactorValue")
-      .map((t) => (t.category.uri || t.category.label || "").toLowerCase()),
+      .map((t) => (t.category.label || t.category.uri || "").toLowerCase()),
   );
   const direct = visibleTags.filter((t) => {
     if (t.inferred) return false;
-    const k = (t.category.uri || t.category.label || "").toLowerCase();
+    const k = (t.category.label || t.category.uri || "").toLowerCase();
     return !fvSynthCats.has(k);
   });
   const inferred = visibleTags.filter((t) => t.inferred);
+  const showHeader =
+    visibleTags.length > 0 || draft != null;
+  if (!showHeader) return null;
   return (
     <div className="flex items-baseline gap-1 flex-wrap pt-1">
       <span className="text-[11px] uppercase tracking-wide text-slate-500 mr-1">
         tags
       </span>
-      <TagGroups
+      <EditableDirectTagGroups
         tags={direct}
-        variant="direct"
         charUriLookup={charUriLookup}
       />
       <TagGroups
@@ -691,7 +729,127 @@ function TagBar({
         variant="inferred"
         charUriLookup={charUriLookup}
       />
+      {draft && !adding ? (
+        <button
+          type="button"
+          className="text-[11px] text-slate-500 hover:text-emerald-800 hover:bg-emerald-50 border border-dashed border-slate-300 hover:border-emerald-300 rounded px-1.5 py-0.5 ml-1"
+          onClick={() => setAdding(true)}
+        >
+          + tag
+        </button>
+      ) : null}
+      {draft && adding ? (
+        <ChipEditor
+          category={{ label: "" }}
+          value={{ label: "" }}
+          onCancel={() => setAdding(false)}
+          onCommit={(cat, val) => {
+            const { design: next, tagId } = addTag(draft);
+            const withCat = setTagCategory(next, tagId, cat);
+            const withVal = setTagValue(withCat, tagId, val);
+            apply(withVal);
+            setAdding(false);
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** Inline category + value picker, reused for both edit-existing and
+ *  add-new flows. Click outside or Escape to cancel; click ✓ (or
+ *  blur into outside) to commit when both fields are populated.
+ *  Mirrors the editor that lived in the now-retired TagsPanel. */
+function ChipEditor({
+  category,
+  value,
+  onCommit,
+  onCancel,
+  onDelete,
+}: {
+  category: OntologyTerm;
+  value: OntologyTerm;
+  onCommit: (category: OntologyTerm, value: OntologyTerm) => void;
+  onCancel: () => void;
+  onDelete?: () => void;
+}) {
+  const [cat, setCat] = useState<OntologyTerm | null>(category);
+  const [val, setVal] = useState<OntologyTerm | null>(value);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) {
+        if (cat && cat.label && val && val.label) {
+          onCommit(cat, val);
+        } else {
+          onCancel();
+        }
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [cat, val, onCommit, onCancel]);
+
+  const canSave = !!(cat && cat.label && val && val.label);
+
+  return (
+    <span
+      ref={ref}
+      className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border bg-emerald-50 border-emerald-300 text-emerald-900"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <CategoryPicker
+        value={cat}
+        placeholder="category"
+        onCommit={(next) => setCat(next ?? null)}
+      />
+      <span className="text-emerald-700/70">:</span>
+      <OntologyTermPicker
+        value={val}
+        category={cat?.label || null}
+        placeholder="value"
+        onCommit={(next) => setVal(next ?? null)}
+      />
+      <button
+        type="button"
+        className="ml-1 px-1 text-emerald-800 hover:text-emerald-950 disabled:opacity-40"
+        onClick={() => canSave && onCommit(cat!, val!)}
+        disabled={!canSave}
+        title={canSave ? "save" : "fill category and value first"}
+      >
+        ✓
+      </button>
+      <button
+        type="button"
+        className="px-1 text-slate-500 hover:text-slate-800"
+        onClick={onCancel}
+        title="cancel"
+      >
+        ✕
+      </button>
+      {onDelete ? (
+        <button
+          type="button"
+          className="px-1 text-rose-700 hover:text-rose-900"
+          onClick={onDelete}
+          title="delete tag"
+        >
+          🗑
+        </button>
+      ) : null}
+    </span>
   );
 }
 
@@ -814,9 +972,11 @@ function TagGroups({
   charUriLookup: Map<string, string>;
 }) {
   if (tags.length === 0) return null;
+  // Group key on label only (URI is a noisy distinguisher: same-named
+  // categories with one URI-resolved and one not should still merge).
   const groups = new Map<string, { category: Tag["category"]; tags: Tag[] }>();
   for (const t of tags) {
-    const k = (t.category.uri || t.category.label || "").toLowerCase();
+    const k = (t.category.label || t.category.uri || "").toLowerCase();
     if (!groups.has(k)) {
       groups.set(k, { category: t.category, tags: [] });
     }
@@ -826,7 +986,7 @@ function TagGroups({
     <>
       {[...groups.values()].map((g) => (
         <TagGroupChip
-          key={(g.category.uri || g.category.label) + ":" + variant}
+          key={(g.category.label || g.category.uri) + ":" + variant}
           category={g.category}
           tags={g.tags}
           variant={variant}
@@ -835,6 +995,191 @@ function TagGroups({
       ))}
     </>
   );
+}
+
+/** Direct-tag analogue of ``TagGroups`` with click-to-edit + delete
+ *  affordances. Renders one chip per tag (curators add direct tags
+ *  one annotation at a time, so comma-split synth doesn't apply
+ *  here). Multi-tag categories collapse the same way as ``TagGroups``
+ *  does for inferred. */
+function EditableDirectTagGroups({
+  tags,
+}: {
+  tags: Tag[];
+  charUriLookup: Map<string, string>;
+}) {
+  if (tags.length === 0) return null;
+  const groups = new Map<string, { category: Tag["category"]; tags: Tag[] }>();
+  for (const t of tags) {
+    const k = (t.category.label || t.category.uri || "").toLowerCase();
+    if (!groups.has(k)) {
+      groups.set(k, { category: t.category, tags: [] });
+    }
+    groups.get(k)!.tags.push(t);
+  }
+  return (
+    <>
+      {[...groups.values()].map((g) => (
+        <EditableDirectGroupChip
+          key={(g.category.label || g.category.uri) + ":direct"}
+          category={g.category}
+          tags={g.tags}
+        />
+      ))}
+    </>
+  );
+}
+
+function EditableDirectGroupChip({
+  category,
+  tags,
+}: {
+  category: Tag["category"];
+  tags: Tag[];
+}) {
+  const { draft, apply } = useDesignDraft();
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  function commitEdit(tag: Tag, cat: OntologyTerm, val: OntologyTerm) {
+    if (!draft) return;
+    const next = setTagCategory(draft, tag.id, cat);
+    apply(setTagValue(next, tag.id, val));
+    setEditingId(null);
+  }
+  function deleteOne(tagId: number) {
+    if (!draft) return;
+    apply(deleteTag(draft, tagId));
+    setEditingId(null);
+  }
+
+  // Single tag — render flat, click to edit, × on hover.
+  if (tags.length === 1) {
+    const tag = tags[0];
+    if (editingId === tag.id) {
+      return (
+        <ChipEditor
+          category={tag.category}
+          value={tag.value}
+          onCancel={() => setEditingId(null)}
+          onCommit={(c, v) => commitEdit(tag, c, v)}
+          onDelete={() => deleteOne(tag.id)}
+        />
+      );
+    }
+    return (
+      <span
+        className="group inline-flex items-baseline gap-1 text-[11px] px-1.5 py-0.5 rounded border bg-emerald-50 border-emerald-200 text-emerald-900 cursor-pointer hover:bg-emerald-100"
+        onClick={() => setEditingId(tag.id)}
+        title={`${category.label}: ${tag.value.label} — click to edit`}
+      >
+        <span className="text-emerald-900/75">{category.label}</span>
+        <span className="font-medium">
+          {tag.value.label || <em className="not-italic">no value</em>}
+        </span>
+        <button
+          type="button"
+          className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            deleteOne(tag.id);
+          }}
+          title="delete tag"
+          aria-label="delete tag"
+        >
+          ×
+        </button>
+      </span>
+    );
+  }
+
+  // Multi-tag — collapse like the read-only inferred groups, but each
+  // value chip in the expanded view is independently editable.
+  return (
+    <span className="inline-flex items-baseline gap-1 text-[11px] rounded border px-1.5 py-0.5 bg-emerald-50 border-emerald-200 text-emerald-900">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-baseline gap-1 hover:underline underline-offset-2"
+        title={
+          open
+            ? "click to collapse"
+            : `click to expand ${tags.length} ${category.label} tags`
+        }
+      >
+        <span className="text-emerald-900/75">{category.label}</span>
+        <span className="font-medium">{tags.length} values</span>
+        <span className="text-emerald-900/75">{open ? "▾" : "▸"}</span>
+      </button>
+      {open ? (
+        <span className="inline-flex items-baseline gap-1 flex-wrap ml-1 pl-1 border-l border-emerald-200">
+          {tags.map((tag) =>
+            editingId === tag.id ? (
+              <ChipEditor
+                key={tag.id}
+                category={tag.category}
+                value={tag.value}
+                onCancel={() => setEditingId(null)}
+                onCommit={(c, v) => commitEdit(tag, c, v)}
+                onDelete={() => deleteOne(tag.id)}
+              />
+            ) : (
+              <span
+                key={tag.id}
+                className="group inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 cursor-pointer hover:bg-emerald-100"
+                onClick={() => setEditingId(tag.id)}
+                title="click to edit"
+              >
+                <span>{tag.value.label || "(blank)"}</span>
+                <button
+                  type="button"
+                  className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteOne(tag.id);
+                  }}
+                  title="delete tag"
+                  aria-label="delete tag"
+                >
+                  ×
+                </button>
+              </span>
+            ),
+          )}
+        </span>
+      ) : (
+        <span className="italic ml-1 truncate max-w-[24ch] text-emerald-900/60">
+          {tags
+            .slice(0, 2)
+            .map((t) => t.value.label || "(blank)")
+            .join(", ")}
+          {tags.length > 2 ? "…" : ""}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Short tag for inferred-source provenance: BioMaterial → BM,
+ *  FactorValue → FV. Anything else falls through verbatim. Surfaced
+ *  on every inferred chip so a curator scanning the panel can
+ *  answer "where did this come from?" without hovering for the
+ *  tooltip. Empty string for tags without a source recorded. */
+function inferredSourceTag(source: string | undefined): string {
+  if (!source) return "";
+  if (source === "BioMaterial") return "BM";
+  if (source === "FactorValue") return "FV";
+  return source;
+}
+
+/** Long-form name for an evidence code, for the chip's hover title.
+ *  Limited to the two Gemma actually uses; others render verbatim. */
+function evidenceCodeName(code: string | undefined): string {
+  const c = (code || "").trim().toUpperCase();
+  if (!c) return "";
+  if (c === "IC") return "Inferred by Curator";
+  if (c === "IIA") return "Inferred from Imported Annotation (GEO)";
+  return c;
 }
 
 function TagGroupChip({
@@ -867,18 +1212,68 @@ function TagGroupChip({
   const dividerCls =
     variant === "inferred" ? "border-violet-200" : "border-emerald-200";
 
+  // Inferred-source provenance shorthand. Most groups share one
+  // source (all BM, all FV); a mixed group renders both joined with
+  // "/". For the placeholder/empty case we fall back to "auto" so the
+  // chip still signals inferred-ness.
+  const sources =
+    variant === "inferred"
+      ? Array.from(
+          new Set(
+            tags.map((t) => inferredSourceTag(t.inferred_source)).filter(Boolean),
+          ),
+        )
+      : [];
+  const sourceLabel =
+    variant === "inferred" ? (sources.length > 0 ? sources.join("/") : "auto") : "";
+
+  // Evidence-code mix across the group's tags. When all tags share
+  // one code (the common case), use it for both the border style and
+  // the badge. Mixed groups fall back to dashed (lower-trust wins
+  // for the visual cue) and render the codes joined.
+  const evCodes =
+    variant === "inferred"
+      ? Array.from(
+          new Set(
+            tags
+              .map((t) => (t.evidence_code || "").trim().toUpperCase())
+              .filter(Boolean),
+          ),
+        )
+      : [];
+  // Mixed-code groups: the lower-trust code wins for the visual
+  // cue. Only solid when *every* tag in the group is curator-asserted.
+  const evBorder =
+    variant === "inferred" && evCodes.length > 0
+      ? evCodes.every((c) => c === "IC")
+        ? "border-solid"
+        : "border-dashed"
+      : "border-solid";
+  const evBadge = evCodes.length > 0 ? evCodes.join("/") : "";
+  const evTitle =
+    evCodes.length === 1
+      ? ` · ${evCodes[0]} (${evidenceCodeName(evCodes[0])})`
+      : evCodes.length > 1
+        ? ` · evidence: ${evCodes.join(", ")}`
+        : "";
+
   if (values.length === 1) {
     const v = values[0];
     return (
       <span
-        title={`${category.label}: ${v.label}${variant === "inferred" ? " (auto-inferred)" : ""}`}
-        className={`inline-flex items-baseline gap-1 text-[11px] px-1.5 py-0.5 rounded border ${outerCls}`}
+        title={`${category.label}: ${v.label}${variant === "inferred" ? ` (inferred from ${sources.join(", ") || "auto"})${evTitle}` : ""}`}
+        className={`inline-flex items-baseline gap-1 text-[11px] px-1.5 py-0.5 rounded border ${evBorder} ${outerCls}`}
       >
         <span className={labelCls}>{category.label}</span>
         <TagValueChip value={v} />
         {variant === "inferred" ? (
           <span className="text-[9px] uppercase tracking-wide text-violet-700/70 ml-0.5">
-            auto
+            {sourceLabel}
+          </span>
+        ) : null}
+        {evBadge ? (
+          <span className="text-[9px] uppercase tracking-wide text-violet-700/70 ml-0.5">
+            {evBadge}
           </span>
         ) : null}
       </span>
@@ -889,7 +1284,8 @@ function TagGroupChip({
   // closed state.
   return (
     <span
-      className={`inline-flex items-baseline gap-1 text-[11px] rounded border px-1.5 py-0.5 ${outerCls}`}
+      className={`inline-flex items-baseline gap-1 text-[11px] rounded border ${evBorder} px-1.5 py-0.5 ${outerCls}`}
+      title={evTitle ? evTitle.replace(/^\s·\s/, "") : undefined}
     >
       <button
         type="button"
@@ -909,7 +1305,12 @@ function TagGroupChip({
       </button>
       {variant === "inferred" ? (
         <span className="text-[9px] uppercase tracking-wide text-violet-700/70 ml-0.5">
-          auto
+          {sourceLabel}
+        </span>
+      ) : null}
+      {evBadge ? (
+        <span className="text-[9px] uppercase tracking-wide text-violet-700/70 ml-0.5">
+          {evBadge}
         </span>
       ) : null}
       {open ? (

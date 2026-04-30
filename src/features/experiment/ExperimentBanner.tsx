@@ -21,19 +21,18 @@ export type TabId =
   | "design"
   | "samples"
   | "diagnostics"
-  | "tags"
   | "qt"
   | "history";
 
 // Order mirrors the Confluence Experiment Checklist workflow:
-// design / sample details before diagnostics, tags before QT,
-// history last. Curators are taught to work top-to-bottom and the
-// tab bar should match.
+// design / sample details before diagnostics, QT next, history last.
+// Tags moved into the Overview tab (curator-attached + inferred chips
+// share one editable surface there) — the dedicated Tags tab was
+// retired 2026-04-30.
 export const EXPERIMENT_TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "design", label: "Design setup" },
   { id: "samples", label: "Sample details" },
-  { id: "tags", label: "Tags" },
   { id: "diagnostics", label: "Diagnostics" },
   { id: "qt", label: "Quantitation types" },
   { id: "history", label: "History" },

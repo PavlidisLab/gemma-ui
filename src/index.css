@@ -277,6 +277,12 @@ html.dark .text-blue-600 { color: rgb(96 165 250); }
 html.dark .text-blue-800,
 html.dark .text-blue-900 { color: rgb(147 197 253); }      /* blue-300 */
 html.dark .bg-blue-50 { background-color: rgb(30 58 138 / 0.35); }
+/* `bg-blue-100` is the FactorList's selected-row background and
+   shows as a near-white wash in dark mode without this. Same fix
+   pattern as the other -100 families above. */
+html.dark .bg-blue-100 { background-color: rgb(30 58 138 / 0.55); }
+html.dark .bg-rose-100 { background-color: rgb(127 29 29 / 0.55); }
+html.dark .bg-violet-100\/70 { background-color: rgb(76 29 149 / 0.4); }
 
 /* Rose / red error text on dark cards. */
 html.dark .text-rose-700,

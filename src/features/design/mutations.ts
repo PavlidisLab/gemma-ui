@@ -440,6 +440,12 @@ export function applyProposalToDesign(
       category: { label: p.category.label, uri: p.category.uri ?? null },
       value: { label: p.value.label, uri: p.value.uri ?? null },
       inferred: false,
+      // Curator vouched for the proposed tag on accept — that's IC
+      // by the same logic as a hand-typed tag (the curator's signoff
+      // is the assertion). Provenance of the *proposal* (which agent
+      // drafted it) lives in audit/feedback logs, not the evidence
+      // code.
+      evidence_code: "IC",
     });
   }
 
@@ -482,6 +488,74 @@ export function applyProposalToDesign(
     ...design,
     tags: [...existing, ...newTags],
     factors: [...existingFactors, ...addedFactors],
+  };
+}
+
+/**
+ * Inverse of ``applyProposalToDesign``. Removes from the draft any
+ * tags / factors whose identity matches a proposal item AND that
+ * isn't present in ``saved`` (i.e. wasn't there before the
+ * proposal was accepted). Used when the curator rejects a proposal
+ * they previously accepted — the rejection should retract the
+ * applied changes, not just flip the proposal's status.
+ *
+ * Tag match: lower-cased ``(category, value)`` URI-or-label pair —
+ * same key ``applyProposalToDesign`` uses for dedup.
+ *
+ * Factor match: matches by ``category.label`` + ``name``. Only
+ * removes draft factors whose id is *not* in ``saved`` so a
+ * pre-existing factor with the same name survives reject.
+ *
+ * Idempotent: if the proposal was never applied (or the curator
+ * already deleted the items by hand), this is a no-op.
+ */
+export function removeAppliedProposalFromDesign(
+  design: Design,
+  saved: Design | null,
+  proposalTags: {
+    category: { label: string; uri?: string | null };
+    value: { label: string; uri?: string | null };
+  }[],
+  proposalFactors: {
+    category: { label: string; uri?: string | null };
+    name_in_design: string;
+  }[],
+): Design {
+  const proposalTagKeys = new Set(
+    proposalTags.map((t) => tagKey(t.category, t.value)),
+  );
+  const savedTagKeys = new Set(
+    (saved?.tags ?? []).map((t) => tagKey(t.category, t.value)),
+  );
+  const remainingTags = (design.tags ?? []).filter((t) => {
+    const k = tagKey(t.category, t.value);
+    if (!proposalTagKeys.has(k)) return true;
+    // Was this tag already in saved? Don't touch it if so.
+    return savedTagKeys.has(k);
+  });
+
+  const proposalFactorKeys = new Set(
+    proposalFactors.map((f) =>
+      `${(f.name_in_design || f.category.label || "").toLowerCase()}||${(
+        f.category.label || ""
+      ).toLowerCase()}`,
+    ),
+  );
+  const savedFactorIds = new Set((saved?.factors ?? []).map((f) => f.id));
+  const remainingFactors = (design.factors ?? []).filter((f) => {
+    const k = `${(f.name || f.category.label || "").toLowerCase()}||${(
+      f.category.label || ""
+    ).toLowerCase()}`;
+    if (!proposalFactorKeys.has(k)) return true;
+    // Pre-existing factor (id present in saved) — don't remove even
+    // if the name happens to match the proposal.
+    return savedFactorIds.has(f.id);
+  });
+
+  return {
+    ...design,
+    tags: remainingTags,
+    factors: remainingFactors,
   };
 }
 
@@ -564,6 +638,14 @@ export function addTag(design: Design): { design: Design; tagId: number } {
     id,
     category: { label: "", uri: null },
     value: { label: "", uri: null },
+    // Curator-asserted by definition — anything the curator types in
+    // the UI is `IC` (Inferred by Curator), even when it originated
+    // as an AI proposal that got accepted (the curator vouched for
+    // it on accept). Round-trips to Gemma preserve provenance; absent
+    // this stamp, accepted-from-proposal tags would land as empty
+    // evidence code and look indistinguishable from legacy / unstamped
+    // imports.
+    evidence_code: "IC",
   };
   return {
     design: { ...design, tags: [...(design.tags ?? []), newTag] },

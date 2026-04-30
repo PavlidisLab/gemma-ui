@@ -16,7 +16,10 @@ import type { Biomaterial } from "@/features/experiment/types";
 import { useReviewProposal, useTriggerProposal } from "@/api/proposals";
 import { ApiError } from "@/api/client";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
-import { applyProposalToDesign } from "@/features/design/mutations";
+import {
+  applyProposalToDesign,
+  removeAppliedProposalFromDesign,
+} from "@/features/design/mutations";
 import { IssueTagInline } from "@/features/proposal/IssueTagInline";
 import { useToast } from "@/components/ui/Toast";
 import { Spinner } from "@/components/ui/Spinner";
@@ -705,6 +708,50 @@ export function ProposalCardV2({
     [saved],
   );
 
+  // Per-factor S7 coverage tier ("zero" / "low" / "medium" / "high"),
+  // keyed by factor index. Pulled from ``routed.byTargetId`` so we
+  // pick up whichever ``S7_factor_coverage`` decision the proposer
+  // emitted for each factor. Older proposals (pre-S7) carry no
+  // decision — those factors get ``undefined`` and render with no
+  // banner / strip. The map is also the input to the auto-uncheck
+  // effect below.
+  const coverageByFactorIdx = useMemo(() => {
+    const m = new Map<number, NonNullable<SubtaskDecision["confidence"]>>();
+    proposal.factors.forEach((f, fi) => {
+      const targetId = `factor:${f.category.label || "?"}`;
+      const decisions = routed.byTargetId.get(targetId) ?? [];
+      const cov = decisions.find((d) => d.subtask === "S7_factor_coverage");
+      if (cov?.confidence) m.set(fi, cov.confidence);
+    });
+    return m;
+  }, [proposal.factors, routed.byTargetId]);
+
+  // Auto-uncheck factors with ``confidence: "zero"`` on first sight
+  // of this proposal. The curator can re-check manually; we don't
+  // re-apply on subsequent renders, so their override sticks.
+  // Ref-guarded by ``proposal_id`` so a different proposal landing
+  // (e.g. after redo-with-notes) re-runs the seeding for its own
+  // zero-coverage factors.
+  const autoUncheckedForProposalId = useRef<string | null>(null);
+  useEffect(() => {
+    const pid = proposal.proposal_id ?? "";
+    if (autoUncheckedForProposalId.current === pid) return;
+    autoUncheckedForProposalId.current = pid;
+    const toExclude: string[] = [];
+    proposal.factors.forEach((f, fi) => {
+      if (coverageByFactorIdx.get(fi) !== "zero") return;
+      for (let vi = 0; vi < f.factor_values.length; vi++) {
+        toExclude.push(`${fi}:${vi}`);
+      }
+    });
+    if (toExclude.length === 0) return;
+    setExcludedFvs((prev) => {
+      const next = new Set(prev);
+      for (const k of toExclude) next.add(k);
+      return next;
+    });
+  }, [proposal.proposal_id, proposal.factors, coverageByFactorIdx]);
+
   function toggleTag(i: number, include: boolean) {
     setExcludedTags((prev) => {
       const next = new Set(prev);
@@ -819,6 +866,21 @@ export function ProposalCardV2({
 
   function submit(status: ProposalStatus) {
     if (!proposal.proposal_id) return;
+    if (status === "rejected" && draft) {
+      // Reject retracts a previously-applied accept. Remove any
+      // tags/factors from the draft that this proposal contributed
+      // (matched by category/value identity, scoped to "not in saved"
+      // so pre-existing items survive). No-op for proposals that were
+      // never accepted in the first place. Caught 2026-04-30: rejecting
+      // after accept left the EE tags lingering on the design.
+      const reverted = removeAppliedProposalFromDesign(
+        draft,
+        saved,
+        proposal.tags,
+        proposal.factors,
+      );
+      apply(reverted);
+    }
     if (status === "accepted" && draft) {
       const next = applyProposalToDesign(
         draft,
@@ -1279,6 +1341,17 @@ export function ProposalCardV2({
               (e) =>
                 e.meta.confidence === "low" || e.meta.confidence === "medium",
             );
+            // S7 coverage tier from the proposer (if present). Drives
+            // the rose / amber banner below + the per-FV chip pass.
+            const coverageTier = coverageByFactorIdx.get(fi);
+            // Total dataset sample count, for the partial-coverage
+            // strip's "N of M uncovered" copy. ``saved`` may not have
+            // loaded yet on first render — fall back to ``sampleCount``
+            // (which is what the proposer sees in its assignment) so
+            // the strip still reads sensibly.
+            const datasetTotal =
+              saved?.biomaterials.length ?? sampleCount;
+            const uncoveredCount = Math.max(0, datasetTotal - sampleCount);
             return (
               <div key={fi} className="mb-2">
                 <div className="flex items-baseline gap-1.5">
@@ -1313,6 +1386,24 @@ export function ProposalCardV2({
                     }
                   />
                 </div>
+                {/* S7 coverage warnings — only one fires per factor.
+                    ``zero``: the factor has no per-sample mapping at
+                    all. We auto-uncheck it (above), and surface a loud
+                    rose banner explaining why. ``low``/``medium``:
+                    partial coverage. Factor stays checked; an amber
+                    strip flags the gap so the curator knows samples
+                    will be left unassigned by accepting as-is.
+                    ``high`` and absent decision render nothing. */}
+                {coverageTier === "zero" ? (
+                  <div className="ml-5 mt-1 text-[11px] rounded border border-rose-300 bg-rose-50 text-rose-800 px-2 py-1">
+                    ⚠ 0 samples — proposer found no per-sample mapping.
+                  </div>
+                ) : coverageTier === "low" || coverageTier === "medium" ? (
+                  <div className="ml-5 mt-1 text-[11px] rounded border border-amber-300 bg-amber-50 text-amber-800 px-2 py-1">
+                    ⚠ {uncoveredCount} of {datasetTotal} samples
+                    uncovered by this factor ({coverageTier} confidence).
+                  </div>
+                ) : null}
                 <ul className="ml-5 mt-1 space-y-0.5">
                   {f.factor_values.map((fv, vi) => {
                     const included = isFvIncluded(fi, vi);
@@ -1402,6 +1493,24 @@ export function ProposalCardV2({
                               ⚠ {chipLabelFor(d)}
                             </span>
                           ))}
+                        {/* Per-FV "0 samples" chip — only meaningful
+                            when the parent factor isn't already
+                            zero-coverage (the rose banner above
+                            covers that case). Catches the mixed-
+                            coverage case: a partially-mapped factor
+                            where some FVs are populated and others
+                            aren't. Derived from the FV payload, not
+                            an agent signal — assignment counts are
+                            on the FV directly. */}
+                        {coverageTier !== "zero" &&
+                        fv.biomaterial_short_names.length === 0 ? (
+                          <span
+                            className="text-rose-700 text-[10px] ml-1"
+                            title="Proposer assigned no samples to this FV. Other FVs in the same factor have assignments — review whether this label is supportable from the source data."
+                          >
+                            ⚠ 0 samples
+                          </span>
+                        ) : null}
                         <IssueTagInline
                           surface="fv"
                           targetId={`factor:${f.category.label}/fv:${vi}`}
