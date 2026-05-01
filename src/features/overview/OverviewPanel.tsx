@@ -20,7 +20,6 @@ import {
   deletePublication,
   deleteTag,
   setDesignDescription,
-  setDesignShortName,
   setDesignTitle,
   setTagCategory,
   setTagValue,
@@ -160,11 +159,6 @@ export function OverviewPanel() {
     );
   }
 
-  const fvTotal = draft.factors.reduce(
-    (n, f) => n + f.factor_values.length,
-    0,
-  );
-
   return (
     <div className="space-y-4">
       <div className="card px-3 py-1.5 flex items-center gap-3 flex-wrap text-xs text-slate-600">
@@ -219,22 +213,11 @@ export function OverviewPanel() {
       </article>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <SummaryCard label="Identity">
-          <KV
-            k="short name"
-            v={
-              <InlineText
-                value={meta?.experiment_short_name ?? ""}
-                placeholder="—"
-                onCommit={(s) =>
-                  draft && apply(setDesignShortName(draft, s))
-                }
-              />
-            }
-          />
-          <KV k="experiment id" v={String(meta?.experiment_id ?? "")} mono />
-          <KV k="source" v={renderSource(meta?.external_source ?? null)} />
-        </SummaryCard>
+        {/* Identity card removed 2026-04-30 — short_name + source +
+            external link already render in the ExperimentBanner at the
+            top of the page; experiment_id is internal plumbing
+            curators rarely need. The short_name is still curator-
+            editable inline on the banner. */}
 
         <SummaryCard label="Subject + assay">
           <KV k="taxon" v={meta?.taxon || "—"} />
@@ -263,29 +246,12 @@ export function OverviewPanel() {
           <KV k="loaded at" v={formatTimestamp(meta?.loaded_at) || "—"} />
         </SummaryCard>
 
-        <SummaryCard label="Cohort">
-          <KV
-            k="biomaterials"
-            v={String(draft.biomaterials.length)}
-            mono
-          />
-          <KV
-            k="bio_assays"
-            v={String(
-              draft.biomaterials.reduce(
-                (n, b) => n + (b.bio_assays?.length ?? 0),
-                0,
-              ),
-            )}
-            mono
-          />
-          <KV
-            k="factors / FVs"
-            v={`${draft.factors.length} / ${fvTotal}`}
-            mono
-          />
-          <KV k="experiment tags" v={String(draft.tags.length)} mono />
-        </SummaryCard>
+        {/* Cohort card removed 2026-04-30 — its four counts were
+            taking up a full card for stats that compress nicely into
+            a single strip. The cohort numbers now ride at the top
+            of the DesignSummary card below where they're actually
+            used (the curator is reading the design crosstab; "165
+            samples · 1 factor / 6 FVs · 3 tags" belongs there). */}
 
         <SummaryCard label="Publications">
           {(meta?.publications?.length ?? 0) === 0 ? (
@@ -390,6 +356,7 @@ export function OverviewPanel() {
       <DesignSummary
         factors={draft.factors}
         biomaterials={draft.biomaterials}
+        nTags={draft.tags.length}
       />
     </div>
   );
@@ -418,9 +385,11 @@ export function OverviewPanel() {
 function DesignSummary({
   factors,
   biomaterials,
+  nTags,
 }: {
   factors: Factor[];
   biomaterials: Biomaterial[];
+  nTags: number;
 }) {
   const NUISANCE_KEYWORDS = ["block", "batch"];
   const isNuisance = (f: Factor) => {
@@ -467,22 +436,38 @@ function DesignSummary({
     );
   }, [standard, biomaterials]);
 
-  // Column headers: "factor (val1 vs val2 vs ...)". Use the factor's
-  // FV labels in their declared order so the header reads like
-  // Gemma's. Truncate when there are many.
-  const factorHeader = (f: Factor): string => {
+  // Column header: just the factor's display name. The previous
+  // "factor (val1 vs val2 vs +N)" form blew the header to 100+
+  // characters — fine on a one-factor design, unworkable on three.
+  // The FV labels are visible directly under the header in each
+  // row's cells; the full vs-list lives in the column's tooltip
+  // for the curator who wants the at-a-glance summary.
+  const factorHeader = (f: Factor): string =>
+    f.name || f.category?.label || "(factor)";
+
+  const factorHeaderTooltip = (f: Factor): string => {
     const labels = (f.factor_values ?? []).map(
       (fv) =>
         fv.free_text_label ||
         fv.statements?.[0]?.subject?.label ||
         "(unlabelled)",
     );
-    const cap = 4;
-    const shown = labels.slice(0, cap).join(" vs ");
-    const more = labels.length > cap ? ` vs +${labels.length - cap}` : "";
-    const name = f.name || f.category?.label || "(factor)";
-    return labels.length > 0 ? `${name} (${shown}${more})` : name;
+    const namePart = f.name || f.category?.label || "(factor)";
+    const valuesPart =
+      labels.length > 0 ? `\nlevels: ${labels.join(" · ")}` : "";
+    const descPart = f.description ? `\n${f.description}` : "";
+    const uriPart = f.category?.uri ? `\n${f.category.uri}` : "";
+    return `${namePart}${valuesPart}${descPart}${uriPart}`;
   };
+
+  // Cohort numbers — moved here from the retired Cohort card. Lives
+  // at the top of the Design view because that's where curators are
+  // checking "is this design covering all the samples?".
+  const fvTotal = factors.reduce((n, f) => n + f.factor_values.length, 0);
+  const nBioAssays = biomaterials.reduce(
+    (n, b) => n + (b.bio_assays?.length ?? 0),
+    0,
+  );
 
   // Batch-confound detection. A batch / block factor is "confounded"
   // with a standard factor when every batch level contains exactly
@@ -506,8 +491,38 @@ function DesignSummary({
 
   return (
     <SummaryCard label="Design" className="md:col-span-2">
-      {/* Top strip: batch-confound chip + continuous-not-shown note. */}
-      <div className="mb-2 flex items-center gap-2 flex-wrap text-[11px]">
+      {/* Cohort numbers + design warnings strip. Holds the four
+          counts that used to live in a dedicated Cohort card plus
+          the existing batch-confound / continuous-not-shown notes
+          — all the "by-the-numbers" cues for the design at a
+          glance. */}
+      <div className="mb-2 flex items-baseline gap-3 flex-wrap text-[11px] text-slate-600">
+        <span>
+          <span className="font-mono font-medium text-slate-800">
+            {biomaterials.length}
+          </span>{" "}
+          biomaterial{biomaterials.length === 1 ? "" : "s"}
+        </span>
+        {nBioAssays !== biomaterials.length ? (
+          <span>
+            <span className="font-mono font-medium text-slate-800">
+              {nBioAssays}
+            </span>{" "}
+            bio_assays
+          </span>
+        ) : null}
+        <span>
+          <span className="font-mono font-medium text-slate-800">
+            {factors.length}
+          </span>{" "}
+          factor{factors.length === 1 ? "" : "s"} /{" "}
+          <span className="font-mono font-medium text-slate-800">{fvTotal}</span>{" "}
+          FV{fvTotal === 1 ? "" : "s"}
+        </span>
+        <span>
+          <span className="font-mono font-medium text-slate-800">{nTags}</span>{" "}
+          tag{nTags === 1 ? "" : "s"}
+        </span>
         {confound ? (
           <span
             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-violet-900 border border-amber-300 font-medium"
@@ -548,7 +563,7 @@ function DesignSummary({
                   <th
                     key={f.id}
                     className="px-2 py-1.5 text-left border border-slate-200 font-medium"
-                    title={f.category?.uri || f.description || undefined}
+                    title={factorHeaderTooltip(f)}
                   >
                     {factorHeader(f)}
                   </th>
@@ -1666,28 +1681,6 @@ function renderPlatform(
   );
 }
 
-function renderSource(
-  src: { database: string; accession: string; uri: string | null } | null,
-): React.ReactNode {
-  if (!src) {
-    return (
-      <span className="italic text-slate-500">direct upload</span>
-    );
-  }
-  const label = `${src.database}: ${src.accession}`;
-  if (!src.uri) return label;
-  return (
-    <a
-      href={src.uri}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-blue-700 hover:underline"
-    >
-      {label} ↗
-    </a>
-  );
-}
-
 /** Parse the actual abstract out of the agent's ``paper_excerpt``.
  *  Biolit hands back a kitchen-sink dump — GEO metadata header
  *  (Title / Type / Organism / Platform / Sample count / linked
@@ -1764,7 +1757,7 @@ function AbstractModal({
         }
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-baseline justify-between gap-2 px-4 py-2 border-b border-slate-200">
+        <header className="flex items-baseline justify-between gap-2 px-4 py-2 border-b border-slate-200 shrink-0">
           <div className="min-w-0 flex-1">
             <div
               className={
@@ -1789,7 +1782,13 @@ function AbstractModal({
             ×
           </button>
         </header>
-        <div className="overflow-auto px-4 py-3 text-xs leading-relaxed text-slate-700 space-y-2">
+        {/* ``flex-1 min-h-0`` lets the body claim the remaining
+            modal height and lets ``overflow-auto`` actually kick in
+            — without ``min-h-0``, flex children default to
+            ``min-height: auto`` and the body grows past max-h-[80vh]
+            without scrolling. Caught when a long abstract truncated
+            mid-sentence with no scrollbar. */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 text-xs leading-relaxed text-slate-700 space-y-2">
           {paragraphs.map((p, i) => (
             <p key={i}>{p}</p>
           ))}
@@ -1994,6 +1993,35 @@ function PublicationRow({
   );
 }
 
+/** Classify a single curator-typed string as either a PubMed ID or
+ *  a DOI. PMIDs are bare integers; DOIs match Crossref's
+ *  ``10.NNNN/...`` pattern, optionally with a ``doi:`` prefix or a
+ *  ``https://doi.org/`` URL wrapper.
+ *
+ *  Returns ``null`` for empty / ambiguous input so the caller can
+ *  disable submit and show a "unrecognised" hint.
+ */
+export function parsePmidOrDoi(
+  raw: string,
+): { kind: "pmid"; value: string } | { kind: "doi"; value: string } | null {
+  const v = raw.trim();
+  if (!v) return null;
+  // PMID: bare digits, length 1+ (PubMed PMIDs are <= 9 digits today
+  // but no point hard-coding a length cap — Pub gradually growth.)
+  if (/^\d+$/.test(v)) {
+    return { kind: "pmid", value: v };
+  }
+  // DOI: strip optional URL / prefix, then match ``10.NNNN/anything``.
+  const stripped = v
+    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
+    .replace(/^doi:\s*/i, "")
+    .trim();
+  if (/^10\.\d{4,9}\/[^\s]+$/.test(stripped)) {
+    return { kind: "doi", value: stripped };
+  }
+  return null;
+}
+
 function AddPublicationForm({
   onAdd,
   accession,
@@ -2003,17 +2031,24 @@ function AddPublicationForm({
   accession: string;
   title: string;
 }) {
-  const [pmid, setPmid] = useState("");
-  const [doi, setDoi] = useState("");
+  // One input, auto-classified. PMIDs are integers; DOIs match the
+  // ``10.NNNN/...`` Crossref pattern, optionally wrapped in a
+  // ``https://doi.org/`` URL or a ``doi:`` prefix. Anything else
+  // shows a hint and the submit stays disabled. Two-field UX (one
+  // for PMID, one for DOI) was an avoidable hoop — the format
+  // disambiguates without curator help.
+  const [value, setValue] = useState("");
+  const parsed = parsePmidOrDoi(value);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    const p = pmid.trim();
-    const d = doi.trim();
-    if (!p && !d) return;
-    onAdd({ pubmed_id: p, doi: d });
-    setPmid("");
-    setDoi("");
+    if (!parsed) return;
+    onAdd(
+      parsed.kind === "pmid"
+        ? { pubmed_id: parsed.value }
+        : { doi: parsed.value },
+    );
+    setValue("");
   }
 
   // PubMed-search stubs. Two cases when the GEO submitter forgot to
@@ -2061,26 +2096,25 @@ function AddPublicationForm({
       >
         <input
           type="text"
-          value={pmid}
-          onChange={(e) => setPmid(e.target.value)}
-          placeholder="PubMed ID"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          className="border border-slate-300 rounded px-1.5 py-0.5 w-24"
-          title="paste the PMID from a PubMed result"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="PubMed ID or DOI"
+          className="border border-slate-300 rounded px-1.5 py-0.5 flex-1 min-w-[14rem] font-mono"
+          title="Paste a PMID (digits) or a DOI (10.xxxx/yyyy or https://doi.org/...). The form picks the right field for you."
         />
-        <input
-          type="text"
-          value={doi}
-          onChange={(e) => setDoi(e.target.value)}
-          placeholder="DOI (optional)"
-          className="border border-slate-300 rounded px-1.5 py-0.5 flex-1 min-w-[8rem] font-mono"
-        />
-        <button
-          type="submit"
-          className="btn primary"
-          disabled={!pmid.trim() && !doi.trim()}
-        >
+        {/* Tiny inline classifier hint — confirms the input parsed
+            and tells the curator which field will be set on submit. */}
+        {value.trim() ? (
+          <span
+            className={
+              "text-[10px] uppercase tracking-wide " +
+              (parsed ? "text-emerald-700" : "text-rose-700")
+            }
+          >
+            {parsed ? parsed.kind : "unrecognised"}
+          </span>
+        ) : null}
+        <button type="submit" className="btn primary" disabled={!parsed}>
           + add
         </button>
       </form>
