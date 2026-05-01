@@ -20,17 +20,19 @@ export function DiagnosticsPanel({ experimentId }: { experimentId: number }) {
   // Mirrors what the rest of the experiment tabs do.
   const { draft: design, isLoading, loadError } = useDesignDraft();
 
-  if (isLoading) {
-    return (
-      <div className="card p-4 text-sm text-slate-500">loading diagnostics…</div>
-    );
-  }
-  if (loadError || !design) {
+  // Order matters: a transient ``design === null`` post-reset would
+  // otherwise show as a bogus error (react-query reports
+  // ``isFetching`` not ``isLoading`` on a refetch).
+  if (loadError) {
     return (
       <div className="card p-4 text-sm text-rose-700">
-        couldn't load design for experiment {experimentId}:{" "}
-        {loadError ?? "unknown"}
+        couldn't load design for experiment {experimentId}: {loadError}
       </div>
+    );
+  }
+  if (isLoading || !design) {
+    return (
+      <div className="card p-4 text-sm text-slate-500">loading diagnostics…</div>
     );
   }
 

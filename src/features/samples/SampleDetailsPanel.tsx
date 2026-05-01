@@ -99,17 +99,19 @@ export function SampleDetailsPanel({ experimentId }: { experimentId: number }) {
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  if (isLoading) {
-    return (
-      <div className="card p-4 text-sm text-slate-500">loading samples…</div>
-    );
-  }
-  if (loadError || !draft) {
+  // Order matters: a transient ``draft === null`` post-reset would
+  // otherwise show as a bogus error (react-query reports
+  // ``isFetching`` not ``isLoading`` on a refetch).
+  if (loadError) {
     return (
       <div className="card p-4 text-sm text-rose-700">
-        couldn't load samples for experiment {experimentId}:{" "}
-        {loadError ?? "unknown"}
+        couldn't load samples for experiment {experimentId}: {loadError}
       </div>
+    );
+  }
+  if (isLoading || !draft) {
+    return (
+      <div className="card p-4 text-sm text-slate-500">loading samples…</div>
     );
   }
 

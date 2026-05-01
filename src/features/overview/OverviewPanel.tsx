@@ -137,17 +137,22 @@ export function OverviewPanel() {
     markPaperDismissed(draftExperimentId, pid);
   }, [paperEvidence, draftExperimentId, apply, draft]);
 
-  if (isLoading) {
+  // Order matters: a transient ``draft === null`` can show up between
+  // a "Reset experiment" and the design refetch landing — react-query
+  // reports ``isFetching`` (not ``isLoading``) on a refetch, so we'd
+  // otherwise fall through to the error card with no real error to
+  // report. Treat "no draft yet, no error" as still loading.
+  if (loadError) {
     return (
-      <div className="card p-4 text-sm text-slate-500">
-        loading overview…
+      <div className="card p-4 text-sm text-rose-700">
+        couldn't load overview: {loadError}
       </div>
     );
   }
-  if (loadError || !draft) {
+  if (isLoading || !draft) {
     return (
-      <div className="card p-4 text-sm text-rose-700">
-        couldn't load overview: {loadError ?? "unknown"}
+      <div className="card p-4 text-sm text-slate-500">
+        loading overview…
       </div>
     );
   }

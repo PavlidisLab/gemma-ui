@@ -45,22 +45,25 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
     [draft],
   );
 
-  if (isLoading) {
-    return (
-      <div className="card p-4 text-sm text-slate-500">loading design…</div>
-    );
-  }
-  if (loadError || !draft) {
+  // Order matters: ``draft === null`` is a transient state during
+  // a "Reset experiment" refetch (react-query flips ``isFetching``,
+  // not ``isLoading``, on a refetch). Show "loading" rather than
+  // a confusing "unknown" error in that window.
+  if (loadError) {
     return (
       <div className="card p-4 text-sm text-rose-700">
-        couldn't load design for experiment {experimentId}:{" "}
-        {loadError ?? "unknown"}
+        couldn't load design for experiment {experimentId}: {loadError}
         <p className="mt-1 text-slate-500 text-[11px]">
           Mock not seeded? Restart with{" "}
           <code>./run_mock.sh</code> — it auto-seeds GSE277245.1 on
           first start.
         </p>
       </div>
+    );
+  }
+  if (isLoading || !draft) {
+    return (
+      <div className="card p-4 text-sm text-slate-500">loading design…</div>
     );
   }
 
