@@ -755,3 +755,113 @@ wired on the UI side without crawling the source tree.
   per-finding deep linking from inbox row to specific scrolled
   position in the detail page, richer rendering of embedded
   `comparison_proposal` (currently a JSON dump in `AuditReportView`).
+
+### `DatasetSummary` audit fields — done
+
+`GET /rest/v2/datasets` now surfaces the seven audit fields on every
+row. All optional / defaulted, so a row with no audits returns
+`n_audits: 0`, `latest_audit_id: null`, etc. without breaking the
+existing TS shape. Computed in `Storage.audit_summaries()` —
+counts only the latest audit's findings whose latest disposition
+is `pending` (or absent), per the doc semantics. `ok` findings
+are excluded from the unactioned counts.
+
+Live verification against the post-batch mock DB:
+
+```
+short_name      n_audits verdict            unactioned B/M/m
+GSE47162               2 major_issues       0 /  2 /  8
+GSE281069.1            1 major_issues       0 /  2 /  1
+GSE63264               1 major_issues       0 /  9 /  9
+GSE74282               1 major_issues       0 / 10 /  8
+GSE34201               1 major_issues       0 /  1 /  5
+GSE86936               1 minor_issues       0 /  0 /  3
+GSE42052               1 minor_issues       0 /  0 /  4
+GSE206270              1 minor_issues       0 /  0 /  6
+GSE145202              1 minor_issues       0 /  0 /  4
+GSE32309               1 major_issues       0 /  6 /  7
+```
+
+(GSE47162's `n_audits: 2` is from the prompt-fix reaudit; latest
+wins, so the unactioned counts are from the post-fix audit, not
+the original.)
+
+The mock server needs restart for the new `DatasetSummary`
+Pydantic shape to take effect on the wire — storage-layer changes
+are picked up live, but the response_model is bound at app
+startup.
+
+### Original ask (for reference)
+
+The UI's experiments landing page (`/rest/v2/datasets`, served via
+`useDatasets` → `DatasetSummary`) is becoming a unified dashboard:
+one row per experiment, status chips that combine curation flags +
+pending proposals + audit state. Today the row knows nothing about
+audits — curators have to open each experiment to see whether it
+needs audit triage.
+
+Please add these fields to `DatasetSummary` (Pydantic + the
+`/rest/v2/datasets` GET handler). All optional / nullable so the
+UI can ship the dashboard incrementally; missing values degrade to
+"no audits run yet".
+
+```ts
+interface DatasetSummary {
+  // … existing fields …
+
+  /** Total count of audits ever submitted for this experiment. 0 =
+   *  never audited. */
+  n_audits: number;
+
+  /** audit_id of the most recent audit (by audited_at). Null when
+   *  n_audits == 0. Lets the row deep-link to the audit detail
+   *  page (#/audits/{audit_id}). */
+  latest_audit_id: string | null;
+
+  /** ISO 8601 UTC timestamp of the most recent audit. Null when
+   *  n_audits == 0. Sortable so curators can see "audited recently"
+   *  at a glance. */
+  latest_audited_at: string | null;
+
+  /** overall_verdict of the most recent audit, or null when
+   *  n_audits == 0. The dashboard uses this for the verdict chip
+   *  + the verdict filter pill. */
+  latest_audit_verdict:
+    | "clean"
+    | "minor_issues"
+    | "major_issues"
+    | "blockers"
+    | null;
+
+  /** Counts of *unactioned* findings on the LATEST audit only —
+   *  i.e. findings whose latest disposition is "pending" (not
+   *  accepted / dismissed / needs_more_info), broken out by
+   *  severity. Older audits' findings don't count: re-running an
+   *  audit is the canonical way to refresh the assessment.
+   *
+   *  These drive the dashboard's "audit issues" filter pill and
+   *  the per-row chip's color (rose = blockers > 0; amber =
+   *  major > 0; slate = minor > 0; emerald when verdict=clean
+   *  with no unactioned findings). */
+  n_unactioned_blocker: number;
+  n_unactioned_major: number;
+  n_unactioned_minor: number;
+}
+```
+
+Semantics notes:
+- "Latest audit only" for the unactioned counts. Older audits are
+  history — if a curator re-audits, fresh-pending findings on the
+  new audit replace the old assessment. The same `target_id`
+  appearing in both audits doesn't double-count because the
+  disposition is keyed on (audit_id, target_id).
+- `n_ok` is intentionally not part of the dashboard surface — green
+  checks aren't a dashboard signal.
+- A future `?audit_verdict=blockers,major_issues` query param on
+  GET `/rest/v2/datasets` would let the UI push the filter
+  server-side; nice-to-have, not blocking the dashboard work.
+
+UI side will ship the dashboard chip + filter + sort with these
+fields treated as optional (TS `?:` so a server that hasn't been
+upgraded yet still type-checks). Once they land server-side, the
+row populates without any client change.

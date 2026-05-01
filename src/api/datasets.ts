@@ -25,6 +25,35 @@ export interface DatasetSummary {
   has_curation_note: boolean;
   /** Count of proposals in status=pending for this experiment. */
   n_pending_proposals: number;
+
+  // ---- Audit fields (see AUDIT_FEATURE.md §"Open ask … DatasetSummary
+  // audit fields" for the spec). All optional / nullable so the UI
+  // degrades to "no audits known" when an older mock is in front of
+  // us. Once my brother ships them on the agents side these populate
+  // with no client change.
+
+  /** Total audits ever submitted for this experiment. 0 = never
+   *  audited; undefined = older server that doesn't track this yet. */
+  n_audits?: number;
+  /** audit_id of the most recent audit (by audited_at), for
+   *  deep-linking from the row to the detail page. */
+  latest_audit_id?: string | null;
+  /** ISO 8601 UTC of the most recent audit. */
+  latest_audited_at?: string | null;
+  /** overall_verdict of the most recent audit. Null = never audited;
+   *  undefined = older server that doesn't track audits. */
+  latest_audit_verdict?:
+    | "clean"
+    | "minor_issues"
+    | "major_issues"
+    | "blockers"
+    | null;
+  /** Unactioned findings on the LATEST audit only, broken out by
+   *  severity. Older audits' findings don't count — re-auditing is
+   *  the canonical way to refresh the assessment. */
+  n_unactioned_blocker?: number;
+  n_unactioned_major?: number;
+  n_unactioned_minor?: number;
 }
 
 const KEY = ["datasets"] as const;

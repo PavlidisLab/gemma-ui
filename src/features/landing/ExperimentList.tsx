@@ -88,6 +88,7 @@ export function ExperimentList({
     needs_attention: all.filter((r) => r.needs_attention).length,
     proposals: all.filter((r) => (r.n_pending_proposals ?? 0) > 0).length,
     notes: all.filter((r) => r.has_curation_note).length,
+    audit_issues: all.filter((r) => actionableAuditCount(r) > 0).length,
   };
 
   const rows = all
@@ -97,6 +98,8 @@ export function ExperimentList({
       if (statusFilter === "proposals" && (r.n_pending_proposals ?? 0) === 0)
         return false;
       if (statusFilter === "notes" && !r.has_curation_note) return false;
+      if (statusFilter === "audit_issues" && actionableAuditCount(r) === 0)
+        return false;
       const q = filter.trim().toLowerCase();
       if (!q) return true;
       return (
@@ -309,6 +312,13 @@ export function ExperimentList({
               count={counts.notes}
               tone="sky"
             />
+            <StatusPill
+              active={statusFilter === "audit_issues"}
+              onClick={() => setStatusFilter("audit_issues")}
+              label="audit issues"
+              count={counts.audit_issues}
+              tone="rose"
+            />
           </div>
 
           {isLoading ? (
@@ -408,7 +418,13 @@ function Row({
   );
 }
 
-type StatusFilter = "all" | "troubled" | "needs_attention" | "proposals" | "notes";
+type StatusFilter =
+  | "all"
+  | "troubled"
+  | "needs_attention"
+  | "proposals"
+  | "notes"
+  | "audit_issues";
 
 type SortKey =
   | "short_name"
@@ -439,12 +455,27 @@ function defaultDirFor(key: SortKey): SortDir {
 
 function statusPriority(r: DatasetSummary): number {
   // Bigger = "more attention-worthy". Used by the status sort.
+  // Audit blockers outrank everything else — a curated experiment
+  // that the auditor flagged as broken is the highest-stakes
+  // signal a curator can see on this page.
   let s = 0;
+  if ((r.n_unactioned_blocker ?? 0) > 0) s += 5000;
   if (r.troubled) s += 1000;
   if (r.needs_attention) s += 500;
+  s += (r.n_unactioned_major ?? 0) * 100;
   s += (r.n_pending_proposals ?? 0) * 10;
+  s += (r.n_unactioned_minor ?? 0) * 5;
   if (r.has_curation_note) s += 1;
   return s;
+}
+
+/** Total unactioned major+blocker findings on the latest audit.
+ *  Drives the "audit issues" filter pill and the audit chip's
+ *  visibility — `clean` audits with no actionable findings still
+ *  show a chip (positive confirmation), but the filter is for
+ *  triage so it counts only actionable. */
+function actionableAuditCount(r: DatasetSummary): number {
+  return (r.n_unactioned_blocker ?? 0) + (r.n_unactioned_major ?? 0);
 }
 
 function compareRows(a: DatasetSummary, b: DatasetSummary, key: SortKey): number {
@@ -586,7 +617,7 @@ function StatusChips({ r }: { r: DatasetSummary }) {
       tab: "notes",
     });
   }
-  if (chips.length === 0) {
+  if (chips.length === 0 && r.latest_audit_verdict == null) {
     return <span className="text-slate-300 text-xs">—</span>;
   }
   return (
@@ -605,7 +636,71 @@ function StatusChips({ r }: { r: DatasetSummary }) {
           {c.label}
         </button>
       ))}
+      <AuditChip r={r} />
     </div>
+  );
+}
+
+/** Audit summary chip — verdict + unactioned-finding count.
+ *  Renders only when the server has populated `latest_audit_verdict`
+ *  (older mocks that don't track audit state hide the chip
+ *  entirely). Click prefers the audit detail page when a
+ *  `latest_audit_id` is available; falls back to opening the
+ *  experiment's audit sidebar otherwise. */
+function AuditChip({ r }: { r: DatasetSummary }) {
+  const verdict = r.latest_audit_verdict;
+  if (verdict == null) return null;
+  const blocker = r.n_unactioned_blocker ?? 0;
+  const major = r.n_unactioned_major ?? 0;
+  const minor = r.n_unactioned_minor ?? 0;
+  // Color picks the highest *unactioned* severity, not the
+  // verdict — a "blockers" verdict that's been fully dispositioned
+  // shouldn't keep painting the chip rose forever.
+  const cls =
+    blocker > 0
+      ? "bg-rose-50 border-rose-200 text-rose-800 hover:bg-rose-100"
+      : major > 0
+        ? "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100"
+        : minor > 0
+          ? "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+          : verdict === "clean"
+            ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
+            : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100";
+  // Label leads with the actionable cue when there's something to
+  // do; otherwise falls back to the verdict so a clean audit still
+  // surfaces as positive confirmation.
+  const label =
+    blocker > 0
+      ? `${blocker} blocker${blocker === 1 ? "" : "s"}`
+      : major > 0
+        ? `${major} major`
+        : minor > 0
+          ? `${minor} minor`
+          : verdict === "clean"
+            ? "✓ audit clean"
+            : verdict.replace("_", " ");
+  const title = `Latest audit: ${verdict.replace("_", " ")}${
+    blocker || major || minor
+      ? ` · unactioned: ${blocker} blocker${blocker === 1 ? "" : "s"}, ${major} major, ${minor} minor`
+      : " · all findings actioned"
+  }${r.latest_audited_at ? `\nAudited ${formatTimestamp(r.latest_audited_at)}` : ""}\nClick to open the audit.`;
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (r.latest_audit_id) {
+          navigate(`#/audits/${encodeURIComponent(r.latest_audit_id)}`);
+        } else {
+          navigate(experimentRoute(r.experiment_id));
+        }
+      }}
+      className={`text-[11px] px-1.5 py-0.5 border rounded inline-flex items-center gap-1 ${cls}`}
+    >
+      <span aria-hidden>◆</span>
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -622,6 +717,7 @@ function EmptyState({
       needs_attention: "needs-attention",
       proposals: "with pending proposals",
       notes: "with curation notes",
+      audit_issues: "with unactioned audit issues",
       all: "",
     }[statusFilter];
     return (
