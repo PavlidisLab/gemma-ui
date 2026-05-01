@@ -124,9 +124,19 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
     ) {
       continue;
     }
-    addedFvs += fd.added.length;
-    removedFvs += fd.removed.length;
-    modifiedFvs += fd.modified.length;
+    // Continuous factors carry one FV per sample (the per-sample
+    // measurement). Curator-facing FV-count summaries treat those
+    // as a single unit alongside the factor itself, not as N
+    // independent edits — otherwise an N=171 cohort lands as
+    // "171 new FVs" in the commit bar, which is meaningless to
+    // the curator. The detail breakdown still includes them so
+    // the editor can render the FV cards individually.
+    const isContinuous = df.type === "continuous" || sf.type === "continuous";
+    if (!isContinuous) {
+      addedFvs += fd.added.length;
+      removedFvs += fd.removed.length;
+      modifiedFvs += fd.modified.length;
+    }
     factorsChanged.push({
       factorId: sf.id,
       factorName: sf.name,
@@ -135,12 +145,14 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
     });
   }
 
-  // FVs inside newly-added factors are "added" too — surface for totals.
+  // FVs inside newly-added factors are "added" too — surface for
+  // totals, but only for categorical factors (continuous factors'
+  // per-sample measurements ride with the factor add itself).
   for (const f of factorsAdded) {
-    addedFvs += f.factor_values.length;
+    if (f.type !== "continuous") addedFvs += f.factor_values.length;
   }
   for (const f of factorsRemoved) {
-    removedFvs += f.factor_values.length;
+    if (f.type !== "continuous") removedFvs += f.factor_values.length;
   }
 
   const tagDiff = diffTags(saved.tags ?? [], draft.tags ?? []);
