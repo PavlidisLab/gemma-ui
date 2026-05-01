@@ -1,0 +1,164 @@
+import { describe, expect, it } from "vitest";
+import {
+  factorRequiresBaseline,
+  validateDesign,
+  type Design,
+  type Factor,
+  type FactorValue,
+} from "./types";
+
+/**
+ * Validator + baseline-required tests, focused on the continuous-
+ * factor escape hatch (#12: continuous factors carry per-sample
+ * measurements, not discrete FVs, so "exactly one baseline" and
+ * "every sample assigned" don't apply).
+ */
+
+function categoricalFactor(
+  id: number,
+  category: string,
+  fvs: FactorValue[] = [],
+): Factor {
+  return {
+    id,
+    name: category,
+    category: { label: category, uri: null },
+    description: "",
+    type: "categorical",
+    factor_values: fvs,
+  };
+}
+
+function continuousFactor(id: number, category: string, fvs: FactorValue[] = []): Factor {
+  return {
+    id,
+    name: category,
+    category: { label: category, uri: null },
+    description: "",
+    type: "continuous",
+    factor_values: fvs,
+  };
+}
+
+function fv(
+  id: number,
+  label: string,
+  bms: string[],
+  baseline = false,
+): FactorValue {
+  return {
+    id,
+    free_text_label: label,
+    is_baseline: baseline,
+    biomaterial_short_names: bms,
+    statements: [],
+  };
+}
+
+function emptyDesign(overrides: Partial<Design> = {}): Design {
+  return {
+    experiment_id: 1,
+    experiment_short_name: "GSE1",
+    factors: [],
+    biomaterials: [],
+    tags: [],
+    ...overrides,
+  };
+}
+
+describe("factorRequiresBaseline", () => {
+  it("returns false for block / batch / organism part / cell type categories", () => {
+    expect(factorRequiresBaseline({ label: "block" })).toBe(false);
+    expect(factorRequiresBaseline({ label: "batch" })).toBe(false);
+    expect(factorRequiresBaseline({ label: "organism part" })).toBe(false);
+    expect(factorRequiresBaseline({ label: "cell type" })).toBe(false);
+  });
+
+  it("returns true for typical experimental categories", () => {
+    expect(factorRequiresBaseline({ label: "treatment" })).toBe(true);
+    expect(factorRequiresBaseline({ label: "genotype" })).toBe(true);
+    expect(factorRequiresBaseline({ label: "disease" })).toBe(true);
+  });
+
+  it("returns false for continuous factors regardless of category", () => {
+    // A continuous "age" factor would naively hit the categorical
+    // path and demand a baseline. Pass the whole Factor so the
+    // type-aware overload kicks in.
+    expect(factorRequiresBaseline(continuousFactor(1, "age"))).toBe(false);
+    expect(factorRequiresBaseline(continuousFactor(1, "weight"))).toBe(false);
+  });
+
+  it("still requires baseline for categorical factors with non-exempt category", () => {
+    expect(factorRequiresBaseline(categoricalFactor(1, "treatment"))).toBe(true);
+  });
+
+  it("treats null / undefined as 'requires baseline' (safe default)", () => {
+    expect(factorRequiresBaseline(null)).toBe(true);
+    expect(factorRequiresBaseline(undefined)).toBe(true);
+  });
+
+  it("is case-insensitive on category labels", () => {
+    expect(factorRequiresBaseline({ label: "Cell Type" })).toBe(false);
+    expect(factorRequiresBaseline({ label: "ORGANISM PART" })).toBe(false);
+  });
+});
+
+describe("validateDesign — continuous factor escape hatch", () => {
+  it("skips unassigned_biomaterials check on continuous factors", () => {
+    const f = continuousFactor(10, "age", [fv(1, "23.5", ["s1"])]);
+    const design = emptyDesign({
+      factors: [f],
+      biomaterials: [
+        { short_name: "s1", name: "s1", characteristics: {} },
+        { short_name: "s2", name: "s2", characteristics: {} },
+        { short_name: "s3", name: "s3", characteristics: {} },
+      ],
+    });
+    const v = validateDesign(design);
+    const state = v.factors.find((s) => s.factor_id === 10);
+    // Categorical factor with only one sample assigned out of three
+    // would flag s2 + s3 as unassigned. Continuous skips the check.
+    expect(state?.unassigned_biomaterials).toEqual([]);
+  });
+
+  it("skips baseline_required on continuous factors", () => {
+    const f = continuousFactor(10, "age", [fv(1, "23.5", ["s1"])]);
+    const design = emptyDesign({ factors: [f] });
+    const v = validateDesign(design);
+    expect(v.factors[0].baseline_required).toBe(false);
+  });
+
+  it("still flags unassigned on a sibling categorical factor", () => {
+    const cont = continuousFactor(10, "age", [fv(1, "23.5", ["s1"])]);
+    const cat = categoricalFactor(11, "treatment", [
+      fv(2, "drug", ["s1"]),
+    ]);
+    const design = emptyDesign({
+      factors: [cont, cat],
+      biomaterials: [
+        { short_name: "s1", name: "s1", characteristics: {} },
+        { short_name: "s2", name: "s2", characteristics: {} },
+      ],
+    });
+    const v = validateDesign(design);
+    const contState = v.factors.find((s) => s.factor_id === 10);
+    const catState = v.factors.find((s) => s.factor_id === 11);
+    expect(contState?.unassigned_biomaterials).toEqual([]);
+    // s2 is still unassigned in the categorical "treatment" factor.
+    expect(catState?.unassigned_biomaterials).toEqual(["s2"]);
+  });
+
+  it("a single continuous factor with partial coverage doesn't fail the design", () => {
+    // Without the escape hatch this design would be invalid (s2 / s3
+    // unassigned). With it, the only factor is fine.
+    const cont = continuousFactor(10, "age", [fv(1, "23.5", ["s1"])]);
+    const design = emptyDesign({
+      factors: [cont],
+      biomaterials: [
+        { short_name: "s1", name: "s1", characteristics: {} },
+        { short_name: "s2", name: "s2", characteristics: {} },
+      ],
+    });
+    expect(validateDesign(design).ok).toBe(true);
+  });
+});

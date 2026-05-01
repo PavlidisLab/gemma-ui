@@ -93,16 +93,16 @@ export function FactorValueCard({
   return (
     <article
       className={
-        "px-3 py-3 border-b border-slate-100 " + borderClass
+        "px-3 py-1.5 border-b border-slate-100 " + borderClass
       }
     >
-      <header className="flex items-center justify-between mb-2">
+      <header className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            className="rounded border-slate-300"
-            disabled={isRemoved}
-          />
+          {/* Removed a non-functional checkbox that lived here — no
+              ``checked`` / ``onChange`` was wired in, leaving a stub
+              control next to the FV label that looked actionable but
+              wasn't. Compaction came as a bonus: each card is now
+              ~12px shorter, which adds up over a six-FV factor. */}
           <span className={"font-medium text-sm " + tombstoneText}>
             {isRemoved ? (
               <span>{fv.free_text_label || <em>(blank)</em>}</span>
@@ -213,10 +213,14 @@ export function FactorValueCard({
           )}
         </div>
       </header>
-      <div className="ml-6">
+      <div className="ml-2">
+        {/* ``ml-2`` indent (was ml-6, sized for the now-removed
+            checkbox column) keeps a small visual offset so the
+            statements still read as nested under the FV label
+            without wasting horizontal space. */}
         <ol
           className={
-            "space-y-1.5 " +
+            "space-y-1 " +
             (stmtsChanged
               ? "border-l-2 border-amber-200 pl-2 -ml-2"
               : isRemoved

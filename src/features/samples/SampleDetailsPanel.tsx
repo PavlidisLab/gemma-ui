@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
+  addContinuousFactorFromCharacteristic,
+  isContinuousCharacteristic,
   reassignSample,
   reassignSamples,
   setBiomaterialCharacteristic,
   setBiomaterialName,
 } from "@/features/design/mutations";
+import { useToast } from "@/components/ui/Toast";
 import { InlineText } from "@/components/ui/InlineText";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { InlineFvPicker } from "@/components/ui/InlineFvPicker";
@@ -57,6 +60,34 @@ interface SortState {
  */
 export function SampleDetailsPanel({ experimentId }: { experimentId: number }) {
   const { draft, saved, apply, isLoading, loadError } = useDesignDraft();
+  const toast = useToast();
+  // After a "+ promote to factor" click, the new factor appears as
+  // the rightmost column in the sample table — frequently outside
+  // the viewport. Track the just-promoted id and scroll its column
+  // header into view once React has committed the new design.
+  // Cleared after scroll so subsequent renders don't re-scroll.
+  const [scrollToFactorId, setScrollToFactorId] = useState<number | null>(null);
+  useEffect(() => {
+    if (scrollToFactorId == null) return;
+    // requestAnimationFrame so the layout has settled (the new
+    // column has been inserted in the DOM) before we measure +
+    // scroll. Without it the scroll lands a frame too early on
+    // wider tables and ends up short of target.
+    const raf = requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(
+        `[data-factor-id="${scrollToFactorId}"]`,
+      );
+      if (el) {
+        el.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center",
+        });
+      }
+      setScrollToFactorId(null);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [scrollToFactorId]);
   // ``filter`` (the search box) stays ephemeral — re-typing on a
   // new experiment is fine, and a stale filter from a different
   // experiment would just hide rows confusingly. Sort preference
@@ -108,6 +139,23 @@ export function SampleDetailsPanel({ experimentId }: { experimentId: number }) {
       onSetCharacteristic={(shortName, key, value) =>
         apply((d) => setBiomaterialCharacteristic(d, shortName, key, value))
       }
+      onPromoteCharacteristic={(key) => {
+        // Lift a numeric BM characteristic into a first-class
+        // continuous Factor. Single composed apply so the FactorList
+        // reflects the new factor on the next render. Capture the
+        // new factor id and queue a horizontal scroll so the freshly-
+        // added column doesn't sit off-screen waiting to be found.
+        apply((d) => {
+          const { design: next, sampleCount, factorId } =
+            addContinuousFactorFromCharacteristic(d, key);
+          toast.show(
+            `Promoted "${key}" to continuous factor (${sampleCount} sample${sampleCount === 1 ? "" : "s"}).`,
+            "success",
+          );
+          setScrollToFactorId(factorId);
+          return next;
+        });
+      }}
     />
   );
 }
@@ -125,6 +173,7 @@ function SampleTable({
   onReassignBulk,
   onSetName,
   onSetCharacteristic,
+  onPromoteCharacteristic,
 }: {
   design: Design;
   /** Server-saved baseline; null until first fetch. We only use it
@@ -145,6 +194,7 @@ function SampleTable({
   ) => void;
   onSetName: (shortName: string, name: string) => void;
   onSetCharacteristic: (shortName: string, key: string, value: string) => void;
+  onPromoteCharacteristic: (key: string) => void;
 }) {
   const charKeys = useMemo(
     () => collectCharacteristicKeys(design.biomaterials),
@@ -158,6 +208,28 @@ function SampleTable({
       })),
     [design.factors],
   );
+  // Char keys whose values are mostly numeric — eligible for the
+  // "promote to continuous factor" affordance in the column header.
+  // Computed once across the whole cohort so flipping the threshold
+  // doesn't fan out to per-row work.
+  const continuousCharKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const k of charKeys) {
+      if (isContinuousCharacteristic(design.biomaterials, k)) s.add(k);
+    }
+    return s;
+  }, [charKeys, design.biomaterials]);
+  // Skip the affordance when a Factor with the same category label
+  // already exists (avoid double-promotion). Lower-cased for
+  // case-insensitive match against the char key.
+  const factorCategoryLabels = useMemo(() => {
+    const s = new Set<string>();
+    for (const f of design.factors) {
+      const k = (f.category.label || "").trim().toLowerCase();
+      if (k) s.add(k);
+    }
+    return s;
+  }, [design.factors]);
   // Match characteristic keys to categorical factors so the cell
   // editor can offer an FV picker instead of free text. Keyed by
   // lowercased char key for case-insensitive lookup; only entries
@@ -790,20 +862,42 @@ function SampleTable({
                   onSortChange={onSortChange}
                 />
               ) : null}
-              {visibleCharKeys.map((k) => (
-                <SortableTh
-                  key={`char-${k}`}
-                  label={k}
-                  colKey={`char:${k}`}
-                  sort={sort}
-                  onSortChange={onSortChange}
-                  badge="char"
-                  className="bg-slate-50 border-l border-slate-200/60"
-                  title={`raw biomaterial characteristic — sourced from GEO sample metadata${
-                    constantCharKeys.has(k) ? " · constant across visible rows" : ""
-                  }`}
-                />
-              ))}
+              {visibleCharKeys.map((k) => {
+                const isContinuous = continuousCharKeys.has(k);
+                const alreadyAFactor = factorCategoryLabels.has(
+                  k.trim().toLowerCase(),
+                );
+                const showPromote = isContinuous && !alreadyAFactor;
+                return (
+                  <SortableTh
+                    key={`char-${k}`}
+                    label={k}
+                    colKey={`char:${k}`}
+                    sort={sort}
+                    onSortChange={onSortChange}
+                    badge="char"
+                    className="bg-slate-50 border-l border-slate-200/60"
+                    title={`raw biomaterial characteristic — sourced from GEO sample metadata${
+                      constantCharKeys.has(k) ? " · constant across visible rows" : ""
+                    }${isContinuous ? " · numeric" : ""}`}
+                    extra={
+                      showPromote ? (
+                        <button
+                          type="button"
+                          className="text-[10px] text-blue-700 hover:text-blue-900 underline underline-offset-2 mt-0.5"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onPromoteCharacteristic(k);
+                          }}
+                          title={`Promote "${k}" to a continuous factor — one FV per sample, with the measurement as the value`}
+                        >
+                          + promote to factor
+                        </button>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
               {visibleFactors.map(({ factor }) => (
                 <SortableTh
                   key={`f-${factor.id}`}
@@ -819,6 +913,11 @@ function SampleTable({
                       ? " · constant across visible rows"
                       : "")
                   }
+                  // Stable selector for the post-promote scroll
+                  // effect — see the scrolling logic in
+                  // ``SampleDetailsPanel``. Keeps the
+                  // newly-promoted factor's column in view.
+                  dataFactorId={factor.id}
                 />
               ))}
               {/* Proposal-overlay columns. Appended after the design
@@ -1202,6 +1301,8 @@ function SortableTh({
   title,
   sticky,
   badge,
+  extra,
+  dataFactorId,
 }: {
   label: string;
   colKey: string;
@@ -1214,6 +1315,16 @@ function SortableTh({
    *  curated experimental factors. Renders as a tiny pill above
    *  the label so curators can tell which is which at a glance. */
   badge?: "char" | "factor";
+  /** Optional extra slot below the sortable label — used by char
+   *  columns to surface a "+ promote to factor" link when the
+   *  characteristic looks continuous. Hidden by default to keep
+   *  unrelated columns visually quiet. */
+  extra?: React.ReactNode;
+  /** Stamp ``data-factor-id`` on the rendered ``<th>`` so the
+   *  parent panel can ``scrollIntoView`` after promoting a
+   *  characteristic — keeps the new column visible without forcing
+   *  the curator to hunt for it. */
+  dataFactorId?: number;
 }) {
   const active = sort.key === colKey;
   const dir = active ? sort.dir : null;
@@ -1225,6 +1336,7 @@ function SortableTh({
         className,
       )}
       title={title}
+      data-factor-id={dataFactorId}
     >
       {badge ? (
         <span
@@ -1261,6 +1373,7 @@ function SortableTh({
           {dir === "asc" ? "▲" : dir === "desc" ? "▼" : ""}
         </span>
       </button>
+      {extra ? <div className="block">{extra}</div> : null}
     </th>
   );
 }

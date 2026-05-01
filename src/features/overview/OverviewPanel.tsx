@@ -7,6 +7,10 @@ import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { InlineText } from "@/components/ui/InlineText";
 import { CategoryPicker } from "@/features/design/CategoryPicker";
 import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
+import {
+  extractPaperMeta,
+  pmidFromPaperSource,
+} from "@/features/proposal/paperEvidence";
 import { platformPageUrl } from "@/lib/gemmaUrls";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { shortenUri } from "@/lib/curie";
@@ -80,6 +84,7 @@ export function OverviewPanel() {
       const ex = p.evidence?.paper_excerpt?.trim();
       if (ex) {
         return {
+          proposal_id: p.proposal_id ?? "",
           paper_source: p.evidence.paper_source ?? "",
           paper_excerpt: p.evidence.paper_excerpt ?? "",
         };
@@ -87,6 +92,58 @@ export function OverviewPanel() {
     }
     return null;
   }, [proposalsList]);
+
+  // Auto-apply the agent-proposed paper as a draft Publication the
+  // moment the pending proposal lands, so the curator sees the
+  // proposed paper sitting in the PUBLICATIONS section (with the
+  // abstract toggle) instead of having to accept blind. Acceptance
+  // is then a no-op for the publication (addPublication dedups by
+  // PMID / DOI); rejection retracts it via the existing reject-undo
+  // path in ProposalCardV2.
+  //
+  // localStorage gates the auto-apply per ``proposal_id``: once the
+  // curator has dismissed the publication (manual × in the row, or
+  // a reject of the proposal), we don't re-add on the next render
+  // / tab visit / page reload. New proposal => new flag key.
+  const draftExperimentId = draft?.experiment_id;
+  useEffect(() => {
+    if (!paperEvidence || !draft) return;
+    const pid = paperEvidence.proposal_id;
+    if (!pid) return;
+    const flagKey = `gca:auto-applied-paper:${pid}`;
+    try {
+      if (window.localStorage.getItem(flagKey)) return;
+    } catch {
+      // localStorage unavailable — skip auto-apply rather than
+      // re-add on every render in privacy / SSR mode.
+      return;
+    }
+    const meta = extractPaperMeta(paperEvidence.paper_excerpt);
+    const pmid =
+      meta.pubmed_id ?? pmidFromPaperSource(paperEvidence.paper_source) ?? "";
+    const doi = meta.doi ?? "";
+    const title = meta.title ?? "";
+    if (!pmid && !doi && !title) return;
+    // Already in draft (either previously auto-applied this session
+    // and the flag got cleared, or curator manually linked it)? Skip
+    // the add but still set the flag so we don't churn.
+    const alreadyLinked = (draft.publications ?? []).some(
+      (p) =>
+        (pmid && p.pubmed_id === pmid) ||
+        (doi && p.doi === doi) ||
+        (title && p.title && p.title.trim() === title.trim()),
+    );
+    if (!alreadyLinked) {
+      apply((d) =>
+        addPublication(d, { pubmed_id: pmid, doi, title, citation: "" }),
+      );
+    }
+    try {
+      window.localStorage.setItem(flagKey, "1");
+    } catch {
+      // ignore — best-effort flag.
+    }
+  }, [paperEvidence, draftExperimentId, apply, draft]);
 
   if (isLoading) {
     return (
@@ -260,10 +317,37 @@ export function OverviewPanel() {
                     key={i}
                     publication={p}
                     abstract={abstract}
-                    onDelete={() =>
-                      draft &&
-                      apply(deletePublication(draft, p.pubmed_id, p.doi))
-                    }
+                    onDelete={() => {
+                      if (!draft) return;
+                      // If this row matches the proposal's auto-
+                      // applied paper, set the dismissal flag so the
+                      // auto-apply effect doesn't re-add on the next
+                      // render. Match by PMID / DOI to be tolerant
+                      // of curator edits to the title.
+                      if (
+                        paperEvidence?.proposal_id &&
+                        ((p.pubmed_id &&
+                          p.pubmed_id ===
+                            (extractPaperMeta(paperEvidence.paper_excerpt)
+                              .pubmed_id ??
+                              pmidFromPaperSource(
+                                paperEvidence.paper_source,
+                              ))) ||
+                          (p.doi &&
+                            p.doi ===
+                              extractPaperMeta(paperEvidence.paper_excerpt).doi))
+                      ) {
+                        try {
+                          window.localStorage.setItem(
+                            `gca:auto-applied-paper:${paperEvidence.proposal_id}`,
+                            "1",
+                          );
+                        } catch {
+                          // ignore
+                        }
+                      }
+                      apply(deletePublication(draft, p.pubmed_id, p.doi));
+                    }}
                   />
                 );
               })}

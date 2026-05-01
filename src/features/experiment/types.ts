@@ -189,6 +189,9 @@ export interface Design {
  *    proposer doesn't pick one and the curator shouldn't be forced
  *    to either; DEA contrasts get specified at analysis time, not
  *    at curation time.
+ *  - **Continuous factors** (e.g. age, weight, dose) have per-sample
+ *    measurements rather than a finite set of FVs; "baseline" doesn't
+ *    apply. Gated by ``factor.type``, not the category list.
  *
  * Returns ``true`` for factors that need exactly one baseline FV;
  * ``false`` for factors where baselines are meaningless and the
@@ -201,10 +204,23 @@ const NO_BASELINE_CATEGORIES = new Set<string>([
   "cell type",
 ]);
 
+/** Accepts either a ``Factor`` (preferred — captures both type and
+ *  category) or a bare ``OntologyTerm`` (legacy callers that only
+ *  have the category in hand). The factor-aware overload is the
+ *  one to use for new call sites. */
 export function factorRequiresBaseline(
-  category: OntologyTerm | null | undefined,
+  factorOrCategory: Factor | OntologyTerm | null | undefined,
 ): boolean {
-  const k = (category?.label || "").trim().toLowerCase();
+  if (!factorOrCategory) return true;
+  // Discriminate by the presence of a ``type`` field. A bare
+  // OntologyTerm has ``label`` / ``uri`` but no ``type``; passing
+  // one falls through to the category-only path.
+  if ("type" in factorOrCategory) {
+    if (factorOrCategory.type === "continuous") return false;
+    const k = (factorOrCategory.category?.label || "").trim().toLowerCase();
+    return !NO_BASELINE_CATEGORIES.has(k);
+  }
+  const k = (factorOrCategory.label || "").trim().toLowerCase();
   return !NO_BASELINE_CATEGORIES.has(k);
 }
 
@@ -364,7 +380,13 @@ export function validateDesign(design: Design): DesignValidationState {
         }
       }
     }
-    const unassigned = [...allBmNames].filter((n) => !seen.has(n)).sort();
+    // Continuous factors carry per-sample measurements rather than a
+    // discrete FV partition: "every sample assigned to one FV" and
+    // "exactly one baseline FV" don't apply. Skip both checks.
+    const isContinuous = f.type === "continuous";
+    const unassigned = isContinuous
+      ? []
+      : [...allBmNames].filter((n) => !seen.has(n)).sort();
     const duplicates = [...seen.entries()]
       .filter(([, n]) => n > 1)
       .map(([sn]) => sn)
@@ -372,7 +394,7 @@ export function validateDesign(design: Design): DesignValidationState {
     return {
       factor_id: f.id,
       baseline_count: baselineCount,
-      baseline_required: factorRequiresBaseline(f.category),
+      baseline_required: factorRequiresBaseline(f),
       unassigned_biomaterials: unassigned,
       duplicate_assignments: duplicates,
       unknown_predicates: unknownPredicates,

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ContinuousFactorView } from "./ContinuousFactorView";
 import { FactorList } from "./FactorList";
 import { FactorValueList } from "./FactorValueList";
 import { SampleAssignmentPreview } from "./SampleAssignmentPreview";
@@ -104,60 +105,70 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
       />
 
       {selectedFactor ? (
-        <>
-          <FactorValueList
-            factor={selectedFactor}
-            totalBiomaterials={draft.biomaterials.length}
-            changesByFvId={changes.byFv.get(selectedFactor.id) ?? null}
-            onFvLabelChange={(fvId, label) =>
-              apply(setFvLabel(draft, selectedFactor.id, fvId, label))
-            }
-            onToggleBaseline={(fvId) =>
-              apply(toggleBaseline(draft, selectedFactor.id, fvId))
-            }
-            onAddFv={() => apply(addFactorValue(draft, selectedFactor.id))}
-            onDeleteFv={(fvId) =>
-              apply(deleteFactorValue(draft, selectedFactor.id, fvId))
-            }
-            onAddStatement={(fvId) =>
-              apply(addStatement(draft, selectedFactor.id, fvId))
-            }
-            onAddSiblingStatement={(fvId, seed) =>
-              apply(addSiblingStatement(draft, selectedFactor.id, fvId, seed))
-            }
-            onAddStatementFromTemplate={(fvId, tpl) =>
-              apply(
-                addStatementFromTemplate(
-                  draft,
-                  selectedFactor.id,
-                  fvId,
-                  tpl.build,
-                ),
-              )
-            }
-            onAssignRemaining={(fvId) =>
-              apply(
-                assignRemainingBiomaterials(draft, selectedFactor.id, fvId),
-              )
-            }
-            onStatementChange={(fvId, index, next: Statement) =>
-              apply(setStatement(draft, selectedFactor.id, fvId, index, next))
-            }
-            onStatementDelete={(fvId, index) =>
-              apply(deleteStatement(draft, selectedFactor.id, fvId, index))
-            }
-          />
-          <SampleAssignmentPreview
-            factor={selectedFactor}
-            biomaterials={draft.biomaterials}
-            experimentId={experimentId}
-            onReassignBulk={(shortNames, toFvId) =>
-              apply((d) =>
-                reassignSamples(d, selectedFactor.id, shortNames, toFvId),
-              )
-            }
-          />
-        </>
+        // Continuous factors carry per-sample measurements rather
+        // than a discrete FV partition — show the distribution
+        // (strip plot + summary) instead of the per-FV editor + the
+        // sample-assignment cohort table. Editing of individual
+        // measurements lives on the Sample tab via the per-BM
+        // characteristic.
+        selectedFactor.type === "continuous" ? (
+          <ContinuousFactorView factor={selectedFactor} />
+        ) : (
+          <>
+            <FactorValueList
+              factor={selectedFactor}
+              totalBiomaterials={draft.biomaterials.length}
+              changesByFvId={changes.byFv.get(selectedFactor.id) ?? null}
+              onFvLabelChange={(fvId, label) =>
+                apply(setFvLabel(draft, selectedFactor.id, fvId, label))
+              }
+              onToggleBaseline={(fvId) =>
+                apply(toggleBaseline(draft, selectedFactor.id, fvId))
+              }
+              onAddFv={() => apply(addFactorValue(draft, selectedFactor.id))}
+              onDeleteFv={(fvId) =>
+                apply(deleteFactorValue(draft, selectedFactor.id, fvId))
+              }
+              onAddStatement={(fvId) =>
+                apply(addStatement(draft, selectedFactor.id, fvId))
+              }
+              onAddSiblingStatement={(fvId, seed) =>
+                apply(addSiblingStatement(draft, selectedFactor.id, fvId, seed))
+              }
+              onAddStatementFromTemplate={(fvId, tpl) =>
+                apply(
+                  addStatementFromTemplate(
+                    draft,
+                    selectedFactor.id,
+                    fvId,
+                    tpl.build,
+                  ),
+                )
+              }
+              onAssignRemaining={(fvId) =>
+                apply(
+                  assignRemainingBiomaterials(draft, selectedFactor.id, fvId),
+                )
+              }
+              onStatementChange={(fvId, index, next: Statement) =>
+                apply(setStatement(draft, selectedFactor.id, fvId, index, next))
+              }
+              onStatementDelete={(fvId, index) =>
+                apply(deleteStatement(draft, selectedFactor.id, fvId, index))
+              }
+            />
+            <SampleAssignmentPreview
+              factor={selectedFactor}
+              biomaterials={draft.biomaterials}
+              experimentId={experimentId}
+              onReassignBulk={(shortNames, toFvId) =>
+                apply((d) =>
+                  reassignSamples(d, selectedFactor.id, shortNames, toFvId),
+                )
+              }
+            />
+          </>
+        )
       ) : (
         <div className="card p-4 text-sm text-slate-500">
           Select a factor above to edit its values.

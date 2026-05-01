@@ -17,9 +17,15 @@ import { useReviewProposal, useTriggerProposal } from "@/api/proposals";
 import { ApiError } from "@/api/client";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
+  addPublication,
   applyProposalToDesign,
+  deletePublication,
   removeAppliedProposalFromDesign,
 } from "@/features/design/mutations";
+import {
+  extractPaperMeta,
+  pmidFromPaperSource,
+} from "@/features/proposal/paperEvidence";
 import { IssueTagInline } from "@/features/proposal/IssueTagInline";
 import { useToast } from "@/components/ui/Toast";
 import { Spinner } from "@/components/ui/Spinner";
@@ -882,20 +888,76 @@ export function ProposalCardV2({
       // so pre-existing items survive). No-op for proposals that were
       // never accepted in the first place. Caught 2026-04-30: rejecting
       // after accept left the EE tags lingering on the design.
-      const reverted = removeAppliedProposalFromDesign(
+      let reverted = removeAppliedProposalFromDesign(
         draft,
         saved,
         proposal.tags,
         proposal.factors,
       );
+      // Also retract the auto-linked publication added on accept
+      // (or auto-applied on first sight by the OverviewPanel),
+      // when the proposal carried paper evidence and the publication
+      // isn't pre-existing in saved (don't nuke a curator-added
+      // publication that happens to share the same PMID).
+      const evExcerpt = proposal.evidence?.paper_excerpt ?? "";
+      const evSource = proposal.evidence?.paper_source ?? "";
+      if (evExcerpt) {
+        const meta = extractPaperMeta(evExcerpt);
+        const pmid = meta.pubmed_id ?? pmidFromPaperSource(evSource) ?? "";
+        const doi = meta.doi ?? "";
+        const savedHas = (saved?.publications ?? []).some(
+          (p) =>
+            (pmid && p.pubmed_id === pmid) ||
+            (doi && p.doi === doi),
+        );
+        if (!savedHas && (pmid || doi)) {
+          reverted = deletePublication(reverted, pmid, doi);
+        }
+      }
+      // Mark the auto-apply flag so the OverviewPanel doesn't
+      // re-add the publication on the next render after a reject.
+      // Pair with the deletePublication above so rejection is a
+      // single coherent action.
+      if (proposal.proposal_id) {
+        try {
+          window.localStorage.setItem(
+            `gca:auto-applied-paper:${proposal.proposal_id}`,
+            "1",
+          );
+        } catch {
+          // ignore — best-effort.
+        }
+      }
       apply(reverted);
     }
     if (status === "accepted" && draft) {
-      const next = applyProposalToDesign(
+      let next = applyProposalToDesign(
         draft,
         acceptedTags,
         acceptedFactors,
       );
+      // Auto-link the agent-fetched paper as a Publication on the
+      // design if the proposal carries paper evidence with at least
+      // a parseable title or PMID. ``addPublication`` dedups by
+      // PMID/DOI, so a curator who's already manually linked the
+      // paper doesn't get a duplicate. Without this, a curator
+      // accepting a proposal would lose the agent's paper findings
+      // — the PROPOSED PAPER card hides on accept (filtered to
+      // pending) but nothing else surfaces the paper.
+      const evExcerpt = proposal.evidence?.paper_excerpt ?? "";
+      const evSource = proposal.evidence?.paper_source ?? "";
+      if (evExcerpt) {
+        const meta = extractPaperMeta(evExcerpt);
+        const pmid = meta.pubmed_id ?? pmidFromPaperSource(evSource);
+        if (meta.title || pmid || meta.doi) {
+          next = addPublication(next, {
+            pubmed_id: pmid ?? "",
+            doi: meta.doi ?? "",
+            title: meta.title ?? "",
+            citation: "",
+          });
+        }
+      }
       apply(next);
       // Apply confirmation. Counts come from the filtered (accepted)
       // tags + factors so unchecked items don't inflate the summary.

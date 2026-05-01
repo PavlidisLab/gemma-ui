@@ -120,6 +120,106 @@ export function addFactor(design: Design): { design: Design; factorId: number } 
 }
 
 /**
+ * Promote a per-sample biomaterial characteristic into a continuous
+ * factor. Mirrors a feature in the legacy Gemma UI: when a dataset
+ * carries a numeric characteristic (e.g. ``age``, ``weight``,
+ * ``time post infection``), the curator can lift it from the sample
+ * table into a first-class Factor without re-typing values.
+ *
+ * Each biomaterial that carries the characteristic becomes a
+ * one-sample FV with ``free_text_label = <measurement string>``.
+ * BMs that don't carry the key are skipped — continuous factors
+ * don't require full coverage (validator already lets them through
+ * post-#12).
+ *
+ * Returns the new Design plus the newly-allocated factor id (for
+ * auto-select on the FactorList) and the count of BMs that
+ * contributed measurements (for an "added N samples" toast).
+ */
+export function addContinuousFactorFromCharacteristic(
+  design: Design,
+  characteristicKey: string,
+  options?: {
+    /** Override the factor's display name. Defaults to the
+     *  characteristic key verbatim. */
+    name?: string;
+    /** Override the factor's category (OntologyTerm). Defaults to
+     *  ``{ label: characteristicKey }`` so the curator can reattach a
+     *  proper category afterwards. */
+    category?: OntologyTerm;
+  },
+): { design: Design; factorId: number; sampleCount: number } {
+  const key = characteristicKey.trim();
+  if (!key) {
+    return { design, factorId: -1, sampleCount: 0 };
+  }
+  const factorId = nextFactorId(design);
+  let nextFvId = nextFvIdValue(design);
+  const factorValues: FactorValue[] = [];
+  for (const bm of design.biomaterials ?? []) {
+    const raw = bm.characteristics?.[key];
+    if (raw == null) continue;
+    const value = String(raw).trim();
+    if (!value) continue;
+    factorValues.push({
+      id: nextFvId++,
+      free_text_label: value,
+      is_baseline: false,
+      biomaterial_short_names: [bm.short_name],
+      statements: [],
+    });
+  }
+  const factor: Factor = {
+    id: factorId,
+    name: options?.name?.trim() || key,
+    category: options?.category ?? { label: key, uri: null },
+    description: "",
+    type: "continuous",
+    factor_values: factorValues,
+  };
+  return {
+    design: { ...design, factors: [...design.factors, factor] },
+    factorId,
+    sampleCount: factorValues.length,
+  };
+}
+
+/** Heuristic: are this characteristic's values numeric across most
+ *  of the cohort? Used by the "promote to factor" affordance on the
+ *  Sample tab to decide which char column headers get the
+ *  ``+ promote to factor`` link.
+ *
+ *  Permissive on purpose: we surface the affordance on anything
+ *  numeric (including identifier-shaped keys like ``subject id``) and
+ *  let the curator decide whether the promotion makes biological
+ *  sense. An earlier version filtered ID-shaped key names by token
+ *  match; that ruled out legitimate cases (e.g. a numeric subject-
+ *  id channel that the curator *wants* to surface as a factor) and
+ *  hid promote affordances inconsistently across columns.
+ *
+ *  A characteristic counts as continuous when at least ``threshold``
+ *  (default 0.8) of the non-empty values parse as finite floats. */
+export function isContinuousCharacteristic(
+  biomaterials: { characteristics?: Record<string, string> }[],
+  key: string,
+  threshold = 0.8,
+): boolean {
+  let total = 0;
+  let numeric = 0;
+  for (const bm of biomaterials) {
+    const raw = bm.characteristics?.[key];
+    if (raw == null) continue;
+    const v = String(raw).trim();
+    if (!v) continue;
+    total++;
+    const n = Number(v);
+    if (Number.isFinite(n)) numeric++;
+  }
+  if (total === 0) return false;
+  return numeric / total >= threshold;
+}
+
+/**
  * Insert a Factor pre-filled from a ``FactorTemplate`` (light
  * recipes for common EFCs — treatment, genotype, disease, …). The
  * template carries the canonical category URI plus an optional
