@@ -11,6 +11,10 @@ import {
   extractPaperMeta,
   pmidFromPaperSource,
 } from "@/features/proposal/paperEvidence";
+import {
+  isPaperDismissed,
+  markPaperDismissed,
+} from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { shortenUri } from "@/lib/curie";
@@ -106,17 +110,10 @@ export function OverviewPanel() {
   // / tab visit / page reload. New proposal => new flag key.
   const draftExperimentId = draft?.experiment_id;
   useEffect(() => {
-    if (!paperEvidence || !draft) return;
+    if (!paperEvidence || !draft || draftExperimentId == null) return;
     const pid = paperEvidence.proposal_id;
     if (!pid) return;
-    const flagKey = `gca:auto-applied-paper:${pid}`;
-    try {
-      if (window.localStorage.getItem(flagKey)) return;
-    } catch {
-      // localStorage unavailable — skip auto-apply rather than
-      // re-add on every render in privacy / SSR mode.
-      return;
-    }
+    if (isPaperDismissed(draftExperimentId, pid)) return;
     const meta = extractPaperMeta(paperEvidence.paper_excerpt);
     const pmid =
       meta.pubmed_id ?? pmidFromPaperSource(paperEvidence.paper_source) ?? "";
@@ -137,11 +134,7 @@ export function OverviewPanel() {
         addPublication(d, { pubmed_id: pmid, doi, title, citation: "" }),
       );
     }
-    try {
-      window.localStorage.setItem(flagKey, "1");
-    } catch {
-      // ignore — best-effort flag.
-    }
+    markPaperDismissed(draftExperimentId, pid);
   }, [paperEvidence, draftExperimentId, apply, draft]);
 
   if (isLoading) {
@@ -290,26 +283,21 @@ export function OverviewPanel() {
                       // auto-apply effect doesn't re-add on the next
                       // render. Match by PMID / DOI to be tolerant
                       // of curator edits to the title.
-                      if (
-                        paperEvidence?.proposal_id &&
-                        ((p.pubmed_id &&
-                          p.pubmed_id ===
-                            (extractPaperMeta(paperEvidence.paper_excerpt)
-                              .pubmed_id ??
-                              pmidFromPaperSource(
-                                paperEvidence.paper_source,
-                              ))) ||
-                          (p.doi &&
-                            p.doi ===
-                              extractPaperMeta(paperEvidence.paper_excerpt).doi))
-                      ) {
-                        try {
-                          window.localStorage.setItem(
-                            `gca:auto-applied-paper:${paperEvidence.proposal_id}`,
-                            "1",
+                      if (paperEvidence?.proposal_id) {
+                        const meta = extractPaperMeta(
+                          paperEvidence.paper_excerpt,
+                        );
+                        const proposalPmid =
+                          meta.pubmed_id ??
+                          pmidFromPaperSource(paperEvidence.paper_source);
+                        if (
+                          (p.pubmed_id && p.pubmed_id === proposalPmid) ||
+                          (p.doi && p.doi === meta.doi)
+                        ) {
+                          markPaperDismissed(
+                            draft.experiment_id,
+                            paperEvidence.proposal_id,
                           );
-                        } catch {
-                          // ignore
                         }
                       }
                       apply(deletePublication(draft, p.pubmed_id, p.doi));

@@ -7,6 +7,7 @@ import { ImportPrompt } from "@/features/landing/ImportPrompt";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { useStickyState } from "@/lib/useStickyState";
 import { useResetExperiment } from "@/api/datasets";
+import { clearPaperDismissalsForExperiment } from "@/features/proposal/paperDismissal";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
 import {
   parseRoute,
@@ -21,6 +22,8 @@ import {
   type TabId,
 } from "@/features/experiment/ExperimentBanner";
 import { ProposalCardV2 } from "@/features/proposal/ProposalCardV2";
+import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
+import { useProposeStream } from "@/api/proposeStream";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ProposalReviewProvider } from "@/features/proposal/ProposalReviewContext";
 import { DesignEditor } from "@/features/design/DesignEditor";
@@ -42,7 +45,6 @@ import {
 } from "@/api/proposals";
 import { useToast } from "@/components/ui/Toast";
 import { Spinner } from "@/components/ui/Spinner";
-import { ApiError } from "@/api/client";
 import {
   useCurationDetails,
   useUpdateCurationDetails,
@@ -211,9 +213,6 @@ function Shell({
 
   const externalSource = draft?.external_source ?? null;
   const shortName = draft?.experiment_short_name ?? `experiment ${experimentId}`;
-  const firstPub = draft?.publications?.[0];
-  const pubLabel = firstPub?.citation || firstPub?.title || null;
-  const pmid = firstPub?.pubmed_id || null;
   const pending = (data?.items ?? []).filter((p) => p.status === "pending");
 
   return (
@@ -237,8 +236,6 @@ function Shell({
         originalPlatform={draft?.original_platform ?? ""}
         originalPlatformShortName={draft?.original_platform_short_name ?? ""}
         originalPlatformId={draft?.original_platform_id ?? null}
-        pubLabel={pubLabel}
-        pmid={pmid}
         loadedAt={draft?.loaded_at ?? ""}
         loadedBy={draft?.loaded_by ?? ""}
         externalSource={externalSource}
@@ -351,7 +348,26 @@ function MainGrid({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
+  // Two propose paths in this codebase right now:
+  //
+  //   - ``useTriggerProposal`` — the existing non-streaming POST. Still
+  //     used by ProposalCardV2's "redo with notes" flow, which first
+  //     PATCHes a pending proposal to ``needs_changes`` (a separate
+  //     mutation) and then fires a fresh propose. The stream endpoint
+  //     doesn't change that two-step shape, so the redo path keeps
+  //     using the synchronous mutation.
+  //
+  //   - ``useProposeStream`` — the new SSE-driven path documented in
+  //     ``PROGRESS_SSE.md``. Used by the sidebar's ``+ propose``
+  //     button so the curator sees live progress + log feed instead
+  //     of a 30-90s spinner. ``stream.result``'s ``payload.proposal``
+  //     is the canonical result; the hook also invalidates the
+  //     proposals query so the pending row lands in the sidebar.
+  //
+  // Both hit the same proposer service; ``+ propose`` swapping to
+  // streaming is purely a UX improvement, not a behavioural one.
   const triggerProposal = useTriggerProposal(experimentId);
+  const proposeStream = useProposeStream(experimentId);
   const resetExperiment = useResetExperiment(experimentId);
   // For the reset flow: after the import re-stamps the design
   // server-side and the design query invalidates, the
@@ -378,73 +394,26 @@ function MainGrid({
   // mutation's ``isPending`` keeps the button disabled until the
   // submitted proposal lands and the proposals query refetches.
   function requestProposal() {
-    triggerProposal.mutate(
-      // Numeric Gemma ID works as the accession — the pipeline's
-      // reference resolver accepts numeric id, GSE accession, or
-      // Gemma shortName interchangeably.
-      //
-      // ``fresh_skeleton: true`` is the right default for the UI
-      // button: it tells the proposer to ignore any curated factors
-      // / tags already on the experiment for this run. Without it,
-      // the pipeline silently skips and returns a proposal with no
-      // factors when the experiment already has curation in its
-      // Design (e.g. from a previously accepted-and-committed
-      // proposal, or from running a test-iteration script). This
-      // is purely a per-run flag — it doesn't mutate the DB, so
-      // clicking propose stays state-neutral.
-      {
-        accession: String(experimentId),
-        // ``refresh_cache: true`` means: ignore any existing cache
-        // entry for this skeleton hash, re-run the LLM, then write
-        // the new result. Without it, a second curator click after
-        // a previous successful run would replay the cached output
-        // instead of producing a fresh proposal — the curator
-        // explicitly asked for a re-run, so honour that.
-        // ``use_cache: true`` keeps the **write** side on so future
-        // ad-hoc runs (e.g. CLI ``gca propose-curation``) can hit
-        // the result we just produced.
-        body: {
-          use_cache: true,
-          // refresh_cache flips to false when the curator ticks
-          // the "use cache" checkbox in the sidebar — useful for
-          // demos / dev iterations where re-running the LLM each
-          // time burns credits without changing the output.
-          refresh_cache: !useCachedProposal,
-          fresh_skeleton: true,
-        },
-      },
-      {
-        onSuccess: (proposal) => {
-          toast.show(
-            `New proposal ready (${proposal.factors.length} factor${
-              proposal.factors.length === 1 ? "" : "s"
-            }, ${proposal.tags.length} tag${
-              proposal.tags.length === 1 ? "" : "s"
-            }).`,
-            "success",
-          );
-        },
-        onError: (err) => {
-          // 409 = a propose call for this accession is already in
-          // flight (curator double-clicked, or the polling daemon
-          // beat them to it). That's a soft state — surface it as a
-          // neutral toast rather than a red error so the curator
-          // doesn't think something broke.
-          if (err instanceof ApiError && err.status === 409) {
-            toast.show(
-              "Proposal already in progress — wait for it to land.",
-              "info",
-            );
-            return;
-          }
-          toast.show(
-            `Proposal request failed: ${(err as Error).message}`,
-            "error",
-            8000,
-          );
-        },
-      },
-    );
+    // Numeric Gemma ID works as the accession — the pipeline's
+    // reference resolver accepts numeric id, GSE accession, or
+    // Gemma shortName interchangeably.
+    //
+    // Body shape mirrors ``useTriggerProposal``'s defaults:
+    //   - ``fresh_skeleton: true`` ignores any curated state on the
+    //     experiment for this run. Without it the pipeline silently
+    //     skips an already-curated experiment and returns an empty
+    //     proposal.
+    //   - ``refresh_cache`` flips to false when the curator ticks
+    //     the "use cache" sidebar checkbox — useful for demos /
+    //     dev iteration when the LLM round-trip would just burn
+    //     credits.
+    //   - ``use_cache`` keeps the **write** side on so future ad-hoc
+    //     runs (CLI / scripts) can hit the result we just produced.
+    proposeStream.start(String(experimentId), {
+      use_cache: true,
+      refresh_cache: !useCachedProposal,
+      fresh_skeleton: true,
+    });
   }
   // Default-open. Curators want the proposals panel visible by
   // default so they notice newly-submitted proposals; if they want
@@ -584,24 +553,25 @@ function MainGrid({
               during the 30-90s pipeline run on a from-scratch
               propose.
             */}
-            {pendingProposals.length === 0 || triggerProposal.isPending ? (
+            {pendingProposals.length === 0 ||
+            proposeStream.status === "running" ? (
               <button
                 type="button"
                 onClick={requestProposal}
-                disabled={triggerProposal.isPending}
+                disabled={proposeStream.status === "running"}
                 title={
-                  triggerProposal.isPending
-                    ? "the proposer is running — this can take 30-90s for a fresh skeleton"
+                  proposeStream.status === "running"
+                    ? "the proposer is running — watch the log feed below"
                     : "ask the proposer agent to build a fresh proposal for this experiment"
                 }
                 className={
                   "px-1.5 py-0.5 rounded text-[10px] font-medium inline-flex items-center gap-1 " +
-                  (triggerProposal.isPending
+                  (proposeStream.status === "running"
                     ? "bg-slate-200 text-slate-500 cursor-progress"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200")
                 }
               >
-                {triggerProposal.isPending ? (
+                {proposeStream.status === "running" ? (
                   <>
                     <Spinner />
                     proposing…
@@ -700,9 +670,14 @@ function MainGrid({
               </p>
             </div>
           ) : !hasProposals ? (
-            <div className="card p-3 text-xs text-slate-500">
-              No pending proposals for experiment {experimentId}.
-            </div>
+            // The "no pending proposals" placeholder swapped to the
+            // streaming progress panel — when ``+ propose`` runs,
+            // this slot shows the live log feed; otherwise it
+            // renders "agent idle" (the panel handles that state).
+            <ProposeProgressPanel
+              state={proposeStream}
+              onDismiss={proposeStream.reset}
+            />
           ) : (
             pendingProposals.map((p) => (
               <ProposalCardV2
@@ -736,6 +711,12 @@ function MainGrid({
               // and the curator sees the old factors / tags despite
               // the server having stripped them.
               reloadDraft();
+              // The proposal-paper auto-apply flag survives across
+              // sessions; reset wipes the design but doesn't drop
+              // proposals, so a stale flag would block the auto-add
+              // from re-firing on the fresh skeleton. Clear all
+              // flags scoped to this experiment.
+              clearPaperDismissalsForExperiment(experimentId);
               toast.show("Experiment reset to fresh skeleton.", "success");
               setResetConfirm(false);
             },

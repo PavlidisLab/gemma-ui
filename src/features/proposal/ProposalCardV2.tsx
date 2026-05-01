@@ -26,6 +26,7 @@ import {
   extractPaperMeta,
   pmidFromPaperSource,
 } from "@/features/proposal/paperEvidence";
+import { markPaperDismissed } from "@/features/proposal/paperDismissal";
 import { IssueTagInline } from "@/features/proposal/IssueTagInline";
 import { useToast } from "@/components/ui/Toast";
 import { Spinner } from "@/components/ui/Spinner";
@@ -919,14 +920,7 @@ export function ProposalCardV2({
       // Pair with the deletePublication above so rejection is a
       // single coherent action.
       if (proposal.proposal_id) {
-        try {
-          window.localStorage.setItem(
-            `gca:auto-applied-paper:${proposal.proposal_id}`,
-            "1",
-          );
-        } catch {
-          // ignore — best-effort.
-        }
+        markPaperDismissed(proposal.experiment_id, proposal.proposal_id);
       }
       apply(reverted);
     }

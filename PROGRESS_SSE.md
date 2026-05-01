@@ -62,8 +62,8 @@ Events fall into three groups:
 | event                          | progress | level | sample message                                                | payload keys |
 |--------------------------------|----------|-------|---------------------------------------------------------------|--------------|
 | `phase.run.started`            | 0.00     | info  | `Run started for GSE12654`                                    | `accession, tag_model, design_model` |
-| `phase.skeleton.fetching`      | 0.02     | debug | `Fetching skeleton…`                                          | — |
-| `phase.skeleton.fetched`       | 0.08     | info  | `Skeleton: 50 samples, 50 BMs`                                | `n_samples, n_biomaterials, n_pubs` |
+| `phase.skeleton.fetching`      | 0.02     | debug | `Fetching experiment metadata…`                               | — |
+| `phase.skeleton.fetched`       | 0.08     | info  | `Experiment metadata: 50 samples, 50 biomaterials`            | `n_samples, n_biomaterials, n_pubs` |
 | `phase.cache.hit`              | 0.95     | info  | `Cache hit at GSE12654__sonnet.json — submitting cached…`     | `cache_path` |
 | `phase.cache.miss`             | 0.10     | debug | `Cache miss — fresh run`                                      | `cache_path` |
 | `phase.biolit.fetching`        | 0.10     | debug | `Fetching paper context via biolit…`                          | — |

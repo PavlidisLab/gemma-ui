@@ -1393,19 +1393,37 @@ function FvSelect({
   isMixed?: boolean;
   onChange: (fvId: number) => void;
 }) {
-  // Three visual states: assigned (slate), unassigned (rose), or
-  // mixed across siblings (amber). Mixed is its own state because
-  // it's a curation warning specific to single-cell groups.
+  // Four visual states: ontology-backed (emerald — matches the
+  // codebase-wide "green = ontology-backed" cue), free-text-assigned
+  // (slate), unassigned (rose), or mixed across siblings (amber).
+  // An FV counts as ontology-backed when every statement carries a
+  // non-null subject URI; that mirrors the StatementRow / proposal-
+  // card check and means a partially-mapped combo FV stays neutral.
+  const currentFv =
+    currentFvId != null
+      ? factor.factor_values.find((fv) => fv.id === currentFvId) ?? null
+      : null;
+  const isOntologyBacked =
+    !!currentFv &&
+    currentFv.statements.length > 0 &&
+    currentFv.statements.every((s) => !!s.subject.uri);
   const stateCls = isMixed
     ? "border-amber-400 text-amber-800 bg-amber-50"
     : currentFvId === null
       ? "border-rose-300 text-rose-700"
-      : "border-slate-300 text-slate-800";
+      : isOntologyBacked
+        ? "border-emerald-300 text-emerald-900 bg-emerald-50"
+        : "border-slate-300 text-slate-800";
   const titleText = isMixed
     ? "siblings disagree on this factor — pick a value to apply to all of them"
     : currentFvId === null
       ? "unassigned — pick a value"
-      : "click to reassign this sample";
+      : isOntologyBacked
+        ? `ontology-backed — ${currentFv!.statements
+            .map((s) => s.subject.uri)
+            .filter(Boolean)
+            .join(", ")}`
+        : "click to reassign this sample";
   return (
     <select
       value={isMixed ? "" : (currentFvId ?? "")}

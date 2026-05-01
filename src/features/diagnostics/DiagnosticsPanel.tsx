@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useDesign } from "@/api/design";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { validateDesign } from "@/features/experiment/types";
 import { PrePublishChecklist } from "./PrePublishChecklist";
 import type { Design, Factor } from "@/features/experiment/types";
@@ -14,18 +14,22 @@ import type { Design, Factor } from "@/features/experiment/types";
  * panel as deferred.
  */
 export function DiagnosticsPanel({ experimentId }: { experimentId: number }) {
-  const { data: design, isLoading, error } = useDesign(experimentId);
+  // Read the in-memory draft, not the saved server design — otherwise
+  // uncommitted factor adds / FV reassignments don't show up in
+  // diagnostics ("factors: 0" while samples are visibly assigned).
+  // Mirrors what the rest of the experiment tabs do.
+  const { draft: design, isLoading, loadError } = useDesignDraft();
 
   if (isLoading) {
     return (
       <div className="card p-4 text-sm text-slate-500">loading diagnostics…</div>
     );
   }
-  if (error || !design) {
+  if (loadError || !design) {
     return (
       <div className="card p-4 text-sm text-rose-700">
         couldn't load design for experiment {experimentId}:{" "}
-        {(error as Error)?.message ?? "unknown"}
+        {loadError ?? "unknown"}
       </div>
     );
   }
@@ -108,6 +112,14 @@ function Body({
                     {s.factor.name || (
                       <span className="italic text-slate-400">(unnamed)</span>
                     )}
+                    {s.isContinuous ? (
+                      <span
+                        className="ml-1.5 inline-block text-[9px] uppercase tracking-wide font-semibold px-1 py-0 rounded bg-sky-100 text-sky-800"
+                        title="continuous factor — one measurement per sample"
+                      >
+                        cont
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-1.5 text-emerald-800">
                     {s.factor.category.label || (
@@ -116,7 +128,14 @@ function Body({
                   </td>
                   <td className="px-3 py-1.5">{s.factor.factor_values.length}</td>
                   <td className="px-3 py-1.5">
-                    {s.baselineCount === 1 ? (
+                    {s.isContinuous ? (
+                      <span
+                        className="text-slate-400 italic"
+                        title="baseline doesn't apply to continuous factors"
+                      >
+                        n/a
+                      </span>
+                    ) : s.baselineCount === 1 ? (
                       <span className="text-emerald-800">✓ one</span>
                     ) : s.baselineCount === 0 ? (
                       <span className="text-amber-800">missing</span>
@@ -136,13 +155,47 @@ function Body({
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-slate-700">
-                    {s.fvDist.map((d, i) => (
-                      <span key={d.id} className="mr-2 whitespace-nowrap">
-                        <span className="text-slate-500">{d.label}:</span>{" "}
-                        <span className="font-medium">{d.count}</span>
-                        {i < s.fvDist.length - 1 ? "" : null}
-                      </span>
-                    ))}
+                    {s.isContinuous ? (
+                      s.numericSummary ? (
+                        <span className="whitespace-nowrap">
+                          <span className="text-slate-500">n=</span>
+                          <span className="font-medium">
+                            {s.numericSummary.n}
+                          </span>
+                          <span className="text-slate-400 mx-1.5">·</span>
+                          <span className="text-slate-500">range </span>
+                          <span className="font-medium">
+                            {fmtNum(s.numericSummary.min)}–
+                            {fmtNum(s.numericSummary.max)}
+                          </span>
+                          <span className="text-slate-400 mx-1.5">·</span>
+                          <span className="text-slate-500">mean </span>
+                          <span className="font-medium">
+                            {fmtNum(s.numericSummary.mean)}
+                          </span>
+                          {s.numericSummary.nNonNumeric > 0 ? (
+                            <span
+                              className="ml-2 text-amber-700"
+                              title="FVs whose label didn't parse as a number"
+                            >
+                              · {s.numericSummary.nNonNumeric} non-numeric
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 italic">
+                          no numeric values
+                        </span>
+                      )
+                    ) : (
+                      s.fvDist.map((d, i) => (
+                        <span key={d.id} className="mr-2 whitespace-nowrap">
+                          <span className="text-slate-500">{d.label}:</span>{" "}
+                          <span className="font-medium">{d.count}</span>
+                          {i < s.fvDist.length - 1 ? "" : null}
+                        </span>
+                      ))
+                    )}
                   </td>
                 </tr>
               ))}
@@ -358,39 +411,88 @@ function factorIssueLines(
 
 interface FactorStat {
   factor: Factor;
+  isContinuous: boolean;
   baselineCount: number;
   assigned: number;
   total: number;
   coveragePct: number;
+  /** Categorical: per-FV sample counts for the distribution column.
+   *  Empty for continuous factors — see `numericSummary` instead. */
   fvDist: { id: number; label: string; count: number }[];
+  /** Continuous-only: aggregate stats over the per-sample numeric
+   *  measurements. ``null`` when the factor is categorical or when
+   *  no FV label parsed as a number. */
+  numericSummary: {
+    n: number;
+    nNonNumeric: number;
+    min: number;
+    max: number;
+    mean: number;
+  } | null;
 }
 
 function factorStat(factor: Factor, totalBiomaterials: number): FactorStat {
+  const isContinuous = factor.type === "continuous";
   let baselineCount = 0;
   const assigned = new Set<string>();
   const fvDist: FactorStat["fvDist"] = [];
+  const numericValues: number[] = [];
+  let nNonNumeric = 0;
   for (const fv of factor.factor_values) {
     if (fv.is_baseline) baselineCount++;
     for (const sn of fv.biomaterial_short_names) assigned.add(sn);
-    fvDist.push({
-      id: fv.id,
-      label: fv.free_text_label || `FV ${fv.id}`,
-      count: fv.biomaterial_short_names.length,
-    });
+    if (isContinuous) {
+      // Continuous FVs carry one measurement each. ``free_text_label``
+      // is the canonical string form; subject.label is the fallback
+      // when the proposer wrote the number into the statement.
+      const raw =
+        fv.free_text_label || fv.statements?.[0]?.subject?.label || "";
+      const n = Number(raw);
+      if (Number.isFinite(n)) numericValues.push(n);
+      else if (raw !== "") nNonNumeric++;
+    } else {
+      fvDist.push({
+        id: fv.id,
+        label: fv.free_text_label || `FV ${fv.id}`,
+        count: fv.biomaterial_short_names.length,
+      });
+    }
   }
   fvDist.sort((a, b) => b.count - a.count);
   const coveragePct =
     totalBiomaterials === 0
       ? 0
       : Math.round((assigned.size / totalBiomaterials) * 100);
+  const numericSummary =
+    isContinuous && numericValues.length > 0
+      ? {
+          n: numericValues.length,
+          nNonNumeric,
+          min: Math.min(...numericValues),
+          max: Math.max(...numericValues),
+          mean:
+            numericValues.reduce((a, b) => a + b, 0) / numericValues.length,
+        }
+      : null;
   return {
     factor,
+    isContinuous,
     baselineCount,
     assigned: assigned.size,
     total: totalBiomaterials,
     coveragePct,
     fvDist,
+    numericSummary,
   };
+}
+
+/** Compact numeric formatter for the continuous-factor summary.
+ *  Integers render bare; non-integers get up to 3 sig-figs so a
+ *  range like "0.123–87.4" doesn't blow up to a decimal wall. */
+function fmtNum(x: number): string {
+  if (!Number.isFinite(x)) return String(x);
+  if (Number.isInteger(x)) return String(x);
+  return Number(x.toPrecision(3)).toString();
 }
 
 function characteristicDistribution(

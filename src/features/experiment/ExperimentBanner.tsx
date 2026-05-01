@@ -58,8 +58,6 @@ export function ExperimentBanner({
   originalPlatform,
   originalPlatformShortName,
   originalPlatformId,
-  pubLabel,
-  pmid,
   loadedAt,
   loadedBy,
   externalSource,
@@ -87,8 +85,6 @@ export function ExperimentBanner({
   originalPlatform: string;
   originalPlatformShortName: string;
   originalPlatformId: number | null;
-  pubLabel: string | null;
-  pmid: string | null;
   loadedAt: string;
   loadedBy: string;
   /** Where the dataset came from — GEO, CELLxGENE, ArrayExpress,
@@ -108,9 +104,6 @@ export function ExperimentBanner({
   // / preview build (e.g. https://staging-gemma.msl.ubc.ca) just
   // sets the env var; no prop plumbing.
   const gemmaUrl = experimentPageUrl(experimentId);
-  const pubmedUrl = pmid
-    ? `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`
-    : null;
 
   return (
     <section className="bg-white border-b border-slate-200">
@@ -144,38 +137,6 @@ export function ExperimentBanner({
               originalPlatformShortName={originalPlatformShortName}
               originalPlatformId={originalPlatformId}
             />
-            {pubLabel ? (
-              <span>
-                Pub:{" "}
-                {pubmedUrl ? (
-                  <a
-                    href={pubmedUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-700 hover:underline"
-                    title="open on PubMed"
-                  >
-                    {pubLabel}
-                  </a>
-                ) : (
-                  <span>{pubLabel}</span>
-                )}
-                {pmid ? (
-                  <>
-                    {" "}(PMID{" "}
-                    <a
-                      href={pubmedUrl ?? undefined}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-700 hover:underline"
-                    >
-                      {pmid}
-                    </a>
-                    )
-                  </>
-                ) : null}
-              </span>
-            ) : null}
             {externalSource ? (
               sourceLink ? (
                 <a

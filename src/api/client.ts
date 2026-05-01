@@ -38,7 +38,7 @@ export class ApiError extends Error {
   }
 }
 
-function bearerToken(): string {
+export function bearerToken(): string {
   // Session tokens win — set by useLogin via saveStoredSession.
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
