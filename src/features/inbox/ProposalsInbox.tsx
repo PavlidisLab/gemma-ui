@@ -47,6 +47,13 @@ export function ProposalsInbox({ reviewer }: { reviewer: string }) {
             <span className="font-semibold">Proposals</span>
           </div>
           <div className="flex items-center gap-3 text-xs text-slate-600">
+            <a
+              href="#/audits"
+              className="text-slate-500 hover:text-slate-900 hover:underline"
+              title="audits inbox"
+            >
+              audits
+            </a>
             <span>
               signed in as <span className="font-medium">{reviewer}</span>
             </span>

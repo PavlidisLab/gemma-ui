@@ -1,0 +1,105 @@
+/**
+ * Target-id formatters and parser for `AuditFinding.target_id`.
+ *
+ * Mirrors the canonical formatters in
+ * `gemma-curation-agents/agents/audit/target_ids.py`. Used by the
+ * inline severity dots (surface A) to look findings up against the
+ * UI elements they anchor to.
+ *
+ * **Slug rule must match the agent side exactly** — divergence breaks
+ * dot lookups silently. The Python helper does:
+ *
+ *     "-".join((s or "").lower().split())
+ *
+ * which is "lowercase, collapse all runs of whitespace into a single
+ * dash". `slug()` below replicates that.
+ *
+ * Empty / falsy inputs are slugged to `"?"` (matching the Python
+ * formatters' fallback). `parseTargetId()` treats anything it
+ * doesn't recognise as `null` so callers can safely fall through to
+ * "no anchor".
+ */
+import type { AuditTargetKind } from "@/api/auditTypes";
+
+/** Matches `_slug()` in target_ids.py — lowercase, collapse all
+ *  runs of whitespace into a single dash. NOT URL-safe; these are
+ *  DOM keys, not routes. */
+export function slug(s: string | null | undefined): string {
+  if (!s) return "";
+  return s.toLowerCase().split(/\s+/).filter(Boolean).join("-");
+}
+
+/** Empty-input fallback — mirrors `_slug(...) or '?'` in the
+ *  Python formatters. Keeps slugs non-empty so a target_id is always
+ *  parseable. */
+function slugOr(s: string | null | undefined): string {
+  return slug(s) || "?";
+}
+
+export function experimentTarget(experimentId: number): string {
+  return `experiment:${experimentId}`;
+}
+
+export function factorTarget(factorCategory: string): string {
+  return `factor:${slugOr(factorCategory)}`;
+}
+
+export function fvTarget(factorCategory: string, fvLabel: string): string {
+  return `fv:${slugOr(factorCategory)}/${slugOr(fvLabel)}`;
+}
+
+export function tagTarget(category: string, value: string): string {
+  return `tag:${slugOr(category)}/${slugOr(value)}`;
+}
+
+export function assignmentTarget(biomaterialShortName: string): string {
+  return `assignment:${biomaterialShortName || "?"}`;
+}
+
+/** Parse a `target_id` back into its parts, or `null` if the shape
+ *  doesn't match a known kind. Lets the dot resolver short-circuit
+ *  without throwing on unknown / future kinds. */
+export type ParsedTargetId =
+  | { kind: "experiment"; experimentId: string }
+  | { kind: "factor"; factorSlug: string }
+  | { kind: "fv"; factorSlug: string; fvSlug: string }
+  | { kind: "tag"; categorySlug: string; valueSlug: string }
+  | { kind: "assignment"; biomaterialShortName: string }
+  | { kind: "statement"; raw: string }; // Phase 2 — opaque for now
+
+export function parseTargetId(targetId: string): ParsedTargetId | null {
+  const colon = targetId.indexOf(":");
+  if (colon === -1) return null;
+  const kind = targetId.slice(0, colon) as AuditTargetKind;
+  const rest = targetId.slice(colon + 1);
+  switch (kind) {
+    case "experiment":
+      return { kind: "experiment", experimentId: rest };
+    case "factor":
+      return { kind: "factor", factorSlug: rest };
+    case "fv": {
+      const slash = rest.indexOf("/");
+      if (slash === -1) return null;
+      return {
+        kind: "fv",
+        factorSlug: rest.slice(0, slash),
+        fvSlug: rest.slice(slash + 1),
+      };
+    }
+    case "tag": {
+      const slash = rest.indexOf("/");
+      if (slash === -1) return null;
+      return {
+        kind: "tag",
+        categorySlug: rest.slice(0, slash),
+        valueSlug: rest.slice(slash + 1),
+      };
+    }
+    case "assignment":
+      return { kind: "assignment", biomaterialShortName: rest };
+    case "statement":
+      return { kind: "statement", raw: rest };
+    default:
+      return null;
+  }
+}

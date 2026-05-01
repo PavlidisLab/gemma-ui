@@ -1,12 +1,23 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
-import type { ProposeStreamState } from "@/api/proposeStream";
+import type { ProgressEvent } from "@/api/proposeStream";
+
+/** Minimal shape this panel needs to render. Both
+ *  `ProposeStreamState` (curation_proposer) and `AuditStreamState`
+ *  (audit pipeline) satisfy this — same SSE envelope so a single
+ *  panel renders both. */
+export interface ProgressPanelState {
+  events: ProgressEvent[];
+  progress: number;
+  status: "idle" | "running" | "done" | "error";
+  error: string | null;
+}
 
 /**
- * Renders the live progress bar + log feed for a streaming
- * ``+ propose`` run. Drops into the spot the sidebar previously
- * used for "no pending proposals…"; switches to "agent idle" when
- * no run is in flight.
+ * Renders the live progress bar + log feed for a streaming agent
+ * run. Drops into the proposals sidebar slot when used for
+ * `+ propose`; reused by the audit trigger flow with the same
+ * shape.
  *
  * Log feed is always visible; lines are colour-coded by ``level``
  * (warn → amber, error → rose, debug → slate-400). The latest line
@@ -16,12 +27,17 @@ import type { ProposeStreamState } from "@/api/proposeStream";
 export function ProposeProgressPanel({
   state,
   onDismiss,
+  idleLabel = "agent idle",
 }: {
-  state: ProposeStreamState;
+  state: ProgressPanelState;
   /** Surfaces a "dismiss" affordance once the run has reached a
    *  terminal state (done / error). Stays hidden while ``running``
    *  so a curator can't accidentally close mid-run. */
   onDismiss?: () => void;
+  /** Override the idle-state copy ("agent idle" by default). The
+   *  audit flow uses "no audit running" since "agent" is ambiguous
+   *  in that context. */
+  idleLabel?: string;
 }) {
   const tailRef = useRef<HTMLDivElement>(null);
 
@@ -36,7 +52,7 @@ export function ProposeProgressPanel({
   // experiment N." copy with the requested "agent idle" wording.
   if (state.status === "idle") {
     return (
-      <div className="card p-3 text-xs text-slate-500 italic">agent idle</div>
+      <div className="card p-3 text-xs text-slate-500 italic">{idleLabel}</div>
     );
   }
 

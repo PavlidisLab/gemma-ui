@@ -43,6 +43,8 @@ import type {
   Publication,
   Tag,
 } from "@/features/experiment/types";
+import { AuditDot } from "@/features/audit/AuditDot";
+import { tagTarget } from "@/features/audit/targetIds";
 
 /**
  * Read-only experiment summary — title, abstract / description,
@@ -1262,6 +1264,9 @@ function EditableDirectGroupChip({
         <span className="font-medium">
           {tag.value.label || <em className="not-italic">no value</em>}
         </span>
+        <AuditDot
+          targetId={tagTarget(tag.category.label, tag.value.label)}
+        />
         <button
           type="button"
           className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"
@@ -1316,6 +1321,9 @@ function EditableDirectGroupChip({
                 title="click to edit"
               >
                 <span>{tag.value.label || "(blank)"}</span>
+                <AuditDot
+                  targetId={tagTarget(tag.category.label, tag.value.label)}
+                />
                 <button
                   type="button"
                   className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"

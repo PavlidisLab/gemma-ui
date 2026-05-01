@@ -49,6 +49,17 @@ export default defineConfig({
         target: process.env.GEMMA_PROPOSER_URL || "http://localhost:8090",
         changeOrigin: true,
       },
+      // Same proposer service hosts the audit pipeline (my brother's
+      // Steps 4 + 6 — see AUDIT_FEATURE.md): synchronous
+      // `POST /audit/{accession}` and the SSE variant
+      // `POST /audit/{accession}/stream`. Long-running like /propose
+      // (LLM round-trip per judge), so timeouts are disabled to match.
+      "/audit": {
+        target: process.env.GEMMA_PROPOSER_URL || "http://localhost:8090",
+        changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
+      },
     },
   },
 });

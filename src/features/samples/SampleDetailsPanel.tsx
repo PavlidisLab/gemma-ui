@@ -22,6 +22,8 @@ import type {
 import { cn } from "@/lib/cn";
 import { BulkAssignPanel } from "@/features/samples/BulkAssignPanel";
 import { useProposalReview } from "@/features/proposal/ProposalReviewContext";
+import { AuditDot } from "@/features/audit/AuditDot";
+import { assignmentTarget } from "@/features/audit/targetIds";
 import type {
   BiomaterialAssignmentMeta,
   FactorProposal,
@@ -1065,6 +1067,17 @@ function SampleTable({
                         +{groupSize - 1}
                       </span>
                     ) : null}
+                    {/* Inline audit indicator anchored to this
+                        biomaterial's assignment finding (if any).
+                        For grouped (single-cell) rows, the dot
+                        anchors to the representative's short_name —
+                        consistent with how the dropdown / per-row
+                        edits already fan out across the bucket. */}
+                    <span className="ml-1 align-baseline">
+                      <AuditDot
+                        targetId={assignmentTarget(repr.short_name)}
+                      />
+                    </span>
                   </td>
                   <td
                     className="px-3 py-0.5 text-slate-700 whitespace-nowrap max-w-[16rem] truncate"

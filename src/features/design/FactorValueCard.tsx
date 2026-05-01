@@ -17,6 +17,8 @@ import {
   type OntologyTerm,
 } from "@/features/experiment/types";
 import type { FvChange } from "./diff";
+import { AuditDot } from "@/features/audit/AuditDot";
+import { fvTarget } from "@/features/audit/targetIds";
 
 export function FactorValueCard({
   fv,
@@ -114,6 +116,16 @@ export function FactorValueCard({
               />
             )}
           </span>
+          {/* Inline audit indicator on the FV card title. Resolves
+              against AuditContext via the (factor-category, FV-label)
+              slug pair; renders nothing when no audit is loaded or
+              this FV isn't flagged. */}
+          <AuditDot
+            targetId={fvTarget(
+              factorCategory?.label || "",
+              fv.free_text_label || "",
+            )}
+          />
           {labelChanged && before ? (
             <span
               className="text-xs text-slate-400 line-through"

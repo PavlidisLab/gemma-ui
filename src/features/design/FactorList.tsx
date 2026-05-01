@@ -7,6 +7,8 @@ import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { CategoryPicker } from "./CategoryPicker";
 import { guidelineForCategory } from "@/lib/guidelines";
 import { FACTOR_TEMPLATES, type FactorTemplate } from "./factorTemplates";
+import { AuditDot } from "@/features/audit/AuditDot";
+import { factorTarget } from "@/features/audit/targetIds";
 import type {
   Factor,
   FactorType,
@@ -183,6 +185,16 @@ export function FactorList({
                       value={f.name}
                       placeholder="factor name"
                       onCommit={(name) => onFactorFieldsChange(f.id, { name })}
+                    />
+                    {/* Inline audit indicator. Resolves against
+                        AuditContext; renders nothing when no audit
+                        is loaded or this factor isn't flagged. The
+                        agent contract pins target_id to the factor's
+                        *category* slug — name is intentionally not
+                        a fallback so we don't silently match findings
+                        against a renamed factor. */}
+                    <AuditDot
+                      targetId={factorTarget(f.category?.label || "")}
                     />
                     {isAdded ? <NewBadge /> : null}
                     {modified ? <ModifiedBadge /> : null}

@@ -133,6 +133,15 @@ export function ExperimentList({
             >
               proposals
             </button>
+            <span className="text-xs text-slate-400">·</span>
+            <button
+              type="button"
+              onClick={() => navigate("#/audits")}
+              className="text-sm text-slate-600 hover:text-slate-900 underline-offset-2 hover:underline"
+              title="Cross-experiment audit inbox"
+            >
+              audits
+            </button>
           </div>
           <div className="flex items-center gap-3 text-xs text-slate-600">
             <span>

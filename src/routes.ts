@@ -24,7 +24,10 @@ export type ExperimentTab =
 export type Route =
   | { kind: "landing" }
   | { kind: "inbox" }
-  | { kind: "experiment"; id: number; tab?: ExperimentTab };
+  | { kind: "audits-inbox" }
+  | { kind: "audit-detail"; auditId: string }
+  | { kind: "experiment"; id: number; tab?: ExperimentTab }
+  | { kind: "audit-preview" };
 
 export function parseRoute(): Route {
   const h = (typeof window !== "undefined" && window.location.hash) || "";
@@ -38,6 +41,23 @@ export function parseRoute(): Route {
     };
   }
   if (/^#\/inbox\b/.test(h)) return { kind: "inbox" };
+  // Standalone single-audit detail page; matched BEFORE the
+  // ``#/audits`` inbox prefix because the inbox would otherwise
+  // swallow the more-specific path. ``audit_id`` is opaque to the
+  // router — server-assigned, free-form.
+  const auditMatch = h.match(/^#\/audits\/([^/?#]+)/);
+  if (auditMatch) {
+    return { kind: "audit-detail", auditId: decodeURIComponent(auditMatch[1]) };
+  }
+  // Cross-experiment audit inbox (mirror of #/inbox for proposals).
+  // Lists all `AuditReport`s in the mock; default-filters to
+  // actionable verdicts (blockers + major_issues).
+  if (/^#\/audits\b/.test(h)) return { kind: "audits-inbox" };
+  // Fixture-driven preview surface for the audit feature in
+  // development. Renders the bundled sample report so we can iterate
+  // on the UI before /audit/* endpoints are live. Hidden from the
+  // landing page navigation — paste the URL or follow a dev link.
+  if (/^#\/audit-preview\b/.test(h)) return { kind: "audit-preview" };
   return { kind: "landing" };
 }
 

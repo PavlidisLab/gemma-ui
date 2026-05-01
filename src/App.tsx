@@ -9,6 +9,11 @@ import { useStickyState } from "@/lib/useStickyState";
 import { useResetExperiment } from "@/api/datasets";
 import { clearPaperDismissalsForExperiment } from "@/features/proposal/paperDismissal";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
+import { AuditsInbox } from "@/features/inbox/AuditsInbox";
+import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
+import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
+import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
+import { AuditProvider } from "@/features/audit/AuditContext";
 import {
   parseRoute,
   navigate,
@@ -100,6 +105,18 @@ export default function App() {
 
   if (route.kind === "inbox") {
     return <ProposalsInbox reviewer={fullName || reviewer} />;
+  }
+
+  if (route.kind === "audits-inbox") {
+    return <AuditsInbox reviewer={fullName || reviewer} />;
+  }
+
+  if (route.kind === "audit-detail") {
+    return <AuditDetailPage auditId={route.auditId} />;
+  }
+
+  if (route.kind === "audit-preview") {
+    return <AuditPreviewPage />;
   }
 
   return (
@@ -385,6 +402,15 @@ function MainGrid({
     "proposer.use-cache",
     false,
   );
+  // Sidebar view toggle: Proposals (existing) or Audit (new — see
+  // AUDIT_FEATURE.md §UI integration shape, surface B). Sticky so the
+  // curator's last choice survives experiment switches. Defaults to
+  // proposals — that's the established affordance and most curators
+  // will land on a fresh proposal first.
+  const [sidebarView, setSidebarView] = useStickyState<"proposals" | "audit">(
+    "sidebar.view",
+    "proposals",
+  );
   // Reset confirmation. Destructive (factors / IC tags wiped); the
   // modal makes the curator pause before re-importing.
   const [resetConfirm, setResetConfirm] = useState(false);
@@ -471,8 +497,19 @@ function MainGrid({
     window.addEventListener("mouseup", onUp);
   }
   return (
-    <main className="mx-auto w-full max-w-[1800px] px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
-      <section className="flex-1 min-w-0 space-y-4">
+    <AuditProvider
+      experimentId={experimentId}
+      reviewer={reviewer}
+      showAuditSidebar={() => {
+        // A dot click anywhere inside the experiment shell opens the
+        // sidebar (if collapsed) and switches to the Audit view so
+        // the curator lands on the matching finding card.
+        setSidebarOpen(true);
+        setSidebarView("audit");
+      }}
+    >
+      <main className="mx-auto w-full max-w-[1800px] px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
+        <section className="flex-1 min-w-0 space-y-4">
         {/* CommitBar moved into the ExperimentBanner action row
             (passed as the ``commitBar`` slot, beside Status /
             publish). Earlier sticky-top placement obscured the
@@ -523,108 +560,109 @@ function MainGrid({
         ) : null}
         {sidebarOpen ? (
           <div className="card text-xs text-slate-600 px-2 py-1.5 flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold flex-1">
-                Proposals
-                {hasProposals ? (
-                  <span className="ml-1 text-amber-700">
-                    ({pendingProposals.length})
-                  </span>
-                ) : null}
-              </span>
-            {/*
-              Phase 1 deployment hook. Triggers POST /propose/{id}
-              on the proposer service via the Vite dev proxy. The
-              pipeline runs synchronously; expect 30-90s on a fresh
-              skeleton and a few seconds on a cache hit.
-
-              Hidden once a pending proposal exists — the proposal
-              card's "redo with notes" is the canonical retry path
-              (it threads curator feedback + the model-tier picker
-              into the new run). Without this gate the curator has
-              two ways to fire a fresh proposal and the second one
-              just 409s on the proposer service. Re-appears once
-              the curator accepts / rejects / clears the pending
-              proposal.
-
-              We still show the in-flight "proposing…" state when
-              the trigger is pending and no proposal has landed
-              yet — without that the curator gets no feedback
-              during the 30-90s pipeline run on a from-scratch
-              propose.
-            */}
-            {pendingProposals.length === 0 ||
-            proposeStream.status === "running" ? (
-              <button
-                type="button"
-                onClick={requestProposal}
-                disabled={proposeStream.status === "running"}
-                title={
-                  proposeStream.status === "running"
-                    ? "the proposer is running — watch the log feed below"
-                    : "ask the proposer agent to build a fresh proposal for this experiment"
+            {/* View toggle — Proposals vs Audit. The two surfaces
+                share this real estate; only one is visible at a time.
+                Sticky preference (sidebarView) so the curator lands
+                back on whichever they last chose. */}
+            <div className="flex items-center gap-1">
+              <ViewToggleButton
+                active={sidebarView === "proposals"}
+                onClick={() => setSidebarView("proposals")}
+                badge={
+                  hasProposals ? pendingProposals.length : undefined
                 }
-                className={
-                  "px-1.5 py-0.5 rounded text-[10px] font-medium inline-flex items-center gap-1 " +
-                  (proposeStream.status === "running"
-                    ? "bg-slate-200 text-slate-500 cursor-progress"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200")
-                }
+                badgeCls="text-amber-700"
               >
-                {proposeStream.status === "running" ? (
-                  <>
-                    <Spinner />
-                    proposing…
-                  </>
-                ) : (
-                  "+ propose"
-                )}
-              </button>
-            ) : null}
+                Proposals
+              </ViewToggleButton>
+              <ViewToggleButton
+                active={sidebarView === "audit"}
+                onClick={() => setSidebarView("audit")}
+              >
+                Audit
+              </ViewToggleButton>
               <button
                 type="button"
-                className="px-2 py-1 rounded border border-slate-200 text-[10px] uppercase tracking-wide font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 inline-flex items-center gap-1"
+                className="ml-auto px-2 py-1 rounded border border-slate-200 text-[10px] uppercase tracking-wide font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 inline-flex items-center gap-1"
                 onClick={() => setSidebarOpen(false)}
-                title="collapse proposals"
-                aria-label="collapse proposals"
+                title="collapse sidebar"
+                aria-label="collapse sidebar"
               >
                 <span aria-hidden>›</span>
                 <span>hide</span>
               </button>
             </div>
-            {/* Demo / dev affordances. The "use cache" toggle skips
-                the LLM round-trip for the next ``+ propose`` (replays
-                the cached proposal from disk); "reset experiment"
-                strips the curated state so a fresh skeleton is ready
-                for a re-run. Both are non-destructive in the data-
-                loss sense — the cache file and the source Gemma
-                dataset stay intact. */}
-            <div className="flex items-center gap-2 text-[10px] text-slate-500 pt-1 border-t border-slate-100">
-              <label
-                className="inline-flex items-center gap-1 cursor-pointer hover:text-slate-700"
-                title="Replay the cached proposer output instead of running the LLM again. Off = fresh LLM call (refresh_cache=true)."
-              >
-                <input
-                  type="checkbox"
-                  className="rounded border-slate-300"
-                  checked={useCachedProposal}
-                  onChange={(e) => setUseCachedProposal(e.target.checked)}
-                />
-                <span>use cache</span>
-              </label>
-              <span aria-hidden className="text-slate-300">
-                ·
-              </span>
-              <button
-                type="button"
-                className="hover:text-rose-700 underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
-                onClick={() => setResetConfirm(true)}
-                disabled={resetExperiment.isPending}
-                title="Re-import this experiment from real Gemma with curation stripped — clears factors and IC tags. Biomaterials and metadata stay."
-              >
-                {resetExperiment.isPending ? "resetting…" : "reset experiment"}
-              </button>
-            </div>
+            {sidebarView === "proposals" ? (
+              <>
+                {/* Phase 1 deployment hook. Triggers POST
+                    /propose/{id} via the SSE stream (proposeStream).
+                    Hidden once a pending proposal exists — the
+                    proposal card's "redo with notes" is the
+                    canonical retry path. */}
+                {pendingProposals.length === 0 ||
+                proposeStream.status === "running" ? (
+                  <button
+                    type="button"
+                    onClick={requestProposal}
+                    disabled={proposeStream.status === "running"}
+                    title={
+                      proposeStream.status === "running"
+                        ? "the proposer is running — watch the log feed below"
+                        : "ask the proposer agent to build a fresh proposal for this experiment"
+                    }
+                    className={
+                      "self-start px-1.5 py-0.5 rounded text-[10px] font-medium inline-flex items-center gap-1 " +
+                      (proposeStream.status === "running"
+                        ? "bg-slate-200 text-slate-500 cursor-progress"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200")
+                    }
+                  >
+                    {proposeStream.status === "running" ? (
+                      <>
+                        <Spinner />
+                        proposing…
+                      </>
+                    ) : (
+                      "+ propose"
+                    )}
+                  </button>
+                ) : null}
+                {/* Demo / dev affordances scoped to the proposer:
+                    "use cache" replays cached output instead of a
+                    fresh LLM call; "reset experiment" strips curation
+                    so a fresh skeleton is ready for a re-run. */}
+                <div className="flex items-center gap-2 text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+                  <label
+                    className="inline-flex items-center gap-1 cursor-pointer hover:text-slate-700"
+                    title="Replay the cached proposer output instead of running the LLM again. Off = fresh LLM call (refresh_cache=true)."
+                  >
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300"
+                      checked={useCachedProposal}
+                      onChange={(e) =>
+                        setUseCachedProposal(e.target.checked)
+                      }
+                    />
+                    <span>use cache</span>
+                  </label>
+                  <span aria-hidden className="text-slate-300">
+                    ·
+                  </span>
+                  <button
+                    type="button"
+                    className="hover:text-rose-700 underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
+                    onClick={() => setResetConfirm(true)}
+                    disabled={resetExperiment.isPending}
+                    title="Re-import this experiment from real Gemma with curation stripped — clears factors and IC tags. Biomaterials and metadata stay."
+                  >
+                    {resetExperiment.isPending
+                      ? "resetting…"
+                      : "reset experiment"}
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
         ) : (
           /*
@@ -637,7 +675,11 @@ function MainGrid({
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            title={`Open proposals${hasProposals ? ` (${pendingProposals.length} pending)` : ""}`}
+            title={
+              sidebarView === "audit"
+                ? "Open audit findings"
+                : `Open proposals${hasProposals ? ` (${pendingProposals.length} pending)` : ""}`
+            }
             className="card lg:flex-1 lg:min-h-[12rem] hover:bg-slate-50 flex flex-col items-center gap-3 py-3 text-slate-600 hover:text-slate-900 transition-colors"
           >
             <span aria-hidden className="text-base leading-none">
@@ -647,9 +689,9 @@ function MainGrid({
               className="text-[11px] font-semibold tracking-widest uppercase"
               style={{ writingMode: "vertical-rl" }}
             >
-              Proposals
+              {sidebarView === "audit" ? "Audit" : "Proposals"}
             </span>
-            {hasProposals ? (
+            {sidebarView === "proposals" && hasProposals ? (
               <span className="text-[10px] uppercase tracking-wide font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-auto">
                 {pendingProposals.length}
               </span>
@@ -658,7 +700,9 @@ function MainGrid({
         )}
 
         {sidebarOpen ? (
-          proposalsLoading ? (
+          sidebarView === "audit" ? (
+            <AuditSidebarPanel experimentId={experimentId} />
+          ) : proposalsLoading ? (
             <div className="card p-3 text-xs text-slate-500">
               loading proposals…
             </div>
@@ -731,7 +775,8 @@ function MainGrid({
         }}
         onCancel={() => setResetConfirm(false)}
       />
-    </main>
+      </main>
+    </AuditProvider>
   );
 }
 
@@ -782,6 +827,45 @@ function SharedCommitBar({
       }}
       onDiscard={discard}
     />
+  );
+}
+
+/** Tab-style toggle button for the sidebar's Proposals|Audit switch.
+ *  Underlines the active view; dims the inactive one. Optional badge
+ *  shows a count (pending proposals, or audit issues) without
+ *  forcing a click to see urgency. */
+function ViewToggleButton({
+  active,
+  onClick,
+  children,
+  badge,
+  badgeCls,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  badge?: number;
+  badgeCls?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "px-2 py-0.5 text-[11px] font-semibold rounded transition-colors " +
+        (active
+          ? "bg-slate-100 text-slate-900"
+          : "text-slate-500 hover:text-slate-800 hover:bg-slate-50")
+      }
+      aria-pressed={active}
+    >
+      {children}
+      {typeof badge === "number" ? (
+        <span className={"ml-1 " + (badgeCls ?? "text-slate-500")}>
+          ({badge})
+        </span>
+      ) : null}
+    </button>
   );
 }
 

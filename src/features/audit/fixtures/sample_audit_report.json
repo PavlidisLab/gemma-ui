@@ -1,0 +1,210 @@
+{
+  "audit_id": "aud_01HXYZ_sample",
+  "experiment_id": 12654,
+  "experiment_short_name": "GSE12654",
+  "audited_at": "2026-05-01T17:24:00Z",
+  "model": "claude-sonnet-4-6",
+  "scope": {
+    "include": ["factors", "fvs", "tags", "assignments"]
+  },
+  "findings": [
+    {
+      "target_kind": "experiment",
+      "target_id": "experiment:12654",
+      "severity": "blocker",
+      "issue_code": "not_suitable_for_dea",
+      "rationale": "Experiment is a single-condition time course with no comparator arm. Existing curation factors imply a DEA-ready design that the underlying samples do not support.",
+      "citation": "Tricky-and-Unusual-Experimental-Designs §Time courses without controls",
+      "citation_url": "https://pavlidislab.atlassian.net/wiki/spaces/CG/pages/76023357/Tricky+and+Unusual+Experimental+Designs",
+      "suggested_fix": "Mark the experiment as not-suitable-for-DEA and remove the synthetic 'treatment' factor.",
+      "proposer_suggestion": "Comparison proposer also flagged this as complex; recommend_skip=true with reason 'no comparator arm in sample set'."
+    },
+    {
+      "target_kind": "factor",
+      "target_id": "factor:411",
+      "severity": "major",
+      "issue_code": "forbidden_efc",
+      "rationale": "Factor uses 'dose' as its EFC category. 'dose' is forbidden as a top-level factor — it should appear as a predicate on a treatment factor value.",
+      "citation": "Curation-Rules §Forbidden EFC categories",
+      "citation_url": "https://pavlidislab.atlassian.net/wiki/spaces/CG/pages/forbidden-efc",
+      "suggested_fix": "Replace this factor with a 'treatment' factor whose FV statements carry the dose as a 'has_dose' predicate.",
+      "proposer_suggestion": "Proposer produced a single 'treatment' factor with two FVs ('vehicle', 'compound X 10 mg/kg') and a 'has_dose' predicate on the second."
+    },
+    {
+      "target_kind": "factor",
+      "target_id": "factor:412",
+      "severity": "minor",
+      "issue_code": "factor_name_nonstandard",
+      "rationale": "Factor name 'Genotype_v2' includes a version suffix that doesn't follow the canonical naming convention.",
+      "citation": "Curation-Rules §Factor names",
+      "citation_url": "",
+      "suggested_fix": "Rename to 'genotype'.",
+      "proposer_suggestion": "Proposer named the equivalent factor 'genotype'."
+    },
+    {
+      "target_kind": "fv",
+      "target_id": "fv:8132",
+      "severity": "major",
+      "issue_code": "missing_baseline",
+      "rationale": "Factor 'treatment' has three FVs but none is marked as baseline. DEA needs a baseline pick.",
+      "citation": "Curation-Rules §Baseline picks",
+      "citation_url": "",
+      "suggested_fix": "Mark the 'vehicle' FV as baseline.",
+      "proposer_suggestion": "Proposer's S6 baseline picker chose 'vehicle' (high confidence)."
+    },
+    {
+      "target_kind": "tag",
+      "target_id": "tag:77",
+      "severity": "minor",
+      "issue_code": "ungrounded_term",
+      "rationale": "Tag value 'liver tissue' has no ontology URI. Curation guidelines require an UBERON term for organism-part tags.",
+      "citation": "Curation-Rules §Ontology grounding",
+      "citation_url": "",
+      "suggested_fix": "Resolve to UBERON_0002107 (liver).",
+      "proposer_suggestion": "Proposer used UBERON_0002107 for the same tag."
+    },
+    {
+      "target_kind": "tag",
+      "target_id": "tag:78",
+      "severity": "ok",
+      "issue_code": "ok",
+      "rationale": "Tag 'disease model: Homo sapiens / hepatocellular carcinoma' matches guidelines and is correctly grounded.",
+      "citation": "",
+      "citation_url": "",
+      "suggested_fix": "",
+      "proposer_suggestion": ""
+    },
+    {
+      "target_kind": "assignment",
+      "target_id": "biomaterial:GSM310111",
+      "severity": "major",
+      "issue_code": "low_confidence_assignment",
+      "rationale": "Sample GSM310111 is assigned to FV 'compound X 10 mg/kg' but its GEO characteristics list 'vehicle control'. Assignment likely incorrect.",
+      "citation": "Curation-Rules §Sample assignment provenance",
+      "citation_url": "",
+      "suggested_fix": "Reassign GSM310111 to the 'vehicle' FV.",
+      "proposer_suggestion": "Proposer's heuristic assigner placed GSM310111 in 'vehicle' (high confidence, source=characteristic)."
+    }
+  ],
+  "evidence": {
+    "skeleton_excerpt": "GSE12654 — Hepatocyte response to compound X across three doses. 24 samples, 3 dose levels + vehicle control.",
+    "paper_source": "PubMed:18843289",
+    "paper_excerpt": "We treated primary hepatocytes with compound X at 1, 10, and 100 mg/kg, with vehicle controls processed in parallel...",
+    "comparison_proposal": {
+      "proposal_id": null,
+      "experiment_id": 12654,
+      "experiment_short_name": "GSE12654",
+      "submitted_by": "gemma-curation-agents",
+      "submitted_at": "2026-05-01T17:23:55Z",
+      "model": "claude-sonnet-4-6",
+      "status": "pending",
+      "tags": [
+        {
+          "category": {
+            "label": "organism part",
+            "uri": "http://www.ebi.ac.uk/efo/EFO_0000635",
+            "resolver": "curation_api",
+            "score": 1.0
+          },
+          "value": {
+            "label": "liver",
+            "uri": "http://purl.obolibrary.org/obo/UBERON_0002107",
+            "resolver": "curation_api",
+            "score": 0.95
+          },
+          "evidence_quote": "primary hepatocytes",
+          "confidence": "high"
+        }
+      ],
+      "factors": [
+        {
+          "category": {
+            "label": "treatment",
+            "uri": "http://www.ebi.ac.uk/efo/EFO_0000727",
+            "resolver": "curation_api",
+            "score": 1.0
+          },
+          "name_in_design": "treatment",
+          "factor_values": [
+            {
+              "free_text_label": "vehicle",
+              "is_baseline": true,
+              "statements": [
+                {
+                  "category": null,
+                  "subject": {
+                    "label": "vehicle",
+                    "uri": null,
+                    "resolver": null,
+                    "score": null
+                  },
+                  "predicate": null,
+                  "object": null
+                }
+              ],
+              "biomaterial_short_names": ["GSM310110", "GSM310111"],
+              "biomaterial_assignment_meta": [
+                {
+                  "biomaterial_short_name": "GSM310110",
+                  "confidence": "high",
+                  "source": "characteristic",
+                  "rationale": "characteristic 'treatment' = 'vehicle'"
+                },
+                {
+                  "biomaterial_short_name": "GSM310111",
+                  "confidence": "high",
+                  "source": "characteristic",
+                  "rationale": "characteristic 'treatment' = 'vehicle control'"
+                }
+              ]
+            },
+            {
+              "free_text_label": "compound X 10 mg/kg",
+              "is_baseline": false,
+              "statements": [
+                {
+                  "category": null,
+                  "subject": {
+                    "label": "compound X",
+                    "uri": null,
+                    "resolver": null,
+                    "score": null
+                  },
+                  "predicate": {
+                    "label": "has_dose",
+                    "uri": null,
+                    "resolver": null,
+                    "score": null
+                  },
+                  "object": {
+                    "label": "10 mg/kg",
+                    "uri": null,
+                    "resolver": null,
+                    "score": null
+                  }
+                }
+              ],
+              "biomaterial_short_names": ["GSM310112", "GSM310113"],
+              "biomaterial_assignment_meta": []
+            }
+          ]
+        }
+      ],
+      "evidence": {
+        "skeleton_excerpt": "GSE12654 — Hepatocyte response to compound X across three doses.",
+        "paper_source": "PubMed:18843289",
+        "paper_excerpt": "We treated primary hepatocytes with compound X...",
+        "exemplar_experiment_ids": [],
+        "extra": {},
+        "subtask_decisions": []
+      }
+    }
+  },
+  "summary": {
+    "n_blocker": 1,
+    "n_major": 3,
+    "n_minor": 2,
+    "n_ok": 1,
+    "overall_verdict": "blockers"
+  }
+}
