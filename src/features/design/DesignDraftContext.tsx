@@ -133,6 +133,13 @@ export interface DesignDraftValue {
   apply: (next: Design | ((current: Design) => Design)) => void;
   commit: () => void;
   discard: () => void;
+  /** Force-reload the draft from the next ``saved`` refetch.
+   *  Clears the localStorage cache + nulls the in-memory draft so
+   *  the loader effect re-seeds from server. Used by destructive
+   *  flows (e.g. the "Reset experiment" affordance) where the
+   *  background-refetch sync's clean-draft heuristic would
+   *  otherwise leave stale state in place. */
+  reload: () => void;
   saving: boolean;
   saveError: string | null;
   isLoading: boolean;
@@ -284,6 +291,23 @@ export function DesignDraftProvider({
     updater.reset();
   }, [saved, updater, experimentId]);
 
+  // Force-reload the draft from the next ``saved`` refetch. Used by
+  // the "Reset experiment" affordance: the import endpoint replaces
+  // the design server-side, the design query refetches via
+  // ``invalidateQueries``, but the existing background-refetch
+  // sync only updates the draft when the diff against the previous
+  // saved was clean — uncommitted edits or a mid-edit reset would
+  // leave the stale draft in place. This nukes the localStorage
+  // cache + null-resets the draft so the loader effect re-seeds
+  // from the freshly-fetched ``saved``.
+  const reload = useCallback(() => {
+    clearCachedDraft(experimentId);
+    setDraft(null);
+    prevSavedRef.current = null;
+    setStaleCacheDiscarded(false);
+    updater.reset();
+  }, [experimentId, updater]);
+
   const value: DesignDraftValue = {
     saved: saved ?? null,
     draft,
@@ -291,6 +315,7 @@ export function DesignDraftProvider({
     apply,
     commit,
     discard,
+    reload,
     saving: updater.isPending,
     saveError: updater.isError ? (updater.error as Error).message : null,
     isLoading,

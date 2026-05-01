@@ -66,18 +66,60 @@ export function useGemmaSearch(query: string, options: { enabled?: boolean } = {
  * `gca mock-gemma import` CLI; accepts whatever Gemma reference
  * the gemmapy resolver does — GSE accession, shortName, or
  * numeric id.
+ *
+ * Variant accepting ``strip_curation`` mirrors the CLI's
+ * ``--strip-curation`` flag — drops factors / IC tags / FV-synth
+ * tags before storing so the dataset lands as a fresh skeleton.
+ * Used by the UI's "Reset experiment" affordance.
  */
+export interface ImportArgs {
+  reference: string;
+  strip_curation?: boolean;
+}
+
 export function useImportFromGemma() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (reference: string) =>
-      api.post<Design>("/rest/v2/datasets/import", { reference }),
+    mutationFn: (args: string | ImportArgs) => {
+      const body: ImportArgs =
+        typeof args === "string" ? { reference: args } : args;
+      return api.post<Design>("/rest/v2/datasets/import", body);
+    },
     onSuccess: (design) => {
       qc.invalidateQueries({ queryKey: KEY });
       qc.invalidateQueries({ queryKey: ["design", design.experiment_id] });
       qc.invalidateQueries({ queryKey: ["audit-events", design.experiment_id] });
     },
   });
+}
+
+/**
+ * Reset an experiment to its fresh-skeleton state by re-importing
+ * from real Gemma with ``strip_curation: true``. Curated factors and
+ * curator-attached / IC tags get dropped; biomaterials, characteristics,
+ * and metadata stay. Equivalent to running
+ * ``mock-gemma import --strip-curation`` from the CLI.
+ *
+ * Wraps ``useImportFromGemma`` so the caller doesn't have to pass
+ * the experiment id at the mutation site.
+ */
+export function useResetExperiment(experimentId: number) {
+  const importer = useImportFromGemma();
+  return {
+    ...importer,
+    mutate: (
+      options?: Parameters<typeof importer.mutate>[1],
+    ) =>
+      importer.mutate(
+        { reference: String(experimentId), strip_curation: true },
+        options,
+      ),
+    mutateAsync: () =>
+      importer.mutateAsync({
+        reference: String(experimentId),
+        strip_curation: true,
+      }),
+  };
 }
 
 export interface DatasetVisibility {

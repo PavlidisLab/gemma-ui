@@ -4,6 +4,9 @@ import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ExperimentList } from "@/features/landing/ExperimentList";
 import { ImportPrompt } from "@/features/landing/ImportPrompt";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { useStickyState } from "@/lib/useStickyState";
+import { useResetExperiment } from "@/api/datasets";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
 import {
   parseRoute,
@@ -349,7 +352,26 @@ function MainGrid({
   const qc = useQueryClient();
   const toast = useToast();
   const triggerProposal = useTriggerProposal(experimentId);
+  const resetExperiment = useResetExperiment(experimentId);
+  // For the reset flow: after the import re-stamps the design
+  // server-side and the design query invalidates, the
+  // DesignDraftContext's "preserve dirty draft" heuristic would
+  // otherwise leave the stale draft in place. Calling ``reload()``
+  // nukes the localStorage cache + null-resets the in-memory draft
+  // so the loader effect re-seeds from the freshly-fetched saved.
+  const { reload: reloadDraft } = useDesignDraft();
   const hasProposals = pendingProposals.length > 0;
+  // Demo / dev affordance: re-use cached proposer outputs instead
+  // of paying the LLM round-trip again. Persisted across page
+  // loads; ``true`` flips ``refresh_cache`` to ``false`` on the
+  // next ``+ propose`` so the proposer service replays from disk.
+  const [useCachedProposal, setUseCachedProposal] = useStickyState<boolean>(
+    "proposer.use-cache",
+    false,
+  );
+  // Reset confirmation. Destructive (factors / IC tags wiped); the
+  // modal makes the curator pause before re-importing.
+  const [resetConfirm, setResetConfirm] = useState(false);
   // Wraps useTriggerProposal so the sidebar button doesn't have to
   // care about toast wiring or error mapping. Pipeline runs are
   // 30-90s for a fresh skeleton, seconds on a cache hit; the
@@ -383,7 +405,11 @@ function MainGrid({
         // the result we just produced.
         body: {
           use_cache: true,
-          refresh_cache: true,
+          // refresh_cache flips to false when the curator ticks
+          // the "use cache" checkbox in the sidebar — useful for
+          // demos / dev iterations where re-running the LLM each
+          // time burns credits without changing the output.
+          refresh_cache: !useCachedProposal,
           fresh_skeleton: true,
         },
       },
@@ -527,15 +553,16 @@ function MainGrid({
           </div>
         ) : null}
         {sidebarOpen ? (
-          <div className="card text-xs text-slate-600 px-2 py-1.5 flex items-center gap-2">
-            <span className="font-semibold flex-1">
-              Proposals
-              {hasProposals ? (
-                <span className="ml-1 text-amber-700">
-                  ({pendingProposals.length})
-                </span>
-              ) : null}
-            </span>
+          <div className="card text-xs text-slate-600 px-2 py-1.5 flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold flex-1">
+                Proposals
+                {hasProposals ? (
+                  <span className="ml-1 text-amber-700">
+                    ({pendingProposals.length})
+                  </span>
+                ) : null}
+              </span>
             {/*
               Phase 1 deployment hook. Triggers POST /propose/{id}
               on the proposer service via the Vite dev proxy. The
@@ -584,16 +611,50 @@ function MainGrid({
                 )}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="px-2 py-1 rounded border border-slate-200 text-[10px] uppercase tracking-wide font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 inline-flex items-center gap-1"
-              onClick={() => setSidebarOpen(false)}
-              title="collapse proposals"
-              aria-label="collapse proposals"
-            >
-              <span aria-hidden>›</span>
-              <span>hide</span>
-            </button>
+              <button
+                type="button"
+                className="px-2 py-1 rounded border border-slate-200 text-[10px] uppercase tracking-wide font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 inline-flex items-center gap-1"
+                onClick={() => setSidebarOpen(false)}
+                title="collapse proposals"
+                aria-label="collapse proposals"
+              >
+                <span aria-hidden>›</span>
+                <span>hide</span>
+              </button>
+            </div>
+            {/* Demo / dev affordances. The "use cache" toggle skips
+                the LLM round-trip for the next ``+ propose`` (replays
+                the cached proposal from disk); "reset experiment"
+                strips the curated state so a fresh skeleton is ready
+                for a re-run. Both are non-destructive in the data-
+                loss sense — the cache file and the source Gemma
+                dataset stay intact. */}
+            <div className="flex items-center gap-2 text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+              <label
+                className="inline-flex items-center gap-1 cursor-pointer hover:text-slate-700"
+                title="Replay the cached proposer output instead of running the LLM again. Off = fresh LLM call (refresh_cache=true)."
+              >
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300"
+                  checked={useCachedProposal}
+                  onChange={(e) => setUseCachedProposal(e.target.checked)}
+                />
+                <span>use cache</span>
+              </label>
+              <span aria-hidden className="text-slate-300">
+                ·
+              </span>
+              <button
+                type="button"
+                className="hover:text-rose-700 underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
+                onClick={() => setResetConfirm(true)}
+                disabled={resetExperiment.isPending}
+                title="Re-import this experiment from real Gemma with curation stripped — clears factors and IC tags. Biomaterials and metadata stay."
+              >
+                {resetExperiment.isPending ? "resetting…" : "reset experiment"}
+              </button>
+            </div>
           </div>
         ) : (
           /*
@@ -654,6 +715,41 @@ function MainGrid({
           )
         ) : null}
       </aside>
+      <ConfirmModal
+        open={resetConfirm}
+        title="Reset experiment to fresh skeleton?"
+        body={
+          `Re-imports experiment #${experimentId} from real Gemma and strips ` +
+          `curation: factors, IC tags, and FV-source synth tags are cleared. ` +
+          `Biomaterials, characteristics, and metadata stay.\n\n` +
+          `Equivalent to "mock-gemma import --strip-curation" from the CLI. ` +
+          `Any uncommitted draft on the design tab is discarded.`
+        }
+        confirmLabel={resetExperiment.isPending ? "resetting…" : "reset"}
+        destructive
+        onConfirm={() => {
+          resetExperiment.mutate({
+            onSuccess: () => {
+              // Force the draft state to follow the freshly-imported
+              // design. Without this, the background-refetch sync's
+              // clean-draft heuristic preserves any in-flight draft
+              // and the curator sees the old factors / tags despite
+              // the server having stripped them.
+              reloadDraft();
+              toast.show("Experiment reset to fresh skeleton.", "success");
+              setResetConfirm(false);
+            },
+            onError: (err) => {
+              toast.show(
+                `Reset failed: ${(err as Error).message}`,
+                "danger",
+                8000,
+              );
+            },
+          });
+        }}
+        onCancel={() => setResetConfirm(false)}
+      />
     </main>
   );
 }
