@@ -20,6 +20,7 @@ import type {
 } from "@/features/experiment/types";
 import { baselineFor, HAS_ROLE_PREDICATE } from "./baselineForCategory";
 import { factorFromTemplate, type FactorTemplate } from "./factorTemplates";
+import { templatesFor } from "./statementTemplates";
 
 /** Confluence baseline-term labels used to detect whether an FV
  *  already carries a baseline-style statement. Match casing-loose. */
@@ -594,19 +595,36 @@ export function revertFactor(
 export function addFactorValue(design: Design, factorId: number): Design {
   const id = nextFvId(design);
   const factor = design.factors.find((f) => f.id === factorId);
+  const factorCategory = factor?.category ?? null;
+  // Seed the new FV with a starter statement from the matching
+  // template when the factor's category has one (genotype-ko for
+  // genotype, treatment-dose for treatment, etc — see
+  // statementTemplates.ts). Picks the first matching template;
+  // curator swaps via the per-statement template picker if a
+  // different shape fits better. No matching template (block /
+  // batch / ad-hoc category labels) → fall back to one empty
+  // statement carrying just the factor category, matching the
+  // pre-templates default so the editor still renders consistently.
+  const matching =
+    factorCategory && factorCategory.label.trim()
+      ? templatesFor(factorCategory)
+      : [];
+  // Filter out the catch-all "*" templates so e.g. a genotype FV
+  // doesn't get seeded with a generic "subject + has role + role"
+  // pattern when a more specific genotype template exists.
+  const specific = matching.filter((t) => t.category !== "*");
+  const seedStatement: Statement =
+    specific.length > 0
+      ? specific[0].build(factorCategory)
+      : {
+          category: factorCategory ? { ...factorCategory } : null,
+          subject: { label: "" },
+        };
   const newFv: FactorValue = {
     id,
     free_text_label: "",
     is_baseline: false,
-    // New statements default-inherit the parent factor's category;
-    // the curator can override per statement if the FV combines
-    // multiple categories.
-    statements: [
-      {
-        category: factor?.category ? { ...factor.category } : null,
-        subject: { label: "" },
-      },
-    ],
+    statements: [seedStatement],
     biomaterial_short_names: [],
   };
   return mapFactor(design, factorId, (f) => ({
