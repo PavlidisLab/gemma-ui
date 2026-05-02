@@ -12,7 +12,9 @@ import {
   fvTarget,
   tagTarget,
   assignmentTarget,
+  parseTargetId,
 } from "./targetIds";
+import { requestSampleScroll } from "@/lib/scrollToSample";
 import { AuditTriggerDialog } from "./AuditTriggerDialog";
 import type {
   AuditFinding,
@@ -448,12 +450,21 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // live reports; in-memory for dev override). The card just reads
   // and writes through.
   const {
+    experimentId,
     activeFindingKey,
     setActiveFindingKey,
     dispositionByTarget,
     setDisposition,
     dispositionSaving,
   } = useAudit();
+
+  // For assignment-kind findings, we can jump straight to the BM in
+  // the samples table. parseTargetId hands back the raw short_name
+  // for `assignment:<short_name>`. Other kinds don't have a stable
+  // sample anchor.
+  const parsed = parseTargetId(finding.target_id);
+  const jumpShortName =
+    parsed?.kind === "assignment" ? parsed.biomaterialShortName : null;
   const currentDisposition =
     dispositionByTarget.get(finding.target_id)?.status ?? "pending";
 
@@ -521,8 +532,21 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
 
       {open ? (
         <div className="space-y-1.5 pl-1 border-l-2 border-slate-200">
-          <div className="text-[10px] text-slate-500 font-mono pl-1.5">
-            {finding.target_id}
+          <div className="text-[10px] text-slate-500 font-mono pl-1.5 flex items-center gap-2 flex-wrap">
+            <span>{finding.target_id}</span>
+            {jumpShortName ? (
+              <button
+                type="button"
+                className="text-blue-700 hover:text-blue-900 underline underline-offset-2 normal-case"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  requestSampleScroll(experimentId, jumpShortName);
+                }}
+                title={`switch to the Samples tab and scroll to ${jumpShortName}`}
+              >
+                → in samples table
+              </button>
+            ) : null}
           </div>
 
           {finding.citation || finding.citation_url ? (

@@ -24,6 +24,7 @@ import { BulkAssignPanel } from "@/features/samples/BulkAssignPanel";
 import { useProposalReview } from "@/features/proposal/ProposalReviewContext";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { assignmentTarget } from "@/features/audit/targetIds";
+import { onSamplesScrollRow } from "@/lib/scrollToSample";
 import type {
   BiomaterialAssignmentMeta,
   FactorProposal,
@@ -90,6 +91,35 @@ export function SampleDetailsPanel({ experimentId }: { experimentId: number }) {
     });
     return () => cancelAnimationFrame(raf);
   }, [scrollToFactorId]);
+  // Cross-tab "jump to this sample" — handled here (rather than
+  // inside SampleTable) so the listener survives the table being
+  // remounted on draft swap. The actual DOM scroll runs after a
+  // frame so the row exists before we querySelector for it. Brief
+  // ring-highlight so the curator's eye lands on the target.
+  useEffect(() => {
+    return onSamplesScrollRow(({ shortName }) => {
+      // Two RAFs mirror dispatchSamplesScrollRow on the sender side —
+      // gives React time to flush filter changes (if the search box
+      // ends up clearing) before we measure.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const safe =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(shortName)
+              : shortName.replace(/"/g, '\\"');
+          const el = document.querySelector<HTMLTableRowElement>(
+            `tr[data-bm-shortname="${safe}"]`,
+          );
+          if (!el) return;
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("ring-2", "ring-blue-400", "ring-inset");
+          window.setTimeout(() => {
+            el.classList.remove("ring-2", "ring-blue-400", "ring-inset");
+          }, 1800);
+        });
+      });
+    });
+  }, []);
   // ``filter`` (the search box) stays ephemeral — re-typing on a
   // new experiment is fine, and a stale filter from a different
   // experiment would just hide rows confusingly. Sort preference
@@ -319,6 +349,26 @@ function SampleTable({
     "samples.hideConstant",
     false,
   );
+  // Per-column widths the curator has dragged. Keyed by `colKey` (same
+  // value passed to SortableTh), persisted across experiments — a wide
+  // "name" column is wide because *names* tend to be long, regardless
+  // of dataset, so the preference travels. Empty entries fall back to
+  // browser auto-sizing. Cleared per-column by double-clicking the
+  // drag handle.
+  const [colWidths, setColWidths] = useStickyState<Record<string, number>>(
+    "samples.colWidths",
+    {},
+  );
+  const setColWidth = (colKey: string, width: number | null) => {
+    setColWidths((prev) => {
+      if (width == null) {
+        if (!(colKey in prev)) return prev;
+        const { [colKey]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [colKey]: Math.round(width) };
+    });
+  };
   // Bulk-assign modal (factor → FV mapping by characteristic). Null
   // when closed; carries the currently-targeted factor when open.
   const [bulkAssignFactor, setBulkAssignFactor] = useState<Factor | null>(null);
@@ -407,34 +457,51 @@ function SampleTable({
     (charKeys.length - visibleCharKeys.length) +
     (fvByBmPerFactor.length - visibleFactors.length);
 
-  // Row filter — searches only what's actually rendered (WYSIWYG).
-  // If a column is hidden by the column-filter or hide-constant
-  // toggle, its values don't contribute to row matches. That makes
-  // the search behave intuitively: typing "wild" only catches rows
-  // where you can SEE "wild" in a visible cell.
+  // Push nuisance (block / batch) factors to the right end of the
+  // factor cluster so the biological factors a curator is iterating
+  // on stay closest to the row identifiers. The check matches how
+  // the rest of the codebase identifies nuisance factors (Overview's
+  // confound chip, PrePublishChecklist, ProposalCardV2): category
+  // label is exactly "block" or "batch", case-insensitive. Order
+  // among nuisance factors mirrors their original order; same for
+  // biological factors. A stable sort keeps both sides predictable.
+  const orderedFactors = useMemo(() => {
+    const list = [...visibleFactors];
+    list.sort((a, b) => {
+      const aN = isNuisanceFactor(a.factor);
+      const bN = isNuisanceFactor(b.factor);
+      if (aN === bN) return 0;
+      return aN ? 1 : -1;
+    });
+    return list;
+  }, [visibleFactors]);
+
+  // Row filter — searches every searchable field on the BM, regardless
+  // of which columns the curator has hidden. The constancy / column-
+  // filter toggles only affect what's *displayed*; an accession typed
+  // into the search box should always find its row even if the column
+  // it lives in is currently off-screen (e.g. a `geo_accession`
+  // characteristic the curator collapsed via "hide constant", or a
+  // bio_assay column auto-suppressed because it duplicates the BM's
+  // short_name).
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return design.biomaterials;
     return design.biomaterials.filter((b) => {
-      // Always-visible columns: short_name, name, bio_assays.
       if (b.short_name.toLowerCase().includes(q)) return true;
       if (b.name.toLowerCase().includes(q)) return true;
       for (const a of b.bio_assays ?? []) {
         if (a.short_name.toLowerCase().includes(q)) return true;
         if ((a.name ?? "").toLowerCase().includes(q)) return true;
       }
-      // Visible characteristic columns only.
-      for (const k of visibleCharKeys) {
+      // All characteristics, not just visible ones — accessions
+      // hiding in a constant column still need to be findable.
+      for (const k of charKeys) {
         const v = b.characteristics?.[k] ?? "";
         if (String(v).toLowerCase().includes(q)) return true;
       }
-      // Visible factor columns only — match the FV label and its
-      // statement subject / predicate / object so curators can find
-      // samples by their curated annotation, not just by the raw
-      // GEO characteristic (e.g. searching "wild" matches a sample
-      // whose FV is `Wild type genotype` even when its characteristic
-      // says `WT`).
-      for (const { factor, index } of visibleFactors) {
+      // All factors, including constant / off-screen ones.
+      for (const { factor, index } of fvByBmPerFactor) {
         const hit = index.get(b.short_name);
         if (!hit) continue;
         const fv = factor.factor_values.find((x) => x.id === hit.fv_id);
@@ -450,7 +517,7 @@ function SampleTable({
       }
       return false;
     });
-  }, [design.biomaterials, filter, visibleCharKeys, visibleFactors]);
+  }, [design.biomaterials, filter, charKeys, fvByBmPerFactor]);
 
   const sorted = useMemo(
     () => sortBiomaterials(filtered, sort, fvByBmPerFactor),
@@ -818,9 +885,15 @@ function SampleTable({
         />
       ) : null}
 
-      <div className="overflow-x-auto">
+      {/* The table itself is the vertical scroll container. Capping at
+          `100vh - 15rem` leaves room for the top bar + experiment
+          banner + the panel's own filter row above without the table
+          ever pushing the proposals/audit sidebar off-screen. The
+          thead is sticky against this same scroll context, so column
+          headers stay visible while the curator scans down. */}
+      <div className="overflow-auto max-h-[calc(100vh-15rem)]">
         <table className="w-full text-xs">
-          <thead className="bg-slate-50 text-slate-600">
+          <thead className="bg-slate-50 text-slate-600 sticky top-0 z-20">
             <tr className="border-b border-slate-200">
               <th
                 className="px-2 py-2 w-7 sticky left-0 bg-slate-50 z-10 text-center"
@@ -851,12 +924,16 @@ function SampleTable({
                 sort={sort}
                 onSortChange={onSortChange}
                 sticky
+                width={colWidths["short_name"]}
+                onResize={(w) => setColWidth("short_name", w)}
               />
               <SortableTh
                 label="name"
                 colKey="name"
                 sort={sort}
                 onSortChange={onSortChange}
+                width={colWidths["name"]}
+                onResize={(w) => setColWidth("name", w)}
               />
               {hasBioAssays ? (
                 <SortableTh
@@ -864,9 +941,45 @@ function SampleTable({
                   colKey="bio_assay"
                   sort={sort}
                   onSortChange={onSortChange}
+                  width={colWidths["bio_assay"]}
+                  onResize={(w) => setColWidth("bio_assay", w)}
                 />
               ) : null}
+              {/* Factor columns sit immediately after the row-identifier
+                  columns so curators don't have to scroll past a wide
+                  block of characteristics to reach the curated
+                  annotations. Characteristics follow. */}
+              {orderedFactors.map(({ factor }) => {
+                const colKey = `factor:${factor.id}`;
+                const nuisance = isNuisanceFactor(factor);
+                return (
+                  <SortableTh
+                    key={`f-${factor.id}`}
+                    label={factor.name || `factor#${factor.id}`}
+                    colKey={colKey}
+                    sort={sort}
+                    onSortChange={onSortChange}
+                    badge="factor"
+                    className={
+                      nuisance
+                        ? "bg-stone-100 border-l-2 border-stone-300"
+                        : "bg-blue-50/50 border-l-2 border-blue-200"
+                    }
+                    title={
+                      (factor.description || `factor#${factor.id}`) +
+                      (nuisance ? " · nuisance factor (batch / block)" : "") +
+                      (constantFactorIds.has(factor.id)
+                        ? " · constant across visible rows"
+                        : "")
+                    }
+                    dataFactorId={factor.id}
+                    width={colWidths[colKey]}
+                    onResize={(w) => setColWidth(colKey, w)}
+                  />
+                );
+              })}
               {visibleCharKeys.map((k) => {
+                const colKey = `char:${k}`;
                 const isContinuous = continuousCharKeys.has(k);
                 const alreadyAFactor = factorCategoryLabels.has(
                   k.trim().toLowerCase(),
@@ -876,7 +989,7 @@ function SampleTable({
                   <SortableTh
                     key={`char-${k}`}
                     label={k}
-                    colKey={`char:${k}`}
+                    colKey={colKey}
                     sort={sort}
                     onSortChange={onSortChange}
                     badge="char"
@@ -899,31 +1012,11 @@ function SampleTable({
                         </button>
                       ) : undefined
                     }
+                    width={colWidths[colKey]}
+                    onResize={(w) => setColWidth(colKey, w)}
                   />
                 );
               })}
-              {visibleFactors.map(({ factor }) => (
-                <SortableTh
-                  key={`f-${factor.id}`}
-                  label={factor.name || `factor#${factor.id}`}
-                  colKey={`factor:${factor.id}`}
-                  sort={sort}
-                  onSortChange={onSortChange}
-                  badge="factor"
-                  className="bg-blue-50/50 border-l-2 border-blue-200"
-                  title={
-                    (factor.description || `factor#${factor.id}`) +
-                    (constantFactorIds.has(factor.id)
-                      ? " · constant across visible rows"
-                      : "")
-                  }
-                  // Stable selector for the post-promote scroll
-                  // effect — see the scrolling logic in
-                  // ``SampleDetailsPanel``. Keeps the
-                  // newly-promoted factor's column in view.
-                  dataFactorId={factor.id}
-                />
-              ))}
               {/* Proposal-overlay columns. Appended after the design
                   factor columns; visually distinct (amber) so the
                   curator sees they're proposed-not-curated. Sort
@@ -961,6 +1054,18 @@ function SampleTable({
               return (
                 <tr
                   key={isGroup ? `grp-${row.sourceId}` : repr.short_name}
+                  // Stable hooks for the cross-tab "scroll to sample"
+                  // jump (see scrollToSample.ts). The first attribute
+                  // is the representative short_name; the second is a
+                  // comma-joined list of every constituent BM in this
+                  // row, so a grouped (single-cell) row matches a
+                  // request that names a child bucket. Selector form
+                  // for the latter:
+                  // tr[data-bm-all-shortnames~="…"] — not currently
+                  // used by the panel itself but available to future
+                  // callers that want exact-bucket matches.
+                  data-bm-shortname={repr.short_name}
+                  data-bm-all-shortnames={allShortNames.join(",")}
                   className={cn(
                     "border-b border-slate-100",
                     isSelected ? "bg-blue-50/60" : "hover:bg-slate-50",
@@ -1157,6 +1262,32 @@ function SampleTable({
                       })()}
                     </td>
                   ) : null}
+                  {orderedFactors.map(({ factor, index }) => {
+                    const agg = aggregateFvId(siblings, index);
+                    const nuisance = isNuisanceFactor(factor);
+                    return (
+                      <td
+                        key={`${repr.short_name}-f${factor.id}`}
+                        className={cn(
+                          "px-3 py-0.5",
+                          nuisance
+                            ? "border-l-2 border-stone-200 bg-stone-50/60"
+                            : "border-l-2 border-blue-100",
+                        )}
+                      >
+                        <FvSelect
+                          factor={factor}
+                          currentFvId={agg.fvId}
+                          isMixed={agg.isMixed}
+                          onChange={(fvId) => {
+                            for (const sn of allShortNames) {
+                              onReassign(sn, factor.id, fvId);
+                            }
+                          }}
+                        />
+                      </td>
+                    );
+                  })}
                   {visibleCharKeys.map((k) => {
                     const agg = aggregateCharValue(siblings, k);
                     const isOntology = !!agg.valueUri && !agg.isMixed;
@@ -1234,26 +1365,6 @@ function SampleTable({
                       </td>
                     );
                   })}
-                  {visibleFactors.map(({ factor, index }) => {
-                    const agg = aggregateFvId(siblings, index);
-                    return (
-                      <td
-                        key={`${repr.short_name}-f${factor.id}`}
-                        className="px-3 py-0.5 border-l-2 border-blue-100"
-                      >
-                        <FvSelect
-                          factor={factor}
-                          currentFvId={agg.fvId}
-                          isMixed={agg.isMixed}
-                          onChange={(fvId) => {
-                            for (const sn of allShortNames) {
-                              onReassign(sn, factor.id, fvId);
-                            }
-                          }}
-                        />
-                      </td>
-                    );
-                  })}
                   {/* Proposal-overlay cells. One per proposal factor;
                       shows the agent's per-sample FV pick (or the
                       curator's override if reassigned), confidence-
@@ -1307,6 +1418,17 @@ function SampleTable({
   );
 }
 
+/** True when a factor is a technical nuisance variable (batch effect
+ *  bookkeeping rather than a biological condition). Mirrors the
+ *  detection used by OverviewPanel's confound chip and
+ *  PrePublishChecklist. The samples table treats these specially:
+ *  pushed to the right end of the factor cluster + amber-tinted
+ *  header so they stand out from biological factors. */
+function isNuisanceFactor(factor: Factor): boolean {
+  const cat = (factor.category?.label || "").trim().toLowerCase();
+  return cat === "block" || cat === "batch";
+}
+
 function SortableTh({
   label,
   colKey,
@@ -1318,6 +1440,8 @@ function SortableTh({
   badge,
   extra,
   dataFactorId,
+  width,
+  onResize,
 }: {
   label: string;
   colKey: string;
@@ -1340,16 +1464,31 @@ function SortableTh({
    *  characteristic — keeps the new column visible without forcing
    *  the curator to hunt for it. */
   dataFactorId?: number;
+  /** Curator-set width in px. Undefined → browser auto-size. When
+   *  set, hard-pins the column via min/max-width so content with
+   *  ``whitespace-nowrap`` doesn't blow it back out. */
+  width?: number;
+  /** Resize callback. Pass `null` to clear the override (curator
+   *  double-clicks the handle to reset to auto-sized). */
+  onResize?: (width: number | null) => void;
 }) {
   const active = sort.key === colKey;
   const dir = active ? sort.dir : null;
+  const widthStyle = width
+    ? {
+        width: `${width}px`,
+        minWidth: `${width}px`,
+        maxWidth: `${width}px`,
+      }
+    : undefined;
   return (
     <th
       className={cn(
-        "text-left font-medium px-3 py-2 align-bottom",
+        "text-left font-medium px-3 py-2 align-bottom relative group",
         sticky && "sticky left-8 bg-slate-50",
         className,
       )}
+      style={widthStyle}
       title={title}
       data-factor-id={dataFactorId}
     >
@@ -1389,7 +1528,75 @@ function SortableTh({
         </span>
       </button>
       {extra ? <div className="block">{extra}</div> : null}
+      {onResize ? <ColumnResizeHandle onCommit={onResize} /> : null}
     </th>
+  );
+}
+
+/** Thin drag handle pinned to the right edge of a `<th>`. Lets the
+ *  curator size the column to taste; double-click clears any prior
+ *  override (column falls back to browser auto-sizing).
+ *
+ *  The handle paints itself live during drag by mutating the parent
+ *  `<th>`'s inline style — calling React on every mousemove would
+ *  fight the table layout pass. The committed width is forwarded to
+ *  the caller's onCommit on mouseup, which persists it via
+ *  ``useStickyState``; the next React render reapplies the same
+ *  width through the normal `width` prop and the inline override
+ *  becomes redundant.
+ *
+ *  Min width is 40 px — anything smaller hides the column header. */
+function ColumnResizeHandle({
+  onCommit,
+}: {
+  onCommit: (width: number | null) => void;
+}) {
+  const onMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget;
+    const th = handle.parentElement as HTMLElement | null;
+    if (!th) return;
+    const startX = e.clientX;
+    const startWidth = th.getBoundingClientRect().width;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.max(40, startWidth + (ev.clientX - startX));
+      th.style.width = `${next}px`;
+      th.style.minWidth = `${next}px`;
+      th.style.maxWidth = `${next}px`;
+    };
+    const onUp = (ev: MouseEvent) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      const next = Math.max(40, startWidth + (ev.clientX - startX));
+      onCommit(next);
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="drag to resize · double-click to reset"
+      onMouseDown={onMouseDown}
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const th = (e.currentTarget.parentElement as HTMLElement | null);
+        if (th) {
+          th.style.width = "";
+          th.style.minWidth = "";
+          th.style.maxWidth = "";
+        }
+        onCommit(null);
+      }}
+      className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-300 active:bg-blue-500 group-hover:bg-slate-200"
+    />
   );
 }
 

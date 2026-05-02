@@ -22,6 +22,10 @@ import {
   type ExperimentTab,
 } from "@/routes";
 import {
+  onRequestSampleScroll,
+  dispatchSamplesScrollRow,
+} from "@/lib/scrollToSample";
+import {
   ExperimentBanner,
   TopBar,
   type TabId,
@@ -183,6 +187,22 @@ function Shell({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [diff.isDirty]);
+
+  // Listen for cross-tab "scroll to sample" requests (audit findings
+  // on assignment kind, proposal cards referencing biomaterials).
+  // When the request targets THIS experiment, switch to the samples
+  // tab and re-dispatch the row-event so SampleDetailsPanel can
+  // handle the actual scroll once mounted. Cross-experiment requests
+  // route via the hash (callers do that themselves) — keeping this
+  // listener experiment-scoped avoids hijacking unrelated events.
+  useEffect(() => {
+    return onRequestSampleScroll(({ experimentId: targetId, shortName }) => {
+      if (targetId !== experimentId) return;
+      setActiveTab("samples");
+      navigate(experimentRoute(experimentId, "samples"));
+      dispatchSamplesScrollRow(shortName);
+    });
+  }, [experimentId]);
 
   // In-app navigation guard: hash changes that take the curator off
   // this experiment (back to landing, inbox, or a different
@@ -534,8 +554,8 @@ function MainGrid({
       <aside
         className={
           sidebarOpen
-            ? "shrink-0 space-y-3 relative"
-            : "lg:w-10 shrink-0 flex flex-col items-stretch relative"
+            ? "shrink-0 space-y-3 relative lg:sticky lg:top-2 lg:self-start lg:max-h-[calc(100vh-1rem)] lg:overflow-y-auto"
+            : "lg:w-10 shrink-0 flex flex-col items-stretch relative lg:sticky lg:top-2 lg:self-start lg:max-h-[calc(100vh-1rem)]"
         }
         style={
           sidebarOpen

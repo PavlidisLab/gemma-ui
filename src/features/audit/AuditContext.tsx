@@ -57,6 +57,10 @@ const SEVERITY_RANK: Record<Severity, number> = {
 };
 
 interface AuditContextValue {
+  /** The experiment this audit belongs to. Surfaced so consumers
+   *  (e.g. finding cards needing to address the samples table)
+   *  don't have to thread it through props from the Shell. */
+  experimentId: number;
   /** The audit being shown — override (dev synth) if set, else most
    *  recent live audit, else null. */
   report: AuditReport | null;
@@ -219,6 +223,7 @@ export function AuditProvider({
   );
 
   const value: AuditContextValue = {
+    experimentId,
     report,
     setOverrideReport: setOverride,
     hasOverride: override !== null,
