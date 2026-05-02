@@ -252,9 +252,68 @@ function SidebarHeader({
   onClearOverride?: () => void;
 }) {
   const { summary, scope } = report;
+  const {
+    isFinalized,
+    finalizedAt,
+    finalizedBy,
+    finalize,
+    reopen,
+    finalizeSaving,
+    reopenSaving,
+  } = useAudit();
+  const toast = useToast();
+  const [confirmClose, setConfirmClose] = useState(false);
+
+  // Pending findings warning gating: not a hard gate. Curators may
+  // close even with pending non-ok findings, but we surface the
+  // count so they can pause if the close was accidental. Server
+  // accepts either way.
+  const pendingActionable = report.findings.filter((f) => {
+    if (f.severity === "ok") return false;
+    const d = report.dispositions.find((x) => x.target_id === f.target_id);
+    return !d || d.status === "pending";
+  }).length;
+
+  // Override (synth / fixture) reports have no audit_id on the
+  // server, so the close button is a no-op there. Hide it instead
+  // of rendering a button that does nothing.
+  const lifecycleAvailable = !hasOverride && !!report.audit_id;
+
+  async function handleClose(notes: string) {
+    try {
+      await finalize(notes || undefined);
+      toast.show("Audit closed.", "success");
+      setConfirmClose(false);
+    } catch (err) {
+      toast.show(
+        `Couldn't close audit: ${(err as Error).message}`,
+        "danger",
+        6000,
+      );
+    }
+  }
+
+  async function handleReopen() {
+    try {
+      await reopen();
+      toast.show("Audit reopened — dispositions editable again.", "success");
+    } catch (err) {
+      toast.show(
+        `Couldn't reopen audit: ${(err as Error).message}`,
+        "danger",
+        6000,
+      );
+    }
+  }
+
   return (
-    <div className="card p-2 text-xs space-y-1.5">
-      <div className="flex items-center gap-2">
+    <div
+      className={cn(
+        "card p-2 text-xs space-y-1.5",
+        isFinalized && "border-slate-300 bg-slate-50",
+      )}
+    >
+      <div className="flex items-center gap-2 flex-wrap">
         <VerdictPill verdict={summary.overall_verdict} />
         {hasOverride ? (
           <span
@@ -262,6 +321,16 @@ function SidebarHeader({
             title="this report is a dev override (synthesized or fixture-loaded), not the live audit"
           >
             dev
+          </span>
+        ) : null}
+        {isFinalized ? (
+          <span
+            className="inline-block text-[9px] uppercase tracking-wide font-bold px-1 py-0 rounded bg-slate-700 text-white"
+            title={`closed${finalizedBy ? ` by ${finalizedBy}` : ""}${
+              finalizedAt ? ` at ${finalizedAt}` : ""
+            } — disposition controls are read-only until reopened`}
+          >
+            closed
           </span>
         ) : null}
         <span className="text-[10px] text-slate-500 truncate">
@@ -290,6 +359,156 @@ function SidebarHeader({
         <span className="font-mono">
           {scope.include.join(" / ") || "—"}
         </span>
+      </div>
+      {isFinalized ? (
+        <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-200">
+          <span className="text-[10px] text-slate-600">
+            Closed{finalizedBy ? <> by <span className="font-mono">{finalizedBy}</span></> : null}
+            {finalizedAt ? <> · {formatShort(finalizedAt)}</> : null}
+          </span>
+          {lifecycleAvailable ? (
+            <button
+              type="button"
+              onClick={handleReopen}
+              disabled={reopenSaving}
+              title="reopen this audit so dispositions can be edited again"
+              className={cn(
+                "ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium",
+                reopenSaving
+                  ? "bg-slate-200 text-slate-500 cursor-progress"
+                  : "bg-slate-200 text-slate-800 hover:bg-slate-300",
+              )}
+            >
+              {reopenSaving ? "reopening…" : "Reopen"}
+            </button>
+          ) : null}
+        </div>
+      ) : lifecycleAvailable ? (
+        <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-100">
+          {pendingActionable > 0 ? (
+            <span
+              className="text-[10px] text-amber-700"
+              title="closing now records every still-pending finding as undecided in the dispositions log; consider dispositioning them first"
+            >
+              {pendingActionable} pending
+            </span>
+          ) : (
+            <span className="text-[10px] text-emerald-700">all triaged</span>
+          )}
+          <button
+            type="button"
+            onClick={() => setConfirmClose(true)}
+            disabled={finalizeSaving}
+            title={
+              pendingActionable > 0
+                ? "close audit (you'll confirm — pending findings stay pending in the log)"
+                : "close audit; the agent side aggregates only closed audits"
+            }
+            className={cn(
+              "ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium",
+              finalizeSaving
+                ? "bg-blue-200 text-blue-700 cursor-progress"
+                : "bg-blue-700 text-white hover:bg-blue-800",
+            )}
+          >
+            {finalizeSaving ? "closing…" : "Close audit"}
+          </button>
+        </div>
+      ) : null}
+      {confirmClose ? (
+        <CloseAuditConfirm
+          pendingActionable={pendingActionable}
+          saving={finalizeSaving}
+          onCancel={() => setConfirmClose(false)}
+          onConfirm={handleClose}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** Inline confirm popover for "Close audit". Optional notes go to
+ *  the audit_events row server-side. Keeps the affordance compact —
+ *  the audit lifecycle isn't destructive (Reopen restores it), so a
+ *  full ConfirmModal would over-weight the action. */
+function CloseAuditConfirm({
+  pendingActionable,
+  saving,
+  onCancel,
+  onConfirm,
+}: {
+  pendingActionable: number;
+  saving: boolean;
+  onCancel: () => void;
+  onConfirm: (notes: string) => Promise<void> | void;
+}) {
+  const [notes, setNotes] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (saving) return;
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) onCancel();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !saving) onCancel();
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onCancel, saving]);
+  return (
+    <div
+      ref={ref}
+      className="border border-slate-300 rounded bg-white p-2 space-y-2 mt-1"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="text-[11px] text-slate-700">
+        Close this audit?{" "}
+        {pendingActionable > 0 ? (
+          <span className="text-amber-800">
+            {pendingActionable} actionable finding
+            {pendingActionable === 1 ? "" : "s"} still pending — they'll
+            be recorded as undecided in the disposition log.
+          </span>
+        ) : (
+          <span className="text-slate-500">
+            All actionable findings have a disposition.
+          </span>
+        )}
+      </div>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={2}
+        placeholder="optional close note"
+        className="w-full text-[11px] border border-slate-300 rounded px-1.5 py-1 resize-y"
+      />
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+        >
+          cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onConfirm(notes.trim())}
+          disabled={saving}
+          className={cn(
+            "text-[11px] px-2 py-0.5 rounded font-medium",
+            saving
+              ? "bg-blue-200 text-blue-700 cursor-progress"
+              : "bg-blue-700 text-white hover:bg-blue-800",
+          )}
+        >
+          {saving ? "closing…" : "Close audit"}
+        </button>
       </div>
     </div>
   );
@@ -601,8 +820,15 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
  *  Dismiss flow opens `DismissDialog` (chip-picker for the
  *  dismiss_reason enum from AUDIT_DISPOSITIONS.md ask #2). */
 function FindingActionRow({ finding }: { finding: AuditFinding }) {
-  const { experimentId, dispositionByTarget, setDisposition, dispositionSaving } =
-    useAudit();
+  const {
+    experimentId,
+    dispositionByTarget,
+    setDisposition,
+    dispositionSaving,
+    isFinalized,
+    reopen,
+    reopenSaving,
+  } = useAudit();
   const { apply: applyDraft, draft } = useDesignDraft();
   const toast = useToast();
   const [dismissOpen, setDismissOpen] = useState(false);
@@ -625,12 +851,57 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
         firstSeenAt,
       });
     } catch (err) {
+      // 409 means the audit was finalized between the curator's
+      // click and the PATCH landing. Surface a clear "reopen first"
+      // affordance in the toast rather than the generic message;
+      // every other failure (network, 500) keeps the generic path.
+      const apiErr = err as { status?: number; message?: string };
+      if (apiErr.status === 409) {
+        toast.show(
+          "Audit is closed — reopen it to keep editing dispositions.",
+          "danger",
+          6000,
+        );
+        return;
+      }
       toast.show(
         `Disposition save failed: ${(err as Error).message}`,
         "danger",
         6000,
       );
     }
+  }
+
+  // Read-only when finalized. Surface a one-line "closed — reopen
+  // to edit" with an inline reopen button so the curator can flip
+  // the audit back open without leaving the finding card. Skip the
+  // action / dismiss / ? buttons entirely; their disabled-state
+  // tooltips would just hide the actual cause.
+  if (isFinalized) {
+    return (
+      <div className="pl-1.5 flex items-center gap-2 text-[10px] text-slate-500">
+        <span>audit closed — reopen to edit</span>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await reopen();
+              toast.show("Audit reopened.", "success");
+            } catch (err) {
+              toast.show(
+                `Couldn't reopen audit: ${(err as Error).message}`,
+                "danger",
+                6000,
+              );
+            }
+          }}
+          disabled={reopenSaving}
+          className="text-slate-700 underline underline-offset-2 hover:text-slate-900 disabled:opacity-50"
+        >
+          {reopenSaving ? "reopening…" : "reopen"}
+        </button>
+      </div>
+    );
   }
 
   async function handleApply() {

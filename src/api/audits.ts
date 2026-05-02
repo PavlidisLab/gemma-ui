@@ -97,6 +97,63 @@ export function usePatchDisposition(experimentId: number) {
   });
 }
 
+/** Finalize an audit — the curator's "I'm done triaging this" press
+ *  (see `AUDIT_DISPOSITIONS.md` Ask #1). Server stamps
+ *  `finalized_at` + `finalized_by`; subsequent PATCH attempts on
+ *  this audit return 409 until a `useReopenAudit` flips the gate
+ *  back off. The agent side aggregates only finalized audits. */
+export function useFinalizeAudit(experimentId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      auditId,
+      reviewer,
+      notes,
+    }: {
+      auditId: string;
+      reviewer: string;
+      notes?: string;
+    }) =>
+      api.post<AuditReport>(`/rest/v2/audits/${auditId}/finalize`, {
+        reviewer,
+        ...(notes ? { notes } : {}),
+      }),
+    onSuccess: (refreshed) => {
+      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+      if (refreshed.audit_id) {
+        qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
+      }
+      qc.invalidateQueries({ queryKey: KEY.inbox() });
+    },
+  });
+}
+
+/** Reopen a finalized audit so the curator can keep dispositioning
+ *  without losing the prior triage state. Same invalidation pattern
+ *  as finalize — both flip the same `finalized_at` field. */
+export function useReopenAudit(experimentId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      auditId,
+      reviewer,
+    }: {
+      auditId: string;
+      reviewer: string;
+    }) =>
+      api.post<AuditReport>(`/rest/v2/audits/${auditId}/reopen`, {
+        reviewer,
+      }),
+    onSuccess: (refreshed) => {
+      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+      if (refreshed.audit_id) {
+        qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
+      }
+      qc.invalidateQueries({ queryKey: KEY.inbox() });
+    },
+  });
+}
+
 /** POST a freshly-built audit to the mock. Used by the trigger
  *  dialog when we go end-to-end (the SSE stream variant lands in a
  *  later iteration). Server assigns `audit_id` and any inbound

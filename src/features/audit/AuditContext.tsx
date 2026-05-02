@@ -9,7 +9,9 @@ import {
 } from "react";
 import {
   useAuditsForExperiment,
+  useFinalizeAudit,
   usePatchDisposition,
+  useReopenAudit,
 } from "@/api/audits";
 import type {
   AuditFinding,
@@ -95,6 +97,29 @@ interface AuditContextValue {
   activeFindingKey: string | null;
   setActiveFindingKey: (key: string | null) => void;
 
+  /** True when the current report has been finalized by some
+   *  curator. Read-side: disable disposition controls; show
+   *  "closed by X" + a Reopen affordance instead of the close
+   *  button. PATCHes against a finalized audit return 409 — the UI
+   *  uses this flag to avoid even attempting them. */
+  isFinalized: boolean;
+  /** ISO 8601 of the finalize event, when finalized. */
+  finalizedAt: string | null;
+  /** Reviewer who finalized, when finalized. */
+  finalizedBy: string | null;
+  /** Finalize the current audit. Optional notes carried through to
+   *  the server's audit_events row. No-op + reject if no audit
+   *  loaded or already finalized (caller should hide the button in
+   *  those states). */
+  finalize: (notes?: string) => Promise<void>;
+  /** Reopen a finalized audit so the curator can keep dispositioning.
+   *  No-op + reject if no audit loaded or not finalized. */
+  reopen: () => Promise<void>;
+  /** True while a finalize POST is in flight. */
+  finalizeSaving: boolean;
+  /** True while a reopen POST is in flight. */
+  reopenSaving: boolean;
+
   /** Disposition writer. Branches on whether the current report is
    *  a live (server-backed) audit or an in-memory override. Returns
    *  a promise so the caller can show a "saving…" state if it wants;
@@ -155,6 +180,8 @@ export function AuditProvider({
     error: liveError,
   } = useAuditsForExperiment(experimentId);
   const patchDisposition = usePatchDisposition(experimentId);
+  const finalizeAudit = useFinalizeAudit(experimentId);
+  const reopenAudit = useReopenAudit(experimentId);
 
   const [override, setOverride] = useState<AuditReport | null>(null);
   const [activeFindingKey, setActiveFindingKey] = useState<string | null>(null);
@@ -252,6 +279,33 @@ export function AuditProvider({
     [report, reviewer, patchDisposition],
   );
 
+  // Lifecycle (finalize / reopen). Both no-op on the override
+  // (synth) path — there's nothing to PATCH against; we just
+  // pretend there's no audit to close. Callers are gated by
+  // `isFinalized` already, so this only catches stray double-clicks.
+  const finalize = useCallback(
+    async (notes?: string) => {
+      if (!report || !report.audit_id) return;
+      if (isOverrideReport(report)) return;
+      if (report.finalized_at) return;
+      await finalizeAudit.mutateAsync({
+        auditId: report.audit_id,
+        reviewer,
+        notes,
+      });
+    },
+    [report, reviewer, finalizeAudit],
+  );
+  const reopen = useCallback(async () => {
+    if (!report || !report.audit_id) return;
+    if (isOverrideReport(report)) return;
+    if (!report.finalized_at) return;
+    await reopenAudit.mutateAsync({
+      auditId: report.audit_id,
+      reviewer,
+    });
+  }, [report, reviewer, reopenAudit]);
+
   const value: AuditContextValue = {
     experimentId,
     report,
@@ -264,6 +318,13 @@ export function AuditProvider({
     dispositionByTarget,
     activeFindingKey,
     setActiveFindingKey,
+    isFinalized: !!report?.finalized_at,
+    finalizedAt: report?.finalized_at ?? null,
+    finalizedBy: report?.finalized_by ?? null,
+    finalize,
+    reopen,
+    finalizeSaving: finalizeAudit.isPending,
+    reopenSaving: reopenAudit.isPending,
     setDisposition,
     dispositionSaving: patchDisposition.isPending,
     dispositionError: patchDisposition.error

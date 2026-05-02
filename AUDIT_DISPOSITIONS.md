@@ -119,11 +119,23 @@ UI work: track per-finding render time client-side, send `first_seen_at` (iso860
 Mirrors the agent-side Asks list above so we can see across the
 cross-repo contract at a glance.
 
-- **Ask #1 — finalize audit:** UI not yet wired. Will add a "Close
-  audit" button to the in-experiment audit sidebar header + the
-  `AuditDetailPage` once `POST /rest/v2/audits/{id}/finalize` ships
-  and `audit.finalized_at` lands on the read shape. Read-only
-  treatment of finalized audits will key off that field.
+- **Ask #1 — finalize audit:** in-experiment sidebar done.
+  `SidebarHeader` now carries:
+  - `Close audit` button when not finalized (with a small inline
+    confirm popover that takes optional close notes; soft-warning
+    line counts how many actionable findings are still pending so
+    accidental closes are visible without being blocked).
+  - `closed` pill + "Closed by X · {ts}" line + `Reopen` button when
+    finalized.
+  - `FindingActionRow` switches to a one-line "audit closed — reopen
+    to edit" when finalized, with an inline reopen affordance. Hides
+    the apply / dismiss / ? buttons entirely so the read-only state
+    is unambiguous.
+  - Stray PATCH that races a finalize gets caught at the call site
+    (ApiError.status === 409) and surfaces a toast pointing at the
+    reopen affordance, not the raw 500 message.
+  - Cross-experiment `AuditDetailPage` still untouched — same
+    rationale as before, see "Cross-experiment surface" below.
 - **Ask #2 — `dismiss_reason` chip-picker:** done. `Dismiss…`
   button now opens `DismissDialog` with the full enum
   (`auditor_wrong`, `redundant`, `out_of_scope`,

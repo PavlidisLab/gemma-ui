@@ -170,6 +170,16 @@ export interface AuditReport {
    *  Empty on a freshly-produced report; populated by the read
    *  endpoints after PATCH calls. */
   dispositions: AuditFindingDisposition[];
+  /** ISO 8601 UTC of the curator's "I'm done triaging this" press —
+   *  see `AUDIT_DISPOSITIONS.md` Ask #1. Null on still-open audits;
+   *  optional/undefined when an older mock that pre-dates the
+   *  finalize endpoint is in front of the UI. PATCH against an
+   *  audit with `finalized_at != null` returns 409 — the UI
+   *  disables disposition controls when this is set. */
+  finalized_at?: string | null;
+  /** Reviewer username who finalized. Pairs with `finalized_at`;
+   *  same nullable / optional rules. */
+  finalized_by?: string | null;
 }
 
 /** Body of POST /audit/{accession} and its /stream variant. All
