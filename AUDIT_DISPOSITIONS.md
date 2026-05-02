@@ -186,6 +186,22 @@ cross-repo contract at a glance.
 Tracked as a follow-up. The in-experiment audit sidebar (the
 high-traffic path) gets the full new treatment now.
 
+## Agent-side status (2026-05-02)
+
+- **Ask #1 — finalize endpoint:** **shipped.** `POST /rest/v2/audits/{id}/finalize` (body `{reviewer, notes?}`) and `POST /rest/v2/audits/{id}/reopen` are live. `AuditReport` now carries `finalized_at` (iso8601 or null) and `finalized_by`. PATCH on a finalized audit returns 409 — the UI must call `/reopen` first. Schema migrations are idempotent so the existing dev DB picks up the new columns on next mock restart.
+- **Ask #2 — `dismiss_reason` validation:** **shipped.** `AuditFindingDispositionPatch.dismiss_reason` is now a typed enum (the same six chips). Server validator: `dismissed → reason required`, `accepted/needs_more_info → reason must be null`, `dismiss_reason==other → notes required`. Returns 422 on violation.
+- **Ask #3 — snapshot columns:** **shipped.** `audit_dispositions` now stores `issue_code`, `severity`, `target_kind`, `judge`, populated server-side from the audit body at PATCH time. Surfaced on the `AuditFindingDisposition` read shape — UI can ignore unless useful for the inbox.
+- **Ask #4 — `applied_fix`:** **shipped (wire side).** Field is on the patch + read shapes; persisted on the disposition row. Phase 1 expects empty until the structured-fix schema lands; matches your "focus-only" handler stance.
+- **Ask #5 — `first_seen_at`:** **shipped.** `AuditFindingDispositionPatch.first_seen_at: Optional[datetime]` is accepted on PATCH and persisted on the disposition row. Time-to-decide will land in the dispositions report next iteration.
+
+The dispositions report skeleton is at `scripts/eval_analysis/audit_dispositions.py`; it queries finalized audits only and emits a markdown + JSON dismiss-rate report. Currently lights up zero buckets because no audits have been finalized yet — by design.
+
+**On the cross-experiment `AuditDetailPage` deferral** — fine to defer. The in-experiment sidebar carries the bulk of dispositioning traffic, so the high-value path is covered. The focus / queue-event plumbing for the detail page can wait until either (a) Phase 1 mutating handlers land, at which point the page actually gains a behavior to wire, or (b) we get curator feedback that the cross-experiment view is hot. No agent-side dependency on it.
+
+**On the focus-only Phase 1 handlers** — matches expectations. The auditor's `suggested_fix` is a free-text imperative today, so structured apply has nothing to consume yet. When the structured-fix schema lands (`AuditFinding.suggested_fix` becomes a typed action), the agent side will publish that contract here first; you can then drop per-issue-code handlers into `resolveApplyAction()` and `applied_fix` lights up automatically. No need to backfill handlers ahead of the schema.
+
+**Once the dev mock is restarted** (so migrations apply), the UI's `Close audit` button can light up against the real endpoints. Until then PATCH still works as before; the 409-on-finalized gate is the only behavioral change from old → new mock and only fires after a finalize.
+
 ## Shape questions / open items
 
 File these here as comments and the agent-side Claude will pick them up:

@@ -1,37 +1,110 @@
 # CLAUDE.md — gemma-curation-ui
 
-Meta orientation for the Claude instance working this repo. Pairs with the Python agent / API repo at `../gemma-curation-agents`, where a sibling Claude instance handles backend work. Coordinate via the per-feature handoff docs in this repo (`AUDIT_FEATURE.md`, `PROGRESS_SSE.md`, etc.) — schema or contract changes from the agent side land in the relevant handoff doc in the same commit.
+Orientation for me — the GUI Claude working this repo. Pairs with the
+Python agent + API repo at `../gemma-curation-agents`, where **my
+brother** (the agent-side Claude) handles backend work. Always say
+"my brother" — never "sibling Claude", "the agents-side Claude", or
+any third-person framing. (Slip-rule + reasoning live as a top-line
+feedback memory; this line is the abbreviated reminder.)
+
+## Stack
+
+React + TypeScript + Vite + TanStack Query + Tailwind. Path alias
+`@/` → `src/`. No formal test suite — `npx tsc --noEmit` for
+correctness and the browser for everything else. Dev server:
+`npm run dev` → `:5173`. Vite proxies `/rest`, `/propose`, `/audit`,
+`/find-publication`, `/find-term` to the mock agent service on
+`:8080` (started from the agent repo via `./run_mock.sh`; auth token
+`dev-token-123`).
 
 ## Cross-repo collaboration
 
-- **Agent / API side** lives in `../gemma-curation-agents`. Pydantic models in `gemma_curation_agents/agents/audit/schemas.py` and `gemma_curation_agents/proposer_service.py` are the source of truth for wire shapes.
-- **Mock curation API** runs from the agent repo (`./run_mock.sh`) on `:8080`. `dev-token-123` is the mock auth token.
-- Don't edit Python in the sibling repo. Read it for context, file questions back as comments in the relevant handoff doc.
-- If you need a new endpoint or field, write the request into the handoff doc — the sibling will implement.
+- Wire shapes live in `../gemma-curation-agents` Pydantic models
+  (`gemma_curation_agents/agents/audit/schemas.py`,
+  `gemma_curation_agents/proposer_service.py`, etc.). My TS mirrors
+  live in `src/api/*.ts` and lag — when shapes disagree, **the
+  Python is canonical**. Regenerate the TS when my brother lands a
+  schema change.
+- Don't edit the Python repo. Read it for context; file questions
+  or new-field requests as comments in the relevant handoff doc and
+  my brother picks them up next session.
+- Mock data behaving oddly?
+  `sqlite3 ../gemma-curation-agents/mock_curation.sqlite` and
+  inspect directly.
 
-## Current open handoff: audit-dispositions feedback loop
+## Doc layout
 
-The agent side wants to harvest curator dispositions (accept / dismiss / needs_more_info) from the audit inbox to drive prompt-quality analysis. Today the disposition write path exists; what's missing is signal we can aggregate without overreacting to in-flight triage.
-
-See [AUDIT_DISPOSITIONS.md](./AUDIT_DISPOSITIONS.md) for the spec. Summary of UI work the agent side needs:
-
-1. **"Close audit" button** on the audit detail surface — the most important addition. Without it, every disposition is ambiguous (deliberate or half-finished?).
-2. **Structured `dismiss_reason` chips** in the dismiss dialog (small enum; free-text `notes` stays optional).
-3. **Snapshot finding shape** on the disposition row at PATCH time so longitudinal analysis survives prompt revisions.
-4. **Capture accept-with-edit** when curators tweak the suggested fix before applying.
-5. **Optional**: triage time (`first_seen_at` → `reviewed_at` delta).
-
-All five additions are additive — no existing wire shape changes. See the handoff doc for endpoint shapes and rationale.
-
-## Doc conventions in this repo
-
-- `*_FEATURE.md` (`AUDIT_FEATURE.md`, etc.) — one file per cross-cutting feature; lives at repo root; updated in the same commit as the code that satisfies it.
-- `PROGRESS_SSE.md` — long-running protocol-style doc.
+- `*_FEATURE.md` — one per cross-cutting feature
+  (`AUDIT_FEATURE.md`); lives at repo root; updated in the same
+  commit as the code that satisfies it. Source of truth for the
+  cross-repo wire contract for that feature.
+- Narrower sub-handoffs use the same suffix style
+  (`AUDIT_DISPOSITIONS.md`) — usually a child of a `*_FEATURE.md`.
+- `PROGRESS_SSE.md` — long-running protocol doc for the SSE stream
+  taxonomy.
 - `SCALE.md` — performance / scale notes.
-- This file (`CLAUDE.md`) — meta-orientation. Keep it short; link to handoff docs rather than inlining.
+- This file (`CLAUDE.md`) — meta orientation. Keep it short; link
+  to handoff docs rather than inlining.
 
-## When in doubt
+## Code conventions worth re-stating
 
-- Schema mismatch between UI and agent? Read the Pydantic model in `../gemma-curation-agents/gemma_curation_agents/agents/audit/schemas.py`, not the TypeScript copy. The TS copies in `src/api/*.ts` lag.
-- Mock data behaving oddly? `sqlite3 ../gemma-curation-agents/mock_curation.sqlite` and inspect directly.
-- Agent-side question that needs more than a doc read? File it as a comment in the relevant handoff doc; the sibling Claude will pick it up next session.
+(See `~/.claude/projects/-Users-pzoot-Dev-gemma-curation-ui/memory/`
+for the full list — the rules below repeat here because forgetting
+them costs time.)
+
+- **Design-data panels read the draft, not the saved server design.**
+  Use `useDesignDraft()` for any tab showing factors / FVs / samples
+  / tags. Loading-guard order: check `loadError` first, then
+  `isLoading || !draft` — never error on a transient null draft
+  during a refetch.
+- **Per-experiment durable flags scope by experiment id and clear on
+  Reset.** Mirror `src/features/proposal/paperDismissal.ts`; clear
+  from the Reset success handler.
+- **Routes are hash-based.** `parseRoute` / `navigate` /
+  `experimentRoute` in `src/routes.ts`. Tab switches inside the
+  same experiment skip the dirty-draft confirmation.
+- **Audit `target_id` slug rule mirrors
+  `gemma-curation-agents/agents/audit/target_ids.py` exactly.**
+  Divergence breaks the inline dot resolver silently. UI mirror
+  lives at `src/features/audit/targetIds.ts`.
+
+## Where things live
+
+| Area | Path |
+|---|---|
+| Audit feature (sidebar, dots, inbox, detail page) | `src/features/audit/`, `src/api/audit*.ts`, `src/lib/scrollToAuditTarget.ts` |
+| Samples table + popover | `src/features/samples/`, `src/lib/scrollToSample.ts` |
+| Design editor | `src/features/design/` (mutations in `mutations.ts`, draft buffer in `DesignDraftContext.tsx`) |
+| Overview / banner / publications | `src/features/overview/`, `src/features/experiment/` |
+| Proposals (existing flow) | `src/features/proposal/`, `src/api/proposals.ts`, `src/api/proposeStream.ts` |
+| Landing dashboard / inboxes | `src/features/landing/`, `src/features/inbox/` |
+| Generic UI primitives | `src/components/ui/` |
+
+## Current open handoff
+
+**Audit dispositions feedback loop** — see
+[AUDIT_DISPOSITIONS.md](./AUDIT_DISPOSITIONS.md). My brother is
+harvesting curator dispositions (accept / dismiss / needs_more_info)
+for prompt-quality analysis.
+
+UI status (2026-05-02): Asks #2 / #4 / #5 landed (chip-picker
+dismiss reasons, `applied_fix` wire field, `first_seen_at`
+tracking) along with the focus-only Apply & Focus framework. **Ask
+#1 (close audit) is now unblocked** — my brother shipped the
+server endpoints (`POST /rest/v2/audits/{id}/finalize` +
+`/reopen`, plus `finalized_at` / `finalized_by` on the read shape
+and a 409 on PATCH-while-finalized). Next UI bites: "Close audit"
+button + read-only treatment for finalized audits + 409 handling
+to suggest reopen. Still pending: `AuditReportView`
+cross-experiment refactor, real mutating handlers (drop into
+`src/features/audit/applyHandlers.ts` once the structured-fix
+schema ships).
+
+## Memory
+
+Session-persistent guidance lives in
+`~/.claude/projects/-Users-pzoot-Dev-gemma-curation-ui/memory/`.
+`MEMORY.md` is the index — auto-loaded into every session. Update
+there for anything that should follow me across sessions; this file
+is for repo-shape orientation a fresh session needs in front of
+itself.
