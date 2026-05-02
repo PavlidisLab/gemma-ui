@@ -12,6 +12,7 @@ import {
   fvTarget,
   tagTarget,
   assignmentTarget,
+  parseTargetId,
 } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { resolveApplyAction } from "./applyHandlers";
@@ -687,9 +688,51 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
     return arr;
   }, [findings]);
 
+  // FV-finding suppression. When the audit reports a non-ok finding
+  // at the parent factor (forbidden_efc, vague_fv_labels, conflated,
+  // wrong_fv_partition, etc.) the per-FV findings under that factor
+  // typically just elaborate the same problem and clutter the
+  // sidebar. Hide them by default and surface a single
+  // "show N FV-level findings under flagged factors" toggle so a
+  // curator who wants the per-FV detail can opt in.
+  //
+  // We key on the factor slug — both factor and fv target_ids carry
+  // it (factor:<slug>, fv:<slug>/<fv-slug>) and the slug rule mirrors
+  // the agent side exactly via parseTargetId, so this stays in sync
+  // with whatever flagged-factor / FV pair the judge emits.
+  const suppression = useMemo(() => {
+    const flaggedFactorSlugs = new Set<string>();
+    for (const f of sorted) {
+      if (f.target_kind !== "factor" || f.severity === "ok") continue;
+      const p = parseTargetId(f.target_id);
+      if (p?.kind === "factor") flaggedFactorSlugs.add(p.factorSlug);
+    }
+    return {
+      flaggedFactorSlugs,
+      isUnderFlaggedFactor(f: AuditFinding): boolean {
+        if (f.target_kind !== "fv") return false;
+        const p = parseTargetId(f.target_id);
+        if (p?.kind !== "fv") return false;
+        return flaggedFactorSlugs.has(p.factorSlug);
+      },
+    };
+  }, [sorted]);
+
   const actionable = sorted.filter((f) => f.severity !== "ok");
   const okOnes = sorted.filter((f) => f.severity === "ok");
+  const visibleActionable = actionable.filter(
+    (f) => !suppression.isUnderFlaggedFactor(f),
+  );
+  const suppressedActionable = actionable.filter((f) =>
+    suppression.isUnderFlaggedFactor(f),
+  );
+  const visibleOk = okOnes.filter((f) => !suppression.isUnderFlaggedFactor(f));
+  const suppressedOk = okOnes.filter((f) =>
+    suppression.isUnderFlaggedFactor(f),
+  );
+  const suppressedTotal = suppressedActionable.length + suppressedOk.length;
   const [showOk, setShowOk] = useState(false);
+  const [showSuppressed, setShowSuppressed] = useState(false);
 
   if (findings.length === 0) {
     return (
@@ -701,25 +744,55 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
 
   return (
     <div className="space-y-1.5">
-      {actionable.map((f) => (
+      {visibleActionable.map((f) => (
         <CompactFindingCard
           key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
           finding={f}
         />
       ))}
-      {okOnes.length > 0 ? (
+      {suppressedTotal > 0 ? (
+        <>
+          <button
+            type="button"
+            className="w-full text-left text-[11px] px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded"
+            onClick={() => setShowSuppressed((v) => !v)}
+            title="hidden because the parent factor already has a non-ok finding — those typically subsume per-FV concerns"
+          >
+            {showSuppressed
+              ? `▾ hide ${suppressedTotal} FV-level finding${suppressedTotal === 1 ? "" : "s"} under flagged factors`
+              : `▸ show ${suppressedTotal} FV-level finding${suppressedTotal === 1 ? "" : "s"} under flagged factors`}
+          </button>
+          {showSuppressed
+            ? suppressedActionable.map((f) => (
+                <CompactFindingCard
+                  key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+                  finding={f}
+                />
+              ))
+            : null}
+        </>
+      ) : null}
+      {visibleOk.length > 0 ? (
         <button
           type="button"
           className="w-full text-left text-[11px] px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded"
           onClick={() => setShowOk((v) => !v)}
         >
           {showOk
-            ? `▾ hide ${okOnes.length} ok check${okOnes.length === 1 ? "" : "s"}`
-            : `▸ show ${okOnes.length} ok check${okOnes.length === 1 ? "" : "s"}`}
+            ? `▾ hide ${visibleOk.length} ok check${visibleOk.length === 1 ? "" : "s"}`
+            : `▸ show ${visibleOk.length} ok check${visibleOk.length === 1 ? "" : "s"}`}
         </button>
       ) : null}
       {showOk
-        ? okOnes.map((f) => (
+        ? visibleOk.map((f) => (
+            <CompactFindingCard
+              key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+              finding={f}
+            />
+          ))
+        : null}
+      {showSuppressed && suppressedOk.length > 0
+        ? suppressedOk.map((f) => (
             <CompactFindingCard
               key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
               finding={f}
