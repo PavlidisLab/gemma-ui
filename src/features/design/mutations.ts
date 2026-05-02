@@ -184,6 +184,96 @@ export function addContinuousFactorFromCharacteristic(
   };
 }
 
+/**
+ * Promote a per-sample biomaterial characteristic into a categorical
+ * factor. Sister to ``addContinuousFactorFromCharacteristic``: where
+ * that one becomes a per-sample numeric factor (one FV per sample),
+ * this one **groups** BMs by their characteristic value — each
+ * distinct non-empty value becomes one FV, and every BM carrying
+ * that value gets assigned to it.
+ *
+ * Use case: GEO datasets often carry a ``batch`` / ``run`` /
+ * ``date_run`` characteristic that's the natural batch factor —
+ * lift it directly instead of re-typing every level.
+ *
+ * Defaults: factor name + category label = the characteristic key
+ * (curator can rename / re-categorise after); category URI null;
+ * type=categorical; no statements (curator adds via the per-FV
+ * statement editor when needed).
+ *
+ * Returns the new Design plus the factor id (for auto-select), the
+ * count of distinct FVs created, and the count of BMs that
+ * contributed an assignment (for an "added N samples across M
+ * values" toast).
+ */
+export function addCategoricalFactorFromCharacteristic(
+  design: Design,
+  characteristicKey: string,
+  options?: {
+    /** Override the factor's display name. Defaults to the
+     *  characteristic key verbatim. */
+    name?: string;
+    /** Override the factor's category (OntologyTerm). Defaults to
+     *  ``{ label: characteristicKey }`` so the curator can reattach a
+     *  proper category afterwards. */
+    category?: OntologyTerm;
+  },
+): {
+  design: Design;
+  factorId: number;
+  sampleCount: number;
+  fvCount: number;
+} {
+  const key = characteristicKey.trim();
+  if (!key) {
+    return { design, factorId: -1, sampleCount: 0, fvCount: 0 };
+  }
+  const factorId = nextFactorId(design);
+  let nextFvId = nextFvIdValue(design);
+
+  // Group BMs by trimmed value, preserving first-seen order so the
+  // FV order in the editor matches what curators see scanning the
+  // characteristic column top-down.
+  const order: string[] = [];
+  const buckets = new Map<string, string[]>();
+  let sampleCount = 0;
+  for (const bm of design.biomaterials ?? []) {
+    const raw = bm.characteristics?.[key];
+    if (raw == null) continue;
+    const value = String(raw).trim();
+    if (!value) continue;
+    sampleCount++;
+    if (!buckets.has(value)) {
+      buckets.set(value, []);
+      order.push(value);
+    }
+    buckets.get(value)!.push(bm.short_name);
+  }
+
+  const factorValues: FactorValue[] = order.map((value) => ({
+    id: nextFvId++,
+    free_text_label: value,
+    is_baseline: false,
+    biomaterial_short_names: buckets.get(value) ?? [],
+    statements: [],
+  }));
+
+  const factor: Factor = {
+    id: factorId,
+    name: options?.name?.trim() || key,
+    category: options?.category ?? { label: key, uri: null },
+    description: "",
+    type: "categorical",
+    factor_values: factorValues,
+  };
+  return {
+    design: { ...design, factors: [...design.factors, factor] },
+    factorId,
+    sampleCount,
+    fvCount: factorValues.length,
+  };
+}
+
 /** Heuristic: are this characteristic's values numeric across most
  *  of the cohort? Used by the "promote to factor" affordance on the
  *  Sample tab to decide which char column headers get the

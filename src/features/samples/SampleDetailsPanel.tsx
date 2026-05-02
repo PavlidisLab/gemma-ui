@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
+  addCategoricalFactorFromCharacteristic,
   addContinuousFactorFromCharacteristic,
   isContinuousCharacteristic,
   reassignSample,
@@ -175,16 +176,29 @@ export function SampleDetailsPanel({ experimentId }: { experimentId: number }) {
         apply((d) => setBiomaterialCharacteristic(d, shortName, key, value))
       }
       onPromoteCharacteristic={(key) => {
-        // Lift a numeric BM characteristic into a first-class
-        // continuous Factor. Single composed apply so the FactorList
-        // reflects the new factor on the next render. Capture the
-        // new factor id and queue a horizontal scroll so the freshly-
-        // added column doesn't sit off-screen waiting to be found.
+        // Lift a BM characteristic into a first-class Factor. Kind
+        // is auto-detected: numeric → continuous (one FV per sample,
+        // measurement as label); otherwise categorical (one FV per
+        // distinct value, BMs grouped). Single composed apply so the
+        // FactorList reflects the new factor on the next render;
+        // capture the factor id and queue a horizontal scroll so the
+        // freshly-added column doesn't sit off-screen.
         apply((d) => {
-          const { design: next, sampleCount, factorId } =
-            addContinuousFactorFromCharacteristic(d, key);
+          const isContinuous = isContinuousCharacteristic(d.biomaterials, key);
+          if (isContinuous) {
+            const { design: next, sampleCount, factorId } =
+              addContinuousFactorFromCharacteristic(d, key);
+            toast.show(
+              `Promoted "${key}" to continuous factor (${sampleCount} sample${sampleCount === 1 ? "" : "s"}).`,
+              "success",
+            );
+            setScrollToFactorId(factorId);
+            return next;
+          }
+          const { design: next, sampleCount, fvCount, factorId } =
+            addCategoricalFactorFromCharacteristic(d, key);
           toast.show(
-            `Promoted "${key}" to continuous factor (${sampleCount} sample${sampleCount === 1 ? "" : "s"}).`,
+            `Promoted "${key}" to categorical factor (${fvCount} value${fvCount === 1 ? "" : "s"} · ${sampleCount} sample${sampleCount === 1 ? "" : "s"}).`,
             "success",
           );
           setScrollToFactorId(factorId);
@@ -985,7 +999,17 @@ function SampleTable({
                 const alreadyAFactor = factorCategoryLabels.has(
                   k.trim().toLowerCase(),
                 );
-                const showPromote = isContinuous && !alreadyAFactor;
+                // Constant-across-cohort characteristics shouldn't
+                // be promoted — a single-FV factor has nothing to
+                // partition. Show promote on every other non-factor
+                // column; the parent's onPromoteCharacteristic
+                // dispatches to the continuous or categorical
+                // mutation based on the values' shape.
+                const showPromote =
+                  !alreadyAFactor && !constantCharKeys.has(k);
+                const promoteTooltip = isContinuous
+                  ? `Promote "${k}" to a continuous factor — one FV per sample, with the measurement as the value`
+                  : `Promote "${k}" to a categorical factor — one FV per distinct value, samples assigned automatically`;
                 return (
                   <SortableTh
                     key={`char-${k}`}
@@ -1007,7 +1031,7 @@ function SampleTable({
                             e.stopPropagation();
                             onPromoteCharacteristic(k);
                           }}
-                          title={`Promote "${k}" to a continuous factor — one FV per sample, with the measurement as the value`}
+                          title={promoteTooltip}
                         >
                           + promote to factor
                         </button>
