@@ -904,9 +904,17 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     );
   }
 
+  // Two flavours of "primary action":
+  //  - **Mutating** ("Apply & focus →"): runs the draft mutation,
+  //    fires the focus event, and stamps disposition=accepted.
+  //    Acceptance is implicit because the curator just took the
+  //    action the finding asked for.
+  //  - **Focus-only** ("Focus →"): just navigates to the target.
+  //    Does NOT change the disposition — looking at something isn't
+  //    the same as accepting the finding. The separate "Accept"
+  //    button below covers that explicitly.
   async function handleApply() {
     if (!action) return;
-    let appliedFix: string | undefined;
     if (action.mutates && action.mutate) {
       if (!draft) {
         toast.show(
@@ -917,13 +925,15 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
         return;
       }
       applyDraft(action.mutate);
-      appliedFix = action.appliedFix;
+      requestAuditFocus(experimentId, finding.target_id);
+      if (action.successMessage) {
+        toast.show(action.successMessage, "success");
+      }
+      await patch("accepted", { appliedFix: action.appliedFix });
+      return;
     }
+    // Focus-only path — no PATCH.
     requestAuditFocus(experimentId, finding.target_id);
-    if (action.successMessage) {
-      toast.show(action.successMessage, "success");
-    }
-    await patch("accepted", { appliedFix });
   }
 
   async function handleDismiss(reason: DismissReason, notes: string) {
@@ -942,16 +952,45 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             title={action.tooltip}
             className={cn(
               "text-[11px] px-2 py-0.5 rounded font-medium",
-              dispositionSaving
-                ? "bg-blue-200 text-blue-700 cursor-progress"
-                : current === "accepted"
-                  ? "bg-blue-700 text-white hover:bg-blue-800"
-                  : "bg-blue-600 text-white hover:bg-blue-700",
+              action.mutates
+                ? // Mutating action also accepts the finding —
+                  // keep it visually loud (white-on-blue) so the
+                  // curator can see at a glance which findings have
+                  // structured fixes vs focus-only navigation.
+                  dispositionSaving
+                  ? "bg-blue-200 text-blue-700 cursor-progress"
+                  : current === "accepted"
+                    ? "bg-blue-700 text-white hover:bg-blue-800"
+                    : "bg-blue-600 text-white hover:bg-blue-700"
+                : // Focus-only action is just navigation; tone it
+                  // down so it doesn't compete with the explicit
+                  // Accept verb next to it.
+                  "bg-slate-100 text-slate-800 hover:bg-slate-200",
             )}
           >
             {action.mutates ? "Apply & focus →" : "Focus →"}
           </button>
         ) : null}
+        <button
+          type="button"
+          onClick={() =>
+            patch(current === "accepted" ? "pending" : "accepted")
+          }
+          disabled={dispositionSaving}
+          title={
+            current === "accepted"
+              ? "click to undo — flips back to pending"
+              : "mark this finding accepted (you've addressed it or agree without taking action here)"
+          }
+          className={cn(
+            "text-[11px] px-2 py-0.5 rounded font-medium disabled:opacity-50",
+            current === "accepted"
+              ? "bg-blue-700 text-white hover:bg-blue-800"
+              : "bg-white border border-blue-600 text-blue-700 hover:bg-blue-50",
+          )}
+        >
+          {current === "accepted" ? "✓ accepted" : "Accept"}
+        </button>
         <button
           type="button"
           onClick={() => setDismissOpen(true)}
@@ -982,13 +1021,13 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
         >
           ?
         </button>
-        {current !== "pending" && current !== "dismissed" ? (
+        {current !== "pending" ? (
           <button
             type="button"
             onClick={() => patch("pending")}
             disabled={dispositionSaving}
             className="text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline ml-auto"
-            title="reset disposition to pending"
+            title="reset disposition to pending — useful when you want to revert a dismiss without re-opening the reason picker"
           >
             undo
           </button>
