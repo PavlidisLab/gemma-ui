@@ -44,7 +44,7 @@ import type {
   Tag,
 } from "@/features/experiment/types";
 import { AuditDot } from "@/features/audit/AuditDot";
-import { tagTarget } from "@/features/audit/targetIds";
+import { experimentTarget, tagTarget } from "@/features/audit/targetIds";
 import {
   focusByAuditTarget,
   onAuditFocusTarget,
@@ -850,13 +850,36 @@ function TagBar({
         charUriLookup={charUriLookup}
       />
       {draft && !adding ? (
-        <button
-          type="button"
-          className="text-[11px] text-slate-500 hover:text-emerald-800 hover:bg-emerald-50 border border-dashed border-slate-300 hover:border-emerald-300 rounded px-1.5 py-0.5 ml-1"
-          onClick={() => setAdding(true)}
-        >
-          + tag
-        </button>
+        <span className="inline-flex items-center gap-1 ml-1">
+          <button
+            type="button"
+            className="text-[11px] text-slate-500 hover:text-emerald-800 hover:bg-emerald-50 border border-dashed border-slate-300 hover:border-emerald-300 rounded px-1.5 py-0.5"
+            onClick={() => setAdding(true)}
+          >
+            + tag
+          </button>
+          {/* Surface `missing_tag` audit findings beside the actual
+              affordance the curator would use to satisfy them.
+              Anchored to the experiment shell's target_id (that's
+              what the agent emits for missing_tag — there's no
+              concrete tag to attach the dot to since the tag
+              doesn't exist yet) and filtered to the issue_code so
+              other experiment-kind findings (synth_demo_only,
+              missing_factor on the same target_id) don't light up
+              the wrong affordance. */}
+          {draft ? (
+            <AuditDot
+              targetId={experimentTarget(draft.experiment_id)}
+              issueCodes={["missing_tag"]}
+              // missing_tag ships as severity=minor (slate), which
+              // disappears against the dashed-border button. Bump
+              // to amber here so curators notice the affordance is
+              // flagged. cn() under the hood is tailwind-merge so
+              // the override wins over the severity class.
+              className="bg-amber-400 border-amber-600 text-amber-950"
+            />
+          ) : null}
+        </span>
       ) : null}
       {draft && adding ? (
         <ChipEditor

@@ -26,6 +26,7 @@ export function AuditDot({
   targetId,
   className,
   size = "sm",
+  issueCodes,
 }: {
   targetId: string;
   className?: string;
@@ -33,12 +34,23 @@ export function AuditDot({
    *  card-title or row-gutter contexts where the dot needs to stay
    *  visible against a busier background. */
   size?: "sm" | "md";
+  /** Optional filter on `AuditFinding.issue_code`. Anchors with the
+   *  same `target_id` (e.g. `experiment:1234`) can carry multiple
+   *  unrelated findings; the dot beside an affordance like the
+   *  "+ tag" button should only light up for that affordance's
+   *  concern (e.g. `["missing_tag"]`). When omitted, every finding
+   *  on the target counts — the original behaviour. */
+  issueCodes?: string[];
 }) {
   const ctx = useAuditOptional();
   const focusFinding = useFocusFinding();
   if (!ctx) return null;
-  const findings = ctx.findingsByTarget.get(targetId);
-  if (!findings || findings.length === 0) return null;
+  const all = ctx.findingsByTarget.get(targetId);
+  if (!all || all.length === 0) return null;
+  const findings = issueCodes
+    ? all.filter((f) => issueCodes.includes(f.issue_code))
+    : all;
+  if (findings.length === 0) return null;
   const primary = findings[0];
   const disposition = ctx.dispositionByTarget.get(targetId);
   const dimmed =

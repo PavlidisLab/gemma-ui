@@ -33,21 +33,38 @@ const FOCUS_EVENT = "gemma:audit-focus-target";
 export interface RequestAuditFocusDetail {
   experimentId: number;
   targetId: string;
+  /** Optional CSS selector to prefer over the generic
+   *  `[data-audit-target="<targetId>"]` lookup. Used by issue-code-
+   *  specific apply actions where the audit's target_id points at
+   *  a virtual anchor (e.g. `experiment:1234` for a `missing_tag`
+   *  finding) and the *actual* element worth focusing is the
+   *  affordance the curator needs to use (the tags section in this
+   *  case). Tried first; falls back to data-audit-target if not
+   *  found. */
+  focusSelector?: string;
 }
 
 export interface AuditFocusTargetDetail {
   targetId: string;
+  focusSelector?: string;
 }
 
 /** Caller-facing API: ask the app to focus the UI element this
- *  finding is anchored to. No-op when no Shell is mounted. */
+ *  finding is anchored to. No-op when no Shell is mounted.
+ *
+ *  Pass `focusSelector` to override the default
+ *  `[data-audit-target="<targetId>"]` resolution — useful for
+ *  experiment-kind findings whose target_id points at the
+ *  experiment shell but whose curator-meaningful affordance lives
+ *  in a specific section (tags / factors / etc). */
 export function requestAuditFocus(
   experimentId: number,
   targetId: string,
+  focusSelector?: string,
 ): void {
   window.dispatchEvent(
     new CustomEvent<RequestAuditFocusDetail>(REQUEST_EVENT, {
-      detail: { experimentId, targetId },
+      detail: { experimentId, targetId, focusSelector },
     }),
   );
 }
