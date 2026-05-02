@@ -129,7 +129,16 @@ export function AuditSidebarPanel({
                 hasOverride ? () => setOverrideReport(null) : undefined
               }
             />
-            <FindingList findings={report.findings} />
+            {/* Findings collapse to a one-line summary once the
+                audit is closed. The active triage list stops being
+                actionable, and curators have explicitly said the
+                cards then read as clutter. The summary line keeps
+                the audit greppable + click-to-expand for review. */}
+            {report.finalized_at ? (
+              <ClosedFindingsSummary findings={report.findings} />
+            ) : (
+              <FindingList findings={report.findings} />
+            )}
           </>
         )
       ) : null}
@@ -597,6 +606,67 @@ const SEVERITY_RANK: Record<Severity, number> = {
   minor: 2,
   ok: 3,
 };
+
+/** Compact one-line summary of a closed audit's findings. Default
+ *  collapsed; click to expand into the full FindingList (read-only,
+ *  since FindingActionRow already detects isFinalized).
+ *
+ *  Counts are derived from the report; "actionable" excludes ok
+ *  findings to match the same definition the SidebarHeader uses
+ *  for the pre-close pending warning. */
+function ClosedFindingsSummary({
+  findings,
+}: {
+  findings: AuditFinding[];
+}) {
+  const [open, setOpen] = useState(false);
+  let nBlocker = 0;
+  let nMajor = 0;
+  let nMinor = 0;
+  let nOk = 0;
+  for (const f of findings) {
+    if (f.severity === "blocker") nBlocker++;
+    else if (f.severity === "major") nMajor++;
+    else if (f.severity === "minor") nMinor++;
+    else if (f.severity === "ok") nOk++;
+  }
+  const actionable = nBlocker + nMajor + nMinor;
+  return (
+    <div className="card text-[11px] text-slate-600">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left px-2 py-1.5 hover:bg-slate-50 flex items-center gap-2"
+        title={open ? "collapse" : "expand to review individual findings"}
+      >
+        <span aria-hidden className="text-slate-400">
+          {open ? "▾" : "▸"}
+        </span>
+        <span className="flex-1">
+          {findings.length} finding{findings.length === 1 ? "" : "s"}
+          {actionable > 0 ? (
+            <>
+              {" "}— {nBlocker > 0 ? `${nBlocker} blocker, ` : ""}
+              {nMajor > 0 ? `${nMajor} major, ` : ""}
+              {nMinor > 0 ? `${nMinor} minor, ` : ""}
+              <span className="text-emerald-700">{nOk} ok</span>
+            </>
+          ) : (
+            <> · all <span className="text-emerald-700">ok</span></>
+          )}
+        </span>
+        <span className="text-[10px] text-slate-400 italic">
+          {open ? "hide" : "review"}
+        </span>
+      </button>
+      {open ? (
+        <div className="border-t border-slate-100 p-2">
+          <FindingList findings={findings} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function FindingList({ findings }: { findings: AuditFinding[] }) {
   // Single flat list, sorted by severity then target_kind. The full
