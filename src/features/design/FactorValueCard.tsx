@@ -94,6 +94,13 @@ export function FactorValueCard({
 
   return (
     <article
+      // Audit focus hook — Apply & focus on an FV finding scrolls
+      // this card into view + ring-flashes it. target_id slug
+      // matches the agent contract (fv:<factor-slug>/<fv-slug>).
+      data-audit-target={fvTarget(
+        factorCategory?.label || "",
+        fv.free_text_label || "",
+      )}
       className={
         "px-3 py-1.5 border-b border-slate-100 " + borderClass
       }

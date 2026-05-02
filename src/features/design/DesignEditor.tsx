@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ContinuousFactorView } from "./ContinuousFactorView";
 import { FactorList } from "./FactorList";
 import { FactorValueList } from "./FactorValueList";
@@ -6,6 +6,11 @@ import { SampleAssignmentPreview } from "./SampleAssignmentPreview";
 import { ValidatorBanner } from "./ValidatorBanner";
 import { useDesignDraft } from "./DesignDraftContext";
 import { indexChanges } from "./diff";
+import { parseTargetId, slug } from "@/features/audit/targetIds";
+import {
+  focusByAuditTarget,
+  onAuditFocusTarget,
+} from "@/lib/scrollToAuditTarget";
 import {
   addFactor,
   addFactorFromTemplate,
@@ -44,6 +49,42 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
     () => (draft ? validateDesign(draft) : null),
     [draft],
   );
+
+  // Audit "Apply & focus" handler. For factor-kind targets the factor
+  // row is always in the DOM; for fv-kind the FV card lives inside
+  // the FactorValueList that only renders when its factor is
+  // selected. Resolve the parent factor by category-slug, select it,
+  // wait two frames for FactorValueList to mount + paint, then run
+  // focusByAuditTarget against the FV card. The whole thing is a
+  // no-op if nothing in the draft matches the target's slug — which
+  // is the right behaviour after a curator-driven category rename.
+  useEffect(() => {
+    return onAuditFocusTarget(({ targetId }) => {
+      const parsed = parseTargetId(targetId);
+      if (!parsed) return;
+      if (parsed.kind === "factor") {
+        const target = draft?.factors.find(
+          (f) => slug(f.category?.label || "") === parsed.factorSlug,
+        );
+        if (target) setSelectedFactorId(target.id);
+        requestAnimationFrame(() => {
+          focusByAuditTarget(targetId);
+        });
+        return;
+      }
+      if (parsed.kind === "fv") {
+        const target = draft?.factors.find(
+          (f) => slug(f.category?.label || "") === parsed.factorSlug,
+        );
+        if (target) setSelectedFactorId(target.id);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            focusByAuditTarget(targetId);
+          });
+        });
+      }
+    });
+  }, [draft]);
 
   // Order matters: ``draft === null`` is a transient state during
   // a "Reset experiment" refetch (react-query flips ``isFetching``,

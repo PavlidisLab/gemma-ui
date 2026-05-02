@@ -45,6 +45,10 @@ import type {
 } from "@/features/experiment/types";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { tagTarget } from "@/features/audit/targetIds";
+import {
+  focusByAuditTarget,
+  onAuditFocusTarget,
+} from "@/lib/scrollToAuditTarget";
 
 /**
  * Read-only experiment summary — title, abstract / description,
@@ -55,6 +59,20 @@ import { tagTarget } from "@/features/audit/targetIds";
  */
 export function OverviewPanel() {
   const { draft, apply, isLoading, loadError } = useDesignDraft();
+
+  // Audit "Apply & focus" handler. Tag chips and the experiment
+  // header carry data-audit-target attributes that this listener
+  // resolves on demand. Multi-tag groups are collapsed by default;
+  // focus into a collapsed group is a known gap (the chip isn't in
+  // the DOM yet) — fall through to "no match" silently rather than
+  // popping the group open from here.
+  useEffect(() => {
+    return onAuditFocusTarget(({ targetId }) => {
+      requestAnimationFrame(() => {
+        focusByAuditTarget(targetId);
+      });
+    });
+  }, []);
   // Editable read-side metadata (title / description / taxon /
   // assay / platform / publications) lives on the draft; edits go
   // through the normal commit flow. The Identity / Cohort summary
@@ -1256,6 +1274,9 @@ function EditableDirectGroupChip({
     }
     return (
       <span
+        // Audit focus hook — Apply & focus on a tag finding scrolls
+        // this chip into view + ring-flashes it.
+        data-audit-target={tagTarget(tag.category.label, tag.value.label)}
         className="group inline-flex items-baseline gap-1 text-[11px] px-1.5 py-0.5 rounded border bg-emerald-50 border-emerald-200 text-emerald-900 cursor-pointer hover:bg-emerald-100"
         onClick={() => setEditingId(tag.id)}
         title={`${category.label}: ${tag.value.label} — click to edit`}
@@ -1316,6 +1337,7 @@ function EditableDirectGroupChip({
             ) : (
               <span
                 key={tag.id}
+                data-audit-target={tagTarget(tag.category.label, tag.value.label)}
                 className="group inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 cursor-pointer hover:bg-emerald-100"
                 onClick={() => setEditingId(tag.id)}
                 title="click to edit"

@@ -161,6 +161,12 @@ export function FactorList({
               <tr
                 key={f.id}
                 onClick={() => onSelect(f.id)}
+                // Audit focus hook — Apply & focus on a factor finding
+                // resolves the matching tr via this attribute and
+                // ring-flashes it. target_id format mirrors the agent
+                // contract (factor:<category-slug>); divergence breaks
+                // the dot resolver too, so they're locked in tandem.
+                data-audit-target={factorTarget(f.category?.label || "")}
                 className={cn(
                   "cursor-pointer transition-colors",
                   selected

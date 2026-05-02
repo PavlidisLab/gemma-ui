@@ -15,6 +15,7 @@ import type {
   AuditFinding,
   AuditFindingDisposition,
   AuditReport,
+  DismissReason,
   DispositionStatus,
   Severity,
 } from "@/api/auditTypes";
@@ -97,11 +98,22 @@ interface AuditContextValue {
   /** Disposition writer. Branches on whether the current report is
    *  a live (server-backed) audit or an in-memory override. Returns
    *  a promise so the caller can show a "saving…" state if it wants;
-   *  resolves once the local state has updated. */
+   *  resolves once the local state has updated.
+   *
+   *  Extras mirror the optional fields on `AuditFindingDispositionPatch`
+   *  (see AUDIT_DISPOSITIONS.md) — pass them when applicable, omit
+   *  otherwise. Server validates `dismiss_reason` is present when
+   *  status=dismissed; the dismiss-chip dialog enforces this on the
+   *  client. */
   setDisposition: (
     targetId: string,
     status: DispositionStatus,
-    notes?: string,
+    extras?: {
+      notes?: string;
+      dismissReason?: DismissReason;
+      appliedFix?: string;
+      firstSeenAt?: string;
+    },
   ) => Promise<void>;
   /** True while a PATCH is in flight (live path only — the override
    *  path is synchronous). Lets the sidebar disable buttons. */
@@ -186,13 +198,22 @@ export function AuditProvider({
     async (
       targetId: string,
       status: DispositionStatus,
-      notes: string = "",
+      extras: {
+        notes?: string;
+        dismissReason?: DismissReason;
+        appliedFix?: string;
+        firstSeenAt?: string;
+      } = {},
     ) => {
       if (!report) return;
+      const notes = extras.notes ?? "";
       if (isOverrideReport(report)) {
         // In-memory path. Synthesize a disposition entry and merge
         // into the override report. ``reviewed_at`` mirrors what the
-        // server would stamp.
+        // server would stamp. The override path doesn't model the
+        // analytics-only fields (dismiss_reason, applied_fix,
+        // first_seen_at) — they exist on the wire so my brother can
+        // aggregate, and the in-memory dev path doesn't simulate that.
         const next: AuditFindingDisposition = {
           target_id: targetId,
           status,
@@ -214,9 +235,18 @@ export function AuditProvider({
       // disposition list. The mutation throws on failure so a
       // ``saving…`` UI surface naturally surfaces an error.
       if (!report.audit_id) return;
+      const patch: import("@/api/auditTypes").AuditFindingDispositionPatch = {
+        target_id: targetId,
+        status,
+        reviewer,
+        notes,
+      };
+      if (extras.dismissReason) patch.dismiss_reason = extras.dismissReason;
+      if (extras.appliedFix) patch.applied_fix = extras.appliedFix;
+      if (extras.firstSeenAt) patch.first_seen_at = extras.firstSeenAt;
       await patchDisposition.mutateAsync({
         auditId: report.audit_id,
-        patch: { target_id: targetId, status, reviewer, notes },
+        patch,
       });
     },
     [report, reviewer, patchDisposition],

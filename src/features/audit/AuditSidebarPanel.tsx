@@ -12,9 +12,12 @@ import {
   fvTarget,
   tagTarget,
   assignmentTarget,
-  parseTargetId,
 } from "./targetIds";
-import { requestSampleScroll } from "@/lib/scrollToSample";
+import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
+import { resolveApplyAction } from "./applyHandlers";
+import { DismissDialog } from "./DismissDialog";
+import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
+import type { DismissReason } from "@/api/auditTypes";
 import { AuditTriggerDialog } from "./AuditTriggerDialog";
 import type {
   AuditFinding,
@@ -444,29 +447,24 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
 
 function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   const [open, setOpen] = useState(false);
-  const toast = useToast();
 
   // Disposition state comes from context (server-authoritative for
-  // live reports; in-memory for dev override). The card just reads
-  // and writes through.
+  // live reports; in-memory for dev override). The card reads to
+  // tint dismissed findings; the action row inside it does the
+  // writes.
   const {
-    experimentId,
     activeFindingKey,
     setActiveFindingKey,
     dispositionByTarget,
-    setDisposition,
-    dispositionSaving,
   } = useAudit();
-
-  // For assignment-kind findings, we can jump straight to the BM in
-  // the samples table. parseTargetId hands back the raw short_name
-  // for `assignment:<short_name>`. Other kinds don't have a stable
-  // sample anchor.
-  const parsed = parseTargetId(finding.target_id);
-  const jumpShortName =
-    parsed?.kind === "assignment" ? parsed.biomaterialShortName : null;
   const currentDisposition =
     dispositionByTarget.get(finding.target_id)?.status ?? "pending";
+
+  // Stamp the first-seen timestamp once per finding. Sent on the
+  // first PATCH for this target so my brother can compute triage
+  // time. Side-effect-only (markFirstSeen is a no-op after the first
+  // call), so safe to fire on every render.
+  markFirstSeen(finding.target_id);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const myKey = findingKey(finding);
@@ -532,21 +530,8 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
 
       {open ? (
         <div className="space-y-1.5 pl-1 border-l-2 border-slate-200">
-          <div className="text-[10px] text-slate-500 font-mono pl-1.5 flex items-center gap-2 flex-wrap">
-            <span>{finding.target_id}</span>
-            {jumpShortName ? (
-              <button
-                type="button"
-                className="text-blue-700 hover:text-blue-900 underline underline-offset-2 normal-case"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  requestSampleScroll(experimentId, jumpShortName);
-                }}
-                title={`switch to the Samples tab and scroll to ${jumpShortName}`}
-              >
-                → in samples table
-              </button>
-            ) : null}
+          <div className="text-[10px] text-slate-500 font-mono pl-1.5">
+            {finding.target_id}
           </div>
 
           {finding.citation || finding.citation_url ? (
@@ -591,105 +576,166 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             </div>
           ) : null}
 
-          <DispositionRow
-            current={currentDisposition}
-            saving={dispositionSaving}
-            onPick={async (next) => {
-              try {
-                await setDisposition(finding.target_id, next);
-              } catch (err) {
-                toast.show(
-                  `Disposition save failed: ${(err as Error).message}`,
-                  "danger",
-                  6000,
-                );
-              }
-            }}
-          />
+          <FindingActionRow finding={finding} />
         </div>
       ) : null}
     </div>
   );
 }
 
-function DispositionRow({
-  current,
-  saving,
-  onPick,
-}: {
-  current: DispositionStatus;
-  saving: boolean;
-  /** Toggling the same status twice flips back to ``pending`` —
-   *  curator can undo a misclick without leaving the card. */
-  onPick: (next: DispositionStatus) => void;
-}) {
+/** Primary "Apply & focus" / "Focus" button + secondary disposition
+ *  controls (dismiss-with-chip dialog, needs-more-info, undo).
+ *
+ *  Action lifecycle:
+ *    1. Resolve an `ApplyAction` for the finding via
+ *       `resolveApplyAction()`. Phase 1 = focus-only across the
+ *       board; mutating handlers will plug in here once my brother
+ *       ships the structured-fix schema.
+ *    2. Click → if mutating, run the draft mutation; either way,
+ *       request the audit-focus event so the Shell switches tab and
+ *       scrolls the relevant element into view.
+ *    3. Stamp the disposition as `accepted` (with `applied_fix`
+ *       populated when a real fix was applied + `first_seen_at`
+ *       on the first PATCH for this target — see firstSeen.ts).
+ *
+ *  Dismiss flow opens `DismissDialog` (chip-picker for the
+ *  dismiss_reason enum from AUDIT_DISPOSITIONS.md ask #2). */
+function FindingActionRow({ finding }: { finding: AuditFinding }) {
+  const { experimentId, dispositionByTarget, setDisposition, dispositionSaving } =
+    useAudit();
+  const { apply: applyDraft, draft } = useDesignDraft();
+  const toast = useToast();
+  const [dismissOpen, setDismissOpen] = useState(false);
+  const action = resolveApplyAction(finding);
+  const current =
+    dispositionByTarget.get(finding.target_id)?.status ?? "pending";
+
+  async function patch(
+    status: DispositionStatus,
+    extras: {
+      notes?: string;
+      dismissReason?: DismissReason;
+      appliedFix?: string;
+    } = {},
+  ) {
+    const firstSeenAt = consumeFirstSeen(finding.target_id) ?? undefined;
+    try {
+      await setDisposition(finding.target_id, status, {
+        ...extras,
+        firstSeenAt,
+      });
+    } catch (err) {
+      toast.show(
+        `Disposition save failed: ${(err as Error).message}`,
+        "danger",
+        6000,
+      );
+    }
+  }
+
+  async function handleApply() {
+    if (!action) return;
+    let appliedFix: string | undefined;
+    if (action.mutates && action.mutate) {
+      if (!draft) {
+        toast.show(
+          "Can't apply — design draft not loaded yet.",
+          "danger",
+          4000,
+        );
+        return;
+      }
+      applyDraft(action.mutate);
+      appliedFix = action.appliedFix;
+    }
+    requestAuditFocus(experimentId, finding.target_id);
+    if (action.successMessage) {
+      toast.show(action.successMessage, "success");
+    }
+    await patch("accepted", { appliedFix });
+  }
+
+  async function handleDismiss(reason: DismissReason, notes: string) {
+    await patch("dismissed", { dismissReason: reason, notes });
+    setDismissOpen(false);
+  }
+
   return (
-    <div className="flex items-center gap-1 pl-1.5">
-      <DispositionButton
-        label="Accept"
-        active={current === "accepted"}
-        disabled={saving}
-        activeCls="bg-blue-700 text-white"
-        onClick={() => onPick(current === "accepted" ? "pending" : "accepted")}
-      />
-      <DispositionButton
-        label="Dismiss"
-        active={current === "dismissed"}
-        disabled={saving}
-        activeCls="bg-slate-700 text-white"
-        onClick={() =>
-          onPick(current === "dismissed" ? "pending" : "dismissed")
-        }
-      />
-      <DispositionButton
-        label="?"
-        title="needs more info"
-        active={current === "needs_more_info"}
-        disabled={saving}
-        activeCls="bg-amber-600 text-white"
-        onClick={() =>
-          onPick(
-            current === "needs_more_info" ? "pending" : "needs_more_info",
-          )
-        }
-      />
-      {saving ? (
-        <span className="text-[10px] text-slate-400 italic ml-1">
-          saving…
-        </span>
+    <div className="pl-1.5 space-y-1.5 relative">
+      <div className="flex items-center gap-1 flex-wrap">
+        {action ? (
+          <button
+            type="button"
+            onClick={handleApply}
+            disabled={dispositionSaving}
+            title={action.tooltip}
+            className={cn(
+              "text-[11px] px-2 py-0.5 rounded font-medium",
+              dispositionSaving
+                ? "bg-blue-200 text-blue-700 cursor-progress"
+                : current === "accepted"
+                  ? "bg-blue-700 text-white hover:bg-blue-800"
+                  : "bg-blue-600 text-white hover:bg-blue-700",
+            )}
+          >
+            {action.mutates ? "Apply & focus →" : "Focus →"}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setDismissOpen(true)}
+          disabled={dispositionSaving}
+          title="dismiss this finding (you'll pick a reason)"
+          className={cn(
+            "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
+            current === "dismissed"
+              ? "bg-slate-700 text-white"
+              : "text-slate-700 hover:bg-slate-100",
+          )}
+        >
+          {current === "dismissed" ? "✓ dismissed" : "Dismiss…"}
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            patch(current === "needs_more_info" ? "pending" : "needs_more_info")
+          }
+          disabled={dispositionSaving}
+          title="needs more info — flag for follow-up without taking action"
+          className={cn(
+            "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
+            current === "needs_more_info"
+              ? "bg-amber-600 text-white"
+              : "text-slate-700 hover:bg-slate-100",
+          )}
+        >
+          ?
+        </button>
+        {current !== "pending" && current !== "dismissed" ? (
+          <button
+            type="button"
+            onClick={() => patch("pending")}
+            disabled={dispositionSaving}
+            className="text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline ml-auto"
+            title="reset disposition to pending"
+          >
+            undo
+          </button>
+        ) : null}
+        {dispositionSaving ? (
+          <span className="text-[10px] text-slate-400 italic ml-1">
+            saving…
+          </span>
+        ) : null}
+      </div>
+      {dismissOpen ? (
+        <DismissDialog
+          finding={finding}
+          onCancel={() => setDismissOpen(false)}
+          onConfirm={handleDismiss}
+        />
       ) : null}
     </div>
-  );
-}
-
-function DispositionButton({
-  label,
-  active,
-  disabled,
-  activeCls,
-  onClick,
-  title,
-}: {
-  label: string;
-  active: boolean;
-  disabled?: boolean;
-  activeCls: string;
-  onClick: () => void;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      disabled={disabled}
-      className={cn(
-        "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed",
-        active ? activeCls : "text-slate-700 hover:bg-slate-100",
-      )}
-    >
-      {label}
-    </button>
   );
 }
 

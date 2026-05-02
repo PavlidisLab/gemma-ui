@@ -26,6 +26,12 @@ import {
   dispatchSamplesScrollRow,
 } from "@/lib/scrollToSample";
 import {
+  onRequestAuditFocus,
+  dispatchAuditFocusTarget,
+  tabForTargetId,
+} from "@/lib/scrollToAuditTarget";
+import { parseTargetId } from "@/features/audit/targetIds";
+import {
   ExperimentBanner,
   TopBar,
   type TabId,
@@ -187,6 +193,34 @@ function Shell({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [diff.isDirty]);
+
+  // Listen for "focus the audit target" requests (Apply & focus
+  // button on a finding card). The target_id determines which tab
+  // the element lives on; assignment-kind targets reroute through
+  // the existing requestSampleScroll plumbing so the samples panel
+  // only needs one listener (data-bm-shortname). Other kinds get
+  // routed via the generic data-audit-target attribute that the
+  // FactorList / FactorValueCard / OverviewPanel surfaces stamp on
+  // their elements.
+  useEffect(() => {
+    return onRequestAuditFocus(({ experimentId: reqExpId, targetId }) => {
+      if (reqExpId !== experimentId) return;
+      const parsed = parseTargetId(targetId);
+      if (parsed?.kind === "assignment") {
+        // Assignments already route through the samples-scroll plumbing.
+        setActiveTab("samples");
+        navigate(experimentRoute(experimentId, "samples"));
+        dispatchSamplesScrollRow(parsed.biomaterialShortName);
+        return;
+      }
+      const tab = tabForTargetId(targetId);
+      if (!tab) return;
+      const localTab = mapRouteTab(tab).tab;
+      setActiveTab(localTab);
+      navigate(experimentRoute(experimentId, tab));
+      dispatchAuditFocusTarget(targetId);
+    });
+  }, [experimentId]);
 
   // Listen for cross-tab "scroll to sample" requests (audit findings
   // on assignment kind, proposal cards referencing biomaterials).

@@ -1,0 +1,193 @@
+# Audit dispositions — UI handoff
+
+Companion to `AUDIT_FEATURE.md`. The audit feature ships findings + a per-finding accept / dismiss / needs-more-info control. The agent side now wants to harvest those dispositions to drive prompt-quality analysis (find judges that systematically over- or under-call).
+
+The current write path works. What's missing is **signal we can trust to aggregate without overreacting to in-flight triage** — and a small amount of extra structure on each disposition so longitudinal analysis survives prompt revisions.
+
+## Why these changes (skip if you trust the asks)
+
+The agent side will harvest dispositions in batches across **finalized** audits, cluster by `(judge, issue_code, target_kind, ...)`, and look for patterns: issue codes whose dismiss rate is overwhelming (likely bug, candidate prompt fix), drift (mid-range, human review), or stable (calibrated). Single-curator decisions in mid-triage carry near-zero weight; what we need is a closing signal so we know *when* to count, plus enough structure to cluster cleanly.
+
+## Asks
+
+All asks are additive — no existing wire shape changes.
+
+### 1. Audit-finalization signal (most important)
+
+A whole-audit "I'm done triaging this" event. Without it the agent side can't tell deliberate dismissals from half-finished triage.
+
+**Preferred shape:**
+
+```
+POST /rest/v2/audits/{audit_id}/finalize
+Body: { "reviewer": string, "notes": string (optional) }
+Response: 200 OK with the updated AuditReport (now carrying audit.finalized_at)
+```
+
+UI work:
+
+- **"Close audit" button** at the audit detail surface, primary affordance once every non-ok finding has a non-`pending` disposition.
+- **"Reopen audit"** affordance on already-closed audits (simple unset of `finalized_at`).
+- An audit with `finalized_at != null` is rendered as read-only; flipping a disposition requires reopening first. The agent side aggregates **only finalized audits**.
+
+**Server-side delta** (sibling Claude will implement):
+
+- New column `audits.finalized_at TEXT` (nullable; iso8601 stamp).
+- New column `audits.finalized_by TEXT`.
+- New row in `audit_events` per finalize / reopen.
+
+**Acceptable fallback** (only if the explicit button is fight-with-the-router-y to add): treat an audit as implicitly finalized when **every** non-ok finding has `status != pending`. Less reliable — curators forget to set `needs_more_info` — but cheap. The agent side prefers the explicit button.
+
+### 2. Structured `dismiss_reason` on dispositions
+
+Free-text `notes` is too noisy to cluster. When the curator clicks Dismiss, surface a quick-pick chip menu with this initial enum:
+
+| chip                    | meaning                                                  |
+| ----------------------- | -------------------------------------------------------- |
+| `auditor_wrong`         | finding is incorrect / hallucinated                       |
+| `redundant`             | already covered by another existing element              |
+| `out_of_scope`          | not what this experiment is about                        |
+| `accepted_elsewhere`    | curator fixed it via a different action                  |
+| `wont_fix`              | real but not worth the effort                           |
+| `other`                 | free-text fallback (then `notes` becomes mandatory)      |
+
+**Wire shape:**
+
+`AuditFindingDispositionPatch` gains an optional field:
+
+```ts
+{
+  target_id: string;
+  status: "pending" | "accepted" | "dismissed" | "needs_more_info";
+  reviewer: string;
+  notes?: string;
+  dismiss_reason?: "auditor_wrong" | "redundant" | "out_of_scope"
+                 | "accepted_elsewhere" | "wont_fix" | "other";
+}
+```
+
+`dismiss_reason` is required when `status === "dismissed"` (server validates), null/absent otherwise. Free-text `notes` stays alongside.
+
+UI work: add the chip row to the dismiss dialog; default to no selection so the curator must pick.
+
+### 3. Snapshot finding shape on the disposition row
+
+Prompts evolve and judges get renamed. Without a snapshot, historical dispositions become unjoinable when the audit body schema revs.
+
+**Server-side delta:** at PATCH time, copy these fields from the audit body into the disposition row:
+
+```
+audit_dispositions:
+  + issue_code   TEXT
+  + severity     TEXT
+  + target_kind  TEXT
+  + judge        TEXT   -- e.g. "fv_llm_judge", "term_grounding_judge"
+```
+
+**No UI work required** — populated server-side from the existing audit body. Listed here so you know it's coming.
+
+### 4. Capture accept-with-edit
+
+When the curator accepts but tweaks the `suggested_fix` text before applying it, store the final text on the disposition row.
+
+**Wire shape:**
+
+`AuditFindingDispositionPatch` gains:
+
+```ts
+applied_fix?: string;   // populated when accepting and the curator edited the fix
+```
+
+UI work: when the accept dialog allows edits, send the final text as `applied_fix`. Empty / unchanged → omit the field.
+
+### 5. Optional: triage time
+
+`first_seen_at` (when the finding was first rendered to the curator) → `reviewed_at` delta. Separates "1s click-dismiss" from "60s of consideration" in the analysis.
+
+UI work: track per-finding render time client-side, send `first_seen_at` (iso8601) on the first PATCH for that finding. Don't block on this — agent side can do without it.
+
+## Rollout order
+
+1. **Audit-finalization** (ask #1). Everything else is moot without it.
+2. **`dismiss_reason` chips** (ask #2). Highest analytic value once we're aggregating.
+3. **Snapshot columns** (ask #3). Server-only; ship whenever convenient.
+4. **Accept-with-edit** (ask #4). Useful but lower priority.
+5. **Triage time** (ask #5). Nice-to-have; defer if it complicates routing.
+
+## UI status (2026-05-02)
+
+Mirrors the agent-side Asks list above so we can see across the
+cross-repo contract at a glance.
+
+- **Ask #1 — finalize audit:** UI not yet wired. Will add a "Close
+  audit" button to the in-experiment audit sidebar header + the
+  `AuditDetailPage` once `POST /rest/v2/audits/{id}/finalize` ships
+  and `audit.finalized_at` lands on the read shape. Read-only
+  treatment of finalized audits will key off that field.
+- **Ask #2 — `dismiss_reason` chip-picker:** done. `Dismiss…`
+  button now opens `DismissDialog` with the full enum
+  (`auditor_wrong`, `redundant`, `out_of_scope`,
+  `accepted_elsewhere`, `wont_fix`, `other`). "other" requires
+  notes; everything else makes notes optional. Default is no chip
+  selected (curator must pick before Confirm enables). Wire field
+  is set on `AuditFindingDispositionPatch.dismiss_reason` —
+  optional today, safe to leave unsent on `accept` /
+  `needs_more_info`.
+- **Ask #3 — snapshot finding shape:** server-only; UI has no work.
+  Acknowledged; no behavior change expected this side.
+- **Ask #4 — `applied_fix`:** wire field added on the PATCH body
+  (`AuditFindingDispositionPatch.applied_fix`). The new "Apply &
+  focus →" button on each finding card resolves an `ApplyAction`
+  via `src/features/audit/applyHandlers.ts`; mutating actions set
+  `applied_fix` to the canonical text of what was applied. **Phase
+  1 has zero mutating handlers** — the registry is focus-only
+  across the board pending the structured-fix schema. Plumbing is
+  ready: when the schema lands, drop per-issue-code handlers into
+  `resolveApplyAction()` and `applied_fix` flows automatically.
+- **Ask #5 — `first_seen_at`:** done. Tracked client-side in
+  `src/features/audit/firstSeen.ts` (module-level Map keyed on
+  `target_id`). Stamped on first render of each finding card,
+  consumed exactly once on the first PATCH for that target; later
+  PATCHes omit the field. Sent as
+  `AuditFindingDispositionPatch.first_seen_at` (iso8601). Resets
+  on page reload — acceptable per the "single triage session"
+  framing in the doc.
+
+### UI plumbing introduced for this work
+
+- `src/lib/scrollToAuditTarget.ts` — generic "focus the audit
+  target" plumbing (window events). Sister to `scrollToSample.ts`
+  but routes any target_kind to the right tab + element via
+  `data-audit-target` attributes on factor rows, FV cards, tag
+  chips, sample rows.
+- `src/features/audit/applyHandlers.ts` — small registry that
+  resolves an `ApplyAction` per finding. Today: focus-only
+  fallback. Designed so per-issue handlers slot in with one switch
+  arm.
+- `src/features/audit/DismissDialog.tsx` — chip-picker for ask #2.
+- `src/features/audit/firstSeen.ts` — first-seen tracking for
+  ask #5.
+
+### Cross-experiment surface (audit detail page)
+
+`AuditReportView` (used by `AuditDetailPage` at `#/audits/{id}`)
+**not yet** updated to the new action-row shape. Reasons:
+
+1. The detail page is rendered outside the experiment Shell, so
+   `useDesignDraft()` and `requestAuditFocus()` aren't available
+   in-context — Apply & Focus would need to navigate to the
+   experiment first, then queue the focus event for after the
+   Shell mounts.
+2. Phase 1 mutating handlers don't exist yet, so the only thing
+   the cross-experiment page would gain is the dismiss-chip
+   dialog. Worth it but lower priority than landing the
+   in-experiment surface.
+
+Tracked as a follow-up. The in-experiment audit sidebar (the
+high-traffic path) gets the full new treatment now.
+
+## Shape questions / open items
+
+File these here as comments and the agent-side Claude will pick them up:
+
+- _(none yet)_

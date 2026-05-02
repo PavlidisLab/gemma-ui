@@ -116,14 +116,41 @@ export interface AuditFindingDisposition {
   notes: string;
 }
 
+/** Closed enum of structured "why this is a dismiss" reasons.
+ *  Mirrors the enum in `AUDIT_DISPOSITIONS.md` Ask #2. Required by
+ *  the server when `status === "dismissed"`; null/absent otherwise.
+ *  Free-text `notes` stays alongside (mandatory when reason is
+ *  "other"). The closed enum lets my brother cluster dismissals for
+ *  prompt-quality analysis without parsing arbitrary curator prose. */
+export type DismissReason =
+  | "auditor_wrong"
+  | "redundant"
+  | "out_of_scope"
+  | "accepted_elsewhere"
+  | "wont_fix"
+  | "other";
+
 /** PATCH body for `PATCH /rest/v2/audits/{audit_id}`. One disposition
  *  update per request — bulk dispositioning isn't supported on this
- *  endpoint by design. */
+ *  endpoint by design.
+ *
+ *  Optional fields per `AUDIT_DISPOSITIONS.md`:
+ *   - `dismiss_reason`: required when status=dismissed (server side
+ *     will validate; safe to send always when set).
+ *   - `applied_fix`: when the curator accepted **and** edited the
+ *     suggested_fix text before applying, the final text.
+ *   - `first_seen_at`: client-side timestamp of the first time this
+ *     finding rendered to the curator. Sent only on the first PATCH
+ *     for the finding so triage time analytics can subtract from
+ *     `reviewed_at`. */
 export interface AuditFindingDispositionPatch {
   target_id: string;
   status: DispositionStatus;
   reviewer: string;
   notes?: string;
+  dismiss_reason?: DismissReason;
+  applied_fix?: string;
+  first_seen_at?: string;
 }
 
 export interface AuditReport {
