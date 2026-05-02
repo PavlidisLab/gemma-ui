@@ -100,6 +100,34 @@ applied_fix?: string;   // populated when accepting and the curator edited the f
 
 UI work: when the accept dialog allows edits, send the final text as `applied_fix`. Empty / unchanged → omit the field.
 
+### 6. Two-step accept: `resolved_at`
+
+Filed 2026-05-02 in response to "if the data isn't changed, accept doesn't really mean accept." Accept and apply are different signals; we shouldn't conflate them.
+
+**Wire shape (already shipped agent-side):**
+
+`AuditFindingDispositionPatch` and `AuditFindingDisposition` gain:
+
+```ts
+resolved_at?: string;   // iso8601 timestamp; only valid with status === "accepted"
+```
+
+The patch validator rejects `resolved_at` with any status other than `accepted` (422).
+
+**UI flow:**
+
+1. Curator clicks **Accept** → PATCH `status="accepted"`, `resolved_at` unset. The finding is now "parked": curator agreed but hasn't fixed it.
+2. Curator navigates to the underlying data (Apply & focus already does this), edits manually, saves the design.
+3. Curator returns to the finding card and clicks **Mark resolved** (new affordance) → PATCH `status="accepted"`, `resolved_at=<now>`. The finding is now "accepted+resolved": clean win for the auditor.
+
+The disposition row carries both `status` and `resolved_at` independently; the UI can render an unresolved-accept differently from a resolved-accept (e.g. a small "fix in progress" badge / "Mark resolved" button on the former; a check-mark on the latter).
+
+**Optional auto-resolve (Phase 2 idea, not now):** when the design draft is saved, diff against the audit-time field snapshot for any accepted-but-unresolved finding's target; auto-stamp `resolved_at` on hits. Requires findings to carry stable field references — they mostly do via `target_id`. Defer until we see whether the manual click is friction.
+
+**Why this matters for analysis:** the dispositions report now distinguishes accepted+resolved (clean win) from parked (weaker validation — curators agree but didn't act). High parked rate on a particular issue_code is a hint that the fix is too costly relative to the value, not that the auditor was wrong.
+
+UI work: add a **Mark resolved** affordance on accepted-but-unresolved finding cards. PATCH body for the resolve step is identical to the accept PATCH except `resolved_at` is now non-null. Visual treatment for resolved findings is your call — a check-mark or a faded card seem reasonable.
+
 ### 5. Optional: triage time
 
 `first_seen_at` (when the finding was first rendered to the curator) → `reviewed_at` delta. Separates "1s click-dismiss" from "60s of consideration" in the analysis.
@@ -164,6 +192,27 @@ cross-repo contract at a glance.
   `AuditFindingDispositionPatch.first_seen_at` (iso8601). Resets
   on page reload — acceptable per the "single triage session"
   framing in the doc.
+- **Ask #6 — two-step accept (`resolved_at`):** done. Wire shape
+  added (`AuditFindingDispositionPatch.resolved_at`,
+  `AuditFindingDisposition.resolved_at`) and `setDisposition`
+  extras gain `resolvedAt`. UI flow:
+  - Bare **Accept** click → status=accepted, resolved_at unset →
+    rendered as "✓ accepted (parked)" in solid blue.
+  - **Mark resolved →** button appears alongside the parked badge;
+    click → status=accepted, resolved_at=now → rendered as
+    "✓✓ resolved" in solid emerald.
+  - **Apply & focus** with a real mutating handler stamps
+    resolved_at=now on the spot — the curator just took the
+    structural action, so accept is implicitly resolved. (Phase 1
+    has no mutating handlers, so this branch sits unused for now.)
+  - Click on an accepted (parked or resolved) toggles all the way
+    back to pending; the server clears resolved_at because
+    status=pending invalidates it.
+  - The synth (override) path mirrors `resolved_at` on the
+    in-memory disposition so the parked vs resolved UX still works
+    in dev mode without a server.
+  - Auto-resolve on draft save (Phase 2 idea in the doc) not
+    wired — defer until manual click is observed as friction.
 
 ### UI plumbing introduced for this work
 
@@ -213,6 +262,8 @@ The dispositions report skeleton is at `scripts/eval_analysis/audit_dispositions
 **On the focus-only Phase 1 handlers** — matches expectations. The auditor's `suggested_fix` is a free-text imperative today, so structured apply has nothing to consume yet. When the structured-fix schema lands (`AuditFinding.suggested_fix` becomes a typed action), the agent side will publish that contract here first; you can then drop per-issue-code handlers into `resolveApplyAction()` and `applied_fix` lights up automatically. No need to backfill handlers ahead of the schema.
 
 **Once the dev mock is restarted** (so migrations apply), the UI's `Close audit` button can light up against the real endpoints. Until then PATCH still works as before; the 409-on-finalized gate is the only behavioral change from old → new mock and only fires after a finalize.
+
+- **Ask #6 — `resolved_at`:** **shipped (wire side).** Field is on the patch + read shapes; persisted on the disposition row; validator rejects it with non-accepted statuses. Dispositions report now distinguishes accepted+resolved from parked. Waiting on the UI's **Mark resolved** affordance to start populating the field. See ask #6 above for spec; small additive UI change.
 
 ## Shape questions / open items
 

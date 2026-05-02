@@ -833,8 +833,15 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const toast = useToast();
   const [dismissOpen, setDismissOpen] = useState(false);
   const action = resolveApplyAction(finding);
-  const current =
-    dispositionByTarget.get(finding.target_id)?.status ?? "pending";
+  const disposition = dispositionByTarget.get(finding.target_id);
+  const current = disposition?.status ?? "pending";
+  // Two-step accept (Ask #6). When status=accepted:
+  //   resolved_at == null  → "parked" (curator agrees, hasn't acted)
+  //   resolved_at != null  → "resolved" (curator agreed and acted)
+  // Other statuses ignore resolved_at; the server validator rejects
+  // resolved_at on anything other than accepted.
+  const isResolved = current === "accepted" && !!disposition?.resolved_at;
+  const isParked = current === "accepted" && !disposition?.resolved_at;
 
   async function patch(
     status: DispositionStatus,
@@ -842,6 +849,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       notes?: string;
       dismissReason?: DismissReason;
       appliedFix?: string;
+      resolvedAt?: string;
     } = {},
   ) {
     const firstSeenAt = consumeFirstSeen(finding.target_id) ?? undefined;
@@ -929,7 +937,13 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       if (action.successMessage) {
         toast.show(action.successMessage, "success");
       }
-      await patch("accepted", { appliedFix: action.appliedFix });
+      // Mutating apply implies accepted+resolved (Ask #6) — the
+      // curator just took the structural action the finding asked
+      // for, so there's nothing left to "park" until later.
+      await patch("accepted", {
+        appliedFix: action.appliedFix,
+        resolvedAt: new Date().toISOString(),
+      });
       return;
     }
     // Focus-only path — no PATCH.
@@ -978,19 +992,42 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           }
           disabled={dispositionSaving}
           title={
-            current === "accepted"
-              ? "click to undo — flips back to pending"
-              : "mark this finding accepted (you've addressed it or agree without taking action here)"
+            isResolved
+              ? "click to undo — flips all the way back to pending (clears resolved_at too)"
+              : isParked
+                ? "click to undo — flips back to pending"
+                : "agree with this finding (parks it; click 'Mark resolved' later once you've actually addressed it)"
           }
           className={cn(
             "text-[11px] px-2 py-0.5 rounded font-medium disabled:opacity-50",
-            current === "accepted"
-              ? "bg-blue-700 text-white hover:bg-blue-800"
-              : "bg-white border border-blue-600 text-blue-700 hover:bg-blue-50",
+            isResolved
+              ? "bg-emerald-700 text-white hover:bg-emerald-800"
+              : isParked
+                ? "bg-blue-700 text-white hover:bg-blue-800"
+                : "bg-white border border-blue-600 text-blue-700 hover:bg-blue-50",
           )}
         >
-          {current === "accepted" ? "✓ accepted" : "Accept"}
+          {isResolved
+            ? "✓✓ resolved"
+            : isParked
+              ? "✓ accepted (parked)"
+              : "Accept"}
         </button>
+        {isParked ? (
+          <button
+            type="button"
+            onClick={() =>
+              patch("accepted", {
+                resolvedAt: new Date().toISOString(),
+              })
+            }
+            disabled={dispositionSaving}
+            title="mark this accepted finding resolved — for when you went and fixed the underlying data manually after agreeing with the finding"
+            className="text-[11px] px-2 py-0.5 rounded font-medium border border-emerald-700 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-50"
+          >
+            Mark resolved →
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => setDismissOpen(true)}

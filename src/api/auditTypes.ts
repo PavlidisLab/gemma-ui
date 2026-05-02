@@ -114,6 +114,16 @@ export interface AuditFindingDisposition {
   /** ISO 8601 UTC; null on the initial pending state. */
   reviewed_at: string | null;
   notes: string;
+  /** ISO 8601 UTC of "I actually addressed this in the data" — see
+   *  `AUDIT_DISPOSITIONS.md` Ask #6. Only valid alongside
+   *  status=accepted. Two states under accepted:
+   *    - parked  → status=accepted AND resolved_at == null
+   *    - resolved → status=accepted AND resolved_at != null
+   *  The UI distinguishes them so a high parked-rate on a given
+   *  issue_code reads as "curators agree but didn't act" (weaker
+   *  validation signal) vs "clean win". Optional / nullable for
+   *  backwards compat with older mocks. */
+  resolved_at?: string | null;
 }
 
 /** Closed enum of structured "why this is a dismiss" reasons.
@@ -151,6 +161,15 @@ export interface AuditFindingDispositionPatch {
   dismiss_reason?: DismissReason;
   applied_fix?: string;
   first_seen_at?: string;
+  /** Two-step accept marker — see `AUDIT_DISPOSITIONS.md` Ask #6.
+   *  Server validator: `resolved_at` is only valid alongside
+   *  status=accepted; any other status returns 422. Send when:
+   *    - the curator clicks "Mark resolved" on an accepted finding
+   *    - an Apply&Focus action with a real mutation runs (the
+   *      curator just took the structural action, so accept is
+   *      implicitly resolved)
+   *  Omit on the bare "Accept" click — that's the parked state. */
+  resolved_at?: string;
 }
 
 export interface AuditReport {

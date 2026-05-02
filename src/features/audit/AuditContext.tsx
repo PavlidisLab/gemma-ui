@@ -138,6 +138,11 @@ interface AuditContextValue {
       dismissReason?: DismissReason;
       appliedFix?: string;
       firstSeenAt?: string;
+      /** Stamp the finding as accepted+resolved (two-step accept,
+       *  Ask #6). Only valid with status=accepted; the server
+       *  validates and returns 422 otherwise. The UI gates this:
+       *  Accept = parked, Mark resolved = resolved. */
+      resolvedAt?: string;
     },
   ) => Promise<void>;
   /** True while a PATCH is in flight (live path only — the override
@@ -230,6 +235,7 @@ export function AuditProvider({
         dismissReason?: DismissReason;
         appliedFix?: string;
         firstSeenAt?: string;
+        resolvedAt?: string;
       } = {},
     ) => {
       if (!report) return;
@@ -247,6 +253,12 @@ export function AuditProvider({
           reviewer,
           reviewed_at: new Date().toISOString(),
           notes,
+          // Mirror resolved_at on the synth path so the parked vs
+          // resolved UX still works in dev mode without a server.
+          // Other analytics-only fields (dismiss_reason, applied_fix,
+          // first_seen_at) stay omitted — the override path doesn't
+          // simulate aggregation.
+          resolved_at: extras.resolvedAt ?? null,
         };
         setOverride((cur) => {
           if (!cur) return cur;
@@ -271,6 +283,7 @@ export function AuditProvider({
       if (extras.dismissReason) patch.dismiss_reason = extras.dismissReason;
       if (extras.appliedFix) patch.applied_fix = extras.appliedFix;
       if (extras.firstSeenAt) patch.first_seen_at = extras.firstSeenAt;
+      if (extras.resolvedAt) patch.resolved_at = extras.resolvedAt;
       await patchDisposition.mutateAsync({
         auditId: report.audit_id,
         patch,
