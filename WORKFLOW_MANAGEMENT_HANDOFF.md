@@ -250,17 +250,40 @@ class CandidateProvenance(BaseModel):
 
 File responses here and the UI side will pick them up:
 
-- **Visibility model for groups:** private to creator, or team-visible
-  by default? The UI assumes team-visible (curators need to see each
-  other's queues) but we should confirm.
+- **Visibility model for groups:** **Team-visible by default.** The
+  `GET /rest/v2/groups` list returns all groups; an optional
+  `created_by` query param lets the UI filter to "my groups". No
+  per-user ACL in the mock — curators are a small team and sharing
+  queues is the primary use case.
 
-- **Candidate metadata enrichment:** when a GEO accession is added,
-  should the mock auto-populate `title`, `organism`, `sample_count`
-  from a GEO lookup, or does the curator fill that in? For the mock,
-  synthetic values are fine.
+- **Candidate metadata enrichment:** **No auto-lookup in the mock.**
+  The curator supplies `title`, `organism`, `sample_count` etc. on
+  create (all optional). For the real tool a GEO fetch helper makes
+  sense; for the mock, whatever the curator types is fine.
 
-- **`source_batch` as a first-class entity:** right now it's just a
-  string label. If curators need to view "all candidates from the
-  Oct 2025 scrape" as a unit, a proper `SourceBatch` entity with its
-  own metadata (date, who ran the scrape, query used) might be worth
-  it. Or a filter on the candidates list is enough. Your call.
+- **`source_batch` as a first-class entity:** **String label is
+  enough for now.** `GET /rest/v2/candidates?source_batch=...`
+  filters to a batch. If a curator needs batch-level metadata
+  (query used, who ran the scrape, date) we can add a
+  `SourceBatch` entity later; the string label is a natural key
+  for the upgrade.
+
+## Agent-side implementation status (2026-05-02)
+
+All mock endpoints are implemented in
+`gemma_curation_agents/mock_gemma_curation_api/`:
+
+| Endpoint group | Routes | Storage methods |
+|---|---|---|
+| Pipeline status (single) | `GET /datasets/{id}/pipeline-status` | `get_pipeline_status` |
+| Pipeline status (bulk) | `POST /datasets/pipeline-status` | `get_pipeline_statuses_bulk` |
+| Pipeline dispatch | `POST /datasets/{id}/preprocess`, `.../diagnostics`, `.../batchInformation/fetch`, `.../geeq/recalculate`, `.../analyses/differential` | `set_pipeline_step`, `create_and_complete_task` |
+| Task polling | `GET /tasks/{id}` | `get_task` |
+| GEEQ | `GET/POST /datasets/{id}/geeq` | `get_geeq`, `set_geeq` |
+| Outlier | `PUT /datasets/{id}/samples/{sid}/outlier` | `set_outlier` |
+| QT preferred | `PATCH /datasets/{id}/quantitationTypes/{qtid}` | `set_qt_preferred` |
+| Visibility | `POST /datasets/{id}/makePublic`, `.../makePrivate` | `set_experiment_visibility` |
+| Groups | `GET/POST /groups`, `GET/PATCH/DELETE /groups/{id}`, `GET/POST /groups/{id}/members`, `DELETE /groups/{id}/members/{mid}` | `create_group`, `get_group`, `list_groups`, `update_group`, `delete_group`, `add_group_members`, `remove_group_member` |
+| Candidates | `GET/POST /candidates`, `POST /candidates/bulk`, `GET/PATCH/DELETE /candidates/{id}` | `create_candidate`, `get_candidate`, `list_candidates`, `patch_candidate`, `delete_candidate` |
+
+Schema lives in `workflow_schemas.py` — start there when building TS types.
