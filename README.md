@@ -237,6 +237,24 @@ CLAUDE.md                   # meta orientation for the GUI Claude
 See `SCALE.md` for the current state and deferred items (multi-select
 drag, virtualised Sample Details table when needed, etc.).
 
+## Compatibility with the agent service
+
+This UI talks to the [`gemma-curation-agents`](https://github.com/PavlidisLab/gemma-curation-agents)
+service over HTTP / SSE. The two are independent processes — no
+build-time dependency — but the wire contract (REST shapes, SSE
+event taxonomy, dispositions schema) couples them.
+
+| UI version | Tested against agent version |
+|---|---|
+| **v0.3.0 (current)** | **v0.2.0** |
+| v0.2.0 | v0.1.0 |
+| v0.1.0 | v0.1.0 |
+
+Full matrix + the list of cross-repo wire surfaces lives in
+[`CROSS_REPO_COMPAT.md`](./CROSS_REPO_COMPAT.md), along with the
+open ask for `agent_version` on `/health` so the UI can flag
+mismatches at runtime.
+
 ## License
 
 Apache-2.0.

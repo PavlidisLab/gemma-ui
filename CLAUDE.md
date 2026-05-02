@@ -31,6 +31,9 @@ correctness and the browser for everything else. Dev server:
 - Mock data behaving oddly?
   `sqlite3 ../gemma-curation-agents/mock_curation.sqlite` and
   inspect directly.
+- **Compatibility matrix** (which UI version pairs with which agent
+  version) lives in [`CROSS_REPO_COMPAT.md`](./CROSS_REPO_COMPAT.md).
+  Update it when shipping a release; same row goes on the agent side.
 
 ## Doc layout
 
