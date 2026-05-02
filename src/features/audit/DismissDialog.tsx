@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import type { DismissReason } from "@/api/auditTypes";
 
@@ -17,9 +18,26 @@ import type { DismissReason } from "@/api/auditTypes";
  * Click-outside / Esc cancels (no PATCH fires). Confirm calls
  * onConfirm with the chosen reason + notes; the caller threads
  * those into setDisposition(... , { dismissReason, notes }).
+ *
+ * Renders via `createPortal` into `document.body` with
+ * `position: fixed` anchored to the trigger button. The audit
+ * sidebar's `<aside>` carries `overflow-y-auto` (so proposals
+ * stay pinned while the page scrolls), and an absolute-positioned
+ * popover inside that ancestor gets clipped. Portal escapes the
+ * overflow boundary; fixed coordinates from the anchor's bounding
+ * rect keep the dialog visually attached even though the DOM
+ * relationship is severed. On scroll / resize the dialog closes —
+ * curator's intent is broken anyway when the underlying card
+ * scrolls out of view.
  */
+const DIALOG_W = 280;
+// Vertical gap between trigger and dialog. Same number as the old
+// `mt-1` spacing.
+const ANCHOR_OFFSET = 4;
+
 export function DismissDialog({
   finding,
+  anchor,
   onCancel,
   onConfirm,
 }: {
@@ -28,6 +46,11 @@ export function DismissDialog({
    *  Free-text label only; the structural fields stay on the
    *  parent card. */
   finding: { issue_code: string; rationale: string };
+  /** The button (or any element) the dialog visually drops from.
+   *  Used to compute fixed coordinates so the dialog "sticks" to
+   *  the trigger across re-renders. May be null on the first
+   *  render of the parent — dialog renders nothing in that case. */
+  anchor: HTMLElement | null;
   onCancel: () => void;
   onConfirm: (
     reason: DismissReason,
@@ -38,14 +61,40 @@ export function DismissDialog({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
-  // Click-outside / Esc to cancel. Skip while submitting so a
-  // mid-PATCH stray click doesn't drop the in-flight request.
+  // Compute / recompute the dialog's fixed-position coords from the
+  // anchor's bounding rect. Runs synchronously after layout so the
+  // dialog never paints at (0,0) before snapping into place. Also
+  // reruns whenever `anchor` flips identity (e.g. caller swaps
+  // refs).
+  useLayoutEffect(() => {
+    if (!anchor) {
+      setPos(null);
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    // Default: drop straight down from the anchor's left edge.
+    let top = rect.bottom + ANCHOR_OFFSET;
+    let left = rect.left;
+    const vw = window.innerWidth;
+    // Right edge would overflow the viewport — slide left so it fits.
+    if (left + DIALOG_W + 8 > vw) {
+      left = Math.max(8, vw - DIALOG_W - 8);
+    }
+    setPos({ top, left });
+  }, [anchor]);
+
+  // Click-outside / Esc to cancel. Click-outside checks both the
+  // dialog and the anchor — the anchor click is what opened the
+  // dialog, so we don't want the same click to also close it.
   useEffect(() => {
     function onDoc(e: MouseEvent) {
       if (submitting) return;
-      if (!ref.current) return;
-      if (!ref.current.contains(e.target as Node)) onCancel();
+      const target = e.target as Node;
+      if (ref.current?.contains(target)) return;
+      if (anchor?.contains(target)) return;
+      onCancel();
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape" && !submitting) onCancel();
@@ -55,6 +104,25 @@ export function DismissDialog({
     return () => {
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
+    };
+  }, [onCancel, submitting, anchor]);
+
+  // Close on viewport changes — easier than reflowing fixed
+  // coordinates while the curator scrolls. The card the dialog
+  // attaches to typically scrolls along, so the curator's intent
+  // is broken regardless.
+  useEffect(() => {
+    if (submitting) return;
+    function close() {
+      onCancel();
+    }
+    window.addEventListener("resize", close);
+    // Capture-phase scroll catches scroll on any ancestor, not just
+    // window — the audit sidebar is the actual scroll container.
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
     };
   }, [onCancel, submitting]);
 
@@ -72,11 +140,18 @@ export function DismissDialog({
     }
   }
 
-  return (
+  if (!pos) return null;
+
+  return createPortal(
     <div
       ref={ref}
-      className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-300 rounded shadow-xl p-2.5 text-xs"
+      // position: fixed lifts the dialog out of the audit sidebar's
+      // overflow context entirely; coords come from the anchor rect
+      // and reset on scroll/resize via the close-on-change effect.
+      className="fixed z-50 bg-white border border-slate-300 rounded shadow-xl p-2.5 text-xs"
+      style={{ top: pos.top, left: pos.left, width: DIALOG_W }}
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="font-semibold text-slate-800 mb-1.5">
         Why dismiss?
@@ -157,7 +232,8 @@ export function DismissDialog({
           {submitting ? "dismissing…" : "Dismiss"}
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

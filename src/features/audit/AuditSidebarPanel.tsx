@@ -832,6 +832,9 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const { apply: applyDraft, draft } = useDesignDraft();
   const toast = useToast();
   const [dismissOpen, setDismissOpen] = useState(false);
+  // The DismissDialog portals out of the sidebar's overflow context
+  // and positions itself relative to this ref's bounding rect.
+  const dismissBtnRef = useRef<HTMLButtonElement | null>(null);
   const action = resolveApplyAction(finding);
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
@@ -1029,6 +1032,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           </button>
         ) : null}
         <button
+          ref={dismissBtnRef}
           type="button"
           onClick={() => setDismissOpen(true)}
           disabled={dispositionSaving}
@@ -1078,6 +1082,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       {dismissOpen ? (
         <DismissDialog
           finding={finding}
+          anchor={dismissBtnRef.current}
           onCancel={() => setDismissOpen(false)}
           onConfirm={handleDismiss}
         />
