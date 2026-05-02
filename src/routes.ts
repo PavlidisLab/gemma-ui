@@ -19,7 +19,8 @@ export type ExperimentTab =
   | "history"
   | "quantitation"
   | "diagnostics"
-  | "notes";
+  | "notes"
+  | "pipeline";
 
 export type Route =
   | { kind: "landing" }

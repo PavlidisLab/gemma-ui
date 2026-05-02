@@ -13,6 +13,7 @@ import { AuditsInbox } from "@/features/inbox/AuditsInbox";
 import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
 import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
 import { WorkflowPage } from "@/features/workflow/WorkflowPage";
+import { PipelinePanel } from "@/features/workflow/PipelinePanel";
 import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
 import {
@@ -601,6 +602,8 @@ function MainGrid({
           <DiagnosticsPanel experimentId={experimentId} />
         ) : activeTab === "history" ? (
           <HistoryPanel experimentId={experimentId} />
+        ) : activeTab === "pipeline" ? (
+          <PipelinePanel experimentId={experimentId} />
         ) : (
           <QuantitationTypesPanel experimentId={experimentId} />
         )}
@@ -981,7 +984,7 @@ function formatBaselineOverrideStamp(
  */
 function tabIdToRouteTab(tabId: TabId): ExperimentTab {
   if (tabId === "qt") return "quantitation";
-  return tabId;
+  return tabId as ExperimentTab;
 }
 
 /**
@@ -1007,6 +1010,7 @@ function mapRouteTab(tab: string | undefined): {
     tab === "samples" ||
     tab === "diagnostics" ||
     tab === "history" ||
+    tab === "pipeline" ||
     tab === "qt"
   ) {
     return { tab, notesOpen: false };

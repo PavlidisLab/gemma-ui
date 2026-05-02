@@ -22,7 +22,8 @@ export type TabId =
   | "samples"
   | "diagnostics"
   | "qt"
-  | "history";
+  | "history"
+  | "pipeline";
 
 // Order mirrors the Confluence Experiment Checklist workflow:
 // design / sample details before diagnostics, QT next, history last.
@@ -36,6 +37,7 @@ export const EXPERIMENT_TABS: { id: TabId; label: string }[] = [
   { id: "diagnostics", label: "Diagnostics" },
   { id: "qt", label: "Quantitation types" },
   { id: "history", label: "History" },
+  { id: "pipeline", label: "Pipeline" },
 ];
 
 /**
