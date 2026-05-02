@@ -669,6 +669,44 @@ function ClosedFindingsSummary({
   );
 }
 
+/** Returns the FV-kind children of `parentFinding` (same factor
+ *  slug) that the suppression rule treats as subsumed (no more
+ *  severe than the parent). Mirrors FindingList's
+ *  isSubsumedByParentFactor predicate so visual hide and the
+ *  disposition cascade stay in lockstep. Returns [] for non-factor
+ *  parents and for findings whose target_id doesn't parse. */
+function subsumedFvChildren(
+  parentFinding: AuditFinding,
+  allFindings: AuditFinding[],
+): AuditFinding[] {
+  if (parentFinding.target_kind !== "factor") return [];
+  const p = parseTargetId(parentFinding.target_id);
+  if (p?.kind !== "factor") return [];
+  const parentRank = SEVERITY_RANK[parentFinding.severity];
+  const out: AuditFinding[] = [];
+  for (const f of allFindings) {
+    if (f.target_kind !== "fv") continue;
+    const c = parseTargetId(f.target_id);
+    if (c?.kind !== "fv") continue;
+    if (c.factorSlug !== p.factorSlug) continue;
+    if (SEVERITY_RANK[f.severity] < parentRank) continue;
+    out.push(f);
+  }
+  return out;
+}
+
+/** Notes prefix the cascade attaches to the children's disposition
+ *  PATCH. Until my brother ships a typed `inherited_from` field on
+ *  the patch shape (filed as an open item in
+ *  AUDIT_DISPOSITIONS.md), the marker rides in `notes` so the
+ *  dispositions report can recognise inherited dispositions and
+ *  weight them differently from direct ones. Prefix-style so a
+ *  curator's existing note (if any — they typically don't write
+ *  notes on accept / resolve) stays appended after a newline. */
+function viaParentMarker(parentTargetId: string): string {
+  return `via_parent: ${parentTargetId}`;
+}
+
 function FindingList({ findings }: { findings: AuditFinding[] }) {
   // Single flat list, sorted by severity then target_kind. The full
   // report view groups by target_kind (it has the room); in the
@@ -696,24 +734,41 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
   // "show N FV-level findings under flagged factors" toggle so a
   // curator who wants the per-FV detail can opt in.
   //
+  // **Severity-aware:** an FV finding more severe than its parent
+  // factor's worst finding still surfaces — a blocker on an FV
+  // shouldn't disappear because the factor only has a minor flag.
+  // The lower-level concern is graver and the curator needs to act
+  // on it independently.
+  //
   // We key on the factor slug — both factor and fv target_ids carry
   // it (factor:<slug>, fv:<slug>/<fv-slug>) and the slug rule mirrors
   // the agent side exactly via parseTargetId, so this stays in sync
   // with whatever flagged-factor / FV pair the judge emits.
   const suppression = useMemo(() => {
-    const flaggedFactorSlugs = new Set<string>();
+    // factorSlug → minRank (lower number = more severe; from
+    // SEVERITY_RANK). Tracks the WORST severity among non-ok
+    // findings on each factor.
+    const factorWorstRank = new Map<string, number>();
     for (const f of sorted) {
       if (f.target_kind !== "factor" || f.severity === "ok") continue;
       const p = parseTargetId(f.target_id);
-      if (p?.kind === "factor") flaggedFactorSlugs.add(p.factorSlug);
+      if (p?.kind !== "factor") continue;
+      const cur = factorWorstRank.get(p.factorSlug);
+      const r = SEVERITY_RANK[f.severity];
+      if (cur === undefined || r < cur) factorWorstRank.set(p.factorSlug, r);
     }
     return {
-      flaggedFactorSlugs,
-      isUnderFlaggedFactor(f: AuditFinding): boolean {
+      factorWorstRank,
+      /** True iff `f` is an FV finding under a flagged factor AND
+       *  no more severe than that factor's worst finding (so the
+       *  parent legitimately subsumes it). */
+      isSubsumedByParentFactor(f: AuditFinding): boolean {
         if (f.target_kind !== "fv") return false;
         const p = parseTargetId(f.target_id);
         if (p?.kind !== "fv") return false;
-        return flaggedFactorSlugs.has(p.factorSlug);
+        const parentRank = factorWorstRank.get(p.factorSlug);
+        if (parentRank === undefined) return false;
+        return SEVERITY_RANK[f.severity] >= parentRank;
       },
     };
   }, [sorted]);
@@ -721,14 +776,16 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
   const actionable = sorted.filter((f) => f.severity !== "ok");
   const okOnes = sorted.filter((f) => f.severity === "ok");
   const visibleActionable = actionable.filter(
-    (f) => !suppression.isUnderFlaggedFactor(f),
+    (f) => !suppression.isSubsumedByParentFactor(f),
   );
   const suppressedActionable = actionable.filter((f) =>
-    suppression.isUnderFlaggedFactor(f),
+    suppression.isSubsumedByParentFactor(f),
   );
-  const visibleOk = okOnes.filter((f) => !suppression.isUnderFlaggedFactor(f));
+  const visibleOk = okOnes.filter(
+    (f) => !suppression.isSubsumedByParentFactor(f),
+  );
   const suppressedOk = okOnes.filter((f) =>
-    suppression.isUnderFlaggedFactor(f),
+    suppression.isSubsumedByParentFactor(f),
   );
   const suppressedTotal = suppressedActionable.length + suppressedOk.length;
   const [showOk, setShowOk] = useState(false);
@@ -965,6 +1022,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
 function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const {
     experimentId,
+    report,
     dispositionByTarget,
     setDisposition,
     dispositionSaving,
@@ -981,6 +1039,13 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const action = resolveApplyAction(finding);
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
+  // Subsumed FV children of this finding (only non-empty when this
+  // is a factor finding; the helper short-circuits otherwise).
+  // Cached so we can show "+ N FVs cascaded" in the action tooltip
+  // and toast without re-deriving on every click.
+  const subsumedChildren = report
+    ? subsumedFvChildren(finding, report.findings)
+    : [];
   // Two-step accept (Ask #6). When status=accepted:
   //   resolved_at == null  → "parked" (curator agrees, hasn't acted)
   //   resolved_at != null  → "resolved" (curator agreed and acted)
@@ -1020,6 +1085,62 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       }
       toast.show(
         `Disposition save failed: ${(err as Error).message}`,
+        "danger",
+        6000,
+      );
+      return;
+    }
+
+    // Cascade: when the curator dispositions a factor finding, flow
+    // the same disposition to the FV children the suppression rule
+    // treats as subsumed. Skip on undo (status=pending) — a
+    // mis-click on the parent shouldn't ripple through and undo
+    // explicit per-FV calls. Skip any child whose disposition has
+    // already been touched explicitly so a curator's manual call on
+    // an individual FV always wins. Marker rides in `notes` as
+    // `via_parent: <parent target_id>` so my brother's analytics
+    // can recognise inherited dispositions; once he ships a typed
+    // `inherited_from` field (filed in AUDIT_DISPOSITIONS.md) the
+    // marker moves out of notes.
+    if (
+      status === "pending" ||
+      finding.target_kind !== "factor" ||
+      subsumedChildren.length === 0
+    ) {
+      return;
+    }
+    let cascaded = 0;
+    let cascadeFailed = 0;
+    for (const child of subsumedChildren) {
+      const existing = dispositionByTarget.get(child.target_id);
+      if (existing && existing.status !== "pending") continue;
+      const marker = viaParentMarker(finding.target_id);
+      const childNotes = extras.notes
+        ? `${extras.notes}\n${marker}`
+        : marker;
+      try {
+        await setDisposition(child.target_id, status, {
+          ...extras,
+          notes: childNotes,
+        });
+        cascaded++;
+      } catch {
+        cascadeFailed++;
+      }
+    }
+    if (cascaded > 0) {
+      toast.show(
+        `Cascaded to ${cascaded} subsumed FV finding${cascaded === 1 ? "" : "s"}.${
+          cascadeFailed > 0
+            ? ` (${cascadeFailed} failed — review the suppressed list.)`
+            : ""
+        }`,
+        cascadeFailed > 0 ? "danger" : "success",
+        cascadeFailed > 0 ? 6000 : 3000,
+      );
+    } else if (cascadeFailed > 0) {
+      toast.show(
+        `Cascade failed for ${cascadeFailed} subsumed FV finding${cascadeFailed === 1 ? "" : "s"} — review the suppressed list.`,
         "danger",
         6000,
       );

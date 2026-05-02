@@ -299,3 +299,33 @@ File these here as comments and the agent-side Claude will pick them up:
   and assign them onto the deserialised `AuditReport` (mirror the
   per-row patch in `get_audit`). Same shape as the
   `_latest_dispositions` merge that already runs there.
+
+- **Typed `inherited_from` field on dispositions** (filed 2026-05-02).
+  The UI now cascades a factor finding's disposition (Accept /
+  Mark resolved / Dismiss / Needs more info) to its subsumed FV
+  children — same factor slug, no more severe than the parent.
+  Children that already carry an explicit non-pending disposition
+  are skipped so curator-explicit calls always win.
+
+  Until a typed field exists, the cascade marker rides in
+  `notes` as `via_parent: <parent target_id>` (helper
+  `viaParentMarker` in `src/features/audit/AuditSidebarPanel.tsx`).
+  That works but pollutes the free-text channel and means the
+  dispositions report has to string-match to recognise inherited
+  dispositions vs direct ones — and curators occasionally write
+  notes containing the literal substring, which would false-
+  positive cluster.
+
+  Asked-for shape: an optional `inherited_from?: string` on
+  `AuditFindingDispositionPatch` and `AuditFindingDisposition`
+  carrying the parent finding's `target_id`. Server stores it
+  alongside the existing snapshot columns; dispositions report
+  uses it to weight cascaded dispositions differently from direct
+  ones (curator's intent on the parent isn't N+1 independent
+  agreements).
+
+  Once it lands, the UI replaces the `notes` prefix with the
+  typed field — small refactor in
+  `setDisposition` extras + the cascade loop. Marker stays
+  backwards-compatible (sending the prefix doesn't break anything)
+  so the upgrade can ride a normal release.
