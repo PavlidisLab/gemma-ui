@@ -83,25 +83,38 @@ them costs time.)
 | Landing dashboard / inboxes | `src/features/landing/`, `src/features/inbox/` |
 | Generic UI primitives | `src/components/ui/` |
 
+## Big-picture context
+
+The proposer + auditor cover steps 2–4 of the 14-step Gemma curation pipeline.
+The next major product area is **experiment workflow management** — driving the
+full pipeline (steps 5–14: batch info, preprocessing, DEA, diagnostics,
+pre-public checklist, publish) from the new UI. See
+[`WORKFLOW_MANAGEMENT.md`](./WORKFLOW_MANAGEMENT.md) for the full brief:
+what the old ExtJS dataset manager does, what's wrong with it, and what we
+want to build.
+
 ## Current open handoff
 
 **Audit dispositions feedback loop** — see
-[AUDIT_DISPOSITIONS.md](./AUDIT_DISPOSITIONS.md). My brother is
-harvesting curator dispositions (accept / dismiss / needs_more_info)
-for prompt-quality analysis.
+[AUDIT_DISPOSITIONS.md](./AUDIT_DISPOSITIONS.md). All 6 asks are
+done on both sides (UI + agent) as of 2026-05-01. The dispositions
+report at `scripts/eval_analysis/audit_dispositions.py` lights up
+once curators start finalizing audits.
 
-UI status (2026-05-02): Asks #2 / #4 / #5 landed (chip-picker
-dismiss reasons, `applied_fix` wire field, `first_seen_at`
-tracking) along with the focus-only Apply & Focus framework. **Ask
-#1 (close audit) is now unblocked** — my brother shipped the
-server endpoints (`POST /rest/v2/audits/{id}/finalize` +
-`/reopen`, plus `finalized_at` / `finalized_by` on the read shape
-and a 409 on PATCH-while-finalized). Next UI bites: "Close audit"
-button + read-only treatment for finalized audits + 409 handling
-to suggest reopen. Still pending: `AuditReportView`
-cross-experiment refactor, real mutating handlers (drop into
-`src/features/audit/applyHandlers.ts` once the structured-fix
-schema ships).
+**Still deferred:**
+- `AuditDetailPage` / `AuditReportView` cross-experiment refactor
+  (close/reopen affordances, dismiss chips, Mark resolved). Deferred
+  because Apply & Focus needs design-context unavailable outside the
+  Shell. In-experiment sidebar is the high-traffic path; this can
+  wait for Phase 1 mutating handlers or curator feedback.
+- Real mutating handlers in `src/features/audit/applyHandlers.ts`.
+  Waiting on the structured-fix schema from my brother
+  (`AuditFinding.suggested_fix` becoming a typed action). When it
+  lands, drop per-issue-code handlers into `resolveApplyAction()`;
+  `applied_fix` wires up automatically.
+
+**Next product area:** experiment workflow management — see
+[`WORKFLOW_MANAGEMENT.md`](./WORKFLOW_MANAGEMENT.md).
 
 ## Memory
 
