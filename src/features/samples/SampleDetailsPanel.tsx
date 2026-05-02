@@ -25,6 +25,7 @@ import { useProposalReview } from "@/features/proposal/ProposalReviewContext";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { assignmentTarget } from "@/features/audit/targetIds";
 import { onSamplesScrollRow } from "@/lib/scrollToSample";
+import { BiomaterialMetaPopover } from "./BiomaterialMetaPopover";
 import type {
   BiomaterialAssignmentMeta,
   FactorProposal,
@@ -1183,6 +1184,15 @@ function SampleTable({
                         targetId={assignmentTarget(repr.short_name)}
                       />
                     </span>
+                    {/* "i" chip — reveals every per-BM field, including
+                        characteristics the curator has hidden via
+                        column-filter / hide-constant. Click-to-open
+                        popover; click-outside / Esc closes. */}
+                    <BiomaterialMetaPopover
+                      bm={repr}
+                      source={design.external_source}
+                      groupSize={groupSize}
+                    />
                   </td>
                   <td
                     className="px-3 py-0.5 text-slate-700 whitespace-nowrap max-w-[16rem] truncate"
