@@ -30,11 +30,13 @@ export function FactorList({
   selectedId,
   modifiedFactorIds,
   addedFactorIds,
+  dirtyFactorIds,
   onSelect,
   onFactorFieldsChange,
   onAddFactor,
   onAddFactorFromTemplate,
   onDeleteFactor,
+  onRevertFactor,
 }: {
   factors: Factor[];
   selectedId: number | null;
@@ -45,6 +47,11 @@ export function FactorList({
   /** Factor IDs the curator has added in this draft (not yet in
    *  saved). Surfaced as a "new" badge. */
   addedFactorIds: Set<number>;
+  /** Factor IDs that have ANY uncommitted change — factor-field
+   *  edits, added-in-draft, OR an added/modified/removed FV under
+   *  this factor. Drives the per-row "revert factor" affordance.
+   *  Superset of `modifiedFactorIds` ∪ `addedFactorIds`. */
+  dirtyFactorIds: Set<number>;
   onSelect: (id: number) => void;
   onFactorFieldsChange: (
     factorId: number,
@@ -58,6 +65,11 @@ export function FactorList({
   onAddFactor: () => void;
   onAddFactorFromTemplate: (template: FactorTemplate) => void;
   onDeleteFactor: (factorId: number) => void;
+  /** Atomic per-Factor revert. Restores name / category / type /
+   *  description AND every FV under this factor to saved baseline.
+   *  For added-in-draft factors the parent passes the appropriate
+   *  saved=null so revert reduces to "drop the factor". */
+  onRevertFactor: (factorId: number) => void;
 }) {
   // Tracks which factor (if any) the curator is in the process of
   // deleting — set when they click the per-row trash icon, cleared
@@ -264,15 +276,36 @@ export function FactorList({
                   className="px-2 py-2 align-top"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setFactorPendingDelete(f)}
-                    title={`Delete "${f.name || "(unnamed)"}"`}
-                    aria-label={`Delete "${f.name || "(unnamed)"}"`}
-                    className="text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded p-1 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {/* Atomic revert. Visible whenever this factor or
+                        any of its FVs has uncommitted edits. Restores
+                        factor metadata + every FV to saved in one shot
+                        (or drops the whole factor for added-in-draft
+                        factors). */}
+                    {dirtyFactorIds.has(f.id) ? (
+                      <button
+                        type="button"
+                        onClick={() => onRevertFactor(f.id)}
+                        title={
+                          isAdded
+                            ? "discard this factor — it didn't exist on the saved baseline"
+                            : "discard every uncommitted edit on this factor (name, category, type, description, all FVs) and restore from saved"
+                        }
+                        className="text-[11px] text-slate-500 hover:text-rose-700 underline-offset-2 hover:underline px-1"
+                      >
+                        revert
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setFactorPendingDelete(f)}
+                      title={`Delete "${f.name || "(unnamed)"}"`}
+                      aria-label={`Delete "${f.name || "(unnamed)"}"`}
+                      className="text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded p-1 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             );

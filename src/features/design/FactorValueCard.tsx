@@ -34,6 +34,7 @@ export function FactorValueCard({
   remainingCount,
   onStatementChange,
   onStatementDelete,
+  onRevert,
 }: {
   fv: FactorValue;
   factorCategory: OntologyTerm | null;
@@ -54,6 +55,11 @@ export function FactorValueCard({
   remainingCount?: number;
   onStatementChange: (index: number, next: FactorValue["statements"][number]) => void;
   onStatementDelete: (index: number) => void;
+  /** Atomic per-FV revert. Renders a small "revert" link next to
+   *  the change badge when this FV has uncommitted edits. Optional
+   *  so older callers (any tombstone-only render path that doesn't
+   *  want a revert affordance) can omit it. */
+  onRevert?: () => void;
 }) {
   const isAdded = change?.kind === "added";
   const isModified = change?.kind === "modified";
@@ -203,6 +209,31 @@ export function FactorValueCard({
           </span>
 
           <ChangeBadge change={change} />
+          {/* Atomic per-FV revert. Visible whenever the FV has a
+              change relative to saved — modified, added, or removed
+              (tombstone). Click discards every uncommitted edit on
+              this single FV without touching siblings.
+              Tooltip wording leans on the change kind so the curator
+              knows what gets discarded:
+                modified → label / baseline / statements / samples
+                added    → the FV itself (it didn't exist on saved)
+                removed  → restores the deleted FV from saved */}
+          {onRevert && change ? (
+            <button
+              type="button"
+              onClick={onRevert}
+              className="text-[11px] text-slate-500 hover:text-rose-700 underline-offset-2 hover:underline"
+              title={
+                change.kind === "added"
+                  ? "discard this FV — it didn't exist on the saved baseline"
+                  : change.kind === "removed"
+                    ? "restore this FV from the saved baseline"
+                    : "discard your edits to this FV (label, baseline, statements, sample assignments) and restore from saved"
+              }
+            >
+              revert
+            </button>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {isRemoved ? (

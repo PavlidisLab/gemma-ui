@@ -394,6 +394,113 @@ export function toggleBaseline(
   });
 }
 
+/**
+ * Atomic per-FV revert. Restores a single FactorValue to its
+ * server-saved state without affecting siblings.
+ *
+ * Three cases the caller resolves before calling:
+ *   - **modified** (`savedFv != null`, FV present in draft): replace
+ *     the draft FV's label / baseline / statements / biomaterials
+ *     with the saved values.
+ *   - **added**    (`savedFv == null`, FV present in draft): drop
+ *     the FV from the draft (since saved had nothing).
+ *   - **removed**  (`savedFv != null`, FV NOT present in draft):
+ *     re-insert the saved FV at the end of the factor's FV list.
+ *     Order isn't preserved — Gemma stores FVs as a set, the
+ *     curator's display order is incidental.
+ *
+ * The caller (a UI handler) gets the saved FV from `change.before`
+ * on the diff index, so it always has the right shape on hand.
+ */
+export function revertFactorValue(
+  design: Design,
+  factorId: number,
+  fvId: number,
+  savedFv: FactorValue | null,
+): Design {
+  return mapFactor(design, factorId, (f) => {
+    const present = f.factor_values.some((fv) => fv.id === fvId);
+    if (!savedFv) {
+      // Added in draft, nothing to restore — drop it.
+      return {
+        ...f,
+        factor_values: f.factor_values.filter((fv) => fv.id !== fvId),
+      };
+    }
+    if (!present) {
+      // Removed in draft, restore from saved (append; order isn't
+      // load-bearing on the wire).
+      return {
+        ...f,
+        factor_values: [...f.factor_values, savedFv],
+      };
+    }
+    // Modified — replace by id. Use a deep copy of the saved FV so
+    // the caller can't accidentally mutate the saved baseline by
+    // editing the restored draft.
+    return {
+      ...f,
+      factor_values: f.factor_values.map((fv) =>
+        fv.id === fvId
+          ? {
+              ...savedFv,
+              statements: savedFv.statements.map((s) => ({ ...s })),
+              biomaterial_short_names: [...savedFv.biomaterial_short_names],
+            }
+          : fv,
+      ),
+    };
+  });
+}
+
+/**
+ * Atomic per-Factor revert. Restores a Factor's metadata (name /
+ * category / type / description) AND every FV back to saved state.
+ *
+ * Cases:
+ *   - **factor added in draft** (`savedFactor == null`): drop the
+ *     whole factor.
+ *   - **factor present + edited** (`savedFactor != null`): replace
+ *     the draft factor wholesale with a deep copy of saved.
+ *   - **factor removed in draft** (`savedFactor != null` AND not
+ *     present): re-insert.
+ *
+ * Use case: curator made several edits to one factor (renamed,
+ * added an FV, edited two FV labels) and wants a one-click "back
+ * to baseline" without picking through each change.
+ */
+export function revertFactor(
+  design: Design,
+  factorId: number,
+  savedFactor: Factor | null,
+): Design {
+  const present = design.factors.some((f) => f.id === factorId);
+  if (!savedFactor) {
+    return {
+      ...design,
+      factors: design.factors.filter((f) => f.id !== factorId),
+    };
+  }
+  const restored: Factor = {
+    ...savedFactor,
+    category: savedFactor.category
+      ? { ...savedFactor.category }
+      : savedFactor.category,
+    factor_values: savedFactor.factor_values.map((fv) => ({
+      ...fv,
+      statements: fv.statements.map((s) => ({ ...s })),
+      biomaterial_short_names: [...fv.biomaterial_short_names],
+    })),
+  };
+  if (!present) {
+    return { ...design, factors: [...design.factors, restored] };
+  }
+  return {
+    ...design,
+    factors: design.factors.map((f) => (f.id === factorId ? restored : f)),
+  };
+}
+
 export function addFactorValue(design: Design, factorId: number): Design {
   const id = nextFvId(design);
   const factor = design.factors.find((f) => f.id === factorId);

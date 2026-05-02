@@ -23,6 +23,8 @@ import {
   deleteFactorValue,
   deleteStatement,
   reassignSamples,
+  revertFactor,
+  revertFactorValue,
   setFactorFields,
   setFvLabel,
   setStatement,
@@ -39,7 +41,7 @@ import type { Statement } from "@/features/experiment/types";
  * once at App level.
  */
 export function DesignEditor({ experimentId }: { experimentId: number }) {
-  const { draft, diff, apply, isLoading, loadError } = useDesignDraft();
+  const { draft, saved, diff, apply, isLoading, loadError } = useDesignDraft();
 
   const [selectedFactorId, setSelectedFactorId] = useState<number | null>(null);
 
@@ -126,6 +128,24 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
           )
         }
         addedFactorIds={new Set(diff.factorsAdded.map((f) => f.id))}
+        // Any uncommitted change on this factor — factor-fields,
+        // added-in-draft, OR any FV under it added/modified/removed.
+        // Drives whether the per-row "revert" link surfaces.
+        dirtyFactorIds={(() => {
+          const s = new Set<number>();
+          for (const f of diff.factorsAdded) s.add(f.id);
+          for (const fc of diff.factorsChanged) {
+            if (
+              fc.factorFieldsChanged ||
+              fc.added.length > 0 ||
+              fc.removed.length > 0 ||
+              fc.modified.length > 0
+            ) {
+              s.add(fc.factorId);
+            }
+          }
+          return s;
+        })()}
         onSelect={setSelectedFactorId}
         onFactorFieldsChange={(factorId, patch) =>
           apply(setFactorFields(draft, factorId, patch))
@@ -143,6 +163,27 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
         onDeleteFactor={(factorId) => {
           apply(deleteFactor(draft, factorId));
           if (selectedFactorId === factorId) {
+            setSelectedFactorId(null);
+          }
+        }}
+        onRevertFactor={(factorId) => {
+          // saved may be null on a not-yet-loaded design; the
+          // factor row only renders if draft is set, but saved can
+          // still be null in the fresh-import window. Treat that
+          // as "no baseline to restore from" → drops added factors,
+          // no-ops modified ones (curator can re-fire after the
+          // baseline lands).
+          const savedFactor =
+            saved?.factors.find((f) => f.id === factorId) ?? null;
+          apply(revertFactor(draft, factorId, savedFactor));
+          // If the curator just dropped the factor they had selected
+          // (added-in-draft, savedFactor=null path), clear selection
+          // so FactorValueList doesn't render against a stale id.
+          if (
+            !savedFactor &&
+            (selectedFactorId === factorId ||
+              effectiveSelected === factorId)
+          ) {
             setSelectedFactorId(null);
           }
         }}
@@ -199,6 +240,20 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
               }
               onStatementDelete={(fvId, index) =>
                 apply(deleteStatement(draft, selectedFactor.id, fvId, index))
+              }
+              onRevertFv={(fvId, change) =>
+                // change.before is null for "added" (FV didn't exist
+                // on saved); revertFactorValue treats that as "drop
+                // from draft". Modified + removed both have a saved
+                // shape to restore.
+                apply(
+                  revertFactorValue(
+                    draft,
+                    selectedFactor.id,
+                    fvId,
+                    change.before ?? null,
+                  ),
+                )
               }
             />
             <SampleAssignmentPreview

@@ -23,6 +23,7 @@ export function FactorValueList({
   onAssignRemaining,
   onStatementChange,
   onStatementDelete,
+  onRevertFv,
 }: {
   factor: Factor;
   totalBiomaterials: number;
@@ -43,6 +44,12 @@ export function FactorValueList({
   onAssignRemaining: (fvId: number) => void;
   onStatementChange: (fvId: number, index: number, next: Statement) => void;
   onStatementDelete: (fvId: number, index: number) => void;
+  /** Atomic per-FV revert. Restores label / baseline / statements /
+   *  samples to the saved baseline (or drops an added FV / restores
+   *  a removed one). The change descriptor carries the saved FV
+   *  in `change.before` so the parent doesn't have to thread the
+   *  saved design separately. */
+  onRevertFv: (fvId: number, change: FvChange) => void;
 }) {
   const assigned = new Set<string>();
   factor.factor_values.forEach((fv) =>
@@ -82,47 +89,55 @@ export function FactorValueList({
           <button className="btn" onClick={onAddFv}>+ value</button>
         </div>
       </div>
-      {factor.factor_values.map((fv) => (
-        <FactorValueCard
-          key={fv.id}
-          fv={fv}
-          factorCategory={factor.category}
-          change={changesByFvId?.get(fv.id) ?? null}
-          onLabelChange={(label) => onFvLabelChange(fv.id, label)}
-          onToggleBaseline={() => onToggleBaseline(fv.id)}
-          onDelete={() => onDeleteFv(fv.id)}
-          onAddStatement={() => onAddStatement(fv.id)}
-          onAddSiblingStatement={(seed) =>
-            onAddSiblingStatement(fv.id, seed)
-          }
-          onAddStatementFromTemplate={(tpl) =>
-            onAddStatementFromTemplate(fv.id, tpl)
-          }
-          onAssignRemaining={() => onAssignRemaining(fv.id)}
-          remainingCount={unassignedCount}
-          onStatementChange={(idx, next) => onStatementChange(fv.id, idx, next)}
-          onStatementDelete={(idx) => onStatementDelete(fv.id, idx)}
-        />
-      ))}
-      {tombstones.map((fv) => (
-        <FactorValueCard
-          key={`tomb-${fv.id}`}
-          fv={fv}
-          factorCategory={factor.category}
-          change={{
-            kind: "removed",
-            factorId: factor.id,
-            fvId: fv.id,
-            before: fv,
-          }}
-          onLabelChange={() => {}}
-          onToggleBaseline={() => {}}
-          onDelete={() => {}}
-          onAddStatement={() => {}}
-          onStatementChange={() => {}}
-          onStatementDelete={() => {}}
-        />
-      ))}
+      {factor.factor_values.map((fv) => {
+        const change = changesByFvId?.get(fv.id) ?? null;
+        return (
+          <FactorValueCard
+            key={fv.id}
+            fv={fv}
+            factorCategory={factor.category}
+            change={change}
+            onLabelChange={(label) => onFvLabelChange(fv.id, label)}
+            onToggleBaseline={() => onToggleBaseline(fv.id)}
+            onDelete={() => onDeleteFv(fv.id)}
+            onAddStatement={() => onAddStatement(fv.id)}
+            onAddSiblingStatement={(seed) =>
+              onAddSiblingStatement(fv.id, seed)
+            }
+            onAddStatementFromTemplate={(tpl) =>
+              onAddStatementFromTemplate(fv.id, tpl)
+            }
+            onAssignRemaining={() => onAssignRemaining(fv.id)}
+            remainingCount={unassignedCount}
+            onStatementChange={(idx, next) => onStatementChange(fv.id, idx, next)}
+            onStatementDelete={(idx) => onStatementDelete(fv.id, idx)}
+            onRevert={change ? () => onRevertFv(fv.id, change) : undefined}
+          />
+        );
+      })}
+      {tombstones.map((fv) => {
+        const change: FvChange = {
+          kind: "removed",
+          factorId: factor.id,
+          fvId: fv.id,
+          before: fv,
+        };
+        return (
+          <FactorValueCard
+            key={`tomb-${fv.id}`}
+            fv={fv}
+            factorCategory={factor.category}
+            change={change}
+            onLabelChange={() => {}}
+            onToggleBaseline={() => {}}
+            onDelete={() => {}}
+            onAddStatement={() => {}}
+            onStatementChange={() => {}}
+            onStatementDelete={() => {}}
+            onRevert={() => onRevertFv(fv.id, change)}
+          />
+        );
+      })}
     </div>
   );
 }
