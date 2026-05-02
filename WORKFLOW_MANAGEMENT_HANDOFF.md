@@ -268,6 +268,106 @@ File responses here and the UI side will pick them up:
   `SourceBatch` entity later; the string label is a natural key
   for the upgrade.
 
+---
+
+## Mock dataset list endpoint — needs upgrade (filed 2026-05-02)
+
+The workflow queue's experiment list will call the **real Gemma REST
+API shape** for `GET /rest/v2/datasets`, matching what GemBrow uses
+at `https://gemma.msl.ubc.ca/browse/#/`. The current mock returns a
+flat list with no pagination, no sorting, and no filtering. That's
+fine for the landing page (~20 imported experiments) but completely
+wrong for the workflow manager (real Gemma has 20k+ experiments).
+
+### Required query params
+
+```
+GET /rest/v2/datasets
+  ?query=          full-text search (accession, title, keywords)
+  ?filter=         structured filter string — see GemBrow source for format
+  ?sort=           field with +/- prefix, e.g. -lastUpdated, +shortName
+  ?limit=          page size (1–100; default 50)
+  ?offset=         0-based item offset
+```
+
+### Required response shape
+
+```json
+{
+  "data": [ /* array of WorkflowDatasetRow */ ],
+  "totalElements": 23847,
+  "offset": 0,
+  "limit": 50
+}
+```
+
+### Per-row fields (WorkflowDatasetRow)
+
+GemBrow's `ExpressionExperimentValueObject` is the base. The workflow
+queue needs a few additional fields that GemBrow doesn't emphasise.
+If the real Gemma API already returns them, expose them; if not, add
+them or fold them into the mock shape now and we'll align with the
+real API later.
+
+```python
+class WorkflowDatasetRow(BaseModel):
+    # --- GemBrow core (already in real Gemma REST) ---
+    id: int                          # Gemma dataset ID
+    short_name: str                  # e.g. "GSE12345"
+    name: str                        # full title
+    taxon_common_name: str           # e.g. "human"
+    technology_type: str             # "SEQUENCING" | "MICROARRAY" | ...
+    number_of_bio_assays: int
+    last_updated: str                # iso8601
+
+    # --- Curation flags (also in real Gemma VO) ---
+    troubled: bool
+    needs_attention: bool            # needsAttentionFlag in Gemma VO
+    is_public: bool
+    curation_note: str | None
+
+    # --- GEEQ (in real Gemma VO, top-level scores only for list) ---
+    geeq_public_quality_score: float | None
+    geeq_public_suitability_score: float | None
+
+    # --- Curation-layer extras (mock only; fold in from curation DB) ---
+    n_pending_proposals: int         # from proposals table
+    n_unactioned_blocker: int        # from audit table
+    n_unactioned_major: int
+    latest_audit_verdict: str | None
+```
+
+`technology_type` is important for the pipeline strip — an RNA-seq
+experiment has `missing_value_analysis = NA`; a two-channel microarray
+has it as a real step. The strip renders `na`-state badges correctly
+if the status endpoint returns the right value, but knowing the tech
+type upfront lets the UI hide the badge entirely rather than showing a
+gray `–`.
+
+### Sorting fields
+
+At minimum support the same sort keys GemBrow uses:
+`id`, `shortName`, `name`, `lastUpdated`, `numberOfBioAssays`,
+`geeq.publicQualityScore`. Direction: `+` = ascending, `-` = descending.
+
+### Filter string
+
+The real Gemma filter format (used by GemBrow) is a structured string
+like `troubled = true`, `taxon.commonName = human`, etc. For the mock,
+supporting simple key=value filters for `troubled`, `needs_attention`,
+`is_public`, and `technology_type` is enough to unblock the UI.
+The full Gemma filter language can come later.
+
+### Group-scoped views
+
+When the workflow queue is scoped to a curation group, the UI has the
+member IDs from `GET /rest/v2/groups/{id}/members`. Pass them to the
+dataset list as an additional filter. Simplest mock implementation:
+accept an `ids` query param (comma-separated) and filter to those
+experiments. Pagination still applies within the filtered set.
+
+---
+
 ## Agent-side implementation status (2026-05-02)
 
 All mock endpoints are implemented in
