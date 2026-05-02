@@ -259,7 +259,48 @@ The dispositions report skeleton is at `scripts/eval_analysis/audit_dispositions
 
 **On the cross-experiment `AuditDetailPage` deferral** — fine to defer. The in-experiment sidebar carries the bulk of dispositioning traffic, so the high-value path is covered. The focus / queue-event plumbing for the detail page can wait until either (a) Phase 1 mutating handlers land, at which point the page actually gains a behavior to wire, or (b) we get curator feedback that the cross-experiment view is hot. No agent-side dependency on it.
 
-**On the focus-only Phase 1 handlers** — matches expectations. The auditor's `suggested_fix` is a free-text imperative today, so structured apply has nothing to consume yet. When the structured-fix schema lands (`AuditFinding.suggested_fix` becomes a typed action), the agent side will publish that contract here first; you can then drop per-issue-code handlers into `resolveApplyAction()` and `applied_fix` lights up automatically. No need to backfill handlers ahead of the schema.
+**On Phase 1 mutating handlers — `apply_action` is now live (2026-05-02).**
+`AuditFinding` now carries an optional `apply_action: ApplyAction | null` alongside
+`suggested_fix`. New audits will have it; old audits in the DB won't (null = fall back
+to focus-only). Contract below — drop handlers into `resolveApplyAction()` per kind.
+
+### `apply_action` contract
+
+```ts
+type ApplyActionKind =
+  | "add_tag"               // missing_tag findings
+  | "remove_tag"            // out_of_scope tag findings
+  | "replace_tag"           // wrong_value tag findings
+  | "add_fv"                // missing_fv findings (target_id = factor)
+  | "rename_fv"             // vague_label / wrong_assignment fv findings
+  | "change_factor_category" // wrong_category factor findings
+  | "remove_factor"         // redundant_factor / wrong_fv_partition
+  | "add_factor"            // missing_factor findings
+
+interface ApplyAction {
+  kind: ApplyActionKind;
+  new_value?: string;       // FV label (rename_fv, add_fv) or tag value (add_tag, replace_tag)
+  new_category?: string;    // EFC category (change_factor_category, add_factor) or tag category
+  fv_labels?: string[];     // initial FV list for add_factor
+}
+```
+
+#### Per-kind handler sketch
+
+| kind | what to do | target element |
+|---|---|---|
+| `add_tag` | navigate to Tags tab, pre-fill add-tag form with `new_category` + `new_value` | experiment (no scroll target) |
+| `remove_tag` | navigate to Tags tab, scroll to tag via `target_id`, offer 1-click remove | `finding.target_id` |
+| `replace_tag` | navigate to Tags tab, scroll to tag, open edit dialog pre-filled with new cat/val | `finding.target_id` |
+| `add_fv` | navigate to Design tab, scroll to factor (`finding.target_id`), open add-FV form pre-filled with `new_value` | `finding.target_id` (factor) |
+| `rename_fv` | navigate to Design tab, scroll to FV (`finding.target_id`), open rename field pre-filled with `new_value` | `finding.target_id` (fv) |
+| `change_factor_category` | navigate to Design tab, scroll to factor, open category picker pre-selected on `new_category` | `finding.target_id` (factor) |
+| `remove_factor` | navigate to Design tab, scroll to factor, offer 1-click remove | `finding.target_id` (factor) |
+| `add_factor` | navigate to Design tab, open add-factor form pre-filled with `new_category` and `fv_labels` | experiment (no scroll target) |
+
+When `apply_action` is null (old audit or complex free-text fix), fall through to the
+existing focus-only path. `applied_fix` on the disposition fires with the canonical
+text of `apply_action` once a handler completes a real mutation.
 
 **Once the dev mock is restarted** (so migrations apply), the UI's `Close audit` button can light up against the real endpoints. Until then PATCH still works as before; the 409-on-finalized gate is the only behavioral change from old → new mock and only fires after a finalize.
 

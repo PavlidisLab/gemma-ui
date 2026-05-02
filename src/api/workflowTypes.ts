@@ -228,3 +228,45 @@ export interface CandidatePatch {
   notes?: string;
   gemma_id?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Paginated dataset list (WorkflowDatasetRow)
+// ---------------------------------------------------------------------------
+
+/** One row in the workflow queue dataset list.
+ *  Mirrors workflow_schemas.WorkflowDatasetRow in the Python mock. */
+export interface WorkflowDatasetRow {
+  id: number;
+  short_name: string;
+  name: string;
+  taxon_common_name: string;
+  technology_type: string;
+  number_of_bio_assays: number;
+  last_updated: string;
+  troubled: boolean;
+  needs_attention: boolean;
+  is_public: boolean;
+  curation_note: string | null;
+  geeq_public_quality_score: number | null;
+  geeq_public_suitability_score: number | null;
+  n_pending_proposals: number;
+  n_unactioned_blocker: number;
+  n_unactioned_major: number;
+  latest_audit_verdict: string | null;
+}
+
+export interface WorkflowDatasetListResponse {
+  data: WorkflowDatasetRow[];
+  total_elements: number;
+  offset: number;
+  limit: number;
+}
+
+export interface DatasetListParams {
+  query?: string;
+  filter?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+  ids?: string;
+}

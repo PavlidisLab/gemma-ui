@@ -12,6 +12,7 @@ import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
 import { AuditsInbox } from "@/features/inbox/AuditsInbox";
 import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
 import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
+import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
 import {
@@ -128,6 +129,10 @@ export default function App() {
 
   if (route.kind === "audit-preview") {
     return <AuditPreviewPage />;
+  }
+
+  if (route.kind === "workflow") {
+    return <WorkflowPage groupId={route.groupId} reviewer={fullName || reviewer} />;
   }
 
   return (

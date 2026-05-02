@@ -27,7 +27,8 @@ export type Route =
   | { kind: "audits-inbox" }
   | { kind: "audit-detail"; auditId: string }
   | { kind: "experiment"; id: number; tab?: ExperimentTab }
-  | { kind: "audit-preview" };
+  | { kind: "audit-preview" }
+  | { kind: "workflow"; groupId?: string };
 
 export function parseRoute(): Route {
   const h = (typeof window !== "undefined" && window.location.hash) || "";
@@ -58,6 +59,11 @@ export function parseRoute(): Route {
   // on the UI before /audit/* endpoints are live. Hidden from the
   // landing page navigation — paste the URL or follow a dev link.
   if (/^#\/audit-preview\b/.test(h)) return { kind: "audit-preview" };
+  const workflowGroupMatch = h.match(/^#\/workflow\/([^/?#]+)/);
+  if (workflowGroupMatch) {
+    return { kind: "workflow", groupId: decodeURIComponent(workflowGroupMatch[1]) };
+  }
+  if (/^#\/workflow\b/.test(h)) return { kind: "workflow" };
   return { kind: "landing" };
 }
 
@@ -70,4 +76,8 @@ export function experimentRoute(
   tab?: ExperimentTab,
 ): string {
   return `#/experiments/${id}${tab ? `?tab=${tab}` : ""}`;
+}
+
+export function workflowRoute(groupId?: string): string {
+  return groupId ? `#/workflow/${encodeURIComponent(groupId)}` : "#/workflow";
 }

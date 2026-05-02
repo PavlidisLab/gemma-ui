@@ -19,6 +19,7 @@ import type {
   CandidateCreate,
   CandidatePatch,
   CandidateStatus,
+  DatasetListParams,
   DifferentialAnalysisRunRequest,
   ExperimentPipelineStatus,
   GeeqScores,
@@ -29,6 +30,7 @@ import type {
   GroupType,
   OutlierPatch,
   QuantitationTypePatch,
+  WorkflowDatasetListResponse,
 } from "./workflowTypes";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +60,8 @@ const KEY = {
   }) => ["workflow", "candidates", filters ?? {}] as const,
   candidate: (id: string) =>
     ["workflow", "candidate", id] as const,
+  datasetsPaginated: (params: DatasetListParams) =>
+    ["workflow", "datasets-paginated", params] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -89,6 +93,29 @@ export function usePipelineStatusBulk(experimentIds: number[]) {
       ),
     enabled: experimentIds.length > 0,
     refetchOnWindowFocus: true,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Paginated dataset list
+// ---------------------------------------------------------------------------
+
+export function useDatasetsPaginated(params: DatasetListParams) {
+  const p = new URLSearchParams();
+  if (params.query)  p.set("query",  params.query);
+  if (params.filter) p.set("filter", params.filter);
+  if (params.sort)   p.set("sort",   params.sort);
+  if (params.ids)    p.set("ids",    params.ids);
+  p.set("limit",  String(params.limit  ?? 50));
+  p.set("offset", String(params.offset ?? 0));
+  return useQuery({
+    queryKey: KEY.datasetsPaginated(params),
+    queryFn: () =>
+      api.get<WorkflowDatasetListResponse>(
+        `/rest/v2/datasets?${p.toString()}`,
+      ),
+    refetchOnWindowFocus: true,
+    placeholderData: (prev) => prev,
   });
 }
 

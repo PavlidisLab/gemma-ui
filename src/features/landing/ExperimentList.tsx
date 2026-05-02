@@ -7,7 +7,7 @@ import {
 } from "@/api/datasets";
 import { useLogout } from "@/api/session";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
-import { experimentRoute, navigate, type ExperimentTab } from "@/routes";
+import { experimentRoute, navigate, workflowRoute, type ExperimentTab } from "@/routes";
 import { useState } from "react";
 import { useStickyState } from "@/lib/useStickyState";
 
@@ -144,6 +144,15 @@ export function ExperimentList({
               title="Cross-experiment audit inbox"
             >
               audits
+            </button>
+            <span className="text-xs text-slate-400">·</span>
+            <button
+              type="button"
+              onClick={() => navigate(workflowRoute())}
+              className="text-sm text-slate-600 hover:text-slate-900 underline-offset-2 hover:underline"
+              title="Workflow manager"
+            >
+              workflow
             </button>
           </div>
           <div className="flex items-center gap-3 text-xs text-slate-600">

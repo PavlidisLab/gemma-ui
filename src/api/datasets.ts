@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type { Design } from "@/features/experiment/types";
+import type { WorkflowDatasetListResponse } from "./workflowTypes";
 
 /**
  * Summary row for the curation UI's landing page. Returned by
@@ -61,7 +62,35 @@ const KEY = ["datasets"] as const;
 export function useDatasets() {
   return useQuery({
     queryKey: KEY,
-    queryFn: () => api.get<DatasetSummary[]>("/rest/v2/datasets"),
+    queryFn: async () => {
+      const resp = await api.get<WorkflowDatasetListResponse>(
+        "/rest/v2/datasets?limit=100",
+      );
+      return resp.data.map(
+        (r): DatasetSummary => ({
+          experiment_id:      r.id,
+          short_name:         r.short_name,
+          title:              r.name,
+          taxon:              r.taxon_common_name,
+          updated_at:         r.last_updated,
+          n_factors:          0,
+          n_fvs:              0,
+          n_biomaterials:     r.number_of_bio_assays,
+          n_tags:             0,
+          troubled:           r.troubled,
+          needs_attention:    r.needs_attention,
+          has_curation_note:  !!r.curation_note,
+          n_pending_proposals: r.n_pending_proposals,
+          n_unactioned_blocker: r.n_unactioned_blocker,
+          n_unactioned_major:   r.n_unactioned_major,
+          n_unactioned_minor:   0,
+          latest_audit_verdict: r.latest_audit_verdict as DatasetSummary["latest_audit_verdict"],
+          n_audits:             undefined,
+          latest_audit_id:      undefined,
+          latest_audited_at:    undefined,
+        }),
+      );
+    },
   });
 }
 
