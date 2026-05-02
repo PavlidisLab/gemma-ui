@@ -343,10 +343,17 @@ function SidebarHeader({
             closed
           </span>
         ) : null}
-        <span className="text-[10px] text-slate-500 truncate">
+        <span className="text-[10px] text-slate-500">
           {report.audited_at ? formatShort(report.audited_at) : "—"}
-          {report.model ? <> · {report.model}</> : null}
         </span>
+        {report.model ? (
+          <span
+            className="text-[10px] text-slate-700 font-mono px-1 py-0 rounded bg-slate-100 border border-slate-200 truncate max-w-[10rem]"
+            title={`audit ran with model: ${report.model}`}
+          >
+            {report.model}
+          </span>
+        ) : null}
         {onClearOverride ? (
           <button
             type="button"

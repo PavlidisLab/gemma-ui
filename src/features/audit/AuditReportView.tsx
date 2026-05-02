@@ -76,8 +76,15 @@ function ReportHeader({ report }: { report: AuditReport }) {
         </h2>
         <span className="text-xs text-slate-500">
           · audited {formatTimestamp(report.audited_at)}
-          {report.model ? <> · {report.model}</> : null}
         </span>
+        {report.model ? (
+          <span
+            className="text-[11px] text-slate-700 font-mono px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200"
+            title={`audit ran with model: ${report.model}`}
+          >
+            {report.model}
+          </span>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <VerdictPill verdict={summary.overall_verdict} />
