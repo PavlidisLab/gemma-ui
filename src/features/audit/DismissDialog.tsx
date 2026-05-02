@@ -107,22 +107,25 @@ export function DismissDialog({
     };
   }, [onCancel, submitting, anchor]);
 
-  // Close on viewport changes — easier than reflowing fixed
-  // coordinates while the curator scrolls. The card the dialog
-  // attaches to typically scrolls along, so the curator's intent
-  // is broken regardless.
+  // Close on resize — easy enough to recompute coords against
+  // shifted layout, but the dialog isn't useful at the wrong
+  // anchor. Scroll listeners were tried and pulled (2026-05-02):
+  // a chip click moves keyboard focus, the browser auto-scrolls
+  // the focused element into view, the capture-phase scroll
+  // listener fired and closed the dialog before setReason could
+  // re-render. Curators saw "clicking a chip does nothing." For
+  // anchor-out-of-viewport detection we'd want
+  // IntersectionObserver here, not a blanket scroll close;
+  // until then the dialog tolerates a stale anchor and curators
+  // dismiss with Esc / click-outside.
   useEffect(() => {
     if (submitting) return;
     function close() {
       onCancel();
     }
     window.addEventListener("resize", close);
-    // Capture-phase scroll catches scroll on any ancestor, not just
-    // window — the audit sidebar is the actual scroll container.
-    window.addEventListener("scroll", close, true);
     return () => {
       window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
     };
   }, [onCancel, submitting]);
 
