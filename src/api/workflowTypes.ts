@@ -1,0 +1,230 @@
+/**
+ * TS mirrors of the Pydantic schemas in
+ * `gemma_curation_agents/mock_gemma_curation_api/workflow_schemas.py`.
+ *
+ * Wire contract is documented in WORKFLOW_MANAGEMENT_HANDOFF.md.
+ * When my brother updates the Python schemas, regenerate these to match.
+ */
+
+// ---------------------------------------------------------------------------
+// Pipeline step status
+// ---------------------------------------------------------------------------
+
+export type StepStatus =
+  | "not_run"
+  | "ok"
+  | "failed"
+  | "in_progress"
+  | "needs_attention"
+  | "na";
+
+export interface PipelineStep {
+  status: StepStatus;
+  last_run: string | null;
+  details: string | null;
+}
+
+export interface AnalysisTrack {
+  missing_value_analysis: PipelineStep;
+  batch_info: PipelineStep;
+  preprocessing: PipelineStep;
+  dea: PipelineStep;
+  diagnostics: PipelineStep;
+}
+
+export interface CurationTrack {
+  design: PipelineStep;
+  tags: PipelineStep;
+  outlier_review: PipelineStep;
+  batch_decision: PipelineStep;
+  audit: PipelineStep;
+}
+
+export interface CandidateProvenance {
+  candidate_id: string;
+  accession: string;
+  source: string;
+  source_batch: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+}
+
+export interface GeeqScores {
+  quality: number | null;
+  suitability: number | null;
+  batch_confound: boolean | null;
+  batch_effect: string | null;
+  manual_batch_confound_active: boolean;
+  manual_batch_effect_active: boolean;
+  manual_quality_override: boolean;
+  manual_suitability_override: boolean;
+  q_sample_mean_correlation: number | null;
+  q_sample_correlation_variance: number | null;
+  q_sample_median_correlation: number | null;
+  q_outliers: number | null;
+  q_platforms_tech: number | null;
+  q_replicates: number | null;
+  q_batch_info: number | null;
+  q_batch_confound: number | null;
+  q_batch_effect: number | null;
+  s_publication: number | null;
+  s_platform_amount: number | null;
+  s_sample_size: number | null;
+  s_raw_data: number | null;
+  s_missing_values: number | null;
+}
+
+export interface ExperimentPipelineStatus {
+  dataset_id: number;
+  analysis: AnalysisTrack;
+  curation: CurationTrack;
+  is_public: boolean;
+  is_troubled: boolean;
+  needs_attention: boolean;
+  curation_note: string | null;
+  geeq_quality: number | null;
+  geeq_suitability: number | null;
+  candidate_provenance: CandidateProvenance | null;
+}
+
+// ---------------------------------------------------------------------------
+// Async task (pipeline dispatch)
+// ---------------------------------------------------------------------------
+
+export type TaskStatus = "running" | "completed" | "failed";
+
+export type PipelineStepName =
+  | "missing_value"
+  | "batch_info"
+  | "preprocess"
+  | "pca"
+  | "dea"
+  | "coexpression";
+
+export interface AsyncTask {
+  task_id: string;
+  experiment_id: number;
+  step: PipelineStepName;
+  status: TaskStatus;
+  started_at: string;
+  completed_at: string | null;
+  message: string;
+}
+
+export interface DifferentialAnalysisRunRequest {
+  factor_ids?: number[];
+  include_interactions?: boolean;
+  subset_factor_id?: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Outlier / QT write shapes
+// ---------------------------------------------------------------------------
+
+export interface OutlierPatch {
+  outlier: boolean;
+}
+
+export interface QuantitationTypePatch {
+  is_preferred: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Groups (typed: screening / pipeline / review)
+// ---------------------------------------------------------------------------
+
+export type GroupType = "screening" | "pipeline" | "review";
+
+export interface Group {
+  id: string;
+  name: string;
+  type: GroupType;
+  description: string;
+  created_by: string;
+  created_at: string;
+  member_ids: string[];
+  member_count: number;
+}
+
+export interface GroupCreate {
+  name: string;
+  type: GroupType;
+  description?: string;
+}
+
+export interface GroupPatch {
+  name?: string;
+  description?: string;
+}
+
+export interface GroupMembersAdd {
+  member_ids: (string | number)[];
+}
+
+// ---------------------------------------------------------------------------
+// Candidates (pre-Gemma screening entities)
+// ---------------------------------------------------------------------------
+
+export type CandidateSource = "GEO" | "ArrayExpress" | "SRA" | "manual";
+
+export type CandidateStatus =
+  | "pending"
+  | "in_review"
+  | "approved"
+  | "excluded"
+  | "deferred"
+  | "loaded";
+
+export interface Candidate {
+  id: string;
+  accession: string;
+  source: CandidateSource;
+  title: string | null;
+  organism: string | null;
+  platform: string | null;
+  sample_count: number | null;
+  status: CandidateStatus;
+  decision_reason: string | null;
+  reviewer: string | null;
+  reviewed_at: string | null;
+  notes: string | null;
+  gemma_id: number | null;
+  loaded_at: string | null;
+  added_by: string;
+  added_at: string;
+  source_batch: string | null;
+}
+
+export interface CandidateCreate {
+  accession: string;
+  source: CandidateSource;
+  title?: string;
+  organism?: string;
+  platform?: string;
+  sample_count?: number;
+  notes?: string;
+  source_batch?: string;
+}
+
+export interface CandidateBulkCreateItem {
+  accession: string;
+  title?: string;
+  organism?: string;
+  platform?: string;
+  sample_count?: number;
+  notes?: string;
+}
+
+export interface CandidateBulkCreate {
+  source: CandidateSource;
+  source_batch: string;
+  items: CandidateBulkCreateItem[];
+}
+
+export interface CandidatePatch {
+  status?: CandidateStatus;
+  decision_reason?: string;
+  reviewer?: string;
+  notes?: string;
+  gemma_id?: number;
+}
