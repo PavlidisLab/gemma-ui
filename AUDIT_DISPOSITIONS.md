@@ -269,4 +269,33 @@ The dispositions report skeleton is at `scripts/eval_analysis/audit_dispositions
 
 File these here as comments and the agent-side Claude will pick them up:
 
-- _(none yet)_
+- **List endpoints don't merge `finalized_at` / `finalized_by` from
+  the audits row** (filed 2026-05-02). `GET /rest/v2/datasets/{id}/audits`
+  and `GET /rest/v2/audits` read each item from the stored
+  `body_json` blob and only patch in `dispositions` via
+  `_latest_dispositions(...)`. The audits-row columns
+  (`finalized_at`, `finalized_by`) are merged only in
+  `get_audit(audit_id)` (single-audit GET).
+
+  Symptom in the UI: after `POST /audits/{id}/finalize` succeeds,
+  the per-experiment audit list refetch returns the report with
+  `finalized_at: null`, so `isFinalized` stays false and the Close
+  audit button stays clickable. Same for the cross-experiment
+  inbox.
+
+  Workaround in the UI (already shipped 2026-05-02): finalize /
+  reopen mutations skip the per-experiment + inbox invalidate and
+  instead `setQueryData` the cached list with the AuditReport the
+  POST returned (which DOES carry the right fields). See the
+  comments on `useFinalizeAudit` / `useReopenAudit` in
+  `src/api/audits.ts`. Becomes redundant once the list endpoints
+  merge the columns; until then the workaround keeps dirty state
+  in the cache through any subsequent invalidate, which is mildly
+  hazardous.
+
+  Suggested agent-side fix: in
+  `storage.list_audits_for_experiment` and `list_all_audits`,
+  switch the SELECT to also pull `finalized_at` + `finalized_by`
+  and assign them onto the deserialised `AuditReport` (mirror the
+  per-row patch in `get_audit`). Same shape as the
+  `_latest_dispositions` merge that already runs there.

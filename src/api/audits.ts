@@ -28,6 +28,29 @@ interface AuditListResponse {
   total: number;
 }
 
+/** Patch a single AuditReport inside a cached AuditListResponse,
+ *  matching by `audit_id`. Returns the original list untouched if
+ *  the audit isn't there (so consumers don't have to null-guard).
+ *  Used by finalize / reopen onSuccess to apply the server's
+ *  authoritative response without waiting for a refetch — see those
+ *  hooks for the agent-side reason refetch alone isn't enough. */
+function patchAuditInList(
+  list: AuditListResponse | undefined,
+  refreshed: AuditReport,
+): AuditListResponse | undefined {
+  if (!list || !refreshed.audit_id) return list;
+  let touched = false;
+  const items = list.items.map((it) => {
+    if (it.audit_id === refreshed.audit_id) {
+      touched = true;
+      return refreshed;
+    }
+    return it;
+  });
+  if (!touched) return list;
+  return { ...list, items };
+}
+
 const KEY = {
   byExperiment: (experimentId: number) =>
     ["audits", "by-experiment", experimentId] as const,
@@ -101,7 +124,21 @@ export function usePatchDisposition(experimentId: number) {
  *  (see `AUDIT_DISPOSITIONS.md` Ask #1). Server stamps
  *  `finalized_at` + `finalized_by`; subsequent PATCH attempts on
  *  this audit return 409 until a `useReopenAudit` flips the gate
- *  back off. The agent side aggregates only finalized audits. */
+ *  back off. The agent side aggregates only finalized audits.
+ *
+ *  Cache strategy: we PATCH the cached list in place with the
+ *  `AuditReport` the /finalize endpoint returned (which DOES carry
+ *  the freshly-stamped `finalized_at`), and skip the per-experiment
+ *  invalidate. Reason: today's mock LIST endpoint
+ *  (`GET /rest/v2/datasets/{id}/audits`) reads each audit from the
+ *  stored `body_json` blob and doesn't merge in `finalized_at` /
+ *  `finalized_by` from the audits row columns — only the SINGLE-
+ *  audit GET does. So an invalidate-driven refetch comes back with
+ *  `finalized_at: null` and the UI's "isFinalized" flag stays false,
+ *  defeating the close. Filed agent-side; this workaround becomes
+ *  redundant once the list endpoint merges the columns, at which
+ *  point we can re-add the invalidate. The inbox cache gets the
+ *  same patch treatment for the same reason. */
 export function useFinalizeAudit(experimentId: number) {
   const qc = useQueryClient();
   return useMutation({
@@ -119,18 +156,25 @@ export function useFinalizeAudit(experimentId: number) {
         ...(notes ? { notes } : {}),
       }),
     onSuccess: (refreshed) => {
-      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+      qc.setQueryData<AuditListResponse>(
+        KEY.byExperiment(experimentId),
+        (old) => patchAuditInList(old, refreshed),
+      );
+      qc.setQueryData<AuditListResponse>(KEY.inbox(), (old) =>
+        patchAuditInList(old, refreshed),
+      );
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
-      qc.invalidateQueries({ queryKey: KEY.inbox() });
     },
   });
 }
 
 /** Reopen a finalized audit so the curator can keep dispositioning
- *  without losing the prior triage state. Same invalidation pattern
- *  as finalize — both flip the same `finalized_at` field. */
+ *  without losing the prior triage state. Same cache-patch strategy
+ *  as `useFinalizeAudit` — see that comment for why we skip the
+ *  invalidate. Reopen also clears `finalized_at` server-side, and
+ *  the cached list inherits that via the patched report. */
 export function useReopenAudit(experimentId: number) {
   const qc = useQueryClient();
   return useMutation({
@@ -145,11 +189,16 @@ export function useReopenAudit(experimentId: number) {
         reviewer,
       }),
     onSuccess: (refreshed) => {
-      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+      qc.setQueryData<AuditListResponse>(
+        KEY.byExperiment(experimentId),
+        (old) => patchAuditInList(old, refreshed),
+      );
+      qc.setQueryData<AuditListResponse>(KEY.inbox(), (old) =>
+        patchAuditInList(old, refreshed),
+      );
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
-      qc.invalidateQueries({ queryKey: KEY.inbox() });
     },
   });
 }
