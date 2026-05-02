@@ -43,6 +43,10 @@ correctness and the browser for everything else. Dev server:
   cross-repo wire contract for that feature.
 - Narrower sub-handoffs use the same suffix style
   (`AUDIT_DISPOSITIONS.md`) — usually a child of a `*_FEATURE.md`.
+- `WORKFLOW_MANAGEMENT.md` — product brief for the workflow management
+  system (curation funnel, group types, two-world model).
+- `WORKFLOW_MANAGEMENT_HANDOFF.md` — wire contract for that feature:
+  Candidate entity, Group entity, pipeline status shape, API endpoints.
 - `PROGRESS_SSE.md` — long-running protocol doc for the SSE stream
   taxonomy.
 - `SCALE.md` — performance / scale notes.
