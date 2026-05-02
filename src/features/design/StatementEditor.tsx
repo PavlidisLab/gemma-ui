@@ -304,18 +304,24 @@ export function StatementGroupEditor({
   }
 
   /*
-    Horizontal layout: one wrapping row with
-      [category] [subject] [pred1] [obj1] [pred2] [obj2] ... [+ pred/obj]
-    Mirrors Gemma's own table view (Predicate | Object | Second
-    Predicate | Second Object | …) instead of the previous header +
-    indented-rows shape, which read as "two separate statements"
-    when really it's one Characteristic with multiple pred/obj pairs.
+    Layout: [category] [subject] sit on a single row; the pred/obj
+    pairs stack vertically in a column anchored to the right of the
+    subject so the second predicate aligns under the first instead
+    of wrap-positioning unpredictably (the previous flex-wrap
+    layout could land pred2 underneath the *category* badge depending
+    on subject + pred1+obj1 widths). Mirrors Gemma's table view
+    semantics (one row per pred/obj pair under one subject) but
+    keeps the curator's eye on the predicate column.
 
-    Per-pair × delete is hover-revealed to keep the row scannable
-    when the curator isn't actively editing.
+    Per-pair × delete is hover-revealed to keep each pair row
+    scannable when the curator isn't actively editing.
+
+    items-start (not items-center) on the outer flex so the category
+    badge + subject picker pin to the top of the column when the
+    pred/obj stack grows tall.
   */
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+    <div className="flex flex-wrap items-start gap-x-2 gap-y-1 text-sm">
       <span
         className={
           "inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border " +
@@ -338,34 +344,37 @@ export function StatementGroupEditor({
         />
       </span>
 
-      <OntologyTermPicker
-        value={head.subject}
-        category={null}
-        placeholder="subject"
-        onCommit={setSharedSubject}
-      />
-      {head.subject.uri ? (
-        <span className="text-slate-400 text-[10px]">
-          {shortenUri(head.subject.uri)}
-        </span>
-      ) : null}
-
-      {statements.map((s, i) => (
-        <InlinePredicateObjectPair
-          key={i}
-          statement={s}
-          onChange={(next) => onChange(i, next)}
-          onDelete={() => onDelete(i)}
+      <div className="inline-flex items-baseline gap-1 flex-wrap">
+        <OntologyTermPicker
+          value={head.subject}
+          category={null}
+          placeholder="subject"
+          onCommit={setSharedSubject}
         />
-      ))}
+        {head.subject.uri ? (
+          <span className="text-slate-400 text-[10px]">
+            {shortenUri(head.subject.uri)}
+          </span>
+        ) : null}
+      </div>
 
-      <button
-        className="text-[11px] text-slate-500 hover:text-slate-800 px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
-        onClick={onAddSibling}
-        title="Add another predicate/object pair under this subject"
-      >
-        + pred/obj
-      </button>
+      <div className="flex flex-col gap-1 min-w-0">
+        {statements.map((s, i) => (
+          <InlinePredicateObjectPair
+            key={i}
+            statement={s}
+            onChange={(next) => onChange(i, next)}
+            onDelete={() => onDelete(i)}
+          />
+        ))}
+        <button
+          className="self-start text-[11px] text-slate-500 hover:text-slate-800 px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+          onClick={onAddSibling}
+          title="Add another predicate/object pair under this subject"
+        >
+          + pred/obj
+        </button>
+      </div>
     </div>
   );
 }
