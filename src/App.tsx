@@ -37,6 +37,7 @@ import {
   type TabId,
 } from "@/features/experiment/ExperimentBanner";
 import { ProposalCardV2 } from "@/features/proposal/ProposalCardV2";
+import { ProposalSummaryCard } from "@/features/proposal/ProposalSummaryCard";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import { useProposeStream } from "@/api/proposeStream";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -285,6 +286,14 @@ function Shell({
   const externalSource = draft?.external_source ?? null;
   const shortName = draft?.experiment_short_name ?? `experiment ${experimentId}`;
   const pending = (data?.items ?? []).filter((p) => p.status === "pending");
+  // Most recent non-pending proposal — surfaces as a slim
+  // ProposalSummaryCard above the pending list so the sidebar
+  // doesn't go from full v2 card straight to "no proposals" the
+  // moment the curator accepts. Mirrors the closed-audit summary
+  // treatment. Server already orders by submitted_at desc; first
+  // non-pending wins.
+  const recentClosed =
+    (data?.items ?? []).find((p) => p.status !== "pending") ?? null;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -369,6 +378,7 @@ function Shell({
         proposalsFetching={proposalsFetching}
         proposalsError={error ? (error as Error).message : null}
         pendingProposals={pending}
+        recentClosedProposal={recentClosed}
       />
 
       <footer className="border-t border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800">
@@ -407,6 +417,7 @@ function MainGrid({
   proposalsLoading,
   proposalsError,
   pendingProposals,
+  recentClosedProposal,
   proposalsFetching,
 }: {
   activeTab: TabId;
@@ -415,6 +426,11 @@ function MainGrid({
   proposalsLoading: boolean;
   proposalsError: string | null;
   pendingProposals: Proposal[];
+  /** Most recently triaged proposal (status !== "pending"), or
+   *  null. Renders as a slim ProposalSummaryCard above the pending
+   *  list so the sidebar doesn't snap from full card to empty when
+   *  the curator accepts. */
+  recentClosedProposal: Proposal | null;
   proposalsFetching: boolean;
 }) {
   const qc = useQueryClient();
@@ -768,23 +784,38 @@ function MainGrid({
               </p>
             </div>
           ) : !hasProposals ? (
-            // The "no pending proposals" placeholder swapped to the
-            // streaming progress panel — when ``+ propose`` runs,
-            // this slot shows the live log feed; otherwise it
-            // renders "agent idle" (the panel handles that state).
-            <ProposeProgressPanel
-              state={proposeStream}
-              onDismiss={proposeStream.reset}
-            />
-          ) : (
-            pendingProposals.map((p) => (
-              <ProposalCardV2
-                key={p.proposal_id ?? Math.random()}
-                proposal={p}
-                reviewer={reviewer}
-                triggerProposal={triggerProposal}
+            // No pending proposals. Show the most recently triaged
+            // one as a slim summary card if there is one (so the
+            // sidebar doesn't snap from full v2 card to "agent
+            // idle" the moment the curator accepts), then fall
+            // through to the progress panel for the next + propose
+            // run.
+            <>
+              {recentClosedProposal ? (
+                <ProposalSummaryCard
+                  proposal={recentClosedProposal}
+                  onRequestRedo={requestProposal}
+                />
+              ) : null}
+              <ProposeProgressPanel
+                state={proposeStream}
+                onDismiss={proposeStream.reset}
               />
-            ))
+            </>
+          ) : (
+            <>
+              {recentClosedProposal ? (
+                <ProposalSummaryCard proposal={recentClosedProposal} />
+              ) : null}
+              {pendingProposals.map((p) => (
+                <ProposalCardV2
+                  key={p.proposal_id ?? Math.random()}
+                  proposal={p}
+                  reviewer={reviewer}
+                  triggerProposal={triggerProposal}
+                />
+              ))}
+            </>
           )
         ) : null}
       </aside>
