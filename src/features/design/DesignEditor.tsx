@@ -117,6 +117,18 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
 
   return (
     <div className="space-y-4">
+      {/* Validator banner sits above FactorList so the
+          "design valid / has warnings" summary is visible the
+          moment the curator lands on the tab. Earlier placement at
+          the bottom (under FactorValueList + SampleAssignmentPreview)
+          fell off-screen on long factors. */}
+      {validation ? (
+        <ValidatorBanner
+          design={draft}
+          state={validation}
+          onSelectFactor={(factorId) => setSelectedFactorId(factorId)}
+        />
+      ) : null}
       <FactorList
         factors={draft.factors}
         selectedId={effectiveSelected}
@@ -273,14 +285,6 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
           Select a factor above to edit its values.
         </div>
       )}
-
-      {validation ? (
-        <ValidatorBanner
-          design={draft}
-          state={validation}
-          onSelectFactor={(factorId) => setSelectedFactorId(factorId)}
-        />
-      ) : null}
     </div>
   );
 }
