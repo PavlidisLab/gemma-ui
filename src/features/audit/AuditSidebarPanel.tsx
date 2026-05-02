@@ -702,17 +702,6 @@ function subsumedFvChildren(
   return out;
 }
 
-/** Notes prefix the cascade attaches to the children's disposition
- *  PATCH. Until my brother ships a typed `inherited_from` field on
- *  the patch shape (filed as an open item in
- *  AUDIT_DISPOSITIONS.md), the marker rides in `notes` so the
- *  dispositions report can recognise inherited dispositions and
- *  weight them differently from direct ones. Prefix-style so a
- *  curator's existing note (if any — they typically don't write
- *  notes on accept / resolve) stays appended after a newline. */
-function viaParentMarker(parentTargetId: string): string {
-  return `via_parent: ${parentTargetId}`;
-}
 
 function FindingList({ findings }: { findings: AuditFinding[] }) {
   // Single flat list, sorted by severity then target_kind. The full
@@ -1104,11 +1093,9 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     // mis-click on the parent shouldn't ripple through and undo
     // explicit per-FV calls. Skip any child whose disposition has
     // already been touched explicitly so a curator's manual call on
-    // an individual FV always wins. Marker rides in `notes` as
-    // `via_parent: <parent target_id>` so my brother's analytics
-    // can recognise inherited dispositions; once he ships a typed
-    // `inherited_from` field (filed in AUDIT_DISPOSITIONS.md) the
-    // marker moves out of notes.
+    // an individual FV always wins. `inherited_from` is set to the
+    // parent's target_id so the dispositions report can weight
+    // cascaded vs direct curator calls differently.
     if (
       status === "pending" ||
       finding.target_kind !== "factor" ||
@@ -1121,14 +1108,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     for (const child of subsumedChildren) {
       const existing = dispositionByTarget.get(child.target_id);
       if (existing && existing.status !== "pending") continue;
-      const marker = viaParentMarker(finding.target_id);
-      const childNotes = extras.notes
-        ? `${extras.notes}\n${marker}`
-        : marker;
       try {
         await setDisposition(child.target_id, status, {
           ...extras,
-          notes: childNotes,
+          inheritedFrom: finding.target_id,
         });
         cascaded++;
       } catch {

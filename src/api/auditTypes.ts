@@ -114,6 +114,11 @@ export interface AuditFindingDisposition {
   /** ISO 8601 UTC; null on the initial pending state. */
   reviewed_at: string | null;
   notes: string;
+  /** When this disposition was cascaded from a parent factor finding,
+   *  carries the parent's `target_id`. Null/absent for direct
+   *  dispositions. Used by the dispositions report to weight cascaded
+   *  vs direct curator calls differently. */
+  inherited_from?: string | null;
   /** ISO 8601 UTC of "I actually addressed this in the data" — see
    *  `AUDIT_DISPOSITIONS.md` Ask #6. Only valid alongside
    *  status=accepted. Two states under accepted:
@@ -170,6 +175,11 @@ export interface AuditFindingDispositionPatch {
    *      implicitly resolved)
    *  Omit on the bare "Accept" click — that's the parked state. */
   resolved_at?: string;
+  /** When cascading a factor disposition to its subsumed FV children,
+   *  set to the parent finding's `target_id`. Omit for direct curator
+   *  dispositions. Lets the dispositions report weight cascaded
+   *  dispositions differently from direct ones. */
+  inherited_from?: string;
 }
 
 export interface AuditReport {

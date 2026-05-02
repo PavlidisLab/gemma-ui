@@ -143,6 +143,10 @@ interface AuditContextValue {
        *  validates and returns 422 otherwise. The UI gates this:
        *  Accept = parked, Mark resolved = resolved. */
       resolvedAt?: string;
+      /** Parent finding's `target_id` when this disposition is being
+       *  cascaded from a factor to its subsumed FV children. Omit for
+       *  direct curator dispositions. */
+      inheritedFrom?: string;
     },
   ) => Promise<void>;
   /** True while a PATCH is in flight (live path only — the override
@@ -236,6 +240,7 @@ export function AuditProvider({
         appliedFix?: string;
         firstSeenAt?: string;
         resolvedAt?: string;
+        inheritedFrom?: string;
       } = {},
     ) => {
       if (!report) return;
@@ -284,6 +289,7 @@ export function AuditProvider({
       if (extras.appliedFix) patch.applied_fix = extras.appliedFix;
       if (extras.firstSeenAt) patch.first_seen_at = extras.firstSeenAt;
       if (extras.resolvedAt) patch.resolved_at = extras.resolvedAt;
+      if (extras.inheritedFrom) patch.inherited_from = extras.inheritedFrom;
       await patchDisposition.mutateAsync({
         auditId: report.audit_id,
         patch,

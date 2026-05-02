@@ -247,7 +247,7 @@ cross-repo contract at a glance.
 Tracked as a follow-up. The in-experiment audit sidebar (the
 high-traffic path) gets the full new treatment now.
 
-## Agent-side status (2026-05-02)
+## Agent-side status (2026-05-01)
 
 - **Ask #1 — finalize endpoint:** **shipped.** `POST /rest/v2/audits/{id}/finalize` (body `{reviewer, notes?}`) and `POST /rest/v2/audits/{id}/reopen` are live. `AuditReport` now carries `finalized_at` (iso8601 or null) and `finalized_by`. PATCH on a finalized audit returns 409 — the UI must call `/reopen` first. Schema migrations are idempotent so the existing dev DB picks up the new columns on next mock restart.
 - **Ask #2 — `dismiss_reason` validation:** **shipped.** `AuditFindingDispositionPatch.dismiss_reason` is now a typed enum (the same six chips). Server validator: `dismissed → reason required`, `accepted/needs_more_info → reason must be null`, `dismiss_reason==other → notes required`. Returns 422 on violation.
@@ -270,62 +270,43 @@ The dispositions report skeleton is at `scripts/eval_analysis/audit_dispositions
 File these here as comments and the agent-side Claude will pick them up:
 
 - **List endpoints don't merge `finalized_at` / `finalized_by` from
-  the audits row** (filed 2026-05-02). `GET /rest/v2/datasets/{id}/audits`
-  and `GET /rest/v2/audits` read each item from the stored
-  `body_json` blob and only patch in `dispositions` via
-  `_latest_dispositions(...)`. The audits-row columns
-  (`finalized_at`, `finalized_by`) are merged only in
-  `get_audit(audit_id)` (single-audit GET).
+  the audits row** (filed 2026-05-02). **Fixed agent-side (2026-05-01).**
+  Both `list_audits_for_experiment` and `list_all_audits` already SELECT
+  `finalized_at, finalized_by` from the `audits` row and call
+  `_hydrate_finalization(report, r)` — the same helper used by the
+  single-audit GET — so the list response carries the correct values.
+  The UI's `setQueryData` workaround in `useFinalizeAudit` /
+  `useReopenAudit` is now redundant and can be removed whenever
+  convenient; a normal invalidate will produce the right data.
 
-  Symptom in the UI: after `POST /audits/{id}/finalize` succeeds,
-  the per-experiment audit list refetch returns the report with
-  `finalized_at: null`, so `isFinalized` stays false and the Close
-  audit button stays clickable. Same for the cross-experiment
-  inbox.
+- **CLI-submitted audits don't appear in UI without manual refresh**
+  (filed 2026-05-02; **UI cheap-fix shipped 2026-05-01**). When the
+  agent side runs an audit via the CLI / scripts
+  (`scripts/run_audits.py`, `scripts/reaudit_one.py`, ad-hoc
+  `audit_curation(...)` calls), the new audit row lands in the mock
+  SQLite immediately.
 
-  Workaround in the UI (already shipped 2026-05-02): finalize /
-  reopen mutations skip the per-experiment + inbox invalidate and
-  instead `setQueryData` the cached list with the AuditReport the
-  POST returned (which DOES carry the right fields). See the
-  comments on `useFinalizeAudit` / `useReopenAudit` in
-  `src/api/audits.ts`. Becomes redundant once the list endpoints
-  merge the columns; until then the workaround keeps dirty state
-  in the cache through any subsequent invalidate, which is mildly
-  hazardous.
+  **Shipped:** `useAuditsForExperiment`, `useAuditsInbox`, and
+  `useAuditDetail` all set `refetchOnWindowFocus: true` (overriding
+  the global-off default). Tab away while a CLI audit runs, tab back
+  — the inbox and sidebar refetch automatically.
 
-  Suggested agent-side fix: in
-  `storage.list_audits_for_experiment` and `list_all_audits`,
-  switch the SELECT to also pull `finalized_at` + `finalized_by`
-  and assign them onto the deserialised `AuditReport` (mirror the
-  per-row patch in `get_audit`). Same shape as the
-  `_latest_dispositions` merge that already runs there.
+  Still open for future improvement:
+  - **Better:** manual "Refresh" button on the inbox header (useful
+    when the curator stays in-tab during a long bulk CLI run).
+  - **Best (longer):** SSE channel for "new audit landed" events.
+
+  No agent-side change needed.
 
 - **Typed `inherited_from` field on dispositions** (filed 2026-05-02).
-  The UI now cascades a factor finding's disposition (Accept /
-  Mark resolved / Dismiss / Needs more info) to its subsumed FV
-  children — same factor slug, no more severe than the parent.
-  Children that already carry an explicit non-pending disposition
-  are skipped so curator-explicit calls always win.
+  **Shipped both sides (2026-05-01).**
 
-  Until a typed field exists, the cascade marker rides in
-  `notes` as `via_parent: <parent target_id>` (helper
-  `viaParentMarker` in `src/features/audit/AuditSidebarPanel.tsx`).
-  That works but pollutes the free-text channel and means the
-  dispositions report has to string-match to recognise inherited
-  dispositions vs direct ones — and curators occasionally write
-  notes containing the literal substring, which would false-
-  positive cluster.
+  Agent-side: `AuditFindingDispositionPatch.inherited_from?: string`
+  and `AuditFindingDisposition.inherited_from?: string` are live;
+  stored in `audit_dispositions.inherited_from`; dispositions report
+  weights cascaded vs direct calls differently.
 
-  Asked-for shape: an optional `inherited_from?: string` on
-  `AuditFindingDispositionPatch` and `AuditFindingDisposition`
-  carrying the parent finding's `target_id`. Server stores it
-  alongside the existing snapshot columns; dispositions report
-  uses it to weight cascaded dispositions differently from direct
-  ones (curator's intent on the parent isn't N+1 independent
-  agreements).
-
-  Once it lands, the UI replaces the `notes` prefix with the
-  typed field — small refactor in
-  `setDisposition` extras + the cascade loop. Marker stays
-  backwards-compatible (sending the prefix doesn't break anything)
-  so the upgrade can ride a normal release.
+  UI-side: `viaParentMarker` helper and the `via_parent:` notes prefix
+  removed. The cascade loop in `FindingActionRow` now passes
+  `inheritedFrom: finding.target_id` directly to `setDisposition`,
+  which wires it to `patch.inherited_from` on the live path.
