@@ -57,12 +57,16 @@ export function CommitBar({
   >({});
   if (!diff.isDirty) return null;
 
-  // Only factors that *require* a baseline can have a baseline
-  // problem. Block / batch factors carry `baseline_required: false`
-  // — they're nuisance variables with no natural baseline.
+  // Only factors whose missing baseline should *block commit* are
+  // counted. Block / batch / cell-type / organism-part factors carry
+  // ``baseline_blocks_commit: false`` because they have no natural
+  // baseline. Cell-line factors also carry it false (soft-baseline
+  // category) — the ValidatorBanner still surfaces a "no baseline
+  // marked" bullet so the curator considers it, but commit isn't
+  // gated.
   const baselineProblem = validation
     ? validation.factors.filter(
-        (f) => f.baseline_required && f.baseline_count !== 1,
+        (f) => f.baseline_blocks_commit && f.baseline_count !== 1,
       )
     : [];
   const hasBaselineProblem = baselineProblem.length > 0;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  factorBaselineBlocksCommit,
   factorRequiresBaseline,
   validateDesign,
   type Design,
@@ -100,6 +101,33 @@ describe("factorRequiresBaseline", () => {
   it("is case-insensitive on category labels", () => {
     expect(factorRequiresBaseline({ label: "Cell Type" })).toBe(false);
     expect(factorRequiresBaseline({ label: "ORGANISM PART" })).toBe(false);
+  });
+});
+
+describe("factorBaselineBlocksCommit — soft-baseline categories", () => {
+  it("returns false for cell line so commit is not gated", () => {
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "cell line"))).toBe(false);
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "cell_line"))).toBe(false);
+  });
+
+  it("but cell line still requires-baseline so the warning surface fires", () => {
+    expect(factorRequiresBaseline(categoricalFactor(1, "cell line"))).toBe(true);
+  });
+
+  it("returns false for hard no-baseline categories too (block / batch / cell type / organism part)", () => {
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "block"))).toBe(false);
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "batch"))).toBe(false);
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "cell type"))).toBe(false);
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "organism part"))).toBe(false);
+  });
+
+  it("returns true for normal categories — commit blocks on missing baseline", () => {
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "treatment"))).toBe(true);
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "genotype"))).toBe(true);
+  });
+
+  it("returns false for continuous factors", () => {
+    expect(factorBaselineBlocksCommit(continuousFactor(1, "age"))).toBe(false);
   });
 });
 

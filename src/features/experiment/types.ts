@@ -209,6 +209,20 @@ const NO_BASELINE_CATEGORIES = new Set<string>([
   "cell type",
 ]);
 
+/** "Soft" baseline categories: a baseline *is* meaningful in
+ *  principle (one of the cell lines could be the WT / parent
+ *  reference), but in practice cell-line panels are commonly
+ *  unbalanced comparisons with no natural reference. Surface as a
+ *  warning so the curator considers it; don't block commit when
+ *  they choose not to. Anything in this set has
+ *  ``baseline_required = true`` (warning still shows in the
+ *  ValidatorBanner) but ``baseline_blocks_commit = false`` (the
+ *  CommitBar / pre-publish gate lets it through). */
+const SOFT_BASELINE_CATEGORIES = new Set<string>([
+  "cell line",
+  "cell_line",
+]);
+
 /** Accepts either a ``Factor`` (preferred — captures both type and
  *  category) or a bare ``OntologyTerm`` (legacy callers that only
  *  have the category in hand). The factor-aware overload is the
@@ -229,6 +243,20 @@ export function factorRequiresBaseline(
   return !NO_BASELINE_CATEGORIES.has(k);
 }
 
+/** Like ``factorRequiresBaseline`` but stricter — returns ``false``
+ *  for soft-baseline categories (cell line) so commit / publish
+ *  gates don't block on them. The warning surface still uses
+ *  ``factorRequiresBaseline``, so the curator sees the bullet in
+ *  the ValidatorBanner; this just controls whether they can keep
+ *  moving. */
+export function factorBaselineBlocksCommit(
+  factor: Factor | null | undefined,
+): boolean {
+  if (!factorRequiresBaseline(factor)) return false;
+  const k = (factor?.category?.label || "").trim().toLowerCase();
+  return !SOFT_BASELINE_CATEGORIES.has(k);
+}
+
 export interface FactorValidationState {
   factor_id: number;
   baseline_count: number;          // 0 means missing, >1 means duplicates
@@ -238,6 +266,14 @@ export interface FactorValidationState {
    *  should treat ``baseline_count`` as irrelevant when this is
    *  false. */
   baseline_required: boolean;
+  /** Whether a missing / duplicated baseline on this factor should
+   *  block the curator from committing (or publishing). Strictly
+   *  ``baseline_required`` modulo ``SOFT_BASELINE_CATEGORIES``: the
+   *  ValidatorBanner still shows the bullet for soft cases (cell
+   *  line) so the curator considers it, but the CommitBar +
+   *  PrePublishChecklist read this field instead of
+   *  ``baseline_required`` and let those flow through. */
+  baseline_blocks_commit: boolean;
   unassigned_biomaterials: string[];
   duplicate_assignments: string[]; // biomaterials assigned to >1 FV in this factor
   unknown_predicates: number;
@@ -400,6 +436,7 @@ export function validateDesign(design: Design): DesignValidationState {
       factor_id: f.id,
       baseline_count: baselineCount,
       baseline_required: factorRequiresBaseline(f),
+      baseline_blocks_commit: factorBaselineBlocksCommit(f),
       unassigned_biomaterials: unassigned,
       duplicate_assignments: duplicates,
       unknown_predicates: unknownPredicates,

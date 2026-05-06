@@ -551,13 +551,16 @@ function buildItems({
     (s) => s.unassigned_biomaterials.length === 0,
   );
   // Factors that don't require a baseline (block / batch / organism
-  // part / cell type — see ``factorRequiresBaseline``) flow through
-  // regardless of their baseline_count. Otherwise this check would
-  // light up the moment a curator accepts a cell-type or organism-
-  // part proposal, with no way to override (the checklist's auto
-  // rows aren't curator-toggleable).
+  // part / cell type / cell line — see ``factorBaselineBlocksCommit``)
+  // flow through regardless of their baseline_count. Otherwise this
+  // check would light up the moment a curator accepts a cell-type or
+  // organism-part proposal, with no way to override (the checklist's
+  // auto rows aren't curator-toggleable). Soft-baseline categories
+  // (cell line) also flow through here even though the
+  // ValidatorBanner still flags them — the curator's already
+  // acknowledged the warning at design time.
   const baselinesOk = validation.factors.every(
-    (s) => !s.baseline_required || s.baseline_count === 1,
+    (s) => !s.baseline_blocks_commit || s.baseline_count === 1,
   );
   const noUnknownPredicates = validation.factors.every(
     (s) => s.unknown_predicates === 0,
