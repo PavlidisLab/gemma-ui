@@ -117,6 +117,16 @@ sidebar persists "accepted" history through reset. Once dropped
 agent-side, UI follow-up: extend `useImportFromGemma` `onSuccess`
 to invalidate `["proposals"]`.
 
+**Proposal accept/reject should emit audit events** — see
+[PROPOSAL_AUDIT_EVENT_HANDOFF.md](./PROPOSAL_AUDIT_EVENT_HANDOFF.md).
+Filed for my brother. `apply_feedback` updates the proposal +
+`feedback_log` but never calls `append_audit_event`, so the
+History tab is empty after an accept/reject and the
+`ProposalSummaryCard` "full details" link lands on a blank
+History. Asks for `ProposalAccepted/Rejected/NeedsChangesEvent`
+with `body_json = proposal.model_dump_json()`; UI follow-up
+extends `EventTypeBadge` + `HistoryPanel` to render them.
+
 **Redo with notes** — see
 [REDO_WITH_NOTES_HANDOFF.md](./REDO_WITH_NOTES_HANDOFF.md). Done both
 sides as of 2026-05-06. Agent now reads `prior_feedback` and threads
