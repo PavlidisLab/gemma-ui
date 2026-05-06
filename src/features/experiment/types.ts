@@ -207,21 +207,28 @@ const NO_BASELINE_CATEGORIES = new Set<string>([
   "batch",
   "organism part",
   "cell type",
-]);
-
-/** "Soft" baseline categories: a baseline *is* meaningful in
- *  principle (one of the cell lines could be the WT / parent
- *  reference), but in practice cell-line panels are commonly
- *  unbalanced comparisons with no natural reference. Surface as a
- *  warning so the curator considers it; don't block commit when
- *  they choose not to. Anything in this set has
- *  ``baseline_required = true`` (warning still shows in the
- *  ValidatorBanner) but ``baseline_blocks_commit = false`` (the
- *  CommitBar / pre-publish gate lets it through). */
-const SOFT_BASELINE_CATEGORIES = new Set<string>([
+  // Cell-line panels are biologically-arbitrary references — same
+  // logic as cell type / organism part. Pavlidis Lab curation
+  // guidelines don't require a baseline for cell line, *especially*
+  // when the proposer flags the experiment as a subset-DEA candidate
+  // by cell line (the ``S1_subset_verdict: subset_by_cell_line``
+  // case, where each cell line gets its own DEA contrast and the
+  // notion of a baseline within the factor is moot). Both
+  // ``cell line`` and the underscore form ``cell_line`` show up in
+  // proposer / curator output.
   "cell line",
   "cell_line",
 ]);
+
+/** Reserved for the day a category genuinely has soft semantics
+ *  (warn but don't block). Cell line briefly lived here in the
+ *  2026-05-06 first pass; it now lives in the strict
+ *  no-baseline set above because the guidelines are unambiguous.
+ *  Kept as an empty set + helper so the plumbing
+ *  (``baseline_blocks_commit`` field, CommitBar / PrePublishChecklist
+ *  reading it) survives if a future category needs the soft
+ *  treatment. */
+const SOFT_BASELINE_CATEGORIES = new Set<string>([]);
 
 /** Accepts either a ``Factor`` (preferred — captures both type and
  *  category) or a bare ``OntologyTerm`` (legacy callers that only

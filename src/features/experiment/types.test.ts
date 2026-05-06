@@ -104,17 +104,17 @@ describe("factorRequiresBaseline", () => {
   });
 });
 
-describe("factorBaselineBlocksCommit — soft-baseline categories", () => {
-  it("returns false for cell line so commit is not gated", () => {
+describe("cell line is a no-baseline category", () => {
+  it("does not require a baseline (no warning, no block)", () => {
+    expect(factorRequiresBaseline(categoricalFactor(1, "cell line"))).toBe(false);
+    expect(factorRequiresBaseline(categoricalFactor(1, "cell_line"))).toBe(false);
     expect(factorBaselineBlocksCommit(categoricalFactor(1, "cell line"))).toBe(false);
     expect(factorBaselineBlocksCommit(categoricalFactor(1, "cell_line"))).toBe(false);
   });
+});
 
-  it("but cell line still requires-baseline so the warning surface fires", () => {
-    expect(factorRequiresBaseline(categoricalFactor(1, "cell line"))).toBe(true);
-  });
-
-  it("returns false for hard no-baseline categories too (block / batch / cell type / organism part)", () => {
+describe("factorBaselineBlocksCommit — basic cases", () => {
+  it("returns false for hard no-baseline categories", () => {
     expect(factorBaselineBlocksCommit(categoricalFactor(1, "block"))).toBe(false);
     expect(factorBaselineBlocksCommit(categoricalFactor(1, "batch"))).toBe(false);
     expect(factorBaselineBlocksCommit(categoricalFactor(1, "cell type"))).toBe(false);
