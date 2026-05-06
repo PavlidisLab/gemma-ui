@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import type { Proposal } from "@/api/types";
+import { experimentRoute, navigate } from "@/routes";
 
 /**
  * Compact "you already triaged this" card for the proposals
@@ -119,14 +120,13 @@ export function ProposalSummaryCard({
               onClick={(e) => {
                 e.preventDefault();
                 // History tab inside the same experiment carries the
-                // full provenance; navigate via hash so the in-app
-                // tab guards (dirty-draft etc.) still apply.
-                const m = window.location.hash.match(
-                  /^#\/experiments\/(\d+)/,
-                );
-                if (m) {
-                  window.location.hash = `#/experiments/${m[1]}/history`;
-                }
+                // full provenance. Use experimentRoute so the URL
+                // shape (``?tab=history``) matches what parseRoute
+                // recognises — earlier inline string built
+                // ``/experiments/{id}/history`` which falls through
+                // to landing because the route regex expects a
+                // query-string tab, not a path segment.
+                navigate(experimentRoute(proposal.experiment_id, "history"));
               }}
               className="text-[10px] text-blue-700 hover:underline"
               title="see this proposal's full provenance in the History tab"
