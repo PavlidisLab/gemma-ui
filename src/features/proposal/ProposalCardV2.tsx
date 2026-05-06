@@ -2763,14 +2763,30 @@ function EditableFvLabel({
 
 /** Friendly chip label for a per-target SubtaskDecision. The
  *  decision's ``label`` is usually fine; we trim a couple of
- *  recognised prefixes so the chip stays scannable. */
+ *  recognised prefixes so the chip stays scannable.
+ *
+ *  S10 chips carry the role (subject / object) extracted from the
+ *  decision's target_id. Earlier copy was just "free-text", which
+ *  read like "this whole FV is free-text" and obscured the fact
+ *  that an FV is a structured statement (subject + predicate +
+ *  object) where only the subject side may be unmapped. The role
+ *  suffix tells curators which slot needs attention. */
 function chipLabelFor(d: SubtaskDecision): string {
   const lab = d.label || d.subtask || "warning";
-  // S10's verdict starts with the failure mode; surface it directly.
   if (d.subtask === "S10_term_validator") {
-    if (d.verdict.includes("free-text")) return "free-text";
-    if (d.verdict.includes("not in Gemma")) return "not-in-index";
-    if (d.verdict.includes("novel")) return "novel";
+    // target_id shape (set by agents-side term_validator):
+    //   factor:<cat>/fv:<n>/stmt:<m>/subject
+    //   factor:<cat>/fv:<n>/stmt:<m>/object
+    //   factor:<cat>/category
+    const tail = d.target_id.split("/").pop() ?? "";
+    const role =
+      tail === "subject" || tail === "object" || tail === "category"
+        ? tail
+        : "";
+    const suffix = role ? ` ${role}` : "";
+    if (d.verdict.includes("free-text")) return `free-text${suffix}`;
+    if (d.verdict.includes("not in Gemma")) return `not-in-index${suffix}`;
+    if (d.verdict.includes("novel")) return `novel${suffix}`;
   }
   return lab.replace(/^Term validator$/i, "term");
 }
