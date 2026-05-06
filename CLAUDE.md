@@ -127,6 +127,17 @@ History. Asks for `ProposalAccepted/Rejected/NeedsChangesEvent`
 with `body_json = proposal.model_dump_json()`; UI follow-up
 extends `EventTypeBadge` + `HistoryPanel` to render them.
 
+**Per-factor baseline relevance** — see
+[BASELINE_RELEVANCE_HANDOFF.md](./BASELINE_RELEVANCE_HANDOFF.md).
+Filed for my brother. UI's baseline-required logic is a static
+category list (`NO_BASELINE_CATEGORIES`); a per-experiment refine
+would have the proposer emit `baseline_relevance: "required" |
+"not_applicable" | "uncertain"` per factor, keyed off
+`S1_subset_verdict` axis + S6 baseline-picker outcome. UI follow-
+up renders a *tiny flag* (not the loud banner) for the `uncertain`
+case so curators notice without being yelled at. Default
+`"required"` keeps backwards compat with older agents.
+
 **Redo with notes** — see
 [REDO_WITH_NOTES_HANDOFF.md](./REDO_WITH_NOTES_HANDOFF.md). Done both
 sides as of 2026-05-06. Agent now reads `prior_feedback` and threads
