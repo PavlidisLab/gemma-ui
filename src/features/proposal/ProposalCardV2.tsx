@@ -1600,26 +1600,53 @@ export function ProposalCardV2({
                             ★ baseline
                           </Pill>
                         ) : null}
+                        {/* Statement-structure indicator. An FV is a
+                            list of (subject, predicate, object)
+                            triples; multi-statement FVs (e.g. "ULK1
+                            and ULK2 double knockout" → two
+                            ``has_genotype: knockout`` statements)
+                            were invisible from the FV label alone.
+                            Show a compact ``·N stmt`` badge when
+                            there's more than one. The ``title``
+                            spells out each subject so curators get
+                            a hover summary; the Decisions tab and
+                            Design view carry the full triples for
+                            anyone who wants the structure. */}
+                        {fv.statements.length > 1 ? (
+                          <span
+                            className="text-slate-500 text-[10px] ml-1 italic"
+                            title={fv.statements
+                              .map((s, idx) => `${idx + 1}. ${s.subject?.label || "?"}`)
+                              .join("\n")}
+                          >
+                            ·{fv.statements.length} stmts
+                          </span>
+                        ) : null}
                         {/* Per-FV decision chips. S10 term-validator
                             findings render in amber; S6 baseline
                             picker renders alongside the baseline pill
-                            (already covered by ``is_baseline``). */}
-                        {fvDecisions
-                          .concat(fvSubDecisions)
-                          .filter(
-                            (d) =>
-                              d.subtask !== "S6_baseline" &&
-                              d.subtask !== "S6_baseline_picker",
-                          )
-                          .map((d, di) => (
-                            <span
-                              key={di}
-                              className="text-amber-700 text-[10px] ml-1"
-                              title={d.verdict}
-                            >
-                              ⚠ {chipLabelFor(d)}
-                            </span>
-                          ))}
+                            (already covered by ``is_baseline``).
+                            Duplicate findings (one per statement on a
+                            multi-statement FV) collapse into a single
+                            chip with a ``×N`` count. */}
+                        {aggregateFvChips(
+                          fvDecisions
+                            .concat(fvSubDecisions)
+                            .filter(
+                              (d) =>
+                                d.subtask !== "S6_baseline" &&
+                                d.subtask !== "S6_baseline_picker",
+                            ),
+                        ).map((agg, di) => (
+                          <span
+                            key={di}
+                            className="text-amber-700 text-[10px] ml-1 whitespace-nowrap"
+                            title={agg.titles.join("\n")}
+                          >
+                            ⚠ {agg.label}
+                            {agg.count > 1 ? ` ×${agg.count}` : ""}
+                          </span>
+                        ))}
                         {/* Per-FV "0 samples" chip — only meaningful
                             when the parent factor isn't already
                             zero-coverage (the rose banner above
@@ -2763,30 +2790,39 @@ function EditableFvLabel({
 
 /** Friendly chip label for a per-target SubtaskDecision. The
  *  decision's ``label`` is usually fine; we trim a couple of
- *  recognised prefixes so the chip stays scannable.
- *
- *  S10 chips carry the role (subject / object) extracted from the
- *  decision's target_id. Earlier copy was just "free-text", which
- *  read like "this whole FV is free-text" and obscured the fact
- *  that an FV is a structured statement (subject + predicate +
- *  object) where only the subject side may be unmapped. The role
- *  suffix tells curators which slot needs attention. */
+ *  recognised prefixes so the chip stays scannable. */
 function chipLabelFor(d: SubtaskDecision): string {
   const lab = d.label || d.subtask || "warning";
   if (d.subtask === "S10_term_validator") {
-    // target_id shape (set by agents-side term_validator):
-    //   factor:<cat>/fv:<n>/stmt:<m>/subject
-    //   factor:<cat>/fv:<n>/stmt:<m>/object
-    //   factor:<cat>/category
-    const tail = d.target_id.split("/").pop() ?? "";
-    const role =
-      tail === "subject" || tail === "object" || tail === "category"
-        ? tail
-        : "";
-    const suffix = role ? ` ${role}` : "";
-    if (d.verdict.includes("free-text")) return `free-text${suffix}`;
-    if (d.verdict.includes("not in Gemma")) return `not-in-index${suffix}`;
-    if (d.verdict.includes("novel")) return `novel${suffix}`;
+    if (d.verdict.includes("free-text")) return "free-text";
+    if (d.verdict.includes("not in Gemma")) return "not-in-index";
+    if (d.verdict.includes("novel")) return "novel";
   }
   return lab.replace(/^Term validator$/i, "term");
+}
+
+/** Bucket per-FV decision chips so duplicate findings collapse into
+ *  one chip with a ``×N`` count. Without this, an FV with two
+ *  statements that both fail term validation renders two identical
+ *  ``⚠ free-text`` chips next to each other (the ULK1 + ULK2
+ *  double-knockout case). One chip plus a count is more scannable
+ *  and frees space for a separate statement-structure indicator. */
+function aggregateFvChips(
+  decisions: SubtaskDecision[],
+): { label: string; count: number; titles: string[] }[] {
+  const buckets = new Map<
+    string,
+    { label: string; count: number; titles: string[] }
+  >();
+  for (const d of decisions) {
+    const label = chipLabelFor(d);
+    const existing = buckets.get(label);
+    if (existing) {
+      existing.count++;
+      existing.titles.push(d.verdict);
+    } else {
+      buckets.set(label, { label, count: 1, titles: [d.verdict] });
+    }
+  }
+  return [...buckets.values()];
 }
