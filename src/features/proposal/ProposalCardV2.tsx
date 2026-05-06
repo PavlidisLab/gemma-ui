@@ -442,7 +442,17 @@ function extractLevel(
  *  required a hover the curator might not discover. */
 function Why({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
+  // Flip to right-anchored when the trigger sits close enough to the
+  // right edge of the viewport that a left-anchored popover would
+  // overflow + clip. Measured on open from the trigger's bounding
+  // rect so the popover lands inside the viewport regardless of
+  // which sidebar / column the ``?`` button lives in. (Was a
+  // problem on tag chips in the right-hand proposals sidebar —
+  // ``w-72`` × 288px popover anchored ``left-0`` ran past the card
+  // and clipped on the next sibling boundary.)
+  const [flip, setFlip] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const POPOVER_W = 288; // matches ``w-72``
 
   useEffect(() => {
     if (!open) return;
@@ -479,6 +489,14 @@ function Why({ text }: { text: string }) {
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          // Measure synchronously before opening so the popover
+          // renders in the correct alignment on first paint — no
+          // flash from a left-anchored frame collapsing to right.
+          if (!open && wrapRef.current) {
+            const rect = wrapRef.current.getBoundingClientRect();
+            const margin = 8;
+            setFlip(rect.left + POPOVER_W > window.innerWidth - margin);
+          }
           setOpen((v) => !v);
         }}
       >
@@ -487,7 +505,7 @@ function Why({ text }: { text: string }) {
       {open && (
         <div
           role="tooltip"
-          className="absolute z-30 left-0 top-full mt-1 w-72 max-w-[80vw] rounded-md border border-slate-200 bg-white shadow-lg p-2 text-xs leading-snug text-slate-700 whitespace-pre-wrap break-words"
+          className={`absolute z-30 ${flip ? "right-0" : "left-0"} top-full mt-1 w-72 max-w-[80vw] rounded-md border border-slate-200 bg-white shadow-lg p-2 text-xs leading-snug text-slate-700 whitespace-pre-wrap break-words`}
         >
           {clean}
           {level && (
