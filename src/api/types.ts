@@ -62,11 +62,25 @@ export interface FactorValueProposal {
    *  empty list — UI should treat missing meta as
    *  ``{confidence: "medium", source: ""}``. */
   biomaterial_assignment_meta?: BiomaterialAssignmentMeta[];
+  /** Canonical scalar reading for a continuous-factor FV — mirrors
+   *  Gemma's ``FactorValue.measurement.value``. Populated by the
+   *  deterministic continuous-populator subtask from the matching
+   *  biomaterial characteristic; ``null`` on categorical FVs and on
+   *  proposals submitted before the populator landed. ``free_text_label``
+   *  carries the human rendering ("86 years") for display. */
+  numeric_value?: number | null;
 }
 
 export interface FactorProposal {
   category: OntologyTerm;
   name_in_design: string;
+  /** ``"categorical"`` (default) or ``"continuous"``. Continuous
+   *  factors emit one FV per distinct numeric measurement, with
+   *  ``numeric_value`` populated and ``is_baseline=false`` on every
+   *  FV (no baseline by convention). Defaults to "categorical" for
+   *  proposals submitted before the field landed. Same string set as
+   *  the design-side ``Factor.type`` so the two line up on accept. */
+  factor_type?: "categorical" | "continuous";
   factor_values: FactorValueProposal[];
 }
 

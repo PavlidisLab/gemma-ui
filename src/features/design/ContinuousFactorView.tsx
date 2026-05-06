@@ -26,20 +26,30 @@ import type { Factor } from "@/features/experiment/types";
  */
 export function ContinuousFactorView({ factor }: { factor: Factor }) {
   // One measurement per FV (we promote BM characteristics 1:1 in
-  // ``addContinuousFactorFromCharacteristic``). For each FV, treat
-  // free_text_label as the value string and keep the parent FV's
-  // sample list for the tooltip.
+  // ``addContinuousFactorFromCharacteristic``). Prefer ``numeric_value``
+  // (the canonical scalar populated by the agents-side continuous-
+  // populator from Gemma's ``measurement.value``) and fall back to
+  // parsing ``free_text_label`` for FVs created in-UI before the
+  // populator landed. ``free_text_label`` itself may be a human
+  // rendering like "86 years" or "0.5 mg/ml" — keep it as the
+  // display string.
   const points = factor.factor_values
     .map((fv) => {
       const raw = (fv.free_text_label || "").trim();
-      const n = Number(raw);
+      let value: number | null = null;
+      if (typeof fv.numeric_value === "number" && Number.isFinite(fv.numeric_value)) {
+        value = fv.numeric_value;
+      } else {
+        const n = Number(raw);
+        if (Number.isFinite(n)) value = n;
+      }
       return {
         raw,
-        value: Number.isFinite(n) ? n : null,
+        value,
         samples: fv.biomaterial_short_names,
       };
     })
-    .filter((p) => p.raw.length > 0);
+    .filter((p) => p.raw.length > 0 || p.value != null);
   const numeric = points.filter(
     (p): p is typeof p & { value: number } => p.value != null,
   );
@@ -79,6 +89,7 @@ export function ContinuousFactorView({ factor }: { factor: Factor }) {
           <StripPlot
             points={numeric.map((p) => ({
               value: p.value,
+              label: p.raw,
               samples: p.samples,
             }))}
           />
@@ -162,7 +173,7 @@ function fmt(n: number): string {
 function StripPlot({
   points,
 }: {
-  points: { value: number; samples: string[] }[];
+  points: { value: number; label?: string; samples: string[] }[];
 }) {
   const W = 600;
   const H = 140;
@@ -181,16 +192,33 @@ function StripPlot({
   const distinct = Array.from(new Set(xs)).sort((a, b) => a - b);
   const useDiscreteBins = distinct.length <= 15;
 
-  type Bin = { lo: number; hi: number; mid: number; count: number; label: string };
+  type Bin = {
+    lo: number;
+    hi: number;
+    mid: number;
+    count: number;
+    label: string;
+    /** Human rendering for the discrete-bin tooltip — picks the
+     *  first non-numeric ``free_text_label`` among points in the
+     *  bin (e.g. "86 years"). Empty when every point's label is
+     *  just the bare number. */
+    humanLabel: string;
+  };
   const bins: Bin[] = [];
   if (useDiscreteBins) {
     for (const v of distinct) {
+      const inBin = points.filter((p) => p.value === v);
+      const humanLabel =
+        inBin
+          .map((p) => (p.label || "").trim())
+          .find((s) => s && s !== fmt(v)) || "";
       bins.push({
         lo: v,
         hi: v,
         mid: v,
-        count: xs.filter((x) => x === v).length,
+        count: inBin.length,
         label: fmt(v),
+        humanLabel,
       });
     }
   } else {
@@ -199,7 +227,7 @@ function StripPlot({
     for (let i = 0; i < n; i++) {
       const lo = min + i * w;
       const hi = i === n - 1 ? max : lo + w;
-      bins.push({ lo, hi, mid: (lo + hi) / 2, count: 0, label: "" });
+      bins.push({ lo, hi, mid: (lo + hi) / 2, count: 0, label: "", humanLabel: "" });
     }
     for (const v of xs) {
       // Right edge of last bin is inclusive so the max value lands
@@ -283,7 +311,7 @@ function StripPlot({
               >
                 <title>
                   {useDiscreteBins
-                    ? `${b.label}: ${b.count} sample${b.count === 1 ? "" : "s"}`
+                    ? `${b.humanLabel || b.label}: ${b.count} sample${b.count === 1 ? "" : "s"}`
                     : `${fmt(b.lo)}–${fmt(b.hi)}: ${b.count} sample${b.count === 1 ? "" : "s"}`}
                 </title>
               </rect>

@@ -99,6 +99,35 @@ want to build.
 
 ## Current open handoff
 
+**Continuous-factor proposer support** — see
+[CONTINUOUS_FACTORS_HANDOFF.md](./CONTINUOUS_FACTORS_HANDOFF.md). UI
+side landed 2026-05-05: `factor_type` / `numeric_value` on TS
+mirrors, `applyProposalToDesign` threads them into the draft (was
+hardcoding `"categorical"`), `ContinuousFactorView` prefers
+`numeric_value` over parsing `free_text_label`, Decisions tab
+renders `S5_continuous_populator` + `S8_dea_usability`, and the
+"Not DEA-usable" warning chip rides the Triage strip. Backwards-
+compatible — no matrix bump.
+
+**Reset should drop proposals** — see
+[RESET_DROP_PROPOSALS_HANDOFF.md](./RESET_DROP_PROPOSALS_HANDOFF.md).
+Filed for my brother. `strip_curation` clears factors / curator tags
+but leaves the `CurationProposal` rows attached, so the proposal
+sidebar persists "accepted" history through reset. Once dropped
+agent-side, UI follow-up: extend `useImportFromGemma` `onSuccess`
+to invalidate `["proposals"]`.
+
+**Redo with notes** — see
+[REDO_WITH_NOTES_HANDOFF.md](./REDO_WITH_NOTES_HANDOFF.md). Done both
+sides as of 2026-05-06. Agent now reads `prior_feedback` and threads
+it into the design-proposer prompt; UI sends it on the redo body.
+Same session also rewired the redo POST from synchronous to
+SSE-streaming (`proposeStream.start`) so the progress panel resets
+and reflects the redo run instead of the original propose's
+terminal events; and fixed `recentClosed` in `App.tsx` (was using
+`Array.find` against an ASC list, surfacing the *oldest* non-pending
+proposal).
+
 **Audit dispositions feedback loop** — see
 [AUDIT_DISPOSITIONS.md](./AUDIT_DISPOSITIONS.md). All 6 asks are
 done on both sides (UI + agent) as of 2026-05-01. The dispositions
@@ -116,6 +145,9 @@ once curators start finalizing audits.
   (`AuditFinding.suggested_fix` becoming a typed action). When it
   lands, drop per-issue-code handlers into `resolveApplyAction()`;
   `applied_fix` wires up automatically.
+- Prominent "no within-level replication" warning chip + audit-
+  pathway scan for replication-rule violations on already-curated
+  experiments (continuous-factor open questions, agents-side ask).
 
 **Next product area:** experiment workflow management — see
 [`WORKFLOW_MANAGEMENT.md`](./WORKFLOW_MANAGEMENT.md).

@@ -42,6 +42,11 @@ export interface FactorValue {
   is_baseline: boolean;
   statements: Statement[];
   biomaterial_short_names: string[];
+  /** Canonical scalar reading for a continuous-factor FV — mirrors
+   *  Gemma's ``FactorValue.measurement.value``. ``null`` / absent on
+   *  categorical FVs. ``free_text_label`` carries the human
+   *  rendering ("86 years") for display. */
+  numeric_value?: number | null;
 }
 
 export type FactorType = "categorical" | "continuous";

@@ -17,6 +17,7 @@ were tested together so deployers can pair them.
 
 | UI version | Tested against agent version | Notes |
 |---|---|---|
+| v0.4.0 | v0.3.0 | Continuous-factor proposer support (TS mirrors `factor_type` / `numeric_value`, draft conversion threads them, `ContinuousFactorView` prefers `numeric_value`, Decisions tab S5 / S8 + DEA-usability triage chip). Redo-with-notes wiring: sends `prior_feedback` so notes thread into the design-proposer prompt; redo POST switched from synchronous to SSE-streaming so the panel resets and reflects the redo run. `recentClosed` sidebar lookup fixed. Backwards compatible — older agents ignore `prior_feedback`. |
 | v0.3.0 | v0.2.1 | Adds `agent_version` / `agent_min_ui` on `/health` (proposer + mock). Same wire shapes as v0.2.0; `MIN_AGENT_VERSION = "0.2.1"` once UI's CompatBanner ships. |
 | v0.3.0 | v0.2.0 | Audit feature surfaces A/B/C, dispositions feedback loop, samples overhaul, atomic revert. Requires agent endpoints `POST /audit/{accession}` + `/stream`, `POST /rest/v2/audits/{id}/finalize` + `/reopen`, snapshot columns on `audit_dispositions` table. |
 | v0.2.0 | v0.1.0 | View persistence + modal Esc + banner cleanup. Pre-audit. |

@@ -725,9 +725,11 @@ export function applyProposalToDesign(
   proposalFactors: {
     category: { label: string; uri?: string | null };
     name_in_design: string;
+    factor_type?: "categorical" | "continuous";
     factor_values: {
       free_text_label: string;
       is_baseline: boolean;
+      numeric_value?: number | null;
       statements: {
         category?: { label: string; uri?: string | null } | null;
         subject: { label: string; uri?: string | null };
@@ -778,11 +780,12 @@ export function applyProposalToDesign(
       name: p.name_in_design || p.category.label,
       category: { label: p.category.label, uri: p.category.uri ?? null },
       description: "",
-      type: "categorical",
+      type: p.factor_type === "continuous" ? "continuous" : "categorical",
       factor_values: p.factor_values.map((fv) => ({
         id: nextFvId++,
         free_text_label: fv.free_text_label,
         is_baseline: fv.is_baseline,
+        numeric_value: fv.numeric_value ?? null,
         biomaterial_short_names: [...fv.biomaterial_short_names],
         statements: fv.statements.map((s) => ({
           category: s.category

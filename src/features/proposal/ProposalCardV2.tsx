@@ -14,6 +14,7 @@ import type {
 } from "@/api/types";
 import type { Biomaterial } from "@/features/experiment/types";
 import { useReviewProposal, useTriggerProposal } from "@/api/proposals";
+import { useProposeStream } from "@/api/proposeStream";
 import { ApiError } from "@/api/client";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
@@ -176,7 +177,9 @@ function MetadataBadge({ summary }: { summary: DatasetSummary }) {
 
 interface RoutedDecisions {
   /** S1_design_verdict / S1_split_verdict / S1_subset_verdict — the three
-   *  Triage badges. Keyed by the subtask field for direct lookup. */
+   *  Triage badges. Keyed by the subtask field for direct lookup.
+   *  ``S8_dea_usability`` (experiment-level, empty target_id) also
+   *  rides this strip when it lands as ``not_usable``. */
   triage: Record<string, SubtaskDecision | undefined>;
   /** S3 candidates the proposer kept as factors. Keyed by lowercased
    *  category label so the factor row can attach the matching evidence
@@ -227,6 +230,16 @@ function routeDecisions(
       subtask === "S1_split_verdict" ||
       subtask === "S1_subset_verdict"
     ) {
+      out.triage[subtask] = d;
+      continue;
+    }
+
+    // S8 DEA-usability is experiment-level (empty target_id). Hoist
+    // it into the triage strip so a ``not_usable`` verdict surfaces
+    // as a one-line warning chip without blocking acceptance — the
+    // agents-side guidance is "informational, not a skip; gold
+    // curates non-DEA-able experiments routinely (Sample Study)".
+    if (subtask === "S8_dea_usability") {
       out.triage[subtask] = d;
       continue;
     }
@@ -342,6 +355,21 @@ function subsetChipFor(verdict: string): { label: string; tone: "warn" } | null 
     const axis = m[1].replace(/_/g, " ");
     return { label: `Possibly subset by ${axis} for DEA`, tone: "warn" };
   }
+  return null;
+}
+
+/** S8 DEA-usability verdict starts with ``"usable:"`` or
+ *  ``"not_usable:"``. ``usable`` hides — no curator action needed.
+ *  ``not_usable`` surfaces as a warning chip; non-DEA-able
+ *  experiments (Sample Study, no within-level replicates, …) are
+ *  legitimately curated via TGEMO experiment tags, so this is
+ *  advisory and never blocks acceptance. */
+function deaUsabilityChipFor(
+  verdict: string,
+): { label: string; tone: "warn" } | null {
+  if (verdict.startsWith("usable")) return null;
+  if (verdict.startsWith("not_usable"))
+    return { label: "Not DEA-usable", tone: "warn" };
   return null;
 }
 
@@ -560,6 +588,7 @@ export function ProposalCardV2({
   proposal,
   reviewer,
   triggerProposal,
+  proposeStream,
 }: {
   proposal: Proposal;
   reviewer: string;
@@ -572,8 +601,18 @@ export function ProposalCardV2({
    * also means the sidebar's "+ propose" spinner reflects an
    * in-flight redo and vice versa — one pending state per
    * experiment.
+   *
+   * Kept around for the in-flight gating reads (``isPending``);
+   * the redo flow itself now drives the SSE-streaming endpoint
+   * via ``proposeStream`` below so the curator sees live progress
+   * instead of staring at the previous run's terminal events.
    */
   triggerProposal: ReturnType<typeof useTriggerProposal>;
+  /** Same SSE-driven hook the sidebar's ``+ propose`` button uses.
+   *  Redo with notes calls ``start`` here so the progress panel
+   *  resets and reflects the redo run. Owned by the parent for
+   *  the same lifecycle reason as ``triggerProposal``. */
+  proposeStream: ReturnType<typeof useProposeStream>;
 }) {
   const review = useReviewProposal(proposal.experiment_id);
   const { saved, draft, apply } = useDesignDraft();
@@ -638,6 +677,11 @@ export function ProposalCardV2({
   // guidance just burns LLM credits and produces the same proposal).
   const [redoConfirm, setRedoConfirm] = useState(false);
   useEscape(redoConfirm, () => setRedoConfirm(false));
+  // True while either propose path is in flight: the legacy
+  // synchronous mutation (still on the prop for compat) or the
+  // SSE-driven stream the redo flow now uses.
+  const redoInFlight =
+    triggerProposal.isPending || proposeStream.status === "running";
   // Model tier the retry runs on. Defaults to "standard" (matches
   // the proposer service's design-proposer default); curator can
   // bump to "strong" for a tougher experiment.
@@ -1093,52 +1137,43 @@ export function ProposalCardV2({
       return;
     }
 
-    triggerProposal.mutate(
-      {
-        accession: String(proposal.experiment_id),
-        // ``fresh_skeleton: true`` matches the sidebar "+ propose"
-        // button — without it the proposer silently skips when the
-        // experiment has any curated factors in its Design.
-        // ``refresh_cache: true`` so the new run doesn't replay the
-        // cached output of the proposal we just retired.
-        // ``tier`` (not ``model``) — the proposer service resolves
-        // tier → provider model id server-side, so the UI never
-        // ships a provider-specific id over the wire on this path.
-        body: {
-          fresh_skeleton: true,
-          refresh_cache: true,
-          tier: retryTier,
-        },
-      },
-      {
-        onSuccess: () => {
-          const tierBlurb =
-            retryTier === DEFAULT_MODEL_TIER
-              ? ""
-              : ` (${MODEL_TIERS[retryTier].label} model)`;
-          toast.show(
-            feedback.trim()
-              ? `Redo started${tierBlurb}. Notes logged for prompt-tuning; the new run uses a fresh cache. (Notes don't yet shape the new prompt — coming when /retry lands.)`
-              : `Redo started${tierBlurb}. The new run uses a fresh cache.`,
-            "info",
-            6000,
-          );
-        },
-        onError: (err) => {
-          if (err instanceof ApiError && err.status === 409) {
-            toast.show(
-              "A propose call is already in flight for this experiment.",
-              "info",
-            );
-            return;
-          }
-          toast.show(
-            `Redo trigger failed: ${(err as Error).message}`,
-            "error",
-            8000,
-          );
-        },
-      },
+    // Drive the SSE stream so the progress panel resets and reflects
+    // *this* run rather than the original propose's terminal events.
+    // Previously this fired the synchronous ``triggerProposal.mutate``;
+    // the curator stared at "agent done 100%" stamped with the
+    // just-rejected proposal_id for the 30-90s the redo took, which
+    // looked like a stale cache hit.
+    //
+    // Body fields:
+    //   - ``fresh_skeleton: true`` matches the sidebar "+ propose"
+    //     button — without it the proposer silently skips when the
+    //     experiment has any curated factors in its Design.
+    //   - ``refresh_cache: true`` so the new run doesn't replay the
+    //     cached output of the proposal we just retired.
+    //   - ``tier`` (not ``model``) — the proposer service resolves
+    //     tier → provider model id server-side.
+    //   - ``prior_feedback`` threads the curator's note into the
+    //     design-proposer prompt (``## Curator feedback from
+    //     previous attempt`` block ahead of the candidate-factors
+    //     hint). See ``REDO_WITH_NOTES_HANDOFF.md``. Trimmed empty
+    //     → null so the agent doesn't get an empty feedback block.
+    const trimmedFeedback = feedback.trim();
+    proposeStream.start(String(proposal.experiment_id), {
+      fresh_skeleton: true,
+      refresh_cache: true,
+      tier: retryTier,
+      prior_feedback: trimmedFeedback || null,
+    });
+    const tierBlurb =
+      retryTier === DEFAULT_MODEL_TIER
+        ? ""
+        : ` (${MODEL_TIERS[retryTier].label} model)`;
+    toast.show(
+      trimmedFeedback
+        ? `Redo started${tierBlurb}. Notes wired into the new run; fresh cache.`
+        : `Redo started${tierBlurb}. The new run uses a fresh cache.`,
+      "info",
+      6000,
     );
   }
 
@@ -1265,10 +1300,12 @@ export function ProposalCardV2({
         const dv = routed.triage.S1_design_verdict;
         const sv = routed.triage.S1_split_verdict;
         const subv = routed.triage.S1_subset_verdict;
+        const deav = routed.triage.S8_dea_usability;
         const dChip = dv ? designChipFor(dv.verdict) : null;
         const sChip = sv ? splitChipFor(sv.verdict) : null;
         const subChip = subv ? subsetChipFor(subv.verdict) : null;
-        if (!dChip && !sChip && !subChip) return null;
+        const deaChip = deav ? deaUsabilityChipFor(deav.verdict) : null;
+        if (!dChip && !sChip && !subChip && !deaChip) return null;
         const titleFor = (d: SubtaskDecision) => {
           const { level, kind, clean } = extractLevel(d.verdict);
           const conf = level ? ` — ${LEVEL_KIND_LABEL[kind]}: ${level}` : "";
@@ -1299,6 +1336,13 @@ export function ProposalCardV2({
                 label={subChip.label}
                 tone={subChip.tone}
                 title={titleFor(subv)}
+              />
+            )}
+            {deaChip && deav && (
+              <TriageBadge
+                label={deaChip.label}
+                tone={deaChip.tone}
+                title={titleFor(deav)}
               />
             )}
           </div>
@@ -1847,17 +1891,17 @@ export function ProposalCardV2({
       <div className="px-3 py-2 flex items-center gap-1 justify-end flex-nowrap">
         <button
           className="btn warn text-xs"
-          disabled={review.isPending || triggerProposal.isPending}
+          disabled={review.isPending || redoInFlight}
           onClick={() => setRedoConfirm(true)}
           title={
-            triggerProposal.isPending
+            redoInFlight
               ? "a redo is already in flight — wait for the new proposal to land"
               : feedback.trim()
                 ? "Open redo confirmation. Marks this proposal needs_changes and starts a fresh agent run. Notes are logged on the retired proposal."
                 : "Open redo confirmation. With no notes the agent re-runs on the same prompts — the modal will warn before burning LLM credits."
           }
         >
-          {triggerProposal.isPending ? (
+          {redoInFlight ? (
             <span className="inline-flex items-center gap-1">
               <Spinner size={10} />
               redoing…
@@ -1955,11 +1999,11 @@ export function ProposalCardV2({
                   <p className="text-[11px] text-slate-500">
                     The current proposal will be marked{" "}
                     <span className="font-medium">needs changes</span>{" "}
-                    and a fresh proposer run will start. The new run
-                    uses a fresh cache but doesn't yet read these
-                    notes — they're logged on the retired proposal
-                    for prompt-tuning until the dedicated retry
-                    endpoint lands.
+                    and a fresh proposer run will start. Your notes
+                    are threaded into the design-proposer prompt as
+                    a curator-feedback block, and also logged on the
+                    retired proposal for prompt-tuning. The new run
+                    uses a fresh cache.
                   </p>
                 </>
               ) : (
@@ -1967,9 +2011,10 @@ export function ProposalCardV2({
                   <div className="bg-rose-50 border border-rose-200 rounded px-2 py-1.5 text-xs text-rose-800">
                     <span className="font-semibold">No notes attached.</span>{" "}
                     The agent will re-run on the same skeleton with
-                    the same prompts (notes don't yet shape the new
-                    run) — likely a similar proposal, just slower
-                    and pricier than reusing the cached one.
+                    the default prompt — without a curator-feedback
+                    block to nudge it, likely a similar proposal,
+                    just slower and pricier than reusing the cached
+                    one.
                   </div>
                   <p className="text-[11px] text-slate-500">
                     Cancel and add a hint in the Feedback box, or
@@ -2058,11 +2103,11 @@ export function ProposalCardV2({
                   setRedoConfirm(false);
                   void redoWithNotes();
                 }}
-                disabled={review.isPending || triggerProposal.isPending}
+                disabled={review.isPending || redoInFlight}
               >
                 {review.isPending
                   ? "saving…"
-                  : triggerProposal.isPending
+                  : redoInFlight
                     ? "starting redo…"
                     : feedback.trim()
                       ? "redo with these notes"
@@ -2354,6 +2399,32 @@ function humanizeDecision(d: SubtaskDecision): {
         answerKind: "info",
         rationale,
       };
+    case "S5_continuous_populator": {
+      // Verdict shapes:
+      //   "continuous factor 'age'; populated from characteristic 'age': 35 distinct value(s) across 41 sample(s)"
+      //   "NOT POPULATED: <reason>"
+      const notPopulated = verdict.startsWith("NOT POPULATED");
+      return {
+        question: "Continuous factor populated?",
+        answer: notPopulated ? "No" : "Yes",
+        answerKind: notPopulated ? "no" : "yes",
+        rationale: notPopulated
+          ? verdict.replace(/^NOT POPULATED:\s*/i, "").trim()
+          : verdict,
+      };
+    }
+    case "S8_dea_usability": {
+      // Verdict starts with "usable:" or "not_usable:" then names
+      // the supporting / unsupporting factors. Informational —
+      // never blocks acceptance.
+      const notUsable = head.startsWith("not_usable");
+      return {
+        question: "Suitable for DEA?",
+        answer: notUsable ? "No" : "Yes",
+        answerKind: notUsable ? "no" : "yes",
+        rationale: verdict.replace(/^(not_)?usable:\s*/i, "").trim(),
+      };
+    }
     case "S10_term_validator":
       return {
         question: "Term valid in Gemma?",
@@ -2443,9 +2514,13 @@ function DecisionsTab({ proposal }: { proposal: Proposal }) {
                 ? "Forbidden EFCs"
                 : k === "S3"
                   ? "Factor candidates"
-                  : k === "S10"
-                    ? "Term validation"
-                    : k}
+                  : k === "S5"
+                    ? "Continuous-factor population"
+                    : k === "S8"
+                      ? "DEA usability"
+                      : k === "S10"
+                        ? "Term validation"
+                        : k}
           </div>
           <ul className="space-y-1.5">
             {groups.get(k)!.map((d, i) => {

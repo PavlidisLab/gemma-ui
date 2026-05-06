@@ -75,6 +75,14 @@ export interface TriggerProposalBody {
   allow_overwrite?: boolean;
   use_cache?: boolean;
   refresh_cache?: boolean;
+  /** Curator's free-text override from the redo-with-notes flow.
+   *  When set, the design-proposer prompt grows a
+   *  ``## Curator feedback from previous attempt`` block ahead of
+   *  the candidate-factors hint, instructing the model to treat
+   *  the feedback as a strong override. Backwards compatible —
+   *  agents predating the field ignore it. See
+   *  ``REDO_WITH_NOTES_HANDOFF.md``. */
+  prior_feedback?: string | null;
 }
 
 /**

@@ -246,7 +246,8 @@ event taxonomy, dispositions schema) couples them.
 
 | UI version | Tested against agent version |
 |---|---|
-| **v0.3.0 (current)** | **v0.2.0** |
+| **v0.4.0 (current)** | **v0.3.0** |
+| v0.3.0 | v0.2.0 |
 | v0.2.0 | v0.1.0 |
 | v0.1.0 | v0.1.0 |
 

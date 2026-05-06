@@ -296,10 +296,20 @@ function Shell({
   // ProposalSummaryCard above the pending list so the sidebar
   // doesn't go from full v2 card straight to "no proposals" the
   // moment the curator accepts. Mirrors the closed-audit summary
-  // treatment. Server already orders by submitted_at desc; first
-  // non-pending wins.
-  const recentClosed =
-    (data?.items ?? []).find((p) => p.status !== "pending") ?? null;
+  // treatment. Server's list endpoint orders ``submitted_at`` ASC
+  // (storage.py ``list_for_experiment``), so we walk from the end
+  // to pick the most recent non-pending. ``findLast`` is the
+  // semantic fit; previous code used ``find`` and surfaced the
+  // *oldest* rejected proposal once a curator had rejected more
+  // than one (the original would persist on top forever).
+  const items = data?.items ?? [];
+  let recentClosed: Proposal | null = null;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].status !== "pending") {
+      recentClosed = items[i];
+      break;
+    }
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -821,6 +831,7 @@ function MainGrid({
                   proposal={p}
                   reviewer={reviewer}
                   triggerProposal={triggerProposal}
+                  proposeStream={proposeStream}
                 />
               ))}
             </>
