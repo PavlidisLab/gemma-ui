@@ -1600,35 +1600,28 @@ export function ProposalCardV2({
                             ★ baseline
                           </Pill>
                         ) : null}
-                        {/* Statement-structure indicator. An FV is a
-                            list of (subject, predicate, object)
-                            triples; multi-statement FVs (e.g. "ULK1
-                            and ULK2 double knockout" → two
-                            ``has_genotype: knockout`` statements)
-                            were invisible from the FV label alone.
-                            Show a compact ``·N stmt`` badge when
-                            there's more than one. The ``title``
-                            spells out each subject so curators get
-                            a hover summary; the Decisions tab and
-                            Design view carry the full triples for
-                            anyone who wants the structure. */}
-                        {fv.statements.length > 1 ? (
-                          <span
-                            className="text-slate-500 text-[10px] ml-1 italic"
-                            title={fv.statements
-                              .map((s, idx) => `${idx + 1}. ${s.subject?.label || "?"}`)
-                              .join("\n")}
-                          >
-                            ·{fv.statements.length} stmts
-                          </span>
-                        ) : null}
+                        {/* Statement-structure glyph: three discs
+                            joined by short lines, one per
+                            (subject, predicate, object). Disc
+                            colour names whether each part is
+                            URI-mapped (emerald) or free-text
+                            (slate). For multi-statement FVs the
+                            first triple shows + an ``×N`` count;
+                            full triples live in the hover title. */}
+                        <StatementGlyph statements={fv.statements} />
                         {/* Per-FV decision chips. S10 term-validator
-                            findings render in amber; S6 baseline
-                            picker renders alongside the baseline pill
+                            findings render in amber; ``free-text``
+                            findings are filtered out — the glyph
+                            above already conveys "subject /
+                            predicate / object is unmapped" via disc
+                            colour. ``not-in-index`` and ``novel``
+                            stay (different signal: term has a URI
+                            but Gemma's annotation index doesn't
+                            recognise it). S6 baseline picker
+                            renders alongside the baseline pill
                             (already covered by ``is_baseline``).
-                            Duplicate findings (one per statement on a
-                            multi-statement FV) collapse into a single
-                            chip with a ``×N`` count. */}
+                            Duplicate findings collapse into a
+                            single chip with a ``×N`` count. */}
                         {aggregateFvChips(
                           fvDecisions
                             .concat(fvSubDecisions)
@@ -2803,10 +2796,12 @@ function chipLabelFor(d: SubtaskDecision): string {
 
 /** Bucket per-FV decision chips so duplicate findings collapse into
  *  one chip with a ``×N`` count. Without this, an FV with two
- *  statements that both fail term validation renders two identical
- *  ``⚠ free-text`` chips next to each other (the ULK1 + ULK2
- *  double-knockout case). One chip plus a count is more scannable
- *  and frees space for a separate statement-structure indicator. */
+ *  statements that both fail the same term-validator check renders
+ *  two identical chips next to each other. One chip plus a count
+ *  is more scannable. ``free-text`` findings are excluded from this
+ *  bucket entirely — the ``StatementGlyph`` to the left of these
+ *  chips already conveys "subject / predicate / object is unmapped"
+ *  via disc colour, so the textual chip would be redundant noise. */
 function aggregateFvChips(
   decisions: SubtaskDecision[],
 ): { label: string; count: number; titles: string[] }[] {
@@ -2816,6 +2811,7 @@ function aggregateFvChips(
   >();
   for (const d of decisions) {
     const label = chipLabelFor(d);
+    if (label === "free-text") continue;
     const existing = buckets.get(label);
     if (existing) {
       existing.count++;
@@ -2825,4 +2821,84 @@ function aggregateFvChips(
     }
   }
   return [...buckets.values()];
+}
+
+/** Compact graphical view of an FV's underlying statement(s). Each
+ *  statement is a (subject, predicate, object) triple rendered as
+ *  three small discs joined by short lines:
+ *
+ *    ●━━●━━●     (all three URI-mapped)
+ *    ○━━●━━●     (free-text subject, mapped predicate + object)
+ *
+ *  Green disc = the term has an ontology URI; grey = free-text.
+ *  Missing predicate / object render as faint outline rings.
+ *
+ *  Curators kept reading single-line FV labels like "ATG9A knockout"
+ *  as if the whole FV were one free-text blob, missing that it's
+ *  actually a structured ``has_genotype: knockout`` statement.
+ *  The glyph names the structure without crowding the row; the full
+ *  triple text lives in the hover title. Multi-statement FVs render
+ *  the first triple plus an ``×N`` count — title spells out each.
+ */
+function StatementGlyph({
+  statements,
+}: {
+  statements: { subject?: { label?: string; uri?: string | null } | null; predicate?: { label?: string; uri?: string | null } | null; object?: { label?: string; uri?: string | null } | null }[];
+}) {
+  if (!statements || statements.length === 0) return null;
+  const first = statements[0];
+
+  const dotFill = (
+    term: { uri?: string | null } | null | undefined,
+  ): { fill: string; stroke: string } => {
+    if (!term) return { fill: "transparent", stroke: "rgb(203 213 225)" }; // slate-300 ring
+    return term.uri
+      ? { fill: "rgb(16 185 129)", stroke: "rgb(5 150 105)" }   // emerald
+      : { fill: "rgb(203 213 225)", stroke: "rgb(148 163 184)" }; // slate
+  };
+
+  const formatTerm = (
+    role: string,
+    term: { label?: string; uri?: string | null } | null | undefined,
+  ): string => {
+    if (!term) return `${role}: —`;
+    const ft = term.uri ? "" : " (free-text)";
+    return `${role}: ${term.label || "—"}${ft}`;
+  };
+
+  const title = statements
+    .map((s, idx) => {
+      const parts = [
+        formatTerm("S", s.subject),
+        formatTerm("P", s.predicate),
+        formatTerm("O", s.object),
+      ].join("  ");
+      return statements.length > 1 ? `${idx + 1}. ${parts}` : parts;
+    })
+    .join("\n");
+
+  const sDot = dotFill(first.subject);
+  const pDot = dotFill(first.predicate);
+  const oDot = dotFill(first.object);
+
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center gap-0.5 ml-1 align-middle cursor-help"
+      aria-label={`statement structure: ${title}`}
+    >
+      <svg width="34" height="10" viewBox="0 0 34 10" role="img">
+        <line x1="4" y1="5" x2="13" y2="5" stroke="rgb(148 163 184)" strokeWidth="1" />
+        <line x1="21" y1="5" x2="30" y2="5" stroke="rgb(148 163 184)" strokeWidth="1" />
+        <circle cx="4" cy="5" r="2.5" fill={sDot.fill} stroke={sDot.stroke} strokeWidth="1" />
+        <circle cx="17" cy="5" r="2.5" fill={pDot.fill} stroke={pDot.stroke} strokeWidth="1" />
+        <circle cx="30" cy="5" r="2.5" fill={oDot.fill} stroke={oDot.stroke} strokeWidth="1" />
+      </svg>
+      {statements.length > 1 ? (
+        <span className="text-[10px] text-slate-500 leading-none">
+          ×{statements.length}
+        </span>
+      ) : null}
+    </span>
+  );
 }
