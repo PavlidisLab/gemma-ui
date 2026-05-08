@@ -99,70 +99,13 @@ want to build.
 
 ## Current open handoff
 
-**Continuous-factor proposer support** — see
-[CONTINUOUS_FACTORS_HANDOFF.md](./CONTINUOUS_FACTORS_HANDOFF.md). UI
-side landed 2026-05-05: `factor_type` / `numeric_value` on TS
-mirrors, `applyProposalToDesign` threads them into the draft (was
-hardcoding `"categorical"`), `ContinuousFactorView` prefers
-`numeric_value` over parsing `free_text_label`, Decisions tab
-renders `S5_continuous_populator` + `S8_dea_usability`, and the
-"Not DEA-usable" warning chip rides the Triage strip. Backwards-
-compatible — no matrix bump.
-
-**Reset should drop proposals** — see
-[RESET_DROP_PROPOSALS_HANDOFF.md](./RESET_DROP_PROPOSALS_HANDOFF.md).
-Filed for my brother. `strip_curation` clears factors / curator tags
-but leaves the `CurationProposal` rows attached, so the proposal
-sidebar persists "accepted" history through reset. Once dropped
-agent-side, UI follow-up: extend `useImportFromGemma` `onSuccess`
-to invalidate `["proposals"]`.
-
-**Proposal accept/reject should emit audit events** — see
-[PROPOSAL_AUDIT_EVENT_HANDOFF.md](./PROPOSAL_AUDIT_EVENT_HANDOFF.md).
-Filed for my brother. `apply_feedback` updates the proposal +
-`feedback_log` but never calls `append_audit_event`, so the
-History tab is empty after an accept/reject and the
-`ProposalSummaryCard` "full details" link lands on a blank
-History. Asks for `ProposalAccepted/Rejected/NeedsChangesEvent`
-with `body_json = proposal.model_dump_json()`; UI follow-up
-extends `EventTypeBadge` + `HistoryPanel` to render them.
-
-**`strip_curation` should key on evidence code** — see
-[STRIP_CURATION_BY_EVIDENCE_CODE_HANDOFF.md](./STRIP_CURATION_BY_EVIDENCE_CODE_HANDOFF.md).
-Filed for my brother. `_is_curator_artifact` strips every
-non-inferred tag, but Gemma reports both curator-asserted *and*
-auto-attached experiment-level tags (`bulk RNA-seq`, taxon, etc.)
-as `inferred=False`. The right discriminator is
-`evidence_code == "IC"`. Until fixed, Reset wipes Gemma's auto
-tags and breaks modality detection on the post-strip skeleton.
-
-**Per-factor baseline relevance** — see
-[BASELINE_RELEVANCE_HANDOFF.md](./BASELINE_RELEVANCE_HANDOFF.md).
-Filed for my brother. UI's baseline-required logic is a static
-category list (`NO_BASELINE_CATEGORIES`); a per-experiment refine
-would have the proposer emit `baseline_relevance: "required" |
-"not_applicable" | "uncertain"` per factor, keyed off
-`S1_subset_verdict` axis + S6 baseline-picker outcome. UI follow-
-up renders a *tiny flag* (not the loud banner) for the `uncertain`
-case so curators notice without being yelled at. Default
-`"required"` keeps backwards compat with older agents.
-
-**Redo with notes** — see
-[REDO_WITH_NOTES_HANDOFF.md](./REDO_WITH_NOTES_HANDOFF.md). Done both
-sides as of 2026-05-06. Agent now reads `prior_feedback` and threads
-it into the design-proposer prompt; UI sends it on the redo body.
-Same session also rewired the redo POST from synchronous to
-SSE-streaming (`proposeStream.start`) so the progress panel resets
-and reflects the redo run instead of the original propose's
-terminal events; and fixed `recentClosed` in `App.tsx` (was using
-`Array.find` against an ASC list, surfacing the *oldest* non-pending
-proposal).
-
-**Audit dispositions feedback loop** — see
-[AUDIT_DISPOSITIONS.md](./AUDIT_DISPOSITIONS.md). All 6 asks are
-done on both sides (UI + agent) as of 2026-05-01. The dispositions
-report at `scripts/eval_analysis/audit_dispositions.py` lights up
-once curators start finalizing audits.
+No active cross-repo handoffs. Recently-closed work (UI + agent
+both shipped, docs deleted from the repo root) covered: audit
+dispositions feedback loop, continuous-factor proposer support,
+redo-with-notes (agent reads `prior_feedback`; UI redo POST on
+SSE), reset drops proposals, proposal accept/reject emits audit
+events, `strip_curation` keys on evidence code, per-factor
+`baseline_relevance` hint with soft-flag UI rendering.
 
 **Still deferred:**
 - `AuditDetailPage` / `AuditReportView` cross-experiment refactor
@@ -178,6 +121,12 @@ once curators start finalizing audits.
 - Prominent "no within-level replication" warning chip + audit-
   pathway scan for replication-rule violations on already-curated
   experiments (continuous-factor open questions, agents-side ask).
+- `body_json` (or at least `proposal_id`) on the `auditEvents` GET
+  response so `ProposalSummaryCard` "full details ↗" can deep-link
+  to the matching event row in History (today the link lands the
+  curator on the History tab and the event is at-or-near the top
+  of the list, but no auto-expand / scroll-to). Small agent-side
+  add when the audit-event API surface gets its next pass.
 
 **Next product area:** experiment workflow management — see
 [`WORKFLOW_MANAGEMENT.md`](./WORKFLOW_MANAGEMENT.md).

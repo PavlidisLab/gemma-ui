@@ -184,6 +184,13 @@ function EventTypeBadge({ type, action }: { type: string; action: string }) {
   // Subclass name → friendly label + colour. Maps the Gemma audit-
   // event subclasses we currently emit; falls back to the raw
   // prettified class name for any we haven't styled yet.
+  //
+  // Proposal-event triplet
+  // (Proposal{Accepted,Rejected,NeedsChanges}Event) lands here when
+  // the curator reviews an agent proposal. Mock-side ``apply_feedback``
+  // emits one per terminal review; production Gemma's audit pipeline
+  // will fold the same event types in once the agents-side ``write
+  // back to Gemma`` path goes live (see PROPOSAL_AUDIT_EVENT_HANDOFF.md).
   const config: { label: string; cls: string } =
     type === "ExperimentalDesignUpdatedEvent"
       ? { label: action === "C" ? "design created" : "design updated", cls: "bg-blue-100 text-blue-800" }
@@ -201,7 +208,13 @@ function EventTypeBadge({ type, action }: { type: string; action: string }) {
                   ? { label: "trouble cleared", cls: "bg-slate-100 text-slate-700" }
                   : type === "TagsUpdatedEvent"
                     ? { label: "tags updated", cls: "bg-emerald-100 text-emerald-800" }
-                    : { label: prettifyClassName(type), cls: "bg-slate-100 text-slate-700" };
+                    : type === "ProposalAcceptedEvent"
+                      ? { label: "proposal accepted", cls: "bg-emerald-100 text-emerald-800" }
+                      : type === "ProposalRejectedEvent"
+                        ? { label: "proposal rejected", cls: "bg-slate-200 text-slate-800" }
+                        : type === "ProposalNeedsChangesEvent"
+                          ? { label: "proposal needs changes", cls: "bg-amber-100 text-amber-900" }
+                          : { label: prettifyClassName(type), cls: "bg-slate-100 text-slate-700" };
   return (
     <span
       className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded ${config.cls}`}

@@ -147,6 +147,13 @@ export function useImportFromGemma() {
       qc.invalidateQueries({ queryKey: KEY });
       qc.invalidateQueries({ queryKey: ["design", design.experiment_id] });
       qc.invalidateQueries({ queryKey: ["audit-events", design.experiment_id] });
+      // strip_curation now drops proposals server-side (agents'
+      // ``delete_for_experiment`` chained from ``import_from_gemma``).
+      // Invalidate the proposals queries so the sidebar repaints
+      // empty rather than showing the just-stripped proposal as
+      // accepted/rejected from a stale cache. Broad ``["proposals"]``
+      // covers both per-experiment and cross-experiment listings.
+      qc.invalidateQueries({ queryKey: ["proposals"] });
     },
   });
 }

@@ -51,12 +51,25 @@ export interface FactorValue {
 
 export type FactorType = "categorical" | "continuous";
 
+export type BaselineRelevance =
+  | "required"
+  | "not_applicable"
+  | "uncertain";
+
 export interface Factor {
   id: number;
   name: string;
   category: OntologyTerm;
   description: string;
   type: FactorType;
+  /** Optional. Mirrors ``FactorProposal.baseline_relevance``;
+   *  threaded through ``applyProposalToDesign`` from accepted
+   *  proposals. When unset the validator falls back to the static
+   *  ``NO_BASELINE_CATEGORIES`` list — same behaviour as before
+   *  this field landed, so curator-added factors and pre-baseline-
+   *  relevance proposals still work. */
+  baseline_relevance?: BaselineRelevance;
+  baseline_relevance_reason?: string;
   factor_values: FactorValue[];
 }
 
@@ -242,6 +255,12 @@ export function factorRequiresBaseline(
   // OntologyTerm has ``label`` / ``uri`` but no ``type``; passing
   // one falls through to the category-only path.
   if ("type" in factorOrCategory) {
+    // Per-factor agent hint wins when the proposer explicitly
+    // marked the factor. ``"not_applicable"`` and ``"uncertain"``
+    // both suppress the loud warning — the latter surfaces as a
+    // separate soft flag the UI renders elsewhere.
+    const rel = factorOrCategory.baseline_relevance;
+    if (rel === "not_applicable" || rel === "uncertain") return false;
     if (factorOrCategory.type === "continuous") return false;
     const k = (factorOrCategory.category?.label || "").trim().toLowerCase();
     return !NO_BASELINE_CATEGORIES.has(k);
@@ -281,6 +300,15 @@ export interface FactorValidationState {
    *  PrePublishChecklist read this field instead of
    *  ``baseline_required`` and let those flow through. */
   baseline_blocks_commit: boolean;
+  /** True when the proposer marked this factor's baseline as
+   *  ``"uncertain"`` and no baseline has been picked. Drives the
+   *  *soft* flag (small inline chip on the factor row) — distinct
+   *  from the loud ValidatorBanner warning. The reason string
+   *  rides alongside so the chip's hover shows the agent's
+   *  rationale. False for ``required`` factors (those use the
+   *  loud warning) and ``not_applicable`` factors (no signal). */
+  baseline_uncertain: boolean;
+  baseline_uncertain_reason: string;
   unassigned_biomaterials: string[];
   duplicate_assignments: string[]; // biomaterials assigned to >1 FV in this factor
   unknown_predicates: number;
@@ -439,11 +467,17 @@ export function validateDesign(design: Design): DesignValidationState {
       .filter(([, n]) => n > 1)
       .map(([sn]) => sn)
       .sort();
+    const uncertain =
+      f.baseline_relevance === "uncertain" && baselineCount === 0;
     return {
       factor_id: f.id,
       baseline_count: baselineCount,
       baseline_required: factorRequiresBaseline(f),
       baseline_blocks_commit: factorBaselineBlocksCommit(f),
+      baseline_uncertain: uncertain,
+      baseline_uncertain_reason: uncertain
+        ? f.baseline_relevance_reason || ""
+        : "",
       unassigned_biomaterials: unassigned,
       duplicate_assignments: duplicates,
       unknown_predicates: unknownPredicates,

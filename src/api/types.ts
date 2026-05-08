@@ -81,6 +81,21 @@ export interface FactorProposal {
    *  proposals submitted before the field landed. Same string set as
    *  the design-side ``Factor.type`` so the two line up on accept. */
   factor_type?: "categorical" | "continuous";
+  /** Per-factor baseline-relevance hint set by the proposer's S6
+   *  baseline picker:
+   *    - ``"required"`` (default) — a baseline FV is expected; UI
+   *      surfaces the existing loud warning + commit gate when it's
+   *      missing.
+   *    - ``"not_applicable"`` — no baseline by structure (subset
+   *      axis, continuous factor, panel category, single-level
+   *      factor). UI suppresses both warning and gate.
+   *    - ``"uncertain"`` — picker found no canonical reference but
+   *      didn't rule it out. UI surfaces a *soft* flag (small inline
+   *      chip on the factor row) rather than the loud banner. */
+  baseline_relevance?: "required" | "not_applicable" | "uncertain";
+  /** One-line agent rationale shown on hover next to the soft flag
+   *  / banner bullet. Empty string when the picker didn't emit one. */
+  baseline_relevance_reason?: string;
   factor_values: FactorValueProposal[];
 }
 

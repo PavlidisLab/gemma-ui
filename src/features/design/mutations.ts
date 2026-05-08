@@ -726,6 +726,8 @@ export function applyProposalToDesign(
     category: { label: string; uri?: string | null };
     name_in_design: string;
     factor_type?: "categorical" | "continuous";
+    baseline_relevance?: "required" | "not_applicable" | "uncertain";
+    baseline_relevance_reason?: string;
     factor_values: {
       free_text_label: string;
       is_baseline: boolean;
@@ -781,6 +783,8 @@ export function applyProposalToDesign(
       category: { label: p.category.label, uri: p.category.uri ?? null },
       description: "",
       type: p.factor_type === "continuous" ? "continuous" : "categorical",
+      baseline_relevance: p.baseline_relevance,
+      baseline_relevance_reason: p.baseline_relevance_reason,
       factor_values: p.factor_values.map((fv) => ({
         id: nextFvId++,
         free_text_label: fv.free_text_label,

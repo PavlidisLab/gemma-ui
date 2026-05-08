@@ -18,17 +18,33 @@ export function ValidatorBanner({
   /** Optional jump-to-factor handler. When omitted, rows render as plain text. */
   onSelectFactor?: (factorId: number) => void;
 }) {
+  // Soft signals from the proposer — uncertain-baseline factors,
+  // for now. Rendered separately from the amber warnings list with
+  // a slate (not amber) tone so they read as "consider this" rather
+  // than "fix this." Empty for designs without per-factor agent
+  // hints (curator-built factors, pre-baseline-relevance proposals).
+  const softFactors = state.factors.filter((s) => s.baseline_uncertain);
+
   if (state.ok) {
     return (
       <div className="card border-emerald-200 bg-emerald-50/40">
-        <div className="px-3 py-2 flex items-center gap-3 text-xs text-emerald-900 flex-wrap">
-          <span className="font-semibold">✓ design valid</span>
-          {state.factors.map((s) => (
-            <span key={s.factor_id}>
-              {nameOf(design, s.factor_id)}: 1 baseline · all{" "}
-              {design.biomaterials.length} samples assigned
-            </span>
-          ))}
+        <div className="px-3 py-2 text-xs text-emerald-900 space-y-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="font-semibold">✓ design valid</span>
+            {state.factors.map((s) => (
+              <span key={s.factor_id}>
+                {nameOf(design, s.factor_id)}: 1 baseline · all{" "}
+                {design.biomaterials.length} samples assigned
+              </span>
+            ))}
+          </div>
+          {softFactors.length > 0 ? (
+            <SoftFactorNotes
+              softFactors={softFactors}
+              design={design}
+              onSelectFactor={onSelectFactor}
+            />
+          ) : null}
         </div>
       </div>
     );
@@ -72,46 +88,117 @@ export function ValidatorBanner({
   }
   return (
     <div className="card border-amber-200 bg-amber-50/40">
-      <div className="px-3 py-2 text-xs text-amber-900">
-        <div className="font-semibold mb-1">⚠ design has warnings</div>
-        <ul className="space-y-0.5 list-disc list-inside">
-          {groups.map((g, i) => (
-            <li key={i}>
-              {g.factorIds.map((fid, idx) => {
-                const { label, missing } = displayNameOf(design, fid);
-                const labelEl = (
-                  <span
-                    className={
-                      missing ? "italic text-amber-900/70" : "font-medium"
-                    }
-                  >
-                    {label}
-                  </span>
-                );
-                const node = onSelectFactor ? (
-                  <button
-                    type="button"
-                    onClick={() => onSelectFactor(fid)}
-                    className="text-left hover:text-amber-950 hover:underline underline-offset-2"
-                    title="Jump to this factor"
-                  >
-                    {labelEl}
-                  </button>
-                ) : (
-                  labelEl
-                );
-                return (
-                  <span key={fid}>
-                    {idx > 0 ? ", " : null}
-                    {node}
-                  </span>
-                );
-              })}
-              : {g.warnings.join("; ")}
-            </li>
-          ))}
-        </ul>
+      <div className="px-3 py-2 text-xs text-amber-900 space-y-1">
+        <div>
+          <div className="font-semibold mb-1">⚠ design has warnings</div>
+          <ul className="space-y-0.5 list-disc list-inside">
+            {groups.map((g, i) => (
+              <li key={i}>
+                {g.factorIds.map((fid, idx) => {
+                  const { label, missing } = displayNameOf(design, fid);
+                  const labelEl = (
+                    <span
+                      className={
+                        missing ? "italic text-amber-900/70" : "font-medium"
+                      }
+                    >
+                      {label}
+                    </span>
+                  );
+                  const node = onSelectFactor ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectFactor(fid)}
+                      className="text-left hover:text-amber-950 hover:underline underline-offset-2"
+                      title="Jump to this factor"
+                    >
+                      {labelEl}
+                    </button>
+                  ) : (
+                    labelEl
+                  );
+                  return (
+                    <span key={fid}>
+                      {idx > 0 ? ", " : null}
+                      {node}
+                    </span>
+                  );
+                })}
+                : {g.warnings.join("; ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+        {softFactors.length > 0 ? (
+          <SoftFactorNotes
+            softFactors={softFactors}
+            design={design}
+            onSelectFactor={onSelectFactor}
+          />
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+/** Slate-toned "agent flagged" subsection. Used for soft signals
+ *  the proposer emitted (uncertain-baseline factors, today) that
+ *  the curator should consider but that aren't blocking. Read as
+ *  "consider this" rather than "fix this" — explicitly distinct
+ *  from the amber warnings list. */
+function SoftFactorNotes({
+  softFactors,
+  design,
+  onSelectFactor,
+}: {
+  softFactors: DesignValidationState["factors"];
+  design: Design;
+  onSelectFactor?: (factorId: number) => void;
+}) {
+  return (
+    <div className="pt-1 mt-1 border-t border-slate-200/70 text-slate-600">
+      <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+        agent flagged
+      </div>
+      <ul className="space-y-0.5 list-disc list-inside">
+        {softFactors.map((s) => {
+          const { label, missing } = displayNameOf(design, s.factor_id);
+          const labelEl = (
+            <span
+              className={
+                missing
+                  ? "italic text-slate-500"
+                  : "font-medium text-slate-700"
+              }
+            >
+              {label}
+            </span>
+          );
+          const node = onSelectFactor ? (
+            <button
+              type="button"
+              onClick={() => onSelectFactor(s.factor_id)}
+              className="text-left hover:text-slate-900 hover:underline underline-offset-2"
+              title={s.baseline_uncertain_reason || "Jump to this factor"}
+            >
+              {labelEl}
+            </button>
+          ) : (
+            <span title={s.baseline_uncertain_reason}>{labelEl}</span>
+          );
+          return (
+            <li key={s.factor_id}>
+              {node}: baseline uncertain
+              {s.baseline_uncertain_reason ? (
+                <span className="text-slate-500 italic">
+                  {" "}
+                  — {s.baseline_uncertain_reason}
+                </span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

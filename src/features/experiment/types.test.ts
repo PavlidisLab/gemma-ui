@@ -113,6 +113,55 @@ describe("cell line is a no-baseline category", () => {
   });
 });
 
+describe("baseline_relevance per-factor agent hint", () => {
+  it("not_applicable suppresses both warning and block, regardless of category", () => {
+    const f = categoricalFactor(1, "treatment");
+    f.baseline_relevance = "not_applicable";
+    f.baseline_relevance_reason = "subset axis";
+    expect(factorRequiresBaseline(f)).toBe(false);
+    expect(factorBaselineBlocksCommit(f)).toBe(false);
+    const v = validateDesign(emptyDesign({ factors: [f] }));
+    expect(v.factors[0].baseline_uncertain).toBe(false);
+  });
+
+  it("uncertain suppresses the loud warning + block but flags soft", () => {
+    const f = categoricalFactor(1, "treatment");
+    f.baseline_relevance = "uncertain";
+    f.baseline_relevance_reason = "no canonical reference found";
+    expect(factorRequiresBaseline(f)).toBe(false);
+    expect(factorBaselineBlocksCommit(f)).toBe(false);
+    const v = validateDesign(emptyDesign({ factors: [f] }));
+    expect(v.factors[0].baseline_uncertain).toBe(true);
+    expect(v.factors[0].baseline_uncertain_reason).toBe(
+      "no canonical reference found",
+    );
+  });
+
+  it("uncertain stops flagging once the curator picks a baseline", () => {
+    const f = categoricalFactor(1, "treatment", [
+      fv(1, "wt", ["s1"], true),
+      fv(2, "drug", ["s2"]),
+    ]);
+    f.baseline_relevance = "uncertain";
+    const v = validateDesign(emptyDesign({ factors: [f] }));
+    expect(v.factors[0].baseline_uncertain).toBe(false);
+  });
+
+  it("required preserves existing behaviour", () => {
+    const f = categoricalFactor(1, "treatment");
+    f.baseline_relevance = "required";
+    expect(factorRequiresBaseline(f)).toBe(true);
+    expect(factorBaselineBlocksCommit(f)).toBe(true);
+  });
+
+  it("undefined relevance falls back to the category list", () => {
+    const f = categoricalFactor(1, "cell line");
+    expect(f.baseline_relevance).toBeUndefined();
+    expect(factorRequiresBaseline(f)).toBe(false); // cell line in NO_BASELINE
+    expect(factorBaselineBlocksCommit(f)).toBe(false);
+  });
+});
+
 describe("factorBaselineBlocksCommit — basic cases", () => {
   it("returns false for hard no-baseline categories", () => {
     expect(factorBaselineBlocksCommit(categoricalFactor(1, "block"))).toBe(false);
