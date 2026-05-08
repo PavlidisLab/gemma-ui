@@ -127,6 +127,15 @@ History. Asks for `ProposalAccepted/Rejected/NeedsChangesEvent`
 with `body_json = proposal.model_dump_json()`; UI follow-up
 extends `EventTypeBadge` + `HistoryPanel` to render them.
 
+**`strip_curation` should key on evidence code** — see
+[STRIP_CURATION_BY_EVIDENCE_CODE_HANDOFF.md](./STRIP_CURATION_BY_EVIDENCE_CODE_HANDOFF.md).
+Filed for my brother. `_is_curator_artifact` strips every
+non-inferred tag, but Gemma reports both curator-asserted *and*
+auto-attached experiment-level tags (`bulk RNA-seq`, taxon, etc.)
+as `inferred=False`. The right discriminator is
+`evidence_code == "IC"`. Until fixed, Reset wipes Gemma's auto
+tags and breaks modality detection on the post-strip skeleton.
+
 **Per-factor baseline relevance** — see
 [BASELINE_RELEVANCE_HANDOFF.md](./BASELINE_RELEVANCE_HANDOFF.md).
 Filed for my brother. UI's baseline-required logic is a static
