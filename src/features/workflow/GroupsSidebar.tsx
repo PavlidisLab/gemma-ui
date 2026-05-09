@@ -3,10 +3,11 @@
  * bucketed by type (screening / pipeline / review) with an "All
  * experiments" entry at the top. Includes a "+ New group" creator.
  */
-import { useCreateGroup, useGroups } from "@/api/workflow";
+import { useCreateGroup, useDeleteGroup, useGroups } from "@/api/workflow";
 import type { Group, GroupType } from "@/api/workflowTypes";
 import { workflowRoute, navigate } from "@/routes";
 import { useState } from "react";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 
 const TYPE_ORDER: GroupType[] = ["screening", "pipeline", "review"];
 
@@ -86,36 +87,90 @@ function NewGroupForm({
 function GroupItem({
   group,
   selected,
+  onAskDelete,
 }: {
   group: Group;
   selected: boolean;
+  /** Bubble the delete-trigger up so the parent can mount a single
+   *  confirmation modal (vs N modals nested inside each row). */
+  onAskDelete: (g: Group) => void;
 }) {
   return (
-    <button
-      onClick={() => navigate(workflowRoute(group.id))}
-      className={`w-full text-left px-3 py-1.5 text-xs rounded flex items-center justify-between gap-1 transition-colors ${
-        selected
-          ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium"
-          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50"
+    <div
+      className={`group relative flex items-stretch ${
+        selected ? "" : ""
       }`}
     >
-      <span className="truncate">{group.name}</span>
-      <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
-        {group.member_count}
-      </span>
-    </button>
+      <button
+        onClick={() => navigate(workflowRoute(group.id))}
+        className={`flex-1 min-w-0 text-left px-3 py-1.5 text-xs rounded-l flex items-center justify-between gap-1 transition-colors ${
+          selected
+            ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium"
+            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50"
+        }`}
+      >
+        <span className="truncate">{group.name}</span>
+        <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
+          {group.member_count}
+        </span>
+      </button>
+      {/* Delete affordance — visible on hover only so the rail stays
+          uncluttered. The full confirmation lives in the parent's
+          ConfirmModal; this button just signals intent.
+          Future: when groups become "tasks" with completion criteria,
+          this likely splits into archive / delete depending on whether
+          the task has finalised work attached — for now just a flat
+          delete since groups are mutable scratchpads. */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onAskDelete(group);
+        }}
+        className={`opacity-0 group-hover:opacity-100 focus-visible:opacity-100 px-2 text-slate-400 hover:text-rose-600 dark:text-slate-500 dark:hover:text-rose-400 rounded-r transition-opacity text-[14px] leading-none ${
+          selected
+            ? "bg-blue-50 dark:bg-blue-900/30"
+            : "hover:bg-slate-100 dark:hover:bg-slate-700/50"
+        }`}
+        title={`Delete "${group.name}"`}
+        aria-label={`Delete group ${group.name}`}
+      >
+        ×
+      </button>
+    </div>
   );
 }
 
 export function GroupsSidebar({ selectedGroupId }: { selectedGroupId?: string }) {
   const { data: groups = [], isLoading } = useGroups();
   const [creating, setCreating] = useState(false);
+  // Single confirmation-modal slot at the rail level rather than a
+  // modal-per-row. ``pending`` is the group the curator clicked the
+  // delete affordance on; ``null`` means no confirmation in flight.
+  const [pendingDelete, setPendingDelete] = useState<Group | null>(null);
+  const deleteGroup = useDeleteGroup();
 
   const byType = TYPE_ORDER.reduce<Record<GroupType, Group[]>>(
     (acc, t) => ({ ...acc, [t]: [] }),
     {} as Record<GroupType, Group[]>,
   );
   for (const g of groups) byType[g.type]?.push(g);
+
+  function confirmDelete() {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    deleteGroup.mutate(target.id, {
+      onSuccess: () => {
+        setPendingDelete(null);
+        // If the deleted group was the active selection, navigate
+        // back to the all-experiments view so the URL doesn't keep
+        // pointing at a 404 group_id.
+        if (selectedGroupId === target.id) {
+          navigate(workflowRoute());
+        }
+      },
+    });
+  }
 
   return (
     <aside className="w-52 shrink-0 border-r border-slate-200 dark:border-slate-700 flex flex-col h-full bg-white dark:bg-slate-900">
@@ -150,6 +205,7 @@ export function GroupsSidebar({ selectedGroupId }: { selectedGroupId?: string })
                   key={g.id}
                   group={g}
                   selected={g.id === selectedGroupId}
+                  onAskDelete={setPendingDelete}
                 />
               ))}
             </div>
@@ -169,6 +225,23 @@ export function GroupsSidebar({ selectedGroupId }: { selectedGroupId?: string })
           </button>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!pendingDelete}
+        title="Delete group?"
+        body={
+          pendingDelete
+            ? `Removes "${pendingDelete.name}" (${pendingDelete.type}, ` +
+              `${pendingDelete.member_count} member` +
+              `${pendingDelete.member_count === 1 ? "" : "s"}). The ` +
+              `experiments themselves stay; only the membership is dropped.`
+            : ""
+        }
+        confirmLabel={deleteGroup.isPending ? "deleting…" : "delete"}
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </aside>
   );
 }
