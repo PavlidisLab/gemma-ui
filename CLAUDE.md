@@ -99,8 +99,17 @@ want to build.
 
 ## Current open handoff
 
-No active cross-repo handoffs. Recently-closed work (UI + agent
-both shipped) covered: audit dispositions feedback loop, set
+**Audit evidence: more context + source links** — see
+[AUDIT_EVIDENCE_CONTEXT_HANDOFF.md](./AUDIT_EVIDENCE_CONTEXT_HANDOFF.md).
+Filed for my brother. Two additive fields on `FindingEvidence`:
+`context: str = ""` (paragraphs / sample-name neighbourhood /
+full characteristic block — UI shows today's `quote` as the
+preview + a "Show more" expander) and `source_url: str = ""`
+(deep-link to PubMed / GEO record / Gemma sample page — UI
+renders an `open ↗` next to the source chip). Pure additive;
+older UIs / older reports degrade cleanly.
+
+Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position
