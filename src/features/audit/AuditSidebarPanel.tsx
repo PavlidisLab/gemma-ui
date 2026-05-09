@@ -1239,31 +1239,61 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     <div className="pl-1.5 space-y-1.5 relative">
       <div className="flex items-center gap-1 flex-wrap">
         {action ? (
-          <button
-            type="button"
-            onClick={handleApply}
-            disabled={dispositionSaving}
-            title={action.tooltip}
-            className={cn(
-              "text-[11px] px-2 py-0.5 rounded font-medium",
-              action.mutates
-                ? // Mutating action also accepts the finding —
-                  // keep it visually loud (white-on-blue) so the
-                  // curator can see at a glance which findings have
-                  // structured fixes vs focus-only navigation.
-                  dispositionSaving
-                  ? "bg-blue-200 text-blue-700 cursor-progress"
-                  : current === "accepted"
-                    ? "bg-blue-700 text-white hover:bg-blue-800"
-                    : "bg-blue-600 text-white hover:bg-blue-700"
-                : // Focus-only action is just navigation; tone it
-                  // down so it doesn't compete with the explicit
-                  // Accept verb next to it.
-                  "bg-slate-100 text-slate-800 hover:bg-slate-200",
-            )}
-          >
-            {action.mutates ? "Apply & focus →" : "Focus →"}
-          </button>
+          (() => {
+            // Mutating apply has already run when the disposition
+            // moved off "pending" (current === "accepted" /
+            // "dismissed" — the apply path stamps both, depending on
+            // whether the action was an agree-and-fix or
+            // disagree-and-fix). Re-clicking would re-run the draft
+            // mutation; for the calibration paths the dedup guards
+            // make it idempotent, but the curator's mental model
+            // is "I've done this", so grey it out. Undo via the
+            // explicit disposition buttons (Agree → undo, Disagree
+            // → undo) re-enables the apply for re-runs.
+            const applyAlreadyDone =
+              action.mutates && current !== "pending";
+            // Use the action-level label when set (calibration paths
+            // emit "Apply (add) →" / "Apply (remove) →"); fall back
+            // to the legacy default for handlers that don't.
+            const label =
+              action.label ||
+              (action.mutates ? "Apply & focus →" : "Focus →");
+            const labelDone = label
+              .replace(/^Apply\b/, "✓ Applied")
+              .replace(/\s*→\s*$/, "");
+            return (
+              <button
+                type="button"
+                onClick={handleApply}
+                disabled={dispositionSaving || applyAlreadyDone}
+                title={
+                  applyAlreadyDone
+                    ? "Already applied — undo the disposition below to re-enable"
+                    : action.tooltip
+                }
+                className={cn(
+                  "text-[11px] px-2 py-0.5 rounded font-medium",
+                  action.mutates
+                    ? dispositionSaving
+                      ? "bg-blue-200 text-blue-700 cursor-progress"
+                      : applyAlreadyDone
+                        ? // Greyed-out post-apply state. Indicates
+                          // the structural change has landed; undo
+                          // through the disposition buttons.
+                          "bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
+                        : current === "accepted"
+                          ? "bg-blue-700 text-white hover:bg-blue-800"
+                          : "bg-blue-600 text-white hover:bg-blue-700"
+                    : // Focus-only action is just navigation; tone
+                      // it down so it doesn't compete with the
+                      // explicit Agree verb next to it.
+                      "bg-slate-100 text-slate-800 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
+                )}
+              >
+                {applyAlreadyDone ? labelDone : label}
+              </button>
+            );
+          })()
         ) : null}
         <button
           type="button"
