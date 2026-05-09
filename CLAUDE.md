@@ -99,8 +99,22 @@ want to build.
 
 ## Current open handoff
 
-No active cross-repo handoffs. Recently-closed work (UI + agent
-both shipped) covered: audit dispositions feedback loop, set
+**EE-tag evidence selection: design-context, not background** —
+see [EE_TAG_EVIDENCE_QUALITY_HANDOFF.md](./EE_TAG_EVIDENCE_QUALITY_HANDOFF.md).
+Filed for my brother. Calibration audit showed the proposer
+anchoring `disease: HAND` on a paper sentence about HIV
+encephalitis biology — background, not evidence the experimental
+cohort has HAND. Generalises across all EE-tag judges. Doc
+proposes Style/Evidence prompt section spelling out
+cohort-not-term selection rules, source priority order
+(characteristic → GEO → sample_names → Methods → Results →
+Abstract; never Introduction / Discussion), and a
+defender-style pre-emit verification pass. Builds on the
+existing biolit Methods/Materials prioritisation (commit
+3a5ad7b) — same heuristic applied to the proposer rather than
+just the defender.
+
+Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position
