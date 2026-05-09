@@ -1169,9 +1169,15 @@ function TagValueChip({ value }: { value: TagValue }) {
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
         title={`${value.label} — ${value.uri} (opens in new tab)`}
-        className="inline-block px-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-900 font-medium hover:underline hover:bg-emerald-100 cursor-pointer"
+        className="inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-900 font-medium hover:underline hover:bg-emerald-100 cursor-pointer"
       >
-        {value.label}
+        <span>{value.label}</span>
+        {/* Curie shortform alongside the label, matching the Term
+         *  component's resolved-variant render. Lighter weight + mono
+         *  so the eye reads label first, ID second. */}
+        <span className="font-mono text-[10px] text-emerald-900/60 whitespace-nowrap">
+          {shortenUri(value.uri)}
+        </span>
       </a>
     );
   }
@@ -1332,6 +1338,18 @@ function EditableDirectGroupChip({
         <span className="font-medium">
           {tag.value.label || <em className="not-italic">no value</em>}
         </span>
+        {tag.value.uri ? (
+          <a
+            href={tag.value.uri}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title={`${tag.value.uri} (opens in new tab)`}
+            className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap"
+          >
+            {shortenUri(tag.value.uri)}
+          </a>
+        ) : null}
         <AuditDot
           targetId={tagTarget(tag.category.label, tag.value.label)}
         />
@@ -1398,6 +1416,18 @@ function EditableDirectGroupChip({
                 }
               >
                 <span>{tag.value.label || "(blank)"}</span>
+                {tag.value.uri ? (
+                  <a
+                    href={tag.value.uri}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    title={`${tag.value.uri} (opens in new tab)`}
+                    className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap"
+                  >
+                    {shortenUri(tag.value.uri)}
+                  </a>
+                ) : null}
                 <AuditDot
                   targetId={tagTarget(tag.category.label, tag.value.label)}
                 />
