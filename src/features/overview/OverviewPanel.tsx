@@ -1151,16 +1151,27 @@ function splitTagValues(
 
 /** Per-value chip styled by URI presence: emerald + medium-weight
  *  for ontology-resolved, slate + italic for free-text. House
- *  standard — green is reserved for "ontology-backed". */
+ *  standard — green is reserved for "ontology-backed".
+ *
+ *  Resolved chips render as ``<a>`` so a click opens the ontology
+ *  term page (matches the ``Term`` component's resolved-variant
+ *  behaviour elsewhere in the UI). The parent group-chip click
+ *  handler is for expand/collapse / edit, so we ``stopPropagation``
+ *  on the link click — otherwise clicking the term ID would also
+ *  toggle the multi-value collapse. */
 function TagValueChip({ value }: { value: TagValue }) {
   if (value.uri) {
     return (
-      <span
-        title={`${value.label} — ${value.uri}`}
-        className="inline-block px-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-900 font-medium"
+      <a
+        href={value.uri}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        title={`${value.label} — ${value.uri} (opens in new tab)`}
+        className="inline-block px-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-900 font-medium hover:underline hover:bg-emerald-100 cursor-pointer"
       >
         {value.label}
-      </span>
+      </a>
     );
   }
   return (
