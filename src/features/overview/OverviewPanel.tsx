@@ -43,6 +43,7 @@ import type {
   Publication,
   Tag,
 } from "@/features/experiment/types";
+import { isProtectedTagCategory } from "@/features/experiment/types";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { experimentTarget, tagTarget } from "@/features/audit/targetIds";
 import {
@@ -1292,6 +1293,12 @@ function EditableDirectGroupChip({
     setEditingId(null);
   }
 
+  // Tags whose category names the experiment's assay shape are
+  // load-time invariants (Gemma's import attaches them); the curator
+  // shouldn't be able to delete them from the UI. Drop the × button
+  // and the ChipEditor onDelete prop when the group is protected.
+  const protectedCategory = isProtectedTagCategory(category.label);
+
   // Single tag — render flat, click to edit, × on hover.
   if (tags.length === 1) {
     const tag = tags[0];
@@ -1302,7 +1309,9 @@ function EditableDirectGroupChip({
           value={tag.value}
           onCancel={() => setEditingId(null)}
           onCommit={(c, v) => commitEdit(tag, c, v)}
-          onDelete={() => deleteOne(tag.id)}
+          onDelete={
+            protectedCategory ? undefined : () => deleteOne(tag.id)
+          }
         />
       );
     }
@@ -1313,7 +1322,11 @@ function EditableDirectGroupChip({
         data-audit-target={tagTarget(tag.category.label, tag.value.label)}
         className="group inline-flex items-baseline gap-1 text-[11px] px-1.5 py-0.5 rounded border bg-emerald-50 border-emerald-200 text-emerald-900 cursor-pointer hover:bg-emerald-100"
         onClick={() => setEditingId(tag.id)}
-        title={`${category.label}: ${tag.value.label} — click to edit`}
+        title={
+          protectedCategory
+            ? `${category.label}: ${tag.value.label} — load-time tag, can't be removed`
+            : `${category.label}: ${tag.value.label} — click to edit`
+        }
       >
         <span className="text-emerald-900/75">{category.label}</span>
         <span className="font-medium">
@@ -1322,18 +1335,20 @@ function EditableDirectGroupChip({
         <AuditDot
           targetId={tagTarget(tag.category.label, tag.value.label)}
         />
-        <button
-          type="button"
-          className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"
-          onClick={(e) => {
-            e.stopPropagation();
-            deleteOne(tag.id);
-          }}
-          title="delete tag"
-          aria-label="delete tag"
-        >
-          ×
-        </button>
+        {protectedCategory ? null : (
+          <button
+            type="button"
+            className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteOne(tag.id);
+            }}
+            title="delete tag"
+            aria-label="delete tag"
+          >
+            ×
+          </button>
+        )}
       </span>
     );
   }
@@ -1366,7 +1381,9 @@ function EditableDirectGroupChip({
                 value={tag.value}
                 onCancel={() => setEditingId(null)}
                 onCommit={(c, v) => commitEdit(tag, c, v)}
-                onDelete={() => deleteOne(tag.id)}
+                onDelete={
+                  protectedCategory ? undefined : () => deleteOne(tag.id)
+                }
               />
             ) : (
               <span
@@ -1374,24 +1391,30 @@ function EditableDirectGroupChip({
                 data-audit-target={tagTarget(tag.category.label, tag.value.label)}
                 className="group inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 cursor-pointer hover:bg-emerald-100"
                 onClick={() => setEditingId(tag.id)}
-                title="click to edit"
+                title={
+                  protectedCategory
+                    ? "load-time tag, can't be removed"
+                    : "click to edit"
+                }
               >
                 <span>{tag.value.label || "(blank)"}</span>
                 <AuditDot
                   targetId={tagTarget(tag.category.label, tag.value.label)}
                 />
-                <button
-                  type="button"
-                  className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteOne(tag.id);
-                  }}
-                  title="delete tag"
-                  aria-label="delete tag"
-                >
-                  ×
-                </button>
+                {protectedCategory ? null : (
+                  <button
+                    type="button"
+                    className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteOne(tag.id);
+                    }}
+                    title="delete tag"
+                    aria-label="delete tag"
+                  >
+                    ×
+                  </button>
+                )}
               </span>
             ),
           )}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   factorBaselineBlocksCommit,
   factorRequiresBaseline,
+  isProtectedTagCategory,
   validateDesign,
   type Design,
   type Factor,
@@ -159,6 +160,31 @@ describe("baseline_relevance per-factor agent hint", () => {
     expect(f.baseline_relevance).toBeUndefined();
     expect(factorRequiresBaseline(f)).toBe(false); // cell line in NO_BASELINE
     expect(factorBaselineBlocksCommit(f)).toBe(false);
+  });
+});
+
+describe("isProtectedTagCategory — load-time invariants", () => {
+  it("returns true for assay + technology type variants", () => {
+    expect(isProtectedTagCategory("assay")).toBe(true);
+    expect(isProtectedTagCategory("Assay")).toBe(true);
+    expect(isProtectedTagCategory("ASSAY")).toBe(true);
+    expect(isProtectedTagCategory("technology type")).toBe(true);
+    expect(isProtectedTagCategory("Technology Type")).toBe(true);
+    expect(isProtectedTagCategory("technology_type")).toBe(true);
+    expect(isProtectedTagCategory("  assay  ")).toBe(true);
+  });
+
+  it("returns false for any other category label", () => {
+    expect(isProtectedTagCategory("disease")).toBe(false);
+    expect(isProtectedTagCategory("strain")).toBe(false);
+    expect(isProtectedTagCategory("cell type")).toBe(false);
+    expect(isProtectedTagCategory("organism part")).toBe(false);
+  });
+
+  it("treats null / undefined / empty as not protected", () => {
+    expect(isProtectedTagCategory(null)).toBe(false);
+    expect(isProtectedTagCategory(undefined)).toBe(false);
+    expect(isProtectedTagCategory("")).toBe(false);
   });
 });
 

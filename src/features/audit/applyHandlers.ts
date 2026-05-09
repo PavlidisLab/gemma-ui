@@ -31,6 +31,7 @@ import type {
   DispositionStatus,
 } from "@/api/auditTypes";
 import type { Design, Tag } from "@/features/experiment/types";
+import { isProtectedTagCategory } from "@/features/experiment/types";
 import { parseTargetId, type ParsedTargetId } from "./targetIds";
 
 export interface ApplyAction {
@@ -181,6 +182,15 @@ function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
   // gold over-tagged"). Disposition is "dismissed" with
   // ``curator_wrong`` as the reason so eval can split this from
   // auditor-side errors.
+  //
+  // Guard: assay / technology-type tags are load-time invariants
+  // (Gemma's import attaches them); the curator can't remove them
+  // from the UI even via the audit-apply path. Fall through to the
+  // standard focus-only handler so the curator can still inspect
+  // and disagree manually with a free-text note.
+  if (isProtectedTagCategory(t.category)) {
+    return null;
+  }
   const tooltip =
     `Remove tag "${t.category}: ${t.value}" from the design and ` +
     `mark this disagreed (agent was right; existing curation was wrong).`;
@@ -232,12 +242,18 @@ function addPopulatedTag(
 /** Drop direct (curator-attached) tags whose (category, value)
  *  labels match. Inferred tags stay — those are auto-derived from
  *  BM characteristics / FV sources and disappear when the underlying
- *  signal does, not when the curator dispositions the audit. */
+ *  signal does, not when the curator dispositions the audit.
+ *
+ *  Protected categories (assay / technology type) are never removed
+ *  by this path even when the labels match — the apply handler
+ *  guards earlier, but this is the second line of defence in case
+ *  another caller threads the helper directly. */
 function removeTagByLabels(
   design: Design,
   categoryLabel: string,
   valueLabel: string,
 ): Design {
+  if (isProtectedTagCategory(categoryLabel)) return design;
   return {
     ...design,
     tags: (design.tags ?? []).filter(

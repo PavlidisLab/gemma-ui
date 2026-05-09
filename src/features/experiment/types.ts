@@ -269,6 +269,32 @@ export function factorRequiresBaseline(
   return !NO_BASELINE_CATEGORIES.has(k);
 }
 
+/** Tags whose category names the experiment's assay shape are
+ *  load-time invariants, not curation choices — Gemma's import
+ *  attaches them from the platform / technology classifier
+ *  (``bulk RNA-seq``, ``single-cell RNA sequencing assay``,
+ *  ``ONECOLOR``, etc.). Removing them in the UI breaks downstream
+ *  modality detection and the diagnostics / pre-publish surfaces
+ *  that key off ``technology_type``. The chip's × delete
+ *  affordance is hidden when this returns true; the calibration
+ *  remove-apply path also short-circuits.
+ *
+ *  Match list: ``assay`` (curator-facing label),
+ *  ``technology type`` (Gemma's ExpressionExperimentValueObject
+ *  field). Lower-cased + trimmed; underscore variants accepted. */
+const PROTECTED_TAG_CATEGORIES = new Set<string>([
+  "assay",
+  "technology type",
+  "technology_type",
+]);
+
+export function isProtectedTagCategory(
+  categoryLabel: string | null | undefined,
+): boolean {
+  const k = (categoryLabel || "").trim().toLowerCase();
+  return PROTECTED_TAG_CATEGORIES.has(k);
+}
+
 /** Like ``factorRequiresBaseline`` but stricter — returns ``false``
  *  for soft-baseline categories (cell line) so commit / publish
  *  gates don't block on them. The warning surface still uses
