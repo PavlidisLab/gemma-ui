@@ -190,6 +190,14 @@ export interface AuditFindingDisposition {
  *  prompt-quality analysis without parsing arbitrary curator prose. */
 export type DismissReason =
   | "auditor_wrong"
+  /** "The auditor's framing was right but the existing curation
+   *  was wrong" — e.g. on a calibration_gold_only_miss finding,
+   *  the agent didn't propose X because X shouldn't be there;
+   *  the curator over-tagged. Symmetric for calibration_match
+   *  where both have a tag that shouldn't be there. Distinct from
+   *  ``auditor_wrong`` (audit-side error) so eval can split
+   *  curator-quality signal from prompt-quality signal. */
+  | "curator_wrong"
   | "redundant"
   | "out_of_scope"
   | "accepted_elsewhere"

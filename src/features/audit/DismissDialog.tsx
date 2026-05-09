@@ -203,6 +203,12 @@ export function DismissDialog({
           onClick={() => setReason("auditor_wrong")}
         />
         <ReasonChip
+          label="curator wrong"
+          help="finding is right; existing curation is wrong (over-tagged / shouldn't be there)"
+          active={reason === "curator_wrong"}
+          onClick={() => setReason("curator_wrong")}
+        />
+        <ReasonChip
           label="redundant"
           help="already covered by another existing element"
           active={reason === "redundant"}
