@@ -29,20 +29,29 @@ function GeeqPill({ score, label }: { score: number | null; label: string }) {
 export function PipelineStatusRow({
   dataset,
   status,
+  groupContext,
 }: {
   dataset: WorkflowDatasetRow;
   status: ExperimentPipelineStatus | undefined;
+  /** When the queue is rendered inside a specific Group (workflow
+   *  page anchored on a group id), forward that as ``?group=<id>``
+   *  on the experiment-page link so the inline prev/next nav cluster
+   *  on the experiment banner anchors to the same set the curator
+   *  was browsing. Undefined for the global queue (no anchor). */
+  groupContext?: string;
 }) {
   const accession = dataset.short_name || String(dataset.id);
   const title = dataset.name;
+  const goTo = () =>
+    navigate(experimentRoute(dataset.id, undefined, groupContext));
 
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => navigate(experimentRoute(dataset.id))}
+      onClick={goTo}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") navigate(experimentRoute(dataset.id));
+        if (e.key === "Enter" || e.key === " ") goTo();
       }}
       className="group flex flex-col gap-1.5 px-4 py-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 transition-colors"
     >

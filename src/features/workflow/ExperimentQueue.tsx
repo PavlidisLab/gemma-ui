@@ -243,6 +243,7 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
             key={d.id}
             dataset={d}
             status={statusMap[String(d.id)]}
+            groupContext={groupId}
           />
         ))}
       </div>

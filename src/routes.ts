@@ -27,7 +27,16 @@ export type Route =
   | { kind: "inbox" }
   | { kind: "audits-inbox" }
   | { kind: "audit-detail"; auditId: string }
-  | { kind: "experiment"; id: number; tab?: ExperimentTab }
+  | {
+      kind: "experiment";
+      id: number;
+      tab?: ExperimentTab;
+      /** Active workflow Group context. When present, the experiment
+       *  banner renders an inline prev/next nav cluster anchored to
+       *  this group; member-list clicks elsewhere preserve it so the
+       *  curator stays in-set as they walk the queue. */
+      groupContext?: string;
+    }
   | { kind: "audit-preview" }
   | { kind: "workflow"; groupId?: string };
 
@@ -35,11 +44,14 @@ export function parseRoute(): Route {
   const h = (typeof window !== "undefined" && window.location.hash) || "";
   const m = h.match(/^#\/experiments\/(\d+)(?:\?(.*))?$/);
   if (m) {
-    const tab = m[2] ? new URLSearchParams(m[2]).get("tab") : null;
+    const params = m[2] ? new URLSearchParams(m[2]) : null;
+    const tab = params?.get("tab") ?? null;
+    const groupContext = params?.get("group") ?? null;
     return {
       kind: "experiment",
       id: Number(m[1]),
       tab: tab ? (tab as ExperimentTab) : undefined,
+      groupContext: groupContext || undefined,
     };
   }
   if (/^#\/inbox\b/.test(h)) return { kind: "inbox" };
@@ -75,8 +87,13 @@ export function navigate(target: string): void {
 export function experimentRoute(
   id: number,
   tab?: ExperimentTab,
+  groupContext?: string,
 ): string {
-  return `#/experiments/${id}${tab ? `?tab=${tab}` : ""}`;
+  const params = new URLSearchParams();
+  if (tab) params.set("tab", tab);
+  if (groupContext) params.set("group", groupContext);
+  const qs = params.toString();
+  return `#/experiments/${id}${qs ? `?${qs}` : ""}`;
 }
 
 export function workflowRoute(groupId?: string): string {

@@ -145,6 +145,7 @@ export default function App() {
             reviewer={reviewer}
             fullName={fullName}
             initialTab={route.tab}
+            groupContext={route.groupContext}
           />
         </DesignDraftProvider>
       </ProposalReviewProvider>
@@ -157,11 +158,17 @@ function Shell({
   reviewer,
   fullName,
   initialTab,
+  groupContext,
 }: {
   experimentId: number;
   reviewer: string;
   fullName: string;
   initialTab?: string;
+  /** Active workflow Group context from the URL ``?group=<id>``.
+   *  Threaded into the banner so the inline prev/next cluster knows
+   *  which set the curator is walking; preserved on tab-switch
+   *  navigations so the context survives. */
+  groupContext?: string;
 }) {
   // Map a free-form route tab onto the local TabId enum (or onto the
   // notes drawer, which isn't a tab in the bar). Unknown tabs fall
@@ -336,6 +343,7 @@ function Shell({
         loadedBy={draft?.loaded_by ?? ""}
         externalSource={externalSource}
         activeTab={activeTab}
+        groupContext={groupContext}
         onTabChange={(tab) => {
           // Keep the URL in sync with the visible tab. Without
           // this, manual tab-bar clicks drift the URL away from
@@ -343,9 +351,17 @@ function Shell({
           // route-tab from elsewhere (e.g. ProposalCard's "Preview
           // in samples table") is a no-op — the hash doesn't
           // change so ``hashchange`` doesn't fire and the visible
-          // tab stays put.
+          // tab stays put. ``groupContext`` rides along so a
+          // curator walking a set doesn't lose set context on tab
+          // switch.
           setActiveTab(tab);
-          navigate(experimentRoute(experimentId, tabIdToRouteTab(tab)));
+          navigate(
+            experimentRoute(
+              experimentId,
+              tabIdToRouteTab(tab),
+              groupContext,
+            ),
+          );
         }}
         notesOpen={notesOpen}
         onToggleNotes={() => {
@@ -358,6 +374,7 @@ function Shell({
             experimentRoute(
               experimentId,
               next ? "notes" : tabIdToRouteTab(activeTab),
+              groupContext,
             ),
           );
         }}
