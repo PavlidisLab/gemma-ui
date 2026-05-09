@@ -874,8 +874,19 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
     setActiveFindingKey,
     dispositionByTarget,
   } = useAudit();
-  const currentDisposition =
-    dispositionByTarget.get(finding.target_id)?.status ?? "pending";
+  const disposition = dispositionByTarget.get(finding.target_id);
+  const currentDisposition = disposition?.status ?? "pending";
+  // The finding is "closed" once the curator has acted on it and
+  // there's nothing left to resolve — dismissed counts (already a
+  // terminal verdict), and accepted+resolved counts (the curator
+  // agreed AND took the structural action). Parked-accepted is
+  // intentionally NOT closed since the curator still owes a
+  // follow-up. The card greys out when closed so the eye skips
+  // past finished work; undo still lives in the action row so
+  // mistakes are reversible.
+  const isClosed =
+    currentDisposition === "dismissed" ||
+    (currentDisposition === "accepted" && !!disposition?.resolved_at);
 
   // Stamp the first-seen timestamp once per finding. Sent on the
   // first PATCH for this target so my brother can compute triage
@@ -910,7 +921,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
       className={cn(
         "card p-2 text-xs space-y-1.5",
         severityRowCls(finding.severity),
-        currentDisposition === "dismissed" && "opacity-60",
+        isClosed && "opacity-60",
         activeFindingKey === myKey && "ring-2 ring-blue-400",
       )}
     >
