@@ -31,9 +31,18 @@ import type { DismissReason } from "@/api/auditTypes";
  * scrolls out of view.
  */
 const DIALOG_W = 280;
+// Generous estimate of dialog height. Real height varies with the
+// notes textarea row count + chip wrap. Used only to decide
+// drop-below vs flip-above; the real layout is always honoured. If
+// neither side fits (tiny viewport), pin to the top with
+// scrolling (max-h:90vh keeps the dialog reachable).
+const DIALOG_H_ESTIMATE = 320;
 // Vertical gap between trigger and dialog. Same number as the old
 // `mt-1` spacing.
 const ANCHOR_OFFSET = 4;
+// Same on the horizontal axis — minimum gap between the dialog's
+// edge and the viewport edge.
+const VIEWPORT_GUTTER = 8;
 
 export function DismissDialog({
   finding,
@@ -74,13 +83,28 @@ export function DismissDialog({
       return;
     }
     const rect = anchor.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
     // Default: drop straight down from the anchor's left edge.
     let top = rect.bottom + ANCHOR_OFFSET;
     let left = rect.left;
-    const vw = window.innerWidth;
     // Right edge would overflow the viewport — slide left so it fits.
-    if (left + DIALOG_W + 8 > vw) {
-      left = Math.max(8, vw - DIALOG_W - 8);
+    if (left + DIALOG_W + VIEWPORT_GUTTER > vw) {
+      left = Math.max(VIEWPORT_GUTTER, vw - DIALOG_W - VIEWPORT_GUTTER);
+    }
+    // Bottom edge would overflow — flip above the anchor when there's
+    // room, otherwise pin to the top of the viewport with the dialog
+    // letting its own max-height handle the rest. Mirrors the same
+    // logic in ``BiomaterialMetaPopover``. Without this, the dialog
+    // (~320px tall with chips + textarea + footer) clips below the
+    // visible area when the trigger sits near the bottom of a
+    // long sidebar — the calibration audit's review-queue case.
+    if (top + DIALOG_H_ESTIMATE + VIEWPORT_GUTTER > vh) {
+      const above = rect.top - ANCHOR_OFFSET - DIALOG_H_ESTIMATE;
+      top =
+        above >= VIEWPORT_GUTTER
+          ? above
+          : Math.max(VIEWPORT_GUTTER, vh - DIALOG_H_ESTIMATE - VIEWPORT_GUTTER);
     }
     setPos({ top, left });
   }, [anchor]);
@@ -151,15 +175,23 @@ export function DismissDialog({
       // position: fixed lifts the dialog out of the audit sidebar's
       // overflow context entirely; coords come from the anchor rect
       // and reset on scroll/resize via the close-on-change effect.
-      className="fixed z-50 bg-white border border-slate-300 rounded shadow-xl p-2.5 text-xs"
-      style={{ top: pos.top, left: pos.left, width: DIALOG_W }}
+      className="fixed z-50 bg-white border border-slate-300 rounded shadow-xl p-2.5 text-xs overflow-y-auto dark:bg-slate-900 dark:border-slate-700"
+      style={{
+        top: pos.top,
+        left: pos.left,
+        width: DIALOG_W,
+        // Cap at viewport height so the dialog stays reachable even
+        // when neither drop-below nor flip-above fits cleanly. Real
+        // layout uses the dialog's natural size up to this ceiling.
+        maxHeight: "90vh",
+      }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="font-semibold text-slate-800 mb-1.5">
+      <div className="font-semibold text-slate-800 dark:text-slate-100 mb-1.5">
         Why dismiss?
       </div>
-      <div className="text-[10px] text-slate-500 mb-2 line-clamp-2">
+      <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">
         <span className="font-mono mr-1">{finding.issue_code}</span>
         {finding.rationale}
       </div>
@@ -210,14 +242,14 @@ export function DismissDialog({
             ? "explain (required for 'other')"
             : "optional notes"
         }
-        className="w-full text-[11px] border border-slate-300 rounded px-1.5 py-1 mb-2 resize-y"
+        className="w-full text-[11px] border border-slate-300 rounded px-1.5 py-1 mb-2 resize-y dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 dark:placeholder-slate-500"
       />
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
           onClick={onCancel}
           disabled={submitting}
-          className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+          className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-800"
         >
           cancel
         </button>
@@ -228,8 +260,8 @@ export function DismissDialog({
           className={cn(
             "text-[11px] px-2 py-0.5 rounded font-medium",
             canConfirm
-              ? "bg-slate-700 text-white hover:bg-slate-800"
-              : "bg-slate-200 text-slate-400 cursor-not-allowed",
+              ? "bg-slate-700 text-white hover:bg-slate-800 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-100"
+              : "bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-600",
           )}
         >
           {submitting ? "dismissing…" : "Dismiss"}
@@ -259,8 +291,8 @@ function ReasonChip({
       className={cn(
         "text-[10px] px-1.5 py-0.5 rounded border text-left transition-colors",
         active
-          ? "bg-slate-700 text-white border-slate-700"
-          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50",
+          ? "bg-slate-700 text-white border-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200"
+          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-700",
       )}
     >
       {label}

@@ -30,6 +30,10 @@ export function HelpPopup({
   align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
+  // Flip above the trigger when below would overflow the viewport
+  // bottom. Same pattern as the audit-card popovers — measured on
+  // open from the trigger's bounding rect.
+  const [flipUp, setFlipUp] = useState(false);
   const ref = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
@@ -63,9 +67,22 @@ export function HelpPopup({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
+          // Measure synchronously before toggling so the popover
+          // opens in the right direction on first paint. Estimate
+          // the body height conservatively — body caps at max-h-96
+          // (~24rem) plus header + footer.
+          if (!open && ref.current) {
+            const rect = ref.current.getBoundingClientRect();
+            const margin = 8;
+            const POPOVER_H_ESTIMATE = 420;
+            setFlipUp(
+              rect.bottom + POPOVER_H_ESTIMATE + margin >
+                window.innerHeight && rect.top > POPOVER_H_ESTIMATE,
+            );
+          }
           setOpen((v) => !v);
         }}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 text-[10px] leading-none align-middle"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 text-[10px] leading-none align-middle dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
         title={`Curation guidelines: ${title}`}
         aria-label={`help: ${title}`}
       >
@@ -73,14 +90,16 @@ export function HelpPopup({
       </button>
       {open ? (
         <div
-          className={`absolute z-40 ${alignCls} top-full mt-1 ${widthCls} bg-white border border-slate-200 rounded shadow-lg text-xs text-slate-700`}
+          className={`absolute z-40 ${alignCls} ${
+            flipUp ? "bottom-full mb-1" : "top-full mt-1"
+          } ${widthCls} bg-white border border-slate-200 rounded shadow-lg text-xs text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300`}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-3 py-2 border-b border-slate-100 flex items-baseline justify-between gap-2">
-            <span className="font-semibold text-slate-800">{title}</span>
+          <div className="px-3 py-2 border-b border-slate-100 flex items-baseline justify-between gap-2 dark:border-slate-800">
+            <span className="font-semibold text-slate-800 dark:text-slate-100">{title}</span>
             <button
               type="button"
-              className="text-slate-400 hover:text-slate-700"
+              className="text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
               onClick={() => setOpen(false)}
               title="close"
             >
@@ -91,14 +110,14 @@ export function HelpPopup({
             {children}
           </div>
           {source ? (
-            <div className="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-500">
+            <div className="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
               Source:{" "}
               {sourceUrl ? (
                 <a
                   href={sourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sky-700 hover:underline"
+                  className="text-sky-700 hover:underline dark:text-sky-400"
                 >
                   {source}
                 </a>

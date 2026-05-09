@@ -452,8 +452,14 @@ function Why({ text }: { text: string }) {
   // ``w-72`` × 288px popover anchored ``left-0`` ran past the card
   // and clipped on the next sibling boundary.)
   const [flip, setFlip] = useState(false);
+  // Vertical flip — render above the trigger when below would
+  // overflow the viewport bottom. Catches the long-FV-list case
+  // where a ``?`` chip near the bottom of the proposal card had
+  // the popover dropping into the scrollbar / off-screen.
+  const [flipUp, setFlipUp] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
   const POPOVER_W = 288; // matches ``w-72``
+  const POPOVER_H_ESTIMATE = 240;
 
   useEffect(() => {
     if (!open) return;
@@ -497,6 +503,13 @@ function Why({ text }: { text: string }) {
             const rect = wrapRef.current.getBoundingClientRect();
             const margin = 8;
             setFlip(rect.left + POPOVER_W > window.innerWidth - margin);
+            // If the popover would clip below the viewport, render
+            // above the trigger instead. Same trigger-rect we just
+            // captured, so no double-measurement.
+            setFlipUp(
+              rect.bottom + POPOVER_H_ESTIMATE + margin >
+                window.innerHeight && rect.top > POPOVER_H_ESTIMATE,
+            );
           }
           setOpen((v) => !v);
         }}
@@ -506,7 +519,9 @@ function Why({ text }: { text: string }) {
       {open && (
         <div
           role="tooltip"
-          className={`absolute z-30 ${flip ? "right-0" : "left-0"} top-full mt-1 w-72 max-w-[80vw] rounded-md border border-slate-200 bg-white shadow-lg p-2 text-xs leading-snug text-slate-700 whitespace-pre-wrap break-words`}
+          className={`absolute z-30 ${flip ? "right-0" : "left-0"} ${
+            flipUp ? "bottom-full mb-1" : "top-full mt-1"
+          } w-72 max-w-[80vw] rounded-md border border-slate-200 bg-white shadow-lg p-2 text-xs leading-snug text-slate-700 whitespace-pre-wrap break-words`}
         >
           {clean}
           {level && (
@@ -2855,8 +2870,10 @@ function StatementGlyph({
 }) {
   const [open, setOpen] = useState(false);
   const [flip, setFlip] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
   const POPOVER_W = 320;
+  const POPOVER_H_ESTIMATE = 280;
 
   // Same dismiss-on-outside-click + Escape pattern as ``Why``.
   useEffect(() => {
@@ -2913,6 +2930,10 @@ function StatementGlyph({
             const rect = wrapRef.current.getBoundingClientRect();
             const margin = 8;
             setFlip(rect.left + POPOVER_W > window.innerWidth - margin);
+            setFlipUp(
+              rect.bottom + POPOVER_H_ESTIMATE + margin >
+                window.innerHeight && rect.top > POPOVER_H_ESTIMATE,
+            );
           }
           setOpen((v) => !v);
         }}
@@ -2933,7 +2954,9 @@ function StatementGlyph({
       {open && (
         <div
           role="tooltip"
-          className={`absolute z-30 ${flip ? "right-0" : "left-0"} top-full mt-1 w-80 max-w-[80vw] rounded-md border border-slate-200 bg-white shadow-lg p-2 text-xs text-slate-700 leading-snug`}
+          className={`absolute z-30 ${flip ? "right-0" : "left-0"} ${
+            flipUp ? "bottom-full mb-1" : "top-full mt-1"
+          } w-80 max-w-[80vw] rounded-md border border-slate-200 bg-white shadow-lg p-2 text-xs text-slate-700 leading-snug`}
         >
           <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">
             {statements.length === 1

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Pill } from "@/components/ui/Pill";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ApiError } from "@/api/client";
@@ -390,6 +398,7 @@ function SetChip({
         <SetNavigatorPopover
           groupId={group.id}
           currentExperimentId={currentExperimentId}
+          anchorRef={wrapRef}
           onClose={onClose}
         />
       ) : null}
@@ -408,10 +417,17 @@ function SetChip({
 function SetNavigatorPopover({
   groupId,
   currentExperimentId,
+  anchorRef,
   onClose,
 }: {
   groupId: string;
   currentExperimentId: number;
+  /** Ref to the chip's outer wrapper. Used to measure the trigger
+   *  position so the popover can flip above when below would
+   *  overflow the viewport bottom. (The popover itself is
+   *  ``absolute`` from this wrapper, so we don't move; we toggle
+   *  ``top-full mt-1`` ↔ ``bottom-full mb-1``.) */
+  anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
 }) {
   const { data: group, isLoading } = useGroup(groupId, {
@@ -419,6 +435,22 @@ function SetNavigatorPopover({
   });
   const [query, setQuery] = useState("");
   const summaries = group?.member_summaries ?? null;
+  // Vertical-flip decision. Measured against an estimate (the popover
+  // is ~360-400px tall depending on member count + search hits);
+  // close enough for the keep-on-screen heuristic, and the popover's
+  // ``max-h-72`` on its body keeps the absolute height bounded.
+  const [flipUp, setFlipUp] = useState(false);
+  useEffect(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const POPOVER_H_ESTIMATE = 380;
+    const margin = 8;
+    setFlipUp(
+      rect.bottom + POPOVER_H_ESTIMATE + margin > window.innerHeight &&
+        rect.top > POPOVER_H_ESTIMATE,
+    );
+  }, [anchorRef]);
 
   // Index of the curator's current experiment within the set's
   // ordered member list. ``-1`` when this experiment isn't a member
@@ -486,7 +518,10 @@ function SetNavigatorPopover({
     <div
       role="dialog"
       aria-label={`${group?.name ?? "Set"} navigator`}
-      className="absolute z-30 right-0 top-full mt-1 w-96 max-w-[90vw] rounded-md border border-slate-200 bg-white shadow-lg text-xs dark:bg-slate-900 dark:border-slate-700"
+      className={cn(
+        "absolute z-30 right-0 w-96 max-w-[90vw] rounded-md border border-slate-200 bg-white shadow-lg text-xs dark:bg-slate-900 dark:border-slate-700",
+        flipUp ? "bottom-full mb-1" : "top-full mt-1",
+      )}
     >
       <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center gap-2">
