@@ -139,7 +139,24 @@ export default function App() {
   return (
     <ToastProvider>
       <ProposalReviewProvider>
-        <DesignDraftProvider experimentId={route.id} reviewer={reviewer}>
+        {/*
+          Key the design-draft provider on the experiment id so an
+          experiment switch (e.g. set-navigator member click) unmounts
+          + remounts a fresh provider with reset draft / prevSavedRef
+          state. Without this, the provider's init effect was
+          short-circuiting on the old experiment's non-null draft
+          and the background-refetch branch's wasClean check saw a
+          spurious dirty diff (old factors vs new saved) → the draft
+          stayed pinned to the previous experiment while the rest of
+          the page (audit panel, banner, etc.) reflected the new id.
+          Same principle as ``Shell``'s implicit per-experiment
+          local state — the key forces a clean slate.
+        */}
+        <DesignDraftProvider
+          key={route.id}
+          experimentId={route.id}
+          reviewer={reviewer}
+        >
           <Shell
             experimentId={route.id}
             reviewer={reviewer}
