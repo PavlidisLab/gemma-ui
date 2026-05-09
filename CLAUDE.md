@@ -99,8 +99,19 @@ want to build.
 
 ## Current open handoff
 
-No active cross-repo handoffs. Recently-closed work (UI + agent
-both shipped) covered: audit dispositions feedback loop,
+**Set navigation** — see
+[SET_NAVIGATION_HANDOFF.md](./SET_NAVIGATION_HANDOFF.md).
+In-flight on both sides. Agent shipped
+`GET /rest/v2/datasets/{id}/groups` today; UI switched
+`useExperimentGroups` to it. Open question for my brother: the
+navigator popup needs per-member experiment metadata
+(short_name + title + status flags) — preferred shape is a
+`member_summaries` field on `Group`, fallback is a `?ids=…` query
+on the dataset listing endpoint. Doc names the popup spec
+(position indicator, prev/next, search, member-list cell shape).
+
+Recently-closed work (UI + agent both shipped) covered: audit
+dispositions feedback loop,
 continuous-factor proposer support, redo-with-notes (agent reads
 `prior_feedback`; UI redo POST on SSE), reset drops proposals,
 proposal accept/reject emits audit events, `strip_curation` keys

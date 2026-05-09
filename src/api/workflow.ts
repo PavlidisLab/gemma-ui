@@ -303,22 +303,18 @@ export function useGroup(groupId: string | null | undefined) {
   });
 }
 
-/** Groups the given experiment is a member of. Today this filters
- *  ``GET /rest/v2/groups`` client-side by walking ``member_ids`` —
- *  fine while the lab has tens of groups, but file an agents-side
- *  ask for ``GET /rest/v2/datasets/{id}/groups`` if the count
- *  climbs. ``member_ids`` is a string list; experiment ids are
- *  numeric, so we string-compare both ways. */
+/** Groups the given experiment is a member of. Backed by the
+ *  agents-side ``GET /rest/v2/datasets/{id}/groups`` endpoint —
+ *  cheap server-side filter on the membership table, so it scales
+ *  past the tens-of-groups regime where the previous client-side
+ *  walk over ``GET /rest/v2/groups`` would have been wasteful. */
 export function useExperimentGroups(experimentId: number) {
-  const groups = useGroups();
-  const target = String(experimentId);
-  const memberOf = (groups.data ?? []).filter((g) =>
-    g.member_ids.some((id) => String(id) === target),
-  );
-  return {
-    ...groups,
-    data: memberOf,
-  };
+  return useQuery({
+    queryKey: ["workflow", "experiment-groups", experimentId] as const,
+    queryFn: () =>
+      api.get<Group[]>(`/rest/v2/datasets/${experimentId}/groups`),
+    refetchOnWindowFocus: true,
+  });
 }
 
 export function useCreateGroup() {
