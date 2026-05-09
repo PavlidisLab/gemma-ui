@@ -15,6 +15,9 @@ import {
 } from "@/features/experiment/modality";
 import { cn } from "@/lib/cn";
 import type { ExternalSource } from "@/features/experiment/types";
+import { useExperimentGroups } from "@/api/workflow";
+import { workflowRoute } from "@/routes";
+import type { GroupType } from "@/api/workflowTypes";
 
 export type TabId =
   | "overview"
@@ -200,6 +203,7 @@ export function ExperimentBanner({
         </div>
         <div className="flex items-center justify-end gap-2 shrink-0">
           {commitBar}
+          <ExperimentGroupChips experimentId={experimentId} />
           <NotesButton
             experimentId={experimentId}
             open={notesOpen}
@@ -243,6 +247,70 @@ export function ExperimentBanner({
       </div>
     </section>
   );
+}
+
+/**
+ * Chips listing the workflow Groups (sets) this experiment is a
+ * member of. Renders inline in the banner action row, before the
+ * Status button. Each chip is a hash-link to the matching Workflow
+ * tab view; the popup-navigator behaviour is deferred — for now
+ * "Sets are a link to the group" is enough for curators to hop
+ * between members via the workflow surface.
+ *
+ * Hidden when the experiment isn't in any group (most freshly-
+ * loaded experiments). Pluralised label ("Set" vs "Sets") so a
+ * single membership doesn't read as a count.
+ */
+function ExperimentGroupChips({
+  experimentId,
+}: {
+  experimentId: number;
+}) {
+  const { data: groups } = useExperimentGroups(experimentId);
+  if (!groups || groups.length === 0) return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-xs">
+      <span className="text-slate-500 uppercase tracking-wider text-[10px]">
+        {groups.length === 1 ? "Set" : "Sets"}
+      </span>
+      <span className="inline-flex items-center gap-1 flex-wrap">
+        {groups.map((g) => (
+          <a
+            key={g.id}
+            href={workflowRoute(g.id)}
+            className={cn(
+              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] cursor-pointer hover:underline",
+              groupTypeChipCls(g.type),
+            )}
+            title={`${g.name} · ${g.type} · ${g.member_count} member${
+              g.member_count === 1 ? "" : "s"
+            } — open in workflow`}
+          >
+            <span className="font-medium truncate max-w-[14ch]">{g.name}</span>
+            <span className="text-[10px] text-slate-500 tabular-nums">
+              {g.member_count}
+            </span>
+          </a>
+        ))}
+      </span>
+    </span>
+  );
+}
+
+/** Tone the group chip by its workflow type. Mirrors the funnel
+ *  intent — screening = neutral early-stage, pipeline = active
+ *  processing, review = closing out. */
+function groupTypeChipCls(type: GroupType): string {
+  switch (type) {
+    case "screening":
+      return "bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100";
+    case "pipeline":
+      return "bg-blue-50 border-blue-300 text-blue-800 hover:bg-blue-100";
+    case "review":
+      return "bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100";
+    default:
+      return "bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100";
+  }
 }
 
 function LogoutButton() {

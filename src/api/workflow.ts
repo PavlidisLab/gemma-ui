@@ -303,6 +303,24 @@ export function useGroup(groupId: string | null | undefined) {
   });
 }
 
+/** Groups the given experiment is a member of. Today this filters
+ *  ``GET /rest/v2/groups`` client-side by walking ``member_ids`` —
+ *  fine while the lab has tens of groups, but file an agents-side
+ *  ask for ``GET /rest/v2/datasets/{id}/groups`` if the count
+ *  climbs. ``member_ids`` is a string list; experiment ids are
+ *  numeric, so we string-compare both ways. */
+export function useExperimentGroups(experimentId: number) {
+  const groups = useGroups();
+  const target = String(experimentId);
+  const memberOf = (groups.data ?? []).filter((g) =>
+    g.member_ids.some((id) => String(id) === target),
+  );
+  return {
+    ...groups,
+    data: memberOf,
+  };
+}
+
 export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
