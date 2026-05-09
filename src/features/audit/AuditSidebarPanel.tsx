@@ -1241,25 +1241,35 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             isResolved
               ? "click to undo — flips all the way back to pending (clears resolved_at too)"
               : isParked
-                ? "click to undo — flips back to pending"
-                : "agree with this finding (parks it; click 'Mark resolved' later once you've actually addressed it)"
+                ? finding.severity === "ok"
+                  ? "click to undo — flips back to pending"
+                  : "click to undo — flips back to pending"
+                : finding.severity === "ok"
+                  ? "confirm this match (no follow-up needed; click again to undo)"
+                  : "agree with this finding (parks it; click 'Mark resolved' later once you've actually addressed it)"
           }
           className={cn(
             "text-[11px] px-2 py-0.5 rounded font-medium disabled:opacity-50",
             isResolved
               ? "bg-emerald-700 text-white hover:bg-emerald-800"
               : isParked
-                ? "bg-blue-700 text-white hover:bg-blue-800"
+                ? finding.severity === "ok"
+                  ? "bg-emerald-700 text-white hover:bg-emerald-800"
+                  : "bg-blue-700 text-white hover:bg-blue-800"
                 : "bg-white border border-blue-600 text-blue-700 hover:bg-blue-50",
           )}
         >
           {isResolved
             ? "✓✓ resolved"
             : isParked
-              ? "✓ accepted (parked)"
-              : "Accept"}
+              ? finding.severity === "ok"
+                ? "✓ confirmed"
+                : "✓ accepted (parked)"
+              : finding.severity === "ok"
+                ? "Confirm"
+                : "Accept"}
         </button>
-        {isParked ? (
+        {isParked && finding.severity !== "ok" ? (
           <button
             type="button"
             onClick={() =>
