@@ -295,24 +295,44 @@ export function useGroups(filters?: { type?: GroupType; createdBy?: string }) {
   });
 }
 
-export function useGroup(groupId: string | null | undefined) {
+export function useGroup(
+  groupId: string | null | undefined,
+  options: { includeSummaries?: boolean } = {},
+) {
+  const { includeSummaries = false } = options;
   return useQuery({
-    queryKey: KEY.group(groupId ?? ""),
-    queryFn: () => api.get<Group>(`/rest/v2/groups/${groupId}`),
+    queryKey: [...KEY.group(groupId ?? ""), includeSummaries] as const,
+    queryFn: () => {
+      const qs = includeSummaries ? "?include_summaries=true" : "";
+      return api.get<Group>(`/rest/v2/groups/${groupId}${qs}`);
+    },
     enabled: !!groupId,
   });
 }
 
 /** Groups the given experiment is a member of. Backed by the
  *  agents-side ``GET /rest/v2/datasets/{id}/groups`` endpoint —
- *  cheap server-side filter on the membership table, so it scales
- *  past the tens-of-groups regime where the previous client-side
- *  walk over ``GET /rest/v2/groups`` would have been wasteful. */
-export function useExperimentGroups(experimentId: number) {
+ *  cheap server-side filter on the membership table.
+ *
+ *  ``includeSummaries`` opts into the per-member ``ExperimentSummary``
+ *  list (short_name + title + status flags) the set-navigator popover
+ *  needs. Off by default so the chip-render path stays light. */
+export function useExperimentGroups(
+  experimentId: number,
+  options: { includeSummaries?: boolean } = {},
+) {
+  const { includeSummaries = false } = options;
   return useQuery({
-    queryKey: ["workflow", "experiment-groups", experimentId] as const,
-    queryFn: () =>
-      api.get<Group[]>(`/rest/v2/datasets/${experimentId}/groups`),
+    queryKey: [
+      "workflow",
+      "experiment-groups",
+      experimentId,
+      includeSummaries,
+    ] as const,
+    queryFn: () => {
+      const qs = includeSummaries ? "?include_summaries=true" : "";
+      return api.get<Group[]>(`/rest/v2/datasets/${experimentId}/groups${qs}`);
+    },
     refetchOnWindowFocus: true,
   });
 }

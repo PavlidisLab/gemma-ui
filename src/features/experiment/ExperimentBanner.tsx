@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ApiError } from "@/api/client";
@@ -15,9 +15,9 @@ import {
 } from "@/features/experiment/modality";
 import { cn } from "@/lib/cn";
 import type { ExternalSource } from "@/features/experiment/types";
-import { useExperimentGroups } from "@/api/workflow";
-import { workflowRoute } from "@/routes";
-import type { GroupType } from "@/api/workflowTypes";
+import { useExperimentGroups, useGroup } from "@/api/workflow";
+import { experimentRoute, navigate, workflowRoute } from "@/routes";
+import type { ExperimentSummary, Group, GroupType } from "@/api/workflowTypes";
 
 export type TabId =
   | "overview"
@@ -252,14 +252,17 @@ export function ExperimentBanner({
 /**
  * Chips listing the workflow Groups (sets) this experiment is a
  * member of. Renders inline in the banner action row, before the
- * Status button. Each chip is a hash-link to the matching Workflow
- * tab view; the popup-navigator behaviour is deferred — for now
- * "Sets are a link to the group" is enough for curators to hop
- * between members via the workflow surface.
+ * Status button. Each chip toggles a popover that lets the curator
+ * navigate within the set — prev/next, search, click to jump.
  *
  * Hidden when the experiment isn't in any group (most freshly-
  * loaded experiments). Pluralised label ("Set" vs "Sets") so a
  * single membership doesn't read as a count.
+ *
+ * Chip-render path uses the lightweight ``useExperimentGroups`` call
+ * (no member summaries). The popover does its own ``useGroup`` call
+ * with ``include_summaries=true`` so the per-member metadata only
+ * gets fetched when the curator actually opens the navigator.
  */
 function ExperimentGroupChips({
   experimentId,
@@ -267,6 +270,7 @@ function ExperimentGroupChips({
   experimentId: number;
 }) {
   const { data: groups } = useExperimentGroups(experimentId);
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   if (!groups || groups.length === 0) return null;
   return (
     <span className="inline-flex items-center gap-1 text-xs">
@@ -275,25 +279,349 @@ function ExperimentGroupChips({
       </span>
       <span className="inline-flex items-center gap-1 flex-wrap">
         {groups.map((g) => (
-          <a
+          <SetChip
             key={g.id}
-            href={workflowRoute(g.id)}
-            className={cn(
-              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] cursor-pointer hover:underline",
-              groupTypeChipCls(g.type),
-            )}
-            title={`${g.name} · ${g.type} · ${g.member_count} member${
-              g.member_count === 1 ? "" : "s"
-            } — open in workflow`}
-          >
-            <span className="font-medium truncate max-w-[14ch]">{g.name}</span>
-            <span className="text-[10px] text-slate-500 tabular-nums">
-              {g.member_count}
-            </span>
-          </a>
+            group={g}
+            currentExperimentId={experimentId}
+            open={openGroupId === g.id}
+            onToggle={() =>
+              setOpenGroupId((prev) => (prev === g.id ? null : g.id))
+            }
+            onClose={() => setOpenGroupId(null)}
+          />
         ))}
       </span>
     </span>
+  );
+}
+
+/** A single Set chip + its anchored navigator popover. The chip is
+ *  a button (not a link) so click toggles the popover; the popover's
+ *  header carries an explicit "Open in Workflow" link for the case
+ *  where the curator wants the full tab view. */
+function SetChip({
+  group,
+  currentExperimentId,
+  open,
+  onToggle,
+  onClose,
+}: {
+  group: Group;
+  currentExperimentId: number;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+}) {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  // Dismiss on outside-click + Escape; same pattern as the Why
+  // popover in ProposalCardV2.
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+  return (
+    <span ref={wrapRef} className="relative inline-block">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className={cn(
+          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] cursor-pointer",
+          groupTypeChipCls(group.type),
+          open && "ring-2 ring-offset-1 ring-slate-400/40",
+        )}
+        title={`${group.name} · ${group.type} · ${group.member_count} member${
+          group.member_count === 1 ? "" : "s"
+        } — click to navigate`}
+      >
+        <span className="font-medium truncate max-w-[14ch]">{group.name}</span>
+        <span className="text-[10px] text-slate-500 tabular-nums">
+          {group.member_count}
+        </span>
+      </button>
+      {open ? (
+        <SetNavigatorPopover
+          groupId={group.id}
+          currentExperimentId={currentExperimentId}
+          onClose={onClose}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+/** Anchored popover: header + position indicator + prev/next +
+ *  search + scrollable member list. Opens when a Set chip is
+ *  clicked; closes on outside-click / Escape (handled by parent).
+ *
+ *  Lifts ``include_summaries=true`` on its own ``useGroup`` call
+ *  rather than depending on the chip-render path's lightweight data,
+ *  so per-member metadata only loads when the curator opens the
+ *  navigator. */
+function SetNavigatorPopover({
+  groupId,
+  currentExperimentId,
+  onClose,
+}: {
+  groupId: string;
+  currentExperimentId: number;
+  onClose: () => void;
+}) {
+  const { data: group, isLoading } = useGroup(groupId, {
+    includeSummaries: true,
+  });
+  const [query, setQuery] = useState("");
+  const summaries = group?.member_summaries ?? null;
+
+  // Index of the curator's current experiment within the set's
+  // ordered member list. ``-1`` when this experiment isn't a member
+  // (shouldn't happen — the chip wouldn't render — but defensive).
+  const currentIdx =
+    summaries?.findIndex((s) => s.experiment_id === currentExperimentId) ?? -1;
+
+  const goToIndex = useCallback(
+    (idx: number) => {
+      if (!summaries || summaries.length === 0) return;
+      // Wrap at ends so [/] never dead-ends the curator.
+      const wrapped =
+        ((idx % summaries.length) + summaries.length) % summaries.length;
+      const target = summaries[wrapped];
+      if (!target || target.experiment_id <= 0) return;
+      navigate(experimentRoute(target.experiment_id));
+      onClose();
+    },
+    [summaries, onClose],
+  );
+
+  // Keyboard prev/next: ``[`` and ``]`` while the popover is open.
+  // Active only when the popover is open (parent gates render); we
+  // bind on document so the shortcut works regardless of focus, but
+  // skip when the curator is typing in the search field (input ref
+  // captures the event first).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (
+        (e.target as HTMLElement | null)?.tagName === "INPUT" ||
+        (e.target as HTMLElement | null)?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+      if (e.key === "[") {
+        e.preventDefault();
+        goToIndex(currentIdx - 1);
+      } else if (e.key === "]") {
+        e.preventDefault();
+        goToIndex(currentIdx + 1);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [goToIndex, currentIdx]);
+
+  // Filter the member list by free-text query against short_name +
+  // title. Required given "sets could be large." Case-insensitive
+  // substring match — light enough that we don't need a debounce.
+  const filtered = useMemo(() => {
+    if (!summaries) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return summaries;
+    return summaries.filter(
+      (s) =>
+        s.short_name.toLowerCase().includes(q) ||
+        s.title.toLowerCase().includes(q),
+    );
+  }, [summaries, query]);
+
+  return (
+    <div
+      role="dialog"
+      aria-label={`${group?.name ?? "Set"} navigator`}
+      className="absolute z-30 right-0 top-full mt-1 w-96 max-w-[90vw] rounded-md border border-slate-200 bg-white shadow-lg text-xs"
+    >
+      <div className="px-3 py-2 border-b border-slate-200">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-slate-800 truncate">
+            {group?.name ?? "Loading…"}
+          </span>
+          {group ? (
+            <span
+              className={cn(
+                "inline-block px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-semibold border",
+                groupTypeChipCls(group.type),
+              )}
+            >
+              {group.type}
+            </span>
+          ) : null}
+          <span className="ml-auto">
+            <a
+              href={workflowRoute(groupId)}
+              className="text-blue-700 hover:underline text-[11px]"
+              onClick={onClose}
+            >
+              Open in Workflow ↗
+            </a>
+          </span>
+        </div>
+        {summaries && summaries.length > 0 ? (
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600">
+            <button
+              type="button"
+              className="px-1.5 py-0.5 rounded hover:bg-slate-100 disabled:opacity-40"
+              onClick={() => goToIndex(currentIdx - 1)}
+              disabled={currentIdx < 0}
+              title="Previous experiment in this set ([)"
+              aria-label="previous"
+            >
+              ←
+            </button>
+            <span className="tabular-nums">
+              {currentIdx >= 0
+                ? `${currentIdx + 1} of ${summaries.length}`
+                : `not in set · ${summaries.length} member${
+                    summaries.length === 1 ? "" : "s"
+                  }`}
+            </span>
+            <button
+              type="button"
+              className="px-1.5 py-0.5 rounded hover:bg-slate-100 disabled:opacity-40"
+              onClick={() => goToIndex(currentIdx + 1)}
+              disabled={currentIdx < 0}
+              title="Next experiment in this set (])"
+              aria-label="next"
+            >
+              →
+            </button>
+            <span className="ml-auto text-slate-400 text-[10px]">
+              [ / ] to navigate
+            </span>
+          </div>
+        ) : null}
+      </div>
+      <div className="p-2 border-b border-slate-100">
+        <input
+          type="search"
+          placeholder="Filter by accession or title…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full px-2 py-1 text-xs border border-slate-300 rounded outline-none focus:border-blue-500"
+          // Don't grab keyboard prev/next while typing.
+          autoFocus
+        />
+      </div>
+      <ul className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+        {isLoading || !group ? (
+          <li className="px-3 py-2 text-slate-500 italic">
+            loading members…
+          </li>
+        ) : !summaries ? (
+          // member_summaries should always come back when we asked for
+          // them; this branch is for older agents that don't honour the
+          // flag. Render the chip-only fallback so the popover doesn't
+          // stay empty.
+          <li className="px-3 py-2 text-slate-500 italic">
+            Member metadata unavailable. Open in Workflow for the full
+            list.
+          </li>
+        ) : filtered.length === 0 ? (
+          <li className="px-3 py-2 text-slate-500 italic">
+            No members match "{query}".
+          </li>
+        ) : (
+          filtered.map((m) => (
+            <SetMemberRow
+              key={`${m.experiment_id}-${m.short_name}`}
+              summary={m}
+              isCurrent={m.experiment_id === currentExperimentId}
+              onClick={() => {
+                if (m.experiment_id <= 0) return;
+                navigate(experimentRoute(m.experiment_id));
+                onClose();
+              }}
+            />
+          ))
+        )}
+      </ul>
+    </div>
+  );
+}
+
+/** One member-list row: short_name + title + status pills.
+ *  Highlighted when the row is the curator's current experiment.
+ *  Disabled (no click) for placeholder / non-numeric members
+ *  (screening-group candidate UUIDs). */
+function SetMemberRow({
+  summary,
+  isCurrent,
+  onClick,
+}: {
+  summary: ExperimentSummary;
+  isCurrent: boolean;
+  onClick: () => void;
+}) {
+  const isPlaceholder = summary.experiment_id <= 0;
+  const Component = isPlaceholder ? "div" : "button";
+  return (
+    <li>
+      <Component
+        type={isPlaceholder ? undefined : "button"}
+        onClick={isPlaceholder ? undefined : onClick}
+        className={cn(
+          "w-full text-left px-3 py-1.5 flex items-baseline gap-2",
+          !isPlaceholder && "hover:bg-slate-50 cursor-pointer",
+          isCurrent && "bg-blue-50 hover:bg-blue-100",
+          isPlaceholder && "opacity-60 cursor-default",
+        )}
+        title={isPlaceholder ? "non-numeric member id" : `Open ${summary.short_name}`}
+      >
+        <span
+          className={cn(
+            "font-mono text-[11px] tabular-nums shrink-0",
+            isCurrent ? "font-semibold text-blue-900" : "text-slate-700",
+          )}
+        >
+          {summary.short_name}
+        </span>
+        <span className="flex-1 truncate text-slate-600 text-[11px]">
+          {summary.title || (isPlaceholder ? "" : "(no title)")}
+        </span>
+        <span className="inline-flex items-center gap-1 shrink-0">
+          {summary.troubled ? (
+            <span
+              className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500"
+              title="troubled"
+            />
+          ) : null}
+          {summary.needs_attention ? (
+            <span
+              className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"
+              title="needs attention"
+            />
+          ) : null}
+          {summary.is_public ? (
+            <span
+              className="text-[9px] uppercase tracking-wide text-emerald-700"
+              title="public"
+            >
+              pub
+            </span>
+          ) : null}
+        </span>
+      </Component>
+    </li>
   );
 }
 

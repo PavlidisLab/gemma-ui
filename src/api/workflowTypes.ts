@@ -135,6 +135,29 @@ export interface QuantitationTypePatch {
 
 export type GroupType = "screening" | "pipeline" | "review";
 
+/** Per-member experiment summary for the set-navigator popover.
+ *  Returned alongside ``member_ids`` when the caller opts in with
+ *  ``?include_summaries=true`` on the group read endpoints. Parallel
+ *  to ``member_ids`` (same length, same order); index by position.
+ *
+ *  Edge cases:
+ *  - Members that aren't numeric experiment IDs (screening-group
+ *    candidate UUIDs) get ``experiment_id=0`` with the raw member_id
+ *    in ``short_name``.
+ *  - Numeric members missing a Design row get
+ *    ``short_name="experiment_<id>"`` with the rest defaulted; the UI
+ *    can render them as "unknown".
+ */
+export interface ExperimentSummary {
+  experiment_id: number;
+  short_name: string;
+  title: string;
+  taxon: string;
+  troubled: boolean;
+  needs_attention: boolean;
+  is_public: boolean;
+}
+
 export interface Group {
   id: string;
   name: string;
@@ -142,8 +165,16 @@ export interface Group {
   description: string;
   created_by: string;
   created_at: string;
+  /** Ordered by ``added_at`` (insertion time) — predictable + stable
+   *  across reads, so the navigator's prev/next can index by
+   *  position. */
   member_ids: string[];
   member_count: number;
+  /** Populated only when the request set ``?include_summaries=true``.
+   *  ``null`` (or undefined on older agents) means the caller
+   *  asked the chip-light path; the navigator must re-fetch with
+   *  the flag on. */
+  member_summaries?: ExperimentSummary[] | null;
 }
 
 export interface GroupCreate {
