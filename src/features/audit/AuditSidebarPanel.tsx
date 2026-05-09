@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
+import { Term } from "@/components/ui/Term";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useAuditStream } from "@/api/auditStream";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
@@ -977,19 +978,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             </div>
           ) : null}
 
-          {finding.proposer_suggestion ? (
-            <div className="rounded border border-violet-200 bg-violet-50/60 px-1.5 py-1 text-[11px] mx-1.5">
-              <span
-                className="text-[9px] uppercase tracking-wide font-semibold text-violet-900 block mb-0.5"
-                title="how the silent comparison proposer handled the same target"
-              >
-                proposer suggestion
-              </span>
-              <span className="text-violet-900">
-                {finding.proposer_suggestion}
-              </span>
-            </div>
-          ) : null}
+          <ProposerSuggestionPanel finding={finding} />
 
           <FindingActionRow finding={finding} />
         </div>
@@ -1349,6 +1338,101 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
 // Severity helpers (duplicated from AuditReportView for now — extract to a
 // shared module once we have a third caller).
 // ---------------------------------------------------------------------------
+
+/** "Proposer suggestion" panel: structured render of what the silent
+ *  comparison proposer would have done with this target.
+ *
+ *  Newer reports (post-2026-05-08) carry ``proposer_term``,
+ *  ``proposer_defense``, and ``supporting_evidence[]`` per
+ *  AUDIT_PROPOSER_SUGGESTION_HANDOFF.md. Older reports only have the
+ *  legacy one-line ``proposer_suggestion`` string. The panel:
+ *
+ *    - Renders ``proposer_term`` as a green linkified ``Term`` chip
+ *      when URI present (italic grey when free-text). Falls back to
+ *      the raw string label when ``proposer_term`` is null but the
+ *      legacy string is set.
+ *    - Renders ``proposer_defense`` as a slate paragraph below the
+ *      term — the agent's positive case for its alternate, distinct
+ *      from the finding's ``rationale`` (which is "why the gold
+ *      curation is wrong").
+ *    - Renders each ``supporting_evidence`` as a blockquote with a
+ *      small source-label chip (paper / skeleton / sample names /
+ *      …). Full sentences come from the agent side.
+ *
+ *  Hidden entirely when there's nothing to show (no structured
+ *  fields AND no legacy string). */
+function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
+  const term = finding.proposer_term;
+  const defense = finding.proposer_defense ?? "";
+  const evidence = finding.supporting_evidence ?? [];
+  const legacyText = finding.proposer_suggestion;
+  const hasStructured = !!term || !!defense || evidence.length > 0;
+  if (!hasStructured && !legacyText) return null;
+
+  return (
+    <div className="rounded border border-violet-200 bg-violet-50/60 px-1.5 py-1.5 text-[11px] mx-1.5 space-y-1.5">
+      <div
+        className="text-[9px] uppercase tracking-wide font-semibold text-violet-900"
+        title="how the silent comparison proposer handled the same target"
+      >
+        proposer suggestion
+      </div>
+      {term ? (
+        <div>
+          <Term uri={term.uri ?? null}>{term.label}</Term>
+        </div>
+      ) : !hasStructured && legacyText ? (
+        // Legacy fallback — no structured term came through, but the
+        // older report had a one-line string. Render plain.
+        <div className="text-violet-900">{legacyText}</div>
+      ) : null}
+      {defense ? (
+        <div className="text-slate-700 leading-snug">{defense}</div>
+      ) : null}
+      {evidence.length > 0 ? (
+        <div className="space-y-1">
+          {evidence.map((ev, i) => (
+            <FindingEvidenceBlock key={i} evidence={ev} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** One evidence quote — blockquote rendering with a small source chip
+ *  on the right. Source vocab matches the agent-side
+ *  ``FindingEvidence.source`` literal: paper / skeleton /
+ *  sample_names / geo_metadata / characteristic. */
+function FindingEvidenceBlock({
+  evidence,
+}: {
+  evidence: NonNullable<AuditFinding["supporting_evidence"]>[number];
+}) {
+  const sourceLabel: Record<typeof evidence.source, string> = {
+    paper: "paper",
+    skeleton: "skeleton",
+    sample_names: "sample names",
+    geo_metadata: "GEO",
+    characteristic: "characteristic",
+  };
+  return (
+    <blockquote
+      className="border-l-2 border-violet-300 bg-white/60 pl-2 pr-1 py-1 text-slate-700 italic relative"
+      title={evidence.location || sourceLabel[evidence.source]}
+    >
+      <div className="not-italic text-[9px] uppercase tracking-wide text-violet-700/80 mb-0.5 flex items-center justify-between gap-2">
+        <span>{sourceLabel[evidence.source]}</span>
+        {evidence.location ? (
+          <span className="text-slate-500 not-italic font-mono text-[9px] truncate">
+            {evidence.location}
+          </span>
+        ) : null}
+      </div>
+      <span className="leading-snug">"{evidence.quote}"</span>
+    </blockquote>
+  );
+}
 
 function SeverityBadge({ severity }: { severity: Severity }) {
   const cls = {

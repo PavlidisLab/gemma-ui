@@ -99,24 +99,16 @@ want to build.
 
 ## Current open handoff
 
-**Audit proposer-suggestion enrichment** — see
-[AUDIT_PROPOSER_SUGGESTION_HANDOFF.md](./AUDIT_PROPOSER_SUGGESTION_HANDOFF.md).
-Filed for my brother. The "PROPOSER SUGGESTION" card on each
-finding renders just a one-line string today; curators want a
-green linkified ontology Term + the agent's defense + per-finding
-supporting evidence (full-sentence quotes from paper / skeleton /
-sample names). Asks for `proposer_term` + `proposer_defense` +
-`supporting_evidence[]` on `AuditFinding`. UI follow-up swaps the
-string render for the structured fields; existing
-`proposer_suggestion` string stays as fallback for older reports.
-
-Recently-closed work (UI + agent both shipped, docs deleted from
-the repo root) covered: audit dispositions feedback loop,
+No active cross-repo handoffs. Recently-closed work (UI + agent
+both shipped) covered: audit dispositions feedback loop,
 continuous-factor proposer support, redo-with-notes (agent reads
 `prior_feedback`; UI redo POST on SSE), reset drops proposals,
 proposal accept/reject emits audit events, `strip_curation` keys
 on evidence code, per-factor `baseline_relevance` hint with
-soft-flag UI rendering.
+soft-flag UI rendering, and structured proposer-suggestion on
+audit findings (`proposer_term` / `proposer_defense` /
+`supporting_evidence[]` rendering as green Term + defense
+paragraph + per-source blockquotes).
 
 **Still deferred:**
 - `AuditDetailPage` / `AuditReportView` cross-experiment refactor

@@ -61,7 +61,26 @@
       "citation": "Curation-Rules §Ontology grounding",
       "citation_url": "",
       "suggested_fix": "Resolve to UBERON_0002107 (liver).",
-      "proposer_suggestion": "Proposer used UBERON_0002107 for the same tag."
+      "proposer_suggestion": "Proposer used UBERON_0002107 for the same tag.",
+      "proposer_term": {
+        "label": "liver",
+        "uri": "http://purl.obolibrary.org/obo/UBERON_0002107",
+        "resolver": "uberon",
+        "score": 1.0
+      },
+      "proposer_defense": "Free-text 'liver tissue' resolves cleanly to UBERON 'liver' — the canonical organism-part term for hepatocyte- and hepatocellular-carcinoma studies. CL would be wrong here (cell-type, not tissue).",
+      "supporting_evidence": [
+        {
+          "quote": "Hepatocellular carcinoma tissue samples from 23 patients undergoing partial hepatectomy were profiled alongside matched non-tumour liver tissue.",
+          "source": "paper",
+          "location": "abstract"
+        },
+        {
+          "quote": "GSM310111: 'liver tumor tissue, patient 04, freshly frozen'",
+          "source": "sample_names",
+          "location": "GSM310111, GSM310112, GSM310113 …"
+        }
+      ]
     },
     {
       "target_kind": "tag",
@@ -83,7 +102,15 @@
       "citation": "Curation-Rules §Sample assignment provenance",
       "citation_url": "",
       "suggested_fix": "Reassign GSM310111 to the 'vehicle' FV.",
-      "proposer_suggestion": "Proposer's heuristic assigner placed GSM310111 in 'vehicle' (high confidence, source=characteristic)."
+      "proposer_suggestion": "Proposer's heuristic assigner placed GSM310111 in 'vehicle' (high confidence, source=characteristic).",
+      "proposer_defense": "GSM310111's GEO characteristic 'treatment: vehicle control (DMSO)' is unambiguous; the assigner matched on the characteristic verbatim rather than the descriptive title. High confidence given the explicit DMSO mention.",
+      "supporting_evidence": [
+        {
+          "quote": "treatment: vehicle control (DMSO)",
+          "source": "characteristic",
+          "location": "GSM310111.characteristics.treatment"
+        }
+      ]
     }
   ],
   "evidence": {

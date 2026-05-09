@@ -10,7 +10,7 @@
  * free-text only; materialising a fix is always a curator click in
  * the UI.
  */
-import type { Proposal } from "./types";
+import type { OntologyTerm, Proposal } from "./types";
 
 /** What an `AuditFinding` is *about*. ``"statement"`` is reserved for
  *  Phase 2 (predicate/object on an FV) — no Phase 1 emitter should
@@ -43,6 +43,28 @@ export type OverallVerdict =
   | "major_issues"
   | "blockers";
 
+/** A single quote / row that grounded the proposer's pick on a
+ *  given finding. Rendered as a blockquote with a small source-label
+ *  chip in the audit-finding card. Per
+ *  AUDIT_PROPOSER_SUGGESTION_HANDOFF.md — solves the per-finding
+ *  evidence-anchor gap (the report-level ``evidence.paper_excerpt``
+ *  is too coarse). */
+export interface FindingEvidence {
+  /** Full-sentence rendering. Whole sentences only — half-sentence
+   *  fragments read as cherry-picked. */
+  quote: string;
+  source:
+    | "paper"
+    | "skeleton"
+    | "sample_names"
+    | "geo_metadata"
+    | "characteristic";
+  /** Optional pointer back to the source — paper section, sample
+   *  short_name list, characteristic key, etc. Empty when the source
+   *  label itself is sufficient. */
+  location?: string;
+}
+
 export interface AuditFinding {
   target_kind: AuditTargetKind;
   /** Stable id of the existing curation element this finding addresses
@@ -65,8 +87,29 @@ export interface AuditFinding {
    *  produced for the same target, when comparable. Empty when there's
    *  no clean correspondence (experiment-wide findings, or a tag the
    *  proposer didn't suggest). Always empty when
-   *  ``AuditEvidence.comparison_proposal`` is ``null``. */
+   *  ``AuditEvidence.comparison_proposal`` is ``null``.
+   *
+   *  Kept as a fallback caption — the structured ``proposer_term``
+   *  / ``proposer_defense`` below are the canonical render targets
+   *  on newer reports. */
   proposer_suggestion: string;
+  /** Structured ontology term the proposer would have used. Render
+   *  as a green linkified Term chip when ``uri`` is set; italic grey
+   *  when free-text. Null on older reports (predates the structured
+   *  fields) or when the suggestion is structural rather than a term
+   *  swap. */
+  proposer_term?: OntologyTerm | null;
+  /** One-sentence rationale from the proposer / silent defender for
+   *  *why* this term was the right pick. Distinct from ``rationale``
+   *  — that's the finding's rationale (why the gold curation is
+   *  wrong); this is the proposer's positive case for its
+   *  alternate. Empty on older reports. */
+  proposer_defense?: string;
+  /** Per-finding evidence anchors — full-sentence quotes from the
+   *  paper / skeleton / sample names / GEO metadata /
+   *  characteristics. Rendered as blockquotes. Empty on older
+   *  reports or when no specific quote grounds the suggestion. */
+  supporting_evidence?: FindingEvidence[];
 }
 
 export interface AuditScope {
