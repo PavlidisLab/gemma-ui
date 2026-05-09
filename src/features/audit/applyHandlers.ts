@@ -134,10 +134,12 @@ function labelEq(a: string | null | undefined, b: string): boolean {
  *    doesn't have. Apply = add the tag (using ``proposer_term``'s
  *    URI when present so the new chip lands resolved, not free-text).
  *  - ``calibration_gold_only_miss``: the gold has a tag the agent
- *    didn't propose. Apply = remove the tag (but only when the
- *    curator's verdict is "agent was right; gold is wrong" — the
- *    UI gates this behind the ``Apply`` click, which the curator
- *    only takes after agreeing the agent's absence is correct).
+ *    didn't propose. Apply = remove the tag (curator's "agree, this
+ *    should be removed"). target_id comes in two shapes:
+ *    ``tag:<existing_id>`` when the gold tag is already in the
+ *    design (numeric id from storage), or
+ *    ``calibration:miss:<cat>/<val>`` when no existing-id match was
+ *    found. Both branches converge on a remove-mutate.
  *  - ``calibration_match``: nothing to apply (both sides have it);
  *    falls through to focus-only.
  */
@@ -149,6 +151,31 @@ function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
   ) {
     return null;
   }
+
+  // gold_only_miss with a numeric ``tag:<id>`` target_id — the
+  // standard slug parser doesn't recognise the bare-id form
+  // (it expects ``tag:cat/val``) and the calibration prefix
+  // parser only catches ``calibration:miss:...``. Handle the id
+  // form explicitly so the mutation runs against the actual
+  // existing tag rather than a label match that may be off.
+  if (code === "calibration_gold_only_miss") {
+    const idMatch = finding.target_id.match(/^tag:(\d+)$/);
+    if (idMatch) {
+      const tagId = Number(idMatch[1]);
+      return {
+        mutates: true,
+        label: "Agree (remove) →",
+        tooltip:
+          `Agree → remove this tag from the design (existing curation ` +
+          `had it; agent did not propose it).`,
+        successMessage:
+          "Removed the tag. Commit the draft to save.",
+        mutate: (draft) => removeTagById(draft, tagId),
+        appliedFix: `remove tag #${tagId}`,
+      };
+    }
+  }
+
   const t = parseCalibrationTargetId(finding.target_id);
   if (!t) return null;
 
@@ -243,15 +270,18 @@ function addPopulatedTag(
   return { ...design, tags: [...existing, newTag] };
 }
 
-/** Drop direct (curator-attached) tags whose (category, value)
- *  labels match. Inferred tags stay — those are auto-derived from
- *  BM characteristics / FV sources and disappear when the underlying
- *  signal does, not when the curator dispositions the audit.
+/** Drop the tag whose (category, value) labels match. Removes both
+ *  direct (curator-attached) and inferred chips so the curator's
+ *  "agree, gold over-tagged" verdict actually clears the chip from
+ *  the visible design. Inferred BM-derived chips will reappear from
+ *  the source on the next read; the curator can resolve that
+ *  upstream — for the audit-disposition flow what matters is that
+ *  Agree → tag gone gives immediate visual feedback.
  *
  *  Protected categories (assay / technology type) are never removed
- *  by this path even when the labels match — the apply handler
- *  guards earlier, but this is the second line of defence in case
- *  another caller threads the helper directly. */
+ *  even when the labels match — the apply handler guards earlier,
+ *  but this is the second line of defence in case another caller
+ *  threads the helper directly. */
 function removeTagByLabels(
   design: Design,
   categoryLabel: string,
@@ -262,10 +292,24 @@ function removeTagByLabels(
     ...design,
     tags: (design.tags ?? []).filter(
       (t) =>
-        t.inferred ||
         !labelEq(t.category?.label, categoryLabel) ||
         !labelEq(t.value?.label, valueLabel),
     ),
+  };
+}
+
+/** Drop the tag with this id. Used when the audit finding carries
+ *  ``target_id = "tag:<existing_id>"`` (the standard agent-side
+ *  shape for gold-only-miss against an existing design tag). Does
+ *  the same protected-category guard as the label path so an assay
+ *  tag can't be removed by id either. */
+function removeTagById(design: Design, tagId: number): Design {
+  const target = (design.tags ?? []).find((t) => t.id === tagId);
+  if (!target) return design;
+  if (isProtectedTagCategory(target.category?.label)) return design;
+  return {
+    ...design,
+    tags: (design.tags ?? []).filter((t) => t.id !== tagId),
   };
 }
 
