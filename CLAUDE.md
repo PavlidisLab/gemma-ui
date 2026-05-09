@@ -99,17 +99,6 @@ want to build.
 
 ## Current open handoff
 
-**Calibration gold_only_miss rationale flip** — see
-[CALIBRATION_GOLD_ONLY_MISS_RATIONALE_FLIP_HANDOFF.md](./CALIBRATION_GOLD_ONLY_MISS_RATIONALE_FLIP_HANDOFF.md).
-Filed for my brother. UI just merged Agree with the apply path
-for calibration findings (one click → structural fix +
-accepted+resolved disposition). The gold_only_miss rationale
-needs to flip from "Did the agent miss X?" to "Should X be
-removed from the curation?" so Agree-deletes reads coherently.
-Disposition for gold_only_miss apply also flipped from
-`dismissed + curator_wrong` to `accepted + resolved`; doc has
-the eval-signal interpretation table.
-
 **`run_mock.sh --reload` paper cuts** — see
 [RUN_MOCK_RELOAD_QUIRKS_HANDOFF.md](./RUN_MOCK_RELOAD_QUIRKS_HANDOFF.md).
 Filed for my brother. Two small shell-script tweaks to make the
