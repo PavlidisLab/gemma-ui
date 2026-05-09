@@ -99,18 +99,8 @@ want to build.
 
 ## Current open handoff
 
-**`curator_wrong` dismiss reason** — see
-[CURATOR_WRONG_DISMISS_REASON_HANDOFF.md](./CURATOR_WRONG_DISMISS_REASON_HANDOFF.md).
-Filed for my brother. On `calibration_gold_only_miss` ("Did the
-agent miss X?") + `calibration_match` findings, curators have no
-clean way to dismiss with "agent was right; existing curation
-over-tagged". `auditor_wrong` mis-frames it as a prompt-quality
-issue. UI already renders the chip (DismissDialog +
-DismissReason TS); waiting on the agent-side enum extension to
-unblock the PATCH (today the chip 422s; curators can pick
-`other` as fallback until brother ships).
-
-Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
+No active cross-repo handoffs. Recently-closed work (UI + agent
+both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position
