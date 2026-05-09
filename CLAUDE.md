@@ -99,20 +99,8 @@ want to build.
 
 ## Current open handoff
 
-**Audit finding: structured proposer_statements** — see
-[AUDIT_PROPOSER_STATEMENTS_HANDOFF.md](./AUDIT_PROPOSER_STATEMENTS_HANDOFF.md).
-Filed for my brother. The proposer-suggestion panel renders a
-single italic `Term` chip when the agent's pick is free-text,
-which doesn't tell the curator whether it's just the subject or
-the whole S-P-O that's unmapped. Asks for
-`AuditFinding.proposer_statements: list[StatementProposal]` so
-we can render the same `StatementGlyph` (S-P-O three-disc
-visualisation) the proposal card uses. UI follow-up moves the
-glyph into a shared location and prefers the structured render
-when statements are present, falling back to today's single
-`Term` when not.
-
-Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
+No active cross-repo handoffs. Recently-closed work (UI + agent
+both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
+import { StatementGlyph } from "@/components/ui/StatementGlyph";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useAuditStream } from "@/api/auditStream";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
@@ -1413,6 +1414,7 @@ function trimRationaleBoilerplate(s: string): string {
 
 function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const term = finding.proposer_term;
+  const statements = finding.proposer_statements ?? [];
   // Defense is the agent's positive case for its alternate, distinct
   // from the finding's rationale. Older calibration packages packed
   // it with "(see the supporting-evidence panel)" filler — strip
@@ -1423,7 +1425,11 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
   );
   const evidence = finding.supporting_evidence ?? [];
   const legacyText = finding.proposer_suggestion;
-  const hasStructured = !!term || !!trimmedDefense || evidence.length > 0;
+  const hasStructured =
+    !!term ||
+    statements.length > 0 ||
+    !!trimmedDefense ||
+    evidence.length > 0;
   if (!hasStructured && !legacyText) return null;
 
   return (
@@ -1434,7 +1440,16 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
       >
         proposer suggestion
       </div>
-      {term ? (
+      {statements.length > 0 ? (
+        // FV / factor-shape findings: render the same StatementGlyph
+        // the proposal card uses. Disc colour names per-slot
+        // grounding (green = URI, slate = free-text); ``×N`` count
+        // surfaces multi-statement structure. Skips the single-Term
+        // render below — the glyph carries the semantics.
+        <div>
+          <StatementGlyph statements={statements} />
+        </div>
+      ) : term ? (
         <div>
           <Term uri={term.uri ?? null}>{term.label}</Term>
         </div>

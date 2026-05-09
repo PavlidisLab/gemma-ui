@@ -50,7 +50,35 @@
       "citation": "Curation-Rules §Baseline picks",
       "citation_url": "",
       "suggested_fix": "Mark the 'vehicle' FV as baseline.",
-      "proposer_suggestion": "Proposer's S6 baseline picker chose 'vehicle' (high confidence)."
+      "proposer_suggestion": "Proposer's S6 baseline picker chose 'vehicle' (high confidence).",
+      "proposer_statements": [
+        {
+          "category": {
+            "label": "treatment",
+            "uri": "http://www.ebi.ac.uk/efo/EFO_0000727",
+            "resolver": "efo",
+            "score": 1.0
+          },
+          "subject": {
+            "label": "vehicle",
+            "uri": "http://gemma.msl.ubc.ca/ont/TGEMO_00133",
+            "resolver": "tgemo",
+            "score": 1.0
+          },
+          "predicate": {
+            "label": "has role",
+            "uri": "http://purl.obolibrary.org/obo/RO_0000087",
+            "resolver": "ro",
+            "score": 1.0
+          },
+          "object": {
+            "label": "reference substance role",
+            "uri": "http://purl.obolibrary.org/obo/CHEBI_50906",
+            "resolver": "chebi",
+            "score": 1.0
+          }
+        }
+      ]
     },
     {
       "target_kind": "tag",

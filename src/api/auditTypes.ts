@@ -10,7 +10,7 @@
  * free-text only; materialising a fix is always a curator click in
  * the UI.
  */
-import type { OntologyTerm, Proposal } from "./types";
+import type { OntologyTerm, Proposal, StatementProposal } from "./types";
 
 /** What an `AuditFinding` is *about*. ``"statement"`` is reserved for
  *  Phase 2 (predicate/object on an FV) — no Phase 1 emitter should
@@ -110,6 +110,14 @@ export interface AuditFinding {
    *  characteristics. Rendered as blockquotes. Empty on older
    *  reports or when no specific quote grounds the suggestion. */
   supporting_evidence?: FindingEvidence[];
+  /** Structured statement(s) for the proposer's pick — populated
+   *  on FV / factor-shape findings so the UI can render the same
+   *  ``StatementGlyph`` (S-P-O three-disc visualisation) the
+   *  proposal card uses. Empty for tag-shape findings (the single
+   *  ``proposer_term`` is enough; tags only have one slot) and on
+   *  older reports that pre-date the field. See
+   *  ``AUDIT_PROPOSER_STATEMENTS_HANDOFF.md``. */
+  proposer_statements?: StatementProposal[];
 }
 
 export interface AuditScope {
