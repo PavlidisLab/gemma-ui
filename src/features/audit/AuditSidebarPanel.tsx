@@ -933,7 +933,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
               open ? "" : "line-clamp-2",
             )}
           >
-            {finding.rationale}
+            {trimRationaleBoilerplate(finding.rationale)}
           </span>
         </span>
         <span
@@ -1361,6 +1361,28 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
  *
  *  Hidden entirely when there's nothing to show (no structured
  *  fields AND no legacy string). */
+/** Calibration-judge rationales today end with a fixed boilerplate
+ *  suffix — "Accept if this is real curation work the agent caught,
+ *  dismiss if the agent was wrong." — that adds nothing to the
+ *  curator's decision (the disposition buttons already say "Accept"
+ *  and "Dismiss…"). Strip it client-side so the rationale stays
+ *  focused on the actual claim. Brother knows about this and is
+ *  going to tighten the rationales agent-side; this trim is the
+ *  bridge until that lands. Conservative match — only strips
+ *  when the suffix is recognisable, otherwise returns input
+ *  untouched. */
+function trimRationaleBoilerplate(s: string): string {
+  if (!s) return s;
+  // Common variants: starts with " Accept" or "Accept", optional
+  // articles, ending in "wrong." or "wrong". Anchor on the
+  // "Accept if" / "accept this" pattern + the trailing
+  // "dismiss if" so we don't accidentally chop legitimate
+  // rationales that contain "accept" mid-sentence.
+  const re =
+    /\s*(?:^|\.\s+)Accept\s+(?:if|this)\b[^.]*?\bdismiss\s+if\b[^.]*?\.?\s*$/i;
+  return s.replace(re, "").trim();
+}
+
 function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const term = finding.proposer_term;
   const defense = finding.proposer_defense ?? "";

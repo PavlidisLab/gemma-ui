@@ -289,7 +289,7 @@ function ExperimentGroupChips({
   if (!groups || groups.length === 0) return null;
   return (
     <span className="inline-flex items-center gap-1 text-xs">
-      <span className="text-slate-500 uppercase tracking-wider text-[10px]">
+      <span className="text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">
         {groups.length === 1 ? "Set" : "Sets"}
       </span>
       <span className="inline-flex items-center gap-1 flex-wrap">
@@ -377,12 +377,12 @@ function SetChip({
       >
         {isActiveContext ? (
           <span
-            className="inline-block w-1.5 h-1.5 rounded-full bg-slate-500"
+            className="inline-block w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-slate-300"
             aria-label="active set context"
           />
         ) : null}
         <span className="font-medium truncate max-w-[14ch]">{group.name}</span>
-        <span className="text-[10px] text-slate-500 tabular-nums">
+        <span className="text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
           {group.member_count}
         </span>
       </button>
@@ -486,11 +486,11 @@ function SetNavigatorPopover({
     <div
       role="dialog"
       aria-label={`${group?.name ?? "Set"} navigator`}
-      className="absolute z-30 right-0 top-full mt-1 w-96 max-w-[90vw] rounded-md border border-slate-200 bg-white shadow-lg text-xs"
+      className="absolute z-30 right-0 top-full mt-1 w-96 max-w-[90vw] rounded-md border border-slate-200 bg-white shadow-lg text-xs dark:bg-slate-900 dark:border-slate-700"
     >
-      <div className="px-3 py-2 border-b border-slate-200">
+      <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-slate-800 truncate">
+          <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
             {group?.name ?? "Loading…"}
           </span>
           {group ? (
@@ -506,7 +506,7 @@ function SetNavigatorPopover({
           <span className="ml-auto">
             <a
               href={workflowRoute(groupId)}
-              className="text-blue-700 hover:underline text-[11px]"
+              className="text-blue-700 hover:underline text-[11px] dark:text-blue-300"
               onClick={onClose}
             >
               Open in Workflow ↗
@@ -514,10 +514,10 @@ function SetNavigatorPopover({
           </span>
         </div>
         {summaries && summaries.length > 0 ? (
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600">
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
             <button
               type="button"
-              className="px-1.5 py-0.5 rounded hover:bg-slate-100 disabled:opacity-40"
+              className="px-1.5 py-0.5 rounded hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               onClick={() => goToIndex(currentIdx - 1)}
               disabled={currentIdx < 0}
               title="Previous experiment in this set ([)"
@@ -534,7 +534,7 @@ function SetNavigatorPopover({
             </span>
             <button
               type="button"
-              className="px-1.5 py-0.5 rounded hover:bg-slate-100 disabled:opacity-40"
+              className="px-1.5 py-0.5 rounded hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               onClick={() => goToIndex(currentIdx + 1)}
               disabled={currentIdx < 0}
               title="Next experiment in this set (])"
@@ -542,26 +542,26 @@ function SetNavigatorPopover({
             >
               →
             </button>
-            <span className="ml-auto text-slate-400 text-[10px]">
+            <span className="ml-auto text-slate-400 dark:text-slate-500 text-[10px]">
               [ / ] to navigate
             </span>
           </div>
         ) : null}
       </div>
-      <div className="p-2 border-b border-slate-100">
+      <div className="p-2 border-b border-slate-100 dark:border-slate-700">
         <input
           type="search"
           placeholder="Filter by accession or title…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full px-2 py-1 text-xs border border-slate-300 rounded outline-none focus:border-blue-500"
+          className="w-full px-2 py-1 text-xs border border-slate-300 rounded outline-none focus:border-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-blue-400"
           // Don't grab keyboard prev/next while typing.
           autoFocus
         />
       </div>
-      <ul className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+      <ul className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
         {isLoading || !group ? (
-          <li className="px-3 py-2 text-slate-500 italic">
+          <li className="px-3 py-2 text-slate-500 dark:text-slate-400 italic">
             loading members…
           </li>
         ) : !summaries ? (
@@ -569,12 +569,12 @@ function SetNavigatorPopover({
           // them; this branch is for older agents that don't honour the
           // flag. Render the chip-only fallback so the popover doesn't
           // stay empty.
-          <li className="px-3 py-2 text-slate-500 italic">
+          <li className="px-3 py-2 text-slate-500 dark:text-slate-400 italic">
             Member metadata unavailable. Open in Workflow for the full
             list.
           </li>
         ) : filtered.length === 0 ? (
-          <li className="px-3 py-2 text-slate-500 italic">
+          <li className="px-3 py-2 text-slate-500 dark:text-slate-400 italic">
             No members match "{query}".
           </li>
         ) : (
@@ -620,8 +620,9 @@ function SetMemberRow({
         onClick={isPlaceholder ? undefined : onClick}
         className={cn(
           "w-full text-left px-3 py-1.5 flex items-baseline gap-2",
-          !isPlaceholder && "hover:bg-slate-50 cursor-pointer",
-          isCurrent && "bg-blue-50 hover:bg-blue-100",
+          !isPlaceholder && "hover:bg-slate-50 cursor-pointer dark:hover:bg-slate-800",
+          isCurrent &&
+            "bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50",
           isPlaceholder && "opacity-60 cursor-default",
         )}
         title={isPlaceholder ? "non-numeric member id" : `Open ${summary.short_name}`}
@@ -629,12 +630,14 @@ function SetMemberRow({
         <span
           className={cn(
             "font-mono text-[11px] tabular-nums shrink-0",
-            isCurrent ? "font-semibold text-blue-900" : "text-slate-700",
+            isCurrent
+              ? "font-semibold text-blue-900 dark:text-blue-200"
+              : "text-slate-700 dark:text-slate-200",
           )}
         >
           {summary.short_name}
         </span>
-        <span className="flex-1 truncate text-slate-600 text-[11px]">
+        <span className="flex-1 truncate text-slate-600 dark:text-slate-400 text-[11px]">
           {summary.title || (isPlaceholder ? "" : "(no title)")}
         </span>
         <span className="inline-flex items-center gap-1 shrink-0">
@@ -652,7 +655,7 @@ function SetMemberRow({
           ) : null}
           {summary.is_public ? (
             <span
-              className="text-[9px] uppercase tracking-wide text-emerald-700"
+              className="text-[9px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400"
               title="public"
             >
               pub
@@ -728,14 +731,14 @@ function SetNavCluster({
 
   return (
     <span
-      className="inline-flex items-center gap-1 text-[11px] text-slate-700 px-1.5 py-0.5 rounded border border-slate-300 bg-white/70"
+      className="inline-flex items-center gap-1 text-[11px] text-slate-700 px-1.5 py-0.5 rounded border border-slate-300 bg-white/70 dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200"
       title={`Walking ${group.name} (${group.type}): experiment ${
         idx + 1
       } of ${summaries.length}`}
     >
       <button
         type="button"
-        className="px-1 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+        className="px-1 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed dark:hover:bg-slate-700/70"
         onClick={() => goTo(prev)}
         disabled={!prev}
         aria-label="previous experiment in set"
@@ -751,14 +754,14 @@ function SetNavCluster({
       </button>
       <a
         href={workflowRoute(activeGroupId)}
-        className="tabular-nums hover:underline truncate max-w-[16ch] text-slate-600"
+        className="tabular-nums hover:underline truncate max-w-[16ch] text-slate-600 dark:text-slate-300"
         title={`${group.name} — open in Workflow`}
       >
         {idx + 1} / {summaries.length}
       </a>
       <button
         type="button"
-        className="px-1 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+        className="px-1 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed dark:hover:bg-slate-700/70"
         onClick={() => goTo(next)}
         disabled={!next}
         aria-label="next experiment in set"
@@ -778,17 +781,31 @@ function SetNavCluster({
 
 /** Tone the group chip by its workflow type. Mirrors the funnel
  *  intent — screening = neutral early-stage, pipeline = active
- *  processing, review = closing out. */
+ *  processing, review = closing out. Dark-mode variants are
+ *  required since the banner surfaces sit directly on the dark
+ *  background; light-mode-only fills wash out / lose contrast. */
 function groupTypeChipCls(type: GroupType): string {
   switch (type) {
     case "screening":
-      return "bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100";
+      return (
+        "bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100 " +
+        "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/70"
+      );
     case "pipeline":
-      return "bg-blue-50 border-blue-300 text-blue-800 hover:bg-blue-100";
+      return (
+        "bg-blue-50 border-blue-300 text-blue-800 hover:bg-blue-100 " +
+        "dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200 dark:hover:bg-blue-900/50"
+      );
     case "review":
-      return "bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100";
+      return (
+        "bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100 " +
+        "dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
+      );
     default:
-      return "bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100";
+      return (
+        "bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100 " +
+        "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700/70"
+      );
   }
 }
 

@@ -99,8 +99,20 @@ want to build.
 
 ## Current open handoff
 
-No active cross-repo handoffs. Recently-closed work (UI + agent
-both shipped) covered: audit dispositions feedback loop, set
+**Calibration findings — structured fields + tighter rationales** —
+see [CALIBRATION_FINDING_FIELDS_HANDOFF.md](./CALIBRATION_FINDING_FIELDS_HANDOFF.md).
+Filed for my brother. Calibration judges
+(`calibration_agent_extra` / `_missing` / `_disagree`) populate
+the legacy `proposer_suggestion` string but skip the structured
+`proposer_term` / `proposer_defense` / `supporting_evidence`,
+so the proposer-suggestion card falls back to plain text instead
+of the green Term chip. Rationales also end with a fixed
+"Accept if … dismiss if …" boilerplate that's pure noise next
+to the disposition buttons. UI mitigates with a
+`trimRationaleBoilerplate` regex client-side until the agent
+side tightens the rationale template.
+
+Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position
