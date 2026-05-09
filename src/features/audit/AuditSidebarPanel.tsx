@@ -808,7 +808,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
         <>
           <button
             type="button"
-            className="w-full text-left text-[11px] px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded"
+            className="w-full text-left text-[11px] px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
             onClick={() => setShowSuppressed((v) => !v)}
             title="hidden because the parent factor already has a non-ok finding — those typically subsume per-FV concerns"
           >
@@ -921,15 +921,15 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
       >
         <SeverityBadge severity={finding.severity} />
         <span className="flex-1 min-w-0">
-          <span className="font-mono text-[10px] text-slate-600 mr-1">
+          <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400 mr-1">
             {TARGET_KIND_LABEL[finding.target_kind]}
           </span>
-          <span className="font-mono text-[10px] text-slate-500">
+          <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
             {finding.issue_code}
           </span>
           <span
             className={cn(
-              "block text-[11px] text-slate-700",
+              "block text-[11px] text-slate-700 dark:text-slate-200",
               open ? "" : "line-clamp-2",
             )}
           >
@@ -938,15 +938,15 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         </span>
         <span
           aria-hidden
-          className="text-slate-400 text-[10px] mt-0.5"
+          className="text-slate-400 dark:text-slate-500 text-[10px] mt-0.5"
         >
           {open ? "▾" : "▸"}
         </span>
       </button>
 
       {open ? (
-        <div className="space-y-1.5 pl-1 border-l-2 border-slate-200">
-          <div className="text-[10px] text-slate-500 font-mono pl-1.5">
+        <div className="space-y-1.5 pl-1 border-l-2 border-slate-200 dark:border-slate-700">
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono pl-1.5">
             {finding.target_id}
           </div>
 
@@ -970,11 +970,13 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           ) : null}
 
           {finding.suggested_fix ? (
-            <div className="rounded border border-blue-200 bg-blue-50/60 px-1.5 py-1 text-[11px] mx-1.5">
-              <span className="text-[9px] uppercase tracking-wide font-semibold text-blue-900 block mb-0.5">
+            <div className="rounded border border-blue-200 bg-blue-50/60 px-1.5 py-1 text-[11px] mx-1.5 dark:border-blue-700/60 dark:bg-blue-900/20">
+              <span className="text-[9px] uppercase tracking-wide font-semibold text-blue-900 dark:text-blue-300 block mb-0.5">
                 suggested fix
               </span>
-              <span className="text-blue-900">{finding.suggested_fix}</span>
+              <span className="text-blue-900 dark:text-blue-200">
+                {finding.suggested_fix}
+              </span>
             </div>
           ) : null}
 
@@ -1256,7 +1258,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 ? finding.severity === "ok"
                   ? "bg-emerald-700 text-white hover:bg-emerald-800"
                   : "bg-blue-700 text-white hover:bg-blue-800"
-                : "bg-white border border-blue-600 text-blue-700 hover:bg-blue-50",
+                : "bg-white border border-blue-600 text-blue-700 hover:bg-blue-50 dark:bg-slate-900 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-slate-800",
           )}
         >
           {isResolved
@@ -1279,7 +1281,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             }
             disabled={dispositionSaving}
             title="mark this accepted finding resolved — for when you went and fixed the underlying data manually after agreeing with the finding"
-            className="text-[11px] px-2 py-0.5 rounded font-medium border border-emerald-700 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-50"
+            className="text-[11px] px-2 py-0.5 rounded font-medium border border-emerald-700 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-50 dark:bg-slate-900 dark:border-emerald-400 dark:text-emerald-300 dark:hover:bg-slate-800"
           >
             Mark resolved →
           </button>
@@ -1293,8 +1295,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           className={cn(
             "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
             current === "dismissed"
-              ? "bg-slate-700 text-white"
-              : "text-slate-700 hover:bg-slate-100",
+              ? "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
+              : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
           )}
         >
           {current === "dismissed" ? "✓ dismissed" : "Dismiss…"}
@@ -1310,7 +1312,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
             current === "needs_more_info"
               ? "bg-amber-600 text-white"
-              : "text-slate-700 hover:bg-slate-100",
+              : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
           )}
         >
           ?
@@ -1320,14 +1322,14 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             type="button"
             onClick={() => patch("pending")}
             disabled={dispositionSaving}
-            className="text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline ml-auto"
+            className="text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline ml-auto dark:text-slate-400 dark:hover:text-slate-100"
             title="reset disposition to pending — useful when you want to revert a dismiss without re-opening the reason picker"
           >
             undo
           </button>
         ) : null}
         {dispositionSaving ? (
-          <span className="text-[10px] text-slate-400 italic ml-1">
+          <span className="text-[10px] text-slate-400 italic ml-1 dark:text-slate-500">
             saving…
           </span>
         ) : null}
@@ -1402,9 +1404,9 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
   if (!hasStructured && !legacyText) return null;
 
   return (
-    <div className="rounded border border-violet-200 bg-violet-50/60 px-1.5 py-1.5 text-[11px] mx-1.5 space-y-1.5">
+    <div className="rounded border border-violet-200 bg-violet-50/60 px-1.5 py-1.5 text-[11px] mx-1.5 space-y-1.5 dark:border-violet-700/60 dark:bg-violet-900/20">
       <div
-        className="text-[9px] uppercase tracking-wide font-semibold text-violet-900"
+        className="text-[9px] uppercase tracking-wide font-semibold text-violet-900 dark:text-violet-300"
         title="how the silent comparison proposer handled the same target"
       >
         proposer suggestion
@@ -1416,10 +1418,12 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
       ) : !hasStructured && legacyText ? (
         // Legacy fallback — no structured term came through, but the
         // older report had a one-line string. Render plain.
-        <div className="text-violet-900">{legacyText}</div>
+        <div className="text-violet-900 dark:text-violet-200">{legacyText}</div>
       ) : null}
       {defense ? (
-        <div className="text-slate-700 leading-snug">{defense}</div>
+        <div className="text-slate-700 dark:text-slate-300 leading-snug">
+          {defense}
+        </div>
       ) : null}
       {evidence.length > 0 ? (
         <div className="space-y-1">
@@ -1450,13 +1454,13 @@ function FindingEvidenceBlock({
   };
   return (
     <blockquote
-      className="border-l-2 border-violet-300 bg-white/60 pl-2 pr-1 py-1 text-slate-700 italic relative"
+      className="border-l-2 border-violet-300 bg-white/60 pl-2 pr-1 py-1 text-slate-700 italic relative dark:border-violet-600 dark:bg-slate-800/40 dark:text-slate-200"
       title={evidence.location || sourceLabel[evidence.source]}
     >
-      <div className="not-italic text-[9px] uppercase tracking-wide text-violet-700/80 mb-0.5 flex items-center justify-between gap-2">
+      <div className="not-italic text-[9px] uppercase tracking-wide text-violet-700/80 mb-0.5 flex items-center justify-between gap-2 dark:text-violet-300/90">
         <span>{sourceLabel[evidence.source]}</span>
         {evidence.location ? (
-          <span className="text-slate-500 not-italic font-mono text-[9px] truncate">
+          <span className="text-slate-500 not-italic font-mono text-[9px] truncate dark:text-slate-400">
             {evidence.location}
           </span>
         ) : null}
