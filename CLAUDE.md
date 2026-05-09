@@ -99,8 +99,15 @@ want to build.
 
 ## Current open handoff
 
-No active cross-repo handoffs. Recently-closed work (UI + agent
-both shipped) covered: audit dispositions feedback loop, set
+**Audit-finding rationales: phrase as questions** — see
+[AUDIT_RATIONALE_QUESTIONS_HANDOFF.md](./AUDIT_RATIONALE_QUESTIONS_HANDOFF.md).
+Filed for my brother. Statement-form rationales ("Agent proposed
+X but existing curation does not have it") leave Agree / Disagree
+implicit; phrasing as a question ("Should the curation add the
+term X?") makes the verdict explicit. Per-issue-code rewrites
+suggested in the doc; UI side renders them as-is.
+
+Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position
