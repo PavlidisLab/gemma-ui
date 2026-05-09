@@ -1044,6 +1044,22 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const isResolved = current === "accepted" && !!disposition?.resolved_at;
   const isParked = current === "accepted" && !disposition?.resolved_at;
 
+  // Some agree-cases have no follow-up work in Gemma — e.g. a
+  // calibration_match (both sides have the tag, agreeing means
+  // "yes confirmed") or a calibration_gold_only_miss (the gold
+  // already has X; agreeing means "yes the agent missed it; the
+  // existing curation is right"). The two-step park → Mark
+  // resolved flow assumes there's a structural fix the curator
+  // walks off to apply, so we collapse it to a single Confirm
+  // step for these cases. Severity-ok stays here for backwards
+  // compat with any other ok-emitting judges. Future: when
+  // ``apply_action`` becomes more populated and signals
+  // explicitly whether work is required, derive from that.
+  const noFollowUp =
+    finding.severity === "ok" ||
+    finding.issue_code === "calibration_gold_only_miss" ||
+    finding.issue_code === "calibration_match";
+
   async function patch(
     status: DispositionStatus,
     extras: {
@@ -1247,8 +1263,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               ? "click to undo — flips all the way back to pending (clears resolved_at too)"
               : isParked
                 ? "click to undo — flips back to pending"
-                : finding.severity === "ok"
-                  ? "confirm this match (no follow-up needed; click again to undo)"
+                : noFollowUp
+                  ? "agree (no follow-up needed; click again to undo)"
                   : "agree with this finding (parks it; click 'Mark resolved' later once you've actually addressed it)"
           }
           className={cn(
@@ -1256,7 +1272,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             isResolved
               ? "bg-emerald-700 text-white hover:bg-emerald-800"
               : isParked
-                ? finding.severity === "ok"
+                ? noFollowUp
                   ? "bg-emerald-700 text-white hover:bg-emerald-800"
                   : "bg-blue-700 text-white hover:bg-blue-800"
                 : "bg-white border border-blue-600 text-blue-700 hover:bg-blue-50 dark:bg-slate-900 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-slate-800",
@@ -1265,14 +1281,12 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           {isResolved
             ? "✓✓ resolved"
             : isParked
-              ? finding.severity === "ok"
-                ? "✓ confirmed"
+              ? noFollowUp
+                ? "✓ agreed"
                 : "✓ agreed (parked)"
-              : finding.severity === "ok"
-                ? "Confirm"
-                : "Agree"}
+              : "Agree"}
         </button>
-        {isParked && finding.severity !== "ok" ? (
+        {isParked && !noFollowUp ? (
           <button
             type="button"
             onClick={() =>
