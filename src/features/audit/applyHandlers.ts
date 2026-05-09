@@ -164,11 +164,11 @@ function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
     const valueUri = term?.uri ?? null;
     const categoryLabel = t.category;
     const tooltip = valueUri
-      ? `Add tag "${categoryLabel}: ${valueLabel}" (${valueUri}) to the design and agree with the finding`
-      : `Add tag "${categoryLabel}: ${valueLabel}" (free-text — resolve later) and agree with the finding`;
+      ? `Agree → add tag "${categoryLabel}: ${valueLabel}" (${valueUri}) to the design.`
+      : `Agree → add tag "${categoryLabel}: ${valueLabel}" (free-text — resolve later) to the design.`;
     return {
       mutates: true,
-      label: "Apply (add) →",
+      label: "Agree (add) →",
       tooltip,
       successMessage: `Added tag "${categoryLabel}: ${valueLabel}". Commit the draft to save.`,
       mutate: (draft) =>
@@ -177,11 +177,18 @@ function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
     };
   }
 
-  // calibration_gold_only_miss — removing the tag *disagrees* with
-  // the finding ("Did the agent miss X?" → "no, agent was right;
-  // gold over-tagged"). Disposition is "dismissed" with
-  // ``curator_wrong`` as the reason so eval can split this from
-  // auditor-side errors.
+  // calibration_gold_only_miss — the agent didn't propose X but the
+  // gold has it. Curator's verdict is "agent was right; remove X
+  // from the curation". With brother's question-form rationale
+  // ("Did the agent miss X?" / future "Should X be removed?"),
+  // pressing Agree on this finding maps to *do the deletion*; the
+  // disposition lands accepted+resolved because the curator
+  // agreed-and-acted. (Previously this stamped dismissed +
+  // curator_wrong; flipped so Agree→delete reads coherently.
+  // Curators who actually believe gold is right just don't press
+  // Agree — they Disagree with no_action.) See
+  // CALIBRATION_GOLD_ONLY_MISS_DISPOSITION_FLIP_HANDOFF.md for
+  // the rationale-text alignment ask.
   //
   // Guard: assay / technology-type tags are load-time invariants
   // (Gemma's import attaches them); the curator can't remove them
@@ -192,18 +199,15 @@ function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
     return null;
   }
   const tooltip =
-    `Remove tag "${t.category}: ${t.value}" from the design and ` +
-    `mark this disagreed (agent was right; existing curation was wrong).`;
+    `Agree → remove tag "${t.category}: ${t.value}" from the design.`;
   return {
     mutates: true,
-    label: "Apply (remove) →",
+    label: "Agree (remove) →",
     tooltip,
     successMessage:
       `Removed tag "${t.category}: ${t.value}". Commit the draft to save.`,
     mutate: (draft) => removeTagByLabels(draft, t.category, t.value),
     appliedFix: `remove ${t.category}: ${t.value}`,
-    dispositionStatus: "dismissed",
-    dismissReason: "curator_wrong",
   };
 }
 

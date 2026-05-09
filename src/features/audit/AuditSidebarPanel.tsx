@@ -1264,13 +1264,16 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             const applyAlreadyDone =
               action.mutates && current !== "pending";
             // Use the action-level label when set (calibration paths
-            // emit "Apply (add) →" / "Apply (remove) →"); fall back
+            // emit "Agree (add) →" / "Agree (remove) →"); fall back
             // to the legacy default for handlers that don't.
             const label =
               action.label ||
               (action.mutates ? "Apply & focus →" : "Focus →");
+            // Done state — strip the verb prefix and arrow, leaving
+            // a "✓ done (action)" pill that signals the apply has
+            // landed.
             const labelDone = label
-              .replace(/^Apply\b/, "✓ Applied")
+              .replace(/^(Agree|Apply)\b/, "✓ Done")
               .replace(/\s*→\s*$/, "");
             return (
               <button
@@ -1306,6 +1309,13 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             );
           })()
         ) : null}
+        {/* Standalone Agree button — hidden when there's a mutating
+            apply action, since the "Agree (add)/(remove) →" button
+            above IS the agree affordance for those cases (clicking
+            it both runs the structural fix and dispositions
+            accepted+resolved). For focus-only / non-mutating
+            findings, this button is the only way to agree. */}
+        {action?.mutates ? null : (
         <button
           type="button"
           onClick={() =>
@@ -1340,6 +1350,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 : "✓ agreed (parked)"
               : "Agree"}
         </button>
+        )}
         {isParked && !noFollowUp ? (
           <button
             type="button"
