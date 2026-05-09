@@ -1243,9 +1243,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             isResolved
               ? "click to undo — flips all the way back to pending (clears resolved_at too)"
               : isParked
-                ? finding.severity === "ok"
-                  ? "click to undo — flips back to pending"
-                  : "click to undo — flips back to pending"
+                ? "click to undo — flips back to pending"
                 : finding.severity === "ok"
                   ? "confirm this match (no follow-up needed; click again to undo)"
                   : "agree with this finding (parks it; click 'Mark resolved' later once you've actually addressed it)"
@@ -1266,10 +1264,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             : isParked
               ? finding.severity === "ok"
                 ? "✓ confirmed"
-                : "✓ accepted (parked)"
+                : "✓ agreed (parked)"
               : finding.severity === "ok"
                 ? "Confirm"
-                : "Accept"}
+                : "Agree"}
         </button>
         {isParked && finding.severity !== "ok" ? (
           <button
@@ -1291,7 +1289,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           type="button"
           onClick={() => setDismissOpen(true)}
           disabled={dispositionSaving}
-          title="dismiss this finding (you'll pick a reason)"
+          title="disagree with this finding (you'll pick a reason)"
           className={cn(
             "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
             current === "dismissed"
@@ -1299,7 +1297,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
           )}
         >
-          {current === "dismissed" ? "✓ dismissed" : "Dismiss…"}
+          {current === "dismissed" ? "✓ disagreed" : "Disagree…"}
         </button>
         <button
           type="button"
@@ -1307,7 +1305,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             patch(current === "needs_more_info" ? "pending" : "needs_more_info")
           }
           disabled={dispositionSaving}
-          title="needs more info — flag for follow-up without taking action"
+          title="not sure — flag for follow-up without taking action"
           className={cn(
             "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
             current === "needs_more_info"
@@ -1315,7 +1313,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
           )}
         >
-          ?
+          {current === "needs_more_info" ? "✓ not sure" : "Not sure"}
         </button>
         {current !== "pending" ? (
           <button
@@ -1427,6 +1425,17 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
       ) : null}
       {evidence.length > 0 ? (
         <div className="space-y-1">
+          {/* Sub-header named "supporting evidence" so the agent's
+              rationale text ("see the supporting-evidence panel")
+              has a visible anchor to point at. Renders only when
+              there's actually evidence to show — otherwise the
+              proposer suggestion panel stays compact. */}
+          <div
+            id="supporting-evidence"
+            className="text-[9px] uppercase tracking-wide font-semibold text-violet-900 dark:text-violet-300 pt-0.5"
+          >
+            supporting evidence
+          </div>
           {evidence.map((ev, i) => (
             <FindingEvidenceBlock key={i} evidence={ev} />
           ))}
