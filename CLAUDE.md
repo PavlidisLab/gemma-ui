@@ -99,8 +99,17 @@ want to build.
 
 ## Current open handoff
 
-No active cross-repo handoffs. Recently-closed work (UI + agent
-both shipped) covered: audit dispositions feedback loop, set
+**`run_mock.sh --reload` paper cuts** — see
+[RUN_MOCK_RELOAD_QUIRKS_HANDOFF.md](./RUN_MOCK_RELOAD_QUIRKS_HANDOFF.md).
+Filed for my brother. Two small shell-script tweaks to make the
+dev-with-reload path cleaner: skip the keychain query when
+`GEMMA_CURATION_API_KEY` is already set (avoids the macOS GUI
+prompt that re-fires on uvicorn worker respawn), and always
+inject `--port 8080` unless the caller explicitly passed
+`--port`. Workaround today: `./run_mock.sh --reload --port 8080`
+plus accept the keychain prompt once.
+
+Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position
