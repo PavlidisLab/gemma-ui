@@ -924,9 +924,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400 mr-1">
             {TARGET_KIND_LABEL[finding.target_kind]}
           </span>
-          <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
-            {finding.issue_code}
-          </span>
+          <IssueCodeBadge issueCode={finding.issue_code} />
           <span
             className={cn(
               "block text-[11px] text-slate-700 dark:text-slate-200",
@@ -946,7 +944,11 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
 
       {open ? (
         <div className="space-y-1.5 pl-1 border-l-2 border-slate-200 dark:border-slate-700">
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono pl-1.5">
+          {/* Raw target_id slug — debug-only DOM key for the
+              inline-dot resolver, not curator-actionable. Hidden
+              by default; toggle via a localStorage flag for the
+              eval / debug case. */}
+          <div className="hidden text-[10px] text-slate-500 dark:text-slate-400 font-mono pl-1.5">
             {finding.target_id}
           </div>
 
@@ -1411,10 +1413,17 @@ function trimRationaleBoilerplate(s: string): string {
 
 function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const term = finding.proposer_term;
-  const defense = finding.proposer_defense ?? "";
+  // Defense is the agent's positive case for its alternate, distinct
+  // from the finding's rationale. Older calibration packages packed
+  // it with "(see the supporting-evidence panel)" filler — strip
+  // through ``trimRationaleBoilerplate`` so an empty-after-trim
+  // string doesn't render an empty paragraph.
+  const trimmedDefense = trimRationaleBoilerplate(
+    finding.proposer_defense ?? "",
+  );
   const evidence = finding.supporting_evidence ?? [];
   const legacyText = finding.proposer_suggestion;
-  const hasStructured = !!term || !!defense || evidence.length > 0;
+  const hasStructured = !!term || !!trimmedDefense || evidence.length > 0;
   if (!hasStructured && !legacyText) return null;
 
   return (
@@ -1434,24 +1443,18 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
         // older report had a one-line string. Render plain.
         <div className="text-violet-900 dark:text-violet-200">{legacyText}</div>
       ) : null}
-      {defense ? (
+      {trimmedDefense ? (
         <div className="text-slate-700 dark:text-slate-300 leading-snug">
-          {defense}
+          {trimmedDefense}
         </div>
       ) : null}
       {evidence.length > 0 ? (
         <div className="space-y-1">
-          {/* Sub-header named "supporting evidence" so the agent's
-              rationale text ("see the supporting-evidence panel")
-              has a visible anchor to point at. Renders only when
-              there's actually evidence to show — otherwise the
-              proposer suggestion panel stays compact. */}
-          <div
-            id="supporting-evidence"
-            className="text-[9px] uppercase tracking-wide font-semibold text-violet-900 dark:text-violet-300 pt-0.5"
-          >
-            supporting evidence
-          </div>
+          {/* Sub-header dropped 2026-05-08 — the rationale's
+              "(see the supporting-evidence panel)" reference is
+              now stripped at the source + by the UI's defensive
+              regex, so the labelled anchor is redundant. The
+              blockquotes themselves carry per-source chips. */}
           {evidence.map((ev, i) => (
             <FindingEvidenceBlock key={i} evidence={ev} />
           ))}
@@ -1494,6 +1497,121 @@ function FindingEvidenceBlock({
     </blockquote>
   );
 }
+
+/** Glyph + short label for a finding's ``issue_code``. The raw
+ *  ``calibration_agent_extra`` / ``forbidden_efc`` / etc. strings
+ *  are stable handles for tests + eval but read poorly on screen.
+ *  Map known codes to a glyph that signals shape (``+`` = agent
+ *  proposed something extra, ``−`` = agent missed something gold
+ *  has, ``=`` = match, ``Δ`` = needs change, ``✓`` = ok pass)
+ *  with a short word; fall back to the raw code for codes we
+ *  haven't mapped yet so new judges don't render blank. The raw
+ *  code stays in the hover title for the eval / debug case where
+ *  you actually need it. */
+function IssueCodeBadge({ issueCode }: { issueCode: string }) {
+  const mapping = ISSUE_CODE_RENDER[issueCode];
+  if (!mapping) {
+    return (
+      <span
+        className="font-mono text-[10px] text-slate-500 dark:text-slate-400"
+        title={issueCode}
+      >
+        {issueCode}
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline gap-0.5 text-[10px] tracking-wide font-medium px-1 py-0 rounded border",
+        mapping.cls,
+      )}
+      title={issueCode}
+    >
+      <span className="font-mono leading-none">{mapping.glyph}</span>
+      <span>{mapping.label}</span>
+    </span>
+  );
+}
+
+/** Render mapping for known ``issue_code`` values. The glyph is the
+ *  scannable cue; the label is a one-word shape hint. Tones: green
+ *  for "extra" (positive — something to consider adding), slate for
+ *  "missing"/"match" (neutral readout), amber for "needs change",
+ *  emerald-faint for "ok". When my brother adds new codes, they
+ *  render as raw ``font-mono`` text via the fallback above until
+ *  this map gets entries. */
+const ISSUE_CODE_RENDER: Record<
+  string,
+  { glyph: string; label: string; cls: string }
+> = {
+  // Calibration triplet — agent vs. gold.
+  calibration_agent_extra: {
+    glyph: "+",
+    label: "extra",
+    cls:
+      "bg-emerald-50 border-emerald-200 text-emerald-800 " +
+      "dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-200",
+  },
+  calibration_gold_only_miss: {
+    glyph: "−",
+    label: "missing",
+    cls:
+      "bg-slate-100 border-slate-300 text-slate-700 " +
+      "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200",
+  },
+  calibration_match: {
+    glyph: "=",
+    label: "match",
+    cls:
+      "bg-slate-50 border-slate-200 text-slate-600 " +
+      "dark:bg-slate-800/40 dark:border-slate-700 dark:text-slate-300",
+  },
+  // Phase-1 audit judges — anything signalling "this needs fixing"
+  // gets the delta glyph; coverage / baseline gaps share "−".
+  forbidden_efc: {
+    glyph: "Δ",
+    label: "fix",
+    cls:
+      "bg-amber-50 border-amber-200 text-amber-800 " +
+      "dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200",
+  },
+  ungrounded_term: {
+    glyph: "Δ",
+    label: "ground",
+    cls:
+      "bg-amber-50 border-amber-200 text-amber-800 " +
+      "dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200",
+  },
+  low_confidence_assignment: {
+    glyph: "Δ",
+    label: "review",
+    cls:
+      "bg-amber-50 border-amber-200 text-amber-800 " +
+      "dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200",
+  },
+  missing_baseline: {
+    glyph: "−",
+    label: "baseline",
+    cls:
+      "bg-slate-100 border-slate-300 text-slate-700 " +
+      "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200",
+  },
+  coverage_zero: {
+    glyph: "−",
+    label: "coverage",
+    cls:
+      "bg-slate-100 border-slate-300 text-slate-700 " +
+      "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200",
+  },
+  ok: {
+    glyph: "✓",
+    label: "ok",
+    cls:
+      "bg-emerald-50 border-emerald-200 text-emerald-700 " +
+      "dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-300",
+  },
+};
 
 function SeverityBadge({ severity }: { severity: Severity }) {
   const cls = {

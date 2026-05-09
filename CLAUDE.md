@@ -99,18 +99,18 @@ want to build.
 
 ## Current open handoff
 
-**Set-navigator audit status + rationale-verbiage trim** —
-see [SET_NAVIGATOR_AUDIT_STATUS_HANDOFF.md](./SET_NAVIGATOR_AUDIT_STATUS_HANDOFF.md).
-Filed for my brother. Two small asks: extend `ExperimentSummary`
-with optional `audit_status: "none" | "in_progress" | "closed"`
-so the set-navigator member list can show per-experiment
-audit-progress glyphs (UI already renders them when present;
-hidden cleanly when undefined); and drop the
-"Agent emitted with the evidence quote on file (see the
-supporting-evidence panel)." / parenthetical `(see the
-supporting-evidence panel)` filler from calibration rationales
-at the source. UI mitigates the verbiage with a regex pass in
-`trimRationaleBoilerplate` until the agent side ships.
+**Audit finding: structured proposer_statements** — see
+[AUDIT_PROPOSER_STATEMENTS_HANDOFF.md](./AUDIT_PROPOSER_STATEMENTS_HANDOFF.md).
+Filed for my brother. The proposer-suggestion panel renders a
+single italic `Term` chip when the agent's pick is free-text,
+which doesn't tell the curator whether it's just the subject or
+the whole S-P-O that's unmapped. Asks for
+`AuditFinding.proposer_statements: list[StatementProposal]` so
+we can render the same `StatementGlyph` (S-P-O three-disc
+visualisation) the proposal card uses. UI follow-up moves the
+glyph into a shared location and prefers the structured render
+when statements are present, falling back to today's single
+`Term` when not.
 
 Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
