@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
@@ -1561,12 +1561,26 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
 /** One evidence quote — blockquote rendering with a small source chip
  *  on the right. Source vocab matches the agent-side
  *  ``FindingEvidence.source`` literal: paper / skeleton /
- *  sample_names / geo_metadata / characteristic. */
+ *  sample_names / geo_metadata / characteristic.
+ *
+ *  Three layers per AUDIT_EVIDENCE_CONTEXT_HANDOFF.md:
+ *    1. ``quote`` — the anchor sentence (always rendered as the
+ *       collapsed-state blockquote).
+ *    2. ``context`` — paragraphs / sample-names neighbourhood / full
+ *       characteristic block. Hidden behind a "Show more" expander
+ *       when set + non-empty + different from ``quote``. Rendered in
+ *       a sibling pre-formatted block with ``highlights`` ranges
+ *       wrapped in a soft yellow span so the eye lands on the anchor
+ *       inside the wider text.
+ *    3. ``source_url`` — optional deep-link to the GEO record /
+ *       PubMed / Gemma sample page; rendered as a small "open ↗"
+ *       in the source-label header strip. */
 function FindingEvidenceBlock({
   evidence,
 }: {
   evidence: NonNullable<AuditFinding["supporting_evidence"]>[number];
 }) {
+  const [expanded, setExpanded] = useState(false);
   const sourceLabel: Record<typeof evidence.source, string> = {
     paper: "paper",
     skeleton: "skeleton",
@@ -1574,22 +1588,108 @@ function FindingEvidenceBlock({
     geo_metadata: "GEO",
     characteristic: "characteristic",
   };
+  const context = (evidence.context || "").trim();
+  const quote = (evidence.quote || "").trim();
+  // Only show the expander when context adds value beyond the
+  // anchor sentence — empty contexts and contexts that just are
+  // the quote don't warrant the affordance.
+  const hasMore = !!context && context !== quote;
   return (
     <blockquote
       className="border-l-2 border-violet-300 bg-white/60 pl-2 pr-1 py-1 text-slate-700 italic relative dark:border-violet-600 dark:bg-slate-800/40 dark:text-slate-200"
       title={evidence.location || sourceLabel[evidence.source]}
     >
       <div className="not-italic text-[9px] uppercase tracking-wide text-violet-700/80 mb-0.5 flex items-center justify-between gap-2 dark:text-violet-300/90">
-        <span>{sourceLabel[evidence.source]}</span>
+        <span className="inline-flex items-baseline gap-1.5">
+          <span>{sourceLabel[evidence.source]}</span>
+          {evidence.source_url ? (
+            <a
+              href={evidence.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-violet-700/90 hover:text-violet-900 hover:underline dark:text-violet-300 dark:hover:text-violet-200"
+              title={`open source: ${evidence.source_url}`}
+            >
+              open ↗
+            </a>
+          ) : null}
+        </span>
         {evidence.location ? (
           <span className="text-slate-500 not-italic font-mono text-[9px] truncate dark:text-slate-400">
             {evidence.location}
           </span>
         ) : null}
       </div>
-      <span className="leading-snug">"{evidence.quote}"</span>
+      <span className="leading-snug">"{quote}"</span>
+      {hasMore ? (
+        <>
+          {expanded ? (
+            <pre className="not-italic mt-1.5 px-1.5 py-1 rounded bg-violet-50/70 dark:bg-violet-900/30 text-[11px] leading-snug whitespace-pre-wrap break-words font-sans text-slate-800 dark:text-slate-200 max-h-72 overflow-y-auto">
+              {renderHighlightedContext(context, evidence.highlights ?? [])}
+            </pre>
+          ) : null}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }}
+            className="not-italic mt-1 text-[10px] text-violet-700 hover:underline dark:text-violet-300"
+          >
+            {expanded ? "Show less" : "Show more"}
+          </button>
+        </>
+      ) : null}
     </blockquote>
   );
+}
+
+/** Render ``context`` with ``highlights`` ranges wrapped in a soft
+ *  yellow span. Half-open ``[start, end)`` byte offsets per
+ *  agent-side contract. Out-of-range / overlapping / unsorted
+ *  ranges all clamp + sort + merge defensively so a malformed
+ *  highlight set never breaks the render. */
+function renderHighlightedContext(
+  context: string,
+  highlights: [number, number][],
+): ReactNode {
+  if (!highlights || highlights.length === 0) return context;
+  // Clamp into [0, len], drop empties, sort by start, merge
+  // overlaps. Done once per render — the lists are small.
+  const len = context.length;
+  const clamped = highlights
+    .map(([s, e]): [number, number] => [
+      Math.max(0, Math.min(len, s | 0)),
+      Math.max(0, Math.min(len, e | 0)),
+    ])
+    .filter(([s, e]) => e > s)
+    .sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [];
+  for (const [s, e] of clamped) {
+    const last = merged[merged.length - 1];
+    if (last && s <= last[1]) {
+      last[1] = Math.max(last[1], e);
+    } else {
+      merged.push([s, e]);
+    }
+  }
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  merged.forEach(([s, e], i) => {
+    if (s > cursor) parts.push(context.slice(cursor, s));
+    parts.push(
+      <mark
+        key={`h${i}`}
+        className="bg-yellow-200/70 dark:bg-yellow-700/40 text-slate-900 dark:text-slate-100 rounded-sm px-0.5"
+      >
+        {context.slice(s, e)}
+      </mark>,
+    );
+    cursor = e;
+  });
+  if (cursor < len) parts.push(context.slice(cursor));
+  return parts;
 }
 
 /** Glyph + short label for a finding's ``issue_code``. The raw

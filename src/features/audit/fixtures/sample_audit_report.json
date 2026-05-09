@@ -101,12 +101,18 @@
         {
           "quote": "Hepatocellular carcinoma tissue samples from 23 patients undergoing partial hepatectomy were profiled alongside matched non-tumour liver tissue.",
           "source": "paper",
-          "location": "abstract"
+          "location": "abstract",
+          "source_url": "https://www.ncbi.nlm.nih.gov/pubmed/12345678",
+          "context": "We profiled gene expression in human hepatocellular carcinoma to identify candidate driver genes.\n\nHepatocellular carcinoma tissue samples from 23 patients undergoing partial hepatectomy were profiled alongside matched non-tumour liver tissue. Total RNA was extracted using TRIzol and prepared for sequencing on Illumina NovaSeq 6000.\n\nDifferential expression analysis was performed using DESeq2 (v1.30.1) with default settings.",
+          "highlights": [[97, 250]]
         },
         {
           "quote": "GSM310111: 'liver tumor tissue, patient 04, freshly frozen'",
           "source": "sample_names",
-          "location": "GSM310111, GSM310112, GSM310113 …"
+          "location": "GSM310111, GSM310112, GSM310113 …",
+          "source_url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE12345",
+          "context": "GSM310108: 'liver tumor tissue, patient 01, freshly frozen'\nGSM310109: 'liver tumor tissue, patient 02, freshly frozen'\nGSM310110: 'liver tumor tissue, patient 03, freshly frozen'\nGSM310111: 'liver tumor tissue, patient 04, freshly frozen'\nGSM310112: 'matched non-tumour liver, patient 04, freshly frozen'\nGSM310113: 'liver tumor tissue, patient 05, freshly frozen'\nGSM310114: 'matched non-tumour liver, patient 05, freshly frozen'",
+          "highlights": [[174, 233]]
         }
       ]
     },

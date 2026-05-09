@@ -63,6 +63,26 @@ export interface FindingEvidence {
    *  short_name list, characteristic key, etc. Empty when the source
    *  label itself is sufficient. */
   location?: string;
+  /** Wider surrounding text — paragraphs / neighbour rows / full
+   *  characteristic block. UI shows ``quote`` as the preview and
+   *  reveals ``context`` behind a "Show more" expander. Empty when
+   *  no wider context applies (single-line characteristic, etc.);
+   *  UI hides the expander.
+   *  See AUDIT_EVIDENCE_CONTEXT_HANDOFF.md for caps + per-source
+   *  shape. */
+  context?: string;
+  /** Deep-link to the canonical source so the curator can bounce
+   *  out to the GEO record / PubMed / Gemma sample page when the
+   *  inline context isn't enough. UI renders an "open ↗" next to
+   *  the source-label chip; hidden when empty. */
+  source_url?: string;
+  /** Half-open ``(start, end)`` byte offsets into ``context`` to
+   *  highlight (typically the anchor ``quote`` substring). UI wraps
+   *  matching spans in a soft yellow highlight so the eye lands on
+   *  the anchor inside the wider context. Multi-range supported.
+   *  Empty when no highlight applies (one-line contexts, paraphrased
+   *  quotes that aren't literal substrings). */
+  highlights?: [number, number][];
 }
 
 export interface AuditFinding {
