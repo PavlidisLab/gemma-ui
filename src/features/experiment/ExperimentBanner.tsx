@@ -25,7 +25,12 @@ import { cn } from "@/lib/cn";
 import type { ExternalSource } from "@/features/experiment/types";
 import { useExperimentGroups, useGroup } from "@/api/workflow";
 import { experimentRoute, navigate, workflowRoute } from "@/routes";
-import type { ExperimentSummary, Group, GroupType } from "@/api/workflowTypes";
+import type {
+  ExperimentAuditStatus,
+  ExperimentSummary,
+  Group,
+  GroupType,
+} from "@/api/workflowTypes";
 
 export type TabId =
   | "overview"
@@ -676,6 +681,9 @@ function SetMemberRow({
           {summary.title || (isPlaceholder ? "" : "(no title)")}
         </span>
         <span className="inline-flex items-center gap-1 shrink-0">
+          {summary.audit_status ? (
+            <AuditStatusGlyph status={summary.audit_status} />
+          ) : null}
           {summary.troubled ? (
             <span
               className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500"
@@ -810,6 +818,74 @@ function SetNavCluster({
       >
         →
       </button>
+    </span>
+  );
+}
+
+/** Compact audit-status glyph for set-navigator member rows.
+ *  Three states: outlined ring (no audit yet), half-fill (audit
+ *  started but not closed), filled disc (closed). Slate-on-light /
+ *  slate-on-dark for the muted states; emerald for closed so the
+ *  curator can spot finished members at a glance while walking a
+ *  calibration set. */
+function AuditStatusGlyph({ status }: { status: ExperimentAuditStatus }) {
+  const config = (() => {
+    switch (status) {
+      case "none":
+        return {
+          title: "no audit yet",
+          // outlined ring
+          fill: "transparent",
+          stroke: "currentColor",
+          tone: "text-slate-400 dark:text-slate-500",
+        };
+      case "in_progress":
+        return {
+          title: "audit in progress",
+          // half-filled (left half stroke, full circle outlined)
+          fill: "url(#audit-half)",
+          stroke: "currentColor",
+          tone: "text-amber-600 dark:text-amber-400",
+        };
+      case "closed":
+        return {
+          title: "audit closed",
+          fill: "currentColor",
+          stroke: "currentColor",
+          tone: "text-emerald-600 dark:text-emerald-400",
+        };
+    }
+  })();
+  return (
+    <span title={config.title} className={cn("inline-flex", config.tone)}>
+      <svg width="9" height="9" viewBox="0 0 10 10" aria-label={config.title}>
+        <defs>
+          {/* Half-fill pattern for ``in_progress`` — a clip path
+              shading the left semicircle. SVG-only; no JS. */}
+          <clipPath id="audit-half-clip">
+            <rect x="0" y="0" width="5" height="10" />
+          </clipPath>
+        </defs>
+        <circle
+          cx="5"
+          cy="5"
+          r="4"
+          fill="none"
+          stroke={config.stroke}
+          strokeWidth="1"
+        />
+        {status === "in_progress" ? (
+          <circle
+            cx="5"
+            cy="5"
+            r="4"
+            fill="currentColor"
+            clipPath="url(#audit-half-clip)"
+          />
+        ) : status === "closed" ? (
+          <circle cx="5" cy="5" r="3" fill="currentColor" />
+        ) : null}
+      </svg>
     </span>
   );
 }

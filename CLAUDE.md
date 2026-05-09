@@ -99,8 +99,20 @@ want to build.
 
 ## Current open handoff
 
-No active cross-repo handoffs. Recently-closed work (UI + agent
-both shipped) covered: audit dispositions feedback loop, set
+**Set-navigator audit status + rationale-verbiage trim** —
+see [SET_NAVIGATOR_AUDIT_STATUS_HANDOFF.md](./SET_NAVIGATOR_AUDIT_STATUS_HANDOFF.md).
+Filed for my brother. Two small asks: extend `ExperimentSummary`
+with optional `audit_status: "none" | "in_progress" | "closed"`
+so the set-navigator member list can show per-experiment
+audit-progress glyphs (UI already renders them when present;
+hidden cleanly when undefined); and drop the
+"Agent emitted with the evidence quote on file (see the
+supporting-evidence panel)." / parenthetical `(see the
+supporting-evidence panel)` filler from calibration rationales
+at the source. UI mitigates the verbiage with a regex pass in
+`trimRationaleBoilerplate` until the agent side ships.
+
+Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position

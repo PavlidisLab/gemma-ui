@@ -1371,26 +1371,42 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
  *
  *  Hidden entirely when there's nothing to show (no structured
  *  fields AND no legacy string). */
-/** Calibration-judge rationales today end with a fixed boilerplate
- *  suffix — "Accept if this is real curation work the agent caught,
- *  dismiss if the agent was wrong." — that adds nothing to the
- *  curator's decision (the disposition buttons already say "Accept"
- *  and "Dismiss…"). Strip it client-side so the rationale stays
- *  focused on the actual claim. Brother knows about this and is
- *  going to tighten the rationales agent-side; this trim is the
- *  bridge until that lands. Conservative match — only strips
- *  when the suffix is recognisable, otherwise returns input
- *  untouched. */
+/** Calibration-judge rationales come with two fixed boilerplate
+ *  patterns that add nothing to the curator's decision — the
+ *  disposition buttons already say what the verdict is, and the
+ *  proposer-suggestion panel already shows the supporting
+ *  evidence. Strip both so the rationale stays focused on the
+ *  actual claim.
+ *
+ *  Conservative regexes — only strip when the suffix is
+ *  recognisable, otherwise return input untouched. Brother knows
+ *  about both and is going to tighten the rationale templates
+ *  agent-side; these regexes are the bridge until that lands. */
 function trimRationaleBoilerplate(s: string): string {
   if (!s) return s;
-  // Common variants: starts with " Accept" or "Accept", optional
-  // articles, ending in "wrong." or "wrong". Anchor on the
-  // "Accept if" / "accept this" pattern + the trailing
-  // "dismiss if" so we don't accidentally chop legitimate
-  // rationales that contain "accept" mid-sentence.
-  const re =
-    /\s*(?:^|\.\s+)Accept\s+(?:if|this)\b[^.]*?\bdismiss\s+if\b[^.]*?\.?\s*$/i;
-  return s.replace(re, "").trim();
+  let out = s;
+  // 1) "Accept if … dismiss if …" tail. Anchor on "Accept if" /
+  //    "Accept this" + a trailing "dismiss if" so we don't chop
+  //    legitimate rationales that contain "accept" mid-sentence.
+  out = out.replace(
+    /\s*(?:^|\.\s+)Accept\s+(?:if|this)\b[^.]*?\bdismiss\s+if\b[^.]*?\.?\s*$/i,
+    "",
+  );
+  // 2) "(see the supporting-evidence panel)" / "Agent emitted with
+  //    the evidence quote on file (see the supporting-evidence
+  //    panel)." — wasted verbiage that points at a panel the
+  //    curator can already see. Match the parenthetical anywhere
+  //    AND, if the whole sentence is just the "Agent emitted with
+  //    the evidence quote on file" frame, drop the whole sentence.
+  out = out.replace(
+    /\s*\(\s*see\s+the\s+supporting[- ]evidence\s+panel\.?\s*\)\s*\.?/gi,
+    "",
+  );
+  out = out.replace(
+    /\s*(?:^|\.\s+)Agent\s+emitted\s+with\s+the\s+evidence\s+quote\s+on\s+file\.?/i,
+    "",
+  );
+  return out.trim();
 }
 
 function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {

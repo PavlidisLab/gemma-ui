@@ -148,6 +148,21 @@ export type GroupType = "screening" | "pipeline" | "review";
  *    ``short_name="experiment_<id>"`` with the rest defaulted; the UI
  *    can render them as "unknown".
  */
+/** Per-experiment audit-progress hint surfaced in the set-navigator
+ *  popover so curators walking a calibration set can see at a glance
+ *  which members they haven't started yet vs which ones are
+ *  in-progress vs finalized.
+ *
+ *  - ``none`` — no AuditReport exists for this experiment.
+ *  - ``in_progress`` — at least one AuditReport row exists but none
+ *    are finalized; OR a finalized report exists with pending
+ *    dispositions remaining.
+ *  - ``closed`` — at least one AuditReport is finalized AND every
+ *    finding on the latest report has a non-pending disposition.
+ *
+ *  ``undefined`` on older agents that pre-date the field. */
+export type ExperimentAuditStatus = "none" | "in_progress" | "closed";
+
 export interface ExperimentSummary {
   experiment_id: number;
   short_name: string;
@@ -156,6 +171,10 @@ export interface ExperimentSummary {
   troubled: boolean;
   needs_attention: boolean;
   is_public: boolean;
+  /** See ``ExperimentAuditStatus``. Optional / undefined on older
+   *  agents — UI renders no audit glyph in that case rather than
+   *  guessing. */
+  audit_status?: ExperimentAuditStatus;
 }
 
 export interface Group {
