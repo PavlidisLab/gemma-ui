@@ -25,8 +25,12 @@
  * that after the action completes (status: "accepted", with
  * `applied_fix` populated when the action mutated).
  */
-import type { AuditFinding } from "@/api/auditTypes";
-import type { Design } from "@/features/experiment/types";
+import type {
+  AuditFinding,
+  DismissReason,
+  DispositionStatus,
+} from "@/api/auditTypes";
+import type { Design, Tag } from "@/features/experiment/types";
 import { parseTargetId, type ParsedTargetId } from "./targetIds";
 
 export interface ApplyAction {
@@ -52,24 +56,197 @@ export interface ApplyAction {
    *  When the curator edits before applying (future UI), the edited
    *  text wins. */
   appliedFix?: string;
+  /** Disposition status the action implies. Defaults to ``"accepted"``
+   *  in the caller — most apply actions are agree + structurally fix.
+   *  ``calibration_gold_only_miss`` apply is the inverse: removing
+   *  the tag *disagrees* with the finding (the agent was right; the
+   *  gold curation is wrong), so it sets ``"dismissed"`` with
+   *  ``curator_wrong`` as the reason. */
+  dispositionStatus?: DispositionStatus;
+  /** Required when ``dispositionStatus === "dismissed"``. Pairs with
+   *  the existing closed enum on the disposition PATCH. */
+  dismissReason?: DismissReason;
 }
 
 /** Resolve an apply action for a finding. Returns null only when
- *  the target_id is unparseable — the UI hides the button in that
- *  case rather than rendering a no-op. */
+ *  there's nothing actionable AND the target_id is unparseable —
+ *  the UI hides the button in that case rather than rendering a
+ *  no-op. */
 export function resolveApplyAction(
   finding: AuditFinding,
 ): ApplyAction | null {
+  // Calibration findings carry a custom target_id shape
+  // (``calibration:<status>:<category>/<value>``) the standard
+  // parser doesn't recognise, so we handle them ahead of the
+  // ``parseTargetId`` branch. Both apply paths are real
+  // mutations — adding or removing an experiment tag — so the
+  // curator's "Apply" click writes the change into the design
+  // draft, then the disposition PATCH stamps applied_fix.
+  const calibrationApply = resolveCalibrationApply(finding);
+  if (calibrationApply) return calibrationApply;
+
   const parsed = parseTargetId(finding.target_id);
   if (!parsed) return null;
-  // Mutating handlers go here, keyed on (issue_code, target_kind).
-  // None ship in Phase 1 — see file header. When the structured-fix
-  // schema lands, replace this comment with a switch like:
-  //
-  //   if (finding.issue_code === "missing_factor" && comparison) {
-  //     return liftFactorFromProposal(finding, comparison);
-  //   }
+  // Mutating handlers for non-calibration findings go here, keyed
+  // on (issue_code, target_kind). None ship in Phase 1 outside
+  // calibration — when the structured-fix schema lands for the
+  // judges that already have a clean fix shape, drop the handler
+  // in alongside the calibration branch.
   return focusOnly(parsed);
+}
+
+/** Pull (category, value) labels out of a calibration finding's
+ *  target_id. Format set agents-side in
+ *  ``scripts/build_calibration_batch.py``:
+ *  ``calibration:<status>:<category>/<value>``. Returns null when
+ *  the shape doesn't match — caller falls back to focus-only. */
+function parseCalibrationTargetId(
+  targetId: string,
+): { status: string; category: string; value: string } | null {
+  if (!targetId.startsWith("calibration:")) return null;
+  const rest = targetId.slice("calibration:".length);
+  const colon = rest.indexOf(":");
+  if (colon === -1) return null;
+  const status = rest.slice(0, colon);
+  const tail = rest.slice(colon + 1);
+  const slash = tail.indexOf("/");
+  if (slash === -1) return null;
+  return {
+    status,
+    category: tail.slice(0, slash),
+    value: tail.slice(slash + 1),
+  };
+}
+
+/** Lower-case both sides of a label compare. Used by the calibration
+ *  remove-path so a curator-typed "C57BL/6J" matches a gold-side
+ *  "c57bl/6j" — Gemma's import sometimes case-shifts.   */
+function labelEq(a: string | null | undefined, b: string): boolean {
+  return (a || "").trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** Apply-action for the three calibration issue codes. Returns null
+ *  when the finding isn't a calibration one or the target_id doesn't
+ *  parse — the standard handler chain takes over from there.
+ *
+ *  - ``calibration_agent_extra``: the agent proposed a tag the gold
+ *    doesn't have. Apply = add the tag (using ``proposer_term``'s
+ *    URI when present so the new chip lands resolved, not free-text).
+ *  - ``calibration_gold_only_miss``: the gold has a tag the agent
+ *    didn't propose. Apply = remove the tag (but only when the
+ *    curator's verdict is "agent was right; gold is wrong" — the
+ *    UI gates this behind the ``Apply`` click, which the curator
+ *    only takes after agreeing the agent's absence is correct).
+ *  - ``calibration_match``: nothing to apply (both sides have it);
+ *    falls through to focus-only.
+ */
+function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
+  const code = finding.issue_code;
+  if (
+    code !== "calibration_agent_extra" &&
+    code !== "calibration_gold_only_miss"
+  ) {
+    return null;
+  }
+  const t = parseCalibrationTargetId(finding.target_id);
+  if (!t) return null;
+
+  if (code === "calibration_agent_extra") {
+    // Build a populated Tag from the proposer's term when we have
+    // one; fall back to the target_id labels (free-text) otherwise.
+    // ``proposer_term`` is set on calibration_agent_extra per the
+    // agent-side build_calibration_batch wiring. Disposition is
+    // "accepted" — curator agreed the agent was right + applied
+    // the addition.
+    const term = finding.proposer_term;
+    const valueLabel = term?.label || t.value;
+    const valueUri = term?.uri ?? null;
+    const categoryLabel = t.category;
+    const tooltip = valueUri
+      ? `Add tag "${categoryLabel}: ${valueLabel}" (${valueUri}) to the design and agree with the finding`
+      : `Add tag "${categoryLabel}: ${valueLabel}" (free-text — resolve later) and agree with the finding`;
+    return {
+      mutates: true,
+      label: "Apply (add) →",
+      tooltip,
+      successMessage: `Added tag "${categoryLabel}: ${valueLabel}". Commit the draft to save.`,
+      mutate: (draft) =>
+        addPopulatedTag(draft, categoryLabel, valueLabel, valueUri),
+      appliedFix: `add ${categoryLabel}: ${valueLabel}`,
+    };
+  }
+
+  // calibration_gold_only_miss — removing the tag *disagrees* with
+  // the finding ("Did the agent miss X?" → "no, agent was right;
+  // gold over-tagged"). Disposition is "dismissed" with
+  // ``curator_wrong`` as the reason so eval can split this from
+  // auditor-side errors.
+  const tooltip =
+    `Remove tag "${t.category}: ${t.value}" from the design and ` +
+    `mark this disagreed (agent was right; existing curation was wrong).`;
+  return {
+    mutates: true,
+    label: "Apply (remove) →",
+    tooltip,
+    successMessage:
+      `Removed tag "${t.category}: ${t.value}". Commit the draft to save.`,
+    mutate: (draft) => removeTagByLabels(draft, t.category, t.value),
+    appliedFix: `remove ${t.category}: ${t.value}`,
+    dispositionStatus: "dismissed",
+    dismissReason: "curator_wrong",
+  };
+}
+
+/** Append a populated Tag to the draft if no existing direct tag
+ *  matches by (category, value) labels. Curator-asserted by
+ *  definition (IC) — same provenance stamp as ``addTag`` /
+ *  ``applyProposalToDesign``. Skips inferred tags when checking for
+ *  duplicates so an inferred BioMaterial-source tag with the same
+ *  label doesn't block the curator from promoting it. */
+function addPopulatedTag(
+  design: Design,
+  categoryLabel: string,
+  valueLabel: string,
+  valueUri: string | null,
+): Design {
+  const existing = design.tags ?? [];
+  const dup = existing.some(
+    (t) =>
+      !t.inferred &&
+      labelEq(t.category?.label, categoryLabel) &&
+      labelEq(t.value?.label, valueLabel),
+  );
+  if (dup) return design;
+  let next = 0;
+  for (const t of existing) if (t.id > next) next = t.id;
+  const newTag: Tag = {
+    id: next + 1,
+    category: { label: categoryLabel, uri: null },
+    value: { label: valueLabel, uri: valueUri },
+    inferred: false,
+    evidence_code: "IC",
+  };
+  return { ...design, tags: [...existing, newTag] };
+}
+
+/** Drop direct (curator-attached) tags whose (category, value)
+ *  labels match. Inferred tags stay — those are auto-derived from
+ *  BM characteristics / FV sources and disappear when the underlying
+ *  signal does, not when the curator dispositions the audit. */
+function removeTagByLabels(
+  design: Design,
+  categoryLabel: string,
+  valueLabel: string,
+): Design {
+  return {
+    ...design,
+    tags: (design.tags ?? []).filter(
+      (t) =>
+        t.inferred ||
+        !labelEq(t.category?.label, categoryLabel) ||
+        !labelEq(t.value?.label, valueLabel),
+    ),
+  };
 }
 
 function focusOnly(parsed: ParsedTargetId): ApplyAction {

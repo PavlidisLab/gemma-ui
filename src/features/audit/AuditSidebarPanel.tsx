@@ -1204,13 +1204,26 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       if (action.successMessage) {
         toast.show(action.successMessage, "success");
       }
-      // Mutating apply implies accepted+resolved (Ask #6) — the
+      // Most mutating applies imply accepted+resolved (Ask #6) — the
       // curator just took the structural action the finding asked
-      // for, so there's nothing left to "park" until later.
-      await patch("accepted", {
-        appliedFix: action.appliedFix,
-        resolvedAt: new Date().toISOString(),
-      });
+      // for, so there's nothing left to "park" until later. The
+      // calibration_gold_only_miss apply is the exception: removing
+      // the tag *disagrees* with the finding (the agent was right;
+      // gold over-tagged), so the action carries
+      // dispositionStatus="dismissed" + dismissReason="curator_wrong"
+      // and we follow that. Default stays accepted+resolved.
+      const status = action.dispositionStatus ?? "accepted";
+      if (status === "dismissed") {
+        await patch("dismissed", {
+          appliedFix: action.appliedFix,
+          dismissReason: action.dismissReason,
+        });
+      } else {
+        await patch("accepted", {
+          appliedFix: action.appliedFix,
+          resolvedAt: new Date().toISOString(),
+        });
+      }
       return;
     }
     // Focus-only path — no PATCH.
