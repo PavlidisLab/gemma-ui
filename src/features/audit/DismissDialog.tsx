@@ -1,14 +1,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
-import type { DismissReason } from "@/api/auditTypes";
 
 /**
- * Chip-picker dialog used by the "Dismiss" action on an audit
- * finding. Required by `AUDIT_DISPOSITIONS.md` Ask #2 — server
- * needs a structured `dismiss_reason` so my brother can cluster
- * dismissals for prompt-quality analysis without parsing curator
- * prose.
+ * Reason-picker dialog used by the three audit-disposition actions
+ * that require curator explanation:
+ *
+ *   - **dismiss** (curator disagrees with the finding)
+ *   - **accept** (curator agrees with an agent-extra suggestion;
+ *     adding new curation deserves a "why")
+ *   - **not_sure** (curator can't decide right now and wants to
+ *     park the finding with a documented reason; counts as decided)
+ *
+ * Required by `AUDIT_DISPOSITIONS.md` Ask #2 (and the 2026-05-10
+ * unification of accept + not-sure flows). Server gets a structured
+ * reason key so my brother can cluster dispositions for prompt-
+ * quality analysis without parsing curator prose.
  *
  * Default: no chip selected. The curator MUST pick one before the
  * Confirm button enables. Selecting "other" makes the notes field
@@ -16,8 +23,14 @@ import type { DismissReason } from "@/api/auditTypes";
  * meaning curated into the enum).
  *
  * Click-outside / Esc cancels (no PATCH fires). Confirm calls
- * onConfirm with the chosen reason + notes; the caller threads
- * those into setDisposition(... , { dismissReason, notes }).
+ * onConfirm with the chosen reason key + notes; the caller threads
+ * those into the disposition patch.
+ *
+ * Wire: typed `dismiss_reason` / `accept_reason` / `not_sure_reason`
+ * fields land on `AuditFindingDispositionPatch` per
+ * `AUDIT_DISPOSITION_REASONS_HANDOFF.md` (shipped 2026-05-10). The
+ * dialog hands the chosen key to the caller; the caller routes it
+ * onto the right typed field via `setDisposition`'s extras.
  *
  * Renders via `createPortal` into `document.body` with
  * `position: fixed` anchored to the trigger button. The audit
@@ -44,13 +57,132 @@ const ANCHOR_OFFSET = 4;
 // edge and the viewport edge.
 const VIEWPORT_GUTTER = 8;
 
+export type DispositionMode = "dismiss" | "accept" | "not_sure";
+
+interface ReasonOption {
+  /** Stable key sent to the server. Lower-snake-case. */
+  key: string;
+  /** Curator-facing chip label. */
+  label: string;
+  /** Hover help — shown in chip's title attribute. */
+  help: string;
+}
+
+const MODE_CONFIG: Record<
+  DispositionMode,
+  {
+    title: string;
+    confirmLabel: string;
+    confirmingLabel: string;
+    reasons: ReasonOption[];
+  }
+> = {
+  dismiss: {
+    title: "Why?",
+    confirmLabel: "Close",
+    confirmingLabel: "closing…",
+    reasons: [
+      {
+        key: "redundant",
+        label: "redundant",
+        help: "already covered by inheritance or another existing element",
+      },
+      {
+        key: "out_of_scope",
+        label: "out of scope",
+        help: "not what this experiment is about",
+      },
+      {
+        key: "weak_evidence",
+        label: "weak evidence",
+        help: "could be true but the support isn't strong enough",
+      },
+      {
+        key: "accepted_elsewhere",
+        label: "accepted elsewhere",
+        help: "curator addressed it via a different action",
+      },
+      {
+        key: "wont_fix",
+        label: "won't fix",
+        help: "real but not worth the effort",
+      },
+      {
+        key: "other",
+        label: "other…",
+        help: "free-text fallback (notes mandatory)",
+      },
+    ],
+  },
+  accept: {
+    title: "Why accept?",
+    confirmLabel: "Accept",
+    confirmingLabel: "accepting…",
+    reasons: [
+      {
+        key: "well_evidenced",
+        label: "well-evidenced",
+        help: "paper / methods / sample data clearly support adding it",
+      },
+      {
+        key: "fills_gap",
+        label: "fills gap",
+        help: "Gemma had nothing for this slot; agent caught a coverage gap",
+      },
+      {
+        key: "more_specific",
+        label: "more specific",
+        help: "agent's pick refines an existing entry to the precise term",
+      },
+      {
+        key: "other",
+        label: "other…",
+        help: "free-text fallback (notes mandatory)",
+      },
+    ],
+  },
+  not_sure: {
+    title: "Why unsure?",
+    confirmLabel: "Park",
+    confirmingLabel: "parking…",
+    reasons: [
+      {
+        key: "need_more_data",
+        label: "need more data",
+        help: "paper unclear / contradictory / sparse on this point",
+      },
+      {
+        key: "need_expert",
+        label: "need expert",
+        help: "domain question beyond the curator's scope",
+      },
+      {
+        key: "pending_update",
+        label: "pending update",
+        help: "Gemma data is out of date; re-import expected",
+      },
+      {
+        key: "other",
+        label: "other…",
+        help: "free-text fallback (notes mandatory)",
+      },
+    ],
+  },
+};
+
 export function DismissDialog({
+  mode = "dismiss",
   finding,
   anchor,
   onCancel,
   onConfirm,
 }: {
-  /** The finding being dismissed — surfaced in the dialog header
+  /** Which disposition path the curator is on. Drives the dialog
+   *  header, reason chip set, and confirm-button label. Defaults to
+   *  "dismiss" for back-compat with callers that haven't been
+   *  updated. */
+  mode?: DispositionMode;
+  /** The finding being dispositioned — surfaced in the dialog header
    *  so the curator confirms they're acting on the right item.
    *  Free-text label only; the structural fields stay on the
    *  parent card. */
@@ -61,12 +193,16 @@ export function DismissDialog({
    *  render of the parent — dialog renders nothing in that case. */
   anchor: HTMLElement | null;
   onCancel: () => void;
+  /** Reason key (one of ``MODE_CONFIG[mode].reasons[*].key``) plus
+   *  optional free-text notes. Caller encodes both into the
+   *  disposition patch. */
   onConfirm: (
-    reason: DismissReason,
+    reasonKey: string,
     notes: string,
   ) => Promise<void> | void;
 }) {
-  const [reason, setReason] = useState<DismissReason | null>(null);
+  const config = MODE_CONFIG[mode];
+  const [reason, setReason] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -189,55 +325,22 @@ export function DismissDialog({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="font-semibold text-slate-800 dark:text-slate-100 mb-1.5">
-        Why dismiss?
+        {config.title}
       </div>
       <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">
         <span className="font-mono mr-1">{finding.issue_code}</span>
         {finding.rationale}
       </div>
       <div className="grid grid-cols-2 gap-1 mb-2">
-        <ReasonChip
-          label="auditor wrong"
-          help="finding is incorrect / hallucinated"
-          active={reason === "auditor_wrong"}
-          onClick={() => setReason("auditor_wrong")}
-        />
-        <ReasonChip
-          label="curator wrong"
-          help="finding is right; existing curation is wrong (over-tagged / shouldn't be there)"
-          active={reason === "curator_wrong"}
-          onClick={() => setReason("curator_wrong")}
-        />
-        <ReasonChip
-          label="redundant"
-          help="already covered by another existing element"
-          active={reason === "redundant"}
-          onClick={() => setReason("redundant")}
-        />
-        <ReasonChip
-          label="out of scope"
-          help="not what this experiment is about"
-          active={reason === "out_of_scope"}
-          onClick={() => setReason("out_of_scope")}
-        />
-        <ReasonChip
-          label="accepted elsewhere"
-          help="curator fixed it via a different action"
-          active={reason === "accepted_elsewhere"}
-          onClick={() => setReason("accepted_elsewhere")}
-        />
-        <ReasonChip
-          label="won't fix"
-          help="real but not worth the effort"
-          active={reason === "wont_fix"}
-          onClick={() => setReason("wont_fix")}
-        />
-        <ReasonChip
-          label="other…"
-          help="free-text fallback (notes mandatory)"
-          active={reason === "other"}
-          onClick={() => setReason("other")}
-        />
+        {config.reasons.map((r) => (
+          <ReasonChip
+            key={r.key}
+            label={r.label}
+            help={r.help}
+            active={reason === r.key}
+            onClick={() => setReason(r.key)}
+          />
+        ))}
       </div>
       <textarea
         value={notes}
@@ -270,7 +373,7 @@ export function DismissDialog({
               : "bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-800 dark:text-slate-600",
           )}
         >
-          {submitting ? "dismissing…" : "Dismiss"}
+          {submitting ? config.confirmingLabel : config.confirmLabel}
         </button>
       </div>
     </div>,

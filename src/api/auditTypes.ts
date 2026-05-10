@@ -138,6 +138,50 @@ export interface AuditFinding {
    *  older reports that pre-date the field. See
    *  ``AUDIT_PROPOSER_STATEMENTS_HANDOFF.md``. */
   proposer_statements?: StatementProposal[];
+  /** Defender-style "second opinion" attached to the finding when
+   *  the audit ran a defender pass against this target. Populated on
+   *  ``calibration_agent_extra`` and ``calibration_gold_only_miss``
+   *  findings on calibration packages ≥ v9; ``null`` on
+   *  ``calibration_match`` findings (defender doesn't run on
+   *  matches), on older calibration packages, and on freshly-audited
+   *  live experiments where the defender hasn't been invoked. UI
+   *  hides the panel when null. See
+   *  ``AUDIT_DEFENDER_VERDICT_HANDOFF.md``. */
+  defender_verdict?: AttachedDefenderVerdict | null;
+}
+
+/** Judge's verdict on a single audit finding. ``side`` constrains
+ *  the ``verdict`` enum (gold-only-miss findings only ever carry
+ *  ``agent_*`` values; agent-extra findings only ever carry
+ *  ``extra_*`` values). Folded into the proposer-suggestion panel:
+ *  ``strength`` drives the header label, ``rationale`` the Judge
+ *  one-liner. */
+export interface AttachedDefenderVerdict {
+  side: "agent_extra" | "agent_missed_gold";
+  verdict:
+    | "agent_miss_genuine"
+    | "agent_correct_inherited"
+    | "agent_correct_overzealous_gold"
+    | "extra_genuine_new"
+    | "extra_inherited_redundant"
+    | "extra_unsupported"
+    // Forward-compat: future producers (curator-triggered
+    // "investigate further" / extra-review pass) will emit the same
+    // shape with new verdict labels we don't enumerate here. UI keys
+    // off ``strength`` rather than the verdict literal.
+    | (string & {});
+  /** Producer-side strength signal, calibration package v10+ (commit
+   *  5b1f811). Three levels so future investigator verdicts that
+   *  aren't open-and-shut have a natural slot. ``undefined`` on v9-
+   *  and-older packages — UI falls back to ``verdictStrength()`` for
+   *  the known six verdicts. */
+  strength?: "weak" | "moderate" | "strong";
+  /** One-paragraph explanation. Renders as the Judge one-liner at
+   *  the bottom of the proposer panel. */
+  rationale: string;
+  /** Rule-section reference (e.g. ``"09_experiment_tags.md § Sample
+   *  applicability"``). Rendered as a tooltip on the Judge line. */
+  citation: string;
 }
 
 export interface AuditScope {
@@ -203,25 +247,45 @@ export interface AuditFindingDisposition {
 }
 
 /** Closed enum of structured "why this is a dismiss" reasons.
- *  Mirrors the enum in `AUDIT_DISPOSITIONS.md` Ask #2. Required by
- *  the server when `status === "dismissed"`; null/absent otherwise.
- *  Free-text `notes` stays alongside (mandatory when reason is
- *  "other"). The closed enum lets my brother cluster dismissals for
- *  prompt-quality analysis without parsing arbitrary curator prose. */
+ *  Mirrors the agent-side ``DismissReason`` enum (revised
+ *  2026-05-10 per AUDIT_DISPOSITION_REASONS_HANDOFF.md). Required
+ *  by the server when ``status === "dismissed"``; null/absent
+ *  otherwise. Free-text ``notes`` stays alongside (mandatory when
+ *  reason is "other"). The closed enum lets my brother cluster
+ *  dismissals for prompt-quality analysis without parsing arbitrary
+ *  curator prose.
+ *
+ *  Old values ``auditor_wrong`` / ``curator_wrong`` were dropped —
+ *  they described *whose fault* rather than *what was wrong*. The
+ *  ``string`` opening keeps legacy dispositions that still carry
+ *  those values render-clean. */
 export type DismissReason =
-  | "auditor_wrong"
-  /** "The auditor's framing was right but the existing curation
-   *  was wrong" — e.g. on a calibration_gold_only_miss finding,
-   *  the agent didn't propose X because X shouldn't be there;
-   *  the curator over-tagged. Symmetric for calibration_match
-   *  where both have a tag that shouldn't be there. Distinct from
-   *  ``auditor_wrong`` (audit-side error) so eval can split
-   *  curator-quality signal from prompt-quality signal. */
-  | "curator_wrong"
   | "redundant"
   | "out_of_scope"
+  | "weak_evidence"
   | "accepted_elsewhere"
   | "wont_fix"
+  | "other"
+  | (string & {});
+
+/** Closed enum of structured "why I accepted this" reasons. Required
+ *  by the server when ``status === "accepted"`` AND the finding is
+ *  in the agent-extra family (``calibration_agent_extra``, future
+ *  ``agent_extra_*`` codes); other accept paths skip the field. */
+export type AcceptReason =
+  | "well_evidenced"
+  | "fills_gap"
+  | "more_specific"
+  | "other";
+
+/** Closed enum of structured "why I'm parking this" reasons.
+ *  Required by the server when ``status === "needs_more_info"``.
+ *  The "Park" button on the audit sidebar gates on the dialog so
+ *  the UI never sends the status without a reason. */
+export type NotSureReason =
+  | "need_more_data"
+  | "need_expert"
+  | "pending_update"
   | "other";
 
 /** PATCH body for `PATCH /rest/v2/audits/{audit_id}`. One disposition
@@ -243,6 +307,15 @@ export interface AuditFindingDispositionPatch {
   reviewer: string;
   notes?: string;
   dismiss_reason?: DismissReason;
+  /** Required when ``status === "accepted"`` and the finding's
+   *  ``issue_code`` is in the agent-extra family — captures the
+   *  curator's "why I'm adding this" so my brother can cluster
+   *  accept signal symmetrically with dismiss signal. */
+  accept_reason?: AcceptReason | null;
+  /** Required when ``status === "needs_more_info"``. Parking is now
+   *  a decided disposition (counts as closed in the UI), so my
+   *  brother needs to know what kind of follow-up is missing. */
+  not_sure_reason?: NotSureReason | null;
   applied_fix?: string;
   first_seen_at?: string;
   /** Two-step accept marker — see `AUDIT_DISPOSITIONS.md` Ask #6.

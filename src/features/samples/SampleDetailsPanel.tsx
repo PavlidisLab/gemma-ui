@@ -975,11 +975,7 @@ function SampleTable({
                     sort={sort}
                     onSortChange={onSortChange}
                     badge="factor"
-                    className={
-                      nuisance
-                        ? "bg-stone-100 border-l-2 border-stone-300"
-                        : "bg-blue-50/50 border-l-2 border-blue-200"
-                    }
+                    className="bg-blue-50/50 border-l-2 border-blue-200"
                     title={
                       (factor.description || `factor#${factor.id}`) +
                       (nuisance ? " · nuisance factor (batch / block)" : "") +
@@ -1298,16 +1294,10 @@ function SampleTable({
                   ) : null}
                   {orderedFactors.map(({ factor, index }) => {
                     const agg = aggregateFvId(siblings, index);
-                    const nuisance = isNuisanceFactor(factor);
                     return (
                       <td
                         key={`${repr.short_name}-f${factor.id}`}
-                        className={cn(
-                          "px-3 py-0.5",
-                          nuisance
-                            ? "border-l-2 border-stone-200 bg-stone-50/60"
-                            : "border-l-2 border-blue-100",
-                        )}
+                        className="px-3 py-0.5 border-l-2 border-blue-100"
                       >
                         <FvSelect
                           factor={factor}

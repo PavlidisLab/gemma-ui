@@ -184,7 +184,7 @@ export function CommitBar({
         {hasBaselineProblem ? (
           <div className="px-3 pb-2 text-[11px] text-rose-900/90 space-y-1">
             <div className="font-semibold">
-              Baseline gate fired — tick to override (per factor):
+              Tick to override:
             </div>
             {baselineProblem.map((f) => {
               // Treat empty-string names the same as missing — the
@@ -198,8 +198,8 @@ export function CommitBar({
                 rawName || `(unnamed factor#${f.factor_id})`;
               const issue =
                 f.baseline_count === 0
-                  ? "no baseline marked"
-                  : `${f.baseline_count} baselines marked (must be 1)`;
+                  ? "no baseline"
+                  : `${f.baseline_count} baselines (need 1)`;
               const state = overrideState[f.factor_id] ?? {
                 checked: false,
                 reason: "",
@@ -223,7 +223,7 @@ export function CommitBar({
                         }))
                       }
                     />
-                    <span>· {factorLabel}: {issue}</span>
+                    <span>{factorLabel}: {issue}</span>
                   </label>
                   {state.checked ? (
                     <input

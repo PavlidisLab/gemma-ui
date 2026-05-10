@@ -23,6 +23,7 @@ import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { DismissReason } from "@/api/auditTypes";
 import { AuditTriggerDialog } from "./AuditTriggerDialog";
 import type {
+  AttachedDefenderVerdict,
   AuditFinding,
   AuditReport,
   AuditRequest,
@@ -884,8 +885,12 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // follow-up. The card greys out when closed so the eye skips
   // past finished work; undo still lives in the action row so
   // mistakes are reversible.
+  // Closed = curator has decided. As of 2026-05-10, needs_more_info
+  // counts too — the new "Park…" flow requires a structured reason
+  // before setting that status, so it's no longer an open question.
   const isClosed =
     currentDisposition === "dismissed" ||
+    currentDisposition === "needs_more_info" ||
     (currentDisposition === "accepted" && !!disposition?.resolved_at);
 
   // Stamp the first-seen timestamp once per finding. Sent on the
@@ -989,7 +994,8 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 suggested fix
               </span>
               <span className="text-blue-900 dark:text-blue-200">
-                {finding.suggested_fix}
+                {shortFixForVerdict(finding.defender_verdict) ??
+                  finding.suggested_fix}
               </span>
             </div>
           ) : null}
@@ -1034,12 +1040,30 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const { apply: applyDraft, draft } = useDesignDraft();
   const toast = useToast();
   const [dismissOpen, setDismissOpen] = useState(false);
+  // Two new dialogs for the unified reason flow (2026-05-10): accept
+  // (curator agrees with an agent-extra suggestion) and not-sure
+  // (curator parks the finding with a documented reason). Same
+  // anchor-positioned popover as dismiss, different reason chips.
+  const [acceptOpen, setAcceptOpen] = useState(false);
+  const [notSureOpen, setNotSureOpen] = useState(false);
   // The DismissDialog portals out of the sidebar's overflow context
-  // and positions itself relative to this ref's bounding rect.
+  // and positions itself relative to these refs' bounding rects —
+  // one ref per dialog-trigger button.
   const dismissBtnRef = useRef<HTMLButtonElement | null>(null);
+  const acceptBtnRef = useRef<HTMLButtonElement | null>(null);
+  const notSureBtnRef = useRef<HTMLButtonElement | null>(null);
   const action = resolveApplyAction(finding);
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
+  // Judge says weak → reframe the action row so Dismiss is the
+  // primary blue button and the structural-apply demotes to a
+  // small "override" link. Without this the curator gets mixed
+  // signals (Suggested Fix says "keep" while the primary button
+  // still pushes the contradicting structural action). See
+  // AUDIT_DEFENDER_VERDICT_HANDOFF.md § "what shipped".
+  const dv = finding.defender_verdict ?? null;
+  const judgeWeak =
+    (dv?.strength ?? verdictStrength(dv?.verdict)) === "weak";
   // Subsumed FV children of this finding (only non-empty when this
   // is a factor finding; the helper short-circuits otherwise).
   // Cached so we can show "+ N FVs cascaded" in the action tooltip
@@ -1076,6 +1100,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     extras: {
       notes?: string;
       dismissReason?: DismissReason;
+      acceptReason?: import("@/api/auditTypes").AcceptReason;
+      notSureReason?: import("@/api/auditTypes").NotSureReason;
       appliedFix?: string;
       resolvedAt?: string;
     } = {},
@@ -1199,7 +1225,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   //    Does NOT change the disposition — looking at something isn't
   //    the same as accepting the finding. The separate "Accept"
   //    button below covers that explicitly.
-  async function handleApply() {
+  async function handleApply(extras?: {
+    acceptReason?: import("@/api/auditTypes").AcceptReason;
+    notes?: string;
+  }) {
     if (!action) return;
     if (action.mutates && action.mutate) {
       if (!draft) {
@@ -1228,11 +1257,14 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
         await patch("dismissed", {
           appliedFix: action.appliedFix,
           dismissReason: action.dismissReason,
+          notes: extras?.notes,
         });
       } else {
         await patch("accepted", {
           appliedFix: action.appliedFix,
           resolvedAt: new Date().toISOString(),
+          acceptReason: extras?.acceptReason,
+          notes: extras?.notes,
         });
       }
       return;
@@ -1241,9 +1273,32 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     requestAuditFocus(experimentId, finding.target_id);
   }
 
-  async function handleDismiss(reason: DismissReason, notes: string) {
-    await patch("dismissed", { dismissReason: reason, notes });
+  async function handleDismissConfirm(reasonKey: string, notes: string) {
+    // Wire enum landed 2026-05-10 (AUDIT_DISPOSITION_REASONS_HANDOFF
+    // marked shipped); reasons go straight onto the typed
+    // ``dismiss_reason`` field. Cast through ``DismissReason`` —
+    // the dialog only ever picks keys that match.
+    await patch("dismissed", {
+      dismissReason: reasonKey as DismissReason,
+      notes,
+    });
     setDismissOpen(false);
+  }
+
+  async function handleAcceptConfirm(reasonKey: string, notes: string) {
+    setAcceptOpen(false);
+    await handleApply({
+      acceptReason: reasonKey as import("@/api/auditTypes").AcceptReason,
+      notes,
+    });
+  }
+
+  async function handleNotSureConfirm(reasonKey: string, notes: string) {
+    await patch("needs_more_info", {
+      notSureReason: reasonKey as import("@/api/auditTypes").NotSureReason,
+      notes,
+    });
+    setNotSureOpen(false);
   }
 
   return (
@@ -1275,14 +1330,50 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             const labelDone = label
               .replace(/^(Agree|Apply)\b/, "✓ Done")
               .replace(/\s*→\s*$/, "");
+            // Agent-extra accept now requires an explanation
+            // (2026-05-10): adding new curation deserves a "why".
+            // Click opens the accept-reason dialog instead of
+            // running the mutation immediately. Other mutating
+            // applies (e.g. calibration_gold_only_miss = remove
+            // tag) skip the dialog — those are already a "no" and
+            // covered by the dismiss-reason flow inside handleApply.
+            const isAgentExtra =
+              finding.issue_code === "calibration_agent_extra";
+            const onPrimaryClick = () => {
+              if (isAgentExtra && action.mutates && !applyAlreadyDone) {
+                setAcceptOpen(true);
+              } else {
+                handleApply();
+              }
+            };
+            // Judge-weak demotion: the structural apply contradicts
+            // the judge, so demote to a small "override anyway"
+            // link. Dismiss (rendered below) becomes the primary
+            // affordance for these findings. Curator can still
+            // override the judge by clicking through.
+            if (judgeWeak && action.mutates && !applyAlreadyDone) {
+              return (
+                <button
+                  ref={acceptBtnRef}
+                  type="button"
+                  onClick={onPrimaryClick}
+                  disabled={dispositionSaving}
+                  title={`override the judge — ${action.tooltip ?? label}`}
+                  className="text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline dark:text-slate-400 dark:hover:text-slate-100 disabled:opacity-50"
+                >
+                  override · {label.replace(/\s*→\s*$/, "")}
+                </button>
+              );
+            }
             return (
               <button
+                ref={acceptBtnRef}
                 type="button"
-                onClick={handleApply}
+                onClick={onPrimaryClick}
                 disabled={dispositionSaving || applyAlreadyDone}
                 title={
                   applyAlreadyDone
-                    ? "Already applied — undo the disposition below to re-enable"
+                    ? "Already applied — undo below to re-run"
                     : action.tooltip
                 }
                 className={cn(
@@ -1314,8 +1405,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             above IS the agree affordance for those cases (clicking
             it both runs the structural fix and dispositions
             accepted+resolved). For focus-only / non-mutating
-            findings, this button is the only way to agree. */}
-        {action?.mutates ? null : (
+            findings, this button is the only way to agree. Also
+            hidden when the judge says weak — agreeing without acting
+            is just clutter when the judge is telling you to dismiss. */}
+        {action?.mutates || judgeWeak ? null : (
         <button
           type="button"
           onClick={() =>
@@ -1324,12 +1417,12 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           disabled={dispositionSaving}
           title={
             isResolved
-              ? "click to undo — flips all the way back to pending (clears resolved_at too)"
+              ? "undo — back to pending (clears resolved_at)"
               : isParked
-                ? "click to undo — flips back to pending"
+                ? "undo — back to pending"
                 : noFollowUp
-                  ? "agree (no follow-up needed; click again to undo)"
-                  : "agree with this finding (parks it; click 'Mark resolved' later once you've actually addressed it)"
+                  ? "agree (click again to undo)"
+                  : "agree (resolve once you've fixed the data)"
           }
           className={cn(
             "text-[11px] px-2 py-0.5 rounded font-medium disabled:opacity-50",
@@ -1347,7 +1440,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             : isParked
               ? noFollowUp
                 ? "✓ agreed"
-                : "✓ agreed (parked)"
+                : "✓ parked"
               : "Agree"}
         </button>
         )}
@@ -1360,10 +1453,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               })
             }
             disabled={dispositionSaving}
-            title="mark this accepted finding resolved — for when you went and fixed the underlying data manually after agreeing with the finding"
+            title="mark resolved — once you've fixed the data"
             className="text-[11px] px-2 py-0.5 rounded font-medium border border-emerald-700 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-50 dark:bg-slate-900 dark:border-emerald-400 dark:text-emerald-300 dark:hover:bg-slate-800"
           >
-            Mark resolved →
+            Resolve →
           </button>
         ) : null}
         <button
@@ -1371,23 +1464,50 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           type="button"
           onClick={() => setDismissOpen(true)}
           disabled={dispositionSaving}
-          title="disagree with this finding (you'll pick a reason)"
+          title={
+            judgeWeak
+              ? "judge says close (pick a reason)"
+              : "disagree (pick a reason)"
+          }
           className={cn(
-            "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
-            current === "dismissed"
-              ? "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
-              : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
+            "rounded font-medium disabled:opacity-50",
+            judgeWeak
+              ? // Promoted to primary blue when the judge advises
+                // against the apply — dismiss is the natural action.
+                "text-[11px] px-2 py-0.5 " +
+                  (current === "dismissed"
+                    ? "bg-blue-700 text-white hover:bg-blue-800"
+                    : "bg-blue-600 text-white hover:bg-blue-700")
+              : "text-[10px] px-1.5 py-0.5 " +
+                  (current === "dismissed"
+                    ? "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
+                    : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"),
           )}
         >
-          {current === "dismissed" ? "✓ disagreed" : "Disagree…"}
+          {current === "dismissed"
+            ? judgeWeak
+              ? "✓ dismissed"
+              : "✓ disagreed"
+            : judgeWeak
+              ? "Dismiss…"
+              : "Disagree…"}
         </button>
         <button
+          ref={notSureBtnRef}
           type="button"
-          onClick={() =>
-            patch(current === "needs_more_info" ? "pending" : "needs_more_info")
-          }
+          onClick={() => {
+            // Toggle off when already set; opening the dialog only
+            // makes sense when the curator is committing to a new
+            // park decision. The structured reason is required —
+            // dialog handles that gating.
+            if (current === "needs_more_info") {
+              patch("pending");
+            } else {
+              setNotSureOpen(true);
+            }
+          }}
           disabled={dispositionSaving}
-          title="not sure — flag for follow-up without taking action"
+          title="park with an explanation — counts as decided"
           className={cn(
             "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
             current === "needs_more_info"
@@ -1395,7 +1515,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
           )}
         >
-          {current === "needs_more_info" ? "✓ not sure" : "Not sure"}
+          {current === "needs_more_info" ? "✓ parked" : "Park…"}
         </button>
         {current !== "pending" ? (
           <button
@@ -1416,10 +1536,29 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       </div>
       {dismissOpen ? (
         <DismissDialog
+          mode="dismiss"
           finding={finding}
           anchor={dismissBtnRef.current}
           onCancel={() => setDismissOpen(false)}
-          onConfirm={handleDismiss}
+          onConfirm={handleDismissConfirm}
+        />
+      ) : null}
+      {acceptOpen ? (
+        <DismissDialog
+          mode="accept"
+          finding={finding}
+          anchor={acceptBtnRef.current}
+          onCancel={() => setAcceptOpen(false)}
+          onConfirm={handleAcceptConfirm}
+        />
+      ) : null}
+      {notSureOpen ? (
+        <DismissDialog
+          mode="not_sure"
+          finding={finding}
+          anchor={notSureBtnRef.current}
+          onCancel={() => setNotSureOpen(false)}
+          onConfirm={handleNotSureConfirm}
         />
       ) : null}
     </div>
@@ -1511,13 +1650,27 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
     evidence.length > 0;
   if (!hasStructured && !legacyText) return null;
 
+  const dv = finding.defender_verdict ?? null;
+  // Prefer the producer-side ``strength`` (calibration v10+); fall
+  // back to the verdict-keyed helper for v9-and-older packages.
+  // See AUDIT_DEFENDER_VERDICT_HANDOFF.md § "what I'd suggest
+  // changing in the UI" — Option A.
+  const strength = dv?.strength ?? verdictStrength(dv?.verdict);
+  const headerLabel = strength
+    ? `${strength} suggestion`
+    : "proposer suggestion";
+
   return (
     <div className="rounded border border-violet-200 bg-violet-50/60 px-1.5 py-1.5 text-[11px] mx-1.5 space-y-1.5 dark:border-violet-700/60 dark:bg-violet-900/20">
       <div
         className="text-[9px] uppercase tracking-wide font-semibold text-violet-900 dark:text-violet-300"
-        title="how the silent comparison proposer handled the same target"
+        title={
+          strength
+            ? `judge graded the proposer's pick (${dv!.verdict})`
+            : "how the silent comparison proposer handled the same target"
+        }
       >
-        proposer suggestion
+        {headerLabel}
       </div>
       {statements.length > 0 ? (
         // FV / factor-shape findings: render the same StatementGlyph
@@ -1554,8 +1707,72 @@ function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
           ))}
         </div>
       ) : null}
+      {dv?.rationale ? (
+        <div
+          className="text-slate-600 dark:text-slate-400 italic text-[10px] leading-snug"
+          title={dv.citation || undefined}
+        >
+          <span className="not-italic font-semibold text-slate-700 dark:text-slate-300">
+            Judge:
+          </span>{" "}
+          {dv.rationale}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+/** Strength fallback for v9-and-older calibration packages whose
+ *  ``AttachedDefenderVerdict`` predates the producer-side
+ *  ``strength`` field (added in v10, commit 5b1f811). Mirrors the
+ *  producer's mapping exactly; v10+ packages carry ``strength`` on
+ *  the wire and skip this helper. ``null`` for unknown verdict
+ *  strings — caller hides the strength label rather than guess.
+ *  See AUDIT_DEFENDER_VERDICT_HANDOFF.md § "Mapping". */
+function verdictStrength(
+  v: string | undefined,
+): "weak" | "moderate" | "strong" | null {
+  switch (v) {
+    case "extra_genuine_new":
+    case "agent_correct_inherited":
+    case "agent_correct_overzealous_gold":
+      return "strong";
+    case "agent_miss_genuine":
+    case "extra_inherited_redundant":
+    case "extra_unsupported":
+      return "weak";
+    default:
+      return null;
+  }
+}
+
+/** Short human-readable replacement for ``finding.suggested_fix``
+ *  when the judge says the curator should *not* take the proposed
+ *  action. Only fires when ``strength`` resolves to ``"weak"``
+ *  (producer-side from v10+ packages, or via ``verdictStrength()``
+ *  fallback for v9 and older); ``moderate`` and ``strong`` keep the
+ *  agent's verbose ``suggested_fix`` because the curator still
+ *  needs the structured detail. Returns ``null`` when no override
+ *  applies. */
+function shortFixForVerdict(
+  dv: AttachedDefenderVerdict | null | undefined,
+): string | null {
+  if (!dv) return null;
+  const strength = dv.strength ?? verdictStrength(dv.verdict);
+  if (strength !== "weak") return null;
+  switch (dv.verdict) {
+    case "extra_unsupported":
+      return "Dismiss — judge: the agent's pick isn't well-evidenced.";
+    case "extra_inherited_redundant":
+      return "Dismiss — judge: already inherited from biomaterials.";
+    case "agent_miss_genuine":
+      return "Keep the existing tag — judge: it's well-supported.";
+    default:
+      // Weak strength on a verdict label we don't have specific copy
+      // for (forward-compat: future investigator verdicts). Generic
+      // fall-through reads better than the agent's verbose fix.
+      return "Override the suggestion — judge: low confidence.";
+  }
 }
 
 /** One evidence quote — blockquote rendering with a small source chip
@@ -1588,7 +1805,10 @@ function FindingEvidenceBlock({
     geo_metadata: "GEO",
     characteristic: "characteristic",
   };
-  const context = (evidence.context || "").trim();
+  const { context, highlights } = stripContextHeader(
+    (evidence.context || "").trim(),
+    evidence.highlights ?? [],
+  );
   const quote = (evidence.quote || "").trim();
   // Only show the expander when context adds value beyond the
   // anchor sentence — empty contexts and contexts that just are
@@ -1626,16 +1846,17 @@ function FindingEvidenceBlock({
         <>
           {expanded ? (
             <pre className="not-italic mt-1.5 px-1.5 py-1 rounded bg-violet-50/70 dark:bg-violet-900/30 text-[11px] leading-snug whitespace-pre-wrap break-words font-sans text-slate-800 dark:text-slate-200 max-h-72 overflow-y-auto">
-              {renderHighlightedContext(context, evidence.highlights ?? [])}
+              {renderHighlightedContext(context, highlights)}
             </pre>
           ) : null}
+          {expanded ? null : " "}
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               setExpanded((v) => !v);
             }}
-            className="not-italic mt-1 text-[10px] text-violet-700 hover:underline dark:text-violet-300"
+            className="not-italic mt-1 ml-1 text-[10px] text-violet-700 hover:underline dark:text-violet-300"
           >
             {expanded ? "Show less" : "Show more"}
           </button>
@@ -1643,6 +1864,26 @@ function FindingEvidenceBlock({
       ) : null}
     </blockquote>
   );
+}
+
+/** Strip the leading ``=== ... ===`` separator line GEO-metadata
+ *  excerpts ship with — the source-label chip already says "GEO",
+ *  so the duplicate header is just noise. Shifts ``highlights``
+ *  offsets to match the trimmed string. */
+function stripContextHeader(
+  context: string,
+  highlights: [number, number][],
+): { context: string; highlights: [number, number][] } {
+  const m = /^===[^\n]*===\n+/.exec(context);
+  if (!m) return { context, highlights };
+  const drop = m[0].length;
+  return {
+    context: context.slice(drop),
+    highlights: highlights.map(([s, e]) => [
+      Math.max(0, s - drop),
+      Math.max(0, e - drop),
+    ]),
+  };
 }
 
 /** Render ``context`` with ``highlights`` ranges wrapped in a soft

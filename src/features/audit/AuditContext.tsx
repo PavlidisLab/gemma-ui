@@ -136,6 +136,16 @@ interface AuditContextValue {
     extras?: {
       notes?: string;
       dismissReason?: DismissReason;
+      /** Required by the server when ``status === "accepted"`` and
+       *  the finding's ``issue_code`` is in the agent-extra family
+       *  (added 2026-05-10 per
+       *  AUDIT_DISPOSITION_REASONS_HANDOFF.md). Caller gates the
+       *  flow through the accept-reason dialog. */
+      acceptReason?: import("@/api/auditTypes").AcceptReason;
+      /** Required by the server when ``status === "needs_more_info"``.
+       *  The Park button gates the status change on the not-sure
+       *  dialog so it never sends without a reason. */
+      notSureReason?: import("@/api/auditTypes").NotSureReason;
       appliedFix?: string;
       firstSeenAt?: string;
       /** Stamp the finding as accepted+resolved (two-step accept,
@@ -237,6 +247,8 @@ export function AuditProvider({
       extras: {
         notes?: string;
         dismissReason?: DismissReason;
+        acceptReason?: import("@/api/auditTypes").AcceptReason;
+        notSureReason?: import("@/api/auditTypes").NotSureReason;
         appliedFix?: string;
         firstSeenAt?: string;
         resolvedAt?: string;
@@ -286,6 +298,8 @@ export function AuditProvider({
         notes,
       };
       if (extras.dismissReason) patch.dismiss_reason = extras.dismissReason;
+      if (extras.acceptReason) patch.accept_reason = extras.acceptReason;
+      if (extras.notSureReason) patch.not_sure_reason = extras.notSureReason;
       if (extras.appliedFix) patch.applied_fix = extras.appliedFix;
       if (extras.firstSeenAt) patch.first_seen_at = extras.firstSeenAt;
       if (extras.resolvedAt) patch.resolved_at = extras.resolvedAt;

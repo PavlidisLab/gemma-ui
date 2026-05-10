@@ -97,7 +97,17 @@ pre-public checklist, publish) from the new UI. See
 what the old ExtJS dataset manager does, what's wrong with it, and what we
 want to build.
 
-## Current open handoff
+## Current open handoffs
+
+**Strip-curation over-strips publications + external_source** —
+see [STRIP_CURATION_OVERREACH_HANDOFF.md](./STRIP_CURATION_OVERREACH_HANDOFF.md).
+Filed for my brother. Audit-import path wipes `publications` and
+`external_source` along with factors / IC tags, contradicting the
+"metadata stays" contract and contaminating EE-tag evaluation
+(forces `find_publication` re-runs whose failures bleed into every
+downstream judgment). Asked fix: strip only factors / FVs /
+sample assignments / statement-level IC tags; everything from the
+original Gemma import round-trips unchanged.
 
 **EE-tag evidence selection: design-context, not background** —
 see [EE_TAG_EVIDENCE_QUALITY_HANDOFF.md](./EE_TAG_EVIDENCE_QUALITY_HANDOFF.md).

@@ -7,6 +7,41 @@ import {
 import { cn } from "@/lib/cn";
 import { useEscape } from "@/lib/useEscape";
 
+/** localStorage key for an in-flight curation-note draft. Keyed by
+ *  experiment id so a curator working two experiments in two tabs
+ *  doesn't cross-pollute. Cleared after a successful save. Mirrors
+ *  the design-draft cache pattern (see DesignDraftContext). */
+const NOTE_DRAFT_KEY_PREFIX = "gca:note-draft:";
+
+function readCachedNote(experimentId: number): string | null {
+  try {
+    return window.localStorage.getItem(NOTE_DRAFT_KEY_PREFIX + experimentId);
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedNote(experimentId: number, text: string): void {
+  try {
+    if (text) {
+      window.localStorage.setItem(NOTE_DRAFT_KEY_PREFIX + experimentId, text);
+    } else {
+      window.localStorage.removeItem(NOTE_DRAFT_KEY_PREFIX + experimentId);
+    }
+  } catch {
+    // Quota / privacy mode / SSR — survivable, in-memory state still
+    // works while the drawer is open.
+  }
+}
+
+function clearCachedNote(experimentId: number): void {
+  try {
+    window.localStorage.removeItem(NOTE_DRAFT_KEY_PREFIX + experimentId);
+  } catch {
+    // ignore
+  }
+}
+
 interface ResolveCtx {
   field: "troubled" | "needs_attention";
   label: string;
@@ -58,12 +93,33 @@ export function NotesDrawer({
   useEscape(resolving !== null, () => setResolving(null));
   const [resolveText, setResolveText] = useState("");
 
-  // Initialise the textarea from the saved record.
+  // Initialise the textarea — prefer a cached uncommitted draft over
+  // the server's saved value when one exists. The cache survives
+  // drawer close + experiment switch + page refresh, so a curator
+  // can navigate around mid-note without losing work.
   useEffect(() => {
-    if (saved) setNoteDraft(saved.curation_note);
-  }, [saved?.curation_note]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!saved) return;
+    const cached = readCachedNote(experimentId);
+    if (cached !== null && cached !== saved.curation_note) {
+      setNoteDraft(cached);
+    } else {
+      setNoteDraft(saved.curation_note);
+    }
+  }, [saved?.curation_note, experimentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const noteDirty = saved !== undefined && noteDraft !== (saved?.curation_note ?? "");
+
+  // Persist on every change so the draft survives an unmount. Skip
+  // when the draft equals the saved value (no point caching a clean
+  // state) and when saved isn't loaded yet.
+  useEffect(() => {
+    if (!saved) return;
+    if (noteDraft === saved.curation_note) {
+      clearCachedNote(experimentId);
+    } else {
+      writeCachedNote(experimentId, noteDraft);
+    }
+  }, [noteDraft, saved?.curation_note, experimentId]);
 
   function toggleFlag(field: "troubled" | "needs_attention") {
     if (!saved) return;
@@ -122,7 +178,12 @@ export function NotesDrawer({
 
   function saveNote() {
     if (!noteDirty) return;
-    updater.mutate({ curation_note: noteDraft });
+    updater.mutate(
+      { curation_note: noteDraft },
+      // Server is now authoritative; drop the cached draft so a
+      // later session doesn't restore stale text on top of it.
+      { onSuccess: () => clearCachedNote(experimentId) },
+    );
   }
 
   return (

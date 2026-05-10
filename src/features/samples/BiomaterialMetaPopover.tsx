@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Biomaterial } from "@/features/experiment/types";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
+import { Term } from "@/components/ui/Term";
 
 /**
  * Tiny "i" chip beside a sample's short_name in the samples table.
@@ -250,18 +251,11 @@ export function BiomaterialMetaPopover({
                                 {k}
                               </td>
                               <td className="py-0.5 text-slate-800 break-words">
-                                {v}
                                 {uri ? (
-                                  <a
-                                    href={uri}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="ml-1.5 text-emerald-700 hover:underline text-[10px]"
-                                    title={uri}
-                                  >
-                                    ↗ ontology
-                                  </a>
-                                ) : null}
+                                  <Term uri={uri}>{v}</Term>
+                                ) : (
+                                  v
+                                )}
                               </td>
                             </tr>
                           );

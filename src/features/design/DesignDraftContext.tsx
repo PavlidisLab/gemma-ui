@@ -71,6 +71,19 @@ function readCachedDraft(experimentId: number): CachedDraft | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedDraft;
     if (!parsed.draft || !parsed.baselineHash) return null;
+    // Reject entries where the cached draft is for a different
+    // experiment than the key. Pre-2c14caf, the provider could swap
+    // experimentId without unmounting, and the persist effect would
+    // write the previous experiment's draft under the new key. The
+    // baselineHash check on rehydrate doesn't catch it (the hash is
+    // of the *new* saved at write-time, not of the draft).
+    if (
+      parsed.draft.experiment_id != null &&
+      parsed.draft.experiment_id !== experimentId
+    ) {
+      window.localStorage.removeItem(DRAFT_KEY_PREFIX + experimentId);
+      return null;
+    }
     return parsed;
   } catch {
     return null;
