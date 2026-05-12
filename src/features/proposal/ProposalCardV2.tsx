@@ -581,6 +581,45 @@ function ConfidenceMeter({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Debate-badge chip — shown on each tag row to convey how contested
+// the tag was during the three-way challenger/defender/arbiter loop.
+// ---------------------------------------------------------------------------
+
+const BADGE_SORT_ORDER: Record<string, number> = {
+  stuck: 0,
+  bronze: 1,
+  silver: 2,
+  "": 3,
+  gold: 4,
+  platinum: 5,
+};
+
+function badgeSortKey(badge: string | undefined): number {
+  return BADGE_SORT_ORDER[badge ?? ""] ?? 3;
+}
+
+function BadgeChip({ badge }: { badge: string | undefined }) {
+  if (!badge) return null;
+  const configs: Record<string, { label: string; cls: string }> = {
+    platinum: { label: "✓ verified",   cls: "text-sky-600 font-medium" },
+    gold:     { label: "★ gold",       cls: "text-amber-600" },
+    silver:   { label: "★ silver",     cls: "text-slate-500" },
+    bronze:   { label: "★ contested",  cls: "text-orange-600 font-medium" },
+    stuck:    { label: "!! needs call",cls: "text-rose-700 font-semibold" },
+  };
+  const cfg = configs[badge];
+  if (!cfg) return null;
+  return (
+    <span
+      className={cn("text-[10px]", cfg.cls)}
+      title={`debate outcome: ${badge}`}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
 /** Triage strip badge. Tone drives colour; ``title`` carries the full
  *  rationale (verdict + citation). ``pos`` / ``warn`` reuse the Pill
  *  variants ``high`` (emerald) / ``medium`` (amber); ``neutral``
@@ -1165,7 +1204,7 @@ export function ProposalCardV2({
     } catch (err) {
       toast.show(
         `Failed to mark proposal needs_changes: ${(err as Error).message}`,
-        "error",
+        "danger",
         8000,
       );
       return;
@@ -1784,56 +1823,60 @@ export function ProposalCardV2({
             </span>
           </div>
           <ul className="space-y-1">
-            {proposal.tags.map((t, i) => {
-              const included = !excludedTags.has(i);
-              const tagDecisions = routed.byTargetId.get(`tag:${i}`) || [];
-              return (
-                <li
-                  key={i}
-                  className={
-                    "diff-add text-xs min-w-0 " +
-                    (included ? "" : "opacity-40 line-through")
-                  }
-                >
-                  <div className="flex items-baseline gap-1 flex-wrap">
-                    <input
-                      type="checkbox"
-                      className="rounded border-slate-300 mr-1"
-                      checked={included}
-                      onChange={(e) => toggleTag(i, e.target.checked)}
-                      title={
-                        included
-                          ? "uncheck to skip this tag on accept"
-                          : "re-include this tag"
-                      }
-                      aria-label={`include tag ${t.category.label}: ${t.value.label}`}
-                    />
-                    <span className="text-slate-500">{t.category.label}:</span>
-                    <Term uri={t.value.uri ?? null}>{t.value.label}</Term>
-                    {tagDecisions.map((d, di) => (
-                      <span
-                        key={di}
-                        className="text-amber-700 text-[10px] ml-1"
-                        title={d.verdict}
-                      >
-                        ⚠ {d.label || "warning"}
-                      </span>
-                    ))}
-                    {t.evidence_quote ? (
-                      <Why text={`evidence: "${t.evidence_quote}"`} />
-                    ) : null}
-                    <IssueTagInline
-                      surface="tag"
-                      targetId={`tag:${i}`}
-                      tags={getIssueTagsFor(`tag:${i}`)}
-                      onChange={(next) =>
-                        setIssueTagsFor(`tag:${i}`, next)
-                      }
-                    />
-                  </div>
-                </li>
-              );
-            })}
+            {proposal.tags
+              .map((t, i) => ({ t, i }))
+              .sort((a, b) => badgeSortKey(a.t.badge) - badgeSortKey(b.t.badge))
+              .map(({ t, i }) => {
+                const included = !excludedTags.has(i);
+                const tagDecisions = routed.byTargetId.get(`tag:${i}`) || [];
+                return (
+                  <li
+                    key={i}
+                    className={
+                      "diff-add text-xs min-w-0 " +
+                      (included ? "" : "opacity-40 line-through")
+                    }
+                  >
+                    <div className="flex items-baseline gap-1 flex-wrap">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 mr-1"
+                        checked={included}
+                        onChange={(e) => toggleTag(i, e.target.checked)}
+                        title={
+                          included
+                            ? "uncheck to skip this tag on accept"
+                            : "re-include this tag"
+                        }
+                        aria-label={`include tag ${t.category.label}: ${t.value.label}`}
+                      />
+                      <span className="text-slate-500">{t.category.label}:</span>
+                      <Term uri={t.value.uri ?? null}>{t.value.label}</Term>
+                      <BadgeChip badge={t.badge} />
+                      {tagDecisions.map((d, di) => (
+                        <span
+                          key={di}
+                          className="text-amber-700 text-[10px] ml-1"
+                          title={d.verdict}
+                        >
+                          ⚠ {d.label || "warning"}
+                        </span>
+                      ))}
+                      {t.evidence_quote ? (
+                        <Why text={`evidence: "${t.evidence_quote}"`} />
+                      ) : null}
+                      <IssueTagInline
+                        surface="tag"
+                        targetId={`tag:${i}`}
+                        tags={getIssueTagsFor(`tag:${i}`)}
+                        onChange={(next) =>
+                          setIssueTagsFor(`tag:${i}`, next)
+                        }
+                      />
+                    </div>
+                  </li>
+                );
+              })}
           </ul>
         </div>
       ) : null}
@@ -2687,7 +2730,7 @@ function DetailsTab({ proposal }: { proposal: Proposal }) {
  */
 function EditableFvLabel({
   uri,
-  baseline,
+  baseline: _baseline,
   label,
   edited,
   originalLabel,

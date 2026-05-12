@@ -1,14 +1,20 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
+import { Term } from "@/components/ui/Term";
+import { StatementGlyph } from "@/components/ui/StatementGlyph";
 import type {
   AuditFinding,
   AuditFindingDisposition,
   AuditReport,
   AuditTargetKind,
+  DebateRound,
+  DesignDebateEntry,
   DispositionStatus,
   Severity,
 } from "@/api/auditTypes";
+import type { FactorProposal } from "@/api/types";
+import type { Factor } from "@/features/experiment/types";
 
 /**
  * Pure-presentation view of an `AuditReport`. Takes a fully-loaded
@@ -31,9 +37,13 @@ import type {
  */
 export function AuditReportView({
   report,
+  gemmaFactors,
   onDispositionChange,
 }: {
   report: AuditReport;
+  /** Current Gemma design factors for side-by-side comparison.
+   *  Optional — omitting it hides the Gemma column. */
+  gemmaFactors?: Factor[];
   onDispositionChange?: (
     targetId: string,
     status: DispositionStatus,
@@ -54,7 +64,7 @@ export function AuditReportView({
         dispositionByTarget={dispositionByTarget}
         onDispositionChange={onDispositionChange}
       />
-      <ComparisonProposalCard report={report} />
+      <DesignComparisonPanel report={report} gemmaFactors={gemmaFactors} />
     </div>
   );
 }
@@ -225,9 +235,6 @@ function FindingsList({
             key={kind}
             kind={kind}
             findings={findings}
-            comparisonProposalPresent={
-              report.evidence.comparison_proposal != null
-            }
             dispositionByTarget={dispositionByTarget}
             onDispositionChange={onDispositionChange}
           />
@@ -255,13 +262,11 @@ function groupByTargetKind(
 function FindingsGroup({
   kind,
   findings,
-  comparisonProposalPresent,
   dispositionByTarget,
   onDispositionChange,
 }: {
   kind: AuditTargetKind;
   findings: AuditFinding[];
-  comparisonProposalPresent: boolean;
   dispositionByTarget: Map<string, AuditFindingDisposition>;
   onDispositionChange?: (
     targetId: string,
@@ -288,7 +293,6 @@ function FindingsGroup({
           <FindingCard
             key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
             finding={f}
-            comparisonProposalPresent={comparisonProposalPresent}
             currentDisposition={
               dispositionByTarget.get(f.target_id)?.status ?? "pending"
             }
@@ -313,7 +317,6 @@ function FindingsGroup({
               <FindingCard
                 key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
                 finding={f}
-                comparisonProposalPresent={comparisonProposalPresent}
                 currentDisposition={
                   dispositionByTarget.get(f.target_id)?.status ?? "pending"
                 }
@@ -332,12 +335,10 @@ function FindingsGroup({
 
 function FindingCard({
   finding,
-  comparisonProposalPresent,
   currentDisposition,
   onDispositionChange,
 }: {
   finding: AuditFinding;
-  comparisonProposalPresent: boolean;
   currentDisposition: DispositionStatus;
   onDispositionChange?: (
     targetId: string,
@@ -384,32 +385,34 @@ function FindingCard({
         </div>
       ) : null}
 
-      {finding.suggested_fix ? (
-        <div className="rounded border border-blue-200 bg-blue-50/60 px-2 py-1.5 text-xs">
-          <span className="text-[10px] uppercase tracking-wide font-semibold text-blue-900 block mb-0.5">
-            suggested fix
-          </span>
-          <span className="text-blue-900">{finding.suggested_fix}</span>
-        </div>
-      ) : null}
-
-      {finding.proposer_suggestion ? (
-        <div className="rounded border border-violet-200 bg-violet-50/60 px-2 py-1.5 text-xs">
-          <span
-            className="text-[10px] uppercase tracking-wide font-semibold text-violet-900 block mb-0.5"
-            title="how the silent comparison proposer handled the same target"
-          >
-            proposer would have done
-          </span>
-          <span className="text-violet-900">{finding.proposer_suggestion}</span>
-        </div>
-      ) : comparisonProposalPresent ? null : null}
+      <FindingAgentSuggestion finding={finding} />
 
       <DispositionBar
         targetId={finding.target_id}
         current={currentDisposition}
         onChange={onDispositionChange}
       />
+    </div>
+  );
+}
+
+/** Merged "suggested fix + proposer suggestion" — one box instead of
+ *  two separate coloured panels. */
+function FindingAgentSuggestion({ finding }: { finding: AuditFinding }) {
+  const fix = finding.suggested_fix;
+  const legacy = finding.proposer_suggestion;
+  if (!fix && !legacy) return null;
+  return (
+    <div className="rounded border border-slate-200 bg-slate-50/60 px-2 py-1.5 text-xs space-y-1">
+      <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 block">
+        suggestion
+      </span>
+      {fix ? (
+        <span className="text-slate-800 block">{fix}</span>
+      ) : null}
+      {legacy && legacy !== fix ? (
+        <span className="text-slate-700 block">{legacy}</span>
+      ) : null}
     </div>
   );
 }
@@ -537,44 +540,312 @@ function DispositionButton({
 }
 
 // ---------------------------------------------------------------------------
-// Comparison proposal — collapsed by default; full proposal rendering
-// hooks into the existing ProposalCardV2 surface in a later iteration.
+// Design comparison panel — Gemma factors vs agent proposal, side-by-side
 // ---------------------------------------------------------------------------
 
-function ComparisonProposalCard({ report }: { report: AuditReport }) {
+export function DesignComparisonPanel({
+  report,
+  gemmaFactors,
+  onApplyDesign,
+  onUndoApply,
+}: {
+  report: AuditReport;
+  gemmaFactors: Factor[] | undefined;
+  /** Adds the agent's proposed factors alongside the existing Gemma
+   *  factors in the design draft (does not remove anything). Only
+   *  pass in contexts where a draft is available (the in-experiment
+   *  sidebar). */
+  onApplyDesign?: () => void;
+  /** Restores the pre-apply draft state. Present only after
+   *  `onApplyDesign` has been called once; clears after undo. */
+  onUndoApply?: () => void;
+}) {
   const cp = report.evidence.comparison_proposal;
-  const [open, setOpen] = useState(false);
-  if (!cp) {
-    return (
-      <div className="card px-3 py-2 text-xs text-slate-500 italic">
-        No comparison proposal for this audit (scope skipped the proposer).
-      </div>
-    );
-  }
-  const nFactors = cp.factors?.length ?? 0;
-  const nTags = cp.tags?.length ?? 0;
+  const transcripts = report.evidence.design_debate_transcripts ?? [];
+  const [jsonOpen, setJsonOpen] = useState(false);
+
+  const agentFactors = cp?.factors ?? [];
+  // Block and Batch are curator-added DEA blocking variables, not
+  // biological factors — exclude them from the comparison so the panel
+  // focuses on what the agent actually evaluated.
+  const gemma = (gemmaFactors ?? []).filter(
+    (f) => !/^(block|batch)$/i.test(f.category.label.trim()),
+  );
+
+  // Build label sets for mismatch highlighting.
+  const gemmaLabels = new Set(gemma.map((f) => f.category.label.toLowerCase()));
+  const agentLabels = new Set(agentFactors.map((f) => f.category.label.toLowerCase()));
+
+  const nTags = cp?.tags?.length ?? 0;
+
   return (
     <div className="card">
-      <div className="px-3 py-2 flex items-center gap-3">
-        <span className="section-h">Comparison proposal</span>
+      <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3 flex-wrap">
+        <span className="section-h">Design comparison</span>
         <span className="text-[11px] text-slate-500">
-          silent run anchoring the judge — {nFactors} factor
-          {nFactors === 1 ? "" : "s"} · {nTags} tag{nTags === 1 ? "" : "s"}
-          {cp.model ? <> · {cp.model}</> : null}
+          Gemma: {gemma.length} factor{gemma.length === 1 ? "" : "s"}
+          {" · "}
+          Agent: {agentFactors.length} factor{agentFactors.length === 1 ? "" : "s"}
+          {nTags > 0 ? ` · ${nTags} tag${nTags === 1 ? "" : "s"}` : null}
+          {cp?.model ? ` · ${cp.model}` : null}
         </span>
-        <button
-          type="button"
-          className="ml-auto text-[11px] text-blue-700 hover:underline"
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? "hide JSON" : "show JSON"}
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {onUndoApply ? (
+            <>
+              <span className="text-[11px] text-slate-400 dark:text-slate-500 italic">
+                added to draft
+              </span>
+              <button
+                type="button"
+                className="text-[11px] text-slate-500 dark:text-slate-400 hover:underline"
+                onClick={onUndoApply}
+              >
+                undo
+              </button>
+            </>
+          ) : onApplyDesign && agentFactors.length > 0 ? (
+            <button
+              type="button"
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+              title="Adds the agent's proposed factors to the design draft alongside Gemma's (open the Design tab to preview; Reset to undo)"
+              onClick={onApplyDesign}
+            >
+              Add to draft →
+            </button>
+          ) : null}
+          {cp ? (
+            <button
+              type="button"
+              className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:underline"
+              onClick={() => setJsonOpen((v) => !v)}
+            >
+              {jsonOpen ? "hide JSON" : "JSON ↓"}
+            </button>
+          ) : null}
+        </div>
       </div>
-      {open ? (
-        <pre className="px-3 py-2 text-[11px] text-slate-700 bg-slate-50 max-h-96 overflow-auto font-mono whitespace-pre-wrap">
+
+      <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-700 text-xs">
+        {/* Left: Gemma */}
+        <div className="p-3 space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 mb-2">
+            Gemma
+          </div>
+          {gemma.length === 0 ? (
+            <div className="text-slate-400 italic text-[11px]">design not loaded</div>
+          ) : (
+            gemma.map((f, i) => {
+              const matched = agentLabels.has(f.category.label.toLowerCase());
+              return (
+                <GemmaFactorRow key={i} factor={f} matched={matched} />
+              );
+            })
+          )}
+        </div>
+
+        {/* Right: Agent */}
+        <div className="p-3 space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 mb-2">
+            Agent proposal
+          </div>
+          {agentFactors.length === 0 ? (
+            <div className="text-slate-400 italic text-[11px]">
+              {cp ? "no factors proposed" : "no comparison proposal"}
+            </div>
+          ) : (
+            agentFactors.map((f, i) => {
+              const matched = gemmaLabels.has(f.category.label.toLowerCase());
+              const entry = findDesignDebateEntry(f, transcripts);
+              return (
+                <AgentFactorRow key={i} factor={f} matched={matched} entry={entry} />
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {jsonOpen && cp ? (
+        <pre className="px-3 py-2 text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-700 max-h-96 overflow-auto font-mono whitespace-pre-wrap">
           {JSON.stringify(cp, null, 2)}
         </pre>
       ) : null}
+    </div>
+  );
+}
+
+function GemmaFactorRow({ factor, matched }: { factor: Factor; matched: boolean }) {
+  return (
+    <div
+      className={cn(
+        "rounded px-2 py-1.5",
+        matched ? "bg-slate-100/60 dark:bg-slate-700/40" : "opacity-40",
+      )}
+      title={matched ? "matched by agent" : "Gemma-only — agent did not propose this"}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className={cn(
+          "font-medium",
+          matched ? "text-slate-800 dark:text-slate-100" : "text-slate-500 dark:text-slate-400",
+        )}>
+          {factor.category.label}
+        </span>
+        <span className="text-[10px] text-slate-400 dark:text-slate-500">{factor.type}</span>
+      </div>
+      <div className="mt-0.5 space-y-0.5 pl-1">
+        {factor.factor_values.map((fv, i) => (
+          <div key={i} className="flex items-center gap-1 flex-wrap">
+            <Term uri={fv.statements?.[0]?.subject.uri ?? null}>
+              {fv.free_text_label}
+            </Term>
+            {fv.is_baseline ? (
+              <span className="pill baseline">★ ref</span>
+            ) : null}
+            {fv.statements.length > 0 ? (
+              <StatementGlyph statements={fv.statements} />
+            ) : null}
+            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+              ({fv.biomaterial_short_names.length})
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AgentFactorRow({
+  factor,
+  matched,
+  entry,
+}: {
+  factor: FactorProposal;
+  matched: boolean;
+  entry: DesignDebateEntry | undefined;
+}) {
+  const [debateOpen, setDebateOpen] = useState(false);
+  const hasRounds = (entry?.rounds.length ?? 0) > 0;
+
+  return (
+    <div
+      className={cn(
+        "rounded px-2 py-1.5",
+        matched
+          ? "bg-slate-100/60 dark:bg-slate-700/40"
+          : "bg-amber-50 dark:bg-amber-900/25",
+      )}
+      title={matched ? "matches Gemma" : "agent-only — not in Gemma's current design"}
+    >
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={cn(
+          "font-medium",
+          matched ? "text-slate-800 dark:text-slate-100" : "text-amber-800 dark:text-amber-300",
+        )}>
+          {factor.category.label}
+        </span>
+        {factor.factor_type ? (
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">{factor.factor_type}</span>
+        ) : null}
+        {entry ? <DesignDebatePill badge={entry.badge} /> : null}
+        {hasRounds ? (
+          <button
+            type="button"
+            className="text-[10px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:underline ml-auto"
+            onClick={() => setDebateOpen((v) => !v)}
+          >
+            {debateOpen ? "▾ debate" : "▸ debate"}
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-0.5 space-y-0.5 pl-1">
+        {factor.factor_values.map((fv, i) => {
+          const subject = fv.statements?.[0]?.subject;
+          return (
+            <div key={i} className="flex items-center gap-1 flex-wrap">
+              <Term uri={subject?.uri ?? null}>
+                {fv.free_text_label || subject?.label || "?"}
+              </Term>
+              {(fv.statements?.length ?? 0) > 0 ? (
+                <StatementGlyph statements={fv.statements} />
+              ) : null}
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                ({fv.biomaterial_short_names.length})
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {debateOpen && hasRounds ? (
+        <DebateRoundsSection rounds={entry!.rounds} />
+      ) : null}
+    </div>
+  );
+}
+
+function findDesignDebateEntry(
+  factor: FactorProposal,
+  transcripts: DesignDebateEntry[],
+): DesignDebateEntry | undefined {
+  return transcripts.find(
+    (t) =>
+      (t.factor_category_uri &&
+        factor.category.uri &&
+        t.factor_category_uri === factor.category.uri) ||
+      t.factor_category.toLowerCase() === factor.category.label.toLowerCase(),
+  );
+}
+
+function DesignDebatePill({ badge }: { badge: string }) {
+  const configs: Record<string, { label: string; cls: string }> = {
+    gold:    { label: "★ gold",      cls: "bg-amber-50 border-amber-200 text-amber-700" },
+    silver:  { label: "★ silver",    cls: "bg-slate-50 border-slate-300 text-slate-600" },
+    bronze:  { label: "★ contested", cls: "bg-orange-50 border-orange-200 text-orange-700" },
+    dropped: { label: "✕ dropped",   cls: "bg-rose-50 border-rose-200 text-rose-700" },
+    stuck:   { label: "!! stuck",    cls: "bg-rose-50 border-rose-200 text-rose-700" },
+  };
+  const cfg = configs[badge];
+  if (!cfg) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border",
+        cfg.cls,
+      )}
+      title={`design debate: ${badge}`}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+function DebateRoundsSection({ rounds }: { rounds: DebateRound[] }) {
+  return (
+    <div className="mt-1.5 space-y-2 border-l-2 border-slate-200 dark:border-slate-600 pl-2">
+      {rounds.map((r, i) => (
+        <div key={i} className="space-y-0.5 text-[11px]">
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+            Round {i + 1}
+          </div>
+          <div>
+            <span className="font-medium text-slate-700 dark:text-slate-300">Challenge</span>
+            {r.challenge_citation ? (
+              <span className="text-slate-400 dark:text-slate-500 ml-1">({r.challenge_citation})</span>
+            ) : null}
+            <span className="text-slate-600 dark:text-slate-400">: {r.challenge_reason}</span>
+          </div>
+          <div>
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              Defense{r.defense_concedes ? " (concedes)" : ""}
+            </span>
+            <span className="text-slate-600 dark:text-slate-400">: {r.defense_response}</span>
+          </div>
+          <div>
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              Verdict ({r.verdict_side})
+            </span>
+            <span className="text-slate-600 dark:text-slate-400">: {r.verdict_reason}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

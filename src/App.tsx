@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ExperimentList } from "@/features/landing/ExperimentList";
@@ -468,7 +467,7 @@ function MainGrid({
   proposalsError,
   pendingProposals,
   recentClosedProposal,
-  proposalsFetching,
+  proposalsFetching: _proposalsFetching,
 }: {
   activeTab: TabId;
   experimentId: number;
@@ -483,7 +482,6 @@ function MainGrid({
   recentClosedProposal: Proposal | null;
   proposalsFetching: boolean;
 }) {
-  const qc = useQueryClient();
   const toast = useToast();
   // Two propose paths in this codebase right now:
   //

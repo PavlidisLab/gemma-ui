@@ -4,6 +4,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { StatementGlyph } from "@/components/ui/StatementGlyph";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { useDesign } from "@/api/design";
 import { useAuditStream } from "@/api/auditStream";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import sampleReport from "./fixtures/sample_audit_report.json";
@@ -31,7 +32,9 @@ import type {
   DispositionStatus,
   Severity,
 } from "@/api/auditTypes";
-import type { Design } from "@/features/experiment/types";
+import type { Design, Factor, FactorValue } from "@/features/experiment/types";
+import type { FactorProposal } from "@/api/types";
+import { DesignComparisonPanel } from "./AuditReportView";
 
 /**
  * Per-experiment audit findings, rendered into the proposals sidebar
@@ -55,14 +58,27 @@ export function AuditSidebarPanel({
 }) {
   const { report, setOverrideReport, hasOverride, loading, error } =
     useAudit();
-  const { draft } = useDesignDraft();
+  const { draft, apply } = useDesignDraft();
+  // Server design for the Gemma column — intentionally NOT the draft
+  // so that "Add to draft" doesn't pollute the left column with the
+  // factors we just appended.
+  const { data: serverDesign } = useDesign(experimentId);
   const stream = useAuditStream(experimentId);
   const [dialogOpen, setDialogOpen] = useState(false);
-  // Auto-close the dialog once the SSE stream takes over — the
-  // progress panel below replaces it as the in-flight surface.
+  // Snapshot taken just before "Add to draft" so the curator can undo
+  // without having to Reset the whole draft. Cleared on undo or on
+  // any subsequent draft reset (draft becoming null clears it too).
+  const [preApplySnapshot, setPreApplySnapshot] = useState<Factor[] | null>(null);
+  // Auto-close the dialog once the SSE stream takes over.
   useEffect(() => {
     if (stream.status === "running") setDialogOpen(false);
   }, [stream.status]);
+
+  // Clear the apply-snapshot whenever the draft is reset to null (Reset
+  // button in the design editor) — there's nothing left to undo against.
+  useEffect(() => {
+    if (!draft) setPreApplySnapshot(null);
+  }, [draft]);
 
   // Pick the accession the agent service expects. Numeric experiment_id
   // works (the resolver accepts numeric id, GSE accession, or shortName
@@ -143,6 +159,41 @@ export function AuditSidebarPanel({
             ) : (
               <FindingList findings={report.findings} />
             )}
+            <DesignComparisonPanel
+              report={report}
+              gemmaFactors={serverDesign?.factors}
+              onApplyDesign={
+                draft && !preApplySnapshot &&
+                (report.evidence.comparison_proposal?.factors.length ?? 0) > 0
+                  ? () => {
+                      const proposals =
+                        report.evidence.comparison_proposal!.factors;
+                      setPreApplySnapshot(draft.factors);
+                      apply((d) => {
+                        const existingLabels = new Set(
+                          d.factors.map((f) => f.category.label.toLowerCase()),
+                        );
+                        const toAdd = proposalFactorsToDesignFactors(
+                          d.factors,
+                          proposals,
+                        ).filter(
+                          (f) => !existingLabels.has(f.category.label.toLowerCase()),
+                        );
+                        return { ...d, factors: [...d.factors, ...toAdd] };
+                      });
+                    }
+                  : undefined
+              }
+              onUndoApply={
+                preApplySnapshot
+                  ? () => {
+                      const snap = preApplySnapshot;
+                      setPreApplySnapshot(null);
+                      apply((d) => ({ ...d, factors: snap }));
+                    }
+                  : undefined
+              }
+            />
           </>
         )
       ) : null}
@@ -942,13 +993,17 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             {TARGET_KIND_LABEL[finding.target_kind]}
           </span>
           <IssueCodeBadge issueCode={finding.issue_code} />
+          <DebateBadgeChip badge={finding.debate_badge} />
           <span
             className={cn(
               "block text-[11px] text-slate-700 dark:text-slate-200",
               open ? "" : "line-clamp-2",
             )}
           >
-            {trimRationaleBoilerplate(finding.rationale)}
+            {rewriteCalibrationRationale(
+              finding.issue_code,
+              trimRationaleBoilerplate(finding.rationale),
+            )}
           </span>
         </span>
         <span
@@ -988,19 +1043,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             </div>
           ) : null}
 
-          {finding.suggested_fix ? (
-            <div className="rounded border border-blue-200 bg-blue-50/60 px-1.5 py-1 text-[11px] mx-1.5 dark:border-blue-700/60 dark:bg-blue-900/20">
-              <span className="text-[9px] uppercase tracking-wide font-semibold text-blue-900 dark:text-blue-300 block mb-0.5">
-                suggested fix
-              </span>
-              <span className="text-blue-900 dark:text-blue-200">
-                {shortFixForVerdict(finding.defender_verdict) ??
-                  finding.suggested_fix}
-              </span>
-            </div>
-          ) : null}
-
-          <ProposerSuggestionPanel finding={finding} />
+          <AgentSuggestionPanel finding={finding} />
 
           <FindingActionRow finding={finding} />
         </div>
@@ -1273,29 +1316,25 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     requestAuditFocus(experimentId, finding.target_id);
   }
 
-  async function handleDismissConfirm(reasonKey: string, notes: string) {
-    // Wire enum landed 2026-05-10 (AUDIT_DISPOSITION_REASONS_HANDOFF
-    // marked shipped); reasons go straight onto the typed
-    // ``dismiss_reason`` field. Cast through ``DismissReason`` —
-    // the dialog only ever picks keys that match.
+  async function handleDismissConfirm(tag: string | null, notes: string) {
     await patch("dismissed", {
-      dismissReason: reasonKey as DismissReason,
+      dismissReason: (tag ?? undefined) as DismissReason | undefined,
       notes,
     });
     setDismissOpen(false);
   }
 
-  async function handleAcceptConfirm(reasonKey: string, notes: string) {
+  async function handleAcceptConfirm(tag: string | null, notes: string) {
     setAcceptOpen(false);
     await handleApply({
-      acceptReason: reasonKey as import("@/api/auditTypes").AcceptReason,
+      acceptReason: (tag ?? undefined) as import("@/api/auditTypes").AcceptReason | undefined,
       notes,
     });
   }
 
-  async function handleNotSureConfirm(reasonKey: string, notes: string) {
+  async function handleNotSureConfirm(tag: string | null, notes: string) {
     await patch("needs_more_info", {
-      notSureReason: reasonKey as import("@/api/auditTypes").NotSureReason,
+      notSureReason: (tag ?? undefined) as import("@/api/auditTypes").NotSureReason | undefined,
       notes,
     });
     setNotSureOpen(false);
@@ -1603,6 +1642,34 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
  *  recognisable, otherwise return input untouched. Brother knows
  *  about both and is going to tighten the rationale templates
  *  agent-side; these regexes are the bridge until that lands. */
+/** Rewrite the two calibration question-form rationales into direct
+ *  curator-facing statements. The agent emits "Should X be removed?"
+ *  / "Should we add X?" — we replace those with actionable copy that
+ *  spells out who is proposing what. Falls back to the original text
+ *  when the pattern doesn't match (future agent wording changes,
+ *  non-calibration codes, etc.). */
+function rewriteCalibrationRationale(
+  issueCode: string,
+  rationale: string,
+): string {
+  if (issueCode === "calibration_gold_only_miss") {
+    // "Should `cell type: microglial cell` be removed from the curation? (the agent did not propose it.)"
+    const m = rationale.match(/`([^`]+)`/);
+    if (m) return `Agent does not propose \`${m[1]}\` and suggests removing it.`;
+  }
+  if (issueCode === "calibration_agent_extra") {
+    // "Should we add `organism part: bone marrow`?"
+    const m = rationale.match(/`([^`]+)`/);
+    if (m) return `Agent proposes adding \`${m[1]}\`. Do you agree?`;
+  }
+  if (issueCode === "calibration_match") {
+    // "Is `disease model: alzheimer disease` correctly assigned?"
+    const m = rationale.match(/`([^`]+)`/);
+    if (m) return `Agent and Gemma both have \`${m[1]}\`. Is this correct?`;
+  }
+  return rationale;
+}
+
 function trimRationaleBoilerplate(s: string): string {
   if (!s) return s;
   let out = s;
@@ -1630,92 +1697,90 @@ function trimRationaleBoilerplate(s: string): string {
   return out.trim();
 }
 
-function ProposerSuggestionPanel({ finding }: { finding: AuditFinding }) {
+/** Combined "suggested fix + proposer suggestion" panel. Shows both
+ *  in a single box so the curator sees one coherent "what the agent
+ *  thinks you should do" block instead of two differently-coloured
+ *  nested boxes. */
+function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
+  const verdictFix = shortFixForVerdict(finding.defender_verdict);
+  // For calibration triplet codes the collapsed header already states the
+  // action ("does not propose X", "proposes adding X", "both have X").
+  // Showing suggested_fix in the expanded body just repeats it verbatim.
+  // Keep it only when a defender verdict override changed the recommended
+  // action — that's genuinely new information.
+  const isCalibrationCode =
+    finding.issue_code === "calibration_gold_only_miss" ||
+    finding.issue_code === "calibration_match" ||
+    finding.issue_code === "calibration_agent_extra";
+  const fixText = verdictFix ?? (isCalibrationCode ? null : finding.suggested_fix);
   const term = finding.proposer_term;
   const statements = finding.proposer_statements ?? [];
-  // Defense is the agent's positive case for its alternate, distinct
-  // from the finding's rationale. Older calibration packages packed
-  // it with "(see the supporting-evidence panel)" filler — strip
-  // through ``trimRationaleBoilerplate`` so an empty-after-trim
-  // string doesn't render an empty paragraph.
   const trimmedDefense = trimRationaleBoilerplate(
     finding.proposer_defense ?? "",
   );
   const evidence = finding.supporting_evidence ?? [];
   const legacyText = finding.proposer_suggestion;
-  const hasStructured =
+  const hasProposer =
     !!term ||
     statements.length > 0 ||
     !!trimmedDefense ||
-    evidence.length > 0;
-  if (!hasStructured && !legacyText) return null;
+    evidence.length > 0 ||
+    !!legacyText;
+
+  if (!fixText && !hasProposer) return null;
 
   const dv = finding.defender_verdict ?? null;
-  // Prefer the producer-side ``strength`` (calibration v10+); fall
-  // back to the verdict-keyed helper for v9-and-older packages.
-  // See AUDIT_DEFENDER_VERDICT_HANDOFF.md § "what I'd suggest
-  // changing in the UI" — Option A.
   const strength = dv?.strength ?? verdictStrength(dv?.verdict);
-  const headerLabel = strength
-    ? `${strength} suggestion`
-    : "proposer suggestion";
 
   return (
-    <div className="rounded border border-violet-200 bg-violet-50/60 px-1.5 py-1.5 text-[11px] mx-1.5 space-y-1.5 dark:border-violet-700/60 dark:bg-violet-900/20">
+    <div className="rounded border border-slate-200 bg-slate-50/60 px-1.5 py-1.5 text-[11px] mx-1.5 space-y-1.5 dark:border-slate-600 dark:bg-slate-800/30">
       <div
-        className="text-[9px] uppercase tracking-wide font-semibold text-violet-900 dark:text-violet-300"
+        className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400"
         title={
           strength
-            ? `judge graded the proposer's pick (${dv!.verdict})`
-            : "how the silent comparison proposer handled the same target"
+            ? `judge graded this (${dv!.verdict})`
+            : "what the agent suggests"
         }
       >
-        {headerLabel}
+        {strength ? `${strength} suggestion` : "suggestion"}
       </div>
-      {statements.length > 0 ? (
-        // FV / factor-shape findings: render the same StatementGlyph
-        // the proposal card uses. Disc colour names per-slot
-        // grounding (green = URI, slate = free-text); ``×N`` count
-        // surfaces multi-statement structure. Skips the single-Term
-        // render below — the glyph carries the semantics.
-        <div>
-          <StatementGlyph statements={statements} />
-        </div>
-      ) : term ? (
-        <div>
-          <Term uri={term.uri ?? null}>{term.label}</Term>
-        </div>
-      ) : !hasStructured && legacyText ? (
-        // Legacy fallback — no structured term came through, but the
-        // older report had a one-line string. Render plain.
-        <div className="text-violet-900 dark:text-violet-200">{legacyText}</div>
-      ) : null}
-      {trimmedDefense ? (
-        <div className="text-slate-700 dark:text-slate-300 leading-snug">
-          {trimmedDefense}
+      {fixText ? (
+        <div className="text-slate-800 dark:text-slate-200 leading-snug">
+          {fixText}
         </div>
       ) : null}
-      {evidence.length > 0 ? (
-        <div className="space-y-1">
-          {/* Sub-header dropped 2026-05-08 — the rationale's
-              "(see the supporting-evidence panel)" reference is
-              now stripped at the source + by the UI's defensive
-              regex, so the labelled anchor is redundant. The
-              blockquotes themselves carry per-source chips. */}
-          {evidence.map((ev, i) => (
-            <FindingEvidenceBlock key={i} evidence={ev} />
-          ))}
-        </div>
-      ) : null}
-      {dv?.rationale ? (
-        <div
-          className="text-slate-600 dark:text-slate-400 italic text-[10px] leading-snug"
-          title={dv.citation || undefined}
-        >
-          <span className="not-italic font-semibold text-slate-700 dark:text-slate-300">
-            Judge:
-          </span>{" "}
-          {dv.rationale}
+      {hasProposer ? (
+        <div className="space-y-1.5">
+          {statements.length > 0 ? (
+            <StatementGlyph statements={statements} />
+          ) : term ? (
+            <Term uri={term.uri ?? null}>{term.label}</Term>
+          ) : legacyText && !trimmedDefense && evidence.length === 0 ? (
+            <div className="text-slate-700 dark:text-slate-300">{legacyText}</div>
+          ) : null}
+          {trimmedDefense ? (
+            <div className="text-slate-600 dark:text-slate-300 leading-snug">
+              {trimmedDefense}
+            </div>
+          ) : null}
+          {evidence.length > 0 ? (
+            <div className="space-y-1">
+              {evidence.map((ev, i) => (
+                <FindingEvidenceBlock key={i} evidence={ev} />
+              ))}
+            </div>
+          ) : null}
+          {dv?.rationale ? (
+            <div
+              className="text-slate-500 dark:text-slate-400 italic text-[10px] leading-snug"
+              title={dv.citation || undefined}
+            >
+              <span className="not-italic font-semibold text-slate-600 dark:text-slate-300">
+                Judge:
+              </span>{" "}
+              {dv.rationale}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -2048,6 +2113,45 @@ const ISSUE_CODE_RENDER: Record<
   },
 };
 
+function DebateBadgeChip({ badge }: { badge: string | undefined }) {
+  if (!badge) return null;
+  const configs: Record<string, { label: string; cls: string }> = {
+    platinum: {
+      label: "✓ verified",
+      cls: "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-300",
+    },
+    gold: {
+      label: "★ gold",
+      cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300",
+    },
+    silver: {
+      label: "★ silver",
+      cls: "bg-slate-100 border-slate-300 text-slate-600 dark:bg-slate-600/50 dark:border-slate-500 dark:text-slate-200",
+    },
+    bronze: {
+      label: "★ contested",
+      cls: "bg-orange-50 border-orange-200 text-orange-700 dark:bg-orange-900/30 dark:border-orange-700 dark:text-orange-300",
+    },
+    stuck: {
+      label: "!! needs call",
+      cls: "bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/30 dark:border-rose-700 dark:text-rose-300",
+    },
+  };
+  const cfg = configs[badge];
+  if (!cfg) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border ml-1",
+        cfg.cls,
+      )}
+      title={`debate outcome: ${badge}`}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
 function SeverityBadge({ severity }: { severity: Severity }) {
   const cls = {
     blocker: "bg-rose-200 text-rose-900",
@@ -2106,6 +2210,71 @@ function formatShort(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Design proposal → Factor conversion
+// ---------------------------------------------------------------------------
+
+const BASELINE_TERM_LABELS = new Set([
+  "control",
+  "wild type genotype",
+  "reference subject role",
+  "reference substance role",
+  "initial time point",
+]);
+
+/** Convert `FactorProposal[]` to `Factor[]`, replacing the design's
+ *  current factor list rather than merging. IDs are allocated
+ *  above the existing maximum so no FV id collides with a retained
+ *  biomaterial assignment. `is_baseline` is inferred from statement
+ *  subject/object labels matching the Confluence baseline set. */
+function proposalFactorsToDesignFactors(
+  existingFactors: Factor[],
+  proposals: FactorProposal[],
+): Factor[] {
+  let nextFactorId =
+    existingFactors.reduce((m, f) => Math.max(m, f.id), 0) + 1;
+  let nextFvId =
+    existingFactors
+      .flatMap((f) => f.factor_values)
+      .reduce((m, fv) => Math.max(m, fv.id), 0) + 1;
+
+  return proposals.map((fp): Factor => {
+    const factorId = nextFactorId++;
+    const factor_values: FactorValue[] = fp.factor_values.map((fv) => {
+      const isBaseline = (fv.statements ?? []).some((s) => {
+        const subj = s.subject.label.trim().toLowerCase();
+        const obj = s.object?.label?.trim().toLowerCase() ?? "";
+        return BASELINE_TERM_LABELS.has(subj) || BASELINE_TERM_LABELS.has(obj);
+      });
+      return {
+        id: nextFvId++,
+        free_text_label: fv.free_text_label,
+        is_baseline: isBaseline,
+        numeric_value: null,
+        biomaterial_short_names: [...fv.biomaterial_short_names],
+        statements: (fv.statements ?? []).map((s) => ({
+          category: { label: fp.category.label, uri: fp.category.uri ?? null },
+          subject: { label: s.subject.label, uri: s.subject.uri ?? null },
+          predicate: s.predicate
+            ? { label: s.predicate.label, uri: s.predicate.uri ?? null }
+            : null,
+          object: s.object
+            ? { label: s.object.label, uri: s.object.uri ?? null }
+            : null,
+        })),
+      };
+    });
+    return {
+      id: factorId,
+      name: fp.name_in_design || fp.category.label,
+      category: { label: fp.category.label, uri: fp.category.uri ?? null },
+      description: "",
+      type: fp.factor_type === "continuous" ? "continuous" : "categorical",
+      factor_values,
+    };
+  });
 }
 
 /** Build a synthetic AuditReport whose target_ids slug-match real

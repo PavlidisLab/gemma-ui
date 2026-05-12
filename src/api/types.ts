@@ -26,6 +26,13 @@ export interface TagProposal {
   value: OntologyTerm;
   evidence_quote: string;
   confidence: string;
+  /** Debate-loop outcome. ``"platinum"`` = human-verified,
+   *  ``"gold"`` = approved without objection,
+   *  ``"silver"`` = settled after one contested round,
+   *  ``"bronze"`` = multiple contested rounds,
+   *  ``"stuck"`` = no consensus — needs human call.
+   *  Empty/absent = debate wasn't run. */
+  badge?: string;
 }
 
 export interface StatementProposal {

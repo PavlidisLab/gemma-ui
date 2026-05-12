@@ -92,6 +92,21 @@ export function usePatchDisposition(experimentId: number) {
       patch: AuditFindingDispositionPatch;
     }) => api.patch<AuditReport>(`/rest/v2/audits/${auditId}`, patch),
     onSuccess: (refreshed) => {
+      // Write the updated report into the byExperiment list immediately
+      // so inline dots reflect the new disposition without waiting for
+      // the background refetch to complete.
+      qc.setQueryData(
+        KEY.byExperiment(experimentId),
+        (old: AuditListResponse | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            items: old.items.map((a) =>
+              a.audit_id === refreshed.audit_id ? refreshed : a,
+            ),
+          };
+        },
+      );
       qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);

@@ -123,7 +123,7 @@ export function useDatasetsPaginated(params: DatasetListParams) {
 // Pipeline dispatch mutations
 // ---------------------------------------------------------------------------
 
-function useDispatch(experimentId: number, path: string, step: string) {
+function useDispatch(experimentId: number, path: string, _step: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body?: unknown) =>

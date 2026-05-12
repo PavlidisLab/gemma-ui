@@ -902,6 +902,31 @@ function TagBar({
     biomaterials,
   ]);
 
+  // Build a (category-label, fv-label) → URI lookup from the draft's
+  // factor value statements. FV-synth tags have comma-joined value
+  // labels whose parts are CL/EFO terms, but charUriLookup only covers
+  // biomaterial characteristics. This covers the gap so e.g.
+  // "long term hematopoietic stem cell" resolves to its CL URI.
+  const fvUriLookup = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const factor of draft?.factors ?? []) {
+      const catKey = (factor.category?.label || factor.name || "").trim().toLowerCase();
+      for (const fv of factor.factor_values) {
+        const label = (fv.free_text_label || "").trim().toLowerCase();
+        if (!label) continue;
+        for (const s of fv.statements) {
+          const uri = s.subject?.uri;
+          if (uri) {
+            const k = `${catKey}|${label}`;
+            if (!map.has(k)) map.set(k, uri);
+            break;
+          }
+        }
+      }
+    }
+    return map;
+  }, [draft?.factors]);
+
   // Augment inferred tags from ``biomaterial.characteristics`` —
   // Gemma's annotation feed ships only one row per dataset for a
   // BM-source category, so a 6-region cohort surfaces only one
@@ -997,6 +1022,7 @@ function TagBar({
             tags={inferredByGroup.get(g) ?? []}
             variant="inferred"
             charUriLookup={charUriLookup}
+            fvUriLookup={fvUriLookup}
           />
         </div>
       ))}
@@ -1275,6 +1301,7 @@ function splitTagValues(
   tags: Tag[],
   category: Tag["category"],
   charUriLookup: Map<string, string>,
+  fvUriLookup: Map<string, string>,
 ): TagValue[] {
   const catKey = (category.label || "").trim().toLowerCase();
   const out: TagValue[] = [];
@@ -1289,21 +1316,26 @@ function splitTagValues(
       // characteristic does have one (caught 2026-05-10:
       // ``organism part: hypothalamus`` rendered as free-text in
       // the Tags row while the samples table showed UBERON_0001898
-      // for the same value).
+      // for the same value). Final fallback: FV statement subject
+      // URIs (catches FV-synth tags whose values are CL/EFO terms).
       const uri =
         t.value.uri ??
         charUriLookup.get(`${catKey}|${label.toLowerCase()}`) ??
+        fvUriLookup.get(`${catKey}|${label.toLowerCase()}`) ??
         null;
       out.push({ label, uri, key: `${t.id}:${label}` });
     } else {
       // Comma-joined synth value — the tag's own URI doesn't
       // carry to the parts. Look each part up against
-      // biomaterial.characteristic_uris; "female" → PATO_0000383
-      // etc. when Gemma's preprocessor mapped it. Falls back to
-      // null (free-text styling) when no match.
+      // biomaterial.characteristic_uris first, then FV statement
+      // subject URIs; "female" → PATO_0000383 etc. when Gemma's
+      // preprocessor mapped it. Falls back to null (free-text
+      // styling) when no match in either lookup.
       parts.forEach((p, i) => {
         const uri =
-          charUriLookup.get(`${catKey}|${p.toLowerCase()}`) ?? null;
+          charUriLookup.get(`${catKey}|${p.toLowerCase()}`) ??
+          fvUriLookup.get(`${catKey}|${p.toLowerCase()}`) ??
+          null;
         out.push({ label: p, uri, key: `${t.id}:${i}:${p}` });
       });
     }
@@ -1375,10 +1407,12 @@ function TagGroups({
   tags,
   variant,
   charUriLookup,
+  fvUriLookup,
 }: {
   tags: Tag[];
   variant: TagGroupVariant;
   charUriLookup: Map<string, string>;
+  fvUriLookup: Map<string, string>;
 }) {
   if (tags.length === 0) return null;
   const groups = groupTagsByCategoryLabel(tags);
@@ -1391,6 +1425,7 @@ function TagGroups({
           tags={g.tags}
           variant={variant}
           charUriLookup={charUriLookup}
+          fvUriLookup={fvUriLookup}
         />
       ))}
     </>
@@ -1776,14 +1811,16 @@ function TagGroupChip({
   tags,
   variant,
   charUriLookup,
+  fvUriLookup,
 }: {
   category: Tag["category"];
   tags: Tag[];
   variant: TagGroupVariant;
   charUriLookup: Map<string, string>;
+  fvUriLookup: Map<string, string>;
 }) {
   const [open, setOpen] = useState(false);
-  const values = splitTagValues(tags, category, charUriLookup);
+  const values = splitTagValues(tags, category, charUriLookup, fvUriLookup);
 
   // Single value (after comma-split) renders flat — no collapse to
   // worry about.
@@ -1838,7 +1875,6 @@ function TagGroupChip({
         ? "border-solid"
         : "border-dashed"
       : "border-solid";
-  const evBadge = evCodes.length > 0 ? evCodes.join("/") : "";
   const evTitle =
     evCodes.length === 1
       ? ` · ${evCodes[0]} (${evidenceCodeName(evCodes[0])})`
@@ -1904,12 +1940,14 @@ function TagGroupChip({
         {/* Evidence-code badge dropped from inline render — see the
             single-value branch above for rationale. */}
         {open ? null : (
-          <span className={`italic ml-1 truncate max-w-[24ch] ${palette.label}`}>
-            {values
-              .slice(0, 2)
-              .map((v) => v.label)
-              .join(", ")}
-            {values.length > 2 ? "…" : ""}
+          <span className="inline-flex items-baseline gap-0.5 ml-1 max-w-[24ch] truncate">
+            {values.slice(0, 2).map((v, i) => (
+              <span key={v.key} className="inline-flex items-baseline gap-0.5">
+                {i > 0 ? <span className={palette.label}>,</span> : null}
+                <TagValueChip value={v} />
+              </span>
+            ))}
+            {values.length > 2 ? <span className={palette.label}>…</span> : null}
           </span>
         )}
       </button>

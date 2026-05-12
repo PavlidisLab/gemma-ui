@@ -1,6 +1,7 @@
 import { ToastProvider } from "@/components/ui/Toast";
 import { useAuditDetail, usePatchDisposition } from "@/api/audits";
 import { useMe } from "@/api/session";
+import { useDesign } from "@/api/design";
 import { experimentRoute, navigate } from "@/routes";
 import { AuditReportView } from "./AuditReportView";
 
@@ -31,11 +32,11 @@ function Body({ auditId }: { auditId: string }) {
   const { data: report, isLoading, error } = useAuditDetail(auditId);
   const me = useMe();
   const reviewer = me.data?.username ?? "";
-  // PATCH wires off ``report.experiment_id`` once we have one — until
-  // the report loads we don't know which list to invalidate. The hook
-  // safely no-ops when called with experimentId=0 (no query is keyed
-  // off it; only the invalidation key uses it).
   const patch = usePatchDisposition(report?.experiment_id ?? 0);
+  // Load the Gemma design so the comparison panel can show both sides.
+  // Runs once report is available (experiment_id known). Errors here are
+  // non-fatal — the comparison panel degrades to agent-only if it fails.
+  const { data: design } = useDesign(report?.experiment_id ?? 0);
 
   if (isLoading) {
     return (
@@ -88,6 +89,7 @@ function Body({ auditId }: { auditId: string }) {
       <div className="mx-auto w-full max-w-[1200px] px-4 py-4">
         <AuditReportView
           report={report}
+          gemmaFactors={design?.factors}
           onDispositionChange={async (targetId, status, notes) => {
             if (!report.audit_id) return;
             await patch.mutateAsync({

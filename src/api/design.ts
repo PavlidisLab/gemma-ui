@@ -10,6 +10,7 @@ export function useDesign(experimentId: number) {
   return useQuery({
     queryKey: KEY.byExperiment(experimentId),
     queryFn: () => api.get<Design>(`/rest/v2/datasets/${experimentId}/design`),
+    enabled: experimentId > 0,
   });
 }
 

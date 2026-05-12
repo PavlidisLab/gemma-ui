@@ -2040,7 +2040,7 @@ function sortValue(
  * the proposal's pick.
  */
 function ProposalFvCell({
-  factorIdx,
+  factorIdx: _factorIdx,
   proposalFactor,
   siblings,
   getReassignment,

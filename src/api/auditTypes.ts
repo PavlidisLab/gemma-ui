@@ -148,6 +148,14 @@ export interface AuditFinding {
    *  hides the panel when null. See
    *  ``AUDIT_DEFENDER_VERDICT_HANDOFF.md``. */
   defender_verdict?: AttachedDefenderVerdict | null;
+  /** Debate-loop badge for the tag this finding is about.
+   *  ``"gold"`` = approved without objection,
+   *  ``"silver"`` = one contested round,
+   *  ``"bronze"`` = multiple contested rounds,
+   *  ``"stuck"`` = no consensus.
+   *  Empty string or absent = no debate was run (``--debate`` not
+   *  used) or finding is a gold-only-miss. */
+  debate_badge?: string;
 }
 
 /** Judge's verdict on a single audit finding. ``side`` constrains
@@ -197,6 +205,11 @@ export interface AuditEvidence {
    *  the proposer entirely. When ``null``, every finding's
    *  ``proposer_suggestion`` will also be empty. */
   comparison_proposal: Proposal | null;
+  /** Per-factor design debate transcripts loaded from
+   *  ``data/<gse>/design_debate_transcripts.json``. Absent when the
+   *  run didn't use ``--debate-design`` or the sidecar file is missing.
+   *  Factors not in this list were silently approved. */
+  design_debate_transcripts?: DesignDebateEntry[];
 }
 
 export interface AuditSummary {
@@ -361,6 +374,32 @@ export interface AuditReport {
   /** Reviewer username who finalized. Pairs with `finalized_at`;
    *  same nullable / optional rules. */
   finalized_by?: string | null;
+}
+
+/** One round in a challenger/defender/arbiter debate loop. Shared
+ *  by both EE-tag debates (``debate_transcripts.jsonl``) and design
+ *  debates (``design_debate_transcripts.json``). */
+export interface DebateRound {
+  challenge_citation: string;
+  challenge_reason: string;
+  defense_concedes: boolean;
+  defense_response: string;
+  /** ``"defense"`` | ``"challenge"`` | ``"uncertain"`` */
+  verdict_side: string;
+  verdict_reason: string;
+}
+
+/** One factor entry in ``design_debate_transcripts.json``. Factors
+ *  that were silently approved (no challenge) are omitted from the
+ *  file — absent entry means the factor passed without objection. */
+export interface DesignDebateEntry {
+  gse: string;
+  factor_category: string;
+  factor_category_uri: string;
+  /** Same badge vocabulary as EE-tag debates: ``"gold"`` / ``"silver"``
+   *  / ``"bronze"`` / ``"dropped"`` / ``"stuck"``. */
+  badge: string;
+  rounds: DebateRound[];
 }
 
 /** Body of POST /audit/{accession} and its /stream variant. All

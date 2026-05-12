@@ -7,14 +7,10 @@ import type { Statement } from "@/features/experiment/types";
  * mode comes when we wire the mutation API.
  */
 export function StatementRow({ statement }: { statement: Statement }) {
-  const isBaselineSubject = statement.subject.label
-    .toLowerCase()
-    .match(/wild type genotype|reference (substance|subject) role|control|initial time point/);
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-sm">
       <Term
         uri={statement.subject.uri ?? null}
-        variant={isBaselineSubject ? "baseline" : "default"}
       >
         {statement.subject.label}
       </Term>
