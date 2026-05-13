@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { StatementGlyph } from "@/components/ui/StatementGlyph";
+import { shortenUri } from "@/lib/curie";
 import type {
   AuditFinding,
   AuditFindingDisposition,
@@ -13,7 +14,7 @@ import type {
   DispositionStatus,
   Severity,
 } from "@/api/auditTypes";
-import type { FactorProposal } from "@/api/types";
+import type { FactorProposal, SubtaskDecision, TagProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
 /**
@@ -572,11 +573,23 @@ export function DesignComparisonPanel({
     (f) => !/^(block|batch)$/i.test(f.category.label.trim()),
   );
 
-  // Build label sets for mismatch highlighting.
+  // Label sets for primary match (exact label).
   const gemmaLabels = new Set(gemma.map((f) => f.category.label.toLowerCase()));
   const agentLabels = new Set(agentFactors.map((f) => f.category.label.toLowerCase()));
 
-  const nTags = cp?.tags?.length ?? 0;
+  // URI set across all Gemma FV statements — used to detect "close match"
+  // when an agent factor uses different category terminology but the same
+  // ontology terms (e.g. agent proposes "timepoint" where Gemma has
+  // "treatment" but both reference EFO:0004425).
+  const gemmaFvUris = new Set(
+    gemma.flatMap((f) =>
+      f.factor_values.flatMap((fv) =>
+        fv.statements.flatMap((s) =>
+          [s.subject?.uri, s.object?.uri].filter(Boolean) as string[],
+        ),
+      ),
+    ),
+  );
 
   return (
     <div className="card">
@@ -586,7 +599,6 @@ export function DesignComparisonPanel({
           Gemma: {gemma.length} factor{gemma.length === 1 ? "" : "s"}
           {" · "}
           Agent: {agentFactors.length} factor{agentFactors.length === 1 ? "" : "s"}
-          {nTags > 0 ? ` · ${nTags} tag${nTags === 1 ? "" : "s"}` : null}
           {cp?.model ? ` · ${cp.model}` : null}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -655,20 +667,241 @@ export function DesignComparisonPanel({
           ) : (
             agentFactors.map((f, i) => {
               const matched = gemmaLabels.has(f.category.label.toLowerCase());
+              // "close match": different category name but FV URIs substantially
+              // overlap with Gemma — e.g. agent proposes "timepoint" where Gemma
+              // has "treatment" using the same EFO terms.
+              const closeMatch = !matched && f.factor_values.some((fv) =>
+                fv.statements?.some((s) =>
+                  (s.subject?.uri && gemmaFvUris.has(s.subject.uri)) ||
+                  (s.object?.uri && gemmaFvUris.has(s.object.uri)),
+                ),
+              );
               const entry = findDesignDebateEntry(f, transcripts);
+              const factorPrefix = `factor:${f.category.label.toLowerCase()}`;
+              const factorDecisions = (cp?.evidence?.subtask_decisions ?? []).filter(
+                (d) => (d.target_id || "").toLowerCase().startsWith(factorPrefix),
+              );
               return (
-                <AgentFactorRow key={i} factor={f} matched={matched} entry={entry} />
+                <AgentFactorRow
+                  key={i}
+                  factor={f}
+                  matched={matched}
+                  closeMatch={closeMatch}
+                  entry={entry}
+                  decisions={factorDecisions}
+                />
               );
             })
           )}
         </div>
       </div>
 
+      {/* Proposed tags — only shown when the comparison_proposal includes EE tags */}
+      {cp && (cp.tags?.length ?? 0) > 0 ? (
+        <div className="border-t border-slate-100 dark:border-slate-700 px-3 py-2 space-y-1">
+          <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 mb-1.5">
+            Proposed tags
+          </div>
+          {cp.tags.map((t, i) => (
+            <ProposedTagRow key={i} tag={t} />
+          ))}
+        </div>
+      ) : null}
+
+      {/* Subtask analysis — proposer's self-audit decisions.
+          Per-factor decisions (target_id starting with "factor:…") render
+          next to the factor in AgentFactorRow; the flat list here only
+          shows experiment-level or unassigned decisions so the section
+          isn't a redundant copy. Deduplicated as before. */}
+      {cp && (cp.evidence?.subtask_decisions?.length ?? 0) > 0 ? (() => {
+        const factorLabels = new Set(
+          agentFactors.map((f) => f.category.label.toLowerCase()),
+        );
+        const globalDecisions = (cp!.evidence!.subtask_decisions!).filter(
+          (d) => {
+            const t = (d.target_id || "").toLowerCase();
+            if (!t.startsWith("factor:")) return true;
+            // Show factor-scoped decisions in the flat list only if the
+            // target factor isn't actually rendered — defensive fallback.
+            const factorLabel = t.slice("factor:".length).split("/")[0];
+            return !factorLabels.has(factorLabel);
+          },
+        );
+        if (globalDecisions.length === 0) return null;
+        return (
+          <div className="border-t border-slate-100 dark:border-slate-700 px-3 py-2 space-y-1">
+            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 mb-1.5">
+              Subtask analysis (experiment-level)
+            </div>
+            {dedupeSubtaskDecisions(globalDecisions).map((d, i) => (
+              <SubtaskDecisionRow key={i} decision={d} />
+            ))}
+          </div>
+        );
+      })() : null}
+
       {jsonOpen && cp ? (
         <pre className="px-3 py-2 text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-700 max-h-96 overflow-auto font-mono whitespace-pre-wrap">
           {JSON.stringify(cp, null, 2)}
         </pre>
       ) : null}
+    </div>
+  );
+}
+
+/** Collapse entries that share both `subtask` and `verdict` — they are
+ *  identical copies produced once per factor (e.g. S7 coverage pass).
+ *  Keeps the first occurrence; discards exact duplicates silently. */
+function dedupeSubtaskDecisions(decisions: SubtaskDecision[]): SubtaskDecision[] {
+  const seen = new Set<string>();
+  return decisions.filter((d) => {
+    const key = `${d.subtask}||${d.verdict}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function ProposedTagRow({ tag }: { tag: TagProposal }) {
+  return (
+    <div className="flex items-start gap-1.5 flex-wrap text-[11px]">
+      <span className="text-slate-500 dark:text-slate-400">{tag.category.label}:</span>
+      <Term uri={tag.value.uri ?? null}>{tag.value.label}</Term>
+      {tag.confidence ? (
+        <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">{tag.confidence}</span>
+      ) : null}
+      {tag.evidence_quote ? (
+        <span className="w-full text-[10px] text-slate-500 dark:text-slate-400 italic pl-1 border-l border-slate-200 dark:border-slate-600 leading-snug">
+          "{tag.evidence_quote}"
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function SubtaskDecisionRow({ decision }: { decision: SubtaskDecision }) {
+  const confidenceColor: Record<string, string> = {
+    high:   "text-emerald-700 dark:text-emerald-400",
+    medium: "text-amber-700 dark:text-amber-400",
+    low:    "text-orange-700 dark:text-orange-400",
+    zero:   "text-rose-700 dark:text-rose-400",
+  };
+  const cls = decision.confidence ? confidenceColor[decision.confidence] ?? "" : "";
+  return (
+    <div className="text-[11px] space-y-0.5">
+      <div className="flex items-baseline gap-1.5 flex-wrap">
+        <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+          {decision.subtask}
+        </span>
+        <span className="font-medium text-slate-600 dark:text-slate-300">{decision.label}</span>
+        {decision.confidence ? (
+          <span className={cn("text-[10px]", cls)}>{decision.confidence}</span>
+        ) : null}
+      </div>
+      <div className="text-slate-600 dark:text-slate-400 leading-snug pl-1">
+        {decision.verdict}
+        {decision.citation_url ? (
+          <a
+            href={decision.citation_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="ml-1.5 text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:underline"
+          >
+            {decision.citation || "ref ↗"}
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Pick the most informative URI for an FV's chip binding.
+ *
+ *  Genotype-shape statements (subject = gene, predicate = has_genotype,
+ *  object = wild-type-or-mutant) put the URI on the **object**, not the
+ *  subject — the gene name itself is free-text until a gene resolver
+ *  lands. Without this fallback the FV chip rendered the free-text
+ *  gene name as ungrounded ("wild type" with no green chip) even when
+ *  the object carried EFO:0005168. Scan all statements in order
+ *  object → subject → predicate and return the first URI we find.
+ */
+function bestFvUri(
+  statements: { subject?: { uri?: string | null } | null; predicate?: { uri?: string | null } | null; object?: { uri?: string | null } | null }[] | undefined,
+): string | null {
+  if (!statements) return null;
+  for (const s of statements) {
+    if (s.object?.uri) return s.object.uri;
+    if (s.subject?.uri) return s.subject.uri;
+    if (s.predicate?.uri) return s.predicate.uri;
+  }
+  return null;
+}
+
+/** Inline S · P · O detail row rendered under each FV. Always visible
+ *  (no popover click required) so curators can see the statement
+ *  structure + URI grounding at a glance. Complements the StatementGlyph
+ *  which keeps the compact dot summary + click-to-expand popover.
+ *
+ *  Each term renders as:
+ *    [label] [curie-or-"free-text"]
+ *  with the curie linkified to the URI and italicised label for
+ *  ungrounded pieces. Missing predicate / object collapse to em dash.
+ */
+function InlineStatementDetail({
+  statements,
+}: {
+  statements: { subject?: { label?: string; uri?: string | null } | null; predicate?: { label?: string; uri?: string | null } | null; object?: { label?: string; uri?: string | null } | null }[] | undefined,
+}) {
+  if (!statements || statements.length === 0) return null;
+  const renderTerm = (
+    term: { label?: string; uri?: string | null } | null | undefined,
+  ) => {
+    if (!term) {
+      return <span className="text-slate-400 dark:text-slate-500">—</span>;
+    }
+    const grounded = !!term.uri;
+    return (
+      <span className="inline-flex items-baseline gap-0.5">
+        <span
+          className={cn(
+            "text-[10px]",
+            grounded
+              ? "text-slate-700 dark:text-slate-200"
+              : "text-slate-500 dark:text-slate-400 italic",
+          )}
+        >
+          {term.label || "—"}
+        </span>
+        {term.uri ? (
+          <a
+            href={term.uri}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[9px] text-emerald-700 hover:underline dark:text-emerald-400"
+            title={term.uri}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {shortenUri(term.uri)}
+          </a>
+        ) : null}
+      </span>
+    );
+  };
+  return (
+    <div className="mt-0.5 ml-3 space-y-0.5">
+      {statements.map((s, i) => (
+        <div
+          key={i}
+          className="flex items-baseline gap-1 text-[10px] flex-wrap"
+        >
+          {renderTerm(s.subject)}
+          <span className="text-slate-300 dark:text-slate-600">·</span>
+          {renderTerm(s.predicate)}
+          <span className="text-slate-300 dark:text-slate-600">·</span>
+          {renderTerm(s.object)}
+        </div>
+      ))}
     </div>
   );
 }
@@ -693,19 +926,22 @@ function GemmaFactorRow({ factor, matched }: { factor: Factor; matched: boolean 
       </div>
       <div className="mt-0.5 space-y-0.5 pl-1">
         {factor.factor_values.map((fv, i) => (
-          <div key={i} className="flex items-center gap-1 flex-wrap">
-            <Term uri={fv.statements?.[0]?.subject.uri ?? null}>
-              {fv.free_text_label}
-            </Term>
-            {fv.is_baseline ? (
-              <span className="pill baseline">★ ref</span>
-            ) : null}
-            {fv.statements.length > 0 ? (
-              <StatementGlyph statements={fv.statements} />
-            ) : null}
-            <span className="text-[10px] text-slate-400 dark:text-slate-500">
-              ({fv.biomaterial_short_names.length})
-            </span>
+          <div key={i}>
+            <div className="flex items-center gap-1 flex-wrap">
+              <Term uri={bestFvUri(fv.statements)}>
+                {fv.free_text_label}
+              </Term>
+              {fv.is_baseline ? (
+                <span className="pill baseline">★ ref</span>
+              ) : null}
+              {fv.statements.length > 0 ? (
+                <StatementGlyph statements={fv.statements} />
+              ) : null}
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                ({fv.biomaterial_short_names.length})
+              </span>
+            </div>
+            <InlineStatementDetail statements={fv.statements} />
           </div>
         ))}
       </div>
@@ -716,32 +952,54 @@ function GemmaFactorRow({ factor, matched }: { factor: Factor; matched: boolean 
 function AgentFactorRow({
   factor,
   matched,
+  closeMatch,
   entry,
+  decisions,
 }: {
   factor: FactorProposal;
   matched: boolean;
+  closeMatch?: boolean;
   entry: DesignDebateEntry | undefined;
+  /** Subtask decisions scoped to this factor (target_id matches
+   *  ``factor:<label>`` or a deeper FV/statement path under it).
+   *  Rendered inline below the FVs so curators see the proposer's
+   *  self-audit verdict next to the data it's about — beats the
+   *  old flat list at the bottom where target_id was invisible. */
+  decisions?: SubtaskDecision[];
 }) {
   const [debateOpen, setDebateOpen] = useState(false);
   const hasRounds = (entry?.rounds.length ?? 0) > 0;
 
+  const bgCls = matched
+    ? "bg-slate-100/60 dark:bg-slate-700/40"
+    : closeMatch
+      ? "bg-slate-100/40 dark:bg-slate-700/25"
+      : "bg-amber-50 dark:bg-amber-900/25";
+  const titleText = matched
+    ? "matches Gemma"
+    : closeMatch
+      ? "different category name — FV terms overlap with an existing Gemma factor"
+      : "agent-only — not in Gemma's current design";
+
   return (
     <div
-      className={cn(
-        "rounded px-2 py-1.5",
-        matched
-          ? "bg-slate-100/60 dark:bg-slate-700/40"
-          : "bg-amber-50 dark:bg-amber-900/25",
-      )}
-      title={matched ? "matches Gemma" : "agent-only — not in Gemma's current design"}
+      className={cn("rounded px-2 py-1.5", bgCls)}
+      title={titleText}
     >
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className={cn(
           "font-medium",
-          matched ? "text-slate-800 dark:text-slate-100" : "text-amber-800 dark:text-amber-300",
+          matched
+            ? "text-slate-800 dark:text-slate-100"
+            : closeMatch
+              ? "text-slate-600 dark:text-slate-300"
+              : "text-amber-800 dark:text-amber-300",
         )}>
           {factor.category.label}
         </span>
+        {closeMatch && !matched ? (
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">renamed</span>
+        ) : null}
         {factor.factor_type ? (
           <span className="text-[10px] text-slate-400 dark:text-slate-500">{factor.factor_type}</span>
         ) : null}
@@ -760,20 +1018,30 @@ function AgentFactorRow({
         {factor.factor_values.map((fv, i) => {
           const subject = fv.statements?.[0]?.subject;
           return (
-            <div key={i} className="flex items-center gap-1 flex-wrap">
-              <Term uri={subject?.uri ?? null}>
-                {fv.free_text_label || subject?.label || "?"}
-              </Term>
-              {(fv.statements?.length ?? 0) > 0 ? (
-                <StatementGlyph statements={fv.statements} />
-              ) : null}
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                ({fv.biomaterial_short_names.length})
-              </span>
+            <div key={i}>
+              <div className="flex items-center gap-1 flex-wrap">
+                <Term uri={bestFvUri(fv.statements)}>
+                  {fv.free_text_label || subject?.label || "?"}
+                </Term>
+                {(fv.statements?.length ?? 0) > 0 ? (
+                  <StatementGlyph statements={fv.statements} />
+                ) : null}
+                <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                  ({fv.biomaterial_short_names.length})
+                </span>
+              </div>
+              <InlineStatementDetail statements={fv.statements} />
             </div>
           );
         })}
       </div>
+      {decisions && decisions.length > 0 ? (
+        <div className="mt-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 space-y-0.5">
+          {dedupeSubtaskDecisions(decisions).map((d, i) => (
+            <SubtaskDecisionRow key={i} decision={d} />
+          ))}
+        </div>
+      ) : null}
       {debateOpen && hasRounds ? (
         <DebateRoundsSection rounds={entry!.rounds} />
       ) : null}
