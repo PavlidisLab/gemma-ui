@@ -33,6 +33,11 @@ export interface TagProposal {
    *  ``"stuck"`` = no consensus — needs human call.
    *  Empty/absent = debate wasn't run. */
   badge?: string;
+  /** Pre-computed alignment against an existing Gemma tag. Absent on
+   *  proposals submitted before the alignment annotator landed — UI
+   *  falls back to its pre-landing heuristic. */
+  match_type?: MatchType;
+  gemma_ref?: GemmaRef | null;
 }
 
 export interface StatementProposal {
@@ -59,6 +64,33 @@ export interface BiomaterialAssignmentMeta {
   rationale?: string;
 }
 
+/**
+ * Pointer to a Gemma-side counterpart of an agent proposal. Populated
+ * by the agent / audit pipelines when pre-computing alignment between
+ * agent factors / FVs / tags and Gemma's existing curation. The
+ * comparison panel reads this directly instead of re-deriving the
+ * match client-side. Either field may be empty (Gemma free-text
+ * label without URI, or URI without a human label).
+ */
+export interface GemmaRef {
+  label: string;
+  uri: string;
+}
+
+/**
+ * Pre-computed alignment verdict between an agent proposal and
+ * Gemma's existing curation. Same vocabulary at factor / FV / tag
+ * levels (semantics narrows per level — see
+ * DESIGN_COMPARISON_ALIGNMENT_HANDOFF.md):
+ *   - ``"exact"`` — same canonical handle (label-equal, or URI-equal).
+ *   - ``"close"`` — different label but related ontology terms or
+ *     overlapping label tokens.
+ *   - ``"new"``   — no Gemma counterpart found.
+ * Absent (``undefined``) means alignment wasn't computed for this
+ * proposal — UI falls back to its pre-landing heuristic.
+ */
+export type MatchType = "exact" | "close" | "new";
+
 export interface FactorValueProposal {
   free_text_label: string;
   is_baseline: boolean;
@@ -76,6 +108,11 @@ export interface FactorValueProposal {
    *  proposals submitted before the populator landed. ``free_text_label``
    *  carries the human rendering ("86 years") for display. */
   numeric_value?: number | null;
+  /** Pre-computed alignment against a Gemma FV within the same factor.
+   *  Absent on proposals submitted before the alignment annotator
+   *  landed — UI falls back to its pre-landing heuristic. */
+  match_type?: MatchType;
+  gemma_ref?: GemmaRef | null;
 }
 
 export interface FactorProposal {
@@ -104,6 +141,11 @@ export interface FactorProposal {
    *  / banner bullet. Empty string when the picker didn't emit one. */
   baseline_relevance_reason?: string;
   factor_values: FactorValueProposal[];
+  /** Pre-computed alignment against a Gemma factor. Absent on
+   *  proposals submitted before the alignment annotator landed —
+   *  UI falls back to its pre-landing heuristic. */
+  match_type?: MatchType;
+  gemma_ref?: GemmaRef | null;
 }
 
 /**
