@@ -91,6 +91,11 @@ interface AuditContextValue {
   /** target_id → latest curator disposition. Empty map when no
    *  report or no dispositions yet. */
   dispositionByTarget: Map<string, AuditFindingDisposition>;
+  /** factor category label (lowercase) → server-computed alignment
+   *  from the audit's comparison_proposal. Used by inline design-
+   *  editor indicators (GemmaMatchDot) without re-deriving per
+   *  consumer. Empty map when no report or no comparison_proposal. */
+  gemmaMatchByFactorLabel: Map<string, "exact" | "close" | "new">;
 
   /** Last clicked finding key, used by the sidebar to auto-expand /
    *  scrollIntoView. Null if no recent click; cleared after use. */
@@ -240,6 +245,21 @@ export function AuditProvider({
     return m;
   }, [report]);
 
+  const gemmaMatchByFactorLabel = useMemo(() => {
+    const m = new Map<string, "exact" | "close" | "new">();
+    const cp = report?.evidence?.comparison_proposal;
+    if (!cp) return m;
+    for (const f of cp.factors ?? []) {
+      if (f.match_type) {
+        m.set(
+          f.category.label.toLowerCase(),
+          f.match_type as "exact" | "close" | "new",
+        );
+      }
+    }
+    return m;
+  }, [report]);
+
   const setDisposition = useCallback(
     async (
       targetId: string,
@@ -349,6 +369,7 @@ export function AuditProvider({
     showAuditSidebar,
     findingsByTarget,
     dispositionByTarget,
+    gemmaMatchByFactorLabel,
     activeFindingKey,
     setActiveFindingKey,
     isFinalized: !!report?.finalized_at,

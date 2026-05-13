@@ -441,3 +441,20 @@ export function guidelineForCategory(label: string): GuidelineSnippet | null {
   const k = label.trim().toLowerCase();
   return CATEGORY_GUIDELINES[k] ?? null;
 }
+
+/**
+ * Rewrite Confluence cloud (`pavlidislab.atlassian.net`) URLs to the
+ * production wiki (`wiki.pavlab.msl.ubc.ca`). The agent emits cloud-
+ * style URLs but those aren't valid for the team; the production
+ * wiki is the click-through we want. Pass-through for everything
+ * else (unknown shapes stay untouched so curators can debug them).
+ */
+export function normalizeWikiUrl(url: string | null | undefined): string {
+  if (!url) return url ?? "";
+  // Standard cloud format: /wiki/spaces/CG/pages/<id>/<Title+With+Pluses>
+  const m = url.match(
+    /^https?:\/\/pavlidislab\.atlassian\.net\/wiki\/spaces\/CG\/pages\/[^/]+\/(.+)$/,
+  );
+  if (m) return `https://wiki.pavlab.msl.ubc.ca/display/gemma/${m[1]}`;
+  return url;
+}

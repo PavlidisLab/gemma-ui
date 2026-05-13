@@ -17,6 +17,7 @@ import type { Biomaterial } from "@/features/experiment/types";
 import { useReviewProposal, useTriggerProposal } from "@/api/proposals";
 import { useProposeStream } from "@/api/proposeStream";
 import { ApiError } from "@/api/client";
+import { normalizeWikiUrl } from "@/lib/guidelines";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
   addPublication,
@@ -1903,7 +1904,7 @@ export function ProposalCardV2({
                   {d.citation ? (
                     <span
                       className="ml-1 text-slate-400"
-                      title={d.citation_url}
+                      title={normalizeWikiUrl(d.citation_url)}
                     >
                       — {d.citation}
                     </span>
@@ -2652,7 +2653,7 @@ function DecisionsTab({ proposal }: { proposal: Proposal }) {
                     <div className="mt-1 text-[11px] text-slate-500">
                       {d.citation_url ? (
                         <a
-                          href={d.citation_url}
+                          href={normalizeWikiUrl(d.citation_url)}
                           target="_blank"
                           rel="noreferrer"
                           className="text-blue-700 hover:underline"

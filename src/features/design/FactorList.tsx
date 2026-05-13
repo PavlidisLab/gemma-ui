@@ -7,7 +7,7 @@ import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { CategoryPicker } from "./CategoryPicker";
 import { guidelineForCategory } from "@/lib/guidelines";
 import { FACTOR_TEMPLATES, type FactorTemplate } from "./factorTemplates";
-import { AuditDot } from "@/features/audit/AuditDot";
+import { AuditDot, GemmaMatchDot } from "@/features/audit/AuditDot";
 import { factorTarget } from "@/features/audit/targetIds";
 import type {
   Factor,
@@ -214,6 +214,7 @@ export function FactorList({
                     <AuditDot
                       targetId={factorTarget(f.category?.label || "")}
                     />
+                    <GemmaMatchDot factorLabel={f.category?.label || ""} />
                     {isAdded ? <NewBadge /> : null}
                     {modified ? <ModifiedBadge /> : null}
                   </div>

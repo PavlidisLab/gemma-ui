@@ -19,9 +19,9 @@ import {
 } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { resolveApplyAction } from "./applyHandlers";
-import { DismissDialog } from "./DismissDialog";
+import { DismissDialog, type DialogChip } from "./DismissDialog";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
-import type { DismissReason } from "@/api/auditTypes";
+import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
 import { AuditTriggerDialog } from "./AuditTriggerDialog";
 import type {
   AttachedDefenderVerdict,
@@ -35,6 +35,7 @@ import type {
 import type { Design, Factor, FactorValue } from "@/features/experiment/types";
 import type { FactorProposal } from "@/api/types";
 import { DesignComparisonPanel } from "./AuditReportView";
+import { normalizeWikiUrl } from "@/lib/guidelines";
 
 /**
  * Per-experiment audit findings, rendered into the proposals sidebar
@@ -108,13 +109,32 @@ export function AuditSidebarPanel({
   const blockBodyForProgress = stream.status === "running";
 
   return (
-    <div className="space-y-2">
-      <SidebarTopBar
-        accession={accession}
-        loading={loading}
-        running={stream.status === "running"}
-        onRunAudit={() => setDialogOpen(true)}
-      />
+    <div className="space-y-1.5">
+      {/* Single unified control card — trigger button + audit run info
+          in one unit, matching the proposals sidebar's layout. */}
+      <div className={cn(
+        "card px-2 py-1.5 space-y-1.5",
+        report?.finalized_at && "border-slate-300 dark:border-slate-600",
+      )}>
+        <SidebarTopBar
+          accession={accession}
+          loading={loading}
+          running={stream.status === "running"}
+          hasOpenAudit={!!(report && !report.finalized_at)}
+          onRunAudit={() => setDialogOpen(true)}
+        />
+        {report ? (
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-1">
+            <SidebarHeader
+              report={report}
+              hasOverride={hasOverride}
+              onClearOverride={
+                hasOverride ? () => setOverrideReport(null) : undefined
+              }
+            />
+          </div>
+        ) : null}
+      </div>
       {showProgress ? (
         <ProposeProgressPanel
           state={stream}
@@ -142,13 +162,6 @@ export function AuditSidebarPanel({
           />
         ) : (
           <>
-            <SidebarHeader
-              report={report}
-              hasOverride={hasOverride}
-              onClearOverride={
-                hasOverride ? () => setOverrideReport(null) : undefined
-              }
-            />
             {/* Findings collapse to a one-line summary once the
                 audit is closed. The active triage list stops being
                 actionable, and curators have explicitly said the
@@ -162,24 +175,23 @@ export function AuditSidebarPanel({
             <DesignComparisonPanel
               report={report}
               gemmaFactors={serverDesign?.factors}
-              onApplyDesign={
-                draft && !preApplySnapshot &&
-                (report.evidence.comparison_proposal?.factors.length ?? 0) > 0
-                  ? () => {
-                      const proposals =
-                        report.evidence.comparison_proposal!.factors;
-                      setPreApplySnapshot(draft.factors);
+              gemmaTags={serverDesign?.tags}
+              draftFactorLabels={
+                draft
+                  ? new Set(draft.factors.map((f) => f.category.label.toLowerCase()))
+                  : undefined
+              }
+              onAddFactor={
+                draft
+                  ? (proposal) => {
+                      const label = proposal.category.label.toLowerCase();
+                      // Already in draft — no-op (button shows "✓ in draft").
+                      if (draft.factors.some((f) => f.category.label.toLowerCase() === label)) return;
+                      // Snapshot before the first add so the curator can undo all.
+                      if (!preApplySnapshot) setPreApplySnapshot(draft.factors);
                       apply((d) => {
-                        const existingLabels = new Set(
-                          d.factors.map((f) => f.category.label.toLowerCase()),
-                        );
-                        const toAdd = proposalFactorsToDesignFactors(
-                          d.factors,
-                          proposals,
-                        ).filter(
-                          (f) => !existingLabels.has(f.category.label.toLowerCase()),
-                        );
-                        return { ...d, factors: [...d.factors, ...toAdd] };
+                        const [toAdd] = proposalFactorsToDesignFactors(d.factors, [proposal]);
+                        return { ...d, factors: [...d.factors, toAdd] };
                       });
                     }
                   : undefined
@@ -215,33 +227,47 @@ function SidebarTopBar({
   accession,
   loading,
   running,
+  hasOpenAudit,
   onRunAudit,
 }: {
   accession: string;
   loading: boolean;
   running: boolean;
+  /** True when a non-finalized audit already exists for this experiment. */
+  hasOpenAudit: boolean;
   onRunAudit: () => void;
 }) {
+  const title = running
+    ? "an audit is already running — watch the progress panel below"
+    : hasOpenAudit
+      ? "an open audit already exists — running a new one will replace it"
+      : "configure scope + tier and run an audit against the existing curation";
   return (
-    <div className="card px-2 py-1.5 flex items-center gap-2 text-xs">
+    <div className="flex items-center gap-2 text-xs">
       <span className="text-slate-500 truncate">
         Audit{" "}
         <span className="font-mono text-slate-700">{accession}</span>
       </span>
+      {hasOpenAudit && !running ? (
+        <span
+          className="text-[10px] text-amber-600 dark:text-amber-400"
+          title="this experiment already has an open (unfinished) audit"
+        >
+          open audit exists
+        </span>
+      ) : null}
       <button
         type="button"
         onClick={onRunAudit}
         disabled={running || loading}
-        title={
-          running
-            ? "an audit is already running — watch the progress panel below"
-            : "configure scope + tier and run an audit against the existing curation"
-        }
+        title={title}
         className={cn(
           "ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium",
           running || loading
             ? "bg-slate-200 text-slate-500 cursor-progress"
-            : "bg-blue-700 text-white hover:bg-blue-800",
+            : hasOpenAudit
+              ? "bg-amber-600 text-white hover:bg-amber-700"
+              : "bg-blue-700 text-white hover:bg-blue-800",
         )}
       >
         {running ? "running…" : "+ audit"}
@@ -370,129 +396,138 @@ function SidebarHeader({
     }
   }
 
+  // Only show non-zero severity counts — all-zero rows add no signal.
+  const nonZeroCounts: { label: string; count: number; severity: Severity }[] = [
+    { label: "blocker", count: summary.n_blocker, severity: "blocker" as Severity },
+    { label: "major",   count: summary.n_major,   severity: "major"   as Severity },
+    { label: "minor",   count: summary.n_minor,   severity: "minor"   as Severity },
+    { label: "ok",      count: summary.n_ok,       severity: "ok"      as Severity },
+  ].filter((x) => x.count > 0);
+
+  const scopeText = scope.include.join(" / ") || "all";
+
   return (
-    <div
-      className={cn(
-        "card p-2 text-xs space-y-1.5",
-        isFinalized && "border-slate-300 bg-slate-50",
-      )}
-    >
-      <div className="flex items-center gap-2 flex-wrap">
-        <VerdictPill verdict={summary.overall_verdict} />
+    <div className="text-[11px]">
+      {/* Single compact row */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Dev / closed badges */}
         {hasOverride ? (
           <span
-            className="inline-block text-[9px] uppercase tracking-wide font-bold px-1 py-0 rounded bg-violet-200 text-violet-900"
-            title="this report is a dev override (synthesized or fixture-loaded), not the live audit"
-          >
-            dev
-          </span>
+            className="text-[9px] uppercase font-bold px-1 py-0 rounded bg-violet-200 text-violet-900"
+            title="dev override — not the live audit"
+          >dev</span>
         ) : null}
         {isFinalized ? (
           <span
-            className="inline-block text-[9px] uppercase tracking-wide font-bold px-1 py-0 rounded bg-slate-700 text-white"
-            title={`closed${finalizedBy ? ` by ${finalizedBy}` : ""}${
-              finalizedAt ? ` at ${finalizedAt}` : ""
-            } — disposition controls are read-only until reopened`}
-          >
-            closed
-          </span>
+            className="text-[9px] uppercase font-bold px-1 py-0 rounded bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
+            title={`closed${finalizedBy ? ` by ${finalizedBy}` : ""}${finalizedAt ? ` · ${formatShort(finalizedAt)}` : ""}`}
+          >closed</span>
         ) : null}
-        <span className="text-[10px] text-slate-500">
-          {report.audited_at ? formatShort(report.audited_at) : "—"}
-        </span>
+        {/* Model */}
         {report.model ? (
           <span
-            className="text-[10px] text-slate-700 font-mono px-1 py-0 rounded bg-slate-100 border border-slate-200 truncate max-w-[10rem]"
-            title={`audit ran with model: ${report.model}`}
+            className="text-[10px] font-mono px-1 py-0 rounded bg-slate-100 border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 truncate max-w-[12rem]"
+            title={`model: ${report.model}`}
           >
             {report.model}
           </span>
         ) : null}
+        {/* Date */}
+        <span className="text-slate-400 dark:text-slate-500">
+          {report.audited_at ? formatShort(report.audited_at) : "—"}
+        </span>
+        {/* Scope */}
+        <span className="text-slate-400 dark:text-slate-500">
+          · scope: <span className="font-mono text-slate-500 dark:text-slate-400">{scopeText}</span>
+        </span>
+        {/* Non-zero severity counts inline */}
+        {nonZeroCounts.length > 0 ? (
+          <span className="text-slate-400">·</span>
+        ) : null}
+        {nonZeroCounts.map(({ label, count, severity }) => (
+          <SeverityCount key={label} label={label} count={count} severity={severity} />
+        ))}
+        {/* Verdict pill — calibration uses accuracy scoring, not urgency */}
+        {!report.model?.startsWith("calibration") && nonZeroCounts.length > 0 ? (
+          <VerdictPill verdict={summary.overall_verdict} />
+        ) : null}
+        {/* Drop-override link */}
         {onClearOverride ? (
           <button
             type="button"
             onClick={onClearOverride}
-            title="drop the dev override and fall back to the live audit (if any)"
-            className="ml-auto text-[10px] text-slate-400 hover:text-rose-700 underline-offset-2 hover:underline"
-          >
-            drop override
-          </button>
+            className="text-[10px] text-slate-400 hover:text-rose-700 hover:underline underline-offset-2 ml-1"
+            title="drop dev override, fall back to live audit"
+          >drop</button>
         ) : null}
-      </div>
-      <div className="flex items-center gap-2 flex-wrap">
-        <SeverityCount label="blocker" count={summary.n_blocker} severity="blocker" />
-        <SeverityCount label="major" count={summary.n_major} severity="major" />
-        <SeverityCount label="minor" count={summary.n_minor} severity="minor" />
-        <SeverityCount label="ok" count={summary.n_ok} severity="ok" />
-      </div>
-      <div className="text-[10px] text-slate-500">
-        scope:{" "}
-        <span className="font-mono">
-          {scope.include.join(" / ") || "—"}
+        {/* Triage status + lifecycle button — right-aligned */}
+        <span className="ml-auto flex items-center gap-1.5">
+          {!isFinalized && lifecycleAvailable ? (
+            pendingActionable > 0 ? (
+              <span
+                className="text-[10px] text-amber-600 dark:text-amber-400"
+                title="some actionable findings have no disposition yet"
+              >
+                {pendingActionable} pending
+              </span>
+            ) : (
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                ✓ triaged
+              </span>
+            )
+          ) : null}
+          {isFinalized && finalizedBy ? (
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+              by <span className="font-mono">{finalizedBy}</span>
+            </span>
+          ) : null}
+          {lifecycleAvailable ? (
+            isFinalized ? (
+              <button
+                type="button"
+                onClick={handleReopen}
+                disabled={reopenSaving}
+                className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded font-medium",
+                  reopenSaving
+                    ? "bg-slate-200 text-slate-500 cursor-progress"
+                    : "bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600",
+                )}
+              >
+                {reopenSaving ? "reopening…" : "Reopen"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmClose(true)}
+                disabled={finalizeSaving}
+                title={
+                  pendingActionable > 0
+                    ? "close audit (pending findings recorded as undecided)"
+                    : "close audit; agent side aggregates only closed audits"
+                }
+                className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded font-medium",
+                  finalizeSaving
+                    ? "bg-blue-200 text-blue-700 cursor-progress"
+                    : "bg-blue-700 text-white hover:bg-blue-800",
+                )}
+              >
+                {finalizeSaving ? "closing…" : "Close audit"}
+              </button>
+            )
+          ) : null}
         </span>
       </div>
-      {isFinalized ? (
-        <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-200">
-          <span className="text-[10px] text-slate-600">
-            Closed{finalizedBy ? <> by <span className="font-mono">{finalizedBy}</span></> : null}
-            {finalizedAt ? <> · {formatShort(finalizedAt)}</> : null}
-          </span>
-          {lifecycleAvailable ? (
-            <button
-              type="button"
-              onClick={handleReopen}
-              disabled={reopenSaving}
-              title="reopen this audit so dispositions can be edited again"
-              className={cn(
-                "ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium",
-                reopenSaving
-                  ? "bg-slate-200 text-slate-500 cursor-progress"
-                  : "bg-slate-200 text-slate-800 hover:bg-slate-300",
-              )}
-            >
-              {reopenSaving ? "reopening…" : "Reopen"}
-            </button>
-          ) : null}
-        </div>
-      ) : lifecycleAvailable ? (
-        <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-100">
-          {pendingActionable > 0 ? (
-            <span
-              className="text-[10px] text-amber-700"
-              title="closing now records every still-pending finding as undecided in the dispositions log; consider dispositioning them first"
-            >
-              {pendingActionable} pending
-            </span>
-          ) : (
-            <span className="text-[10px] text-emerald-700">all triaged</span>
-          )}
-          <button
-            type="button"
-            onClick={() => setConfirmClose(true)}
-            disabled={finalizeSaving}
-            title={
-              pendingActionable > 0
-                ? "close audit (you'll confirm — pending findings stay pending in the log)"
-                : "close audit; the agent side aggregates only closed audits"
-            }
-            className={cn(
-              "ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium",
-              finalizeSaving
-                ? "bg-blue-200 text-blue-700 cursor-progress"
-                : "bg-blue-700 text-white hover:bg-blue-800",
-            )}
-          >
-            {finalizeSaving ? "closing…" : "Close audit"}
-          </button>
-        </div>
-      ) : null}
       {confirmClose ? (
-        <CloseAuditConfirm
-          pendingActionable={pendingActionable}
-          saving={finalizeSaving}
-          onCancel={() => setConfirmClose(false)}
-          onConfirm={handleClose}
-        />
+        <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-700">
+          <CloseAuditConfirm
+            pendingActionable={pendingActionable}
+            saving={finalizeSaving}
+            onCancel={() => setConfirmClose(false)}
+            onConfirm={handleClose}
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -823,8 +858,28 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
     };
   }, [sorted]);
 
-  const actionable = sorted.filter((f) => f.severity !== "ok");
-  const okOnes = sorted.filter((f) => f.severity === "ok");
+  // `severity=ok` doesn't always mean "no curator action" — a
+  // calibration_gold_only_miss whose value is BM-covered (already
+  // ontologized in a constant BM column) ships as `ok` but is still
+  // a real "is this redundant tag still needed?" question. Anything
+  // with a mutating apply_action gets promoted to the actionable
+  // bucket regardless of severity.
+  const isActionable = (f: AuditFinding): boolean => {
+    if (isMatchFinding(f)) return false;
+    if (f.severity !== "ok") return true;
+    const a = resolveApplyAction(f);
+    return !!a && a.mutates;
+  };
+  const actionable = sorted.filter(isActionable);
+  // Match findings (currently calibration_match for tags; factor-side
+  // codes coming) render as compact green-check rows, visible by
+  // default — same affordance as exact-match factors in the
+  // DesignComparisonPanel. Curator can still expand to disagree.
+  const matches = sorted.filter(isMatchFinding);
+  const okOnes = sorted.filter(
+    (f) =>
+      f.severity === "ok" && !isMatchFinding(f) && !isActionable(f),
+  );
   const visibleActionable = actionable.filter(
     (f) => !suppression.isSubsumedByParentFactor(f),
   );
@@ -837,26 +892,69 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
   const suppressedOk = okOnes.filter((f) =>
     suppression.isSubsumedByParentFactor(f),
   );
+  const visibleMatches = matches.filter(
+    (f) => !suppression.isSubsumedByParentFactor(f),
+  );
   const suppressedTotal = suppressedActionable.length + suppressedOk.length;
   const [showOk, setShowOk] = useState(false);
   const [showSuppressed, setShowSuppressed] = useState(false);
 
   if (findings.length === 0) {
-    return (
-      <div className="card p-2 text-[11px] text-slate-500 italic">
-        No findings — nothing to flag against this scope.
-      </div>
-    );
+    return null;
   }
 
+  // Group actionable findings by target_kind for visual clustering —
+  // factor decisions read as one beat, tag decisions as another. The
+  // groups preserve the severity sort within them. Empty groups don't
+  // render their header.
+  const groupedActionable = new Map<AuditTargetKind, AuditFinding[]>();
+  for (const f of visibleActionable) {
+    const arr = groupedActionable.get(f.target_kind) ?? [];
+    arr.push(f);
+    groupedActionable.set(f.target_kind, arr);
+  }
+  const groupOrder: AuditTargetKind[] = [
+    "factor", "fv", "tag", "assignment", "statement", "experiment",
+  ];
+  const groupHeader: Record<AuditTargetKind, string> = {
+    factor: "Design — factors",
+    fv: "Design — factor values",
+    tag: "Tags",
+    assignment: "Sample assignments",
+    statement: "Statements",
+    experiment: "Experiment",
+  };
+
   return (
-    <div className="space-y-1.5">
-      {visibleActionable.map((f) => (
-        <CompactFindingCard
-          key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
-          finding={f}
-        />
-      ))}
+    <div className="space-y-3">
+      {groupOrder
+        .filter((k) => (groupedActionable.get(k) ?? []).length > 0)
+        .map((kind) => (
+          <div key={kind} className="space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
+              {groupHeader[kind]}
+            </div>
+            {groupedActionable.get(kind)!.map((f) => (
+              <CompactFindingCard
+                key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+                finding={f}
+              />
+            ))}
+          </div>
+        ))}
+      {visibleMatches.length > 0 ? (
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
+            Confirmed matches
+          </div>
+          {visibleMatches.map((f) => (
+            <MatchFindingRow
+              key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+              finding={f}
+            />
+          ))}
+        </div>
+      ) : null}
       {suppressedTotal > 0 ? (
         <>
           <button
@@ -914,6 +1012,144 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
 // Compact finding card — collapsed by default
 // ---------------------------------------------------------------------------
 
+/** Match findings (curator agrees with the agent, no action needed)
+ *  render as a different shape from the standard finding card —
+ *  compact green-check rows, same look as the exact-match factor
+ *  rows in DesignComparisonPanel. */
+function isMatchFinding(f: AuditFinding): boolean {
+  // Today: calibration_match (tag matches). Forward-compat: factor
+  // calibration findings will land with a parallel issue_code; treat
+  // any severity=ok issue whose code ends in `_match` the same way.
+  if (f.severity !== "ok") return false;
+  if (f.issue_code === "calibration_match") return true;
+  return /(^|_)match$/.test(f.issue_code);
+}
+
+/** Compact green-check row for a calibration match. Default-collapsed
+ *  one-liner; chevron expands to reveal the agent's evidence + the
+ *  disposition controls so the curator can flag a wrong match. */
+function MatchFindingRow({ finding }: { finding: AuditFinding }) {
+  const [open, setOpen] = useState(false);
+  const { activeFindingKey, setActiveFindingKey, dispositionByTarget } =
+    useAudit();
+  const disposition = dispositionByTarget.get(finding.target_id);
+  const current = disposition?.status ?? "pending";
+  const isClosed =
+    current === "dismissed" ||
+    current === "needs_more_info" ||
+    (current === "accepted" && !!disposition?.resolved_at);
+  markFirstSeen(finding.target_id);
+
+  const rowRef = useRef<HTMLDivElement>(null);
+  const myKey = findingKey(finding);
+  useEffect(() => {
+    if (activeFindingKey !== myKey) return;
+    setOpen(true);
+    const raf = requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      setActiveFindingKey(null);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeFindingKey, myKey, setActiveFindingKey]);
+
+  // Pull the `<category>: <value>` pair out of the rationale for the
+  // headline ("Is `X: Y` correctly assigned?") so the row reads as a
+  // confirmation rather than a question.
+  const m = (finding.rationale || "").match(/`([^`]+)`/);
+  const label = m ? m[1] : finding.rationale;
+
+  return (
+    <div
+      ref={rowRef}
+      className={cn(
+        "rounded bg-emerald-50/70 dark:bg-emerald-900/20",
+        isClosed && "opacity-60",
+        activeFindingKey === myKey && "ring-2 ring-blue-400",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left px-2 py-1 flex items-center gap-2 text-xs"
+        title={open ? "collapse" : "expand"}
+      >
+        <span className="text-slate-400 dark:text-slate-500 text-[10px]">
+          {open ? "▾" : "▸"}
+        </span>
+        <span className="text-emerald-600 dark:text-emerald-400 font-bold text-sm leading-none">
+          ✓
+        </span>
+        <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400">
+          {TARGET_KIND_LABEL[finding.target_kind]}
+        </span>
+        <span className="text-emerald-900 dark:text-emerald-100 truncate">
+          {label}
+        </span>
+        <span className="text-[10px] text-emerald-600 dark:text-emerald-500 ml-auto">
+          = Gemma
+        </span>
+        <DebateBadgeChip badge={finding.debate_badge} />
+      </button>
+      {open ? (
+        <div className="px-2 pb-1.5 pl-7 space-y-1.5 border-t border-emerald-200/50 dark:border-emerald-700/40">
+          <AgentSuggestionPanel finding={finding} />
+          <FindingActionRow finding={finding} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** When a calibration_factor_gold_only_miss surfaces ("remove Gemma's
+ *  factor X"), the curator's real decision is "remove X *and* take the
+ *  agent's replacement Y." Today the agent's replacement lives in the
+ *  DesignComparisonPanel at the bottom of the sidebar, far from the
+ *  finding card. Until the agent emits paired `calibration_factor_extra`
+ *  findings (filed in FACTOR_CALIBRATION_FINDINGS_HANDOFF.md), surface
+ *  the agent-side proposal inline as a one-line companion line so the
+ *  pair reads together. Removes itself once paired findings ship —
+ *  those will sort adjacently in the finding list and this hint becomes
+ *  redundant (the helper renders nothing when no non-exact proposed
+ *  factors exist). */
+function FactorReplacementHint({
+  finding,
+  report,
+}: {
+  finding: AuditFinding;
+  report: AuditReport | null;
+}) {
+  if (finding.issue_code !== "calibration_factor_gold_only_miss") return null;
+  // When my brother's `calibration_factor_extra` findings are in the
+  // report, those *are* the canonical "agent proposes adding X" view —
+  // the paired finding sits directly adjacent in the list. Adding a
+  // hint here just duplicates it. Suppress.
+  const hasExtra = (report?.findings ?? []).some(
+    (f) => f.issue_code === "calibration_factor_extra",
+  );
+  if (hasExtra) return null;
+  const proposed = (report?.evidence?.comparison_proposal?.factors ?? []).filter(
+    (f) => f.match_type !== "exact",
+  );
+  if (proposed.length === 0) return null;
+  return (
+    <span className="block mt-0.5 text-[11px] text-blue-700 dark:text-blue-400">
+      ↪ Agent proposes adding:{" "}
+      {proposed.map((f, i) => (
+        <span key={i}>
+          {i > 0 ? ", " : ""}
+          <span className="font-mono">{f.category.label}</span>
+          {f.factor_values?.length
+            ? ` (${f.factor_values.length} value${f.factor_values.length === 1 ? "" : "s"})`
+            : ""}
+        </span>
+      ))}{" "}
+      <span className="text-slate-500 dark:text-slate-400 italic">
+        — see panel below
+      </span>
+    </span>
+  );
+}
+
 function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   const [open, setOpen] = useState(false);
 
@@ -925,6 +1161,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
     activeFindingKey,
     setActiveFindingKey,
     dispositionByTarget,
+    report,
   } = useAudit();
   const disposition = dispositionByTarget.get(finding.target_id);
   const currentDisposition = disposition?.status ?? "pending";
@@ -1005,6 +1242,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
               trimRationaleBoilerplate(finding.rationale),
             )}
           </span>
+          <FactorReplacementHint finding={finding} report={report} />
         </span>
         <span
           aria-hidden
@@ -1014,6 +1252,11 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         </span>
       </button>
 
+      {/* Expanded body — citation + agent suggestion panel — only
+          when the curator opens the card. The action row stays
+          visible regardless so Agree / Disagree / Park are always
+          one click away (per Paul, 2026-05-13: "for proposals the
+          add/decline buttons should be visible by default"). */}
       {open ? (
         <div className="space-y-1.5 pl-1 border-l-2 border-slate-200 dark:border-slate-700">
           {/* Raw target_id slug — debug-only DOM key for the
@@ -1029,7 +1272,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
               §{" "}
               {finding.citation_url ? (
                 <a
-                  href={finding.citation_url}
+                  href={normalizeWikiUrl(finding.citation_url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-700 hover:underline"
@@ -1044,10 +1287,10 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           ) : null}
 
           <AgentSuggestionPanel finding={finding} />
-
-          <FindingActionRow finding={finding} />
         </div>
       ) : null}
+
+      <FindingActionRow finding={finding} />
     </div>
   );
 }
@@ -1069,6 +1312,83 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
  *
  *  Dismiss flow opens `DismissDialog` (chip-picker for the
  *  dismiss_reason enum from AUDIT_DISPOSITIONS.md ask #2). */
+
+const DISMISS_CHIPS: DialogChip[] = [
+  { key: "redundant",           label: "Redundant",          help: "finding duplicates an issue already noted elsewhere" },
+  { key: "out_of_scope",        label: "Out of scope",       help: "valid finding but outside this curation pass" },
+  { key: "weak_evidence",       label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
+  { key: "accepted_elsewhere",  label: "Accepted elsewhere", help: "the change was already made via a different finding" },
+  { key: "wont_fix",            label: "Won't fix",          help: "acknowledged but intentionally not acted on" },
+  { key: "other",               label: "Other",              help: "doesn't fit the above — add a note" },
+];
+
+const ACCEPT_CHIPS: DialogChip[] = [
+  { key: "well_evidenced", label: "Well evidenced", help: "strong evidence in the paper or data" },
+  { key: "fills_gap",      label: "Fills gap",      help: "adds information absent from current curation" },
+  { key: "more_specific",  label: "More specific",  help: "more precise than the existing entry" },
+  { key: "other",          label: "Other",          help: "doesn't fit the above — add a note" },
+];
+
+const NOT_SURE_CHIPS: DialogChip[] = [
+  { key: "need_more_data",    label: "Need more data",    help: "not enough information to decide" },
+  { key: "need_expert",       label: "Need expert",       help: "requires domain expertise to evaluate" },
+  { key: "pending_update",    label: "Pending update",    help: "waiting on an upstream change before acting" },
+  { key: "other",             label: "Other",             help: "doesn't fit the above — add a note" },
+];
+
+// Calibration-specific chip sets. In Mode C (evaluation), dispositions
+// judge the agent's accuracy relative to gold — not curation-urgency.
+// Chips are framed from the agent's perspective: FN/FP/TN/TP.
+//
+//   calibration_gold_only_miss: gold has X, agent didn't propose X.
+//     Disagree → agent FN (should have proposed it)
+//     Accept   → agent TN (correctly omitted; gold was wrong)
+//
+//   calibration_agent_extra: agent proposed X, gold doesn't have X.
+//     Disagree → agent FP (should not have proposed it)
+//     Accept   → agent TP (correctly proposed; gold was missing it)
+// For calibration_gold_only_miss: "Disagree" means curator thinks gold is right
+// (agent made a FN). Chips explain WHY — the verdict is already implied.
+const CAL_MISS_DISMISS_CHIPS: DialogChip[] = [
+  { key: "missed_evidence", label: "Missed evidence",  help: "agent overlooked supporting evidence in the paper/data" },
+  { key: "borderline",      label: "Borderline",       help: "close call — could reasonably go either way" },
+  { key: "other",           label: "Other",            help: "add a note" },
+];
+// For calibration_gold_only_miss: "Accept (remove)" means curator thinks gold is wrong
+// (agent TN). Chips explain WHY.
+const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
+  { key: "gold_was_wrong",  label: "Gold wrong",       help: "Gemma's existing tag is incorrect or outdated" },
+  { key: "borderline",      label: "Borderline",       help: "close call — acceptable to remove" },
+  { key: "other",           label: "Other",            help: "add a note" },
+];
+// For calibration_agent_extra: "Disagree" means curator thinks the agent over-proposed
+// (agent FP). Chips explain WHY.
+const CAL_EXTRA_DISMISS_CHIPS: DialogChip[] = [
+  { key: "no_evidence",     label: "No evidence",      help: "no supporting evidence in the paper/data" },
+  { key: "out_of_scope",    label: "Out of scope",     help: "outside the scope of this tag category" },
+  { key: "borderline",      label: "Borderline",       help: "close call — could reasonably go either way" },
+  { key: "other",           label: "Other",            help: "add a note" },
+];
+// For calibration_agent_extra: "Accept (add)" means curator agrees with agent
+// (agent TP). Chips explain WHY.
+const CAL_EXTRA_ACCEPT_CHIPS: DialogChip[] = [
+  { key: "well_evidenced",  label: "Well evidenced",   help: "strong evidence in the paper or data" },
+  { key: "fills_gap",       label: "Fills gap",        help: "adds information absent from current gold" },
+  { key: "borderline",      label: "Borderline",       help: "close call — acceptable to add" },
+  { key: "other",           label: "Other",            help: "add a note" },
+];
+
+function dismissChipsFor(issueCode: string): DialogChip[] {
+  if (issueCode === "calibration_gold_only_miss") return CAL_MISS_DISMISS_CHIPS;
+  if (issueCode === "calibration_agent_extra")    return CAL_EXTRA_DISMISS_CHIPS;
+  return DISMISS_CHIPS;
+}
+function acceptChipsFor(issueCode: string): DialogChip[] {
+  if (issueCode === "calibration_gold_only_miss") return CAL_MISS_ACCEPT_CHIPS;
+  if (issueCode === "calibration_agent_extra")    return CAL_EXTRA_ACCEPT_CHIPS;
+  return ACCEPT_CHIPS;
+}
+
 function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const {
     experimentId,
@@ -1089,6 +1409,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // anchor-positioned popover as dismiss, different reason chips.
   const [acceptOpen, setAcceptOpen] = useState(false);
   const [notSureOpen, setNotSureOpen] = useState(false);
+  // Draft snapshot taken just before a mutating apply action runs.
+  // Restored by the undo button so "undo" reverts BOTH the server
+  // disposition and the draft mutation together.
+  const [preApplyDraftSnapshot, setPreApplyDraftSnapshot] = useState<import("@/features/experiment/types").Design | null>(null);
   // The DismissDialog portals out of the sidebar's overflow context
   // and positions itself relative to these refs' bounding rects —
   // one ref per dialog-trigger button.
@@ -1282,6 +1606,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
         );
         return;
       }
+      setPreApplyDraftSnapshot(draft);
       applyDraft(action.mutate);
       requestAuditFocus(experimentId, finding.target_id);
       if (action.successMessage) {
@@ -1327,14 +1652,14 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   async function handleAcceptConfirm(tag: string | null, notes: string) {
     setAcceptOpen(false);
     await handleApply({
-      acceptReason: (tag ?? undefined) as import("@/api/auditTypes").AcceptReason | undefined,
+      acceptReason: (tag ?? undefined) as AcceptReason | undefined,
       notes,
     });
   }
 
   async function handleNotSureConfirm(tag: string | null, notes: string) {
     await patch("needs_more_info", {
-      notSureReason: (tag ?? undefined) as import("@/api/auditTypes").NotSureReason | undefined,
+      notSureReason: (tag ?? undefined) as NotSureReason | undefined,
       notes,
     });
     setNotSureOpen(false);
@@ -1559,10 +1884,17 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
         {current !== "pending" ? (
           <button
             type="button"
-            onClick={() => patch("pending")}
+            onClick={() => {
+              if (preApplyDraftSnapshot) {
+                const snap = preApplyDraftSnapshot;
+                setPreApplyDraftSnapshot(null);
+                applyDraft(() => snap);
+              }
+              patch("pending");
+            }}
             disabled={dispositionSaving}
             className="text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline ml-auto dark:text-slate-400 dark:hover:text-slate-100"
-            title="reset disposition to pending — useful when you want to revert a dismiss without re-opening the reason picker"
+            title="undo — reverts disposition and any draft change"
           >
             undo
           </button>
@@ -1576,6 +1908,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       {dismissOpen ? (
         <DismissDialog
           mode="dismiss"
+          chips={dismissChipsFor(finding.issue_code)}
           finding={finding}
           anchor={dismissBtnRef.current}
           onCancel={() => setDismissOpen(false)}
@@ -1585,6 +1918,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       {acceptOpen ? (
         <DismissDialog
           mode="accept"
+          chips={acceptChipsFor(finding.issue_code)}
           finding={finding}
           anchor={acceptBtnRef.current}
           onCancel={() => setAcceptOpen(false)}
@@ -1594,6 +1928,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       {notSureOpen ? (
         <DismissDialog
           mode="not_sure"
+          chips={NOT_SURE_CHIPS}
           finding={finding}
           anchor={notSureBtnRef.current}
           onCancel={() => setNotSureOpen(false)}
@@ -1732,10 +2067,35 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const dv = finding.defender_verdict ?? null;
   const strength = dv?.strength ?? verdictStrength(dv?.verdict);
 
+  // Strength-based visual differentiation. Weak = amber (caution —
+  // judge says don't act); strong = emerald (judge backs the
+  // suggestion); default = slate (no graded verdict, treat as plain).
+  // Same border + tint convention as the rest of the audit surface.
+  const strengthBox =
+    strength === "weak"
+      ? "border-amber-300 bg-amber-50/60 dark:border-amber-700/60 dark:bg-amber-900/15"
+      : strength === "strong"
+        ? "border-emerald-300 bg-emerald-50/60 dark:border-emerald-700/60 dark:bg-emerald-900/15"
+        : "border-slate-200 bg-slate-50/60 dark:border-slate-600 dark:bg-slate-800/30";
+  const strengthLabel =
+    strength === "weak"
+      ? "text-amber-700 dark:text-amber-400"
+      : strength === "strong"
+        ? "text-emerald-700 dark:text-emerald-400"
+        : "text-slate-500 dark:text-slate-400";
+
   return (
-    <div className="rounded border border-slate-200 bg-slate-50/60 px-1.5 py-1.5 text-[11px] mx-1.5 space-y-1.5 dark:border-slate-600 dark:bg-slate-800/30">
+    <div
+      className={cn(
+        "rounded border px-1.5 py-1.5 text-[11px] mx-1.5 space-y-1.5",
+        strengthBox,
+      )}
+    >
       <div
-        className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400"
+        className={cn(
+          "text-[9px] uppercase tracking-wide font-semibold",
+          strengthLabel,
+        )}
         title={
           strength
             ? `judge graded this (${dv!.verdict})`

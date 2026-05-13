@@ -137,3 +137,43 @@ function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, n - 1) + "…";
 }
+
+/**
+ * Inline indicator showing how an agent-proposed factor aligns with
+ * Gemma's existing curation, derived from the audit's
+ * `comparison_proposal`. Complements `AuditDot` (which flags
+ * problems) — this one flags "audit confirmed this matches Gemma."
+ *
+ * Returns null when no audit is loaded or no match data is present
+ * for this factor — drop-in safe alongside any factor label.
+ *
+ * "exact" → green ✓  (same label, same terms)
+ * "close" → blue ≈   (different label, overlapping terms)
+ * "new"   → nothing  (new factors are flagged by AuditDot findings)
+ */
+export function GemmaMatchDot({ factorLabel }: { factorLabel: string }) {
+  const ctx = useAuditOptional();
+  if (!ctx) return null;
+  const match = ctx.gemmaMatchByFactorLabel.get(factorLabel.toLowerCase());
+  if (!match || match === "new") return null;
+  if (match === "exact") {
+    return (
+      <span
+        title="audit: matches Gemma's existing factor exactly"
+        className="inline-block text-[10px] font-bold text-emerald-500 dark:text-emerald-400 leading-none align-middle shrink-0"
+        aria-label="matches Gemma"
+      >
+        ✓
+      </span>
+    );
+  }
+  return (
+    <span
+      title="audit: close match to an existing Gemma factor (different label)"
+      className="inline-block text-[10px] font-bold text-blue-500 dark:text-blue-400 leading-none align-middle shrink-0"
+      aria-label="close match to Gemma factor"
+    >
+      ≈
+    </span>
+  );
+}

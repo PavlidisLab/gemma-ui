@@ -124,7 +124,15 @@ existing biolit Methods/Materials prioritisation (commit
 3a5ad7b) — same heuristic applied to the proposer rather than
 just the defender.
 
-Recently-closed work (UI + agent both shipped) covered: audit dispositions feedback loop, set
+Recently-closed work (UI + agent both shipped) covered: factor-level
+calibration findings (agent: `calibration_factor_extra` /
+`_gold_only_miss` / `_match` with `ApplyAction`; UI: the same
+`FindingActionRow` + `MatchFindingRow` infra tag findings use, plus
+target-kind grouping in the sidebar so factor decisions cluster
+together and the agent's proposed replacement sits adjacent to the
+gold-only-miss it replaces — closed
+[FACTOR_CALIBRATION_FINDINGS_HANDOFF.md](./FACTOR_CALIBRATION_FINDINGS_HANDOFF.md)),
+audit dispositions feedback loop, set
 navigation (agent: `GET /rest/v2/datasets/{id}/groups` +
 `?include_summaries=true` opt-in returning a `member_summaries`
 parallel list on `Group`; UI: chip popover with header / position

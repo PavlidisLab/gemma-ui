@@ -17,7 +17,7 @@ import { cn } from "@/lib/cn";
  * Positioning logic mirrors the previous version.
  */
 
-const DIALOG_W = 240;
+const DIALOG_W = 260;
 const DIALOG_H_ESTIMATE = 200;
 const ANCHOR_OFFSET = 4;
 const VIEWPORT_GUTTER = 8;
@@ -45,41 +45,24 @@ const MODE_CONFIG: Record<
   },
 };
 
-const SIGNAL_TAGS: { key: string; label: string; help: string }[] = [
-  {
-    key: "fp",
-    label: "FP",
-    help: "false positive — agent flagged an issue that isn't real",
-  },
-  {
-    key: "tp",
-    label: "TP",
-    help: "true positive — agent correctly flagged a real issue",
-  },
-  {
-    key: "fn",
-    label: "FN",
-    help: "false negative — agent missed something real",
-  },
-  {
-    key: "tn",
-    label: "TN",
-    help: "true negative — agent correctly noted this is fine",
-  },
-];
+export type DialogChip = { key: string; label: string; help: string };
 
 export function DismissDialog({
   mode = "dismiss",
+  chips = [],
   finding,
   anchor,
   onCancel,
   onConfirm,
 }: {
   mode?: DispositionMode;
+  /** Chips shown as quick-select options. Caller supplies the right
+   *  vocabulary for the disposition type (dismiss reasons, accept
+   *  reasons, not-sure reasons). Empty = no chip row shown. */
+  chips?: DialogChip[];
   finding: { issue_code: string; rationale: string };
   anchor: HTMLElement | null;
   onCancel: () => void;
-  /** Optional signal tag (FP/FN/TP/TN or null) plus free-text notes. */
   onConfirm: (tag: string | null, notes: string) => Promise<void> | void;
 }) {
   const config = MODE_CONFIG[mode];
@@ -163,25 +146,26 @@ export function DismissDialog({
         <span className="font-mono mr-1">{finding.issue_code}</span>
         {finding.rationale}
       </div>
-      {/* Optional signal tags — FP/FN/TP/TN, none mandatory */}
-      <div className="flex gap-1 mb-2">
-        {SIGNAL_TAGS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            title={t.help}
-            onClick={() => setTag(tag === t.key ? null : t.key)}
-            className={cn(
-              "text-[10px] px-1.5 py-0.5 rounded border font-mono transition-colors",
-              tag === t.key
-                ? "bg-slate-700 text-white border-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200"
-                : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {chips.length > 0 ? (
+        <div className="flex gap-1 flex-wrap mb-2">
+          {chips.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              title={t.help}
+              onClick={() => setTag(tag === t.key ? null : t.key)}
+              className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded border transition-colors",
+                tag === t.key
+                  ? "bg-slate-700 text-white border-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200"
+                  : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700",
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
