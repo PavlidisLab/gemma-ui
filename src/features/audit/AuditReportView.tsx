@@ -18,7 +18,7 @@ import type {
   Severity,
 } from "@/api/auditTypes";
 import type { FactorProposal, SubtaskDecision, TagProposal } from "@/api/types";
-import type { Factor } from "@/features/experiment/types";
+import type { Factor, Tag } from "@/features/experiment/types";
 
 /**
  * Pure-presentation view of an `AuditReport`. Takes a fully-loaded
@@ -561,7 +561,7 @@ export function DesignComparisonPanel({
   gemmaFactors: Factor[] | undefined;
   /** Existing Gemma EE tags — used to annotate proposed tags as
    *  matched vs new. Falls back to "unknown" when absent. */
-  gemmaTags?: import("@/features/experiment/types").Tag[];
+  gemmaTags?: Tag[];
   draftFactorLabels?: Set<string>;
   onAddFactor?: (factor: FactorProposal) => void;
   onUndoApply?: () => void;

@@ -913,35 +913,36 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
     arr.push(f);
     groupedActionable.set(f.target_kind, arr);
   }
-  const groupOrder: AuditTargetKind[] = [
-    "factor", "fv", "tag", "assignment", "statement", "experiment",
+  // One source of truth for both render order and section headers —
+  // adding a new AuditTargetKind only touches this list.
+  const GROUPS: { kind: AuditTargetKind; header: string }[] = [
+    { kind: "factor",     header: "Design — factors" },
+    { kind: "fv",         header: "Design — factor values" },
+    { kind: "tag",        header: "Tags" },
+    { kind: "assignment", header: "Sample assignments" },
+    { kind: "statement",  header: "Statements" },
+    { kind: "experiment", header: "Experiment" },
   ];
-  const groupHeader: Record<AuditTargetKind, string> = {
-    factor: "Design — factors",
-    fv: "Design — factor values",
-    tag: "Tags",
-    assignment: "Sample assignments",
-    statement: "Statements",
-    experiment: "Experiment",
-  };
 
   return (
     <div className="space-y-3">
-      {groupOrder
-        .filter((k) => (groupedActionable.get(k) ?? []).length > 0)
-        .map((kind) => (
+      {GROUPS.map(({ kind, header }) => {
+        const items = groupedActionable.get(kind);
+        if (!items || items.length === 0) return null;
+        return (
           <div key={kind} className="space-y-1.5">
             <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
-              {groupHeader[kind]}
+              {header}
             </div>
-            {groupedActionable.get(kind)!.map((f) => (
+            {items.map((f) => (
               <CompactFindingCard
                 key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
                 finding={f}
               />
             ))}
           </div>
-        ))}
+        );
+      })}
       {visibleMatches.length > 0 ? (
         <div className="space-y-1.5">
           <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
@@ -1015,7 +1016,19 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
 /** Match findings (curator agrees with the agent, no action needed)
  *  render as a different shape from the standard finding card —
  *  compact green-check rows, same look as the exact-match factor
- *  rows in DesignComparisonPanel. */
+ *  rows in DesignComparisonPanel.
+ *
+ *  Sibling predicate: `tagsForPanel` in `AuditReportView.tsx`
+ *  (DesignComparisonPanel) suppresses tag panel entries that
+ *  duplicate a tag finding. That one keys on the `<category>:
+ *  <value>` backticked pair extracted from the rationale (covers
+ *  all calibration target_id shapes); this one keys on the
+ *  `issue_code` suffix. Both are downstream of "is this a
+ *  curator-agrees-with-agent match" but evaluate against
+ *  different signals — if my brother ever emits a match-shaped
+ *  finding without the canonical issue_code suffix, the two will
+ *  disagree. Extract a shared `isMatchFinding` + `findingTagKey`
+ *  pair if that becomes real. */
 function isMatchFinding(f: AuditFinding): boolean {
   // Today: calibration_match (tag matches). Forward-compat: factor
   // calibration findings will land with a parallel issue_code; treat
@@ -1123,6 +1136,14 @@ function FactorReplacementHint({
   // report, those *are* the canonical "agent proposes adding X" view —
   // the paired finding sits directly adjacent in the list. Adding a
   // hint here just duplicates it. Suppress.
+  //
+  // Known limitation: this is a report-wide check, not per-pair. An
+  // audit with multiple gold_only_miss findings for unrelated factors
+  // where only one has a paired _extra would still suppress the hint
+  // on every miss in the report. In practice calibration audits are
+  // narrowly scoped (one factor change per audit), so this isn't
+  // hitting today. Revisit if multi-factor calibration audits become
+  // a regular thing.
   const hasExtra = (report?.findings ?? []).some(
     (f) => f.issue_code === "calibration_factor_extra",
   );
@@ -1412,7 +1433,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // Draft snapshot taken just before a mutating apply action runs.
   // Restored by the undo button so "undo" reverts BOTH the server
   // disposition and the draft mutation together.
-  const [preApplyDraftSnapshot, setPreApplyDraftSnapshot] = useState<import("@/features/experiment/types").Design | null>(null);
+  const [preApplyDraftSnapshot, setPreApplyDraftSnapshot] = useState<Design | null>(null);
   // The DismissDialog portals out of the sidebar's overflow context
   // and positions itself relative to these refs' bounding rects —
   // one ref per dialog-trigger button.
@@ -1467,8 +1488,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     extras: {
       notes?: string;
       dismissReason?: DismissReason;
-      acceptReason?: import("@/api/auditTypes").AcceptReason;
-      notSureReason?: import("@/api/auditTypes").NotSureReason;
+      acceptReason?: AcceptReason;
+      notSureReason?: NotSureReason;
       appliedFix?: string;
       resolvedAt?: string;
     } = {},
@@ -1593,7 +1614,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   //    the same as accepting the finding. The separate "Accept"
   //    button below covers that explicitly.
   async function handleApply(extras?: {
-    acceptReason?: import("@/api/auditTypes").AcceptReason;
+    acceptReason?: AcceptReason;
     notes?: string;
   }) {
     if (!action) return;
