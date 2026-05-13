@@ -873,24 +873,30 @@ function SubtaskDecisionRow({ decision }: { decision: SubtaskDecision }) {
   );
 }
 
-/** Pick the most informative URI for an FV's chip binding.
+/** Pick the URI that grounds the FV chip's label.
  *
- *  Genotype-shape statements (subject = gene, predicate = has_genotype,
- *  object = wild-type-or-mutant) put the URI on the **object**, not the
- *  subject — the gene name itself is free-text until a gene resolver
- *  lands. Without this fallback the FV chip rendered the free-text
- *  gene name as ungrounded ("wild type" with no green chip) even when
- *  the object carried EFO:0005168. Scan all statements in order
- *  object → subject → predicate and return the first URI we find.
+ *  The chip binds the FV's *label* to a URI. The label comes from the
+ *  subject slot, so the URI must too — anything else mislabels the
+ *  free-text subject as if the object's URI grounded it. Concretely
+ *  GSE105453 had `nonperforming · has_role · reference_subject_role`
+ *  rendering with `nonperforming` looking green + `OBI:0000220`
+ *  attached, even though `nonperforming` is genuinely free-text and
+ *  OBI:0000220 grounds the *role*, not the FV.
+ *
+ *  Earlier version scanned object → subject → predicate to catch
+ *  genotype-shape statements (`gene · has_genotype · wild-type`)
+ *  where the agent put the load-bearing URI on the object. That
+ *  fallback was overreaching — wild-type-like FVs were ALSO mis-
+ *  attributing the object URI to the free-text subject. Fix the data
+ *  shape upstream (subject URI when the FV is itself an ontology
+ *  term) rather than papering it over here.
  */
 function bestFvUri(
-  statements: { subject?: { uri?: string | null } | null; predicate?: { uri?: string | null } | null; object?: { uri?: string | null } | null }[] | undefined,
+  statements: { subject?: { uri?: string | null } | null }[] | undefined,
 ): string | null {
   if (!statements) return null;
   for (const s of statements) {
-    if (s.object?.uri) return s.object.uri;
     if (s.subject?.uri) return s.subject.uri;
-    if (s.predicate?.uri) return s.predicate.uri;
   }
   return null;
 }
