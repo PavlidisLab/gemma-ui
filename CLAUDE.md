@@ -10,8 +10,10 @@ feedback memory; this line is the abbreviated reminder.)
 ## Stack
 
 React + TypeScript + Vite + TanStack Query + Tailwind. Path alias
-`@/` → `src/`. No formal test suite — `npx tsc --noEmit` for
-correctness and the browser for everything else. Dev server:
+`@/` → `src/`. No formal test suite — **`npx tsc -p tsconfig.app.json
+--noEmit`** for correctness (the root `tsconfig.json` has empty
+`files` and skips the app code — running it directly catches
+nothing) and the browser for everything else. Dev server:
 `npm run dev` → `:5173`. Vite proxies `/rest`, `/propose`, `/audit`,
 `/find-publication`, `/find-term` to the mock agent service on
 `:8080` (started from the agent repo via `./run_mock.sh`; auth token

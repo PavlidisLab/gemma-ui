@@ -981,7 +981,7 @@ function AgentFactorRow({
   onAdd?: () => void;
   entry: DesignDebateEntry | undefined;
   decisions?: SubtaskDecision[];
-  experimentId?: string | number;
+  experimentId?: number;
 }) {
   const [debateOpen, setDebateOpen] = useState(false);
   const [exactExpanded, setExactExpanded] = useState(false);
@@ -1015,12 +1015,12 @@ function AgentFactorRow({
             {nFvs} {nFvs === 1 ? "value" : "values"}
           </span>
           {entry ? <DesignDebatePill badge={entry.badge} /> : null}
-          {experimentId ? (
+          {experimentId !== undefined ? (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                requestAuditFocus(String(experimentId), factorTarget(factor.category.label));
+                requestAuditFocus(experimentId, factorTarget(factor.category.label));
               }}
               className="ml-auto text-[10px] text-emerald-700 dark:text-emerald-400 hover:underline"
               title="Jump to this factor in the design editor"
@@ -1101,35 +1101,30 @@ function AgentFactorRow({
       return (fvUri && gemmaFvUris.has(fvUri)) || (fvLabel && gemmaFvLabels.has(fvLabel));
     });
 
+  // matchType has been narrowed to "close" | "new" by the early
+  // return for the exact case above — the "exact" branches below
+  // are dead.
   const bgCls =
-    matchType === "exact"
-      ? "bg-slate-100/60 dark:bg-slate-700/40"
-      : matchType === "close"
-        ? "bg-blue-50/50 dark:bg-blue-900/15"
-        : "bg-amber-50/60 dark:bg-amber-900/20";
+    matchType === "close"
+      ? "bg-blue-50/50 dark:bg-blue-900/15"
+      : "bg-amber-50/60 dark:bg-amber-900/20";
   const titleText =
-    matchType === "exact"
-      ? "matches Gemma exactly"
-      : matchType === "close"
-        ? `aligns with Gemma "${gemmaFactor?.category.label}" (different label, overlapping terms)`
-        : "not in Gemma's current design";
+    matchType === "close"
+      ? `aligns with Gemma "${gemmaFactor?.category.label}" (different label, overlapping terms)`
+      : "not in Gemma's current design";
 
   return (
     <div className={cn("rounded px-2 py-1.5", bgCls)} title={titleText}>
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className={cn(
           "font-medium",
-          matchType === "exact"
-            ? "text-slate-800 dark:text-slate-100"
-            : matchType === "close"
-              ? "text-slate-700 dark:text-slate-200"
-              : "text-amber-800 dark:text-amber-300",
+          matchType === "close"
+            ? "text-slate-700 dark:text-slate-200"
+            : "text-amber-800 dark:text-amber-300",
         )}>
           {factor.category.label}
         </span>
-        {matchType === "exact" ? (
-          <span className="text-[10px] text-slate-400 dark:text-slate-500">= Gemma</span>
-        ) : matchType === "close" ? (
+        {matchType === "close" ? (
           <>
             <span
               className="text-[10px] text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-600 px-1 py-0 rounded bg-blue-50 dark:bg-blue-900/40"
@@ -1151,9 +1146,9 @@ function AgentFactorRow({
         ) : null}
         {entry ? <DesignDebatePill badge={entry.badge} /> : null}
         <span className="ml-auto flex items-center gap-1.5">
-          {inDraft && matchType !== "exact" ? (
+          {inDraft ? (
             <span className="text-[10px] text-emerald-600 dark:text-emerald-400" title="Added to your design draft">✓ added</span>
-          ) : !inDraft && onAdd && matchType !== "exact" ? (
+          ) : onAdd ? (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onAdd(); }}
