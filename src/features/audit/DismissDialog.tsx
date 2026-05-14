@@ -120,10 +120,31 @@ export function DismissDialog({
     return () => window.removeEventListener("resize", onCancel);
   }, [onCancel, submitting]);
 
+  // Server requires `<mode>_reason` whenever the disposition is set
+  // (dismiss/accept/not-sure each have their own enum). When the chips
+  // are present the curator must pick one; when "other" is picked the
+  // server requires non-empty notes too. Block submit on either
+  // missing input rather than letting the PATCH 422 with a red box.
+  const trimmedNotes = notes.trim();
+  const requiresChip = chips.length > 0;
+  const otherRequiresNotes = tag === "other" && trimmedNotes.length === 0;
+  const canSubmit =
+    !submitting &&
+    (!requiresChip || tag !== null) &&
+    !otherRequiresNotes;
+  const submitHint = submitting
+    ? ""
+    : requiresChip && tag === null
+      ? "pick a reason chip first"
+      : otherRequiresNotes
+        ? `add a note when reason is "Other"`
+        : "";
+
   async function handleConfirm() {
+    if (!canSubmit) return;
     setSubmitting(true);
     try {
-      await onConfirm(tag, notes.trim());
+      await onConfirm(tag, trimmedNotes);
     } finally {
       setSubmitting(false);
     }
@@ -173,6 +194,11 @@ export function DismissDialog({
         placeholder="note (optional)"
         className="w-full text-[11px] border border-slate-300 rounded px-1.5 py-1 mb-2 resize-y dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 dark:placeholder-slate-500"
       />
+      {submitHint ? (
+        <div className="text-[10px] text-amber-700 dark:text-amber-400 italic mb-1.5">
+          {submitHint}
+        </div>
+      ) : null}
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
@@ -185,8 +211,9 @@ export function DismissDialog({
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={submitting}
-          className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-100"
+          disabled={!canSubmit}
+          title={submitHint || undefined}
+          className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-100"
         >
           {submitting ? config.confirmingLabel : config.confirmLabel}
         </button>

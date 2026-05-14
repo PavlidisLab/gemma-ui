@@ -1101,7 +1101,7 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
         <span className="text-[10px] text-emerald-600 dark:text-emerald-500 ml-auto">
           = Gemma
         </span>
-        <DebateBadgeChip badge={finding.debate_badge} />
+        <DebateBadgeChip badge={finding.debate_badge} defenderVerdict={finding.defender_verdict} />
       </button>
       {open ? (
         <div className="px-2 pb-1.5 pl-7 space-y-1.5 border-t border-emerald-200/50 dark:border-emerald-700/40">
@@ -1251,7 +1251,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             {TARGET_KIND_LABEL[finding.target_kind]}
           </span>
           <IssueCodeBadge issueCode={finding.issue_code} />
-          <DebateBadgeChip badge={finding.debate_badge} />
+          <DebateBadgeChip badge={finding.debate_badge} defenderVerdict={finding.defender_verdict} />
           <span
             className={cn(
               "block text-[11px] text-slate-700 dark:text-slate-200",
@@ -2541,27 +2541,52 @@ const ISSUE_CODE_RENDER: Record<
   },
 };
 
-function DebateBadgeChip({ badge }: { badge: string | undefined }) {
+/** Debate-pipeline badge — signals how the agent's internal
+ *  propose/challenge/defend/arbitrate loop ended. Labels avoid
+ *  the medal-quality metaphor that misled curators ("★ gold" reads
+ *  as endorsement) and frame the badges as consensus signals.
+ *
+ *  Suppressed entirely when the defender verdict downgraded to
+ *  "weak" — the defender is the rigorous second-opinion judge and
+ *  showing both a "debate said it's fine" badge next to a "WEAK
+ *  SUGGESTION" panel reads as the surface contradicting itself
+ *  (it isn't — they evaluate different things — but the visual
+ *  whiplash isn't worth the signal). */
+function DebateBadgeChip({
+  badge,
+  defenderVerdict,
+}: {
+  badge: string | undefined;
+  defenderVerdict?: AttachedDefenderVerdict | null;
+}) {
   if (!badge) return null;
-  const configs: Record<string, { label: string; cls: string }> = {
+  const strength =
+    defenderVerdict?.strength ?? verdictStrength(defenderVerdict?.verdict);
+  if (strength === "weak") return null;
+  const configs: Record<string, { label: string; title: string; cls: string }> = {
     platinum: {
       label: "✓ verified",
+      title: "debate: human-verified outcome",
       cls: "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-300",
     },
     gold: {
-      label: "★ gold",
-      cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300",
+      label: "✓ unchallenged",
+      title: "debate: no challenger raised an objection — not an evidence-quality signal",
+      cls: "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-300",
     },
     silver: {
-      label: "★ silver",
+      label: "✓ settled",
+      title: "debate: settled after one contested round",
       cls: "bg-slate-100 border-slate-300 text-slate-600 dark:bg-slate-600/50 dark:border-slate-500 dark:text-slate-200",
     },
     bronze: {
       label: "★ contested",
+      title: "debate: settled after multiple contested rounds",
       cls: "bg-orange-50 border-orange-200 text-orange-700 dark:bg-orange-900/30 dark:border-orange-700 dark:text-orange-300",
     },
     stuck: {
       label: "!! needs call",
+      title: "debate: no consensus — needs human call",
       cls: "bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/30 dark:border-rose-700 dark:text-rose-300",
     },
   };
@@ -2573,7 +2598,7 @@ function DebateBadgeChip({ badge }: { badge: string | undefined }) {
         "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border ml-1",
         cfg.cls,
       )}
-      title={`debate outcome: ${badge}`}
+      title={cfg.title}
     >
       {cfg.label}
     </span>
