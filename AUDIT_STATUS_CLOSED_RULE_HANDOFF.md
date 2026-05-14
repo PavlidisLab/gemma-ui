@@ -1,6 +1,14 @@
 # `audit_status` "closed" rule needs to track finalize, not disposition coverage
 
-**Status:** Open ask, agents-side. Filed 2026-05-13 by Paul (UI).
+**Status:** SHIPPED 2026-05-13 — agent side dropped the
+`all_dispositioned` clause. UI workaround in `handleClose` kept
+deliberately as belt-and-braces: archived calibration packages
+served by pre-2026-05-13 agent services still need the sweep to
+get the glyph right. The sweep is a no-op-ish on current agents
+(writes a few `accepted` disposition rows on match findings, which
+is the correct implicit-agreement disposition anyway). Drop the
+workaround when no pre-fix agent service is in any deployed corner.
+Filed 2026-05-13 by Paul (UI).
 **Sibling docs:** [`CALIBRATION_DISPOSITION_REASONS_HANDOFF.md`](./CALIBRATION_DISPOSITION_REASONS_HANDOFF.md) ·
 [`AUDIT_FEATURE.md`](./AUDIT_FEATURE.md)
 

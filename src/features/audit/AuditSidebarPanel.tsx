@@ -373,32 +373,33 @@ function SidebarHeader({
 
   async function handleClose(notes: string) {
     try {
-      // Workaround until my brother lands the audit_status fix
-      // (AUDIT_STATUS_CLOSED_RULE_HANDOFF.md): the agent's status
-      // glyph reads "closed" only when every finding has been
-      // dispositioned. Match findings (severity=ok, "no action
-      // needed" by design) never get clicked, so they stay
-      // pending forever and the member-list glyph stays
-      // amber-half-fill even after the curator closes. Sweep
-      // pending severity=ok findings to `accepted` here — the
-      // curator's silence on a match-shaped finding IS implicit
-      // agreement; no audit-quality signal is destroyed. Skip
-      // anything already non-pending so we don't clobber a real
-      // disposition.
+      // Sweep pending severity=ok findings to "accepted" before
+      // finalize.
+      //
+      // The agent's storage layer dropped the `all_dispositioned`
+      // clause from the `audit_status` rule on 2026-05-13 (see
+      // AUDIT_STATUS_CLOSED_RULE_HANDOFF.md), so on a current agent
+      // service this sweep is unnecessary — finalize alone flips the
+      // member-list glyph to "closed". Older agent services (pre-
+      // 2026-05-13) still require every finding dispositioned for
+      // the glyph to read closed, and curators reviewing archived
+      // calibration packages may be talking to one. The sweep is
+      // harmless on the new agent (a few accepted rows on match
+      // findings, which IS the right disposition — curator silence
+      // on a "no action needed" row is implicit agreement) and
+      // load-bearing on the old one. Drop once the v0.6.0-era agent
+      // service is no longer in any deployed corner.
       const pendingOk = report.findings.filter((f) => {
         if (f.severity !== "ok") return false;
         const d = dispositionByTarget.get(f.target_id);
-        const status = d?.status ?? "pending";
-        return status === "pending";
+        return (d?.status ?? "pending") === "pending";
       });
       for (const f of pendingOk) {
         try {
           await setDisposition(f.target_id, "accepted");
         } catch {
-          // Best-effort sweep — if a single match PATCH 422s for
-          // some reason, don't block the close. The glyph might
-          // miss for that one experiment but the audit still
-          // closes.
+          // Best-effort — don't block the close on a single sweep
+          // failure. The audit still closes; one glyph might miss.
         }
       }
       await finalize(notes || undefined);
