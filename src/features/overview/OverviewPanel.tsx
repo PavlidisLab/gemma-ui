@@ -1939,17 +1939,34 @@ function TagGroupChip({
         ) : null}
         {/* Evidence-code badge dropped from inline render — see the
             single-value branch above for rationale. */}
-        {open ? null : (
-          <span className="inline-flex items-baseline gap-0.5 ml-1 max-w-[24ch] truncate">
-            {values.slice(0, 2).map((v, i) => (
-              <span key={v.key} className="inline-flex items-baseline gap-0.5">
-                {i > 0 ? <span className={palette.label}>,</span> : null}
-                <TagValueChip value={v} />
-              </span>
-            ))}
-            {values.length > 2 ? <span className={palette.label}>…</span> : null}
-          </span>
-        )}
+        {open ? null : (() => {
+          // Show enough values inline that the curator can read the
+          // actual labels — previously capped at 2 inside max-w-[24ch]
+          // with `truncate`, which cut mid-word on multi-value disease
+          // / cell-type categories. Preview now shows up to 3 chips
+          // and uses an explicit "+N more" indicator so the hidden
+          // count is legible. The container is no longer width-capped
+          // — it grows with the content and wraps naturally on a tight
+          // row; the click-to-expand still surfaces the full set.
+          const PREVIEW_N = 3;
+          const shown = values.slice(0, PREVIEW_N);
+          const hidden = values.length - shown.length;
+          return (
+            <span className="inline-flex items-baseline gap-0.5 ml-1 flex-wrap">
+              {shown.map((v, i) => (
+                <span key={v.key} className="inline-flex items-baseline gap-0.5">
+                  {i > 0 ? <span className={palette.label}>,</span> : null}
+                  <TagValueChip value={v} />
+                </span>
+              ))}
+              {hidden > 0 ? (
+                <span className={`text-[10px] ml-0.5 ${palette.label}`}>
+                  +{hidden} more
+                </span>
+              ) : null}
+            </span>
+          );
+        })()}
       </button>
       {open ? (
         <span className="inline-flex items-baseline gap-1 flex-wrap px-1.5 py-0.5 border-l border-current/20">
