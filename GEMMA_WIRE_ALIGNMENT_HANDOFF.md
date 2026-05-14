@@ -1,11 +1,37 @@
 # Align mock + UI to real Gemma's REST wire (1.32.7)
 
-**Status:** Open ask, agents-side mock changes + UI changes in lockstep.
+**Status:** Phase-1 landed agents-side 2026-05-13; phase-2 still open.
 Filed 2026-05-13 by Paul (UI).
 **Reference:** [`PavlidisLab/Gemma`](https://github.com/PavlidisLab/Gemma/tree/hotfix-1.32.7),
 PRs #1650 / #1652 / #1653 / #1655 (merged May 6–13).
 
-## Why
+## Phase-1 (additive — already landed 2026-05-13)
+
+`PUT /rest/v2/datasets/{id}/permissions` is now live on the mock,
+mirroring `DatasetsWebService.updateDatasetPermissions`:
+
+* Request: `{ "isPublic": true | false | omit }` (camelCase,
+  `isPublic` optional — omit to query without mutating).
+* Response: `{ "isPublic": bool, "isShared": bool }` (mock has no
+  group-shared concept, so `isShared` mirrors `isPublic`).
+* 404 when the dataset isn't imported, matching real Gemma.
+* Emits a `DatasetVisibilityEvent` audit row on toggle.
+
+Defined at module scope in
+`gemma_curation_agents/mock_gemma_curation_api/server.py`
+(`PermissionsUpdateRequest` + `DatasetPermissionsValueObject`) so
+FastAPI's `typing.get_type_hints` can resolve the body annotation.
+
+**The legacy `POST /publish` and `GET /visibility` endpoints remain
+functional unchanged** — UI is free to migrate to PUT `/permissions`
+when convenient; mock-side legacy gets removed in phase-2.
+
+## Phase-2 (still open — needs UI lockstep)
+
+These three changes break existing UI clients and need synchronized
+landing:
+
+## Background — why this is happening
 
 Real Gemma 1.32.7 now exposes the REST endpoints we've been mocking:
 
@@ -25,7 +51,7 @@ makes no difference to us, we should adapt"* — naming convention
 doesn't affect what the UI does, so we align both ends to real
 Gemma's wire rather than asking the Gemma team to match us.
 
-## Specific shape changes — mock + UI in lockstep
+## Specific phase-2 shape changes — mock + UI in lockstep
 
 ### 1. `AuditEvent` → camelCase, drop mock-only `shape`
 
@@ -124,21 +150,19 @@ from the `auditEvents` list filtered by the
 Mock change: stop serving `/visibility`. Expose `isPublic` on the
 main dataset response, matching the camelCase Gemma serialization.
 
-### 4. `PUT /datasets/{id}/permissions` replaces `POST /publish`
+### 4. `PUT /datasets/{id}/permissions` replaces `POST /publish` ✅ phase-1
 
-Today (`src/api/datasets.ts`): `usePublishExperiment` does
-`POST /rest/v2/datasets/{id}/publish?reviewer=X` with empty body,
-returns `DatasetVisibility`.
+**Mock side: done 2026-05-13.** `PUT /rest/v2/datasets/{id}/permissions`
+is live alongside the legacy `POST /publish`. Body
+`PermissionsUpdateRequest` accepts `{ isPublic: boolean | omit }`,
+returns `DatasetPermissionsValueObject` with `isPublic` + `isShared`.
+The shape was confirmed by reading
+`DatasetsWebService.java:PermissionsUpdateRequest`.
 
-Real Gemma:
-- `PUT /rest/v2/datasets/{id}/permissions`
-- Body: `PermissionsUpdateRequest` (need to confirm exact shape —
-  presumably `{ isPublic: boolean }` or similar; check Gemma's
-  `DatasetsWebService.java`)
-- Returns: `DatasetPermissionsValueObject`
-
-UI change: switch the publish mutation to PUT `/permissions` with
-the right body. Mock should mirror.
+UI change (still open): switch `usePublishExperiment` to PUT
+`/permissions` with `{ isPublic: true }`. After UI is on the new
+endpoint, the legacy `POST /publish` + `GET /visibility` can be
+dropped from the mock.
 
 ### 5. snake_case → camelCase across remaining payloads
 

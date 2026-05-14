@@ -1273,7 +1273,7 @@ function PublishButton({ experimentId }: { experimentId: number }) {
   const [confirming, setConfirming] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const isPublic = visibility.data?.is_public ?? false;
+  const isPublic = visibility.data?.isPublic ?? false;
   const dirty = diff.isDirty;
   const disabled = isPublic || dirty || publish.isPending;
 
@@ -1363,7 +1363,7 @@ export function TopBar({
     statusOverride ??
     (visibility.isLoading || visibility.error
       ? "unknown"
-      : visibility.data?.is_public
+      : visibility.data?.isPublic
         ? "public"
         : "private");
   return (

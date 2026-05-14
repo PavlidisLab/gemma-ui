@@ -187,47 +187,60 @@ export function useResetExperiment(experimentId: number) {
   };
 }
 
-export interface DatasetVisibility {
-  experiment_id: number;
-  is_public: boolean;
-  /** ISO timestamp of the last visibility change; empty if never set. */
-  published_at: string;
-  published_by: string;
+/**
+ * Mirrors `DatasetPermissionsValueObject` returned by Gemma's
+ * `PUT /datasets/{id}/permissions` (1.32.7+). The mock matched the
+ * real Gemma shape 2026-05-13 — see GEMMA_WIRE_ALIGNMENT_HANDOFF.md
+ * phase-1. `isShared` is always present (mock mirrors `isPublic`
+ * since there's no group-shared concept on the mock side; real
+ * Gemma tracks it independently).
+ *
+ * Phase-1-only: the read path uses PUT `/permissions` with an empty
+ * body (omitted `isPublic` = query without mutating, per the
+ * endpoint contract). Once phase-2 lands and the rest of the wire
+ * is on camelCase, the hook name probably collapses into the main
+ * dataset query (real Gemma exposes `isPublic` inline on
+ * `ExpressionExperimentValueObject`).
+ */
+export interface DatasetPermissions {
+  isPublic: boolean;
+  isShared: boolean;
 }
 
 const VISIBILITY_KEY = (experimentId: number) =>
   ["dataset-visibility", experimentId] as const;
 
+const permissionsPath = (experimentId: number) =>
+  `/rest/v2/datasets/${experimentId}/permissions`;
+
 /**
- * Read an experiment's public/private state. Real Gemma's REST API
- * doesn't expose this — see ``TODO-gemma-api §14``. The mock
- * tracks it locally so the curation UI has something to wire the
- * "publish" button against.
+ * Read an experiment's public/shared state. PUT with an empty body
+ * is a read-only query against the new permissions endpoint — the
+ * endpoint contract treats an omitted `isPublic` as "report current
+ * state, don't mutate."
  */
 export function useDatasetVisibility(experimentId: number) {
   return useQuery({
     queryKey: VISIBILITY_KEY(experimentId),
     queryFn: () =>
-      api.get<DatasetVisibility>(
-        `/rest/v2/datasets/${experimentId}/visibility`,
-      ),
+      api.put<DatasetPermissions>(permissionsPath(experimentId), {}),
   });
 }
 
 /**
- * Publish an experiment — flip ``is_public`` to ``true``.
+ * Publish an experiment — flip `isPublic` to `true`.
  *
  * Destructive in the sense that it makes the curation visible to
  * everyone with Gemma access; the UI gates it behind a
- * ``ConfirmModal``.
+ * `ConfirmModal`.
  */
 export function usePublishExperiment(experimentId: number, reviewer: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      api.post<DatasetVisibility>(
-        `/rest/v2/datasets/${experimentId}/publish?reviewer=${encodeURIComponent(reviewer)}`,
-        {},
+      api.put<DatasetPermissions>(
+        `${permissionsPath(experimentId)}?reviewer=${encodeURIComponent(reviewer)}`,
+        { isPublic: true },
       ),
     onSuccess: (server) => {
       qc.setQueryData(VISIBILITY_KEY(experimentId), server);
