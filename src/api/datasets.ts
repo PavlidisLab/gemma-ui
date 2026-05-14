@@ -203,8 +203,12 @@ export function useResetExperiment(experimentId: number) {
  * `ExpressionExperimentValueObject`).
  */
 export interface DatasetPermissions {
-  isPublic: boolean;
-  isShared: boolean;
+  // Wire field is `isPublic`; client.ts snakeify-on-read converts it
+  // to `is_public` before this type sees it. Same for `is_shared`.
+  // When the UI does the full camelCase cutover (post-Friday) the
+  // adapter drops and these flip to camelCase.
+  is_public: boolean;
+  is_shared: boolean;
 }
 
 const VISIBILITY_KEY = (experimentId: number) =>
@@ -240,7 +244,10 @@ export function usePublishExperiment(experimentId: number, reviewer: string) {
     mutationFn: () =>
       api.put<DatasetPermissions>(
         `${permissionsPath(experimentId)}?reviewer=${encodeURIComponent(reviewer)}`,
-        { isPublic: true },
+        // Body snake_case — mock accepts either via populate_by_name=True
+        // on the new schemas. Keeps the rest of the UI's outgoing
+        // bodies uniformly snake_case until the full cutover.
+        { is_public: true },
       ),
     onSuccess: (server) => {
       qc.setQueryData(VISIBILITY_KEY(experimentId), server);

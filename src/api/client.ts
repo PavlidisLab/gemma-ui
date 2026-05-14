@@ -73,6 +73,34 @@ async function readErrorBody(r: Response): Promise<string> {
   }
 }
 
+/** Convert a single camelCase key to snake_case.
+ *
+ *  Bro's mock now emits camelCase on the wire for design / workflow /
+ *  calibration / permissions schemas (GEMMA_WIRE_ALIGNMENT_HANDOFF.md
+ *  phase-2a, 2026-05-13). Audit + proposer + curationDetails +
+ *  auditEvents stay snake_case for now. Rather than mass-rename TS
+ *  types before the Friday demo, normalise incoming responses to
+ *  snake_case at the API client boundary — UI keeps reading the
+ *  fields it already knows.
+ *
+ *  Idempotent on already-snake_case keys (no uppercase = regex
+ *  doesn't fire). Drop the adapter once the UI's TS interfaces are
+ *  swept to camelCase — see same handoff doc.
+ */
+function snakifyKey(key: string): string {
+  return key.replace(/([A-Z])/g, (_, ch) => `_${(ch as string).toLowerCase()}`);
+}
+
+function snakeify(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(snakeify);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[snakifyKey(k)] = snakeify(v);
+  }
+  return out;
+}
+
 async function request<T>(
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
@@ -99,7 +127,8 @@ async function request<T>(
     );
   }
   if (r.status === 204) return undefined as T;
-  return (await r.json()) as T;
+  const json = await r.json();
+  return snakeify(json) as T;
 }
 
 export const api = {
