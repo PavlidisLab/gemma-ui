@@ -1410,6 +1410,53 @@ function acceptChipsFor(issueCode: string): DialogChip[] {
   return ACCEPT_CHIPS;
 }
 
+// The calibration chip sets surface specific reasons that don't exist
+// in the agent-side `DismissReason` / `AcceptReason` Pydantic enums
+// (`missed_evidence`, `no_evidence`, `gold_was_wrong`, `borderline`).
+// Sending those keys verbatim makes the PATCH fail with a 422 and the
+// curator gets a red error box. Until my brother extends the enums
+// (see CALIBRATION_DISPOSITION_REASONS_HANDOFF.md), translate to a
+// canonical enum value before send and stash the specific key in
+// `notes` as a `[<key>] ...` prefix so the analytic signal survives.
+const CANONICAL_DISMISS_REASONS: ReadonlySet<string> = new Set([
+  "redundant", "out_of_scope", "weak_evidence", "accepted_elsewhere",
+  "wont_fix", "other",
+]);
+const CANONICAL_ACCEPT_REASONS: ReadonlySet<string> = new Set([
+  "well_evidenced", "fills_gap", "more_specific", "other",
+]);
+
+function toCanonicalDismissReason(
+  tag: string | null,
+): DismissReason | undefined {
+  if (!tag) return undefined;
+  if (CANONICAL_DISMISS_REASONS.has(tag)) return tag as DismissReason;
+  // missed_evidence / no_evidence both reduce to weak_evidence — the
+  // finding's evidence didn't hold up. borderline → other.
+  if (tag === "missed_evidence" || tag === "no_evidence") return "weak_evidence";
+  return "other";
+}
+
+function toCanonicalAcceptReason(
+  tag: string | null,
+): AcceptReason | undefined {
+  if (!tag) return undefined;
+  if (CANONICAL_ACCEPT_REASONS.has(tag)) return tag as AcceptReason;
+  // gold_was_wrong / borderline → other (with prefix kept in notes
+  // for analytic clustering).
+  return "other";
+}
+
+function tagPrefixedNotes(
+  tag: string | null,
+  notes: string,
+  canonical: ReadonlySet<string>,
+): string {
+  if (!tag || canonical.has(tag)) return notes;
+  const prefix = `[${tag}]`;
+  return notes ? `${prefix} ${notes}` : prefix;
+}
+
 function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const {
     experimentId,
@@ -1664,8 +1711,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
 
   async function handleDismissConfirm(tag: string | null, notes: string) {
     await patch("dismissed", {
-      dismissReason: (tag ?? undefined) as DismissReason | undefined,
-      notes,
+      dismissReason: toCanonicalDismissReason(tag),
+      notes: tagPrefixedNotes(tag, notes, CANONICAL_DISMISS_REASONS),
     });
     setDismissOpen(false);
   }
@@ -1673,8 +1720,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   async function handleAcceptConfirm(tag: string | null, notes: string) {
     setAcceptOpen(false);
     await handleApply({
-      acceptReason: (tag ?? undefined) as AcceptReason | undefined,
-      notes,
+      acceptReason: toCanonicalAcceptReason(tag),
+      notes: tagPrefixedNotes(tag, notes, CANONICAL_ACCEPT_REASONS),
     });
   }
 
