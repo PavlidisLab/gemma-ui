@@ -188,51 +188,44 @@ export function useResetExperiment(experimentId: number) {
 }
 
 /**
- * Mirrors `DatasetPermissionsValueObject` returned by Gemma's
- * `PUT /datasets/{id}/permissions` (1.32.7+). The mock matched the
- * real Gemma shape 2026-05-13 — see GEMMA_WIRE_ALIGNMENT_HANDOFF.md
- * phase-1. `isShared` is always present (mock mirrors `isPublic`
- * since there's no group-shared concept on the mock side; real
- * Gemma tracks it independently).
- *
- * Phase-1-only: the read path uses PUT `/permissions` with an empty
- * body (omitted `isPublic` = query without mutating, per the
- * endpoint contract). Once phase-2 lands and the rest of the wire
- * is on camelCase, the hook name probably collapses into the main
- * dataset query (real Gemma exposes `isPublic` inline on
- * `ExpressionExperimentValueObject`).
+ * Mirrors what the legacy `GET /visibility` / `POST /publish` mock
+ * endpoints return. Real Gemma 1.32.7 prefers the new
+ * `PUT /permissions` endpoint (with a slimmer
+ * `DatasetPermissionsValueObject { isPublic, isShared }` shape),
+ * and bro's mock now ships both. UI stays on the legacy pair so
+ * curators running against older calibration / evaluation packages
+ * — which only have the legacy endpoints — keep working. We cut
+ * over to PUT `/permissions` post-Friday alongside the rest of the
+ * TS-side snake → camel sweep.
  */
-export interface DatasetPermissions {
-  // Wire field is `isPublic`; client.ts snakeify-on-read converts it
-  // to `is_public` before this type sees it. Same for `is_shared`.
-  // When the UI does the full camelCase cutover (post-Friday) the
-  // adapter drops and these flip to camelCase.
+export interface DatasetVisibility {
+  experiment_id: number;
   is_public: boolean;
-  is_shared: boolean;
+  /** ISO timestamp of the last visibility change; empty if never set. */
+  published_at: string;
+  published_by: string;
 }
 
 const VISIBILITY_KEY = (experimentId: number) =>
   ["dataset-visibility", experimentId] as const;
 
-const permissionsPath = (experimentId: number) =>
-  `/rest/v2/datasets/${experimentId}/permissions`;
-
 /**
- * Read an experiment's public/shared state. PUT with an empty body
- * is a read-only query against the new permissions endpoint — the
- * endpoint contract treats an omitted `isPublic` as "report current
- * state, don't mutate."
+ * Read an experiment's public/private state. Hits the legacy
+ * `GET /visibility` endpoint so the UI works against both old
+ * evaluation packages and bro's current mock.
  */
 export function useDatasetVisibility(experimentId: number) {
   return useQuery({
     queryKey: VISIBILITY_KEY(experimentId),
     queryFn: () =>
-      api.put<DatasetPermissions>(permissionsPath(experimentId), {}),
+      api.get<DatasetVisibility>(
+        `/rest/v2/datasets/${experimentId}/visibility`,
+      ),
   });
 }
 
 /**
- * Publish an experiment — flip `isPublic` to `true`.
+ * Publish an experiment — flip `is_public` to `true`.
  *
  * Destructive in the sense that it makes the curation visible to
  * everyone with Gemma access; the UI gates it behind a
@@ -242,12 +235,9 @@ export function usePublishExperiment(experimentId: number, reviewer: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      api.put<DatasetPermissions>(
-        `${permissionsPath(experimentId)}?reviewer=${encodeURIComponent(reviewer)}`,
-        // Body snake_case — mock accepts either via populate_by_name=True
-        // on the new schemas. Keeps the rest of the UI's outgoing
-        // bodies uniformly snake_case until the full cutover.
-        { is_public: true },
+      api.post<DatasetVisibility>(
+        `/rest/v2/datasets/${experimentId}/publish?reviewer=${encodeURIComponent(reviewer)}`,
+        {},
       ),
     onSuccess: (server) => {
       qc.setQueryData(VISIBILITY_KEY(experimentId), server);
