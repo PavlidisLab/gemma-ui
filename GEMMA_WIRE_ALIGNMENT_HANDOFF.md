@@ -168,8 +168,8 @@ dropped from the mock.
 
 The above are the load-bearing ones, but the convention difference
 spans every endpoint the mock serves. Brother should sweep the mock's
-Pydantic models to emit camelCase via `model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)`, and the UI's TS
-mirrors update accordingly.
+Pydantic models to emit camelCase, and the UI's TS mirrors update
+accordingly.
 
 Catch list off the top:
 - `experiment_id` → `experimentId` (everywhere)
@@ -180,8 +180,86 @@ Catch list off the top:
 - `finalized_at` / `_by` → `finalizedAt` / `finalizedBy`
 - `target_id` / `target_kind` → `targetId` / `targetKind`
 
-Big touch surface, but mechanical. The TS-side change is one find-
-and-replace per file plus a `tsconfig.app.json` typecheck pass.
+**Surfaces that need the sweep (don't half-do it)**
+
+The temptation is to flip response serialization and call it done.
+The wire is bigger than that — three places convention has to flip
+in step or the UI sees mixed conventions:
+
+1. **REST response bodies** — the obvious one. Driven by the
+   Pydantic model config below.
+2. **REST request bodies** — `PATCH /audits/{id}/dispositions` sends
+   `{ dismiss_reason, accept_reason, not_sure_reason, target_id,
+   applied_fix, first_seen_at, resolved_at, inherited_from }` etc.
+   `POST /audits/{accession}` sends `{ scope_include, model_tier }`.
+   Same for the `proposer_service` PATCH paths. These need to accept
+   camelCase too — `populate_by_name=True` (below) handles this for
+   free during the transition.
+3. **SSE event payloads** — `auditStream` and `proposeStream` emit
+   structured event bodies with `event_type`, `target_id`,
+   `factor_values`, etc. inside `data:` lines. The SSE serialisation
+   path likely doesn't go through FastAPI's `response_model`
+   machinery, so the alias config might not pick it up automatically
+   — check `gemma_curation_agents/proposer_service.py` (or wherever
+   the SSE emit lives) and confirm the JSON encoders there use the
+   same model config.
+
+**Pydantic v2 config — the full triple**
+
+```python
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
+
+class WireBase(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,       # accept snake_case AND camelCase on input
+        serialize_by_alias=True,     # emit camelCase on output (v2.6+)
+    )
+```
+
+All three flags matter:
+- `alias_generator=to_camel` — defines the aliases.
+- `populate_by_name=True` — accepts *either* snake_case *or*
+  camelCase on input. Lets legacy clients (older UIs, eval scripts,
+  ad-hoc curl) keep working through the transition; the UI cuts
+  over field-by-field without a hard sync point.
+- `serialize_by_alias=True` — *makes* `.model_dump()` /
+  FastAPI's response serializer actually emit camelCase. **Easy to
+  miss**: without this, the alias is defined but `.model_dump()`
+  still emits snake_case. If you can't bump Pydantic that far,
+  alternative is `response_model_by_alias=True` on every FastAPI
+  route (works but is N+1 places to remember).
+
+**TS-side: regenerate, don't find-and-replace**
+
+The mock's FastAPI app exposes an OpenAPI spec at `/openapi.json`.
+Once the mock emits camelCase, regenerate `src/api/types.ts` via:
+
+```
+npx openapi-typescript http://localhost:8080/openapi.json -o src/api/generated.ts
+```
+
+(Or similar — the UI hand-maintains its TS mirrors today, but the
+header comment on `src/api/types.ts` already notes the intent to
+codegen.) Codegen catches everything atomically; find-and-replace
+is fine for one or two files but error-prone across a 30-file
+sweep.
+
+**Soft cutover plan, given `populate_by_name=True`**
+
+The flag relaxes the lockstep order spelled out in §Ordering below
+— with it set, the mock can emit camelCase responses *while still
+accepting snake_case requests*. The UI then cuts over field by
+field. Each UI commit:
+
+1. Updates one TS interface to camelCase.
+2. Updates the consumers reading that interface.
+3. Ships — works against the mock either way because the mock now
+   accepts both on input and emits camelCase on output.
+
+When all consumers are camelCase, drop the `populate_by_name=True`
+flag and require camelCase on input too.
 
 ## Ordering
 
