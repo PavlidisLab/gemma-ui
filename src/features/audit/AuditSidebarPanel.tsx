@@ -350,6 +350,8 @@ function SidebarHeader({
     reopen,
     finalizeSaving,
     reopenSaving,
+    setDisposition,
+    dispositionByTarget,
   } = useAudit();
   const toast = useToast();
   const [confirmClose, setConfirmClose] = useState(false);
@@ -371,6 +373,34 @@ function SidebarHeader({
 
   async function handleClose(notes: string) {
     try {
+      // Workaround until my brother lands the audit_status fix
+      // (AUDIT_STATUS_CLOSED_RULE_HANDOFF.md): the agent's status
+      // glyph reads "closed" only when every finding has been
+      // dispositioned. Match findings (severity=ok, "no action
+      // needed" by design) never get clicked, so they stay
+      // pending forever and the member-list glyph stays
+      // amber-half-fill even after the curator closes. Sweep
+      // pending severity=ok findings to `accepted` here — the
+      // curator's silence on a match-shaped finding IS implicit
+      // agreement; no audit-quality signal is destroyed. Skip
+      // anything already non-pending so we don't clobber a real
+      // disposition.
+      const pendingOk = report.findings.filter((f) => {
+        if (f.severity !== "ok") return false;
+        const d = dispositionByTarget.get(f.target_id);
+        const status = d?.status ?? "pending";
+        return status === "pending";
+      });
+      for (const f of pendingOk) {
+        try {
+          await setDisposition(f.target_id, "accepted");
+        } catch {
+          // Best-effort sweep — if a single match PATCH 422s for
+          // some reason, don't block the close. The glyph might
+          // miss for that one experiment but the audit still
+          // closes.
+        }
+      }
       await finalize(notes || undefined);
       toast.show("Audit closed.", "success");
       setConfirmClose(false);
