@@ -23,9 +23,11 @@ import { DismissDialog, type DialogChip } from "./DismissDialog";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
 import { AuditTriggerDialog } from "./AuditTriggerDialog";
+import { parsePrefixedNote, resolveEditInitial } from "./dispositionEdit";
 import type {
   AttachedDefenderVerdict,
   AuditFinding,
+  AuditFindingDisposition,
   AuditReport,
   AuditRequest,
   AuditTargetKind,
@@ -550,11 +552,37 @@ function SidebarHeader({
           ) : null}
         </span>
       </div>
+      {/* Closed-audit note strip: surface the curator's finalize
+          note + the path to edit it. The actual edit flow is
+          Reopen (button above) → Close-audit (with the textarea
+          pre-filled). `finalized_notes` is optional on the report;
+          degrades gracefully when an older agent service hasn't
+          echoed it back on the read shape. */}
+      {isFinalized && report.finalized_notes ? (
+        <div className="mt-1 pl-1.5 flex items-start gap-1.5 text-[10px]">
+          <span
+            className="flex-1 italic text-slate-600 dark:text-slate-300 whitespace-pre-wrap"
+            title={report.finalized_notes}
+          >
+            <span className="not-italic text-slate-400 mr-1">📝</span>
+            {report.finalized_notes}
+          </span>
+          {lifecycleAvailable ? (
+            <span
+              className="text-slate-400 dark:text-slate-500 italic"
+              title="Reopen above to edit this note"
+            >
+              reopen to edit
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {confirmClose ? (
         <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-700">
           <CloseAuditConfirm
             pendingActionable={pendingActionable}
             saving={finalizeSaving}
+            initialNotes={report.finalized_notes ?? ""}
             onCancel={() => setConfirmClose(false)}
             onConfirm={handleClose}
           />
@@ -571,15 +599,20 @@ function SidebarHeader({
 function CloseAuditConfirm({
   pendingActionable,
   saving,
+  initialNotes = "",
   onCancel,
   onConfirm,
 }: {
   pendingActionable: number;
   saving: boolean;
+  /** Pre-fill the textarea with the prior close note when the
+   *  curator reopens an already-closed audit to re-close it.
+   *  Empty for a brand-new close. */
+  initialNotes?: string;
   onCancel: () => void;
   onConfirm: (notes: string) => Promise<void> | void;
 }) {
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(initialNotes);
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -1365,10 +1398,15 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
  *  Dismiss flow opens `DismissDialog` (chip-picker for the
  *  dismiss_reason enum from AUDIT_DISPOSITIONS.md ask #2). */
 
+// Ordered by curator-usage frequency, not enum order, so the modal
+// answer is the first chip the eye lands on. Cross-curator data
+// (CALIBRATION_CHIP_GAP_HANDOFF.md, 2026-05-14) showed `weak_evidence`
+// is the right chip for the bulk of dismisses curators were routing
+// through `other` — leading with it cuts the `other` rate.
 const DISMISS_CHIPS: DialogChip[] = [
+  { key: "weak_evidence",       label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
   { key: "redundant",           label: "Redundant",          help: "finding duplicates an issue already noted elsewhere" },
   { key: "out_of_scope",        label: "Out of scope",       help: "valid finding but outside this curation pass" },
-  { key: "weak_evidence",       label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
   { key: "accepted_elsewhere",  label: "Accepted elsewhere", help: "the change was already made via a different finding" },
   { key: "wont_fix",            label: "Won't fix",          help: "acknowledged but intentionally not acted on" },
   { key: "other",               label: "Other",              help: "doesn't fit the above — add a note" },
@@ -1399,25 +1437,47 @@ const NOT_SURE_CHIPS: DialogChip[] = [
 //   calibration_agent_extra: agent proposed X, gold doesn't have X.
 //     Disagree → agent FP (should not have proposed it)
 //     Accept   → agent TP (correctly proposed; gold was missing it)
-// For calibration_gold_only_miss: "Disagree" means curator thinks gold is right
+// For calibration_*_gold_only_miss: "Disagree" means curator thinks gold is right
 // (agent made a FN). Chips explain WHY — the verdict is already implied.
+//
+// `agent_real_miss` leads the list because it's the largest single
+// chip-gap by case-count across curators (~50 cases pre-landing;
+// see CALIBRATION_CHIP_GAP_HANDOFF.md). Used for both tag and
+// factor gold-miss findings (server gate accepts both).
 const CAL_MISS_DISMISS_CHIPS: DialogChip[] = [
+  { key: "agent_real_miss", label: "Agent missed it",  help: "the curator's gold tag is well-supported; agent's omission was an error" },
   { key: "missed_evidence", label: "Missed evidence",  help: "agent overlooked supporting evidence in the paper/data" },
   { key: "borderline",      label: "Borderline",       help: "close call — could reasonably go either way" },
   { key: "other",           label: "Other",            help: "add a note" },
 ];
-// For calibration_gold_only_miss: "Accept (remove)" means curator thinks gold is wrong
+// For calibration_*_gold_only_miss: "Accept (remove)" means curator thinks gold is wrong
 // (agent TN). Chips explain WHY.
 const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
   { key: "gold_was_wrong",  label: "Gold wrong",       help: "Gemma's existing tag is incorrect or outdated" },
   { key: "borderline",      label: "Borderline",       help: "close call — acceptable to remove" },
   { key: "other",           label: "Other",            help: "add a note" },
 ];
-// For calibration_agent_extra: "Disagree" means curator thinks the agent over-proposed
-// (agent FP). Chips explain WHY.
-const CAL_EXTRA_DISMISS_CHIPS: DialogChip[] = [
+// For calibration_agent_extra (tag-side): "Disagree" means curator thinks the agent
+// over-proposed (agent FP). Chips explain WHY.
+//
+// `not_sample_applicable` leads — amanda's 8 v18 cases + cross-curator
+// confirmation. `redundant_with_bm_source` is tag-only per the server
+// gate (factor extras don't show this shape).
+const CAL_EXTRA_TAG_DISMISS_CHIPS: DialogChip[] = [
+  { key: "not_sample_applicable",  label: "Subset only",                help: "applies to only a subset of profiled samples (e.g., case half of a case/control study)" },
+  { key: "no_evidence",            label: "No evidence",                help: "no supporting evidence in the paper/data" },
+  { key: "redundant_with_bm_source", label: "Covered by cell line",    help: "covered by a more-specific cell line or sample-source characteristic on the biomaterial" },
+  { key: "out_of_scope",           label: "Out of scope",               help: "outside the scope of this tag category" },
+  { key: "borderline",             label: "Borderline",                 help: "close call — could reasonably go either way" },
+  { key: "other",                  label: "Other",                      help: "add a note" },
+];
+// For calibration_factor_extra: subset of the tag-side chips. The
+// new `not_sample_applicable` / `redundant_with_bm_source` chips
+// don't apply — factor values define their sample groupings
+// explicitly, and BM-source redundancy is a tag concept.
+const CAL_EXTRA_FACTOR_DISMISS_CHIPS: DialogChip[] = [
   { key: "no_evidence",     label: "No evidence",      help: "no supporting evidence in the paper/data" },
-  { key: "out_of_scope",    label: "Out of scope",     help: "outside the scope of this tag category" },
+  { key: "out_of_scope",    label: "Out of scope",     help: "outside the scope of this factor category" },
   { key: "borderline",      label: "Borderline",       help: "close call — could reasonably go either way" },
   { key: "other",           label: "Other",            help: "add a note" },
 ];
@@ -1430,63 +1490,46 @@ const CAL_EXTRA_ACCEPT_CHIPS: DialogChip[] = [
   { key: "other",           label: "Other",            help: "add a note" },
 ];
 
+// Factor variants share the calibration chip sets with their tag
+// counterparts — same TP/FP/FN/TN framing, same curator rationales
+// in practice. Without this routing the factor codes fall through
+// to the generic DISMISS_CHIPS / ACCEPT_CHIPS, which is how amanda
+// ended up routing 19/20 v7b factor-gold-miss dismisses through
+// `weak_evidence` (the closest-feeling chip in the wrong vocab) —
+// see CALIBRATION_CHIP_GAP_HANDOFF.md, "Discoverability ask".
 function dismissChipsFor(issueCode: string): DialogChip[] {
-  if (issueCode === "calibration_gold_only_miss") return CAL_MISS_DISMISS_CHIPS;
-  if (issueCode === "calibration_agent_extra")    return CAL_EXTRA_DISMISS_CHIPS;
+  if (
+    issueCode === "calibration_gold_only_miss" ||
+    issueCode === "calibration_factor_gold_only_miss"
+  )
+    return CAL_MISS_DISMISS_CHIPS;
+  if (issueCode === "calibration_agent_extra")
+    return CAL_EXTRA_TAG_DISMISS_CHIPS;
+  if (issueCode === "calibration_factor_extra")
+    return CAL_EXTRA_FACTOR_DISMISS_CHIPS;
   return DISMISS_CHIPS;
 }
 function acceptChipsFor(issueCode: string): DialogChip[] {
-  if (issueCode === "calibration_gold_only_miss") return CAL_MISS_ACCEPT_CHIPS;
-  if (issueCode === "calibration_agent_extra")    return CAL_EXTRA_ACCEPT_CHIPS;
+  if (
+    issueCode === "calibration_gold_only_miss" ||
+    issueCode === "calibration_factor_gold_only_miss"
+  )
+    return CAL_MISS_ACCEPT_CHIPS;
+  if (
+    issueCode === "calibration_agent_extra" ||
+    issueCode === "calibration_factor_extra"
+  )
+    return CAL_EXTRA_ACCEPT_CHIPS;
   return ACCEPT_CHIPS;
 }
 
-// The calibration chip sets surface specific reasons that don't exist
-// in the agent-side `DismissReason` / `AcceptReason` Pydantic enums
-// (`missed_evidence`, `no_evidence`, `gold_was_wrong`, `borderline`).
-// Sending those keys verbatim makes the PATCH fail with a 422 and the
-// curator gets a red error box. Until my brother extends the enums
-// (see CALIBRATION_DISPOSITION_REASONS_HANDOFF.md), translate to a
-// canonical enum value before send and stash the specific key in
-// `notes` as a `[<key>] ...` prefix so the analytic signal survives.
-const CANONICAL_DISMISS_REASONS: ReadonlySet<string> = new Set([
-  "redundant", "out_of_scope", "weak_evidence", "accepted_elsewhere",
-  "wont_fix", "other",
-]);
-const CANONICAL_ACCEPT_REASONS: ReadonlySet<string> = new Set([
-  "well_evidenced", "fills_gap", "more_specific", "other",
-]);
-
-function toCanonicalDismissReason(
-  tag: string | null,
-): DismissReason | undefined {
-  if (!tag) return undefined;
-  if (CANONICAL_DISMISS_REASONS.has(tag)) return tag as DismissReason;
-  // missed_evidence / no_evidence both reduce to weak_evidence — the
-  // finding's evidence didn't hold up. borderline → other.
-  if (tag === "missed_evidence" || tag === "no_evidence") return "weak_evidence";
-  return "other";
-}
-
-function toCanonicalAcceptReason(
-  tag: string | null,
-): AcceptReason | undefined {
-  if (!tag) return undefined;
-  if (CANONICAL_ACCEPT_REASONS.has(tag)) return tag as AcceptReason;
-  // gold_was_wrong / borderline → other (with prefix kept in notes
-  // for analytic clustering).
-  return "other";
-}
-
-function tagPrefixedNotes(
-  tag: string | null,
-  notes: string,
-  canonical: ReadonlySet<string>,
-): string {
-  if (!tag || canonical.has(tag)) return notes;
-  const prefix = `[${tag}]`;
-  return notes ? `${prefix} ${notes}` : prefix;
-}
+// Calibration chips (`missed_evidence`, `no_evidence`, `gold_was_wrong`,
+// `borderline`) are first-class canonical DismissReason / AcceptReason
+// values on the agent side as of 2026-05-13 — the v0.6.4 squash-and-
+// prefix workaround was retired in v0.6.5 once old eval packages
+// were declared retired. Chip keys now map straight through to the
+// structured field; the `[tag]` prefix workaround only persists as a
+// legacy-read path in `parsePrefixedNote` for rows already in the DB.
 
 function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const {
@@ -1508,6 +1551,14 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // anchor-positioned popover as dismiss, different reason chips.
   const [acceptOpen, setAcceptOpen] = useState(false);
   const [notSureOpen, setNotSureOpen] = useState(false);
+  // Edit-mode flags pair with the *Open state above. Set together
+  // when the curator clicks the "✎ edit" link on an already-
+  // dispositioned finding; the dialog renders with prefilled
+  // notes/tag and a "Save" confirm. Server-side this is the same
+  // PATCH path — append-only log, latest-per-target_id wins.
+  const [dismissEditing, setDismissEditing] = useState(false);
+  const [acceptEditing, setAcceptEditing] = useState(false);
+  const [notSureEditing, setNotSureEditing] = useState(false);
   // Draft snapshot taken just before a mutating apply action runs.
   // Restored by the undo button so "undo" reverts BOTH the server
   // disposition and the draft mutation together.
@@ -1742,8 +1793,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
 
   async function handleDismissConfirm(tag: string | null, notes: string) {
     await patch("dismissed", {
-      dismissReason: toCanonicalDismissReason(tag),
-      notes: tagPrefixedNotes(tag, notes, CANONICAL_DISMISS_REASONS),
+      dismissReason: (tag ?? undefined) as DismissReason | undefined,
+      notes,
     });
     setDismissOpen(false);
   }
@@ -1751,8 +1802,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   async function handleAcceptConfirm(tag: string | null, notes: string) {
     setAcceptOpen(false);
     await handleApply({
-      acceptReason: toCanonicalAcceptReason(tag),
-      notes: tagPrefixedNotes(tag, notes, CANONICAL_ACCEPT_REASONS),
+      acceptReason: (tag ?? undefined) as AcceptReason | undefined,
+      notes,
     });
   }
 
@@ -2004,36 +2055,179 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           </span>
         ) : null}
       </div>
-      {dismissOpen ? (
-        <DismissDialog
-          mode="dismiss"
-          chips={dismissChipsFor(finding.issue_code)}
-          finding={finding}
-          anchor={dismissBtnRef.current}
-          onCancel={() => setDismissOpen(false)}
-          onConfirm={handleDismissConfirm}
-        />
-      ) : null}
-      {acceptOpen ? (
-        <DismissDialog
-          mode="accept"
-          chips={acceptChipsFor(finding.issue_code)}
-          finding={finding}
-          anchor={acceptBtnRef.current}
-          onCancel={() => setAcceptOpen(false)}
-          onConfirm={handleAcceptConfirm}
-        />
-      ) : null}
-      {notSureOpen ? (
-        <DismissDialog
-          mode="not_sure"
-          chips={NOT_SURE_CHIPS}
-          finding={finding}
-          anchor={notSureBtnRef.current}
-          onCancel={() => setNotSureOpen(false)}
-          onConfirm={handleNotSureConfirm}
-        />
-      ) : null}
+      <DispositionNoteRow
+        disposition={disposition}
+        isFinalized={isFinalized}
+        onEdit={() => {
+          // Route edit to the right dialog based on current status.
+          // The trigger button refs are reused — the popover anchors
+          // on the same Disagree / Park / accept button it would for
+          // a "new" disposition, so positioning stays consistent.
+          if (current === "dismissed") {
+            setDismissEditing(true);
+            setDismissOpen(true);
+          } else if (current === "needs_more_info") {
+            setNotSureEditing(true);
+            setNotSureOpen(true);
+          } else if (current === "accepted") {
+            setAcceptEditing(true);
+            setAcceptOpen(true);
+          }
+        }}
+      />
+      {dismissOpen
+        ? (() => {
+            // Prefill order: structured field (post-2026-05-13
+            // canonical chip) → legacy `[tag]` prefix in notes
+            // (pre-2026-05-13 rows). Handled by resolveEditInitial.
+            const prefill =
+              dismissEditing && disposition
+                ? resolveEditInitial(disposition, "dismiss")
+                : { tag: null, plain: "" };
+            return (
+              <DismissDialog
+                mode="dismiss"
+                chips={dismissChipsFor(finding.issue_code)}
+                finding={finding}
+                anchor={dismissBtnRef.current}
+                isEdit={dismissEditing}
+                initialTag={prefill.tag}
+                initialNotes={prefill.plain}
+                onCancel={() => {
+                  setDismissOpen(false);
+                  setDismissEditing(false);
+                }}
+                onConfirm={async (tag, notes) => {
+                  await handleDismissConfirm(tag, notes);
+                  setDismissEditing(false);
+                }}
+              />
+            );
+          })()
+        : null}
+      {acceptOpen
+        ? (() => {
+            const prefill =
+              acceptEditing && disposition
+                ? resolveEditInitial(disposition, "accept")
+                : { tag: null, plain: "" };
+            return (
+              <DismissDialog
+                mode="accept"
+                chips={acceptChipsFor(finding.issue_code)}
+                finding={finding}
+                anchor={acceptBtnRef.current}
+                isEdit={acceptEditing}
+                initialTag={prefill.tag}
+                initialNotes={prefill.plain}
+                onCancel={() => {
+                  setAcceptOpen(false);
+                  setAcceptEditing(false);
+                }}
+                onConfirm={async (tag, notes) => {
+                  await handleAcceptConfirm(tag, notes);
+                  setAcceptEditing(false);
+                }}
+              />
+            );
+          })()
+        : null}
+      {notSureOpen
+        ? (() => {
+            const prefill =
+              notSureEditing && disposition
+                ? resolveEditInitial(disposition, "not_sure")
+                : { tag: null, plain: "" };
+            return (
+              <DismissDialog
+                mode="not_sure"
+                chips={NOT_SURE_CHIPS}
+                finding={finding}
+                anchor={notSureBtnRef.current}
+                isEdit={notSureEditing}
+                initialTag={prefill.tag}
+                initialNotes={prefill.plain}
+                onCancel={() => {
+                  setNotSureOpen(false);
+                  setNotSureEditing(false);
+                }}
+                onConfirm={async (tag, notes) => {
+                  await handleNotSureConfirm(tag, notes);
+                  setNotSureEditing(false);
+                }}
+              />
+            );
+          })()
+        : null}
+    </div>
+  );
+}
+
+/** Inline display of a disposition's stored note, with an "edit"
+ *  affordance that re-opens the matching dialog in edit mode. When
+ *  the audit is finalized, the affordance turns into a "reopen to
+ *  edit" hint — the server's PATCH gate rejects writes against a
+ *  finalized audit (409), so we surface the path back. */
+function DispositionNoteRow({
+  disposition,
+  isFinalized,
+  onEdit,
+}: {
+  disposition: AuditFindingDisposition | undefined;
+  isFinalized: boolean;
+  onEdit: () => void;
+}) {
+  if (!disposition || disposition.status === "pending") return null;
+  const { plain } = parsePrefixedNote(disposition.notes);
+  // Cascaded dispositions (inherited from a parent factor finding)
+  // are read-only — the parent's disposition is the editable source
+  // of truth. Hide the inline note row entirely on the empty-note
+  // case so we don't paint a "no note / edit" affordance the curator
+  // can't actually use.
+  const isCascaded = !!disposition.inherited_from;
+  if (isCascaded && !plain) return null;
+  // Show the row whenever a disposition is set — even when there's
+  // no note yet — so the curator can retro-add one. Empty-note
+  // case renders just the "✎ edit" link with no quote text.
+  return (
+    <div className="pl-1.5 mt-1 flex items-start gap-1.5 text-[10px]">
+      {plain ? (
+        <span
+          className="flex-1 italic text-slate-600 dark:text-slate-300 whitespace-pre-wrap"
+          title={plain}
+        >
+          <span className="not-italic text-slate-400 mr-1">📝</span>
+          {plain}
+        </span>
+      ) : (
+        <span className="flex-1 text-slate-400 dark:text-slate-500 italic">
+          no note
+        </span>
+      )}
+      {isCascaded ? (
+        <span
+          className="text-slate-400 dark:text-slate-500 italic"
+          title={`cascaded from ${disposition.inherited_from} — edit the parent finding`}
+        >
+          cascaded
+        </span>
+      ) : isFinalized ? (
+        <span
+          className="text-slate-400 dark:text-slate-500 italic"
+          title="audit is closed — Reopen above to edit"
+        >
+          reopen to edit
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline dark:text-slate-400 dark:hover:text-slate-100"
+          title="edit reason / note"
+        >
+          ✎ edit
+        </button>
+      )}
     </div>
   );
 }
@@ -2257,6 +2451,7 @@ function verdictStrength(
   v: string | undefined,
 ): "weak" | "moderate" | "strong" | null {
   switch (v) {
+    // Tag side (original six, AUDIT_DEFENDER_VERDICT_HANDOFF.md).
     case "extra_genuine_new":
     case "agent_correct_inherited":
     case "agent_correct_overzealous_gold":
@@ -2265,6 +2460,18 @@ function verdictStrength(
     case "extra_inherited_redundant":
     case "extra_unsupported":
       return "weak";
+    // Factor side (FACTOR_DEFENDER_VERDICT_HANDOFF.md, 2026-05-14).
+    // extra_genuine_new + extra_unsupported are shared with the tag
+    // enum (same string, same strength) and handled above.
+    case "miss_inherited_from_design":
+    case "miss_overzealous_gold":
+      return "strong";
+    case "extra_confounded":
+    case "miss_genuine":
+      return "weak";
+    case "extra_borderline":
+    case "miss_borderline":
+      return "moderate";
     default:
       return null;
   }
@@ -2285,12 +2492,19 @@ function shortFixForVerdict(
   const strength = dv.strength ?? verdictStrength(dv.verdict);
   if (strength !== "weak") return null;
   switch (dv.verdict) {
+    // Tag side. `extra_unsupported` copy is shared with the factor
+    // side (same human reading either way).
     case "extra_unsupported":
       return "Dismiss — judge: the agent's pick isn't well-evidenced.";
     case "extra_inherited_redundant":
       return "Dismiss — judge: already inherited from biomaterials.";
     case "agent_miss_genuine":
       return "Keep the existing tag — judge: it's well-supported.";
+    // Factor side (FACTOR_DEFENDER_VERDICT_HANDOFF.md).
+    case "extra_confounded":
+      return "Dismiss — judge: factor is confounded with another in the design.";
+    case "miss_genuine":
+      return "Keep the existing factor — judge: it's well-supported.";
     default:
       // Weak strength on a verdict label we don't have specific copy
       // for (forward-compat: future investigator verdicts). Generic

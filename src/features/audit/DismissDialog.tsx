@@ -52,6 +52,9 @@ export function DismissDialog({
   chips = [],
   finding,
   anchor,
+  initialTag = null,
+  initialNotes = "",
+  isEdit = false,
   onCancel,
   onConfirm,
 }: {
@@ -62,12 +65,22 @@ export function DismissDialog({
   chips?: DialogChip[];
   finding: { issue_code: string; rationale: string };
   anchor: HTMLElement | null;
+  /** Pre-select this chip on open. Used when re-opening the dialog
+   *  to edit an existing disposition's notes / tag. */
+  initialTag?: string | null;
+  /** Pre-fill the notes textarea. */
+  initialNotes?: string;
+  /** Re-edit of an existing disposition — swaps the title and confirm
+   *  copy to "Save". Server-side this is still the same PATCH (the
+   *  log is append-only, latest-per-target_id wins), so no separate
+   *  endpoint is needed. */
+  isEdit?: boolean;
   onCancel: () => void;
   onConfirm: (tag: string | null, notes: string) => Promise<void> | void;
 }) {
   const config = MODE_CONFIG[mode];
-  const [tag, setTag] = useState<string | null>(null);
-  const [notes, setNotes] = useState("");
+  const [tag, setTag] = useState<string | null>(initialTag);
+  const [notes, setNotes] = useState(initialNotes);
   const [submitting, setSubmitting] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -161,7 +174,7 @@ export function DismissDialog({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="font-semibold text-slate-800 dark:text-slate-100 mb-1.5">
-        {config.title}
+        {isEdit ? `Edit · ${config.title}` : config.title}
       </div>
       <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">
         <span className="font-mono mr-1">{finding.issue_code}</span>
@@ -215,7 +228,11 @@ export function DismissDialog({
           title={submitHint || undefined}
           className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-100"
         >
-          {submitting ? config.confirmingLabel : config.confirmLabel}
+          {submitting
+            ? config.confirmingLabel
+            : isEdit
+              ? "Save"
+              : config.confirmLabel}
         </button>
       </div>
     </div>,

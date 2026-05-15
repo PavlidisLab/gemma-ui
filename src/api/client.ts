@@ -86,12 +86,17 @@ async function readErrorBody(r: Response): Promise<string> {
  *  Idempotent on already-snake_case keys (no uppercase = regex
  *  doesn't fire). Drop the adapter once the UI's TS interfaces are
  *  swept to camelCase — see same handoff doc.
+ *
+ *  Exported so SSE parsers can apply the same transform per-event,
+ *  letting the audit/propose stream envelope flip from snake to
+ *  camel without UI lockstep (GEMMA_WIRE_ALIGNMENT_HANDOFF.md
+ *  phase-2c).
  */
 function snakifyKey(key: string): string {
   return key.replace(/([A-Z])/g, (_, ch) => `_${(ch as string).toLowerCase()}`);
 }
 
-function snakeify(value: unknown): unknown {
+export function snakeify(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(snakeify);
   const out: Record<string, unknown> = {};

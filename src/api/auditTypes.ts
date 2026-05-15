@@ -167,12 +167,22 @@ export interface AuditFinding {
 export interface AttachedDefenderVerdict {
   side: "agent_extra" | "agent_missed_gold";
   verdict:
+    // Tag side (original six, AUDIT_DEFENDER_VERDICT_HANDOFF.md).
     | "agent_miss_genuine"
     | "agent_correct_inherited"
     | "agent_correct_overzealous_gold"
     | "extra_genuine_new"
     | "extra_inherited_redundant"
     | "extra_unsupported"
+    // Factor side (FACTOR_DEFENDER_VERDICT_HANDOFF.md, 2026-05-14).
+    // `extra_genuine_new` + `extra_unsupported` are shared with the
+    // tag enum.
+    | "extra_confounded"
+    | "extra_borderline"
+    | "miss_genuine"
+    | "miss_inherited_from_design"
+    | "miss_overzealous_gold"
+    | "miss_borderline"
     // Forward-compat: future producers (curator-triggered
     // "investigate further" / extra-review pass) will emit the same
     // shape with new verdict labels we don't enumerate here. UI keys
@@ -257,6 +267,14 @@ export interface AuditFindingDisposition {
    *  validation signal) vs "clean win". Optional / nullable for
    *  backwards compat with older mocks. */
   resolved_at?: string | null;
+  /** Structured-reason fields echoed back on read so the edit
+   *  dialog can prefill the curator's chip selection. Set only when
+   *  the disposition's status matches (dismiss → dismissed, etc.);
+   *  null/absent on older agent services that pre-date the round-
+   *  trip ask (AUDIT_DISPOSITION_EDIT_HANDOFF.md, 2026-05-14). */
+  dismiss_reason?: DismissReason | null;
+  accept_reason?: AcceptReason | null;
+  not_sure_reason?: NotSureReason | null;
 }
 
 /** Closed enum of structured "why this is a dismiss" reasons.
@@ -279,6 +297,23 @@ export type DismissReason =
   | "accepted_elsewhere"
   | "wont_fix"
   | "other"
+  // Calibration-specific reasons promoted to canonical 2026-05-13
+  // (agents-side enum extension; see schemas.py:444-448). Chip keys
+  // map straight through to the structured field — no client-side
+  // squash anymore.
+  | "missed_evidence"
+  | "no_evidence"
+  | "borderline"
+  // Cross-curator chip-gap closures landed 2026-05-14 (agents side
+  // CALIBRATION_CHIP_GAP_HANDOFF.md). Per-issue-code gating on the
+  // server side:
+  //   agent_real_miss          → calibration_{gold_only_miss,
+  //                              factor_gold_only_miss}
+  //   redundant_with_bm_source → calibration_agent_extra (tag-side)
+  //   not_sample_applicable    → calibration_agent_extra (tag-side)
+  | "agent_real_miss"
+  | "redundant_with_bm_source"
+  | "not_sample_applicable"
   | (string & {});
 
 /** Closed enum of structured "why I accepted this" reasons. Required
@@ -289,7 +324,13 @@ export type AcceptReason =
   | "well_evidenced"
   | "fills_gap"
   | "more_specific"
-  | "other";
+  | "other"
+  // Calibration-specific reasons promoted to canonical 2026-05-13
+  // (agents-side enum extension). Chip keys map straight through
+  // to the structured field — no client-side squash anymore.
+  | "gold_was_wrong"
+  | "borderline"
+  | (string & {});
 
 /** Closed enum of structured "why I'm parking this" reasons.
  *  Required by the server when ``status === "needs_more_info"``.
@@ -299,7 +340,8 @@ export type NotSureReason =
   | "need_more_data"
   | "need_expert"
   | "pending_update"
-  | "other";
+  | "other"
+  | (string & {});
 
 /** PATCH body for `PATCH /rest/v2/audits/{audit_id}`. One disposition
  *  update per request — bulk dispositioning isn't supported on this
@@ -374,6 +416,17 @@ export interface AuditReport {
   /** Reviewer username who finalized. Pairs with `finalized_at`;
    *  same nullable / optional rules. */
   finalized_by?: string | null;
+  /** Curator's optional free-text note attached to the finalize
+   *  click — "I'm closing this because X". Surfaced post-close in
+   *  the audit header strip and pre-filled into the close textarea
+   *  when the curator reopens to re-close with edits.
+   *
+   *  Optional/nullable on the read shape: old agent services
+   *  routed the note into the audit_events row without echoing it
+   *  back on `AuditReport`. Bro adds the echo in a follow-up
+   *  (AUDIT_DISPOSITION_EDIT_HANDOFF.md). UI degrades to "(no
+   *  note recorded)" when undefined. */
+  finalized_notes?: string | null;
 }
 
 /** One round in a challenger/defender/arbiter debate loop. Shared

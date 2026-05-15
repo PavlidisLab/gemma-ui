@@ -164,6 +164,118 @@ UI change (still open): switch `usePublishExperiment` to PUT
 endpoint, the legacy `POST /publish` + `GET /visibility` can be
 dropped from the mock.
 
+### 4a. Pydantic-driven response/request alignment ✅ phase-2a
+
+**Mock side: done 2026-05-13.** Every wire-facing Pydantic base in
+the mock now carries the triple:
+
+```python
+ConfigDict(
+    populate_by_name=True,
+    alias_generator=to_camel,
+    serialize_by_alias=True,
+)
+```
+
+Affected:
+* `mock_gemma_curation_api/design_schemas.py:_Strict` (CurationDetailsD,
+  OntologyTermD, StatementD, FactorD, …)
+* `mock_gemma_curation_api/calibration_batch_schemas.py:_Strict` (CalibrationReviewState, ImportReceipt, …)
+* `mock_gemma_curation_api/workflow_schemas.py:_WireBase` (WorkflowDatasetRow, ExperimentPipelineStatus, Group, …)
+* `mock_gemma_curation_api/server.py:_WireBase` (PermissionsUpdateRequest, DatasetPermissionsValueObject, CurationDetailsUpdate, AuditEvent, AuditShapeSummary, VisibilityResponse)
+* `agents/audit/schemas.py:_Strict` (AuditReport, AuditFinding, dispositions — SSE-emitted)
+* `agents/curation_proposer/schemas.py:_Strict` (Proposal, FactorProposal, TagProposal, StatementProposal — SSE-emitted)
+
+**Result:** REST response bodies emit camelCase on the wire (handled
+by FastAPI's response serializer via `serialize_by_alias=True`).
+Request bodies accept BOTH snake_case and camelCase
+(`populate_by_name=True`). SQLite blob writes pinned to
+`by_alias=False` so on-disk format stays snake_case across older /
+newer rows.
+
+UI side: legacy snake_case TS interfaces still work for input;
+the response shape is now camelCase. Cut over field-by-field at
+your convenience — the soft cutover plan below is in effect.
+
+### 4b. SSE envelope camelCase ✅ UI absorbs (no lockstep needed)
+
+**Mock side: AUDITED but NOT shipped (2026-05-13).** The
+`serialize_by_alias` change in phase-2a fixed Pydantic-derived
+contents inside SSE payloads, but the **SSE envelope itself**
+(`schema_version`, `run_id`, `timestamp`, `event`, `level`,
+`message`, `progress`, `payload`) is constructed as a plain dict in
+`proposer_service._sse_synth` and
+`agents/curation_proposer/pipeline.RunContext.emit` — these bypass
+Pydantic and still emit snake_case.
+
+The current SSE wire is mixed:
+
+```jsonc
+{
+  "schema_version": 1,         // ← snake (envelope, plain dict)
+  "run_id": "...",             // ← snake
+  "timestamp": "...",
+  "event": "subtask.audit.finding",
+  "level": "warn",
+  "message": "...",
+  "progress": 0.10,
+  "payload": {
+    "finding": {               // ← snake (top-level payload key, also a kwarg name)
+      "targetKind": "tag",     // ← camel (Pydantic-dumped post phase-2a)
+      "targetId": "tag:1",
+      "issueCode": "...",
+      ...
+    }
+  }
+}
+```
+
+**Fix is ~15 LOC** but breaks UI stream parsers immediately:
+
+```python
+from pydantic.alias_generators import to_camel
+def _camel_keys(d):
+    return {to_camel(k): v for k, v in d.items()}
+```
+
+Apply to both:
+* `proposer_service._sse_synth` envelope construction
+* `agents/curation_proposer/pipeline.RunContext.emit` envelope construction
+
+The payload `kwargs` also need camelCasing (since callers pass
+snake-named kwargs like `finding=`, `proposal=`, `accession=`,
+`type=`, `error=`). Pydantic-dumped contents *inside* those values
+are already camel — no change needed there.
+
+UI changes needed in lockstep:
+* `src/api/audit-stream.ts` event-shape interface: `schema_version`
+  → `schemaVersion`, `run_id` → `runId`, plus payload top-level keys
+* `src/api/propose-stream.ts` same shape
+* Any consumer reading `event.payload.finding.target_kind` (already
+  failing — that field is now `targetKind` per phase-2a; fix forward
+  to camel everywhere)
+
+**UI side (2026-05-14, post phase-2b handoff):** rather than
+lockstep-rename, the UI now applies the same `snakeify` adapter it
+uses for fetch responses (`src/api/client.ts`) to each parsed SSE
+event in `auditStream.ts` and `proposeStream.ts`. Envelope keys
+(`schema_version`, `run_id`, …) and any payload subtree get
+normalised to snake_case before the reducer touches them, so bro can
+ship the `_camel_keys` fix whenever — UI absorbs both shapes
+transparently. Idempotent on snake input, so this is safe to land
+before the mock change.
+
+**Bro side (still open):** ship `_camel_keys` on the envelope
+construction in `proposer_service._sse_synth` and
+`agents/curation_proposer/pipeline.RunContext.emit`. No UI
+coordination needed. Smoke-test by running `auditStream` /
+`proposeStream` end-to-end against the post-fix mock; the UI's
+`snakeify` will roll the envelope back to snake before consumers
+read it.
+
+Drop both the UI `snakeify` adapter and the snake-case TS interfaces
+together in the post-Friday TS-side camelCase sweep.
+
 ### 5. snake_case → camelCase across remaining payloads
 
 The above are the load-bearing ones, but the convention difference

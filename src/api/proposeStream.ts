@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { bearerToken } from "./client";
+import { bearerToken, snakeify } from "./client";
 import type { Proposal } from "./types";
 import type { TriggerProposalBody } from "./proposals";
 
@@ -128,7 +128,12 @@ export function useProposeStream(experimentId: number) {
                 if (!line.startsWith("data:")) continue;
                 let ev: ProgressEvent;
                 try {
-                  ev = JSON.parse(line.slice(5).trim()) as ProgressEvent;
+                  // Normalise envelope + payload keys to snake_case so
+                  // the bro-side `_camel_keys` flip (phase-2c) is
+                  // transparent. snakeify is idempotent on snake input.
+                  ev = snakeify(
+                    JSON.parse(line.slice(5).trim()),
+                  ) as ProgressEvent;
                 } catch {
                   continue; // ignore malformed lines rather than crash
                 }
