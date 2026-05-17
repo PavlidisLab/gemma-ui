@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-white text-gemma-ink antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  a {
+    @apply text-gemma-accent hover:underline;
+  }
+  h1, h2, h3, h4 {
+    @apply font-medium tracking-tight;
+  }
+}
+
+@layer components {
+  /* Filter chip used in the active-filter bar */
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs;
+    @apply border-gemma-grid bg-white text-gemma-ink;
+  }
+  .chip-pos    { @apply bg-emerald-50 text-emerald-800 border-emerald-200; }
+  .chip-neg    { @apply bg-rose-50 text-rose-800 border-rose-200; }
+  .chip-cat    { @apply bg-amber-50 text-amber-800 border-amber-200; }
+
+  /* Annotation tree leaf state icons */
+  .tristate-btn {
+    @apply inline-flex h-4 w-4 items-center justify-center rounded border;
+    @apply border-gemma-grid text-transparent;
+  }
+  .tristate-btn.pos { @apply bg-gemma-accent border-gemma-accent text-white; }
+  .tristate-btn.neg { @apply bg-rose-500 border-rose-500 text-white; }
+
+  /* Search bar text input + selectors share this look */
+  .input {
+    @apply w-full px-2 py-1.5 text-sm rounded border border-gemma-grid bg-white;
+    @apply focus:outline-none focus:ring-2 focus:ring-gemma-accent/30 focus:border-gemma-accent;
+  }
+
+  .btn {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded border bg-white;
+    @apply border-gemma-grid text-gemma-ink hover:bg-gray-50;
+  }
+  .btn-primary {
+    @apply bg-gemma-accent text-white border-gemma-accent hover:bg-blue-700;
+  }
+  .btn-ghost {
+    @apply border-transparent hover:bg-gray-100;
+  }
+
+  /* Subtle section heading inside the side-panel */
+  .side-heading {
+    @apply text-xs uppercase tracking-wider text-gemma-subtle font-medium;
+  }
+
+  /* Indeterminate top-progress bar shown while queries are in flight.
+     The wrapper is a 2px lane (or spacer when idle, to avoid layout
+     jump); the ::before sweeps across it. */
+  .progress-lane { height: 2px; }
+  .progress-lane.busy {
+    position: relative;
+    overflow: hidden;
+    background-color: theme('colors.gemma.grid');
+  }
+  .progress-lane.busy::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -40%;
+    width: 40%;
+    background-color: theme('colors.gemma.accent');
+    animation: progress-indeterminate 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes progress-indeterminate {
+  0%   { left: -40%; }
+  60%  { left: 100%; }
+  100% { left: 100%; }
+}
