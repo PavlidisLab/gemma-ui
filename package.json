@@ -1,0 +1,20 @@
+{
+  "name": "gemma-ui",
+  "private": true,
+  "version": "0.9.0",
+  "description": "Gemma user-facing frontends — apps/curation (curator workflow) + apps/browser (public browse/search).",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:curation": "npm --workspace gemma-curation-ui run dev",
+    "dev:browser": "npm --workspace gembrow run dev",
+    "build:curation": "npm --workspace gemma-curation-ui run build",
+    "build:browser": "npm --workspace gembrow run build",
+    "build": "npm run build:curation && npm run build:browser",
+    "typecheck:curation": "npm --workspace gemma-curation-ui run typecheck",
+    "typecheck:browser": "npm --workspace gembrow run typecheck",
+    "typecheck": "npm run typecheck:curation && npm run typecheck:browser",
+    "test:curation": "npm --workspace gemma-curation-ui run test"
+  }
+}
