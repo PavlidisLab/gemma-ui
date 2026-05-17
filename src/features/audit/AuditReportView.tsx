@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { StatementGlyph } from "@/components/ui/StatementGlyph";
-import { shortenUri } from "@/lib/curie";
+import { curieToUrl, shortenUri } from "@/lib/curie";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { factorTarget } from "@/features/audit/targetIds";
 import { normalizeWikiUrl } from "@/lib/guidelines";
@@ -575,6 +575,25 @@ export function DesignComparisonPanel({
     (f) => !/^(block|batch)$/i.test(f.category.label.trim()),
   );
 
+  // Factor labels already covered by a `calibration_factor_match`
+  // finding above in CONFIRMED MATCHES — rendering them again here
+  // as "✓ X = Gemma" rows is pure duplication. Pull the label out of
+  // each match-finding's rationale (`Is factor \`X\` …`) so the
+  // EXPERIMENTAL DESIGN section can skip them.
+  const matchedFactorLabels = (() => {
+    const s = new Set<string>();
+    for (const f of report.findings ?? []) {
+      if (f.issue_code !== "calibration_factor_match") continue;
+      if (f.severity !== "ok") continue; // rename matches (severity≠ok) stay
+      const m = (f.rationale || "").match(/`([^`]+)`/);
+      if (m) s.add(m[1].trim().toLowerCase());
+    }
+    return s;
+  })();
+  const visibleAgentFactors = agentFactors.filter(
+    (f) => !matchedFactorLabels.has(f.category.label.trim().toLowerCase()),
+  );
+
   // Per-factor alignment:
   // 1. Exact: agent category label == Gemma category label (case-insensitive)
   // 2. Close: different label but FV URIs overlap with a specific Gemma factor
@@ -700,7 +719,12 @@ export function DesignComparisonPanel({
         </div>
       ) : null}
 
-      {/* Experimental design proposals */}
+      {/* Experimental design proposals — skip exact-match factors that
+       *  CONFIRMED MATCHES above already lists. When ALL factors are
+       *  matches, the section collapses entirely; the count header
+       *  links curators to that fact so they don't think factors are
+       *  missing. */}
+      {!cp || visibleAgentFactors.length > 0 || agentFactors.length === 0 ? (
       <div className="border-b border-slate-100 dark:border-slate-700">
         <div className="px-3 pt-2 pb-1 flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-400">
@@ -711,6 +735,11 @@ export function DesignComparisonPanel({
           ) : null}
           <span className="text-[10px] text-slate-400 ml-auto">
             {agentFactors.length} factor{agentFactors.length === 1 ? "" : "s"}
+            {agentFactors.length > visibleAgentFactors.length ? (
+              <span className="ml-1 text-slate-500">
+                ({agentFactors.length - visibleAgentFactors.length} matched)
+              </span>
+            ) : null}
           </span>
         </div>
         {!cp ? (
@@ -719,7 +748,7 @@ export function DesignComparisonPanel({
           <div className="px-3 pb-3 text-slate-400 italic text-[11px]">no factors proposed</div>
         ) : (
           <div className="px-3 pb-2 space-y-1.5 text-xs">
-            {agentFactors.map((f, i) => {
+            {visibleAgentFactors.map((f, i) => {
               const { type: matchType, gemmaFactor } = findGemmaMatch(f);
               const inDraft = !!draftFactorLabels?.has(f.category.label.toLowerCase());
               const entry = findDesignDebateEntry(f, transcripts);
@@ -746,6 +775,7 @@ export function DesignComparisonPanel({
           </div>
         )}
       </div>
+      ) : null}
 
       {/* EE tag proposals — only show tags that aren't already covered
           by a per-finding card above. When every proposed tag has a
@@ -803,15 +833,250 @@ export function DesignComparisonPanel({
 
 /** Collapse entries that share both `subtask` and `verdict` — they are
  *  identical copies produced once per factor (e.g. S7 coverage pass).
- *  Keeps the first occurrence; discards exact duplicates silently. */
+ *  Keeps the first occurrence; discards exact duplicates silently.
+ *
+ *  Also collapses near-identical S2i_confounding_check "skip rule
+ *  does NOT apply" entries — one per factor pair — into a single
+ *  summary row. With 3+ factors the per-pair prose was identical
+ *  modulo factor names + tiny crosstab numbers, blowing out the
+ *  panel with N(N-1)/2 paragraphs that say "nothing's wrong." */
 function dedupeSubtaskDecisions(decisions: SubtaskDecision[]): SubtaskDecision[] {
   const seen = new Set<string>();
-  return decisions.filter((d) => {
+  const dedupedExact = decisions.filter((d) => {
     const key = `${d.subtask}||${d.verdict}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+  const cleanS2i = dedupedExact.filter(
+    (d) =>
+      d.subtask === "S2i_confounding_check" &&
+      /skip rule does not apply/i.test(d.verdict),
+  );
+  if (cleanS2i.length < 2) return dedupedExact;
+  // Replace all clean S2i entries with a single summary line.
+  const summary: SubtaskDecision = {
+    ...cleanS2i[0],
+    verdict: `${cleanS2i.length} factor-pair confounding checks all clean — every pair is fully crossed; the S2i skip rule does not apply for any.`,
+  };
+  return dedupedExact
+    .filter(
+      (d) =>
+        !(
+          d.subtask === "S2i_confounding_check" &&
+          /skip rule does not apply/i.test(d.verdict)
+        ),
+    )
+    .concat([summary]);
+}
+
+/** Parses an S10_term_validator decision into the structured bits the
+ *  UI needs to render an inline badge next to the affected term slot.
+ *
+ *  v5b wire (HANDOFF_2026-05-17_V5B_UI_UPDATES.md):
+ *    - target_id encodes the slot:
+ *        ``factor:<cat>/fv:<i>/stmt:<j>/subject``
+ *        ``factor:<cat>/fv:<i>/stmt:<j>/object``
+ *        ``factor:<cat>/fv:<i>/stmt:<j>/subject+object``  (both slots)
+ *    - verdict prose ends with a parenthetical chip-style suffix:
+ *        ``"X" → URI  (gemma-new)``
+ *        ``"X" → URI  (no prior gemma use)``
+ *        ``"X" → URI  (wrong ontology for Y)``
+ *        ``"X" → URI  (no label/URI match in Gemma — verify)``
+ *        ``"X" → URI  (canonical label: "Y")``
+ *
+ *  Returns null for non-S10 decisions; caller falls back to the
+ *  generic SubtaskDecisionRow. */
+type TermAlert = {
+  /** Which slot(s) of the statement the decision applies to. */
+  slots: ("subject" | "object")[];
+  /** Curator-facing tag — drives badge label + colour. Parsed from
+   *  the trailing parenthetical when present; falls back to prose-
+   *  pattern matching for legacy pre-v5b decisions. */
+  tag:
+    | "gemma-new"
+    | "no-prior-use"
+    | "wrong-ontology"
+    | "no-match"
+    | "canonical-label"
+    | "free-text"
+    | "other";
+  /** Raw parenthetical content (e.g. "wrong ontology for Y",
+   *  "canonical label: 'Y'") so the badge label can keep nuance the
+   *  bucket tag drops. */
+  parenthetical?: string;
+  /** Full original verdict text for the hover tooltip. */
+  verdict: string;
+  citation?: string;
+};
+function parseTermAlert(d: SubtaskDecision): TermAlert | null {
+  if (d.subtask !== "S10_term_validator") return null;
+  const v = d.verdict || "";
+
+  // Slot(s) from target_id suffix (v5b). Falls back to first-word
+  // sniff on the verdict for pre-v5b packages where target_id might
+  // not carry the slot.
+  const slots: TermAlert["slots"] = (() => {
+    const tid = (d.target_id || "").toLowerCase();
+    const out: ("subject" | "object")[] = [];
+    if (tid.endsWith("/subject+object") || tid.includes("/subject+object")) {
+      return ["subject", "object"];
+    }
+    if (tid.endsWith("/subject")) out.push("subject");
+    if (tid.endsWith("/object")) out.push("object");
+    if (out.length > 0) return out;
+    // Legacy fallback: parse from verdict prose.
+    const lower = v.toLowerCase();
+    if (lower.startsWith("subject")) return ["subject"];
+    if (lower.startsWith("object")) return ["object"];
+    return [];
+  })();
+
+  // Trailing parenthetical → bucket tag. v5b's terse rationales end
+  // with one of a small set of parentheticals; older verbose prose
+  // gets matched via includes() as a fallback.
+  const parenMatch = v.match(/\(([^)]+)\)\s*$/);
+  const paren = parenMatch ? parenMatch[1].trim() : "";
+  const pLower = paren.toLowerCase();
+  const lower = v.toLowerCase();
+  const tag: TermAlert["tag"] = (() => {
+    if (pLower === "gemma-new") return "gemma-new";
+    if (pLower === "no prior gemma use") return "no-prior-use";
+    if (pLower.startsWith("wrong ontology")) return "wrong-ontology";
+    if (pLower.startsWith("no label/uri match")) return "no-match";
+    if (pLower.startsWith("canonical label")) return "canonical-label";
+    if (lower.includes("free-text")) return "free-text";
+    if (lower.includes("novel")) return "gemma-new";
+    if (lower.includes("not in gemma")) return "no-match";
+    return "other";
+  })();
+
+  return {
+    slots,
+    tag,
+    parenthetical: paren || undefined,
+    verdict: v,
+    citation: d.citation,
+  };
+}
+
+/** Per-tag style. Amber for "needs attention" (novel mapping, wrong
+ *  ontology, no match — curator must verify); slate for informational
+ *  (free-text, no prior use, canonical-label drift). */
+const TAG_CONFIG: Record<
+  TermAlert["tag"],
+  { label: string; cls: string; priority: "attention" | "info" }
+> = {
+  "gemma-new": {
+    label: "gemma-new",
+    cls: "bg-amber-50 border-amber-300 text-amber-800 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200",
+    priority: "info",
+  },
+  "no-prior-use": {
+    label: "no prior use",
+    cls: "bg-slate-100 border-slate-300 text-slate-700 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
+    priority: "info",
+  },
+  "wrong-ontology": {
+    label: "wrong ontology",
+    cls: "bg-orange-50 border-orange-300 text-orange-800 dark:bg-orange-900/30 dark:border-orange-700 dark:text-orange-200",
+    priority: "attention",
+  },
+  "no-match": {
+    label: "no-match",
+    cls: "bg-orange-50 border-orange-300 text-orange-800 dark:bg-orange-900/30 dark:border-orange-700 dark:text-orange-200",
+    priority: "attention",
+  },
+  "canonical-label": {
+    label: "label drift",
+    cls: "bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-200",
+    priority: "info",
+  },
+  "free-text": {
+    label: "free-text",
+    cls: "bg-slate-100 border-slate-300 text-slate-700 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
+    priority: "info",
+  },
+  other: {
+    label: "alert",
+    cls: "bg-amber-50 border-amber-300 text-amber-800 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200",
+    priority: "attention",
+  },
+};
+
+function TermAlertBadge({ alert }: { alert: TermAlert }) {
+  const { label, cls } = TAG_CONFIG[alert.tag];
+  return (
+    <span
+      className={cn(
+        "text-[9px] px-1 rounded border font-medium leading-tight cursor-help",
+        cls,
+      )}
+      title={`${alert.slots.join("+") || "term"} • ${alert.verdict}${alert.citation ? ` — ${alert.citation}` : ""}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** Pulls S10 alerts off a factor's decision list and groups them by
+ *  (fv-index, slot). Caller (the FV-row render) zips this against
+ *  the statements + slots so each badge lands next to its actual
+ *  term. Pre-v5b decisions may not carry fv/stmt indices in
+ *  target_id — for those we fall back to matching the verdict's
+ *  quoted term against the FV label and ignore slot info (badge
+ *  attaches to subject by default). */
+function s10AlertsForFactor(
+  decisions: SubtaskDecision[] | undefined,
+): { fvIndex?: number; stmtIndex?: number; alert: TermAlert; verdictLabel?: string }[] {
+  if (!decisions) return [];
+  const out: ReturnType<typeof s10AlertsForFactor> = [];
+  for (const d of decisions) {
+    const a = parseTermAlert(d);
+    if (!a) continue;
+    // Parse fv:<i> and stmt:<j> from the target_id if present.
+    const tid = d.target_id || "";
+    const fvMatch = tid.match(/\/fv:(\d+)/i);
+    const stmtMatch = tid.match(/\/stmt:(\d+)/i);
+    // Pull the quoted term out of the verdict for label-fallback
+    // matching when target_id is missing fv/stmt indices.
+    const quotedMatch = d.verdict.match(/"([^"]+)"/);
+    out.push({
+      fvIndex: fvMatch ? Number(fvMatch[1]) : undefined,
+      stmtIndex: stmtMatch ? Number(stmtMatch[1]) : undefined,
+      alert: a,
+      verdictLabel: quotedMatch ? quotedMatch[1].toLowerCase() : undefined,
+    });
+  }
+  return out;
+}
+
+/** Filters a factor's S10 alerts down to the ones that apply to a
+ *  specific FV (by index, falling back to label-match against the FV
+ *  display label for pre-v5b packages), and explodes each alert into
+ *  per-slot entries so the renderer can drop them next to the right
+ *  subject / object term. */
+function fvSlotAlerts(
+  factorAlerts: ReturnType<typeof s10AlertsForFactor>,
+  fvIdx: number,
+  fvDisplayLabel: string,
+): { stmtIndex?: number; slot: "subject" | "object"; alert: TermAlert }[] {
+  const needle = (fvDisplayLabel || "").toLowerCase().trim();
+  const out: { stmtIndex?: number; slot: "subject" | "object"; alert: TermAlert }[] = [];
+  for (const fa of factorAlerts) {
+    const matchesByIndex = fa.fvIndex === fvIdx;
+    const matchesByLabel =
+      fa.fvIndex === undefined &&
+      needle.length > 0 &&
+      (fa.verdictLabel === needle ||
+        fa.alert.verdict.toLowerCase().includes(needle));
+    if (!matchesByIndex && !matchesByLabel) continue;
+    const slots = fa.alert.slots.length > 0 ? fa.alert.slots : ["subject" as const];
+    for (const slot of slots) {
+      out.push({ stmtIndex: fa.stmtIndex, slot, alert: fa.alert });
+    }
+  }
+  return out;
 }
 
 function ProposedTagRow({ tag, inGemma }: { tag: TagProposal; inGemma?: boolean }) {
@@ -901,6 +1166,39 @@ function bestFvUri(
   return null;
 }
 
+/** Resolve what to display on an FV row's headline term: the
+ *  ``free_text_label`` is the curator-visible value, but it isn't
+ *  always equivalent to the underlying statement's subject term.
+ *  E.g. a "4 months" FV whose subject is "prime adult stage
+ *  UBERON:0018241" pairs poorly — the URI describes the LIFE STAGE
+ *  the age category implies, not the age value itself. Showing the
+ *  URI next to "4 months" reads as "4 months IS prime adult stage,"
+ *  which is misleading.
+ *
+ *  Rule: attach the subject's URI only when the FV label matches the
+ *  subject's label (case-insensitive trim). Otherwise treat the FV
+ *  label as free text — italic, no URI — and let
+ *  ``InlineStatementDetail`` carry the structured S·P·O detail below
+ *  where the URI / label pairing is unambiguous. */
+function fvDisplayConfig(
+  fv: { free_text_label?: string | null; statements?: { subject?: { label?: string | null; uri?: string | null } | null }[] | undefined },
+): { label: string; uri: string | null } {
+  const ftRaw = (fv.free_text_label ?? "").trim();
+  const subject = fv.statements?.[0]?.subject;
+  const subjectLabel = (subject?.label ?? "").trim();
+  const subjectUri = subject?.uri ?? null;
+  if (ftRaw && subjectLabel && ftRaw.toLowerCase() === subjectLabel.toLowerCase()) {
+    return { label: ftRaw, uri: subjectUri };
+  }
+  if (!ftRaw && subjectLabel) {
+    return { label: subjectLabel, uri: subjectUri };
+  }
+  // FV label is free text, distinct from the subject — no URI; the
+  // subject's URI surfaces in the S·P·O row directly below where it
+  // can't be misread as describing this FV label.
+  return { label: ftRaw || subjectLabel || "?", uri: null };
+}
+
 /** Inline S · P · O detail row rendered under each FV. Always visible
  *  (no popover click required) so curators can see the statement
  *  structure + URI grounding at a glance. Complements the StatementGlyph
@@ -913,12 +1211,31 @@ function bestFvUri(
  */
 function InlineStatementDetail({
   statements,
+  alerts,
 }: {
   statements: { subject?: { label?: string; uri?: string | null } | null; predicate?: { label?: string; uri?: string | null } | null; object?: { label?: string; uri?: string | null } | null }[] | undefined,
+  /** S10 alerts keyed by (stmtIndex, slot). Pulled per-FV by the
+   *  caller from ``s10AlertsForFactor``. Optional — non-audit
+   *  surfaces don't have alerts. */
+  alerts?: { stmtIndex?: number; slot: "subject" | "object"; alert: TermAlert }[];
 }) {
   if (!statements || statements.length === 0) return null;
+  const alertsForSlot = (
+    stmtIdx: number,
+    slot: "subject" | "object",
+  ): TermAlert[] => {
+    if (!alerts || alerts.length === 0) return [];
+    return alerts
+      .filter(
+        (a) =>
+          a.slot === slot &&
+          (a.stmtIndex === undefined || a.stmtIndex === stmtIdx),
+      )
+      .map((a) => a.alert);
+  };
   const renderTerm = (
     term: { label?: string; uri?: string | null } | null | undefined,
+    termAlerts: TermAlert[],
   ) => {
     if (!term) {
       return <span className="text-slate-400 dark:text-slate-500">—</span>;
@@ -938,7 +1255,7 @@ function InlineStatementDetail({
         </span>
         {term.uri ? (
           <a
-            href={term.uri}
+            href={curieToUrl(term.uri) ?? term.uri}
             target="_blank"
             rel="noopener noreferrer"
             className="font-mono text-[9px] text-emerald-700 hover:underline dark:text-emerald-400"
@@ -948,6 +1265,9 @@ function InlineStatementDetail({
             {shortenUri(term.uri)}
           </a>
         ) : null}
+        {termAlerts.map((a, ai) => (
+          <TermAlertBadge key={ai} alert={a} />
+        ))}
       </span>
     );
   };
@@ -958,11 +1278,11 @@ function InlineStatementDetail({
           key={i}
           className="flex items-baseline gap-1 text-[10px] flex-wrap"
         >
-          {renderTerm(s.subject)}
+          {renderTerm(s.subject, alertsForSlot(i, "subject"))}
           <span className="text-slate-300 dark:text-slate-600">·</span>
-          {renderTerm(s.predicate)}
+          {renderTerm(s.predicate, [])}
           <span className="text-slate-300 dark:text-slate-600">·</span>
-          {renderTerm(s.object)}
+          {renderTerm(s.object, alertsForSlot(i, "object"))}
         </div>
       ))}
     </div>
@@ -1037,33 +1357,47 @@ function AgentFactorRow({
         </div>
         {exactExpanded ? (
           <div className="mt-0.5 space-y-0.5 px-2 pb-1.5 pl-7">
-            {factor.factor_values.map((fv, i) => {
-              const subject = fv.statements?.[0]?.subject;
-              const fvUri = bestFvUri(fv.statements);
-              return (
-                <div key={i}>
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <Term uri={fvUri}>
-                      {fv.free_text_label || subject?.label || "?"}
-                    </Term>
-                    {(fv.statements?.length ?? 0) > 0 ? (
-                      <StatementGlyph statements={fv.statements} />
-                    ) : null}
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                      ({fv.biomaterial_short_names.length})
-                    </span>
+            {(() => {
+              const factorAlerts = s10AlertsForFactor(decisions);
+              return factor.factor_values.map((fv, i) => {
+                const { label: fvDisplayLabel, uri: fvUri } = fvDisplayConfig(fv);
+                const slotAlerts = fvSlotAlerts(factorAlerts, i, fvDisplayLabel);
+                return (
+                  <div key={i}>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <Term uri={fvUri}>{fvDisplayLabel}</Term>
+                      {(fv.statements?.length ?? 0) > 0 ? (
+                        <StatementGlyph statements={fv.statements} />
+                      ) : null}
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        ({fv.biomaterial_short_names.length})
+                      </span>
+                    </div>
+                    <InlineStatementDetail
+                      statements={fv.statements}
+                      alerts={slotAlerts}
+                    />
                   </div>
-                  <InlineStatementDetail statements={fv.statements} />
+                );
+              });
+            })()}
+            {(() => {
+              // S10_term_validator decisions are now rendered inline as
+              // `gemma-new` / `free-text` / `not-in-index` badges next
+              // to the affected term. Hide them from the bottom-of-card
+              // prose so the info doesn't appear twice.
+              const filtered = (decisions ?? []).filter(
+                (d) => d.subtask !== "S10_term_validator",
+              );
+              if (filtered.length === 0) return null;
+              return (
+                <div className="mt-1.5 pt-1 border-t border-emerald-200/60 dark:border-emerald-700/60 space-y-0.5">
+                  {dedupeSubtaskDecisions(filtered).map((d, i) => (
+                    <SubtaskDecisionRow key={i} decision={d} />
+                  ))}
                 </div>
               );
-            })}
-            {decisions && decisions.length > 0 ? (
-              <div className="mt-1.5 pt-1 border-t border-emerald-200/60 dark:border-emerald-700/60 space-y-0.5">
-                {dedupeSubtaskDecisions(decisions).map((d, i) => (
-                  <SubtaskDecisionRow key={i} decision={d} />
-                ))}
-              </div>
-            ) : null}
+            })()}
             {hasRounds ? (
               <div className="mt-1.5">
                 <button
@@ -1176,48 +1510,65 @@ function AgentFactorRow({
         </span>
       </div>
       <div className="mt-0.5 space-y-0.5 pl-1">
-        {factor.factor_values.map((fv, i) => {
-          const subject = fv.statements?.[0]?.subject;
-          const fvLabel = (fv.free_text_label || subject?.label || "").toLowerCase();
-          const fvUri = bestFvUri(fv.statements);
-          // Prefer server-computed alignment; fall back to URI/label heuristic.
-          const fvMatch: "exact" | "close" | "new" = fv.match_type
-            ? (fv.match_type as "exact" | "close" | "new")
-            : (fvUri && gemmaFvUris.has(fvUri)) || (fvLabel && gemmaFvLabels.has(fvLabel))
-              ? "exact"
-              : "new";
-          return (
-            <div key={i}>
-              <div className="flex items-center gap-1 flex-wrap">
-                <Term uri={fvUri}>
-                  {fv.free_text_label || subject?.label || "?"}
-                </Term>
-                {fvMatch === "exact" ? (
-                  <span className="text-[9px] text-slate-400 dark:text-slate-500">= Gemma</span>
-                ) : fvMatch === "close" ? (
-                  <span className="text-[9px] text-blue-600 dark:text-blue-400">≈ {fv.gemma_ref?.label || "Gemma"}</span>
-                ) : gemmaFactor ? (
-                  <span className="text-[9px] text-amber-600 dark:text-amber-400">new</span>
-                ) : null}
-                {(fv.statements?.length ?? 0) > 0 ? (
-                  <StatementGlyph statements={fv.statements} />
-                ) : null}
-                <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                  ({fv.biomaterial_short_names.length})
-                </span>
+        {(() => {
+          const factorAlerts = s10AlertsForFactor(decisions);
+          return factor.factor_values.map((fv, i) => {
+            const subject = fv.statements?.[0]?.subject;
+            const fvLabel = (fv.free_text_label || subject?.label || "").toLowerCase();
+            // Use the strict label-matches-subject URI rule for the
+            // headline term so "4 months" doesn't render with the
+            // life-stage URI. Keep the loose bestFvUri for alignment
+            // heuristics where any URI presence is enough signal.
+            const headlineUriCheck = bestFvUri(fv.statements);
+            const { label: fvDisplayLabel, uri: fvUri } = fvDisplayConfig(fv);
+            // Prefer server-computed alignment; fall back to URI/label heuristic.
+            const fvMatch: "exact" | "close" | "new" = fv.match_type
+              ? (fv.match_type as "exact" | "close" | "new")
+              : (headlineUriCheck && gemmaFvUris.has(headlineUriCheck)) || (fvLabel && gemmaFvLabels.has(fvLabel))
+                ? "exact"
+                : "new";
+            const slotAlerts = fvSlotAlerts(factorAlerts, i, fvDisplayLabel);
+            return (
+              <div key={i}>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <Term uri={fvUri}>{fvDisplayLabel}</Term>
+                  {fvMatch === "exact" ? (
+                    <span className="text-[9px] text-slate-400 dark:text-slate-500">= Gemma</span>
+                  ) : fvMatch === "close" ? (
+                    <span className="text-[9px] text-blue-600 dark:text-blue-400">≈ {fv.gemma_ref?.label || "Gemma"}</span>
+                  ) : gemmaFactor ? (
+                    <span className="text-[9px] text-amber-600 dark:text-amber-400">new</span>
+                  ) : null}
+                  {(fv.statements?.length ?? 0) > 0 ? (
+                    <StatementGlyph statements={fv.statements} />
+                  ) : null}
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                    ({fv.biomaterial_short_names.length})
+                  </span>
+                </div>
+                <InlineStatementDetail
+                  statements={fv.statements}
+                  alerts={slotAlerts}
+                />
               </div>
-              <InlineStatementDetail statements={fv.statements} />
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
       </div>
-      {decisions && decisions.length > 0 ? (
-        <div className="mt-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 space-y-0.5">
-          {dedupeSubtaskDecisions(decisions).map((d, i) => (
-            <SubtaskDecisionRow key={i} decision={d} />
-          ))}
-        </div>
-      ) : null}
+      {(() => {
+        // See exact-match branch above — S10 alerts are inline now.
+        const filtered = (decisions ?? []).filter(
+          (d) => d.subtask !== "S10_term_validator",
+        );
+        if (filtered.length === 0) return null;
+        return (
+          <div className="mt-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 space-y-0.5">
+            {dedupeSubtaskDecisions(filtered).map((d, i) => (
+              <SubtaskDecisionRow key={i} decision={d} />
+            ))}
+          </div>
+        );
+      })()}
       {debateOpen && hasRounds ? (
         <DebateRoundsSection rounds={entry!.rounds} />
       ) : null}

@@ -4,6 +4,7 @@ import { useProposalsForExperiment } from "@/api/proposals";
 import { useImportFromGemma } from "@/api/datasets";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
+import { HelpPopup } from "@/components/ui/HelpPopup";
 import { InlineText } from "@/components/ui/InlineText";
 import { CategoryPicker } from "@/features/design/CategoryPicker";
 import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
@@ -17,6 +18,7 @@ import {
 } from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
 import { FindPublicationButton } from "./FindPublicationButton";
+import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import { shortenUri } from "@/lib/curie";
 import { cn } from "@/lib/cn";
 import {
@@ -46,10 +48,11 @@ import type {
 } from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
 import { AuditDot } from "@/features/audit/AuditDot";
-import { experimentTarget, tagTarget } from "@/features/audit/targetIds";
+import { experimentTarget, factorTarget, tagTarget } from "@/features/audit/targetIds";
 import {
   focusByAuditTarget,
   onAuditFocusTarget,
+  requestAuditFocus,
 } from "@/lib/scrollToAuditTarget";
 
 /**
@@ -222,6 +225,7 @@ export function OverviewPanel() {
           <TagBar
             tags={meta.tags ?? []}
             biomaterials={meta.biomaterials ?? []}
+            experimentId={meta.experiment_id}
           />
         ) : null}
         <EditableDescription
@@ -397,6 +401,68 @@ export function OverviewPanel() {
  *     can't be separated from that factor's effect — every batch
  *     contains exactly one level of the confounded factor).
  */
+/** Legend body for the Design card's `?` popover. Covers the
+ *  crosstab semantics, batch-confound warning, and sort behaviour. */
+function DesignCardLegend() {
+  return (
+    <div className="space-y-2 text-[11px]">
+      <div>
+        <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">
+          The crosstab
+        </div>
+        <p className="text-slate-600 dark:text-slate-400">
+          Each row is one unique combination of factor values across the
+          design's categorical factors. <span className="font-mono">Assays</span>{" "}
+          counts biomaterials in that cell. Click any header to sort.
+        </p>
+      </div>
+      <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+        <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">
+          Row colour
+        </div>
+        <ul className="list-disc list-inside space-y-0.5 text-slate-600 dark:text-slate-400">
+          <li>
+            <span className="text-rose-700 italic">(unassigned)</span> — at
+            least one biomaterial isn't covered by any FV in that factor;
+            usually a curation gap.
+          </li>
+        </ul>
+      </div>
+      <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+        <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">
+          Warnings strip
+        </div>
+        <ul className="list-disc list-inside space-y-0.5 text-slate-600 dark:text-slate-400">
+          <li>
+            <span className="px-1 rounded bg-amber-100 text-violet-900 border border-amber-300 font-medium">
+              ⚠ batch confound
+            </span>{" "}
+            — a block/batch factor partitions samples identically to
+            another factor. The batch effect can't be separated from
+            that factor's effect in DEA.
+          </li>
+          <li>
+            <span className="italic">continuous not shown</span> —
+            continuous factors (e.g. age in months) carry per-sample
+            numerics, so they don't fit a row-per-FV-combination layout.
+          </li>
+        </ul>
+      </div>
+      <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+        <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">
+          Nuisance factors
+        </div>
+        <p className="text-slate-600 dark:text-slate-400">
+          Factors whose name contains <span className="font-mono">block</span>{" "}
+          or <span className="font-mono">batch</span> are treated as
+          nuisance: they don't get a column in the crosstab (and don't
+          contribute to the row tuples) but do feed the confound check.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function DesignSummary({
   factors,
   biomaterials,
@@ -450,6 +516,39 @@ function DesignSummary({
       a.values.join(" / ").localeCompare(b.values.join(" / ")),
     );
   }, [standard, biomaterials]);
+
+  // Column sort. ``null`` keeps the deterministic default (tuple
+  // lexicographic) so curators see a stable layout until they
+  // explicitly sort. ``"assays"`` sorts by the count column;
+  // numeric indices sort by that factor column's cell value.
+  // Click an active column to flip direction; click again to clear
+  // back to default.
+  const [sort, setSort] = useState<
+    { col: "assays" | number; dir: "asc" | "desc" } | null
+  >(null);
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+    const sign = sort.dir === "asc" ? 1 : -1;
+    const cmp = (
+      a: { values: string[]; count: number },
+      b: { values: string[]; count: number },
+    ) => {
+      if (sort.col === "assays") return (a.count - b.count) * sign;
+      return a.values[sort.col].localeCompare(b.values[sort.col]) * sign;
+    };
+    return [...rows].sort(cmp);
+  }, [rows, sort]);
+  const onSortClick = (col: "assays" | number) => {
+    setSort((cur) => {
+      if (!cur || cur.col !== col) return { col, dir: "asc" };
+      if (cur.dir === "asc") return { col, dir: "desc" };
+      return null;
+    });
+  };
+  const sortArrow = (col: "assays" | number): string => {
+    if (!sort || sort.col !== col) return "";
+    return sort.dir === "asc" ? " ▲" : " ▼";
+  };
 
   // Column header: just the factor's display name. The previous
   // "factor (val1 vs val2 vs +N)" form blew the header to 100+
@@ -505,7 +604,11 @@ function DesignSummary({
   }
 
   return (
-    <SummaryCard label="Design" className="md:col-span-2">
+    <SummaryCard
+      label="Design"
+      className="md:col-span-2"
+      help={<DesignCardLegend />}
+    >
       {/* Cohort numbers + design warnings strip. Holds the four
           counts that used to live in a dedicated Cohort card plus
           the existing batch-confound / continuous-not-shown notes
@@ -571,22 +674,42 @@ function DesignSummary({
           <table className="text-xs border-collapse w-full">
             <thead>
               <tr className="bg-slate-50 text-slate-700">
-                <th className="px-2 py-1.5 text-left border border-slate-200 font-medium w-16">
-                  Assays
+                <th
+                  className="px-2 py-1.5 text-left border border-slate-200 font-medium w-16 cursor-pointer select-none hover:bg-slate-100"
+                  onClick={() => onSortClick("assays")}
+                  title="click to sort by assay count"
+                  aria-sort={
+                    sort?.col === "assays"
+                      ? sort.dir === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : "none"
+                  }
+                >
+                  Assays{sortArrow("assays")}
                 </th>
-                {standard.map((f) => (
+                {standard.map((f, colIdx) => (
                   <th
                     key={f.id}
-                    className="px-2 py-1.5 text-left border border-slate-200 font-medium"
-                    title={factorHeaderTooltip(f)}
+                    className="px-2 py-1.5 text-left border border-slate-200 font-medium cursor-pointer select-none hover:bg-slate-100"
+                    onClick={() => onSortClick(colIdx)}
+                    title={`${factorHeaderTooltip(f)}\n\n(click to sort)`}
+                    aria-sort={
+                      sort?.col === colIdx
+                        ? sort.dir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
                   >
                     {factorHeader(f)}
+                    {sortArrow(colIdx)}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => (
+              {sortedRows.map((row, i) => (
                 <tr
                   key={i}
                   className={i % 2 ? "bg-slate-50/40" : "bg-white"}
@@ -870,12 +993,116 @@ function tagGroup(category: string | undefined | null): TagGroupKey {
   return TAG_CATEGORY_TO_GROUP[k] ?? "other";
 }
 
+/** Legend body for the TagBar's `?` popover. Mirrors the live chip
+ *  shape (single-frame, palette = source, weight + italic = resolved
+ *  vs free-text) so the legend can't drift from what curators
+ *  actually see. */
+function TagBarLegend() {
+  const Sample = ({
+    palette,
+    val,
+    italic,
+  }: {
+    palette: keyof typeof TAG_PALETTE;
+    val: string;
+    italic?: boolean;
+  }) => {
+    const p = TAG_PALETTE[palette];
+    return (
+      <span
+        className={`inline-flex items-baseline px-1.5 py-0.5 text-[11px] rounded border ${p.outer}`}
+      >
+        <span
+          className={italic ? "italic opacity-80" : "font-medium"}
+        >
+          {val}
+        </span>
+      </span>
+    );
+  };
+  return (
+    <div className="space-y-2 text-[11px]">
+      <div className="font-medium text-slate-700 dark:text-slate-200">
+        Border colour = where the tag came from
+      </div>
+      <div className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5 items-center">
+        <Sample palette="direct" val="female" />
+        <span>
+          <span className="font-medium">Direct</span> — curator-attached.
+          Click to edit / delete.
+        </span>
+        <Sample palette="fv" val="LPS" />
+        <span>
+          <span className="font-medium">FV-synth</span> — derived from a
+          Factor Value on the Design tab. Edit on Design.
+        </span>
+        <Sample palette="bm" val="brain" />
+        <span>
+          <span className="font-medium">BM-synth</span> — pulled from raw
+          biomaterial characteristics (Gemma's GEO import).
+        </span>
+        <Sample palette="mixed" val="microglial cell" />
+        <span>
+          <span className="font-medium">Mixed</span> — the category
+          surfaces from more than one source.
+        </span>
+      </div>
+      <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+        <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">
+          Typography = whether the value is anchored
+        </div>
+        <div className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1.5 items-center">
+          <Sample palette="bm" val="brain" />
+          <span>
+            <span className="font-medium">Medium weight</span> —
+            ontology-resolved. Click to reveal the CURIE inline; click
+            the <span className="font-mono">↗</span> to open the term
+            page in a new tab.
+          </span>
+          <Sample palette="bm" val="Laser captured…" italic />
+          <span>
+            <span className="italic">Italic</span> — free text, no
+            ontology URI yet.
+          </span>
+        </div>
+      </div>
+      <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+        <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">
+          Other details
+        </div>
+        <ul className="list-disc list-inside space-y-0.5 text-slate-600 dark:text-slate-400">
+          <li>
+            Category, source name, CURIE, evidence code, and full value
+            text all live in the chip's <span className="italic">hover
+            tooltip</span> — kept off the chip face to cut visual noise.
+          </li>
+          <li>
+            Bracketed qualifiers like{" "}
+            <span className="font-mono">M0 [Cells grown in…]</span> are
+            stripped from the chip face; hover for the full text.
+          </li>
+          <li>
+            Multi-value chips collapse as{" "}
+            <span className="font-mono">N ▸ val, val +N more</span>.
+            Click to expand.
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 function TagBar({
   tags,
   biomaterials,
+  experimentId,
 }: {
   tags: Tag[];
   biomaterials: Biomaterial[];
+  /** Experiment id, threaded down to FV-synth chips so their ``ƒ``
+   *  glyph can dispatch a Shell focus request to jump to the Design
+   *  tab with that factor highlighted. */
+  experimentId: number;
 }) {
   const { draft, apply, diff } = useDesignDraft();
   const [adding, setAdding] = useState(false);
@@ -925,6 +1152,25 @@ function TagBar({
       }
     }
     return map;
+  }, [draft?.factors]);
+
+  // (category-label, fv-label) → is_baseline lookup. Used to sort
+  // baseline FVs to the END of a multi-value chip's preview — the
+  // baseline is the implicit reference (mock / control / vehicle),
+  // and the interesting comparison values should land first in
+  // limited preview space (per Paul, 2026-05-17).
+  const baselineLookup = useMemo(() => {
+    const set = new Set<string>();
+    for (const factor of draft?.factors ?? []) {
+      const catKey = (factor.category?.label || factor.name || "").trim().toLowerCase();
+      for (const fv of factor.factor_values) {
+        if (!fv.is_baseline) continue;
+        const label = (fv.free_text_label || "").trim().toLowerCase();
+        if (!label) continue;
+        set.add(`${catKey}|${label}`);
+      }
+    }
+    return set;
   }, [draft?.factors]);
 
   // Augment inferred tags from ``biomaterial.characteristics`` —
@@ -998,15 +1244,22 @@ function TagBar({
 
   return (
     <div className="pt-1 space-y-0.5">
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-baseline gap-1.5">
         <span className="text-[11px] uppercase tracking-wide text-slate-500">
           tags
         </span>
+        <HelpPopup title="Tag chip legend" size="md">
+          <TagBarLegend />
+        </HelpPopup>
       </div>
       {groupsWithTags.map((g) => (
         <div
           key={g}
-          className="flex items-baseline gap-1 flex-wrap pl-2"
+          // gap-2 (was gap-1) so neighbouring chips have visible
+          // breathing room — the prior gap-1 let dense rows visually
+          // bleed across category boundaries. py-0.5 gives the row a
+          // little vertical rhythm against the next group's row.
+          className="flex items-baseline gap-2 flex-wrap pl-2 py-0.5"
         >
           <span
             className="text-[10px] uppercase tracking-wide text-slate-500 mr-1 min-w-[5.5rem]"
@@ -1023,6 +1276,8 @@ function TagBar({
             variant="inferred"
             charUriLookup={charUriLookup}
             fvUriLookup={fvUriLookup}
+            baselineLookup={baselineLookup}
+            experimentId={experimentId}
           />
         </div>
       ))}
@@ -1076,92 +1331,9 @@ function TagBar({
   );
 }
 
-/** Inferred-tag augmenter: synthesises one chip per category from
- *  the biomaterial characteristics, capturing every distinct value
- *  across the cohort. Gemma's annotation feed only returns one row
- *  per (dataset, category) pair for BioMaterial-source annotations,
- *  so a 165-sample cohort with 6 organism_part values surfaces just
- *  one chip without this. Direct (curator-attached) tags are passed
- *  through untouched. Inferred tags whose category is also covered
- *  by biomaterial characteristics are dropped — the synth supersedes
- *  them with the comprehensive value set.
- *
- *  The synth chip uses ``inferred_source: "BioMaterial"`` and
- *  ``evidence_code: "IIA"`` because biomaterial characteristics on
- *  imported datasets came in via Gemma's GEO load. URIs flow
- *  through ``charUriLookup`` at split-time, so per-value chips
- *  render ontology-resolved when the underlying characteristic_uris
- *  carry term URIs. */
-export function augmentInferredFromBiomaterials(
-  tags: Tag[],
-  biomaterials: Biomaterial[],
-): Tag[] {
-  // Walk every biomaterial's characteristics; collect distinct
-  // values per category (label-cased original) and remember the
-  // category's display capitalisation.
-  const valuesByCat = new Map<string, Set<string>>();
-  const catLabels = new Map<string, string>();
-  for (const bm of biomaterials) {
-    const chars = bm.characteristics ?? {};
-    for (const [catLabel, valLabel] of Object.entries(chars)) {
-      const cat = (catLabel || "").trim();
-      const val = (valLabel || "").trim();
-      if (!cat || !val) continue;
-      const key = cat.toLowerCase();
-      if (!catLabels.has(key)) catLabels.set(key, cat);
-      const set = valuesByCat.get(key) ?? new Set<string>();
-      set.add(val);
-      valuesByCat.set(key, set);
-    }
-  }
-  if (valuesByCat.size === 0) return tags;
-
-  // Categories that already have a direct (curator-attached) tag.
-  // The synth shouldn't steal a category the curator has explicitly
-  // claimed — surfacing both the direct tag AND a BM-derived synth
-  // for the same category gives the curator two competing signals.
-  // Skip the synth for those categories.
-  const directCats = new Set<string>();
-  for (const t of tags) {
-    if (t.inferred) continue;
-    const k = (t.category.label || "").toLowerCase();
-    if (k) directCats.add(k);
-  }
-
-  // Drop existing inferred tags whose category is covered by
-  // biomaterial characteristics AND not already claimed by a direct
-  // tag — the synth will supersede those.
-  const augmented: Tag[] = [];
-  for (const t of tags) {
-    if (!t.inferred) {
-      augmented.push(t);
-      continue;
-    }
-    const k = (t.category.label || "").toLowerCase();
-    if (valuesByCat.has(k) && !directCats.has(k)) continue;
-    augmented.push(t);
-  }
-
-  // Negative ids keep the synth tags out of the way of any real
-  // (server-assigned) tag id space. They're ephemeral display
-  // entries; never round-tripped to the server.
-  let nextSynthId = -1;
-  for (const [catKey, valSet] of valuesByCat.entries()) {
-    if (directCats.has(catKey)) continue;
-    const sortedValues = Array.from(valSet).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
-    );
-    augmented.push({
-      id: nextSynthId--,
-      category: { label: catLabels.get(catKey) || catKey, uri: null },
-      value: { label: sortedValues.join(", "), uri: null },
-      inferred: true,
-      inferred_source: "BioMaterial",
-      evidence_code: "IIA",
-    });
-  }
-  return augmented;
-}
+// `augmentInferredFromBiomaterials` moved to ./augmentInferred.ts —
+// kept out of this tsx file so React Fast Refresh doesn't invalidate
+// HMR on every component edit.
 
 /** Inline category + value picker, reused for both edit-existing and
  *  add-new flows. Click outside or Escape to cancel; click ✓ (or
@@ -1210,6 +1382,20 @@ function ChipEditor({
   }, [cat, val, onCommit, onCancel]);
 
   const canSave = !!(cat && cat.label && val && val.label);
+  // ``isDirty`` gates the save / cancel buttons — they only matter
+  // when the curator has actually changed something. For chips the
+  // curator opened-but-didn't-edit (or protected chips that
+  // shouldn't really be editable), the editor stays clean. Click-
+  // outside still commits the (unchanged) state and Esc still
+  // exits, so no behaviour is lost — just the redundant chrome.
+  const termsEqual = (a: OntologyTerm | null, b: OntologyTerm | null) => {
+    const al = (a?.label ?? "").trim();
+    const bl = (b?.label ?? "").trim();
+    const au = a?.uri ?? null;
+    const bu = b?.uri ?? null;
+    return al === bl && au === bu;
+  };
+  const isDirty = !termsEqual(cat, category) || !termsEqual(val, value);
 
   return (
     <span
@@ -1229,23 +1415,31 @@ function ChipEditor({
         placeholder="value"
         onCommit={(next) => setVal(next ?? null)}
       />
-      <button
-        type="button"
-        className="ml-1 px-1 text-emerald-800 hover:text-emerald-950 disabled:opacity-40"
-        onClick={() => canSave && onCommit(cat!, val!)}
-        disabled={!canSave}
-        title={canSave ? "save" : "fill category and value first"}
-      >
-        ✓
-      </button>
-      <button
-        type="button"
-        className="px-1 text-slate-500 hover:text-slate-800"
-        onClick={onCancel}
-        title="cancel"
-      >
-        ✕
-      </button>
+      {isDirty ? (
+        <>
+          <button
+            type="button"
+            className="ml-1 px-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800 hover:text-emerald-950 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => canSave && onCommit(cat!, val!)}
+            disabled={!canSave}
+            title={
+              canSave
+                ? "save edit"
+                : `fill ${!cat?.label ? "category" : "value"} first`
+            }
+          >
+            save
+          </button>
+          <button
+            type="button"
+            className="px-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 hover:text-slate-800"
+            onClick={onCancel}
+            title="discard changes"
+          >
+            cancel
+          </button>
+        </>
+      ) : null}
       {onDelete ? (
         <button
           type="button"
@@ -1302,6 +1496,7 @@ function splitTagValues(
   category: Tag["category"],
   charUriLookup: Map<string, string>,
   fvUriLookup: Map<string, string>,
+  baselineLookup: Set<string>,
 ): TagValue[] {
   const catKey = (category.label || "").trim().toLowerCase();
   const out: TagValue[] = [];
@@ -1340,8 +1535,51 @@ function splitTagValues(
       });
     }
   }
-  return out;
+  // Drop baseline-placeholder rows entirely — Gemma encodes a
+  // baseline FV by giving it an OBI "reference substance role" /
+  // "reagent role" label, which leaks into FV-synth tags as a
+  // curator-meaningless value alongside the real treatment. Same
+  // spirit as Paul's earlier "baselines can be omitted or implied"
+  // — these are pure implementation chrome.
+  const filtered = out.filter(
+    (v) =>
+      !BASELINE_PLACEHOLDER_LABELS.has(v.label.toLowerCase()) &&
+      !(v.uri && BASELINE_PLACEHOLDER_URIS.has(v.uri)),
+  );
+  // Two-key sort:
+  //   1. Baselines bubble to the END (they're the implicit reference;
+  //      preview space goes to the interesting comparisons).
+  //   2. Within non-baselines, URI-resolved (ontology) values come
+  //      FIRST — they're more curator-trustworthy and visually
+  //      prominent. Free-text values follow, demoted in the renderer.
+  filtered.sort((a, b) => {
+    const aB = baselineLookup.has(`${catKey}|${a.label.toLowerCase()}`) ? 1 : 0;
+    const bB = baselineLookup.has(`${catKey}|${b.label.toLowerCase()}`) ? 1 : 0;
+    if (aB !== bB) return aB - bB;
+    const aU = a.uri ? 0 : 1;
+    const bU = b.uri ? 0 : 1;
+    return aU - bU;
+  });
+  return filtered;
 }
+
+/** OBI / Gemma placeholders that mark a factor value as "this is the
+ *  baseline" rather than carrying a real curator-meaningful value.
+ *  Filtered out of FV-synth chip values — they're implementation
+ *  chrome that confuses curators ("why is TNF tagged alongside
+ *  reference substance role?"). */
+const BASELINE_PLACEHOLDER_LABELS = new Set([
+  "reference substance role",
+  "control",
+  "vehicle",
+  "mock",
+  "untreated",
+  "baseline",
+]);
+const BASELINE_PLACEHOLDER_URIS = new Set([
+  "http://purl.obolibrary.org/obo/OBI_0000220",
+  "http://purl.obolibrary.org/obo/OBI_0000025",
+]);
 
 /** Per-value chip styled by URI presence: emerald + medium-weight
  *  for ontology-resolved, slate + italic for free-text. House
@@ -1353,33 +1591,143 @@ function splitTagValues(
  *  handler is for expand/collapse / edit, so we ``stopPropagation``
  *  on the link click — otherwise clicking the term ID would also
  *  toggle the multi-value collapse. */
-function TagValueChip({ value }: { value: TagValue }) {
+/** Strip the bracketed qualifier tail from a tag value label —
+ *  ``"M0 [Cells grown in basal media for 7 days. ...]"`` becomes
+ *  ``"M0"``. The tail is usually a curator/methods comment that
+ *  describes the baseline or sample-prep condition; the headline
+ *  short label is what the curator wants to scan. Full text is
+ *  preserved via the chip's ``title`` for hover-detail. */
+function abbreviateValueLabel(label: string): string {
+  return label.replace(/\s*\[[^\]]*\]?\s*$/, "").trim() || label;
+}
+
+function TagValueChip({
+  value,
+  categoryLabel,
+  demoted = false,
+}: {
+  value: TagValue;
+  /** Category label for this value. Surfaced when the chip is
+   *  click-expanded so the curator can see "what kind of annotation
+   *  is this" without hovering for the tooltip. Free-text variant
+   *  prefixes ``${categoryLabel}: ``; URI variant shows it before
+   *  the CURIE. */
+  categoryLabel?: string;
+  /** When the parent group has at least one ontology-resolved value,
+   *  free-text siblings render demoted (lower opacity, lighter
+   *  weight) so the eye lands on the anchored terms first. URI
+   *  values ignore this prop — they're always the prominent ones. */
+  demoted?: boolean;
+}) {
+  const display = abbreviateValueLabel(value.label);
+  const [expanded, setExpanded] = useState(false);
   if (value.uri) {
+    // Ontology-resolved: medium weight. Click the label to reveal
+    // the CURIE inline + a small ↗ link to OLS + an explicit ×
+    // close button. The ↗ is the actual OLS link; the × is the
+    // collapse affordance. The chip-itself-toggles behaviour stays
+    // (clicking the label re-closes) but the × makes it
+    // discoverable.
+    const curie = shortenUri(value.uri);
     return (
-      <a
-        href={value.uri}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        title={`${value.label} — ${value.uri} (opens in new tab)`}
-        className="inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-900 font-medium hover:underline hover:bg-emerald-100 cursor-pointer dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-100 dark:hover:bg-emerald-800/60"
-      >
-        <span>{value.label}</span>
-        {/* Curie shortform alongside the label, matching the Term
-         *  component's resolved-variant render. Lighter weight + mono
-         *  so the eye reads label first, ID second. */}
-        <span className="font-mono text-[10px] text-emerald-900/60 whitespace-nowrap dark:text-emerald-200/70">
-          {shortenUri(value.uri)}
+      <span className="inline-flex items-baseline gap-1 align-bottom">
+        {expanded && categoryLabel ? (
+          <span className="text-[10px] opacity-70 whitespace-nowrap">
+            {categoryLabel}:
+          </span>
+        ) : null}
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }
+          }}
+          title={
+            expanded
+              ? `${value.label} — click to hide ${curie}`
+              : `${value.label} — click to reveal ${curie}`
+          }
+          className="inline-block font-medium text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline truncate max-w-[22ch]"
+        >
+          {display}
         </span>
-      </a>
+        {expanded ? (
+          <>
+            <a
+              href={value.uri}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title={`${value.uri} (opens in new tab)`}
+              className="font-mono text-[10px] opacity-70 hover:opacity-100 hover:underline whitespace-nowrap"
+            >
+              {curie}
+            </a>
+            <a
+              href={value.uri}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title="open the term page in a new tab"
+              className="text-[10px] opacity-70 hover:opacity-100"
+              aria-label="open in OLS"
+            >
+              ↗
+            </a>
+          </>
+        ) : null}
+      </span>
     );
   }
+  // Free-text: italic, no link. Click to reveal the full label
+  // (no truncate); click again to collapse. Symmetric with the
+  // URI-variant click-to-expand above so the curator's mental
+  // model is consistent: clicking any chip reveals more.
   return (
-    <span
-      title={`${value.label} (free text — no ontology URI)`}
-      className="inline-block px-1 rounded bg-slate-50 border border-slate-200 text-slate-700 italic dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200"
-    >
-      {value.label}
+    <span className="inline-flex items-baseline gap-1 align-bottom">
+      {expanded && categoryLabel ? (
+        <span className="text-[10px] opacity-70 whitespace-nowrap not-italic">
+          {categoryLabel}:
+        </span>
+      ) : null}
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((v) => !v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }
+        }}
+        title={
+          expanded
+            ? `${value.label} (free text — click to collapse)`
+            : `${value.label} (free text — click to reveal full text)`
+        }
+        className={cn(
+          "inline-block italic cursor-pointer hover:opacity-100",
+          // Demoted = the group has ontology-resolved siblings; free
+          // text plays a supporting role here. Solo / all-free-text
+          // groups render at normal weight so they're still readable.
+          demoted ? "opacity-50 text-[10px]" : "opacity-80",
+          expanded ? "" : "truncate max-w-[22ch]",
+        )}
+      >
+        {expanded ? value.label : display}
+      </span>
     </span>
   );
 }
@@ -1408,11 +1756,15 @@ function TagGroups({
   variant,
   charUriLookup,
   fvUriLookup,
+  baselineLookup,
+  experimentId,
 }: {
   tags: Tag[];
   variant: TagGroupVariant;
   charUriLookup: Map<string, string>;
   fvUriLookup: Map<string, string>;
+  baselineLookup: Set<string>;
+  experimentId: number;
 }) {
   if (tags.length === 0) return null;
   const groups = groupTagsByCategoryLabel(tags);
@@ -1426,6 +1778,8 @@ function TagGroups({
           variant={variant}
           charUriLookup={charUriLookup}
           fvUriLookup={fvUriLookup}
+          baselineLookup={baselineLookup}
+          experimentId={experimentId}
         />
       ))}
     </>
@@ -1518,7 +1872,10 @@ function EditableDirectGroupChip({
   // and the ChipEditor onDelete prop when the group is protected.
   const protectedCategory = isProtectedTagCategory(category.label);
 
-  // Single tag — render flat, click to edit, × on hover.
+  // Single tag — render as just the value chip wrapped in an
+  // emerald-bordered shell, click to edit, × on hover.
+  // C+B chip pass (2026-05-17): category section dropped — the row
+  // group header carries it. Category + URI move to hover title.
   if (tags.length === 1) {
     const tag = tags[0];
     if (editingId === tag.id) {
@@ -1535,81 +1892,91 @@ function EditableDirectGroupChip({
       );
     }
     const isNew = addedTagIds?.has(tag.id) ?? false;
+    const valueDisplay = abbreviateValueLabel(tag.value.label || "");
     return (
       <span
         // Audit focus hook — Apply & focus on a tag finding scrolls
         // this chip into view + ring-flashes it.
         data-audit-target={tagTarget(tag.category.label, tag.value.label)}
         className={cn(
-          "group/chip inline-flex items-stretch text-[11px] rounded border overflow-hidden bg-emerald-50 border-emerald-300 text-emerald-900 cursor-pointer dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-100",
+          "group/chip inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-100",
+          protectedCategory
+            ? "cursor-default opacity-90"
+            : "cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/50",
           // Uncommitted addition — amber ring + soft glow so the
           // curator can see at a glance which chips are pending.
           isNew &&
             "ring-2 ring-amber-400 ring-offset-1 ring-offset-white shadow-[0_0_8px_-2px_rgba(251,191,36,0.7)] dark:ring-offset-slate-900",
         )}
-        onClick={() => setEditingId(tag.id)}
+        onClick={protectedCategory ? undefined : () => setEditingId(tag.id)}
         title={
-          protectedCategory
-            ? `${category.label}: ${tag.value.label} — load-time tag, can't be removed`
-            : `${category.label}: ${tag.value.label} — click to edit`
+          (protectedCategory
+            ? `${category.label}: ${tag.value.label} — load-time tag, can't be edited or removed`
+            : `${category.label}: ${tag.value.label} — click to edit`) +
+          (tag.value.uri ? ` — ${shortenUri(tag.value.uri)}` : "")
         }
       >
-        <span className="px-1.5 py-0.5 font-medium bg-emerald-100 text-emerald-900 group-hover/chip:bg-emerald-200 dark:bg-emerald-800/50 dark:text-emerald-100 dark:group-hover/chip:bg-emerald-700/60">
-          {category.label}
-        </span>
-        <span className="inline-flex items-baseline gap-1 px-1.5 py-0.5 group-hover/chip:bg-emerald-100 dark:group-hover/chip:bg-emerald-900/50">
-          <span className="font-medium">
-            {tag.value.label || <em className="not-italic">no value</em>}
+        {/* Padlock for load-time tags — explicit "this can't be
+         *  changed" signal. Replaces the silent-no-affordance state
+         *  where curators used to click and get the editor with no
+         *  meaningful change possible. */}
+        {protectedCategory ? (
+          <span
+            className="text-[10px] opacity-60"
+            aria-label="locked"
+            title="load-time tag, can't be edited"
+          >
+            🔒
           </span>
-          {tag.value.uri ? (
-            <a
-              href={tag.value.uri}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title={`${tag.value.uri} (opens in new tab)`}
-              className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap"
-            >
-              {shortenUri(tag.value.uri)}
-            </a>
-          ) : null}
-          <AuditDot
-            targetId={tagTarget(tag.category.label, tag.value.label)}
-          />
-          {protectedCategory ? null : (
-            <button
-              type="button"
-              className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover/chip:opacity-100"
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteOne(tag.id);
-              }}
-              title="delete tag"
-              aria-label="delete tag"
-            >
-              ×
+        ) : null}
+        <span
+          className={cn(
+            "font-medium truncate max-w-[22ch]",
+            // Anchored term → emerald text; free-text → italic slate.
+            // Same convention as TagValueChip (inferred chip variant)
+            // so ontology vs free-text reads identically across both.
+            tag.value.uri
+              ? "text-emerald-700 dark:text-emerald-400"
+              : "italic text-slate-700 dark:text-slate-300",
+          )}
+        >
+          {valueDisplay || <em className="not-italic">no value</em>}
+        </span>
+        <AuditDot
+          targetId={tagTarget(tag.category.label, tag.value.label)}
+        />
+        {protectedCategory ? null : (
+          <button
+            type="button"
+            className="ml-0.5 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover/chip:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteOne(tag.id);
+            }}
+            title="delete tag"
+            aria-label="delete tag"
+          >
+            ×
           </button>
         )}
-        </span>
       </span>
     );
   }
 
   // Multi-tag — collapse like the read-only inferred groups, but each
-  // value chip in the expanded view is independently editable.
+  // value chip in the expanded view is independently editable. C+B
+  // chip pass: category section dropped; hover title carries it.
   return (
     <span
       className={cn(
-        "inline-flex items-stretch text-[11px] rounded border overflow-hidden bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-100",
+        "inline-flex items-baseline text-[11px] rounded border bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-100",
         // Highlight the whole multi-tag group when any member is new
         // (curator just added one of N values in this category).
         tags.some((t) => addedTagIds?.has(t.id)) &&
           "ring-2 ring-amber-400 ring-offset-1 ring-offset-white shadow-[0_0_8px_-2px_rgba(251,191,36,0.7)] dark:ring-offset-slate-900",
       )}
+      title={`${category.label} — ${tags.length} tags`}
     >
-      <span className="px-1.5 py-0.5 font-medium bg-emerald-100 text-emerald-900 dark:bg-emerald-800/50 dark:text-emerald-100">
-        {category.label}
-      </span>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -1626,14 +1993,14 @@ function EditableDirectGroupChip({
           <span className="italic ml-1 truncate max-w-[24ch] text-emerald-900/60 dark:text-emerald-200/70">
             {tags
               .slice(0, 2)
-              .map((t) => t.value.label || "(blank)")
+              .map((t) => abbreviateValueLabel(t.value.label || "(blank)"))
               .join(", ")}
             {tags.length > 2 ? "…" : ""}
           </span>
         )}
       </button>
       {open ? (
-        <span className="inline-flex items-baseline gap-1 flex-wrap px-1.5 py-0.5 border-l border-emerald-200 dark:border-emerald-700">
+        <span className="inline-flex items-baseline gap-1 flex-wrap px-1.5 py-0.5">
           {tags.map((tag) =>
             editingId === tag.id ? (
               <ChipEditor
@@ -1812,15 +2179,19 @@ function TagGroupChip({
   variant,
   charUriLookup,
   fvUriLookup,
+  baselineLookup,
+  experimentId,
 }: {
   category: Tag["category"];
   tags: Tag[];
   variant: TagGroupVariant;
   charUriLookup: Map<string, string>;
   fvUriLookup: Map<string, string>;
+  baselineLookup: Set<string>;
+  experimentId: number;
 }) {
   const [open, setOpen] = useState(false);
-  const values = splitTagValues(tags, category, charUriLookup, fvUriLookup);
+  const values = splitTagValues(tags, category, charUriLookup, fvUriLookup, baselineLookup);
 
   // Single value (after comma-split) renders flat — no collapse to
   // worry about.
@@ -1846,8 +2217,9 @@ function TagGroupChip({
           ),
         ).sort()
       : [];
-  const sourceLabel =
-    variant === "inferred" ? (sources.length > 0 ? sources.join("/") : "auto") : "";
+  // Source label dropped from inline render (C+B chip pass) — the
+  // palette colour on the outer border already encodes BM vs FV vs
+  // mixed. Surfaced in the hover title via `sources` directly.
 
   // Evidence-code mix across the group's tags. When all tags share
   // one code (the common case), use it for both the border style and
@@ -1864,17 +2236,11 @@ function TagGroupChip({
           ),
         ).sort()
       : [];
-  // Mixed-code groups: the lower-trust code wins for the visual
-  // cue. Only solid when *every* tag in the group is curator-
-  // asserted. Inferred chips with no evidence code (legacy data,
-  // BM-synth tags) still render dashed — solid is reserved for
-  // explicit IC. Direct (curator-attached) chips are always solid.
-  const evBorder =
-    variant === "inferred"
-      ? evCodes.length > 0 && evCodes.every((c) => c === "IC")
-        ? "border-solid"
-        : "border-dashed"
-      : "border-solid";
+  // Dashed-vs-solid evidence-border distinction dropped in the C+B
+  // chip pass (2026-05-17) — too much competing styling per chip.
+  // Evidence code now lives in the hover title only. Palette colour
+  // (direct/FV/BM/mixed) is the at-a-glance signal.
+  const evBorder = "border-solid";
   const evTitle =
     evCodes.length === 1
       ? ` · ${evCodes[0]} (${evidenceCodeName(evCodes[0])})`
@@ -1884,97 +2250,127 @@ function TagGroupChip({
 
   const palette = TAG_PALETTE[pickTagPalette(variant, sources)];
 
+  // FV-synth chips get a clickable `ƒ` glyph that jumps to the Design
+  // tab with the originating factor focused. Per Paul, 2026-05-17 —
+  // colour alone is not enough to signal source on dim screens; the
+  // glyph + jump-affordance does double duty (distinguishable
+  // typography signal + a real "edit me elsewhere" action).
+  const isFvDerived = variant === "inferred" && sources.includes("FV");
+  const factorGlyph = isFvDerived ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        requestAuditFocus(experimentId, factorTarget(category.label));
+      }}
+      className={`text-[10px] italic font-serif ${palette.label} hover:underline cursor-pointer leading-none align-baseline`}
+      title={`${category.label} — edit on Design tab`}
+      aria-label={`go to ${category.label} on Design tab`}
+    >
+      ƒ
+    </button>
+  ) : null;
+
+  // C+B chip pass (2026-05-17): drop the in-chip category section
+  // (the group row already says it) and the inline source badge
+  // (palette colour already encodes it). Category + source + evidence
+  // code all live in the hover title now. Result: chip = just value,
+  // bordered by the source palette.
+  const hoverTitle = (() => {
+    const base = `${category.label}${variant === "inferred" ? ` (inferred from ${sources.join(", ") || "auto"})${evTitle}` : ""}`;
+    return base;
+  })();
+  // Demote free-text values when the group also carries at least one
+  // URI-resolved value (per Paul, 2026-05-17 — free text plays a
+  // supporting role in mixed groups; pure-free-text groups stay at
+  // normal weight so they remain readable).
+  const hasUriValue = values.some((v) => !!v.uri);
+
   if (values.length === 1) {
     const v = values[0];
     return (
       <span
         title={`${category.label}: ${v.label}${variant === "inferred" ? ` (inferred from ${sources.join(", ") || "auto"})${evTitle}` : ""}`}
-        className={`inline-flex items-stretch text-[11px] rounded border overflow-hidden ${evBorder} ${palette.outer}`}
+        className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border ${evBorder} ${palette.outer}`}
       >
-        <span className={`px-1.5 py-0.5 font-medium ${palette.cat}`}>
-          {category.label}
-        </span>
-        <span className="inline-flex items-baseline gap-1 px-1.5 py-0.5">
-          <TagValueChip value={v} />
-          {variant === "inferred" ? (
-            <span className={`text-[9px] uppercase tracking-wide ${palette.label}`}>
-              {sourceLabel}
-            </span>
-          ) : null}
-          {/* Evidence-code badge dropped from inline render — the
-              palette colour + source label already convey provenance,
-              and the title attribute carries the full IIA / IC name
-              for curators who need it. */}
-        </span>
+        {factorGlyph}
+        <TagValueChip
+          value={v}
+          categoryLabel={category.label}
+          demoted={hasUriValue && !v.uri}
+        />
       </span>
     );
   }
 
-  // Multi-value: collapse, with a preview of the first 2 in the
-  // closed state.
+  // Multi-value: collapsed = preview values inline; expanded = all
+  // values + collapse chevron. Category lives in the hover title
+  // (per Paul, 2026-05-17 — it's already there, no need to surface
+  // visually on expand). The leading count number ("3 ▸ …") was
+  // dropped — "+N more" already conveys count.
+  const PREVIEW_N = 2;
+  const shown = values.slice(0, PREVIEW_N);
+  const hidden = values.length - shown.length;
   return (
     <span
-      className={`inline-flex items-stretch text-[11px] rounded border overflow-hidden ${evBorder} ${palette.outer}`}
-      title={evTitle ? evTitle.replace(/^\s·\s/, "") : undefined}
+      className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border ${evBorder} ${palette.outer}`}
+      title={
+        evTitle
+          ? `${hoverTitle}${evTitle ? ` ·${evTitle.replace(/^\s·\s/, " ")}` : ""}`
+          : hoverTitle
+      }
     >
-      <span className={`px-1.5 py-0.5 font-medium ${palette.cat}`}>
-        {category.label}
-      </span>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-baseline gap-1 px-1.5 py-0.5 hover:underline underline-offset-2"
-        title={
-          open
-            ? "click to collapse"
-            : `click to expand ${values.length} ${category.label} values`
-        }
-      >
-        <span className="font-medium tabular-nums">{values.length}</span>
-        <span className={palette.label}>{open ? "▾" : "▸"}</span>
-        {variant === "inferred" ? (
-          <span className={`text-[9px] uppercase tracking-wide ml-0.5 ${palette.label}`}>
-            {sourceLabel}
-          </span>
-        ) : null}
-        {/* Evidence-code badge dropped from inline render — see the
-            single-value branch above for rationale. */}
-        {open ? null : (() => {
-          // Show enough values inline that the curator can read the
-          // actual labels — previously capped at 2 inside max-w-[24ch]
-          // with `truncate`, which cut mid-word on multi-value disease
-          // / cell-type categories. Preview now shows up to 3 chips
-          // and uses an explicit "+N more" indicator so the hidden
-          // count is legible. The container is no longer width-capped
-          // — it grows with the content and wraps naturally on a tight
-          // row; the click-to-expand still surfaces the full set.
-          const PREVIEW_N = 3;
-          const shown = values.slice(0, PREVIEW_N);
-          const hidden = values.length - shown.length;
-          return (
-            <span className="inline-flex items-baseline gap-0.5 ml-1 flex-wrap">
-              {shown.map((v, i) => (
-                <span key={v.key} className="inline-flex items-baseline gap-0.5">
-                  {i > 0 ? <span className={palette.label}>,</span> : null}
-                  <TagValueChip value={v} />
-                </span>
-              ))}
-              {hidden > 0 ? (
-                <span className={`text-[10px] ml-0.5 ${palette.label}`}>
-                  +{hidden} more
-                </span>
-              ) : null}
-            </span>
-          );
-        })()}
-      </button>
+      {factorGlyph}
       {open ? (
-        <span className="inline-flex items-baseline gap-1 flex-wrap px-1.5 py-0.5 border-l border-current/20">
+        <span className="inline-flex items-baseline gap-1 flex-wrap">
           {values.map((v) => (
-            <TagValueChip key={v.key} value={v} />
+            <TagValueChip
+              key={v.key}
+              value={v}
+              categoryLabel={category.label}
+              demoted={hasUriValue && !v.uri}
+            />
           ))}
         </span>
-      ) : null}
+      ) : (
+        <span className="inline-flex items-baseline gap-0.5 flex-wrap">
+          {shown.map((v, i) => (
+            <span key={v.key} className="inline-flex items-baseline gap-0.5">
+              {i > 0 ? <span className={palette.label}>,</span> : null}
+              <TagValueChip
+                value={v}
+                categoryLabel={category.label}
+                demoted={hasUriValue && !v.uri}
+              />
+            </span>
+          ))}
+          {hidden > 0 ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(true);
+              }}
+              className={`text-[10px] ${palette.label} hover:underline ml-0.5`}
+              title={`reveal ${hidden} more ${category.label} value${hidden === 1 ? "" : "s"}`}
+            >
+              +{hidden} more
+            </button>
+          ) : null}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className={`text-[10px] ${palette.label} hover:underline ml-auto`}
+        title={open ? "collapse" : `expand ${values.length} values`}
+        aria-label={open ? "collapse" : "expand"}
+      >
+        {open ? "▾" : "▸"}
+      </button>
     </span>
   );
 }
@@ -2064,15 +2460,30 @@ function SummaryCard({
   label,
   children,
   className,
+  help,
+  helpTitle,
 }: {
   label: string;
   children: React.ReactNode;
   className?: string;
+  /** Optional inline help body rendered behind a `?` popover next to
+   *  the card's label. Use for legends (colour meanings, chip
+   *  provenance) and short "how to read this card" notes. Each card
+   *  is free to skip when there's nothing to explain. */
+  help?: React.ReactNode;
+  /** Title shown in the popover header + the `?` button tooltip.
+   *  Defaults to ``"{label} — legend"``. */
+  helpTitle?: string;
 }) {
   return (
     <div className={"card p-3" + (className ? " " + className : "")}>
-      <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">
-        {label}
+      <div className="text-xs text-slate-500 mb-2 flex items-center gap-1.5">
+        <span className="uppercase tracking-wide">{label}</span>
+        {help ? (
+          <HelpPopup title={helpTitle ?? `${label} — legend`} size="md">
+            {help}
+          </HelpPopup>
+        ) : null}
       </div>
       <dl className="space-y-1">{children}</dl>
     </div>
@@ -2561,7 +2972,11 @@ function AddPublicationForm({
             {parsed ? parsed.kind : "unrecognised"}
           </span>
         ) : null}
-        <button type="submit" className="btn primary" disabled={!parsed}>
+        <button
+          type="submit"
+          className="btn primary !px-2 !py-0.5 text-[11px]"
+          disabled={!parsed}
+        >
           + add
         </button>
       </form>

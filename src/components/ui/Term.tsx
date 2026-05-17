@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import { shortenUri } from "@/lib/curie";
+import { curieToUrl, shortenUri } from "@/lib/curie";
 import type { ReactNode } from "react";
 
 /**
@@ -66,7 +66,7 @@ export function Term({
   if (isLink) {
     return (
       <a
-        href={uri!}
+        href={curieToUrl(uri) ?? uri!}
         target="_blank"
         rel="noopener noreferrer"
         title={tooltipUri}

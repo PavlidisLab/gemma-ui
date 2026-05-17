@@ -200,6 +200,20 @@ export interface AttachedDefenderVerdict {
   /** Rule-section reference (e.g. ``"09_experiment_tags.md § Sample
    *  applicability"``). Rendered as a tooltip on the Judge line. */
   citation: string;
+  /** Arbiter judgement mode, calibration package v11+ (defender-as-
+   *  arbiter swap, HANDOFF_2026-05-16_DEFENDER_ARBITER.md). Tells the
+   *  curator *how* the verdict was reached:
+   *
+   *  - ``"rule"`` — verdict cites a specific guideline section
+   *    (``citation`` is populated and load-bearing).
+   *  - ``"judgment"`` — TMTOWTDI / equivalence call where guidelines
+   *    leave room for interpretation; ``citation`` may be empty.
+   *  - ``"meta"`` — verdict about the guidelines themselves
+   *    (``guideline_omission``: prose missing for an implicit rule).
+   *  - ``"escape"`` — arbiter declined to rule (``cannot_judge``).
+   *
+   *  ``undefined`` on packages predating the arbiter prompt swap. */
+  mode?: "rule" | "judgment" | "meta" | "escape";
 }
 
 export interface AuditScope {
@@ -361,6 +375,14 @@ export interface AuditFindingDispositionPatch {
   status: DispositionStatus;
   reviewer: string;
   notes?: string;
+  /** The finding's ``issue_code``, looked up from the report by
+   *  ``target_id`` and echoed in the patch body so the server-side
+   *  validator can gate reason chips by code (e.g. ``agent_real_miss``
+   *  only valid on ``calibration_{gold_only_miss,
+   *  factor_gold_only_miss}``). Required by the agent-side validator
+   *  as of the 2026-05-16 chip-gap closure pass. Always populated by
+   *  ``setDisposition`` from the live report. */
+  issue_code?: string;
   dismiss_reason?: DismissReason;
   /** Required when ``status === "accepted"`` and the finding's
    *  ``issue_code`` is in the agent-extra family — captures the

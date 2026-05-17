@@ -93,6 +93,20 @@ async function readErrorBody(r: Response): Promise<string> {
  *  phase-2c).
  */
 function snakifyKey(key: string): string {
+  // Skip prose-shaped dict keys — biomaterial.characteristics is the
+  // canonical example, where Gemma's import surfaces user-facing
+  // strings like "BioSource", "GEO Sample characteristic", "Genetic
+  // modification" as dict KEYS, not API field names. Pre-fix the
+  // generic replace mangled these into "_bio_source" /
+  // "_g_e_o_sample_characteristic" which rendered as gibberish in
+  // the TagBar.
+  //
+  // Heuristic: legitimate camelCase wire fields always start with a
+  // lowercase letter and never contain whitespace. Anything else is
+  // either prose (skip) or already snake_case / lowercase (the
+  // regex doesn't fire anyway, so the early-out is just an optimization).
+  if (/\s/.test(key)) return key;
+  if (/^[A-Z]/.test(key)) return key;
   return key.replace(/([A-Z])/g, (_, ch) => `_${(ch as string).toLowerCase()}`);
 }
 

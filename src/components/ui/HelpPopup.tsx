@@ -15,6 +15,8 @@ export function HelpPopup({
   children,
   size = "sm",
   align = "left",
+  trigger,
+  triggerClassName,
 }: {
   /** Heading shown at the top of the popover. */
   title: string;
@@ -28,6 +30,11 @@ export function HelpPopup({
   size?: "sm" | "md" | "lg";
   /** Horizontal alignment relative to the trigger. */
   align?: "left" | "right";
+  /** Override the default round "?" trigger with custom content
+   *  (e.g. a text link like "Reasoning ▸"). When set,
+   *  ``triggerClassName`` replaces the default button styles. */
+  trigger?: ReactNode;
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   // Flip above the trigger when below would overflow the viewport
@@ -82,20 +89,23 @@ export function HelpPopup({
           }
           setOpen((v) => !v);
         }}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 text-[10px] leading-none align-middle dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
-        title={`Curation guidelines: ${title}`}
+        className={
+          triggerClassName ??
+          "inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 text-[10px] leading-none align-middle dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+        }
+        title={`${trigger ? title : `Curation guidelines: ${title}`}`}
         aria-label={`help: ${title}`}
       >
-        ?
+        {trigger ?? "?"}
       </button>
       {open ? (
         <div
           className={`absolute z-40 ${alignCls} ${
             flipUp ? "bottom-full mb-1" : "top-full mt-1"
-          } ${widthCls} bg-white border border-slate-200 rounded shadow-lg text-xs text-slate-700 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300`}
+          } ${widthCls} bg-white border border-slate-300 ring-1 ring-black/10 rounded shadow-xl text-xs text-slate-700 dark:bg-slate-800 dark:border-slate-500 dark:ring-black/40 dark:text-slate-200`}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-3 py-2 border-b border-slate-100 flex items-baseline justify-between gap-2 dark:border-slate-800">
+          <div className="px-3 py-2 border-b border-slate-100 flex items-baseline justify-between gap-2 dark:border-slate-700">
             <span className="font-semibold text-slate-800 dark:text-slate-100">{title}</span>
             <button
               type="button"
@@ -110,7 +120,7 @@ export function HelpPopup({
             {children}
           </div>
           {source ? (
-            <div className="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            <div className="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
               Source:{" "}
               {sourceUrl ? (
                 <a

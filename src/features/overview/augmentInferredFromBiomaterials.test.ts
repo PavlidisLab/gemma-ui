@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { augmentInferredFromBiomaterials } from "./OverviewPanel";
+import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import type { Biomaterial, Tag } from "@/features/experiment/types";
 
 /**

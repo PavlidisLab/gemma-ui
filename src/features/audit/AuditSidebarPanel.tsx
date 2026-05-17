@@ -38,6 +38,7 @@ import type { Design, Factor, FactorValue } from "@/features/experiment/types";
 import type { FactorProposal } from "@/api/types";
 import { DesignComparisonPanel } from "./AuditReportView";
 import { normalizeWikiUrl } from "@/lib/guidelines";
+import { HelpPopup } from "@/components/ui/HelpPopup";
 
 /**
  * Per-experiment audit findings, rendered into the proposals sidebar
@@ -354,6 +355,9 @@ function SidebarHeader({
     reopenSaving,
     setDisposition,
     dispositionByTarget,
+    auditList,
+    activeAuditIndex,
+    setActiveAuditIndex,
   } = useAudit();
   const toast = useToast();
   const [confirmClose, setConfirmClose] = useState(false);
@@ -456,17 +460,73 @@ function SidebarHeader({
             title={`closed${finalizedBy ? ` by ${finalizedBy}` : ""}${finalizedAt ? ` · ${formatShort(finalizedAt)}` : ""}`}
           >closed</span>
         ) : null}
-        {/* Model */}
-        {report.model ? (
+        {/* Auditor identity — prominent enough that a curator
+         *  switching between two audits (e.g. dual-agent
+         *  hybrid-vs-oneshot review, HANDOFF_2026-05-17_DUAL_AGENT_REVIEW)
+         *  can tell at a glance which one they're looking at. The
+         *  palette is hashed off the auditor's BASE name (version
+         *  suffixes like ``-v5b`` / ``-2026-05-17`` stripped) so
+         *  ``hybrid-v5b`` and ``hybrid-v6`` get the same pill colour
+         *  but ``hybrid`` and ``oneshot`` get distinct ones. */}
+        {report.model ? (() => {
+          const palette = auditorPalette(report.model);
+          return (
+            <span
+              className={cn(
+                "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border",
+                palette,
+              )}
+              title={`auditor: ${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`}
+            >
+              <span className="text-[9px] uppercase tracking-wide opacity-70">
+                auditor
+              </span>
+              <span className="truncate max-w-[14rem]">{report.model}</span>
+            </span>
+          );
+        })() : null}
+        {/* Audit switcher — appears only when the experiment has more
+         *  than one audit (dual-agent review path). Lets the curator
+         *  flip between e.g. hybrid and oneshot calibration packages
+         *  without leaving the experiment view. */}
+        {auditList.length > 1 ? (
           <span
-            className="text-[10px] font-mono px-1 py-0 rounded bg-slate-100 border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 truncate max-w-[12rem]"
-            title={`model: ${report.model}`}
+            className="inline-flex items-baseline gap-0.5 text-[10px]"
+            title={`audit ${activeAuditIndex + 1} of ${auditList.length} — ◂ / ▸ to switch`}
           >
-            {report.model}
+            <button
+              type="button"
+              onClick={() =>
+                setActiveAuditIndex(
+                  (activeAuditIndex - 1 + auditList.length) % auditList.length,
+                )
+              }
+              className="px-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
+              aria-label="previous audit"
+            >
+              ◂
+            </button>
+            <span className="tabular-nums text-slate-500 dark:text-slate-400 px-0.5">
+              {activeAuditIndex + 1}/{auditList.length}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setActiveAuditIndex((activeAuditIndex + 1) % auditList.length)
+              }
+              className="px-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
+              aria-label="next audit"
+            >
+              ▸
+            </button>
           </span>
         ) : null}
-        {/* Date */}
-        <span className="text-slate-400 dark:text-slate-500">
+        {/* Date — sits adjacent so the (auditor, date) pair reads as
+         *  one identity stamp. */}
+        <span
+          className="text-[11px] text-slate-500 dark:text-slate-400"
+          title={report.audited_at ?? ""}
+        >
           {report.audited_at ? formatShort(report.audited_at) : "—"}
         </span>
         {/* Scope */}
@@ -504,8 +564,11 @@ function SidebarHeader({
                 {pendingActionable} pending
               </span>
             ) : (
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
-                ✓ triaged
+              <span
+                className="text-[10px] text-emerald-600 dark:text-emerald-400"
+                title="every actionable finding has a disposition — you can close the audit"
+              >
+                ✓ ready to close
               </span>
             )
           ) : null}
@@ -930,11 +993,18 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
   // bucket regardless of severity.
   const isActionable = (f: AuditFinding): boolean => {
     if (isMatchFinding(f)) return false;
+    if (isRenameMatch(f)) return false;
     if (f.severity !== "ok") return true;
     const a = resolveApplyAction(f);
     return !!a && a.mutates;
   };
   const actionable = sorted.filter(isActionable);
+  // Rename matches render as a diff card in their own section above
+  // the other actionable findings — the arbiter judged them as same-
+  // factor-different-label, so the curator's job is one focused
+  // decision per pair ("which label is right?"), not a scan of two
+  // unrelated cards.
+  const renames = sorted.filter(isRenameMatch);
   // Match findings (currently calibration_match for tags; factor-side
   // codes coming) render as compact green-check rows, visible by
   // default — same affordance as exact-match factors in the
@@ -988,8 +1058,25 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
     { kind: "experiment", header: "Experiment" },
   ];
 
+  const visibleRenames = renames.filter(
+    (f) => !suppression.isSubsumedByParentFactor(f),
+  );
+
   return (
     <div className="space-y-3">
+      {visibleRenames.length > 0 ? (
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
+            Renames — same factor, different label
+          </div>
+          {visibleRenames.map((f) => (
+            <RenameFindingCard
+              key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+              finding={f}
+            />
+          ))}
+        </div>
+      ) : null}
       {GROUPS.map(({ kind, header }) => {
         const items = groupedActionable.get(kind);
         if (!items || items.length === 0) return null;
@@ -1102,6 +1189,38 @@ function isMatchFinding(f: AuditFinding): boolean {
   return /(^|_)match$/.test(f.issue_code);
 }
 
+/** A factor-match finding with non-ok severity is the arbiter's way of
+ *  flagging a **category rename** — same factor, different label
+ *  (the only path to a non-ok `calibration_factor_match` per the v4
+ *  arbiter wire, HANDOFF_2026-05-16_DEFENDER_ARBITER.md). Pulled out
+ *  of the actionable bucket and rendered as a diff card instead of a
+ *  generic finding card so the curator sees agent ≈ Gemma at a glance
+ *  rather than having to read the rationale prose. */
+function isRenameMatch(f: AuditFinding): boolean {
+  return (
+    f.issue_code === "calibration_factor_match" && f.severity !== "ok"
+  );
+}
+
+/** Pulls the agent + Gemma category labels out of the rename
+ *  rationale. The arbiter emits a stable prose template:
+ *
+ *    "Category rename: agent proposes `<agent>` where Gemma has
+ *     `<gold>` (matched via …). Which label is right? …"
+ *
+ *  Returns ``null`` if the rationale doesn't match — the caller
+ *  falls back to the standard finding card so we never render a
+ *  half-built diff. */
+function parseRenameLabels(
+  rationale: string,
+): { agent: string; gold: string } | null {
+  const m = rationale.match(
+    /agent proposes `([^`]+)`\s+where Gemma has `([^`]+)`/i,
+  );
+  if (!m) return null;
+  return { agent: m[1], gold: m[2] };
+}
+
 /** Compact green-check row for a calibration match. Default-collapsed
  *  one-liner; chevron expands to reveal the agent's evidence + the
  *  disposition controls so the curator can flag a wrong match. */
@@ -1173,6 +1292,149 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
           <FindingActionRow finding={finding} />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Diff-shaped card for an arbiter-flagged category rename
+ *  (calibration_factor_match with severity != ok). The two-label diff
+ *  row reads at-a-glance — agent ≈ Gemma — so the curator doesn't have
+ *  to parse rationale prose to spot the disagreement. Falls back to
+ *  ``CompactFindingCard`` if the rationale doesn't match the expected
+ *  arbiter prose template (defensive — broken templates should still
+ *  surface, just without the diff). */
+function RenameFindingCard({ finding }: { finding: AuditFinding }) {
+  const labels = parseRenameLabels(finding.rationale || "");
+  if (!labels) return <CompactFindingCard finding={finding} />;
+
+  const [open, setOpen] = useState(false);
+  const { activeFindingKey, setActiveFindingKey, dispositionByTarget } =
+    useAudit();
+  const disposition = dispositionByTarget.get(finding.target_id);
+  const current = disposition?.status ?? "pending";
+  const isClosed =
+    current === "dismissed" ||
+    current === "needs_more_info" ||
+    (current === "accepted" && !!disposition?.resolved_at);
+  markFirstSeen(finding.target_id);
+
+  const cardRef = useRef<HTMLDivElement>(null);
+  const myKey = findingKey(finding);
+  useEffect(() => {
+    if (activeFindingKey !== myKey) return;
+    setOpen(true);
+    const raf = requestAnimationFrame(() => {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      setActiveFindingKey(null);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeFindingKey, myKey, setActiveFindingKey]);
+
+  return (
+    <div
+      ref={cardRef}
+      className={cn(
+        "card p-2 text-xs space-y-1.5 border-blue-200 dark:border-blue-700/50 bg-blue-50/30 dark:bg-blue-900/10",
+        isClosed && "opacity-60",
+        activeFindingKey === myKey && "ring-2 ring-blue-400",
+      )}
+    >
+      <button
+        type="button"
+        className="w-full text-left space-y-1.5"
+        onClick={() => setOpen((v) => !v)}
+        title={open ? "collapse" : "expand"}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
+            factor
+          </span>
+          <span className="text-[10px] text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-600 px-1 py-0 rounded bg-blue-50 dark:bg-blue-900/40 font-medium">
+            renamed category
+          </span>
+          <DebateBadgeChip
+            badge={finding.debate_badge}
+            defenderVerdict={finding.defender_verdict}
+          />
+          <span
+            aria-hidden
+            className="ml-auto text-slate-400 dark:text-slate-500 text-[10px]"
+          >
+            {open ? "▾" : "▸"}
+          </span>
+        </div>
+
+        {/* The diff — two labels side-by-side with an equivalence
+            symbol between them. Both labels neutral-tinted: the
+            curator's job is to decide which is right, not to
+            pre-judge by colour. */}
+        <div className="flex items-center gap-2 px-1 py-1.5 rounded bg-white/60 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700">
+          <div className="flex-1 min-w-0">
+            <div className="text-[9px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              agent
+            </div>
+            <div className="font-mono text-[12px] text-slate-900 dark:text-slate-100 truncate">
+              {labels.agent}
+            </div>
+          </div>
+          <div
+            className="text-slate-400 dark:text-slate-500 text-sm select-none"
+            aria-label="equivalent to"
+            title="arbiter judged these as the same factor under different labels"
+          >
+            ≈
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[9px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Gemma
+            </div>
+            <div className="font-mono text-[12px] text-slate-900 dark:text-slate-100 truncate">
+              {labels.gold}
+            </div>
+          </div>
+        </div>
+
+        <div className="text-[11px] text-slate-600 dark:text-slate-300 px-1">
+          Which label is right?{" "}
+          <span className="text-slate-500 dark:text-slate-400">
+            Accept = keep Gemma's. Dismiss = adopt the agent's.
+          </span>
+        </div>
+      </button>
+
+      {open ? (
+        <div className="space-y-1.5 pl-1 border-l-2 border-blue-200 dark:border-blue-700/40">
+          {finding.citation || finding.citation_url ? (
+            <div className="text-[10px] text-slate-500 pl-1.5">
+              §{" "}
+              {finding.citation_url ? (
+                <a
+                  href={normalizeWikiUrl(finding.citation_url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-700 hover:underline"
+                  title={finding.citation || finding.citation_url}
+                >
+                  {finding.citation || finding.citation_url}
+                </a>
+              ) : (
+                <span>{finding.citation}</span>
+              )}
+            </div>
+          ) : null}
+
+          {/* Full rationale text (arbiter's reasoning) once the curator
+              expands. The diff is the headline; the prose is the
+              "why". */}
+          <div className="text-[11px] text-slate-700 dark:text-slate-200 pl-1.5">
+            {splitRationaleTrail(trimRationaleBoilerplate(finding.rationale)).summary}
+          </div>
+
+          <AgentSuggestionPanel finding={finding} />
+        </div>
+      ) : null}
+
+      <FindingActionRow finding={finding} />
     </div>
   );
 }
@@ -1293,6 +1555,60 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
     return () => cancelAnimationFrame(raf);
   }, [activeFindingKey, myKey, setActiveFindingKey]);
 
+  // Is there anything meaningful to reveal when the curator expands
+  // this card? Findings with no citation, no agent suggestion, no
+  // reasoning trail, and a one-line rationale have an empty expanded
+  // body — chevron + click would be a dead affordance. Compute up-
+  // front and gate the toggle so the card visually signals "headline
+  // only" rather than promising detail that isn't there.
+  const trail = splitRationaleTrail(
+    trimRationaleBoilerplate(finding.rationale),
+  ).trail;
+  // Be defensive: an OBJECT existing with empty string fields used to
+  // trip `!!field` truthy. Tighten to "is there actually content the
+  // expanded body would render?" — matches what the curator sees.
+  const nonEmpty = (s: string | null | undefined): boolean =>
+    !!(s && s.trim());
+  const hasCitation = nonEmpty(finding.citation) || nonEmpty(finding.citation_url);
+  const proposerStatements = (finding.proposer_statements ?? []).filter(
+    (s) => nonEmpty(s.subject?.label) || nonEmpty(s.subject?.uri),
+  );
+  const proposerDefense = trimRationaleBoilerplate(
+    finding.proposer_defense ?? "",
+  );
+  const supportingEvidence = (finding.supporting_evidence ?? []).filter(
+    (e) => nonEmpty(e.quote) || nonEmpty(e.context),
+  );
+  const hasProposerTerm =
+    nonEmpty(finding.proposer_term?.label) ||
+    nonEmpty(finding.proposer_term?.uri);
+  const hasDefenderContent =
+    !!finding.defender_verdict &&
+    (nonEmpty(finding.defender_verdict.rationale) ||
+      nonEmpty(finding.defender_verdict.citation) ||
+      nonEmpty(finding.defender_verdict.verdict));
+  // `suggested_fix` on calibration triplet codes restates the
+  // headline action ("Remove tag X.") and AgentSuggestionPanel
+  // intentionally drops it. So it doesn't count toward "expandable".
+  // Mirror the panel's `isCalibrationCode` check so the chevron
+  // hide-rule and the panel's render-rule agree.
+  const isCalibrationCode =
+    finding.issue_code === "calibration_gold_only_miss" ||
+    finding.issue_code === "calibration_match" ||
+    finding.issue_code === "calibration_agent_extra";
+  const suggestedFixCounts =
+    nonEmpty(finding.suggested_fix) && !isCalibrationCode;
+  const hasAgentSuggestion =
+    hasProposerTerm ||
+    proposerStatements.length > 0 ||
+    nonEmpty(proposerDefense) ||
+    supportingEvidence.length > 0 ||
+    nonEmpty(finding.proposer_suggestion) ||
+    suggestedFixCounts ||
+    hasDefenderContent;
+  const hasExpandableContent =
+    hasCitation || hasAgentSuggestion || nonEmpty(trail);
+
   return (
     <div
       ref={cardRef}
@@ -1305,9 +1621,18 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
     >
       <button
         type="button"
-        className="w-full text-left flex items-start gap-1.5"
-        onClick={() => setOpen((v) => !v)}
-        title={open ? "collapse" : "expand"}
+        className={cn(
+          "w-full text-left flex items-start gap-1.5",
+          !hasExpandableContent && "cursor-default",
+        )}
+        onClick={hasExpandableContent ? () => setOpen((v) => !v) : undefined}
+        title={
+          hasExpandableContent
+            ? open
+              ? "collapse"
+              : "expand"
+            : "no further detail"
+        }
       >
         <SeverityBadge severity={finding.severity} />
         <span className="flex-1 min-w-0">
@@ -1324,17 +1649,22 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           >
             {rewriteCalibrationRationale(
               finding.issue_code,
-              trimRationaleBoilerplate(finding.rationale),
+              splitRationaleTrail(
+                trimRationaleBoilerplate(finding.rationale),
+              ).summary,
             )}
+            <ReasoningTrailButton rationale={finding.rationale} />
           </span>
           <FactorReplacementHint finding={finding} report={report} />
         </span>
-        <span
-          aria-hidden
-          className="text-slate-400 dark:text-slate-500 text-[10px] mt-0.5"
-        >
-          {open ? "▾" : "▸"}
-        </span>
+        {hasExpandableContent ? (
+          <span
+            aria-hidden
+            className="text-slate-400 dark:text-slate-500 text-[10px] mt-0.5"
+          >
+            {open ? "▾" : "▸"}
+          </span>
+        ) : null}
       </button>
 
       {/* Expanded body — citation + agent suggestion panel — only
@@ -2325,6 +2655,60 @@ function trimRationaleBoilerplate(s: string): string {
   return out.trim();
 }
 
+/** Inline "Reasoning ▸" link that pops the agent's full reasoning
+ *  trail. Renders nothing when the rationale carries no trail
+ *  marker. Popover aligns right + sized small so it sits next to
+ *  the trigger instead of swallowing the suggestion block beneath. */
+function ReasoningTrailButton({ rationale }: { rationale: string }) {
+  const { trail } = splitRationaleTrail(trimRationaleBoilerplate(rationale));
+  if (!trail) return null;
+  return (
+    <span className="ml-1 inline-block align-middle">
+      <HelpPopup
+        title="Agent reasoning trail"
+        size="md"
+        align="right"
+        trigger={
+          <span className="inline-flex items-baseline gap-0.5">
+            Reasoning <span className="text-[9px]">▸</span>
+          </span>
+        }
+        triggerClassName="text-[10px] uppercase tracking-wide text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:underline align-middle"
+      >
+        <div className="text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+          {trail}
+        </div>
+      </HelpPopup>
+    </span>
+  );
+}
+
+/** Splits a calibration finding's rationale into the curator-facing
+ *  summary and the agent's full reasoning trail. The trail (subtask
+ *  decisions, debate transcripts, S2h/S8 evidence chains) is the
+ *  same content that lives in the SUBTASK ANALYSIS section — so
+ *  inlining the whole thing here means the curator sees it three
+ *  times. The UI hides it behind a "reasoning ▸" disclosure.
+ *
+ *  Markers (set by ``build_calibration_batch.py`` /
+ *  ``rationale_with_trail``):
+ *    - ``" — Agent reasoning trail — "``
+ *    - ``" — Full agent reasoning trail — "``
+ *
+ *  Returns ``{summary, trail}`` where ``trail`` is ``null`` when no
+ *  marker is present (the whole string is summary). */
+function splitRationaleTrail(
+  s: string,
+): { summary: string; trail: string | null } {
+  if (!s) return { summary: s, trail: null };
+  const re = /\s*—\s*(?:Full\s+)?Agent\s+reasoning\s+trail\s*—\s*/i;
+  const m = s.match(re);
+  if (!m || m.index === undefined) return { summary: s, trail: null };
+  const summary = s.slice(0, m.index).trim();
+  const trail = s.slice(m.index + m[0].length).trim();
+  return { summary, trail: trail || null };
+}
+
 /** Combined "suggested fix + proposer suggestion" panel. Shows both
  *  in a single box so the curator sees one coherent "what the agent
  *  thinks you should do" block instead of two differently-coloured
@@ -2851,20 +3235,25 @@ function DebateBadgeChip({
 }
 
 function SeverityBadge({ severity }: { severity: Severity }) {
-  const cls = {
-    blocker: "bg-rose-200 text-rose-900",
-    major: "bg-amber-200 text-amber-900",
-    minor: "bg-slate-200 text-slate-700",
-    ok: "bg-emerald-200 text-emerald-900",
+  // Distinct 3-letter abbreviations + colour. ``severity[0]`` collided
+  // on "M" for major / minor — caught 2026-05-17. Tooltip carries the
+  // full severity name for curators who haven't internalised the
+  // abbreviations yet.
+  const config = {
+    blocker: { label: "blk", cls: "bg-rose-200 text-rose-900" },
+    major:   { label: "maj", cls: "bg-amber-200 text-amber-900" },
+    minor:   { label: "min", cls: "bg-slate-200 text-slate-700" },
+    ok:      { label: "ok",  cls: "bg-emerald-200 text-emerald-900" },
   }[severity];
   return (
     <span
       className={cn(
         "inline-block text-[9px] uppercase tracking-wide font-bold px-1 py-0 rounded mt-0.5 shrink-0",
-        cls,
+        config.cls,
       )}
+      title={`severity: ${severity}`}
     >
-      {severity[0]}
+      {config.label}
     </span>
   );
 }
@@ -2893,6 +3282,40 @@ function severityRowCls(s: Severity): string {
     case "ok":
       return "border-emerald-200";
   }
+}
+
+/** Picks a stable tint for the auditor pill so two parallel audits
+ *  on the same experiment (dual-agent review) get visually distinct
+ *  headers. The hash key is the *base* auditor name — trailing
+ *  version markers (``-v5b``, ``_v3``, ``-2026-05-17``,
+ *  ``-2026-05-17-foo``) are stripped first so ``hybrid-v5b`` and
+ *  ``hybrid-v6`` map to the same colour. */
+const AUDITOR_PALETTES = [
+  "bg-indigo-50 border-indigo-300 text-indigo-900 dark:bg-indigo-900/40 dark:border-indigo-700 dark:text-indigo-100",
+  "bg-amber-50 border-amber-300 text-amber-900 dark:bg-amber-900/40 dark:border-amber-700 dark:text-amber-100",
+  "bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-100",
+  "bg-rose-50 border-rose-300 text-rose-900 dark:bg-rose-900/40 dark:border-rose-700 dark:text-rose-100",
+  "bg-violet-50 border-violet-300 text-violet-900 dark:bg-violet-900/40 dark:border-violet-700 dark:text-violet-100",
+  "bg-sky-50 border-sky-300 text-sky-900 dark:bg-sky-900/40 dark:border-sky-700 dark:text-sky-100",
+  "bg-teal-50 border-teal-300 text-teal-900 dark:bg-teal-900/40 dark:border-teal-700 dark:text-teal-100",
+];
+function normalizeAuditor(model: string): string {
+  // Iteratively strip trailing version/date markers so versioned
+  // siblings collapse to the same key.
+  let s = model.trim();
+  // Repeatable suffix forms.
+  const TAIL = /(?:[-_](?:v\d+[a-z]?|\d{4}-\d{2}-\d{2}(?:-[a-z0-9]+)?|\d{8}|\d+))+$/i;
+  while (TAIL.test(s)) {
+    s = s.replace(TAIL, "");
+    if (!s) break;
+  }
+  return s.toLowerCase();
+}
+function auditorPalette(model: string): string {
+  const key = normalizeAuditor(model || "auditor");
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return AUDITOR_PALETTES[h % AUDITOR_PALETTES.length];
 }
 
 function formatShort(iso: string): string {

@@ -64,8 +64,20 @@ interface AuditContextValue {
    *  (e.g. finding cards needing to address the samples table)
    *  don't have to thread it through props from the Shell. */
   experimentId: number;
-  /** The audit being shown — override (dev synth) if set, else most
-   *  recent live audit, else null. */
+  /** All audits on this experiment (ordered most-recent-first per the
+   *  server contract). Used by the dual-agent review header to render
+   *  a prev/next switcher when the curator has run multiple audits
+   *  on the same GSE (e.g. hybrid vs oneshot calibration packages,
+   *  HANDOFF_2026-05-17_DUAL_AGENT_REVIEW). Length-0 when no audits
+   *  yet; length-1 is the common single-audit case. */
+  auditList: AuditReport[];
+  /** Index into ``auditList`` of the audit currently rendered.
+   *  Defaults to 0 (most recent); the header switcher updates this. */
+  activeAuditIndex: number;
+  setActiveAuditIndex: (i: number) => void;
+  /** The audit being shown — override (dev synth) if set, else the
+   *  ``auditList[activeAuditIndex]`` (default 0 = most recent), else
+   *  null. */
   report: AuditReport | null;
   /** Override the live data with an in-memory report (e.g. dev
    *  synth). Pass null to clear the override and fall back to
@@ -209,15 +221,24 @@ export function AuditProvider({
 
   const [override, setOverride] = useState<AuditReport | null>(null);
   const [activeFindingKey, setActiveFindingKey] = useState<string | null>(null);
+  const [activeAuditIndex, setActiveAuditIndex] = useState(0);
 
-  // Reset override on experiment change so a synth loaded for GSE A
-  // doesn't leak into GSE B.
+  // Reset override + audit-switch index on experiment change so state
+  // doesn't leak from GSE A into GSE B.
   useEffect(() => {
     setOverride(null);
     setActiveFindingKey(null);
+    setActiveAuditIndex(0);
   }, [experimentId]);
 
-  const liveReport = liveReports?.items?.[0] ?? null;
+  const auditList = liveReports?.items ?? [];
+  // Clamp the index in case the audit list shrinks (e.g. server
+  // dropped one) — keeps the selection valid without throwing.
+  const safeIndex = Math.min(
+    Math.max(0, activeAuditIndex),
+    Math.max(0, auditList.length - 1),
+  );
+  const liveReport = auditList[safeIndex] ?? null;
   const report = override ?? liveReport;
 
   const findingsByTarget = useMemo(() => {
@@ -311,11 +332,20 @@ export function AuditProvider({
       // disposition list. The mutation throws on failure so a
       // ``saving…`` UI surface naturally surfaces an error.
       if (!report.audit_id) return;
+      // Resolve the finding's issue_code from the report so the server
+      // validator can gate reason chips by code (chip-gap closure,
+      // 2026-05-16). Empty string if the finding isn't found — server
+      // will reject, which is the right failure mode (mis-routed
+      // disposition).
+      const finding = (report.findings ?? []).find(
+        (f) => f.target_id === targetId,
+      );
       const patch: import("@/api/auditTypes").AuditFindingDispositionPatch = {
         target_id: targetId,
         status,
         reviewer,
         notes,
+        issue_code: finding?.issue_code ?? "",
       };
       if (extras.dismissReason) patch.dismiss_reason = extras.dismissReason;
       if (extras.acceptReason) patch.accept_reason = extras.acceptReason;
@@ -361,6 +391,9 @@ export function AuditProvider({
 
   const value: AuditContextValue = {
     experimentId,
+    auditList,
+    activeAuditIndex: safeIndex,
+    setActiveAuditIndex,
     report,
     setOverrideReport: setOverride,
     hasOverride: override !== null,

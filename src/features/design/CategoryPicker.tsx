@@ -260,11 +260,11 @@ export function CategoryPicker({
       >
         {label || placeholder || "(category)"}
       </span>
-      {hasUri ? (
-        <span className="text-slate-400 text-[10px] font-mono">
-          {shortenUri(value!.uri!)}
-        </span>
-      ) : null}
+      {/* Category URI dropped from inline render 2026-05-17 — curators
+       *  don't read the category's own ontology id (e.g.
+       *  "OBI:0000070" for the "assay" category itself); only the
+       *  value's URI matters. Full URI still in the title-tooltip
+       *  above. */}
     </span>
   );
 }

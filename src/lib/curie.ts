@@ -19,6 +19,43 @@
  * than a 50-char wrap.
  */
 
+/** Maps a CURIE (e.g. ``UBERON:0034920``) to a clickable full URL.
+ *  Returns full URLs unchanged. Returns ``null`` for empty input.
+ *  Unknown prefixes fall back to an OLS search query so the curator
+ *  still gets *somewhere* useful.
+ *
+ *  Needed because some upstream fields (FV statement subject/object,
+ *  on certain agent payloads) ship URIs as bare CURIEs rather than
+ *  fully-qualified URLs; rendering those as ``href`` attributes
+ *  yields broken relative links. */
+const CURIE_TO_URL_PREFIX: Record<string, string> = {
+  UBERON: "http://purl.obolibrary.org/obo/UBERON_",
+  MONDO: "http://purl.obolibrary.org/obo/MONDO_",
+  EFO: "http://www.ebi.ac.uk/efo/EFO_",
+  PATO: "http://purl.obolibrary.org/obo/PATO_",
+  OBI: "http://purl.obolibrary.org/obo/OBI_",
+  CL: "http://purl.obolibrary.org/obo/CL_",
+  CHEBI: "http://purl.obolibrary.org/obo/CHEBI_",
+  HP: "http://purl.obolibrary.org/obo/HP_",
+  GO: "http://purl.obolibrary.org/obo/GO_",
+  RO: "http://purl.obolibrary.org/obo/RO_",
+  BFO: "http://purl.obolibrary.org/obo/BFO_",
+  TGEMO: "http://gemma.msl.ubc.ca/ont/TGEMO_",
+  NCBITaxon: "http://purl.obolibrary.org/obo/NCBITaxon_",
+};
+
+export function curieToUrl(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  if (/^https?:\/\//i.test(uri)) return uri;
+  const m = uri.match(/^([A-Za-z][A-Za-z0-9]*):(.+)$/);
+  if (m) {
+    const prefix = CURIE_TO_URL_PREFIX[m[1]];
+    if (prefix) return `${prefix}${m[2]}`;
+    return `https://www.ebi.ac.uk/ols4/search?q=${encodeURIComponent(uri)}`;
+  }
+  return uri;
+}
+
 export function shortenUri(uri: string | null | undefined): string {
   if (!uri) return "";
   // 1. underscore-separated CURIE in the path:
