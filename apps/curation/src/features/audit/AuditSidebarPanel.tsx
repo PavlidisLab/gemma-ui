@@ -1951,19 +1951,24 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
 
   const fvs = agentFactor.factor_values ?? [];
 
-  // Per-FV correspondence — only for near matches. Agent FVs that
-  // pair to Gemma FVs via ``gemma_ref`` get an inline ✓ (labels
-  // match), ≈ (paired by URI / synonym, labels differ), or + (no
-  // Gemma counterpart). Gemma FVs the agent didn't propose surface
-  // as muted rows at the end. Exact matches and alternate-factor
-  // findings skip the indicators (would be all-green or
-  // structurally divergent — different question).
+  // Per-FV correspondence — render for every factor-match finding
+  // (exact OR near). Agent FVs that pair to Gemma FVs via
+  // ``gemma_ref`` get an inline ✓ (labels match), ≈ (paired by URI
+  // / synonym, labels differ), or + (no Gemma counterpart). Gemma
+  // FVs the agent didn't propose surface as muted rows at the end.
   //
-  // Post-handoff (2026-05-18 NEAR_MATCH_FV_PAIRING): once the
-  // builder ships ``fv_pairs`` on ``_close``, this will read
+  // 2026-05-18: extended from near-only to all matches per Paul:
+  // even on "exact" factor matches the per-FV detail tells curators
+  // *where* the work is — e.g. an exact factor-label match can
+  // still have agent-only FVs that aren't in Gemma yet.
+  //
+  // Post-handoff (NEAR_MATCH_FV_PAIRING): once the builder ships
+  // ``fv_pairs`` on ``_close``, this will read
   // ``finding.rename.fv_pairs`` first and fall back to the
   // gemma_ref path for older audit.json files.
-  const showCorrespondence = isCloseFactorMatch(finding);
+  const showCorrespondence =
+    finding.target_kind === "factor" &&
+    (isExactFactorMatch(finding) || isCloseFactorMatch(finding));
   // Pair the agent factor to a *specific* gold factor. Slug-only
   // lookup is ambiguous when the design has multi-factor-same-
   // category (e.g. GSE93824's two ``genotype`` factors) — both
