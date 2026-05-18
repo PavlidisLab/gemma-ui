@@ -183,17 +183,29 @@ export function FactorList({
                   "cursor-pointer transition-colors",
                   selected
                     ? "bg-blue-100 hover:bg-blue-100"
-                    : "hover:bg-slate-50",
+                    : isAdded
+                      ? // Mirror tag-chip "amber ring" convention for
+                        // uncommitted additions — soft amber wash so
+                        // the curator can see at a glance which rows
+                        // came from an Agree → add audit action and
+                        // are awaiting commit.
+                        "bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/30"
+                      : "hover:bg-slate-50",
                 )}
               >
-                {/* Selection indicator. A solid blue bar on selected
-                    rows is more legible than a faint background tint
-                    alone — clear cue at a glance which row's FVs the
-                    panel below is showing. */}
+                {/* Left-edge indicator strip. Selection (blue)
+                    trumps added-in-draft (amber): the curator
+                    actively clicked this row, so the panel below is
+                    showing its FVs — the amber-new state demotes to
+                    background context until they click off. */}
                 <td
                   className={cn(
-                    "p-0",
-                    selected ? "bg-blue-600" : "bg-transparent",
+                    "p-0 w-1",
+                    selected
+                      ? "bg-blue-600"
+                      : isAdded
+                        ? "bg-amber-400"
+                        : "bg-transparent",
                   )}
                   aria-hidden
                 />
@@ -349,7 +361,7 @@ function ModifiedBadge() {
 function NewBadge() {
   return (
     <span
-      className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800"
+      className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700"
       title="added in this draft, not yet committed"
     >
       new
