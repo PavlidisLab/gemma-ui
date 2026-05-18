@@ -3147,7 +3147,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const dismissBtnRef = useRef<HTMLButtonElement | null>(null);
   const acceptBtnRef = useRef<HTMLButtonElement | null>(null);
   const notSureBtnRef = useRef<HTMLButtonElement | null>(null);
-  const action = resolveApplyAction(finding);
+  // Pass the report + draft so factor-level calibration apply
+  // handlers (extra → add factor, gold_only_miss → remove factor)
+  // can resolve the agent factor and guard against double-applies.
+  const action = resolveApplyAction(finding, { report, design: draft });
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
   // Judge says weak → reframe the action row so Dismiss is the

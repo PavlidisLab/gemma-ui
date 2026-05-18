@@ -27,11 +27,19 @@
  */
 import type {
   AuditFinding,
+  AuditReport,
   DismissReason,
   DispositionStatus,
 } from "@/api/auditTypes";
-import type { Design, Tag } from "@/features/experiment/types";
+import type {
+  Design,
+  Factor,
+  FactorValue,
+  Tag,
+} from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
+import type { FactorProposal } from "@/api/types";
+import { resolveAgentFactor } from "./factorMatch";
 import { parseTargetId, type ParsedTargetId } from "./targetIds";
 
 export interface ApplyAction {
@@ -72,9 +80,17 @@ export interface ApplyAction {
 /** Resolve an apply action for a finding. Returns null only when
  *  there's nothing actionable AND the target_id is unparseable —
  *  the UI hides the button in that case rather than rendering a
- *  no-op. */
+ *  no-op.
+ *
+ *  ``report`` is optional — passed only when the caller wants
+ *  factor-level apply handlers (extra / gold_only_miss) which need
+ *  the comparison_proposal to resolve the agent's full factor shape
+ *  and need the live design to guard against already-applied
+ *  mutations. Tag-level handlers don't need either; they're left
+ *  using only the finding's structured fields. */
 export function resolveApplyAction(
   finding: AuditFinding,
+  ctx?: { report?: AuditReport | null; design?: Design | null },
 ): ApplyAction | null {
   // Calibration findings carry a custom target_id shape
   // (``calibration:<status>:<category>/<value>``) the standard
@@ -85,6 +101,18 @@ export function resolveApplyAction(
   // draft, then the disposition PATCH stamps applied_fix.
   const calibrationApply = resolveCalibrationApply(finding);
   if (calibrationApply) return calibrationApply;
+
+  // Factor-level calibration apply: agent_extra → add factor;
+  // gold_only_miss → remove factor. Requires report (for the agent
+  // factor proposal) and the current design (for idempotency).
+  if (ctx?.report || ctx?.design) {
+    const factorApply = resolveFactorCalibrationApply(
+      finding,
+      ctx.report ?? null,
+      ctx.design ?? null,
+    );
+    if (factorApply) return factorApply;
+  }
 
   const parsed = parseTargetId(finding.target_id);
   if (!parsed) return null;
@@ -235,6 +263,233 @@ function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
       `Removed tag "${t.category}: ${t.value}". Commit the draft to save.`,
     mutate: (draft) => removeTagByLabels(draft, t.category, t.value),
     appliedFix: `remove ${t.category}: ${t.value}`,
+  };
+}
+
+/** Factor-side calibration apply: add the agent's proposed factor
+ *  on calibration_factor_extra, remove the gold factor on
+ *  calibration_factor_gold_only_miss. Both paths are idempotent —
+ *  if the resulting state already matches the curator's "agree"
+ *  verdict (factor already in / out of the draft), the handler
+ *  returns a focus-only action with an "already applied" label so
+ *  the curator doesn't double-add or render a dead button.
+ *
+ *  Multi-factor-same-category designs (e.g. GSE93824's two
+ *  ``genotype`` factors) are disambiguated by biomaterial-set
+ *  identity, not by category label alone — adding a "genotype"
+ *  proposal whose biomaterials match an existing "genotype"
+ *  factor exactly is treated as already-applied; adding one with a
+ *  different biomaterial partition is a genuine new factor. */
+function resolveFactorCalibrationApply(
+  finding: AuditFinding,
+  report: AuditReport | null,
+  design: Design | null,
+): ApplyAction | null {
+  if (finding.target_kind !== "factor") return null;
+  const code = finding.issue_code;
+  if (
+    code !== "calibration_factor_extra" &&
+    code !== "calibration_factor_gold_only_miss"
+  ) {
+    return null;
+  }
+  if (!design) return null;
+
+  // calibration_factor_extra — add the agent's factor to the draft.
+  if (code === "calibration_factor_extra") {
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    // Pull a label hint from the rationale's first backticked token
+    // so older audits without agent_target_index still resolve.
+    const labelHint =
+      finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
+    const proposal = resolveAgentFactor(finding, cp, labelHint);
+    if (!proposal) return null;
+    const proposalBms = new Set(
+      proposal.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+    );
+    // Idempotency: if an existing factor already covers this exact
+    // partition (same biomaterial set, same category label), the
+    // add would be a no-op or a duplicate. Surface as
+    // "already applied" so the curator doesn't get a useless
+    // mutate-click.
+    const alreadyApplied = (design.factors ?? []).some((f) => {
+      if (
+        f.category.label.toLowerCase().trim() !==
+        proposal.category.label.toLowerCase().trim()
+      ) {
+        return false;
+      }
+      const fBms = new Set(
+        f.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+      );
+      if (fBms.size !== proposalBms.size) return false;
+      for (const bm of proposalBms) if (!fBms.has(bm)) return false;
+      return true;
+    });
+    if (alreadyApplied) {
+      return {
+        mutates: false,
+        label: "✓ Already in draft",
+        tooltip:
+          `An existing factor with category "${proposal.category.label}" already covers ` +
+          `the same biomaterials this proposal would have added. Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    // Category-name clash guard: a factor with the same category
+    // label but a DIFFERENT partition exists. Adding silently would
+    // give the design two factors named the same. Surface as a
+    // warning in the tooltip so the curator knows the add is
+    // genuinely new, not duplicating.
+    const nameClash = (design.factors ?? []).some(
+      (f) =>
+        f.category.label.toLowerCase().trim() ===
+        proposal.category.label.toLowerCase().trim(),
+    );
+    return {
+      mutates: true,
+      label: "Agree (add) →",
+      tooltip: nameClash
+        ? `Agree → add a SECOND factor "${proposal.category.label}" to the design (an existing factor shares the category label but covers different biomaterials).`
+        : `Agree → add factor "${proposal.category.label}" (${proposal.factor_values.length} value${
+            proposal.factor_values.length === 1 ? "" : "s"
+          }) to the design.`,
+      successMessage: `Added factor "${proposal.category.label}". Commit the draft to save.`,
+      mutate: (draft) => addFactorFromProposal(draft, proposal),
+      appliedFix: `add factor ${proposal.category.label}`,
+    };
+  }
+
+  // calibration_factor_gold_only_miss — remove the gold factor the
+  // agent didn't propose. target_id slug = factor:<category-slug>.
+  // Multi-factor-same-category: pick the gold factor whose
+  // biomaterial set best matches the rationale-implied subset.
+  // (Best-effort. Falls through to focus-only when ambiguous and
+  // no agent factor in cp can disambiguate.)
+  if (code === "calibration_factor_gold_only_miss") {
+    const goldSlug =
+      finding.rationale?.match(/`([^`]+)`/)?.[1]?.toLowerCase().trim() ?? "";
+    if (!goldSlug) return null;
+    const candidates = (design.factors ?? []).filter(
+      (f) => f.category.label.toLowerCase().trim() === goldSlug,
+    );
+    if (candidates.length === 0) {
+      // Already removed (or never present) → idempotent no-op.
+      return {
+        mutates: false,
+        label: "✓ Already removed",
+        tooltip: `No factor "${goldSlug}" in the current draft. Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    // Single candidate: unambiguous removal.
+    if (candidates.length === 1) {
+      const target = candidates[0];
+      return {
+        mutates: true,
+        label: "Agree (remove) →",
+        tooltip: `Agree → remove factor "${target.category.label}" from the design.`,
+        successMessage: `Removed factor "${target.category.label}". Commit the draft to save.`,
+        mutate: (draft) => removeFactorById(draft, target.id),
+        appliedFix: `remove factor ${target.category.label}`,
+      };
+    }
+    // Multi-candidate (same category label): pick by biomaterial
+    // overlap against the agent's factors. The gold factor whose
+    // biomaterials overlap LEAST with what the agent proposed is
+    // the one the agent missed — that's the remove target.
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    if (!cp?.factors?.length) return null;
+    const agentBms = new Set(
+      cp.factors.flatMap((af) =>
+        af.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+      ),
+    );
+    let leastOverlap = Infinity;
+    let pick: Factor | null = null;
+    for (const g of candidates) {
+      let overlap = 0;
+      for (const gfv of g.factor_values) {
+        for (const bm of gfv.biomaterial_short_names) {
+          if (agentBms.has(bm)) overlap++;
+        }
+      }
+      if (overlap < leastOverlap) {
+        leastOverlap = overlap;
+        pick = g;
+      }
+    }
+    if (!pick) return null;
+    return {
+      mutates: true,
+      label: "Agree (remove) →",
+      tooltip: `Agree → remove factor "${pick.category.label}" (id=${pick.id}, ${pick.factor_values.length} values) from the design. Disambiguated from a duplicate-category sibling by biomaterial overlap.`,
+      successMessage: `Removed factor "${pick.category.label}". Commit the draft to save.`,
+      mutate: (draft) => removeFactorById(draft, pick!.id),
+      appliedFix: `remove factor ${pick.category.label} (id=${pick.id})`,
+    };
+  }
+
+  return null;
+}
+
+/** Append a populated Factor to the draft from an agent factor
+ *  proposal. Mirrors the retired ``proposalFactorsToDesignFactors``
+ *  on the audit side — same id-allocation strategy (next-after-max)
+ *  and same baseline-inference rule. Curator-asserted (IC). */
+function addFactorFromProposal(
+  design: Design,
+  proposal: FactorProposal,
+): Design {
+  let nextFactorId =
+    (design.factors ?? []).reduce((m, f) => Math.max(m, f.id), 0) + 1;
+  let nextFvId =
+    (design.factors ?? [])
+      .flatMap((f) => f.factor_values)
+      .reduce((m, fv) => Math.max(m, fv.id), 0) + 1;
+  const factor_values: FactorValue[] = (proposal.factor_values ?? []).map(
+    (fv) => ({
+      id: nextFvId++,
+      free_text_label: fv.free_text_label,
+      is_baseline: !!fv.is_baseline,
+      numeric_value: fv.numeric_value ?? null,
+      biomaterial_short_names: [...fv.biomaterial_short_names],
+      statements: (fv.statements ?? []).map((s) => ({
+        category: {
+          label: proposal.category.label,
+          uri: proposal.category.uri ?? null,
+        },
+        subject: { label: s.subject.label, uri: s.subject.uri ?? null },
+        predicate: s.predicate
+          ? { label: s.predicate.label, uri: s.predicate.uri ?? null }
+          : null,
+        object: s.object
+          ? { label: s.object.label, uri: s.object.uri ?? null }
+          : null,
+      })),
+    }),
+  );
+  const newFactor: Factor = {
+    id: nextFactorId,
+    name: proposal.name_in_design || proposal.category.label,
+    category: {
+      label: proposal.category.label,
+      uri: proposal.category.uri ?? null,
+    },
+    description: "",
+    type: proposal.factor_type === "continuous" ? "continuous" : "categorical",
+    factor_values,
+  };
+  return { ...design, factors: [...(design.factors ?? []), newFactor] };
+}
+
+/** Drop a factor by id. Used by the gold_only_miss apply path so
+ *  multi-factor-same-category designs can target a specific
+ *  duplicate without label-matching against its sibling. */
+function removeFactorById(design: Design, factorId: number): Design {
+  return {
+    ...design,
+    factors: (design.factors ?? []).filter((f) => f.id !== factorId),
   };
 }
 
