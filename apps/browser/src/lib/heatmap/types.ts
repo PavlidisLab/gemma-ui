@@ -1,0 +1,133 @@
+/**
+ * Public types for the heatmap library.
+ *
+ * The library is framework-agnostic at the core (a canvas renderer that takes
+ * a typed data object + config) and ships a thin React wrapper alongside.
+ */
+
+/** A single cell value. `null` is treated as missing (rendered as `nanColor`). */
+export type CellValue = number | null;
+
+/**
+ * A categorical annotation strip drawn above the heatmap columns
+ * (or beside the rows, once row annotations land — colAnnotations only for v1).
+ *
+ * `values[i]` is the category for column `i`. `palette[v]` is the color for
+ * category `v`; categories absent from the palette fall back to `nanColor`.
+ */
+export interface CategoricalAnnotation {
+  name: string;
+  values: Array<string | null>;
+  /** Map of category value -> CSS color. Missing keys render as `nanColor`. */
+  palette: Record<string, string>;
+}
+
+export interface HeatmapData {
+  /** Row-major value matrix. `values[row][col]`. All rows must be the same length. */
+  values: CellValue[][];
+  rowLabels?: string[];
+  colLabels?: string[];
+  colAnnotations?: CategoricalAnnotation[];
+}
+
+/**
+ * A color palette.
+ *
+ * - `diverging`: data is signed; `stops` is a left→right ramp through zero.
+ *   Values are clipped to `±clip` (config) before sampling.
+ * - `sequential`: data is unsigned (or signed but rendered without a zero
+ *   midpoint); `stops` is a low→high ramp, sampling from `domain[0]` to
+ *   `domain[1]` (config; defaults computed from the data).
+ *
+ * `stops` is sampled with nearest-neighbor binning, matching the legacy
+ * Gemma heatmap behavior (no interpolation between stops — keeps the look
+ * crisp and posterized).
+ */
+export type Palette =
+  | { kind: 'diverging'; stops: string[] }
+  | { kind: 'sequential'; stops: string[] };
+
+export interface HeatmapConfig {
+  /** Default: PALETTES.ambsky (diverging amber→black→sky). */
+  palette?: Palette;
+  /** Clip diverging values to ±clip. Default 3. Ignored for sequential. */
+  clip?: number;
+  /** Domain [lo, hi] for sequential palettes. Default: data min/max. */
+  domain?: [number, number];
+  /** Color for null / NaN cells. Default '#9ca3af' (gray-400). */
+  nanColor?: string;
+  /** Show row labels (HTML, to keep them copyable). Default 'auto'. */
+  showRowLabels?: boolean | 'auto';
+  /** Show column labels (rotated -90° on canvas). Default 'auto'. */
+  showColLabels?: boolean | 'auto';
+  /** Cell size constraints. */
+  cell?: {
+    minHeight?: number;
+    maxHeight?: number;
+    minWidth?: number;
+    maxWidth?: number;
+  };
+  /**
+   * How to size cells horizontally:
+   * - 'fit'   : cells share the available width (squeezes sub-pixel columns).
+   * - 'expand': cells are fixed at `cell.maxWidth` (default 10), heatmap may
+   *             overflow horizontally.
+   * Default 'fit'.
+   */
+  fit?: 'fit' | 'expand';
+  /** Font family for labels. Default 'Helvetica, Arial, sans-serif'. */
+  fontFamily?: string;
+  /** Max pixels reserved for column labels. Default 220. */
+  maxColLabelPx?: number;
+  /** Per-annotation-strip height. Default 10. */
+  annotationStripHeight?: number;
+}
+
+/** Resolved config — every field present, used internally by renderers. */
+export interface ResolvedConfig {
+  palette: Palette;
+  clip: number;
+  domain: [number, number] | null;
+  nanColor: string;
+  showRowLabels: boolean | 'auto';
+  showColLabels: boolean | 'auto';
+  cell: Required<NonNullable<HeatmapConfig['cell']>>;
+  fit: 'fit' | 'expand';
+  fontFamily: string;
+  maxColLabelPx: number;
+  annotationStripHeight: number;
+}
+
+/**
+ * Geometry of a single rendered cell — emitted by the renderer so callers
+ * can do hit testing for hover/click.
+ *
+ * `mergedCols` is the number of source columns this rendered cell represents
+ * after sub-pixel merging (1 in the common case; >1 when 'fit' had to collapse
+ * adjacent columns to keep cells at least 1px wide).
+ */
+export interface CellGeometry {
+  row: number;
+  col: number;
+  mergedCols: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface RenderResult {
+  /** Total rendered pixel width (CSS px, not device px). */
+  width: number;
+  /** Total rendered pixel height (CSS px, not device px). */
+  height: number;
+  /** Pixel offset of the heatmap matrix within the canvas (after labels/strips). */
+  matrix: { x: number; y: number; w: number; h: number };
+  /** Cell geometries, in row-major order. */
+  cells: CellGeometry[];
+  /**
+   * Hit-test helper. Returns the cell at canvas-relative CSS pixel `(x, y)`
+   * within the matrix area, or `null` if outside.
+   */
+  cellAt: (x: number, y: number) => CellGeometry | null;
+}
