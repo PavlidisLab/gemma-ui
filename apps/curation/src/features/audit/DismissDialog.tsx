@@ -47,10 +47,24 @@ const MODE_CONFIG: Record<
 
 export type DialogChip = { key: string; label: string; help: string };
 
+/** Draft store — survives DismissDialog mount/unmount cycles so the
+ *  curator can press Escape (or anything that closes the dialog
+ *  *without* explicit Cancel), navigate around the page, and reopen
+ *  the same finding's dialog to find their chip + notes still there.
+ *  Keyed by `<targetId>::<mode>` so per-mode drafts on the same
+ *  finding don't trample each other (e.g. an in-progress Park note
+ *  isn't lost when the curator briefly opens the Dismiss dialog).
+ *
+ *  Cleared on Cancel / × / Confirm. Escape just closes the UI. */
+const draftStore = new Map<string, { tag: string | null; notes: string }>();
+const draftKeyOf = (targetId: string, mode: DispositionMode) =>
+  `${targetId}::${mode}`;
+
 export function DismissDialog({
   mode = "dismiss",
   chips = [],
   finding,
+  targetId,
   anchor,
   initialTag = null,
   initialNotes = "",
@@ -64,6 +78,9 @@ export function DismissDialog({
    *  reasons, not-sure reasons). Empty = no chip row shown. */
   chips?: DialogChip[];
   finding: { issue_code: string; rationale: string };
+  /** Stable id for the finding so draft state can be keyed per-finding
+   *  across the dialog's mount/unmount cycle. */
+  targetId: string;
   anchor: HTMLElement | null;
   /** Pre-select this chip on open. Used when re-opening the dialog
    *  to edit an existing disposition's notes / tag. */
@@ -79,9 +96,34 @@ export function DismissDialog({
   onConfirm: (tag: string | null, notes: string) => Promise<void> | void;
 }) {
   const config = MODE_CONFIG[mode];
-  const [tag, setTag] = useState<string | null>(initialTag);
-  const [notes, setNotes] = useState(initialNotes);
+  const draftKey = draftKeyOf(targetId, mode);
+  // Hydration order (highest precedence first):
+  //   1. Persisted draft (curator pressed Escape mid-edit and is now
+  //      reopening) — survives the dialog's unmount.
+  //   2. Explicit initialTag/initialNotes from the parent (edit-mode
+  //      reopens preload the existing disposition's chip + note).
+  //   3. First chip as default so the common-case Confirm is one click.
+  const draft = draftStore.get(draftKey);
+  const [tag, setTag] = useState<string | null>(
+    draft?.tag ?? initialTag ?? chips[0]?.key ?? null,
+  );
+  const [notes, setNotes] = useState(draft?.notes ?? initialNotes);
   const [submitting, setSubmitting] = useState(false);
+
+  // Mirror every keystroke / chip click into the draft store so a
+  // surprise unmount (Escape, ancestor re-render that flips
+  // dismissOpen, etc.) doesn't lose curator work.
+  useEffect(() => {
+    draftStore.set(draftKey, { tag, notes });
+  }, [draftKey, tag, notes]);
+
+  const clearDraft = () => {
+    draftStore.delete(draftKey);
+  };
+  const cancelWithClear = () => {
+    clearDraft();
+    onCancel();
+  };
   const ref = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
@@ -108,29 +150,21 @@ export function DismissDialog({
     setPos({ top, left });
   }, [anchor]);
 
+  // Dialog is sticky — clicks outside, viewport resize, and scrolling
+  // do NOT dismiss. Curators routinely open the disposition dialog,
+  // then scroll around the experiment page to check samples / read the
+  // paper / look at related findings before deciding; an auto-dismiss
+  // discards the chip + notes they'd already filled in.
+  //
+  // Escape closes the dialog WITHOUT clearing the draft — reopening
+  // restores the chip + notes from `draftStore`. Cancel / × / Confirm
+  // explicitly clear the draft.
   useEffect(() => {
-    function onDoc(e: MouseEvent) {
-      if (submitting) return;
-      const target = e.target as Node;
-      if (ref.current?.contains(target)) return;
-      if (anchor?.contains(target)) return;
-      onCancel();
-    }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape" && !submitting) onCancel();
     }
-    document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onCancel, submitting, anchor]);
-
-  useEffect(() => {
-    if (submitting) return;
-    window.addEventListener("resize", onCancel);
-    return () => window.removeEventListener("resize", onCancel);
+    return () => document.removeEventListener("keydown", onKey);
   }, [onCancel, submitting]);
 
   // Server requires `<mode>_reason` whenever the disposition is set
@@ -158,6 +192,7 @@ export function DismissDialog({
     setSubmitting(true);
     try {
       await onConfirm(tag, trimmedNotes);
+      clearDraft();
     } finally {
       setSubmitting(false);
     }
@@ -173,8 +208,20 @@ export function DismissDialog({
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="font-semibold text-slate-800 dark:text-slate-100 mb-1.5">
-        {isEdit ? `Edit · ${config.title}` : config.title}
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="font-semibold text-slate-800 dark:text-slate-100">
+          {isEdit ? `Edit · ${config.title}` : config.title}
+        </span>
+        <button
+          type="button"
+          onClick={cancelWithClear}
+          disabled={submitting}
+          className="text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200 disabled:opacity-50"
+          title="close (discards your chip + notes; press Esc to keep them)"
+          aria-label="close dialog"
+        >
+          ×
+        </button>
       </div>
       <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">
         <span className="font-mono mr-1">{finding.issue_code}</span>
@@ -215,8 +262,9 @@ export function DismissDialog({
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
-          onClick={onCancel}
+          onClick={cancelWithClear}
           disabled={submitting}
+          title="discards your chip + notes (press Esc instead to keep them)"
           className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-800"
         >
           cancel

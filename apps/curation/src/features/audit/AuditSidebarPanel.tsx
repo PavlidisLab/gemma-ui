@@ -35,8 +35,12 @@ import type {
   Severity,
 } from "@/api/auditTypes";
 import type { Design, Factor, FactorValue } from "@/features/experiment/types";
-import type { FactorProposal } from "@/api/types";
-import { DesignComparisonPanel } from "./AuditReportView";
+import type { FactorProposal, SubtaskDecision } from "@/api/types";
+import {
+  DesignComparisonPanel,
+  SubtaskDecisionRow,
+  dedupeSubtaskDecisions,
+} from "./AuditReportView";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 
@@ -1619,13 +1623,29 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         activeFindingKey === myKey && "ring-2 ring-blue-400",
       )}
     >
-      <button
-        type="button"
+      {/* Use a div with role=button instead of a real <button>, because
+          the card body contains the inline ReasoningTrailButton — a
+          <button> nested inside another <button> is invalid HTML and
+          browsers swallow the inner click, which is why "REASONING ▸"
+          appeared unclickable. */}
+      <div
+        role={hasExpandableContent ? "button" : undefined}
+        tabIndex={hasExpandableContent ? 0 : undefined}
         className={cn(
           "w-full text-left flex items-start gap-1.5",
-          !hasExpandableContent && "cursor-default",
+          hasExpandableContent ? "cursor-pointer" : "cursor-default",
         )}
         onClick={hasExpandableContent ? () => setOpen((v) => !v) : undefined}
+        onKeyDown={
+          hasExpandableContent
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOpen((v) => !v);
+                }
+              }
+            : undefined
+        }
         title={
           hasExpandableContent
             ? open
@@ -1660,12 +1680,12 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         {hasExpandableContent ? (
           <span
             aria-hidden
-            className="text-slate-400 dark:text-slate-500 text-[10px] mt-0.5"
+            className="text-slate-400 dark:text-slate-500 text-xs mt-0.5"
           >
             {open ? "▾" : "▸"}
           </span>
         ) : null}
-      </button>
+      </div>
 
       {/* Expanded body — citation + agent suggestion panel — only
           when the curator opens the card. The action row stays
@@ -1702,6 +1722,16 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           ) : null}
 
           <AgentSuggestionPanel finding={finding} />
+
+          {/* Inline subtask analysis for factor-scoped findings. The
+              factor label is extracted from the rationale's first
+              backticked token (e.g. "Remove factor `treatment`?" →
+              "treatment"). Surfacing it here means curators don't have
+              to scroll to the bottom-of-panel SUBTASK ANALYSIS block to
+              find the agent's reasoning for the gold_only_miss / match /
+              rename / agent_extra calls. The bottom block filters these
+              out so the same content doesn't render twice. */}
+          <InlineSubtaskReasoning finding={finding} report={report} />
         </div>
       ) : null}
 
@@ -2419,6 +2449,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 mode="dismiss"
                 chips={dismissChipsFor(finding.issue_code)}
                 finding={finding}
+                targetId={finding.target_id}
                 anchor={dismissBtnRef.current}
                 isEdit={dismissEditing}
                 initialTag={prefill.tag}
@@ -2446,6 +2477,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 mode="accept"
                 chips={acceptChipsFor(finding.issue_code)}
                 finding={finding}
+                targetId={finding.target_id}
                 anchor={acceptBtnRef.current}
                 isEdit={acceptEditing}
                 initialTag={prefill.tag}
@@ -2473,6 +2505,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 mode="not_sure"
                 chips={NOT_SURE_CHIPS}
                 finding={finding}
+                targetId={finding.target_id}
                 anchor={notSureBtnRef.current}
                 isEdit={notSureEditing}
                 initialTag={prefill.tag}
@@ -2669,11 +2702,11 @@ function ReasoningTrailButton({ rationale }: { rationale: string }) {
         size="md"
         align="right"
         trigger={
-          <span className="inline-flex items-baseline gap-0.5">
-            Reasoning <span className="text-[9px]">▸</span>
+          <span className="inline-flex items-baseline gap-1">
+            Reasoning <span className="text-xs leading-none">▸</span>
           </span>
         }
-        triggerClassName="text-[10px] uppercase tracking-wide text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:underline align-middle"
+        triggerClassName="ml-1 text-[11px] uppercase tracking-wide text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-200 hover:underline align-middle"
       >
         <div className="text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
           {trail}
@@ -2681,6 +2714,82 @@ function ReasoningTrailButton({ rationale }: { rationale: string }) {
       </HelpPopup>
     </span>
   );
+}
+
+/** Pull the factor label out of a `calibration_factor_*` finding's
+ *  rationale. The agent emits the label as the first backticked token
+ *  in the question form (e.g. "Remove factor `treatment`?", "Is factor
+ *  `genotype` correctly captured?"). Returns the label in lowercase
+ *  (matching the subtask_decision target_id casing) or null when the
+ *  pattern doesn't match. */
+function findingFactorLabel(finding: AuditFinding): string | null {
+  if (!finding.issue_code.startsWith("calibration_factor_")) return null;
+  if (finding.target_kind !== "factor") return null;
+  const m = (finding.rationale || "").match(/`([^`:]+?)`/);
+  if (!m) return null;
+  return m[1].trim().toLowerCase();
+}
+
+/** Subtask decisions targeting a given factor label. Matches both
+ *  `factor:<label>` (factor-level) and `factor:<label>:fv:<fv>` /
+ *  `factor:<label>/...` (FV / slot-level under the factor). */
+function subtaskDecisionsForFactor(
+  report: AuditReport | null,
+  label: string,
+): SubtaskDecision[] {
+  if (!report || !label) return [];
+  const all =
+    report.evidence?.comparison_proposal?.evidence?.subtask_decisions ?? [];
+  const prefix = `factor:${label}`;
+  return all.filter((d) => {
+    if (d.confidence === "high") return false;
+    const t = (d.target_id || "").toLowerCase();
+    if (t === prefix) return true;
+    if (t.startsWith(`${prefix}:`)) return true;
+    if (t.startsWith(`${prefix}/`)) return true;
+    return false;
+  });
+}
+
+/** Renders matching subtask decisions inline in a finding's expanded
+ *  body. Renders nothing if there are no matches — keeps the body
+ *  tight for findings without reasoning. */
+function InlineSubtaskReasoning({
+  finding,
+  report,
+}: {
+  finding: AuditFinding;
+  report: AuditReport | null;
+}) {
+  const label = findingFactorLabel(finding);
+  if (!label) return null;
+  const decisions = subtaskDecisionsForFactor(report, label);
+  if (decisions.length === 0) return null;
+  const deduped = dedupeSubtaskDecisions(decisions);
+  return (
+    <div className="space-y-1 pl-1.5">
+      <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500">
+        Subtask analysis · factor `{label}`
+      </div>
+      {deduped.map((d, i) => (
+        <SubtaskDecisionRow key={i} decision={d} />
+      ))}
+    </div>
+  );
+}
+
+/** All factor labels covered by an inline-rendered subtask block in a
+ *  CompactFindingCard. The bottom-of-panel SUBTASK ANALYSIS section
+ *  uses this to drop the same decisions and avoid duplication. */
+export function findingCoveredFactorLabels(
+  findings: readonly AuditFinding[] | undefined,
+): Set<string> {
+  const s = new Set<string>();
+  for (const f of findings ?? []) {
+    const lbl = findingFactorLabel(f);
+    if (lbl) s.add(lbl);
+  }
+  return s;
 }
 
 /** Splits a calibration finding's rationale into the curator-facing

@@ -795,6 +795,18 @@ export function DesignComparisonPanel({
       {/* Experiment-level subtask decisions (factor-scoped ones render inline) */}
       {cp && (cp.evidence?.subtask_decisions?.length ?? 0) > 0 ? (() => {
         const factorLabels = agentFactors.map((f) => f.category.label.toLowerCase());
+        // Also drop factor labels that a sidebar finding card renders
+        // inline via InlineSubtaskReasoning — gold_only_miss / rename
+        // findings reference factors the agent never proposed, so the
+        // agentFactors-based filter above misses them. Without this the
+        // same subtask analysis renders twice (once inline, once here).
+        const findingLabels = new Set<string>();
+        for (const f of report.findings ?? []) {
+          if (!f.issue_code.startsWith("calibration_factor_")) continue;
+          if (f.target_kind !== "factor") continue;
+          const m = (f.rationale || "").match(/`([^`:]+?)`/);
+          if (m) findingLabels.add(m[1].trim().toLowerCase());
+        }
         const globalDecisions = cp.evidence!.subtask_decisions!.filter((d) => {
           if (d.confidence === "high") return false;
           const t = (d.target_id || "").toLowerCase();
@@ -806,6 +818,11 @@ export function DesignComparisonPanel({
           // (FV-level under a factor); both share the same prefix.
           for (const label of factorLabels) {
             if (t.startsWith(`factor:${label}`)) return false;
+          }
+          for (const label of findingLabels) {
+            if (t === `factor:${label}`) return false;
+            if (t.startsWith(`factor:${label}:`)) return false;
+            if (t.startsWith(`factor:${label}/`)) return false;
           }
           return true;
         });
@@ -840,7 +857,7 @@ export function DesignComparisonPanel({
  *  summary row. With 3+ factors the per-pair prose was identical
  *  modulo factor names + tiny crosstab numbers, blowing out the
  *  panel with N(N-1)/2 paragraphs that say "nothing's wrong." */
-function dedupeSubtaskDecisions(decisions: SubtaskDecision[]): SubtaskDecision[] {
+export function dedupeSubtaskDecisions(decisions: SubtaskDecision[]): SubtaskDecision[] {
   const seen = new Set<string>();
   const dedupedExact = decisions.filter((d) => {
     const key = `${d.subtask}||${d.verdict}`;
@@ -1101,7 +1118,7 @@ function ProposedTagRow({ tag, inGemma }: { tag: TagProposal; inGemma?: boolean 
   );
 }
 
-function SubtaskDecisionRow({ decision }: { decision: SubtaskDecision }) {
+export function SubtaskDecisionRow({ decision }: { decision: SubtaskDecision }) {
   const confidenceColor: Record<string, string> = {
     high:   "text-emerald-700 dark:text-emerald-400",
     medium: "text-amber-700 dark:text-amber-400",
