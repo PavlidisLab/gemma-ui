@@ -180,6 +180,18 @@ export interface AuditFinding {
    *  ``HANDOFF_2026-05-18_UI_FACTOR_MATCH_PAIRING.md`` in the eval
    *  repo). */
   agent_target_index?: number | null;
+  /** Gold-side analogue of ``agent_target_index`` — 0-based index of
+   *  the gold ``Factor`` this finding refers to in the design's
+   *  factor list. Disambiguates multi-factor-same-category cases
+   *  (e.g. GSE93824's two ``genotype`` factors) where the
+   *  slug-only ``target_id`` (``factor:genotype``) collides across
+   *  finding cards. Set on ``calibration_factor_match_exact`` /
+   *  ``_near`` / ``calibration_factor_rename`` /
+   *  ``calibration_factor_gold_only_miss``. ``null`` on
+   *  ``calibration_factor_extra`` (no gold counterpart by
+   *  definition) and on older builders. Agents-repo commit
+   *  ``3868a09``; HANDOFF_2026-05-18_GOLD_TARGET_INDEX.md. */
+  gold_target_index?: number | null;
 }
 
 /** One FV-pair across a renamed factor (agent FV ↔ gold FV). */

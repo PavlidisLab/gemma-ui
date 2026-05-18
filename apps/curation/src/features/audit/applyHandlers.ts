@@ -45,6 +45,7 @@ import {
   isExactFactorMatch,
   pickGoldFactor,
   resolveAgentFactor,
+  resolveGoldFactor,
 } from "./factorMatch";
 import {
   setFactorFields,
@@ -396,11 +397,23 @@ function resolveFactorCalibrationApply(
     const goldSlug =
       finding.rationale?.match(/`([^`]+)`/)?.[1]?.toLowerCase().trim() ?? "";
     if (!goldSlug) return null;
+    // Index-first via gold_target_index (agents-repo 3868a09); slug
+    // + biomaterial-overlap fallback for older audits.
+    const indexed = resolveGoldFactor(finding, design.factors, goldSlug);
+    if (indexed) {
+      return {
+        mutates: true,
+        label: "Agree (remove) →",
+        tooltip: `Agree → remove factor "${indexed.category.label}" (id=${indexed.id}, ${indexed.factor_values.length} values) from the design.`,
+        successMessage: `Removed factor "${indexed.category.label}". Commit the draft to save.`,
+        mutate: (draft) => removeFactorById(draft, indexed.id),
+        appliedFix: `remove factor ${indexed.category.label} (id=${indexed.id})`,
+      };
+    }
     const candidates = (design.factors ?? []).filter(
       (f) => f.category.label.toLowerCase().trim() === goldSlug,
     );
     if (candidates.length === 0) {
-      // Already removed (or never present) → idempotent no-op.
       return {
         mutates: false,
         label: "✓ Already removed",
@@ -408,7 +421,6 @@ function resolveFactorCalibrationApply(
         successMessage: "",
       };
     }
-    // Single candidate: unambiguous removal.
     if (candidates.length === 1) {
       const target = candidates[0];
       return {
@@ -420,10 +432,8 @@ function resolveFactorCalibrationApply(
         appliedFix: `remove factor ${target.category.label}`,
       };
     }
-    // Multi-candidate (same category label): pick by biomaterial
-    // overlap against the agent's factors. The gold factor whose
-    // biomaterials overlap LEAST with what the agent proposed is
-    // the one the agent missed — that's the remove target.
+    // Multi-candidate fallback: biomaterial overlap (legacy audits
+    // only — modern wires resolve via gold_target_index above).
     const cp = report?.evidence?.comparison_proposal ?? null;
     if (!cp?.factors?.length) return null;
     const agentBms = new Set(
@@ -449,7 +459,7 @@ function resolveFactorCalibrationApply(
     return {
       mutates: true,
       label: "Agree (remove) →",
-      tooltip: `Agree → remove factor "${pick.category.label}" (id=${pick.id}, ${pick.factor_values.length} values) from the design. Disambiguated from a duplicate-category sibling by biomaterial overlap.`,
+      tooltip: `Agree → remove factor "${pick.category.label}" (id=${pick.id}, ${pick.factor_values.length} values) from the design. Disambiguated from a duplicate-category sibling by biomaterial overlap (legacy audit — no gold_target_index).`,
       successMessage: `Removed factor "${pick.category.label}". Commit the draft to save.`,
       mutate: (draft) => removeFactorById(draft, pick!.id),
       appliedFix: `remove factor ${pick.category.label} (id=${pick.id})`,
@@ -477,8 +487,9 @@ function resolveNearMatchApply(
     null;
   const proposal = resolveAgentFactor(finding, cp, labelHint);
   if (!proposal) return null;
-  // Aligned gold factor — slug-match candidates, then disambiguate by
-  // biomaterial overlap (multi-factor-same-category designs).
+  // Aligned gold factor — index-first via gold_target_index (agents-
+  // repo 3868a09); slug + biomaterial-overlap fallback for older
+  // audits that pre-date the field.
   const goldSlug = (
     finding.rename?.gold.category.label ??
     finding.rationale?.match(/`([^`]+)`/g)?.[1]?.replace(/`/g, "") ??
@@ -486,21 +497,26 @@ function resolveNearMatchApply(
   )
     .toLowerCase()
     .trim();
-  const candidates = (design.factors ?? []).filter(
-    (f) => f.category.label.toLowerCase().trim() === goldSlug,
-  );
-  // For rename findings the gold and agent labels differ — fall
-  // back to the agent category slug if the gold slug doesn't match
-  // anything in the draft.
-  const fallbackCandidates =
-    candidates.length === 0
-      ? (design.factors ?? []).filter(
-          (f) =>
-            f.category.label.toLowerCase().trim() ===
-            proposal.category.label.toLowerCase().trim(),
-        )
-      : candidates;
-  const goldFactor = pickGoldFactor(proposal, fallbackCandidates);
+  let goldFactor: Factor | undefined;
+  const indexedGold = resolveGoldFactor(finding, design.factors, goldSlug);
+  if (indexedGold) {
+    goldFactor = indexedGold;
+  } else {
+    const candidates = (design.factors ?? []).filter(
+      (f) => f.category.label.toLowerCase().trim() === goldSlug,
+    );
+    // For rename findings the gold and agent labels differ — fall
+    // back to the agent category slug if the gold slug didn't match.
+    const fallbackCandidates =
+      candidates.length === 0
+        ? (design.factors ?? []).filter(
+            (f) =>
+              f.category.label.toLowerCase().trim() ===
+              proposal.category.label.toLowerCase().trim(),
+          )
+        : candidates;
+    goldFactor = pickGoldFactor(proposal, fallbackCandidates);
+  }
   if (!goldFactor) return null;
 
   // Idempotency: if the gold factor already matches the agent's

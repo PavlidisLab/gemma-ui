@@ -148,6 +148,53 @@ export function resolveAgentFactor(
   );
 }
 
+/** Resolve the gold ``Factor`` the builder paired with this finding.
+ *
+ *  Priority order:
+ *
+ *    1. ``finding.gold_target_index`` — direct index into
+ *       ``design.factors``. Set by the builder on factor match /
+ *       rename / gold_only_miss findings (agents-repo ``3868a09``,
+ *       2026-05-18). Disambiguates multi-factor-same-category designs
+ *       on the gold side, mirroring ``agent_target_index`` on the
+ *       agent side.
+ *
+ *    2. Slug-based lookup — older audits pre-date
+ *       ``gold_target_index``. Falls back to finding the gold factor
+ *       whose ``category.label`` slug-matches ``labelFallback``.
+ *       Caller is responsible for further disambiguation when the
+ *       slug-match returns multiple candidates (e.g. via
+ *       ``pickGoldFactor`` + biomaterial overlap).
+ *
+ *  Returns ``null`` when neither path resolves. */
+export function resolveGoldFactor(
+  finding: Pick<AuditFinding, "gold_target_index">,
+  designFactors: Factor[] | undefined,
+  labelFallback: string | null | undefined,
+): Factor | null {
+  if (!designFactors || designFactors.length === 0) return null;
+
+  const idx = finding.gold_target_index;
+  if (typeof idx === "number" && Number.isInteger(idx)) {
+    if (idx >= 0 && idx < designFactors.length) {
+      return designFactors[idx] ?? null;
+    }
+    // Out-of-range — surface as miss rather than silently re-deriving
+    // from a different factor.
+    return null;
+  }
+
+  // Pre-3868a09 audit: fall back to label-slug lookup. Caller
+  // handles multi-candidate disambiguation.
+  const label = (labelFallback || "").toLowerCase().trim();
+  if (!label) return null;
+  return (
+    designFactors.find(
+      (f) => (f.category.label || "").toLowerCase().trim() === label,
+    ) ?? null
+  );
+}
+
 /** Per-FV pairing between an agent factor and its paired gold
  *  factor. ``status`` mirrors the audit-side FvStatusGlyph:
  *    - ``"exact"``      — labels match (or ``match_type === "exact"``)

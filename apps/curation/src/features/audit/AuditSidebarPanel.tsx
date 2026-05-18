@@ -52,6 +52,7 @@ import {
   isExactFactorMatch,
   pickGoldFactor,
   resolveAgentFactor,
+  resolveGoldFactor,
 } from "./factorMatch";
 
 /**
@@ -1320,15 +1321,25 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
   // the two surfaces never disagree.
   const fvDrift = useMemo(() => {
     if (!agentFactor || !serverDesign) return false;
-    const goldCandidates = serverDesign.factors.filter(
-      (f) =>
-        f.category.label.toLowerCase().trim() ===
-        agentFactor.category.label.toLowerCase().trim(),
+    // Index-first via ``gold_target_index`` (post-3868a09); slug +
+    // biomaterial-overlap fallback for legacy audits.
+    const indexed = resolveGoldFactor(
+      finding,
+      serverDesign.factors,
+      agentFactor.category.label,
     );
-    const goldFactor = pickGoldFactor(agentFactor, goldCandidates);
+    let goldFactor = indexed ?? undefined;
+    if (!goldFactor) {
+      const goldCandidates = serverDesign.factors.filter(
+        (f) =>
+          f.category.label.toLowerCase().trim() ===
+          agentFactor.category.label.toLowerCase().trim(),
+      );
+      goldFactor = pickGoldFactor(agentFactor, goldCandidates);
+    }
     if (!goldFactor) return false;
     return computeFvCorrespondence(agentFactor, goldFactor).hasDrift;
-  }, [agentFactor, serverDesign]);
+  }, [finding, agentFactor, serverDesign]);
 
   // Visual split. Factor-level isExact / isClose comes from the
   // issue code (the agent's verdict). If FV-correspondence detects
@@ -2014,21 +2025,11 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   // still surfaces "↔ Gemma <other-label>" if the biomaterials line
   // up.
   const showCorrespondence = finding.target_kind === "factor";
-  // Pair the agent factor to a *specific* gold factor. Slug-only
-  // lookup is ambiguous when the design has multi-factor-same-
-  // category (e.g. GSE93824's two ``genotype`` factors) — both
-  // findings would resolve to the first gold factor by label and the
-  // curator would see identical cards. Disambiguate by biomaterial
-  // overlap: among the gold factors that share the category slug,
-  // pick the one whose FV-set's biomaterials overlap the agent's
-  // most. Falls back to first-match when there's only one candidate
-  // or no agent factor to compare against.
-  //
-  // This is the UI-side fallback for the agents-repo
-  // ``HANDOFF_2026-05-18_NEAR_MATCH_FV_PAIRING`` ask. Once the
-  // builder ships partition-equal pairing + ``fv_pairs`` on
-  // ``_close`` findings, the gold side will be carried on the wire
-  // and this disambiguation can simplify.
+  // Resolve the paired gold factor. Index-first (post-3868a09 wire);
+  // slug + biomaterial-overlap fallback for older audits. With
+  // ``gold_target_index`` shipping, multi-factor-same-category gold
+  // lookups (GSE93824's two ``genotype`` factors) are deterministic
+  // from the wire — no UI guessing.
   const goldSlug = (
     rename?.gold.category.label ??
     parsed?.gold ??
@@ -2037,30 +2038,16 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   )
     .toLowerCase()
     .trim();
-  const goldCandidates =
-    serverDesign?.factors.filter(
-      (f) => f.category.label.toLowerCase().trim() === goldSlug,
-    ) ?? [];
-  let goldFactor: typeof goldCandidates[number] | undefined;
-  if (goldCandidates.length === 1) {
-    goldFactor = goldCandidates[0];
-  } else if (goldCandidates.length > 1 && agentFactor) {
-    const agentBms = new Set(
-      agentFactor.factor_values.flatMap((fv) => fv.biomaterial_short_names),
-    );
-    let best = -1;
-    for (const g of goldCandidates) {
-      let overlap = 0;
-      for (const gfv of g.factor_values) {
-        for (const bm of gfv.biomaterial_short_names) {
-          if (agentBms.has(bm)) overlap++;
-        }
-      }
-      if (overlap > best) {
-        best = overlap;
-        goldFactor = g;
-      }
-    }
+  let goldFactor: import("@/features/experiment/types").Factor | undefined;
+  const indexed = resolveGoldFactor(finding, serverDesign?.factors, goldSlug);
+  if (indexed) {
+    goldFactor = indexed;
+  } else {
+    const goldCandidates =
+      serverDesign?.factors.filter(
+        (f) => f.category.label.toLowerCase().trim() === goldSlug,
+      ) ?? [];
+    goldFactor = pickGoldFactor(agentFactor, goldCandidates);
   }
   // Pair each agent FV to a Gemma FV. Three lookup paths, in order:
   //
@@ -2193,9 +2180,9 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
           <span
             className="text-slate-400 dark:text-slate-500 normal-case tracking-normal inline-flex items-baseline gap-1"
             title={`paired with Gemma factor (id=${goldFactor.id})${
-              goldCandidates.length > 1
-                ? " — disambiguated by biomaterial overlap"
-                : ""
+              finding.gold_target_index != null
+                ? " — agent-emitted gold_target_index"
+                : " — UI-side disambiguation via biomaterial overlap"
             }`}
           >
             <span>↔</span>
@@ -2363,22 +2350,28 @@ function GoldFactorMissEmbed({ finding }: { finding: AuditFinding }) {
   // backticked token (same trick the headline uses).
   const firstBacktick = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? "";
   const goldSlug = firstBacktick.toLowerCase().trim();
-  const goldCandidates =
-    serverDesign?.factors.filter(
-      (f) => f.category.label.toLowerCase().trim() === goldSlug,
-    ) ?? [];
-  // Multi-factor-same-category disambiguation: pick the gold factor
-  // whose biomaterials overlap the most with any agent factor (the
-  // demoted-near-match pair's agent side). Falls back to first match
-  // for the unambiguous single-factor case.
-  let goldFactor = goldCandidates[0];
+  // Index-first via ``gold_target_index`` (post-3868a09 wire); slug +
+  // biomaterial-overlap fallback for older audits without the index.
+  const indexed = resolveGoldFactor(finding, serverDesign?.factors, goldSlug);
+  let goldFactor: typeof serverDesign extends infer T
+    ? T extends { factors: infer F }
+      ? F extends Array<infer Item>
+        ? Item
+        : never
+      : never
+    : never;
   let pairedAgentFactor: FactorProposal | null = null;
-  if (goldCandidates.length > 0 && cp?.factors?.length) {
-    let bestOverlap = -1;
-    for (const g of goldCandidates) {
+  if (indexed) {
+    goldFactor = indexed;
+    // Even with gold side resolved, we still need to pair an agent
+    // factor by biomaterial overlap for the "↔ agent <label>"
+    // header hint (the cross-card correlation pointer). No wire
+    // field for agent ↔ gold-only-miss pairing today.
+    if (cp?.factors?.length) {
       const gBms = new Set(
-        g.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+        indexed.factor_values.flatMap((fv) => fv.biomaterial_short_names),
       );
+      let bestOverlap = 0;
       for (const a of cp.factors) {
         const aBms = new Set(
           a.factor_values.flatMap((fv) => fv.biomaterial_short_names),
@@ -2387,8 +2380,33 @@ function GoldFactorMissEmbed({ finding }: { finding: AuditFinding }) {
         for (const bm of aBms) if (gBms.has(bm)) overlap++;
         if (overlap > bestOverlap) {
           bestOverlap = overlap;
-          goldFactor = g;
-          pairedAgentFactor = bestOverlap > 0 ? a : null;
+          pairedAgentFactor = a;
+        }
+      }
+    }
+  } else {
+    const goldCandidates =
+      serverDesign?.factors.filter(
+        (f) => f.category.label.toLowerCase().trim() === goldSlug,
+      ) ?? [];
+    goldFactor = goldCandidates[0];
+    if (goldCandidates.length > 0 && cp?.factors?.length) {
+      let bestOverlap = -1;
+      for (const g of goldCandidates) {
+        const gBms = new Set(
+          g.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+        );
+        for (const a of cp.factors) {
+          const aBms = new Set(
+            a.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+          );
+          let overlap = 0;
+          for (const bm of aBms) if (gBms.has(bm)) overlap++;
+          if (overlap > bestOverlap) {
+            bestOverlap = overlap;
+            goldFactor = g;
+            pairedAgentFactor = bestOverlap > 0 ? a : null;
+          }
         }
       }
     }
