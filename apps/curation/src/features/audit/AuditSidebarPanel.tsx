@@ -44,6 +44,12 @@ import {
 } from "./AuditReportView";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { HelpPopup } from "@/components/ui/HelpPopup";
+import {
+  factorMatchVariant,
+  isCloseFactorMatch,
+  isExactFactorMatch,
+  resolveAgentFactor,
+} from "./factorMatch";
 
 /**
  * Per-experiment audit findings, rendered into the proposals sidebar
@@ -545,9 +551,17 @@ function SidebarHeader({
         {nonZeroCounts.map(({ label, count, severity }) => (
           <SeverityCount key={label} label={label} count={count} severity={severity} />
         ))}
-        {/* Verdict pill — calibration uses accuracy scoring, not urgency */}
+        {/* Verdict pill — calibration uses accuracy scoring, not urgency.
+            Greys out once the curator has triaged every actionable
+            finding (pendingActionable === 0) or the audit is closed.
+            The original verdict stays legible in the tooltip + label
+            but loses the loud amber / rose tint, since the verdict is
+            no longer the load-bearing signal. */}
         {!report.model?.startsWith("calibration") && nonZeroCounts.length > 0 ? (
-          <VerdictPill verdict={summary.overall_verdict} />
+          <VerdictPill
+            verdict={summary.overall_verdict}
+            muted={isFinalized || pendingActionable === 0}
+          />
         ) : null}
         {/* Drop-override link */}
         {onClearOverride ? (
@@ -760,15 +774,28 @@ function CloseAuditConfirm({
 
 function VerdictPill({
   verdict,
+  muted = false,
 }: {
   verdict: AuditReport["summary"]["overall_verdict"];
+  /** Grey out the pill (slate) — used once the curator has triaged
+   *  every actionable finding or the audit is closed, so the loud
+   *  MAJOR / BLOCKERS tint stops competing for the eye. */
+  muted?: boolean;
 }) {
-  const cls = {
-    clean: "bg-emerald-100 text-emerald-900 border-emerald-300",
-    minor_issues: "bg-slate-100 text-slate-700 border-slate-300",
-    major_issues: "bg-amber-100 text-amber-900 border-amber-300",
-    blockers: "bg-rose-100 text-rose-900 border-rose-300",
+  // Live tints, dialled down one notch from the previous shouty
+  // amber-900/rose-900 set. The verdict is a first-impression heuristic
+  // (and major/blockers labels are sometimes over-stated by the
+  // agent), so the pill shouldn't read as a load-bearing alarm —
+  // findings below are the load-bearing surface.
+  const liveCls = {
+    clean: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    minor_issues: "bg-slate-50 text-slate-600 border-slate-200",
+    major_issues: "bg-amber-50 text-amber-700 border-amber-200",
+    blockers: "bg-rose-50 text-rose-700 border-rose-200",
   }[verdict];
+  const cls = muted
+    ? "bg-slate-100 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600"
+    : liveCls;
   const label = {
     clean: "clean",
     minor_issues: "minor",
@@ -781,7 +808,11 @@ function VerdictPill({
         "inline-block text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border",
         cls,
       )}
-      title={`overall verdict: ${verdict}`}
+      title={
+        muted
+          ? `overall verdict: ${verdict} — triaged, no longer load-bearing`
+          : `overall verdict: ${verdict}`
+      }
     >
       {label}
     </span>
@@ -1192,21 +1223,46 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
  *  disagree. Extract a shared `isMatchFinding` + `findingTagKey`
  *  pair if that becomes real. */
 function isMatchFinding(f: AuditFinding): boolean {
-  // Today: calibration_match (tag matches). Forward-compat: factor
-  // calibration findings will land with a parallel issue_code; treat
-  // any severity=ok issue whose code ends in `_match` the same way.
+  // Tag-side: ``calibration_match`` (severity ok). Factor-side: the
+  // 2026-05-18 split (agents-repo ``f313770``) emits
+  // ``calibration_factor_match_exact`` (ok) and
+  // ``calibration_factor_match_close`` (minor). Older builds emit a
+  // single ``calibration_factor_match`` at severity ok for both
+  // cases. We treat ALL of these as match findings — the
+  // green-check row renders the curator-skippable cases (exact / ok
+  // legacy) and surfaces close matches with a minor-severity chip so
+  // the curator gets the "peek to confirm" cue without losing the
+  // compact match-row affordance.
+  if (f.issue_code === "calibration_match") return f.severity === "ok";
+  const v = factorMatchVariant(f.issue_code);
+  if (v === "exact") return true;
+  if (v === "close") return true;
+  if (v === "legacy") {
+    // Legacy ``calibration_factor_match``: severity=ok is a match;
+    // severity!=ok is a category rename and goes through
+    // ``RenameFindingCard`` instead — see ``isRenameMatch``.
+    return f.severity === "ok";
+  }
+  // Forward-compat: any other severity=ok issue whose code ends in
+  // ``_match`` is a match too.
   if (f.severity !== "ok") return false;
-  if (f.issue_code === "calibration_match") return true;
   return /(^|_)match$/.test(f.issue_code);
 }
 
 /** A factor-match finding with non-ok severity is the arbiter's way of
  *  flagging a **category rename** — same factor, different label
- *  (the only path to a non-ok `calibration_factor_match` per the v4
+ *  (the only path to a non-ok ``calibration_factor_match`` per the v4
  *  arbiter wire, HANDOFF_2026-05-16_DEFENDER_ARBITER.md). Pulled out
  *  of the actionable bucket and rendered as a diff card instead of a
  *  generic finding card so the curator sees agent ≈ Gemma at a glance
- *  rather than having to read the rationale prose. */
+ *  rather than having to read the rationale prose.
+ *
+ *  Only matches the legacy ``calibration_factor_match`` code: the
+ *  post-2026-05-18 split moved close matches to their own ``_close``
+ *  code (which goes through the match-row path with a minor chip)
+ *  and gave renames their own dedicated ``calibration_factor_rename``
+ *  code — that one isn't classified here because it doesn't share
+ *  the ``factor_match`` family. */
 function isRenameMatch(f: AuditFinding): boolean {
   return (
     f.issue_code === "calibration_factor_match" && f.severity !== "ok"
@@ -1234,7 +1290,13 @@ function parseRenameLabels(
 
 /** Compact green-check row for a calibration match. Default-collapsed
  *  one-liner; chevron expands to reveal the agent's evidence + the
- *  disposition controls so the curator can flag a wrong match. */
+ *  disposition controls so the curator can flag a wrong match.
+ *
+ *  After the 2026-05-18 issue-code split (agents-repo ``f313770``)
+ *  this row also handles ``calibration_factor_match_close``: same
+ *  compact shape, but with a "close — peek to confirm" chip and a
+ *  warmer amber tint instead of green so the curator gets the cue at
+ *  a glance without losing the dense match-row affordance. */
 function MatchFindingRow({ finding }: { finding: AuditFinding }) {
   const [open, setOpen] = useState(false);
   const { activeFindingKey, setActiveFindingKey, dispositionByTarget } =
@@ -1265,11 +1327,22 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
   const m = (finding.rationale || "").match(/`([^`]+)`/);
   const label = m ? m[1] : finding.rationale;
 
+  // Visual split: exact (and tag matches) get green ✓ + "= Gemma";
+  // close (or the legacy ``calibration_factor_match`` at ok severity,
+  // which we treat as close per the 2026-05-18 handoff) gets amber
+  // ≈ + "peek to confirm" so the row reads as "look but don't
+  // necessarily act" at a glance.
+  const isClose = isCloseFactorMatch(finding);
+  const isExact = isExactFactorMatch(finding);
+
   return (
     <div
       ref={rowRef}
       className={cn(
-        "rounded bg-emerald-50/70 dark:bg-emerald-900/20",
+        "rounded",
+        isClose
+          ? "bg-amber-50/70 dark:bg-amber-900/20"
+          : "bg-emerald-50/70 dark:bg-emerald-900/20",
         isClosed && "opacity-60",
         activeFindingKey === myKey && "ring-2 ring-blue-400",
       )}
@@ -1277,32 +1350,90 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full text-left px-2 py-1 flex items-center gap-2 text-xs hover:bg-emerald-100/40 dark:hover:bg-emerald-900/30"
+        className={cn(
+          "w-full text-left px-2 py-1 flex items-center gap-2 text-xs",
+          isClose
+            ? "hover:bg-amber-100/40 dark:hover:bg-amber-900/30"
+            : "hover:bg-emerald-100/40 dark:hover:bg-emerald-900/30",
+        )}
         title={
           open
             ? "collapse"
-            : "click to compare — matches can still differ subtly (URI, casing, FV labels)"
+            : isClose
+              ? "close match — peek to confirm; FV count, gene-symbol vs common name, or one-of-N gold instances may differ"
+              : "click to compare — matches can still differ subtly (URI, casing, FV labels)"
         }
       >
-        <span className="text-emerald-600 dark:text-emerald-500 text-xs leading-none">
+        <span
+          className={cn(
+            "text-xs leading-none",
+            isClose
+              ? "text-amber-700 dark:text-amber-400"
+              : "text-emerald-600 dark:text-emerald-500",
+          )}
+        >
           {open ? "▾" : "▸"}
         </span>
-        <span className="text-emerald-600 dark:text-emerald-400 font-bold text-sm leading-none">
-          ✓
+        <span
+          className={cn(
+            "font-bold text-sm leading-none",
+            isClose
+              ? "text-amber-700 dark:text-amber-400"
+              : "text-emerald-600 dark:text-emerald-400",
+          )}
+          aria-hidden
+        >
+          {isClose ? "≈" : "✓"}
         </span>
-        <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400">
+        <span
+          className={cn(
+            "font-mono text-[10px]",
+            isClose
+              ? "text-amber-800 dark:text-amber-400"
+              : "text-emerald-700 dark:text-emerald-400",
+          )}
+        >
           {TARGET_KIND_LABEL[finding.target_kind]}
         </span>
-        <span className="text-emerald-900 dark:text-emerald-100 truncate">
+        <span
+          className={cn(
+            "truncate",
+            isClose
+              ? "text-amber-900 dark:text-amber-100"
+              : "text-emerald-900 dark:text-emerald-100",
+          )}
+        >
           {label}
         </span>
-        <span className="text-[10px] text-emerald-600 dark:text-emerald-500 ml-auto">
-          = Gemma
+        {isClose ? (
+          <span
+            className="text-[9px] uppercase tracking-wide px-1 py-0 rounded border border-amber-300 dark:border-amber-600 bg-amber-100/70 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200"
+            title="close match — peek to confirm (severity minor, not skippable)"
+          >
+            close
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            "text-[10px] ml-auto",
+            isClose
+              ? "text-amber-700 dark:text-amber-400"
+              : "text-emerald-600 dark:text-emerald-500",
+          )}
+        >
+          {isClose ? "peek to confirm" : isExact ? "= Gemma" : "= Gemma"}
         </span>
         <DebateBadgeChip badge={finding.debate_badge} defenderVerdict={finding.defender_verdict} />
       </button>
       {open ? (
-        <div className="px-2 pb-1.5 pl-7 space-y-1.5 border-t border-emerald-200/50 dark:border-emerald-700/40">
+        <div
+          className={cn(
+            "px-2 pb-1.5 pl-7 space-y-1.5 border-t",
+            isClose
+              ? "border-amber-200/50 dark:border-amber-700/40"
+              : "border-emerald-200/50 dark:border-emerald-700/40",
+          )}
+        >
           <MatchCompareCard finding={finding} label={label} />
           {/* For factor-kind confirmed matches, render the agent's
               FactorProposal (FVs + statements + URIs) inline so the
@@ -1749,13 +1880,21 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
     goldLabelRaw && goldLabelRaw.toLowerCase().trim() !== agentLabel
       ? goldLabelRaw
       : "";
-  if (!agentLabel) return null;
 
   const cp = report?.evidence?.comparison_proposal ?? null;
+  // Prefer the builder's committed agent → gold pairing
+  // (``agent_target_index``, calibration package v12+, agents-repo
+  // ``f313770``) so multi-factor-same-category designs don't end up
+  // rendering the same agent factor on two cards. Fall back to the
+  // label lookup for older audits that pre-date the field — see
+  // ``resolveAgentFactor``. Also gives up early when there's neither
+  // an index nor a label, which preserves the "render nothing" shape
+  // the rest of this function expects.
   const agentFactor =
-    cp?.factors.find(
-      (f) => f.category.label?.toLowerCase().trim() === agentLabel,
-    ) ?? null;
+    finding.agent_target_index != null || agentLabel
+      ? resolveAgentFactor(finding, cp, agentLabel)
+      : null;
+  if (!agentFactor && !agentLabel) return null;
 
   // No structured factor available — fall back to the bare FV-pair
   // table from the rename payload when present (labels only, no

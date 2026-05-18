@@ -1,0 +1,258 @@
+import { describe, expect, it } from "vitest";
+import type { AuditFinding } from "@/api/auditTypes";
+import type { FactorProposal, OntologyTerm, Proposal } from "@/api/types";
+import {
+  factorMatchVariant,
+  isCloseFactorMatch,
+  isExactFactorMatch,
+  isFactorMatchCode,
+  resolveAgentFactor,
+} from "./factorMatch";
+
+/** Minimal ``OntologyTerm`` factory — only ``label`` matters for these
+ *  tests; ``uri`` / ``resolver`` / ``score`` are present to satisfy
+ *  the type but aren't exercised. */
+function term(label: string): OntologyTerm {
+  return { label, uri: null, resolver: null, score: null };
+}
+
+/** Minimal ``FactorProposal`` factory. Statements / FV detail aren't
+ *  load-bearing for the lookup tests — we only need a stable
+ *  ``category.label`` for the fallback path. */
+function factor(categoryLabel: string): FactorProposal {
+  return {
+    category: term(categoryLabel),
+    name_in_design: categoryLabel,
+    factor_values: [],
+  };
+}
+
+/** Minimal ``Proposal`` factory wrapping a list of factors. */
+function proposalWithFactors(factors: FactorProposal[]): Proposal {
+  return {
+    proposal_id: null,
+    experiment_id: 1,
+    experiment_short_name: "GSE-test",
+    submitted_by: "test",
+    submitted_at: "2026-05-18T00:00:00Z",
+    model: null,
+    status: "pending",
+    tags: [],
+    factors,
+    evidence: {
+      skeleton_excerpt: "",
+      paper_source: null,
+      paper_excerpt: "",
+      exemplar_experiment_ids: [],
+      extra: {},
+    },
+  };
+}
+
+/** Build a finding with the bits the helpers exercise; everything
+ *  else gets safe defaults so the type stays satisfied. */
+function finding(partial: Partial<AuditFinding>): AuditFinding {
+  return {
+    target_kind: "factor",
+    target_id: "factor:0",
+    severity: "ok",
+    issue_code: "calibration_factor_match_exact",
+    rationale: "",
+    citation: "",
+    citation_url: "",
+    suggested_fix: "",
+    proposer_suggestion: "",
+    ...partial,
+  };
+}
+
+describe("factorMatchVariant", () => {
+  it("classifies the three factor-match codes", () => {
+    expect(factorMatchVariant("calibration_factor_match_exact")).toBe("exact");
+    expect(factorMatchVariant("calibration_factor_match_close")).toBe("close");
+    expect(factorMatchVariant("calibration_factor_match")).toBe("legacy");
+  });
+
+  it("returns null for non-match codes", () => {
+    expect(factorMatchVariant("calibration_factor_rename")).toBe(null);
+    expect(factorMatchVariant("calibration_match")).toBe(null);
+    expect(factorMatchVariant("calibration_agent_extra")).toBe(null);
+    expect(factorMatchVariant("")).toBe(null);
+    expect(factorMatchVariant(null)).toBe(null);
+    expect(factorMatchVariant(undefined)).toBe(null);
+  });
+});
+
+describe("isFactorMatchCode", () => {
+  it("is true for any factor-match variant", () => {
+    expect(isFactorMatchCode("calibration_factor_match_exact")).toBe(true);
+    expect(isFactorMatchCode("calibration_factor_match_close")).toBe(true);
+    expect(isFactorMatchCode("calibration_factor_match")).toBe(true);
+  });
+
+  it("is false for everything else", () => {
+    expect(isFactorMatchCode("calibration_factor_rename")).toBe(false);
+    expect(isFactorMatchCode("calibration_match")).toBe(false);
+    expect(isFactorMatchCode(undefined)).toBe(false);
+  });
+});
+
+describe("isExactFactorMatch / isCloseFactorMatch", () => {
+  it("``_exact`` is exact only", () => {
+    const f = finding({ issue_code: "calibration_factor_match_exact" });
+    expect(isExactFactorMatch(f)).toBe(true);
+    expect(isCloseFactorMatch(f)).toBe(false);
+  });
+
+  it("``_close`` is close only", () => {
+    const f = finding({
+      issue_code: "calibration_factor_match_close",
+      severity: "minor",
+    });
+    expect(isExactFactorMatch(f)).toBe(false);
+    expect(isCloseFactorMatch(f)).toBe(true);
+  });
+
+  it("legacy ``calibration_factor_match`` at severity ok is treated as close (conservative default for pre-2026-05-18 builds)", () => {
+    const f = finding({
+      issue_code: "calibration_factor_match",
+      severity: "ok",
+    });
+    expect(isExactFactorMatch(f)).toBe(false);
+    expect(isCloseFactorMatch(f)).toBe(true);
+  });
+
+  it("legacy ``calibration_factor_match`` at non-ok severity is a rename — handled elsewhere, not classified as close", () => {
+    const f = finding({
+      issue_code: "calibration_factor_match",
+      severity: "minor",
+    });
+    expect(isExactFactorMatch(f)).toBe(false);
+    expect(isCloseFactorMatch(f)).toBe(false);
+  });
+});
+
+describe("resolveAgentFactor", () => {
+  it("uses ``agent_target_index`` when present and in range", () => {
+    const factors = [factor("genotype"), factor("treatment"), factor("dose")];
+    const cp = proposalWithFactors(factors);
+    const f = finding({ agent_target_index: 1 });
+    expect(resolveAgentFactor(f, cp, "ignored-label")).toBe(factors[1]);
+  });
+
+  it("returns null when ``agent_target_index`` is out of range (malformed wire) — do NOT fall back to a different factor", () => {
+    const factors = [factor("genotype"), factor("treatment")];
+    const cp = proposalWithFactors(factors);
+    expect(resolveAgentFactor({ agent_target_index: 5 }, cp, "genotype")).toBe(
+      null,
+    );
+    expect(resolveAgentFactor({ agent_target_index: -1 }, cp, "genotype")).toBe(
+      null,
+    );
+  });
+
+  it("falls back to label-based lookup when ``agent_target_index`` is null / undefined (older audits)", () => {
+    const factors = [factor("genotype"), factor("treatment")];
+    const cp = proposalWithFactors(factors);
+    expect(
+      resolveAgentFactor({ agent_target_index: null }, cp, "treatment"),
+    ).toBe(factors[1]);
+    expect(resolveAgentFactor({}, cp, "treatment")).toBe(factors[1]);
+  });
+
+  it("label fallback is case- and whitespace-insensitive", () => {
+    const factors = [factor("Genotype")];
+    const cp = proposalWithFactors(factors);
+    expect(resolveAgentFactor({}, cp, "  GENOTYPE  ")).toBe(factors[0]);
+  });
+
+  it("returns null when neither index nor label produces a hit", () => {
+    const factors = [factor("genotype")];
+    const cp = proposalWithFactors(factors);
+    expect(resolveAgentFactor({}, cp, "treatment")).toBe(null);
+    expect(resolveAgentFactor({}, cp, "")).toBe(null);
+  });
+
+  it("returns null when the comparison proposal is null / empty", () => {
+    expect(resolveAgentFactor({ agent_target_index: 0 }, null, "x")).toBe(null);
+    expect(
+      resolveAgentFactor(
+        { agent_target_index: 0 },
+        proposalWithFactors([]),
+        "x",
+      ),
+    ).toBe(null);
+  });
+});
+
+describe("GSE224970 multi-factor-same-category scenario", () => {
+  /** The motivating case from the 2026-05-18 handoff. Gold has 2
+   *  genotype factors; agent emits 3 genotype-shaped factors. Pre-fix,
+   *  the UI used best-FV-overlap re-derivation and showed the same
+   *  agent factor (the 4-FV siRNA shape) on both gold cards because
+   *  it had the strongest overlap with each gold's ``wild type`` FV.
+   *  Post-fix, the builder commits to a one-to-one pairing via
+   *  ``agent_target_index``, so each gold card resolves to a
+   *  different agent factor. */
+  const agentGenotype0 = factor("genotype"); // 6-FV cross-product
+  const agentGenotype1 = factor("genotype"); // 4-FV siRNA shape
+  const agentGenotype2 = factor("genotype"); // the "extra" agent factor
+  const cp = proposalWithFactors([
+    agentGenotype0,
+    agentGenotype1,
+    agentGenotype2,
+  ]);
+
+  const goldCard0 = finding({
+    issue_code: "calibration_factor_match_close",
+    severity: "minor",
+    target_id: "factor:gold-0",
+    rationale: "Factor `genotype`: close match against agent factor 0.",
+    agent_target_index: 0,
+  });
+  const goldCard1 = finding({
+    issue_code: "calibration_factor_match_close",
+    severity: "minor",
+    target_id: "factor:gold-1",
+    rationale: "Factor `genotype`: close match against agent factor 1.",
+    agent_target_index: 1,
+  });
+
+  it("each gold match card resolves to a DIFFERENT agent factor", () => {
+    const a0 = resolveAgentFactor(goldCard0, cp, "genotype");
+    const a1 = resolveAgentFactor(goldCard1, cp, "genotype");
+    expect(a0).toBe(agentGenotype0);
+    expect(a1).toBe(agentGenotype1);
+    expect(a0).not.toBe(a1);
+  });
+
+  it("without ``agent_target_index`` (pre-v12 audit), the label fallback collapses both cards onto the FIRST matching agent factor — the bug ``agent_target_index`` was introduced to close", () => {
+    const legacyCard0 = finding({
+      issue_code: "calibration_factor_match",
+      severity: "ok",
+      target_id: "factor:gold-0",
+      rationale: "Factor `genotype`: match.",
+      // agent_target_index intentionally absent
+    });
+    const legacyCard1 = finding({
+      issue_code: "calibration_factor_match",
+      severity: "ok",
+      target_id: "factor:gold-1",
+      rationale: "Factor `genotype`: match.",
+    });
+    const a0 = resolveAgentFactor(legacyCard0, cp, "genotype");
+    const a1 = resolveAgentFactor(legacyCard1, cp, "genotype");
+    // Both collapse to the same factor — the duplicate-display bug.
+    // Documented here so a future change can't accidentally start
+    // hiding it; the real fix is at the wire (``agent_target_index``),
+    // not in the fallback.
+    expect(a0).toBe(agentGenotype0);
+    expect(a1).toBe(agentGenotype0);
+  });
+
+  it("classifies both gold cards as close matches (so the UI shows the amber chip)", () => {
+    expect(isCloseFactorMatch(goldCard0)).toBe(true);
+    expect(isCloseFactorMatch(goldCard1)).toBe(true);
+    expect(isExactFactorMatch(goldCard0)).toBe(false);
+  });
+});

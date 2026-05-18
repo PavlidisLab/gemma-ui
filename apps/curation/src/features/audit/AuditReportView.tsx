@@ -19,6 +19,7 @@ import type {
 } from "@/api/auditTypes";
 import type { FactorProposal, SubtaskDecision, TagProposal } from "@/api/types";
 import type { Factor, Tag } from "@/features/experiment/types";
+import { isFactorMatchCode, resolveAgentFactor } from "./factorMatch";
 
 /**
  * Pure-presentation view of an `AuditReport`. Takes a fully-loaded
@@ -575,29 +576,48 @@ export function DesignComparisonPanel({
     (f) => !/^(block|batch)$/i.test(f.category.label.trim()),
   );
 
-  // Factor labels already covered by a `calibration_factor_match`
+  // Factor labels already covered by a ``calibration_factor_match_*``
   // finding above — rendering them again here as either "✓ X = Gemma"
   // (exact match, severity ok) or as a duplicate "disease model ≈
   // treatment" row (rename / alternate-factor, severity≠ok) is pure
   // duplication. The Confirmed-matches and Alternate-factor cards in
   // the sidebar already render the per-FV detail (via
-  // `RenameFactorEmbed`), so the EXPERIMENTAL DESIGN section can skip
-  // every factor a match finding covers. Pull the agent's label out
-  // of each match-finding's rationale (first backticked token —
-  // works for both "Is factor `X`…" exact-match rationales and "agent
-  // proposes `X` where Gemma has `Y`" rename rationales).
-  const matchedFactorLabels = (() => {
-    const s = new Set<string>();
-    for (const f of report.findings ?? []) {
-      if (f.issue_code !== "calibration_factor_match") continue;
-      const m = (f.rationale || "").match(/`([^`]+)`/);
-      if (m) s.add(m[1].trim().toLowerCase());
+  // ``RenameFactorEmbed``), so the EXPERIMENTAL DESIGN section can
+  // skip every factor a match finding covers.
+  //
+  // Two paths, both honoured:
+  //   1. ``agent_target_index`` (calibration package v12+,
+  //      agents-repo ``f313770``) — the builder's committed agent →
+  //      gold pairing, so we hide the specific agent factor it
+  //      points to. This is the reliable path post-2026-05-18.
+  //   2. Rationale-label lookup (older audits or rename findings) —
+  //      pull the first backticked token from the rationale and hide
+  //      every agent factor with that label.
+  //
+  // Recognising the new ``_exact`` / ``_close`` codes alongside the
+  // legacy ``calibration_factor_match`` keeps post-2026-05-18 audits
+  // from leaking duplicate factor rows into the design panel.
+  const hiddenAgentFactorIndices = new Set<number>();
+  const matchedFactorLabels = new Set<string>();
+  for (const f of report.findings ?? []) {
+    if (!isFactorMatchCode(f.issue_code)) continue;
+    // Index-based hide when present.
+    const agentFactor = resolveAgentFactor(f, cp, null);
+    if (agentFactor && cp) {
+      const idx = cp.factors.indexOf(agentFactor);
+      if (idx >= 0) hiddenAgentFactorIndices.add(idx);
     }
-    return s;
-  })();
-  const visibleAgentFactors = agentFactors.filter(
-    (f) => !matchedFactorLabels.has(f.category.label.trim().toLowerCase()),
-  );
+    // Label fallback for older audits (or rename findings where the
+    // agent's label diverges from gold's).
+    const m = (f.rationale || "").match(/`([^`]+)`/);
+    if (m) matchedFactorLabels.add(m[1].trim().toLowerCase());
+  }
+  const visibleAgentFactors = agentFactors.filter((f, i) => {
+    if (hiddenAgentFactorIndices.has(i)) return false;
+    if (matchedFactorLabels.has(f.category.label.trim().toLowerCase()))
+      return false;
+    return true;
+  });
 
   // Per-factor alignment:
   // 1. Exact: agent category label == Gemma category label (case-insensitive)

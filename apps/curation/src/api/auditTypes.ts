@@ -162,6 +162,24 @@ export interface AuditFinding {
    *  on every other finding type and on older packages. The UI gates
    *  the FV-pair diff render on ``rename != null``. */
   rename?: FactorRenamePayload | null;
+  /** 0-based index into
+   *  ``audit.evidence.comparison_proposal.factors`` identifying which
+   *  agent factor the builder committed to as this gold factor's
+   *  match. Populated on ``calibration_factor_match_exact``,
+   *  ``calibration_factor_match_close``, and
+   *  ``calibration_factor_rename`` findings from calibration package
+   *  v12+ (agents-repo commit ``f313770``, 2026-05-18). The builder
+   *  guarantees a one-to-one agent → gold pairing so the same agent
+   *  factor never appears on two match cards.
+   *
+   *  ``null`` / ``undefined`` on older audits that pre-date the
+   *  field; the UI then falls back to its previous best-FV-overlap
+   *  re-derivation (which can show the same agent factor on multiple
+   *  cards in multi-factor-same-category designs — exactly the bug
+   *  this field closes; see
+   *  ``HANDOFF_2026-05-18_UI_FACTOR_MATCH_PAIRING.md`` in the eval
+   *  repo). */
+  agent_target_index?: number | null;
 }
 
 /** One FV-pair across a renamed factor (agent FV ↔ gold FV). */
