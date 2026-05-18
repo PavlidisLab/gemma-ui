@@ -524,6 +524,14 @@ function resolveNearMatchApply(
     };
   }
 
+  // Pass the rename payload's authoritative FV pairing through to
+  // the mutator when present. ``finding.rename.fv_pairs`` is the
+  // agent's committed (agent FV ↔ gold FV) mapping for renames; we
+  // trust it over the UI's biomaterial-overlap fallback because the
+  // agent had full context at proposal time. Falls back to overlap
+  // pairing for code paths that don't ship a rename payload (older
+  // near matches, current _close findings pre-pairing-handoff).
+  const fvPairs = finding.rename?.fv_pairs ?? null;
   return {
     mutates: true,
     label: "Agree →",
@@ -532,21 +540,33 @@ function resolveNearMatchApply(
       `(category label, URI, and FV labels). The factor keeps its id and structure; only the ` +
       `labels change. Commit the draft to save; the floating bar's undo rolls it back.`,
     successMessage: `Adopted agent's labels on factor "${proposal.category.label}". Commit to save.`,
-    mutate: (draft) => replaceFactorWithProposal(draft, goldFactor.id, proposal),
+    mutate: (draft) =>
+      replaceFactorWithProposal(draft, goldFactor.id, proposal, fvPairs),
     appliedFix: `rename factor → ${proposal.category.label}; adopt agent FV labels`,
   };
 }
 
 /** Replace the labels + URIs on the gold factor (identified by
- *  ``goldFactorId``) with the agent's proposal. FV pairing by
- *  biomaterial-set identity, then label/URI update via the existing
- *  ``setFvLabel`` mutation. Statements aren't rewritten in-place
- *  here (that would clobber URIs the curator might have refined);
- *  that's a follow-up. */
+ *  ``goldFactorId``) with the agent's proposal.
+ *
+ *  Pairing precedence:
+ *    1. ``fvPairs`` — agent's authoritative (agent FV ↔ gold FV)
+ *       mapping from ``finding.rename.fv_pairs``. We trust this
+ *       when present; no UI guessing.
+ *    2. Biomaterial-set identity — strict partition match. Under
+ *       the stricter near-match gate this is bijective by
+ *       construction.
+ *    3. Highest biomaterial overlap — last-resort fallback for
+ *       partial-partition cases (shouldn't happen post-2026-05-18
+ *       gate but kept defensive).
+ *
+ *  Statements aren't rewritten in-place here (that would clobber
+ *  URIs the curator might have refined); that's a follow-up. */
 function replaceFactorWithProposal(
   design: Design,
   goldFactorId: number,
   proposal: FactorProposal,
+  fvPairs: import("@/api/auditTypes").FvPair[] | null,
 ): Design {
   const gold = (design.factors ?? []).find((f) => f.id === goldFactorId);
   if (!gold) return design;
@@ -558,13 +578,31 @@ function replaceFactorWithProposal(
     },
     name: proposal.name_in_design || proposal.category.label,
   });
-  // FV-level label updates. Iterate against the freshly-renamed
-  // factor (``next``, not ``design``) so we see the post-rename id
-  // state. Pair by biomaterial-set identity — under the stricter
-  // near-match gate, partition equality is enforced, so each agent
-  // FV maps to exactly one gold FV by biomaterial set.
   const renamed = next.factors.find((f) => f.id === gold.id);
   if (!renamed) return next;
+
+  // Path 1: agent's authoritative FV pairing. Each pair carries
+  // (agent.label, gold.label); the curator's verdict is "adopt
+  // agent label on whichever gold FV currently has gold.label".
+  // No biomaterial guessing.
+  if (fvPairs && fvPairs.length > 0) {
+    for (const pair of fvPairs) {
+      const aLab = pair.agent.label?.trim() || "";
+      const gLab = pair.gold.label?.trim() || "";
+      if (!aLab || !gLab || aLab === gLab) continue;
+      const gfv = renamed.factor_values.find(
+        (v) =>
+          (v.free_text_label || "").toLowerCase().trim() ===
+          gLab.toLowerCase(),
+      );
+      if (gfv) next = setFvLabel(next, gold.id, gfv.id, aLab);
+    }
+    return next;
+  }
+
+  // Path 2/3: pair by biomaterial set when the agent didn't ship a
+  // fv_pairs payload. Iterate against the freshly-renamed factor
+  // (``next``, not ``design``) so we see the post-rename id state.
   const consumed = new Set<number>();
   for (const afv of proposal.factor_values ?? []) {
     const aKey = [...new Set(afv.biomaterial_short_names)].sort().join("|");
@@ -577,7 +615,6 @@ function replaceFactorWithProposal(
         break;
       }
     }
-    // Fallback: highest-overlap when no strict partition match.
     if (!best) {
       const aBms = new Set(afv.biomaterial_short_names);
       let bestOverlap = 0;
