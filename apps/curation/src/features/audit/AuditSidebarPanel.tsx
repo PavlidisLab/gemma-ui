@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { agentPalette } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { StatementGlyph } from "@/components/ui/StatementGlyph";
@@ -35,8 +36,8 @@ import type {
   DispositionStatus,
   Severity,
 } from "@/api/auditTypes";
-import type { Design, Factor, FactorValue } from "@/features/experiment/types";
-import type { FactorProposal, SubtaskDecision } from "@/api/types";
+import type { Design } from "@/features/experiment/types";
+import type { FactorValueProposal, SubtaskDecision } from "@/api/types";
 import {
   DesignComparisonPanel,
   SubtaskDecisionRow,
@@ -73,27 +74,15 @@ export function AuditSidebarPanel({
 }) {
   const { report, setOverrideReport, hasOverride, loading, error } =
     useAudit();
-  const { draft, apply } = useDesignDraft();
-  // Server design for the Gemma column — intentionally NOT the draft
-  // so that "Add to draft" doesn't pollute the left column with the
-  // factors we just appended.
+  const { draft } = useDesignDraft();
+  // Server design for the Gemma column.
   const { data: serverDesign } = useDesign(experimentId);
   const stream = useAuditStream(experimentId);
   const [dialogOpen, setDialogOpen] = useState(false);
-  // Snapshot taken just before "Add to draft" so the curator can undo
-  // without having to Reset the whole draft. Cleared on undo or on
-  // any subsequent draft reset (draft becoming null clears it too).
-  const [preApplySnapshot, setPreApplySnapshot] = useState<Factor[] | null>(null);
   // Auto-close the dialog once the SSE stream takes over.
   useEffect(() => {
     if (stream.status === "running") setDialogOpen(false);
   }, [stream.status]);
-
-  // Clear the apply-snapshot whenever the draft is reset to null (Reset
-  // button in the design editor) — there's nothing left to undo against.
-  useEffect(() => {
-    if (!draft) setPreApplySnapshot(null);
-  }, [draft]);
 
   // Pick the accession the agent service expects. Numeric experiment_id
   // works (the resolver accepts numeric id, GSE accession, or shortName
@@ -188,37 +177,7 @@ export function AuditSidebarPanel({
             )}
             <DesignComparisonPanel
               report={report}
-              gemmaFactors={serverDesign?.factors}
               gemmaTags={serverDesign?.tags}
-              draftFactorLabels={
-                draft
-                  ? new Set(draft.factors.map((f) => f.category.label.toLowerCase()))
-                  : undefined
-              }
-              onAddFactor={
-                draft
-                  ? (proposal) => {
-                      const label = proposal.category.label.toLowerCase();
-                      // Already in draft — no-op (button shows "✓ in draft").
-                      if (draft.factors.some((f) => f.category.label.toLowerCase() === label)) return;
-                      // Snapshot before the first add so the curator can undo all.
-                      if (!preApplySnapshot) setPreApplySnapshot(draft.factors);
-                      apply((d) => {
-                        const [toAdd] = proposalFactorsToDesignFactors(d.factors, [proposal]);
-                        return { ...d, factors: [...d.factors, toAdd] };
-                      });
-                    }
-                  : undefined
-              }
-              onUndoApply={
-                preApplySnapshot
-                  ? () => {
-                      const snap = preApplySnapshot;
-                      setPreApplySnapshot(null);
-                      apply((d) => ({ ...d, factors: snap }));
-                    }
-                  : undefined
-              }
             />
           </>
         )
@@ -480,7 +439,7 @@ function SidebarHeader({
          *  ``hybrid-v5b`` and ``hybrid-v6`` get the same pill colour
          *  but ``hybrid`` and ``oneshot`` get distinct ones. */}
         {report.model ? (() => {
-          const palette = auditorPalette(report.model);
+          const palette = agentPalette(report.model);
           return (
             <span
               className={cn(
@@ -1360,7 +1319,7 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
           open
             ? "collapse"
             : isClose
-              ? "close match — peek to confirm; FV count, gene-symbol vs common name, or one-of-N gold instances may differ"
+              ? "near match — peek to confirm; FV count, gene-symbol vs common name, or one-of-N gold instances may differ"
               : "click to compare — matches can still differ subtly (URI, casing, FV labels)"
         }
       >
@@ -1408,9 +1367,9 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
         {isClose ? (
           <span
             className="text-[9px] uppercase tracking-wide px-1 py-0 rounded border border-amber-300 dark:border-amber-600 bg-amber-100/70 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200"
-            title="close match — peek to confirm (severity minor, not skippable)"
+            title="near match — peek to confirm (severity minor, not skippable)"
           >
-            close
+            near
           </span>
         ) : null}
         <span
@@ -1450,6 +1409,55 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Tiny inline status glyph for the per-FV correspondence indicators
+ *  rendered next to each agent FV inside RenameFactorEmbed (near
+ *  matches only). Four states:
+ *    - ✓ emerald — labels match (or proposer flagged match_type=exact)
+ *    - ≈ amber   — paired by URI / synonym, labels drifted
+ *    - + amber   — agent FV with no Gemma counterpart
+ *    - − amber   — Gemma FV the agent didn't propose
+ *  Width fixed at 1ch so the labels left-align across rows. */
+function FvStatusGlyph({
+  status,
+}: {
+  status: "exact" | "near" | "agent_only" | "gold_only";
+}) {
+  const cfg = {
+    exact: {
+      glyph: "✓",
+      cls: "text-emerald-600 dark:text-emerald-400",
+      title: "labels match",
+    },
+    near: {
+      glyph: "≈",
+      cls: "text-amber-600 dark:text-amber-400",
+      title: "paired by URI / synonym — labels differ",
+    },
+    agent_only: {
+      glyph: "+",
+      cls: "text-amber-600 dark:text-amber-400",
+      title: "agent FV with no Gemma counterpart",
+    },
+    gold_only: {
+      glyph: "−",
+      cls: "text-amber-600 dark:text-amber-400",
+      title: "Gemma FV the agent didn't propose",
+    },
+  }[status];
+  return (
+    <span
+      className={cn(
+        "inline-block w-[1ch] text-center text-xs font-bold leading-none shrink-0",
+        cfg.cls,
+      )}
+      title={cfg.title}
+      aria-label={cfg.title}
+    >
+      {cfg.glyph}
+    </span>
   );
 }
 
@@ -1851,7 +1859,8 @@ function RenamePreviewControl({
  *  where the agent didn't ship a structured proposal alongside the
  *  rename. */
 function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
-  const { report } = useAudit();
+  const { report, experimentId } = useAudit();
+  const { data: serverDesign } = useDesign(experimentId);
   // Three label-source paths (most specific first):
   //   1. Structured `finding.rename` payload (calibration package v11+).
   //   2. Parsed rename rationale ("agent proposes `X` where Gemma has
@@ -1907,6 +1916,65 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   }
 
   const fvs = agentFactor.factor_values ?? [];
+
+  // Per-FV correspondence — only for near matches. Agent FVs that
+  // pair to Gemma FVs via ``gemma_ref`` get an inline ✓ (labels
+  // match), ≈ (paired by URI / synonym, labels differ), or + (no
+  // Gemma counterpart). Gemma FVs the agent didn't propose surface
+  // as muted rows at the end. Exact matches and alternate-factor
+  // findings skip the indicators (would be all-green or
+  // structurally divergent — different question).
+  //
+  // Post-handoff (2026-05-18 NEAR_MATCH_FV_PAIRING): once the
+  // builder ships ``fv_pairs`` on ``_close``, this will read
+  // ``finding.rename.fv_pairs`` first and fall back to the
+  // gemma_ref path for older audit.json files.
+  const showCorrespondence = isCloseFactorMatch(finding);
+  const goldFactor = showCorrespondence
+    ? serverDesign?.factors.find(
+        (f) =>
+          f.category.label.toLowerCase().trim() ===
+          (rename?.gold.category.label ?? parsed?.gold ?? firstBacktick ?? "")
+            .toLowerCase()
+            .trim(),
+      )
+    : undefined;
+  const pairedGoldKeys = new Set<string>();
+  const goldKey = (label: string | undefined, uri: string | null | undefined) =>
+    `${(uri || "").toLowerCase().trim()}|${(label || "").toLowerCase().trim()}`;
+  function fvStatus(fv: FactorValueProposal): "exact" | "near" | "agent_only" {
+    const ref = fv.gemma_ref;
+    const refLabel = ref?.label?.trim() || "";
+    const refUri = ref?.uri?.trim() || "";
+    if (refLabel || refUri) {
+      pairedGoldKeys.add(goldKey(refLabel, refUri));
+    }
+    if (!refLabel && !refUri) return "agent_only";
+    if (
+      fv.match_type === "exact" ||
+      (fv.free_text_label || "").toLowerCase().trim() ===
+        refLabel.toLowerCase()
+    ) {
+      return "exact";
+    }
+    return "near";
+  }
+  // Pre-compute so we can also derive gold-only after the agent loop
+  // has populated pairedGoldKeys.
+  const fvStatuses = showCorrespondence ? fvs.map(fvStatus) : [];
+  const goldOnly =
+    showCorrespondence && goldFactor
+      ? goldFactor.factor_values.filter(
+          (gfv) =>
+            !pairedGoldKeys.has(
+              goldKey(
+                gfv.free_text_label,
+                gfv.statements[0]?.subject?.uri ?? null,
+              ),
+            ),
+        )
+      : [];
+
   return (
     <div className="px-2 py-1.5 rounded bg-white/60 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-1">
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -1924,32 +1992,78 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
         </span>
       </div>
       <div className="space-y-1 pl-1">
-        {fvs.map((fv, i) => (
-          <div key={i} className="text-[11px] space-y-0.5">
-            <div className="flex items-center gap-1 flex-wrap">
-              <span className="font-mono text-slate-900 dark:text-slate-100 truncate">
-                {fv.free_text_label || <em className="text-slate-400">(unnamed)</em>}
-              </span>
-              {(fv.statements?.length ?? 0) > 0 ? (
-                <StatementGlyph statements={fv.statements} />
-              ) : null}
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                ({fv.biomaterial_short_names.length})
-              </span>
-            </div>
-            {(fv.statements?.length ?? 0) > 0 ? (
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 pl-1.5 leading-snug">
-                {fv.statements.map((s, j) => (
-                  <div key={j} className="flex items-center gap-1 flex-wrap">
-                    <StatementChip term={s.subject} />
-                    <span className="text-slate-400 dark:text-slate-500">·</span>
-                    <StatementChip term={s.predicate} />
-                    <span className="text-slate-400 dark:text-slate-500">·</span>
-                    <StatementChip term={s.object} />
-                  </div>
-                ))}
+        {fvs.map((fv, i) => {
+          const status = showCorrespondence ? fvStatuses[i] : null;
+          return (
+            <div key={i} className="text-[11px] space-y-0.5">
+              <div className="flex items-center gap-1 flex-wrap">
+                {status ? <FvStatusGlyph status={status} /> : null}
+                <span className="font-mono text-slate-900 dark:text-slate-100 truncate">
+                  {fv.free_text_label || <em className="text-slate-400">(unnamed)</em>}
+                </span>
+                {(fv.statements?.length ?? 0) > 0 ? (
+                  <StatementGlyph statements={fv.statements} />
+                ) : null}
+                <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                  ({fv.biomaterial_short_names.length})
+                </span>
+                {/* Inline drift annotation — only when the agent and
+                    Gemma labels disagree, so the curator sees what
+                    Gemma calls this same bin without scanning a
+                    side table. */}
+                {status === "near" && fv.gemma_ref?.label ? (
+                  <span
+                    className="text-[10px] text-amber-700 dark:text-amber-300 italic"
+                    title="Gemma's label for the paired FV"
+                  >
+                    ↔ Gemma: <span className="font-mono not-italic">{fv.gemma_ref.label}</span>
+                  </span>
+                ) : null}
+                {status === "agent_only" ? (
+                  <span
+                    className="text-[10px] text-amber-700 dark:text-amber-300 italic"
+                    title="no Gemma counterpart found by the proposer"
+                  >
+                    not in Gemma
+                  </span>
+                ) : null}
               </div>
-            ) : null}
+              {(fv.statements?.length ?? 0) > 0 ? (
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 pl-1.5 leading-snug">
+                  {fv.statements.map((s, j) => (
+                    <div key={j} className="flex items-center gap-1 flex-wrap">
+                      <StatementChip term={s.subject} />
+                      <span className="text-slate-400 dark:text-slate-500">·</span>
+                      <StatementChip term={s.predicate} />
+                      <span className="text-slate-400 dark:text-slate-500">·</span>
+                      <StatementChip term={s.object} />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+        {/* Gemma-only FVs — the agent didn't propose these. Renders
+            below the agent rows as muted italic lines so the curator
+            sees what's missing without it competing visually with
+            agent content. Only fires on near matches. */}
+        {goldOnly.map((gfv, i) => (
+          <div
+            key={`g${i}`}
+            className="text-[11px] flex items-center gap-1 flex-wrap opacity-70"
+            title="Gemma FV the agent didn't propose"
+          >
+            <FvStatusGlyph status="gold_only" />
+            <span className="font-mono text-slate-500 dark:text-slate-400 italic truncate">
+              {gfv.free_text_label || "(unnamed)"}
+            </span>
+            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+              ({gfv.biomaterial_short_names.length})
+            </span>
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">
+              Gemma only
+            </span>
           </div>
         ))}
       </div>
@@ -4161,39 +4275,8 @@ function severityRowCls(s: Severity): string {
   }
 }
 
-/** Picks a stable tint for the auditor pill so two parallel audits
- *  on the same experiment (dual-agent review) get visually distinct
- *  headers. The hash key is the *base* auditor name — trailing
- *  version markers (``-v5b``, ``_v3``, ``-2026-05-17``,
- *  ``-2026-05-17-foo``) are stripped first so ``hybrid-v5b`` and
- *  ``hybrid-v6`` map to the same colour. */
-const AUDITOR_PALETTES = [
-  "bg-indigo-50 border-indigo-300 text-indigo-900 dark:bg-indigo-900/40 dark:border-indigo-700 dark:text-indigo-100",
-  "bg-amber-50 border-amber-300 text-amber-900 dark:bg-amber-900/40 dark:border-amber-700 dark:text-amber-100",
-  "bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-100",
-  "bg-rose-50 border-rose-300 text-rose-900 dark:bg-rose-900/40 dark:border-rose-700 dark:text-rose-100",
-  "bg-violet-50 border-violet-300 text-violet-900 dark:bg-violet-900/40 dark:border-violet-700 dark:text-violet-100",
-  "bg-sky-50 border-sky-300 text-sky-900 dark:bg-sky-900/40 dark:border-sky-700 dark:text-sky-100",
-  "bg-teal-50 border-teal-300 text-teal-900 dark:bg-teal-900/40 dark:border-teal-700 dark:text-teal-100",
-];
-function normalizeAuditor(model: string): string {
-  // Iteratively strip trailing version/date markers so versioned
-  // siblings collapse to the same key.
-  let s = model.trim();
-  // Repeatable suffix forms.
-  const TAIL = /(?:[-_](?:v\d+[a-z]?|\d{4}-\d{2}-\d{2}(?:-[a-z0-9]+)?|\d{8}|\d+))+$/i;
-  while (TAIL.test(s)) {
-    s = s.replace(TAIL, "");
-    if (!s) break;
-  }
-  return s.toLowerCase();
-}
-function auditorPalette(model: string): string {
-  const key = normalizeAuditor(model || "auditor");
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  return AUDITOR_PALETTES[h % AUDITOR_PALETTES.length];
-}
+// agent palette extracted to ``@/lib/agentPalette`` so the proposal
+// panel renders the same model with the same tint as the audit panel.
 
 function formatShort(iso: string): string {
   try {
@@ -4210,70 +4293,9 @@ function formatShort(iso: string): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Design proposal → Factor conversion
-// ---------------------------------------------------------------------------
-
-const BASELINE_TERM_LABELS = new Set([
-  "control",
-  "wild type genotype",
-  "reference subject role",
-  "reference substance role",
-  "initial time point",
-]);
-
-/** Convert `FactorProposal[]` to `Factor[]`, replacing the design's
- *  current factor list rather than merging. IDs are allocated
- *  above the existing maximum so no FV id collides with a retained
- *  biomaterial assignment. `is_baseline` is inferred from statement
- *  subject/object labels matching the Confluence baseline set. */
-function proposalFactorsToDesignFactors(
-  existingFactors: Factor[],
-  proposals: FactorProposal[],
-): Factor[] {
-  let nextFactorId =
-    existingFactors.reduce((m, f) => Math.max(m, f.id), 0) + 1;
-  let nextFvId =
-    existingFactors
-      .flatMap((f) => f.factor_values)
-      .reduce((m, fv) => Math.max(m, fv.id), 0) + 1;
-
-  return proposals.map((fp): Factor => {
-    const factorId = nextFactorId++;
-    const factor_values: FactorValue[] = fp.factor_values.map((fv) => {
-      const isBaseline = (fv.statements ?? []).some((s) => {
-        const subj = s.subject.label.trim().toLowerCase();
-        const obj = s.object?.label?.trim().toLowerCase() ?? "";
-        return BASELINE_TERM_LABELS.has(subj) || BASELINE_TERM_LABELS.has(obj);
-      });
-      return {
-        id: nextFvId++,
-        free_text_label: fv.free_text_label,
-        is_baseline: isBaseline,
-        numeric_value: null,
-        biomaterial_short_names: [...fv.biomaterial_short_names],
-        statements: (fv.statements ?? []).map((s) => ({
-          category: { label: fp.category.label, uri: fp.category.uri ?? null },
-          subject: { label: s.subject.label, uri: s.subject.uri ?? null },
-          predicate: s.predicate
-            ? { label: s.predicate.label, uri: s.predicate.uri ?? null }
-            : null,
-          object: s.object
-            ? { label: s.object.label, uri: s.object.uri ?? null }
-            : null,
-        })),
-      };
-    });
-    return {
-      id: factorId,
-      name: fp.name_in_design || fp.category.label,
-      category: { label: fp.category.label, uri: fp.category.uri ?? null },
-      description: "",
-      type: fp.factor_type === "continuous" ? "continuous" : "categorical",
-      factor_values,
-    };
-  });
-}
+// Design proposal → Factor conversion removed 2026-05-18 alongside
+// the EXPERIMENTAL DESIGN section; the only caller was the
+// "Add factor to draft" affordance retired with that section.
 
 /** Build a synthetic AuditReport whose target_ids slug-match real
  *  elements in the loaded design. Picks a few plausible (or

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
+import { agentPalette } from "@/lib/agentPalette";
 import type { Proposal } from "@/api/types";
 import { experimentRoute, navigate } from "@/routes";
 
@@ -50,55 +51,62 @@ export function ProposalSummaryCard({
     0,
   );
 
+  // Triaged-summary fade pattern mirrors the audit panel's
+  // dispositioned-finding card: the proposal has been acted on, so
+  // it recedes to 40% opacity with a hover-restore (90%) instead of
+  // wearing a loud emerald / slate "you-acted-on-this" pill. A small
+  // ✓ / × glyph keeps the verdict legible at a glance. Same
+  // convention as ``DispositionDot`` in ``AuditSidebarPanel``.
   return (
     <div
       className={cn(
-        "card text-[11px]",
-        accepted
-          ? "border-emerald-200 bg-emerald-50/40"
-          : "border-slate-200 bg-slate-50/60 opacity-90",
+        "card text-[11px] opacity-40 hover:opacity-90 transition-opacity",
       )}
     >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "w-full text-left px-2 py-1.5 flex items-center gap-2 rounded-t",
-          accepted ? "hover:bg-emerald-50/80" : "hover:bg-slate-100/80",
-        )}
+        className="w-full text-left px-2 py-1.5 flex items-center gap-2 rounded-t hover:bg-slate-50 dark:hover:bg-slate-800/60"
         title={open ? "collapse" : "expand"}
       >
         <span
           className={cn(
-            "inline-block text-[9px] uppercase tracking-wide font-bold px-1 py-0 rounded shrink-0",
+            "inline-block w-[1ch] text-center text-xs font-bold leading-none shrink-0",
             accepted
-              ? "bg-emerald-200 text-emerald-900"
-              : "bg-slate-300 text-slate-800",
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-slate-500 dark:text-slate-400",
           )}
-          title={accepted ? "you accepted this proposal" : "you rejected this proposal"}
+          aria-label={accepted ? "you accepted this proposal" : "you rejected this proposal"}
+          title={accepted ? "accepted" : "rejected"}
         >
-          {accepted ? "✓ accepted" : "✗ rejected"}
+          {accepted ? "✓" : "×"}
         </span>
-        <span className="flex-1 min-w-0 truncate text-slate-700">
-          Proposal{" "}
-          <span className="font-mono text-[10px] text-slate-500">
-            {proposal.proposal_id ?? "(unsaved)"}
+        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 shrink-0">
+          proposal
+        </span>
+        {proposal.model ? (
+          <span
+            className={cn(
+              "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border shrink-0",
+              agentPalette(proposal.model),
+            )}
+            title={`AI agent: ${proposal.model}`}
+          >
+            <span className="text-[9px] uppercase tracking-wide opacity-70">
+              agent
+            </span>
+            <span className="truncate max-w-[10rem]">{proposal.model}</span>
           </span>
-          {proposal.model ? (
-            <span className="text-slate-400"> · {proposal.model}</span>
-          ) : null}
+        ) : null}
+        <span className="flex-1 min-w-0 truncate text-slate-500 text-[10px] font-mono">
+          {proposal.proposal_id ?? "(unsaved)"}
         </span>
         <span aria-hidden className="text-slate-400 text-[10px]">
           {open ? "▾" : "▸"}
         </span>
       </button>
       {open ? (
-        <div
-          className={cn(
-            "border-t px-2 py-1.5 space-y-1",
-            accepted ? "border-emerald-200" : "border-slate-200",
-          )}
-        >
+        <div className="border-t border-slate-200 dark:border-slate-700 px-2 py-1.5 space-y-1">
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-slate-600">
             <SummaryStat label="factors" value={nFactors} />
             <SummaryStat label="FVs" value={nFvs} />

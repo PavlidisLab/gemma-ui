@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import { agentPalette } from "@/lib/agentPalette";
 import { useStickyState } from "@/lib/useStickyState";
 import { useEscape } from "@/lib/useEscape";
 import { Pill } from "@/components/ui/Pill";
@@ -1256,50 +1257,78 @@ export function ProposalCardV2({
 
   return (
     <div className="card">
-      {/* ---------------- Header strip ---------------- */}
-      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between gap-2 min-w-0">
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="section-h">Agent proposal</span>
-          <Pill variant={proposal.status === "pending" ? "pending" : "accepted"}>
+      {/* ---------------- Header strip ----------------
+          Mirrors the audit panel's SidebarHeader shape: a small
+          AGENT pill (palette-hashed via shared ``agentPalette`` so a
+          given model gets the same tint on both surfaces), a muted
+          status pill, and submitter / timestamp meta on the right.
+          Keeps the visual rhythm consistent across the sidebar's
+          two views (audit / proposal). */}
+      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between gap-2 min-w-0 flex-wrap">
+        <div className="flex items-baseline gap-2 flex-shrink-0 min-w-0">
+          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">
+            proposal
+          </span>
+          {proposal.model ? (
+            <span
+              className={cn(
+                "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border",
+                agentPalette(proposal.model),
+              )}
+              title={`AI agent that produced this proposal: ${proposal.model}`}
+            >
+              <span className="text-[9px] uppercase tracking-wide opacity-70">
+                agent
+              </span>
+              <span className="truncate max-w-[14rem]">{proposal.model}</span>
+            </span>
+          ) : null}
+          {/* Status pill — toned-down palette matching the audit
+              VerdictPill convention (-50 bg / -700 text / -200 border)
+              so it doesn't read as a hazard sticker on every card. */}
+          <span
+            className={cn(
+              "inline-block text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border",
+              proposal.status === "pending"
+                ? "bg-amber-50 text-amber-700 border-amber-200"
+                : proposal.status === "accepted"
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200",
+            )}
+            title={`status: ${proposal.status}`}
+          >
             {proposal.status}
-          </Pill>
-        </div>
-        <span
-          className="text-xs text-slate-400 truncate min-w-0 flex-1 text-right inline-flex items-baseline justify-end gap-1.5"
-          title={
-            // Honest tooltip: the proposer pipeline runs subtasks
-            // (haiku) AND the design proposer (sonnet/opus by
-            // default) — ``proposal.model`` today is whatever the
-            // submitter recorded as the run-level model. The
-            // model-tier handoff doc (gemma-curation-agents) specs
-            // the eventual fix — splitting this into a
-            // ``design_model`` field so the tier chip is unambiguous
-            // about the hard step.
-            `${proposal.submitted_by} · ${proposal.model ?? "(no model recorded)"} · ${proposal.submitted_at}`
-          }
-        >
-          <span className="truncate">
-            {proposal.submitted_by} · {proposal.model ?? "—"}
           </span>
           {(() => {
             const tier = tierForProviderModel(proposal.model);
             if (!tier) return null;
             return (
               <span
-                className={
-                  "text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border " +
-                  (tier === "strong"
-                    ? "bg-blue-50 text-blue-800 border-blue-200"
+                className={cn(
+                  "text-[9px] uppercase tracking-wide font-semibold px-1 py-0 rounded border",
+                  tier === "strong"
+                    ? "bg-blue-50 text-blue-700 border-blue-200"
                     : tier === "fast"
                       ? "bg-slate-50 text-slate-600 border-slate-200"
-                      : "bg-emerald-50 text-emerald-800 border-emerald-200")
-                }
+                      : "bg-emerald-50 text-emerald-700 border-emerald-200",
+                )}
                 title={`tier: ${tier} — ${MODEL_TIERS[tier].description}`}
               >
                 {tier}
               </span>
             );
           })()}
+        </div>
+        <span
+          className="text-[11px] text-slate-500 truncate inline-flex items-baseline gap-1.5"
+          title={`${proposal.submitted_by} · ${proposal.submitted_at}`}
+        >
+          <span className="text-[10px] uppercase tracking-wide text-slate-400">
+            by
+          </span>
+          <span className="font-mono truncate max-w-[10rem]">
+            {proposal.submitted_by || "—"}
+          </span>
         </span>
       </div>
 
