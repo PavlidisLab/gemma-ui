@@ -2017,40 +2017,100 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
       }
     }
   }
-  const pairedGoldKeys = new Set<string>();
-  const goldKey = (label: string | undefined, uri: string | null | undefined) =>
-    `${(uri || "").toLowerCase().trim()}|${(label || "").toLowerCase().trim()}`;
-  function fvStatus(fv: FactorValueProposal): "exact" | "near" | "agent_only" {
-    const ref = fv.gemma_ref;
-    const refLabel = ref?.label?.trim() || "";
-    const refUri = ref?.uri?.trim() || "";
-    if (refLabel || refUri) {
-      pairedGoldKeys.add(goldKey(refLabel, refUri));
+  // Pair each agent FV to a Gemma FV. Three lookup paths, in order:
+  //
+  //   1. ``gemma_ref`` on the proposal (proposer pre-computed at
+  //      proposal time — most precise when it fires).
+  //   2. Biomaterial-overlap against ``goldFactor.factor_values``
+  //      (partition-equal pairing; works even when the proposer
+  //      didn't ship a gemma_ref, e.g. older proposals or cases the
+  //      proposer judged "new" but where Gemma actually has a
+  //      same-biomaterial FV under a different label).
+  //   3. Genuinely unpaired → "agent_only" (rare on factor matches
+  //      with a resolved gold factor; common on alternate-factor).
+  //
+  // The biomaterial-overlap path is the same principle as the
+  // NEAR_MATCH_FV_PAIRING handoff for the builder side: if the
+  // partition is the same, the pairing is bijective by biomaterial
+  // set. Surfacing "total RNA" ↔ "pre-immunoprecipitation input"
+  // here (paired by biomaterials despite the label drift) is the
+  // canonical case.
+  const pairedGoldIds = new Set<number>();
+  type FvPairing = {
+    status: "exact" | "near" | "agent_only";
+    /** Gemma label of the paired FV, when paired. Empty for agent-only. */
+    gemmaLabel: string;
+  };
+  function fvStatus(fv: FactorValueProposal): FvPairing {
+    let refLabel = fv.gemma_ref?.label?.trim() || "";
+    const refUri = fv.gemma_ref?.uri?.trim() || "";
+    let pairedId: number | null = null;
+    // Path 1: gemma_ref. Resolve the gold FV id from refLabel/refUri
+    // (so pairedGoldIds catches it for the gold-only sweep).
+    if ((refLabel || refUri) && goldFactor) {
+      const matchByUri = refUri
+        ? goldFactor.factor_values.find((gfv) =>
+            gfv.statements.some(
+              (s) =>
+                s.subject?.uri === refUri || s.object?.uri === refUri,
+            ),
+          )
+        : undefined;
+      const matchByLabel = !matchByUri && refLabel
+        ? goldFactor.factor_values.find(
+            (gfv) =>
+              (gfv.free_text_label || "").toLowerCase().trim() ===
+              refLabel.toLowerCase(),
+          )
+        : undefined;
+      const hit = matchByUri ?? matchByLabel;
+      if (hit) pairedId = hit.id;
     }
-    if (!refLabel && !refUri) return "agent_only";
+    // Path 2: biomaterial-overlap fallback when proposal didn't ship
+    // a gemma_ref. Pick the gold FV whose biomaterial set overlaps
+    // the agent FV's most. Skip gold FVs already claimed by an
+    // earlier agent FV (one-to-one pairing).
+    if (!refLabel && !refUri && goldFactor) {
+      const agentBms = new Set(fv.biomaterial_short_names);
+      let bestOverlap = 0;
+      let bestGfv: typeof goldFactor.factor_values[number] | null = null;
+      for (const gfv of goldFactor.factor_values) {
+        if (pairedGoldIds.has(gfv.id)) continue;
+        let n = 0;
+        for (const bm of gfv.biomaterial_short_names) {
+          if (agentBms.has(bm)) n++;
+        }
+        if (n > bestOverlap) {
+          bestOverlap = n;
+          bestGfv = gfv;
+        }
+      }
+      if (bestGfv) {
+        refLabel = bestGfv.free_text_label || "";
+        pairedId = bestGfv.id;
+      }
+    }
+    if (pairedId != null) pairedGoldIds.add(pairedId);
+    if (!refLabel && !refUri) {
+      return { status: "agent_only", gemmaLabel: "" };
+    }
     if (
       fv.match_type === "exact" ||
       (fv.free_text_label || "").toLowerCase().trim() ===
         refLabel.toLowerCase()
     ) {
-      return "exact";
+      return { status: "exact", gemmaLabel: refLabel };
     }
-    return "near";
+    return { status: "near", gemmaLabel: refLabel };
   }
   // Pre-compute so we can also derive gold-only after the agent loop
-  // has populated pairedGoldKeys.
-  const fvStatuses = showCorrespondence ? fvs.map(fvStatus) : [];
+  // has populated pairedGoldIds.
+  const fvPairings: FvPairing[] = showCorrespondence
+    ? fvs.map(fvStatus)
+    : [];
   const goldOnly =
     showCorrespondence && goldFactor
-      ? goldFactor.factor_values.filter(
-          (gfv) =>
-            !pairedGoldKeys.has(
-              goldKey(
-                gfv.free_text_label,
-                gfv.statements[0]?.subject?.uri ?? null,
-              ),
-            ),
-        )
+      ? goldFactor.factor_values.filter((gfv) => !pairedGoldIds.has(gfv.id))
       : [];
 
   // Surface the paired gold factor's distinguishing info in the
@@ -2113,7 +2173,9 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
       </div>
       <div className="space-y-1 pl-1">
         {fvs.map((fv, i) => {
-          const status = showCorrespondence ? fvStatuses[i] : null;
+          const pairing = showCorrespondence ? fvPairings[i] : null;
+          const status = pairing?.status ?? null;
+          const gemmaLabel = pairing?.gemmaLabel ?? "";
           return (
             <div key={i} className="text-[11px] space-y-0.5">
               <div className="flex items-center gap-1 flex-wrap">
@@ -2127,22 +2189,23 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
                 <span className="text-[10px] text-slate-400 dark:text-slate-500">
                   ({fv.biomaterial_short_names.length})
                 </span>
-                {/* Inline drift annotation — only when the agent and
-                    Gemma labels disagree, so the curator sees what
-                    Gemma calls this same bin without scanning a
-                    side table. */}
-                {status === "near" && fv.gemma_ref?.label ? (
+                {/* Inline drift annotation — when the agent and Gemma
+                    labels disagree (but point at the same biomaterial
+                    partition, either via gemma_ref or biomaterial-
+                    overlap fallback), surface Gemma's label so the
+                    curator sees how the bin is named on each side. */}
+                {status === "near" && gemmaLabel ? (
                   <span
                     className="text-[10px] text-amber-700 dark:text-amber-300 italic"
                     title="Gemma's label for the paired FV"
                   >
-                    ↔ Gemma: <span className="font-mono not-italic">{fv.gemma_ref.label}</span>
+                    ↔ Gemma: <span className="font-mono not-italic">{gemmaLabel}</span>
                   </span>
                 ) : null}
                 {status === "agent_only" ? (
                   <span
                     className="text-[10px] text-amber-700 dark:text-amber-300 italic"
-                    title="no Gemma counterpart found by the proposer"
+                    title="no Gemma counterpart — neither by proposer alignment nor biomaterial overlap"
                   >
                     not in Gemma
                   </span>
