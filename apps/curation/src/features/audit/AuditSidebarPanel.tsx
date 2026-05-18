@@ -1930,15 +1930,54 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   // ``finding.rename.fv_pairs`` first and fall back to the
   // gemma_ref path for older audit.json files.
   const showCorrespondence = isCloseFactorMatch(finding);
-  const goldFactor = showCorrespondence
-    ? serverDesign?.factors.find(
-        (f) =>
-          f.category.label.toLowerCase().trim() ===
-          (rename?.gold.category.label ?? parsed?.gold ?? firstBacktick ?? "")
-            .toLowerCase()
-            .trim(),
-      )
-    : undefined;
+  // Pair the agent factor to a *specific* gold factor. Slug-only
+  // lookup is ambiguous when the design has multi-factor-same-
+  // category (e.g. GSE93824's two ``genotype`` factors) — both
+  // findings would resolve to the first gold factor by label and the
+  // curator would see identical cards. Disambiguate by biomaterial
+  // overlap: among the gold factors that share the category slug,
+  // pick the one whose FV-set's biomaterials overlap the agent's
+  // most. Falls back to first-match when there's only one candidate
+  // or no agent factor to compare against.
+  //
+  // This is the UI-side fallback for the agents-repo
+  // ``HANDOFF_2026-05-18_NEAR_MATCH_FV_PAIRING`` ask. Once the
+  // builder ships partition-equal pairing + ``fv_pairs`` on
+  // ``_close`` findings, the gold side will be carried on the wire
+  // and this disambiguation can simplify.
+  const goldSlug = (
+    rename?.gold.category.label ??
+    parsed?.gold ??
+    firstBacktick ??
+    ""
+  )
+    .toLowerCase()
+    .trim();
+  const goldCandidates =
+    serverDesign?.factors.filter(
+      (f) => f.category.label.toLowerCase().trim() === goldSlug,
+    ) ?? [];
+  let goldFactor: typeof goldCandidates[number] | undefined;
+  if (goldCandidates.length === 1) {
+    goldFactor = goldCandidates[0];
+  } else if (goldCandidates.length > 1 && agentFactor) {
+    const agentBms = new Set(
+      agentFactor.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+    );
+    let best = -1;
+    for (const g of goldCandidates) {
+      let overlap = 0;
+      for (const gfv of g.factor_values) {
+        for (const bm of gfv.biomaterial_short_names) {
+          if (agentBms.has(bm)) overlap++;
+        }
+      }
+      if (overlap > best) {
+        best = overlap;
+        goldFactor = g;
+      }
+    }
+  }
   const pairedGoldKeys = new Set<string>();
   const goldKey = (label: string | undefined, uri: string | null | undefined) =>
     `${(uri || "").toLowerCase().trim()}|${(label || "").toLowerCase().trim()}`;
@@ -1975,9 +2014,25 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
         )
       : [];
 
+  // Surface the paired gold factor's distinguishing info in the
+  // header. ``Factor.name`` is the curator-given name, which often
+  // disambiguates multi-factor-same-category cases (e.g.
+  // ``wild-type vs KO`` vs ``genotype background``) where the
+  // category label alone is identical. Falls back to FV-count when
+  // ``name`` is empty or equals the category label.
+  const goldDistinguisher = goldFactor
+    ? goldFactor.name &&
+      goldFactor.name.toLowerCase().trim() !==
+        goldFactor.category.label.toLowerCase().trim()
+      ? goldFactor.name
+      : `${goldFactor.factor_values.length} value${
+          goldFactor.factor_values.length === 1 ? "" : "s"
+        }`
+    : null;
+
   return (
     <div className="px-2 py-1.5 rounded bg-white/60 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-1">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 flex-wrap">
         <span>Agent factor</span>
         <span className="font-mono text-slate-700 dark:text-slate-200 normal-case tracking-normal">
           {agentFactor.category.label}
@@ -1985,6 +2040,32 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
         {agentFactor.factor_type ? (
           <span className="text-slate-400 dark:text-slate-500 normal-case tracking-normal">
             · {agentFactor.factor_type}
+          </span>
+        ) : null}
+        {/* Matched-against indicator. Critical for multi-factor-same-
+            category cases (two ``genotype`` factors in gold) — without
+            it both finding cards read identically. */}
+        {goldFactor ? (
+          <span
+            className="text-slate-400 dark:text-slate-500 normal-case tracking-normal inline-flex items-baseline gap-1"
+            title={`paired with Gemma factor (id=${goldFactor.id})${
+              goldCandidates.length > 1
+                ? " — disambiguated by biomaterial overlap"
+                : ""
+            }`}
+          >
+            <span>↔</span>
+            <span className="text-slate-500 dark:text-slate-400 uppercase tracking-wide text-[9px]">
+              Gemma
+            </span>
+            <span className="font-mono text-slate-700 dark:text-slate-200">
+              {goldFactor.category.label}
+            </span>
+            {goldDistinguisher ? (
+              <span className="text-slate-400 dark:text-slate-500 italic">
+                ({goldDistinguisher})
+              </span>
+            ) : null}
           </span>
         ) : null}
         <span className="text-slate-400 dark:text-slate-500 ml-auto normal-case tracking-normal">
@@ -2281,10 +2362,7 @@ function FactorReplacementHint({
             ? ` (${f.factor_values.length} value${f.factor_values.length === 1 ? "" : "s"})`
             : ""}
         </span>
-      ))}{" "}
-      <span className="text-slate-500 dark:text-slate-400 italic">
-        — see panel below
-      </span>
+      ))}
     </span>
   );
 }
