@@ -4460,10 +4460,6 @@ function formatShort(iso: string): string {
   }
 }
 
-// Design proposal → Factor conversion removed 2026-05-18 alongside
-// the EXPERIMENTAL DESIGN section; the only caller was the
-// "Add factor to draft" affordance retired with that section.
-
 /** Build a synthetic AuditReport whose target_ids slug-match real
  *  elements in the loaded design. Picks a few plausible (or
  *  intentionally wrong) findings so the inline severity dots have

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X as XIcon } from "lucide-react";
+import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
 import { useImportFromGemma } from "@/api/datasets";
@@ -1352,6 +1352,19 @@ function ChipEditor({
 }) {
   const [cat, setCat] = useState<OntologyTerm | null>(category);
   const [val, setVal] = useState<OntologyTerm | null>(value);
+  // Two-stage local delete: first trash-click arms (visual change +
+  // "click again to confirm"); second click commits. Auto-disarms
+  // after 3s so the curator can't get stuck in an armed state.
+  // The global commit-bar "undo" rolls back EVERY pending edit at
+  // once, so per-chip deletion needs its own confirm step otherwise
+  // a curator who deletes one tag then hits global undo loses every
+  // other unsaved edit too.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  useEffect(() => {
+    if (!deleteArmed) return;
+    const t = window.setTimeout(() => setDeleteArmed(false), 3000);
+    return () => window.clearTimeout(t);
+  }, [deleteArmed]);
   const ref = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -1441,11 +1454,26 @@ function ChipEditor({
       {onDelete ? (
         <button
           type="button"
-          className="px-1 text-rose-700 hover:text-rose-900"
-          onClick={onDelete}
-          title="delete tag"
+          className={cn(
+            "ml-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide transition-colors",
+            deleteArmed
+              ? "bg-rose-600 text-white hover:bg-rose-700"
+              : "text-rose-700 hover:bg-rose-100 hover:text-rose-900 dark:text-rose-300 dark:hover:bg-rose-900/30",
+          )}
+          onClick={() => {
+            if (deleteArmed) {
+              onDelete();
+            } else {
+              setDeleteArmed(true);
+            }
+          }}
+          title={
+            deleteArmed
+              ? "click again to confirm delete (auto-cancels in 3s)"
+              : "delete tag (requires a second click)"
+          }
         >
-          🗑
+          {deleteArmed ? "✗ confirm" : "🗑 delete"}
         </button>
       ) : null}
     </span>
@@ -1946,15 +1974,15 @@ function EditableDirectGroupChip({
         {protectedCategory ? null : (
           <button
             type="button"
-            className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-rose-100 hover:text-rose-700 dark:text-emerald-300/70 dark:hover:bg-rose-900/40 dark:hover:text-rose-300"
+            className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-emerald-900 dark:text-emerald-300/70 dark:hover:bg-emerald-800 dark:hover:text-emerald-100"
             onClick={(e) => {
               e.stopPropagation();
-              deleteOne(tag.id);
+              setEditingId(tag.id);
             }}
-            title="remove this tag from the experiment"
-            aria-label="remove tag"
+            title="edit this tag (delete from the editor)"
+            aria-label="edit tag"
           >
-            <XIcon size={11} strokeWidth={2.5} />
+            <PencilIcon size={11} strokeWidth={2.5} />
           </button>
         )}
       </span>
@@ -2046,15 +2074,15 @@ function EditableDirectGroupChip({
                 {protectedCategory ? null : (
                   <button
                     type="button"
-                    className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-rose-100 hover:text-rose-700 dark:text-emerald-300/70 dark:hover:bg-rose-900/40 dark:hover:text-rose-300"
+                    className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-emerald-900 dark:text-emerald-300/70 dark:hover:bg-emerald-800 dark:hover:text-emerald-100"
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteOne(tag.id);
+                      setEditingId(tag.id);
                     }}
-                    title="remove this tag from the experiment"
-                    aria-label="remove tag"
+                    title="edit this tag (delete from the editor)"
+                    aria-label="edit tag"
                   >
-                    <XIcon size={11} strokeWidth={2.5} />
+                    <PencilIcon size={11} strokeWidth={2.5} />
                   </button>
                 )}
               </span>

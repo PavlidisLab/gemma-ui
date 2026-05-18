@@ -550,13 +550,8 @@ export function DesignComparisonPanel({
 }) {
   const cp = report.evidence.comparison_proposal;
   const [jsonOpen, setJsonOpen] = useState(false);
-  // Retained for the subtask-decisions section below, which filters
-  // out factor-scoped decisions already rendered inline with finding
-  // cards. The full EXPERIMENTAL DESIGN factor section retired
-  // 2026-05-18 — factor proposals now render inline with their
-  // corresponding finding cards. `gemmaFactors`, `draftFactorLabels`,
-  // `onAddFactor`, `onUndoApply` props + alignment helpers +
-  // AgentFactorRow all moved out with the section.
+  // Used by the subtask-decisions section below to filter out
+  // factor-scoped decisions already rendered inline with finding cards.
   const agentFactors = cp?.factors ?? [];
 
   // Gemma tag lookup by value URI (primary) or value label (fallback).
@@ -608,10 +603,7 @@ export function DesignComparisonPanel({
 
   return (
     <div className="card">
-      {/* Utility row — JSON viewer toggle. The "undo all added
-          factors" branch retired alongside the EXPERIMENTAL DESIGN
-          section; adding agent factors to the draft now happens
-          inline with the relevant finding card. */}
+      {/* JSON viewer toggle. */}
       {cp ? (
         <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-700/60 flex items-center gap-2 justify-end">
           <button
@@ -623,27 +615,6 @@ export function DesignComparisonPanel({
           </button>
         </div>
       ) : null}
-
-      {/* EXPERIMENTAL DESIGN factor section — retired 2026-05-18.
-       *
-       *  Factor proposals now render inline with their corresponding
-       *  finding cards (via ``RenameFactorEmbed`` inside ``MatchFindingRow``
-       *  for matches, alternate-factor cards for differing factors,
-       *  and proposer-suggestion blocks on extra / gold-only-miss
-       *  findings). Surfacing them again here as an unanchored "what
-       *  the agent proposed" list duplicated information already
-       *  reachable from the per-finding cards above + the Proposals
-       *  tab — Paul: "the factor proposals should be in-line with
-       *  the factor findings, not in a separate section at the
-       *  bottom of the card."
-       *
-       *  The previous ``AgentFactorRow`` rendering + ``onAddFactor``
-       *  / ``onUndoApply`` plumbing is now dead from the audit view.
-       *  ``DesignComparisonPanel`` keeps the same callback signature
-       *  for source-compat with ``AuditSidebarPanel.tsx`` (which still
-       *  passes them in); they're just unused here. If a future audit
-       *  surface wants an "accept this agent factor" affordance,
-       *  wire it inline with the relevant finding card instead. */}
 
       {/* EE tag proposals — only show tags that aren't already covered
           by a per-finding card above. When every proposed tag has a

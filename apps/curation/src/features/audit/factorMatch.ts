@@ -45,9 +45,9 @@ export function factorMatchVariant(
   return null;
 }
 
-/** Any factor-match issue code (exact / close / legacy). Used by the
- *  ``EXPERIMENTAL DESIGN`` panel to skip factors whose label is
- *  already covered by a sidebar match card. */
+/** Any factor-match issue code (exact / close / legacy). Convenience
+ *  predicate used by call sites that need to differentiate
+ *  factor-match findings from extras / misses / renames. */
 export function isFactorMatchCode(
   issue_code: string | null | undefined,
 ): boolean {
