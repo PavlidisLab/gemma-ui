@@ -1509,7 +1509,6 @@ function MatchCompareCard({
   finding: AuditFinding;
   label: string;
 }) {
-  const { experimentId } = useAudit();
   const term = finding.proposer_term;
   const hasTerm = !!(term?.label || term?.uri);
   const hasStatements = (finding.proposer_statements?.length ?? 0) > 0;
@@ -1558,14 +1557,6 @@ function MatchCompareCard({
         <span className="text-[10px] text-slate-500 dark:text-slate-400 italic">
           Matches can still differ subtly — verify in context.
         </span>
-        <button
-          type="button"
-          onClick={() => requestAuditFocus(experimentId, finding.target_id)}
-          className="text-[10px] text-sky-700 hover:underline dark:text-sky-300"
-          title="scroll to this element in the design / tags tab"
-        >
-          Focus in design →
-        </button>
       </div>
     </div>
   );
@@ -1951,24 +1942,20 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
 
   const fvs = agentFactor.factor_values ?? [];
 
-  // Per-FV correspondence — render for every factor-match finding
-  // (exact OR near). Agent FVs that pair to Gemma FVs via
-  // ``gemma_ref`` get an inline ✓ (labels match), ≈ (paired by URI
-  // / synonym, labels differ), or + (no Gemma counterpart). Gemma
-  // FVs the agent didn't propose surface as muted rows at the end.
+  // Per-FV correspondence — render whenever we have a factor-kind
+  // finding with a resolvable agent factor. Originally gated to
+  // match findings only, but with the 2026-05-18 stricter near-match
+  // gate (concept-mismatch demotes match → extra + gold_only_miss),
+  // curators need the same per-FV ✓ / ≈ / + / − visual on extra and
+  // calibration-factor-rename findings too so they can see *what's
+  // wrong / right / near* without bouncing tabs.
   //
-  // 2026-05-18: extended from near-only to all matches per Paul:
-  // even on "exact" factor matches the per-FV detail tells curators
-  // *where* the work is — e.g. an exact factor-label match can
-  // still have agent-only FVs that aren't in Gemma yet.
-  //
-  // Post-handoff (NEAR_MATCH_FV_PAIRING): once the builder ships
-  // ``fv_pairs`` on ``_close``, this will read
-  // ``finding.rename.fv_pairs`` first and fall back to the
-  // gemma_ref path for older audit.json files.
-  const showCorrespondence =
-    finding.target_kind === "factor" &&
-    (isExactFactorMatch(finding) || isCloseFactorMatch(finding));
+  // The downstream gold-factor lookup tries biomaterial overlap
+  // across every gold factor (not just same-slug candidates) so an
+  // agent ``extra`` for a partition-equal-but-URI-divergent factor
+  // still surfaces "↔ Gemma <other-label>" if the biomaterials line
+  // up.
+  const showCorrespondence = finding.target_kind === "factor";
   // Pair the agent factor to a *specific* gold factor. Slug-only
   // lookup is ambiguous when the design has multi-factor-same-
   // category (e.g. GSE93824's two ``genotype`` factors) — both
