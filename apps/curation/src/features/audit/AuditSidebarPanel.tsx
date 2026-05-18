@@ -1258,7 +1258,7 @@ function parseRenameLabels(
  *  a glance without losing the dense match-row affordance. */
 function MatchFindingRow({ finding }: { finding: AuditFinding }) {
   const [open, setOpen] = useState(false);
-  const { activeFindingKey, setActiveFindingKey, dispositionByTarget } =
+  const { activeFindingKey, setActiveFindingKey, dispositionByTarget, report } =
     useAudit();
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
@@ -1285,6 +1285,27 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
   // confirmation rather than a question.
   const m = (finding.rationale || "").match(/`([^`]+)`/);
   const label = m ? m[1] : finding.rationale;
+
+  // FV fingerprint — surface the agent factor's first FV labels in the
+  // collapsed row so multi-factor-same-category designs (e.g.
+  // GSE93824's two ``genotype`` factors) don't show two identical
+  // rows. Reads off ``agent_target_index`` (calibration package v12+);
+  // the label-fallback path inside ``resolveAgentFactor`` handles
+  // older audits.
+  const agentFactor = useMemo(() => {
+    if (finding.target_kind !== "factor") return null;
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    return resolveAgentFactor(finding, cp, label);
+  }, [finding, report, label]);
+  const fvFingerprint = useMemo(() => {
+    if (!agentFactor) return "";
+    const labels = agentFactor.factor_values
+      .map((fv) => fv.free_text_label?.trim())
+      .filter((s): s is string => !!s);
+    if (labels.length === 0) return "";
+    const head = labels.slice(0, 2).join(" / ");
+    return labels.length > 2 ? `${head} / …` : head;
+  }, [agentFactor]);
 
   // Visual split: exact (and tag matches) get green ✓ + "= Gemma";
   // close (or the legacy ``calibration_factor_match`` at ok severity,
@@ -1364,6 +1385,19 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
         >
           {label}
         </span>
+        {fvFingerprint ? (
+          <span
+            className={cn(
+              "text-[10px] italic truncate min-w-0",
+              isClose
+                ? "text-amber-700/80 dark:text-amber-400/80"
+                : "text-emerald-700/80 dark:text-emerald-400/80",
+            )}
+            title={`FVs: ${fvFingerprint}`}
+          >
+            · {fvFingerprint}
+          </span>
+        ) : null}
         {isClose ? (
           <span
             className="text-[9px] uppercase tracking-wide px-1 py-0 rounded border border-amber-300 dark:border-amber-600 bg-amber-100/70 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200"
