@@ -866,7 +866,10 @@ function ClosedFindingsSummary({
         className="w-full text-left px-2 py-1.5 hover:bg-slate-50 flex items-center gap-2"
         title={open ? "collapse" : "expand to review individual findings"}
       >
-        <span aria-hidden className="text-slate-400">
+        <span
+          aria-hidden
+          className="text-slate-400 text-base leading-none"
+        >
           {open ? "▾" : "▸"}
         </span>
         <span className="flex-1">
@@ -1334,7 +1337,10 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
   // FV mismatches below.
   const rawExact = isExactFactorMatch(finding);
   const isClose = isCloseFactorMatch(finding) || (rawExact && fvDrift);
-  const isExact = rawExact && !fvDrift;
+  // isExact = rawExact && !fvDrift — currently unused in this
+  // component now that the right-side "= Gemma" / "peek to confirm"
+  // text was retired. Left as a comment so the relationship between
+  // raw issue-code and rendered glyph stays documented.
 
   return (
     <div
@@ -1367,11 +1373,12 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
       >
         <span
           className={cn(
-            "text-xs leading-none",
+            "text-base leading-none",
             isClose
               ? "text-amber-700 dark:text-amber-400"
               : "text-emerald-600 dark:text-emerald-500",
           )}
+          aria-hidden
         >
           {open ? "▾" : "▸"}
         </span>
@@ -1427,16 +1434,12 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
             near
           </span>
         ) : null}
-        <span
-          className={cn(
-            "text-[10px] ml-auto",
-            isClose
-              ? "text-amber-700 dark:text-amber-400"
-              : "text-emerald-600 dark:text-emerald-500",
-          )}
-        >
-          {isClose ? "peek to confirm" : isExact ? "= Gemma" : "= Gemma"}
-        </span>
+        {/* Right-aligned spacer collapses the row neatly; the
+            expand/collapse affordance is the caret on the left. The
+            old "= Gemma" / "peek to confirm" right-side captions
+            were redundant once the ✓ / ≈ glyph + the ``near`` chip
+            already conveyed the row's state. */}
+        <span className="ml-auto" />
         <DebateBadgeChip badge={finding.debate_badge} defenderVerdict={finding.defender_verdict} />
       </button>
       {open ? (
@@ -1689,7 +1692,7 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
           />
           <span
             aria-hidden
-            className="ml-auto text-slate-400 dark:text-slate-500 text-[10px]"
+            className="ml-auto text-slate-400 dark:text-slate-500 text-base leading-none"
           >
             {open ? "▾" : "▸"}
           </span>
@@ -2871,7 +2874,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         {hasExpandableContent ? (
           <span
             aria-hidden
-            className="text-slate-400 dark:text-slate-500 text-xs mt-0.5"
+            className="text-slate-400 dark:text-slate-500 text-base leading-none mt-0.5"
           >
             {open ? "▾" : "▸"}
           </span>
