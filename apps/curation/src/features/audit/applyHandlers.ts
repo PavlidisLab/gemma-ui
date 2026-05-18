@@ -39,7 +39,17 @@ import type {
 } from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
 import type { FactorProposal } from "@/api/types";
-import { resolveAgentFactor } from "./factorMatch";
+import {
+  computeFvCorrespondence,
+  isCloseFactorMatch,
+  isExactFactorMatch,
+  pickGoldFactor,
+  resolveAgentFactor,
+} from "./factorMatch";
+import {
+  setFactorFields,
+  setFvLabel,
+} from "@/features/design/mutations";
 import { parseTargetId, type ParsedTargetId } from "./targetIds";
 
 export interface ApplyAction {
@@ -287,13 +297,29 @@ function resolveFactorCalibrationApply(
 ): ApplyAction | null {
   if (finding.target_kind !== "factor") return null;
   const code = finding.issue_code;
+  if (!design) return null;
+
+  // Near / close / legacy-rename factor match: the agent and Gemma
+  // paired against the same partition but drift exists at the
+  // category-label or FV level. Curator's Agree = adopt the agent's
+  // labels/URIs onto the existing Gemma factor in place (a rename +
+  // FV relabel). Replaces the previous focus-only fallback so the
+  // curator can act on a near-match card without bouncing to the
+  // Preview button or the Design tab.
+  if (
+    isExactFactorMatch(finding) ||
+    isCloseFactorMatch(finding) ||
+    code === "calibration_factor_rename"
+  ) {
+    return resolveNearMatchApply(finding, report, design);
+  }
+
   if (
     code !== "calibration_factor_extra" &&
     code !== "calibration_factor_gold_only_miss"
   ) {
     return null;
   }
-  if (!design) return null;
 
   // calibration_factor_extra — add the agent's factor to the draft.
   if (code === "calibration_factor_extra") {
@@ -431,6 +457,150 @@ function resolveFactorCalibrationApply(
   }
 
   return null;
+}
+
+/** Agree on a factor match-near / match-close / rename finding by
+ *  replacing the aligned Gemma factor's label + FV labels with the
+ *  agent's version. The Gemma factor's *identity* (id, structure)
+ *  stays — only the labels change — so downstream references
+ *  (audit dots, sample-table FV chips) keep working without
+ *  reroute. */
+function resolveNearMatchApply(
+  finding: AuditFinding,
+  report: AuditReport | null,
+  design: Design,
+): ApplyAction | null {
+  const cp = report?.evidence?.comparison_proposal ?? null;
+  const labelHint =
+    finding.rename?.agent.category.label ??
+    finding.rationale?.match(/`([^`]+)`/)?.[1] ??
+    null;
+  const proposal = resolveAgentFactor(finding, cp, labelHint);
+  if (!proposal) return null;
+  // Aligned gold factor — slug-match candidates, then disambiguate by
+  // biomaterial overlap (multi-factor-same-category designs).
+  const goldSlug = (
+    finding.rename?.gold.category.label ??
+    finding.rationale?.match(/`([^`]+)`/g)?.[1]?.replace(/`/g, "") ??
+    proposal.category.label
+  )
+    .toLowerCase()
+    .trim();
+  const candidates = (design.factors ?? []).filter(
+    (f) => f.category.label.toLowerCase().trim() === goldSlug,
+  );
+  // For rename findings the gold and agent labels differ — fall
+  // back to the agent category slug if the gold slug doesn't match
+  // anything in the draft.
+  const fallbackCandidates =
+    candidates.length === 0
+      ? (design.factors ?? []).filter(
+          (f) =>
+            f.category.label.toLowerCase().trim() ===
+            proposal.category.label.toLowerCase().trim(),
+        )
+      : candidates;
+  const goldFactor = pickGoldFactor(proposal, fallbackCandidates);
+  if (!goldFactor) return null;
+
+  // Idempotency: if the gold factor already matches the agent's
+  // labels + URIs and there's no FV-level drift, the apply is a
+  // no-op. Surface as focus-only with "Already applied" so a second
+  // Agree click doesn't render a dead button.
+  const sameCategoryLabel =
+    goldFactor.category.label.toLowerCase().trim() ===
+    proposal.category.label.toLowerCase().trim();
+  const sameCategoryUri =
+    (goldFactor.category.uri ?? null) === (proposal.category.uri ?? null);
+  const { hasDrift } = computeFvCorrespondence(proposal, goldFactor);
+  if (sameCategoryLabel && sameCategoryUri && !hasDrift) {
+    return {
+      mutates: false,
+      label: "✓ Already applied",
+      tooltip:
+        `The Gemma factor "${goldFactor.category.label}" already carries the agent's ` +
+        `category + FV labels. Agree to disposition without re-applying.`,
+      successMessage: "",
+    };
+  }
+
+  return {
+    mutates: true,
+    label: "Agree →",
+    tooltip:
+      `Agree → replace Gemma's factor "${goldFactor.category.label}" with the agent's version ` +
+      `(category label, URI, and FV labels). The factor keeps its id and structure; only the ` +
+      `labels change. Commit the draft to save; the floating bar's undo rolls it back.`,
+    successMessage: `Adopted agent's labels on factor "${proposal.category.label}". Commit to save.`,
+    mutate: (draft) => replaceFactorWithProposal(draft, goldFactor.id, proposal),
+    appliedFix: `rename factor → ${proposal.category.label}; adopt agent FV labels`,
+  };
+}
+
+/** Replace the labels + URIs on the gold factor (identified by
+ *  ``goldFactorId``) with the agent's proposal. FV pairing by
+ *  biomaterial-set identity, then label/URI update via the existing
+ *  ``setFvLabel`` mutation. Statements aren't rewritten in-place
+ *  here (that would clobber URIs the curator might have refined);
+ *  that's a follow-up. */
+function replaceFactorWithProposal(
+  design: Design,
+  goldFactorId: number,
+  proposal: FactorProposal,
+): Design {
+  const gold = (design.factors ?? []).find((f) => f.id === goldFactorId);
+  if (!gold) return design;
+  // Factor-level update: category (label + URI) + name.
+  let next = setFactorFields(design, gold.id, {
+    category: {
+      label: proposal.category.label,
+      uri: proposal.category.uri ?? null,
+    },
+    name: proposal.name_in_design || proposal.category.label,
+  });
+  // FV-level label updates. Iterate against the freshly-renamed
+  // factor (``next``, not ``design``) so we see the post-rename id
+  // state. Pair by biomaterial-set identity — under the stricter
+  // near-match gate, partition equality is enforced, so each agent
+  // FV maps to exactly one gold FV by biomaterial set.
+  const renamed = next.factors.find((f) => f.id === gold.id);
+  if (!renamed) return next;
+  const consumed = new Set<number>();
+  for (const afv of proposal.factor_values ?? []) {
+    const aKey = [...new Set(afv.biomaterial_short_names)].sort().join("|");
+    let best: FactorValue | null = null;
+    for (const gfv of renamed.factor_values) {
+      if (consumed.has(gfv.id)) continue;
+      const gKey = [...new Set(gfv.biomaterial_short_names)].sort().join("|");
+      if (gKey === aKey) {
+        best = gfv;
+        break;
+      }
+    }
+    // Fallback: highest-overlap when no strict partition match.
+    if (!best) {
+      const aBms = new Set(afv.biomaterial_short_names);
+      let bestOverlap = 0;
+      for (const gfv of renamed.factor_values) {
+        if (consumed.has(gfv.id)) continue;
+        let n = 0;
+        for (const bm of gfv.biomaterial_short_names) {
+          if (aBms.has(bm)) n++;
+        }
+        if (n > bestOverlap) {
+          bestOverlap = n;
+          best = gfv;
+        }
+      }
+    }
+    if (!best) continue;
+    consumed.add(best.id);
+    const newLabel = afv.free_text_label || "";
+    if (newLabel && newLabel !== best.free_text_label) {
+      next = setFvLabel(next, gold.id, best.id, newLabel);
+    }
+  }
+  return next;
 }
 
 /** Append a populated Factor to the draft from an agent factor
