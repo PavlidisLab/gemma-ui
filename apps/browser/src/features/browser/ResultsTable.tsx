@@ -1,14 +1,14 @@
 import { Fragment } from "react";
+import { Link } from "@tanstack/react-router";
 import { marked } from "marked";
-import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight, AlertOctagon } from "lucide-react";
 import type {
   AnnotationTerm,
   Category,
   CategoryWithChildren,
   Dataset,
 } from "@/lib/types";
-import { formatNumber, highlight } from "@/lib/utils";
-import { gemmaUrl } from "@/lib/gemmaConfig";
+import { formatDecimal, formatNumber, highlight } from "@/lib/utils";
 import { DatasetPreview } from "./DatasetPreview";
 
 interface Props {
@@ -40,6 +40,33 @@ function renderName(d: Dataset): string {
   return String(marked.parseInline(d.name ?? ""));
 }
 
+function QualityDot({ value }: { value: number }) {
+  const cls =
+    value > 0.45
+      ? "bg-gemma-accent2"
+      : value > 0.1
+        ? "bg-gemma-accent3"
+        : "bg-gemma-accent4";
+  return (
+    <span
+      className={`inline-block h-2 w-2 rounded-full ${cls}`}
+      title={`Quality (GEEQ): ${formatDecimal(value)}`}
+      aria-label={`Quality ${formatDecimal(value)}`}
+    />
+  );
+}
+
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: sameYear ? undefined : "2-digit",
+  });
+}
+
 export function ResultsTable(props: Props) {
   const {
     datasets, loading, sort, onSortChange,
@@ -56,17 +83,25 @@ export function ResultsTable(props: Props) {
 
   return (
     <div className="flex-1 min-h-0 overflow-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-fixed">
+        <colgroup>
+          <col className="w-5" />
+          <col className="w-[9.5rem]" />
+          <col className="w-20" />
+          <col />
+          <col className="w-16" />
+          <col className="w-20" />
+        </colgroup>
         <thead className="sticky top-0 bg-white border-b border-gemma-grid z-10">
           <tr>
-            <th className="w-6" />
+            <th />
             {SORT_COLUMNS.map((c) => {
               const dir = sort === `-${c.key}` ? "↓" : sort === `+${c.key}` ? "↑" : "";
               return (
                 <th
                   key={c.key}
                   onClick={() => cycleSort(c.key)}
-                  className={`px-2 py-2 text-xs font-medium text-gemma-subtle uppercase tracking-wider cursor-pointer hover:text-gemma-ink select-none ${
+                  className={`px-2 py-1.5 text-[11px] font-medium text-gemma-subtle uppercase tracking-wider cursor-pointer hover:text-gemma-ink select-none ${
                     c.align === "right" ? "text-right" : "text-left"
                   }`}
                 >
@@ -85,39 +120,53 @@ export function ResultsTable(props: Props) {
           ) : null}
           {datasets.map((d) => {
             const isOpen = expanded.has(d.id);
+            const q = d.geeq?.publicQualityScore;
             return (
               <Fragment key={d.id}>
                 <tr
                   className={`border-b border-gemma-grid hover:bg-gray-50 ${isOpen ? "bg-blue-50/30" : ""} cursor-pointer`}
                   onClick={() => onToggleExpanded(d.id)}
                 >
-                  <td className="px-2 align-top pt-2">
+                  <td className="pl-2 align-middle">
                     {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-gemma-subtle" /> : <ChevronRight className="h-3.5 w-3.5 text-gemma-subtle" />}
                   </td>
-                  <td className="px-2 py-2 align-top whitespace-nowrap">
-                    <a
-                      href={gemmaUrl(`/expressionExperiment/showExpressionExperiment.html?id=${d.id}`)}
-                      target="_blank"
-                      rel="noreferrer"
+                  <td className="px-2 py-1 align-middle whitespace-nowrap">
+                    <Link
+                      to="/dataset/$id"
+                      params={{ id: String(d.id) }}
                       onClick={(e) => e.stopPropagation()}
-                      className="font-medium inline-flex items-center gap-0.5"
+                      className="font-medium hover:underline"
                     >
                       {d.shortName}
-                      <ExternalLink className="h-3 w-3 opacity-50" />
-                    </a>
+                    </Link>
                   </td>
-                  <td className="px-2 py-2 align-top whitespace-nowrap text-gemma-subtle capitalize">
+                  <td className="px-2 py-1 align-middle whitespace-nowrap text-gemma-subtle capitalize text-xs italic">
                     {d.taxon?.commonName}
                   </td>
-                  <td
-                    className="px-2 py-2 align-top"
-                    dangerouslySetInnerHTML={{ __html: renderName(d) }}
-                  />
-                  <td className="px-2 py-2 align-top text-right tabular-nums">
+                  <td className="px-2 py-1 align-middle">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {typeof q === "number" ? <QualityDot value={q} /> : null}
+                      {d.curationNote ? (
+                        <span
+                          className="shrink-0 inline-flex items-center"
+                          title={d.curationNote}
+                          aria-label="curation note"
+                        >
+                          <AlertOctagon className="h-3.5 w-3.5 text-gemma-accent3" />
+                        </span>
+                      ) : null}
+                      <div
+                        className="truncate min-w-0 flex-1"
+                        title={d.name}
+                        dangerouslySetInnerHTML={{ __html: renderName(d) }}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-2 py-1 align-middle text-right tabular-nums">
                     {formatNumber(d.numberOfBioAssays ?? 0)}
                   </td>
-                  <td className="px-2 py-2 align-top text-right text-gemma-subtle whitespace-nowrap">
-                    {d.lastUpdated ? new Date(d.lastUpdated).toLocaleDateString() : ""}
+                  <td className="px-2 py-1 align-middle text-right text-gemma-subtle whitespace-nowrap text-xs tabular-nums">
+                    {d.lastUpdated ? shortDate(d.lastUpdated) : ""}
                   </td>
                 </tr>
                 {isOpen ? (

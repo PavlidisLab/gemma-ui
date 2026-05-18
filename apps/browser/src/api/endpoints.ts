@@ -119,6 +119,239 @@ export interface PlatformsArgs {
   gid?: string;
 }
 
+/** Full platform catalog — the Platforms page's primary fetch.
+ *  Distinct from ``getPlatforms`` above which returns the platform-
+ *  filter facet on the dataset Browser (counts per platform within
+ *  the current filter context). This one returns the platform list
+ *  itself with all metadata for browsing / filtering by manufacturer
+ *  / technology type / taxon / status.
+ *
+ *  Gemma REST caps ``limit`` at 100 per call (caught 2026-05-17 with
+ *  a 400 from limit=500). Catalogue is ~670 records, so we page
+ *  internally: first call gets page 0 + ``totalElements``; remaining
+ *  pages fire in parallel, then concatenate. Single round-trip
+ *  latency, no UI paging. */
+export interface AllPlatformsArgs {
+  query?: string;
+  filter?: string[][];
+  sort?: string;
+}
+
+const PLATFORM_PAGE_SIZE = 100; // server cap
+
+async function fetchPlatformPage(
+  offset: number,
+  args: AllPlatformsArgs,
+  signal?: AbortSignal,
+): Promise<PaginatedResponse<Platform>> {
+  const compressed = await compressFilter(args.filter ?? []);
+  const params: Params = {
+    query: args.query,
+    filter: compressed,
+    sort: args.sort,
+    offset,
+    limit: PLATFORM_PAGE_SIZE,
+  };
+  return apiGet<PaginatedResponse<Platform>>(`${BASE}/platforms`, {
+    params,
+    signal,
+  });
+}
+
+/** Element (probe) count for a single platform — one HEAD-style
+ *  call that only reads ``totalElements``. Used for lazy-load of the
+ *  expanded platform row; not part of the catalogue fetch because
+ *  670 × this would be expensive.
+ *
+ *  Gemma has no equivalent /genes endpoint at the platform level
+ *  today — element count is the closest probe-density signal we can
+ *  surface without a backend addition. */
+export async function getPlatformElementCount(
+  platformId: number,
+  signal?: AbortSignal,
+): Promise<number> {
+  const r = await apiGet<PaginatedResponse<unknown>>(
+    `${BASE}/platforms/${platformId}/elements`,
+    { params: { limit: 1 }, signal },
+  );
+  return r.totalElements ?? 0;
+}
+
+/** Single platform's full entity — used by PlatformDetailPage. */
+export async function getPlatformById(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<Platform> {
+  return apiGet<Platform>(`${BASE}/platforms/${id}`, { signal });
+}
+
+/** Platform-by-shortName resolver — the detail page is keyed on
+ *  shortName for stable URLs (GPL96, etc.) but the entity lookup
+ *  needs a numeric id. Cheapest path is a one-row filter query
+ *  against /platforms; the API supports ``filter=shortName=GPL96``. */
+export async function getPlatformByShortName(
+  shortName: string,
+  signal?: AbortSignal,
+): Promise<Platform | null> {
+  const r = await apiGet<PaginatedResponse<Platform>>(`${BASE}/platforms`, {
+    params: {
+      filter: `shortName = ${shortName}`,
+      limit: 1,
+    },
+    signal,
+  });
+  return r.data[0] ?? null;
+}
+
+/** Probe / element list for a platform, paginated. The catalogue
+ *  page lazy-counts via ``getPlatformElementCount``; the detail
+ *  page uses this for the inline element explorer. */
+export interface PlatformElement {
+  id: number;
+  name: string;
+  description?: string | null;
+}
+
+export interface PlatformElementsArgs {
+  offset?: number;
+  limit?: number;
+  /** Optional name filter — uses the Gemma REST ``filter`` param
+   *  with a ``like`` operator on the element name. Falls back to
+   *  whatever the server does when empty. */
+  query?: string;
+}
+
+/** Datasets-on-this-platform — paginated. Goes through the standard
+ *  /rest/v2/datasets filter syntax (same shape the Browser uses for
+ *  its platform facet). Server caps ``limit`` at 100. */
+export interface DatasetsByPlatformArgs {
+  offset?: number;
+  limit?: number;
+  sort?: string;
+}
+
+export async function getDatasetsByPlatform(
+  shortName: string,
+  args: DatasetsByPlatformArgs = {},
+  signal?: AbortSignal,
+) {
+  const params: Params = {
+    filter: `bioAssays.arrayDesignUsed.shortName = ${shortName}`,
+    offset: args.offset ?? 0,
+    limit: args.limit ?? 50,
+    sort: args.sort,
+  };
+  return apiGet<PaginatedResponse<Dataset>>(`${BASE}/datasets`, { params, signal });
+}
+
+export async function getPlatformElements(
+  platformId: number | string,
+  args: PlatformElementsArgs = {},
+  signal?: AbortSignal,
+): Promise<PaginatedResponse<PlatformElement>> {
+  const params: Params = {
+    offset: args.offset ?? 0,
+    limit: args.limit ?? 50,
+  };
+  if (args.query && args.query.trim()) {
+    // Today: only matches probe names. Searching by gene symbol /
+    // alias (e.g. "BRCA1" → all probes that map to BRCA1) needs a
+    // backend addition — see TODO at top of this file
+    // (`backendGaps`). Quote the value so spaces don't break the
+    // Gemma REST filter parser.
+    const q = args.query.trim().replace(/'/g, "");
+    params.filter = `name like '%${q}%'`;
+  }
+  return apiGet<PaginatedResponse<PlatformElement>>(
+    `${BASE}/platforms/${platformId}/elements`,
+    { params, signal },
+  );
+}
+
+/** Genes mapped to a single platform element (probe). The relation
+ *  is many-to-many; we paginate up to a reasonable limit since most
+ *  probes map to 1–3 genes. Returns the rich Gene shape: official
+ *  symbol, name, NCBI / Ensembl ids, aliases, taxon. */
+export interface MappedGene {
+  id: number;
+  officialSymbol?: string;
+  officialName?: string;
+  ncbiId?: number;
+  ensemblId?: string;
+  aliases?: string[];
+  taxon?: { commonName?: string; scientificName?: string };
+  ncbiUri?: string;
+}
+
+export async function getElementGenes(
+  platformId: number | string,
+  elementId: number,
+  signal?: AbortSignal,
+): Promise<MappedGene[]> {
+  const r = await apiGet<PaginatedResponse<MappedGene>>(
+    `${BASE}/platforms/${platformId}/elements/${elementId}/genes`,
+    { params: { limit: 50 }, signal },
+  );
+  return r.data;
+}
+
+/* ----------------------------------------------------------------
+ * Backend gaps — surface here so future hands can find them.
+ *
+ * Filed 2026-05-17 (Paul) against the Gemma REST API
+ * (~/Dev/eclipseworkspace/Gemma):
+ *
+ *  1. **Search elements by gene symbol/alias.**
+ *     Today: /platforms/{id}/elements only filters by element name
+ *     (probe id). Curators searching "BRCA1" find no probes
+ *     because none are *named* BRCA1.
+ *     Want: a `gene=BRCA1` (or `geneSymbol like 'BRCA1'`) filter
+ *     that returns probes mapped to that gene.
+ *
+ *  2. **Gene info on the bulk element list.**
+ *     Today: bulk list returns {id, name, description}; gene info
+ *     requires N additional /elements/{id}/genes calls per page.
+ *     For 50 rows that's 50 round-trips just to show a gene column.
+ *     Want: include a compact gene array
+ *     (`{officialSymbol, ncbiId}[]`) on the bulk list, opt-in via
+ *     `include=genes`.
+ *
+ *  3. **Probe oligonucleotide sequence.**
+ *     The legacy Gemma UI shows the probe sequence (~25–60bp). Not
+ *     reachable from REST today. Want a `sequence` field on the
+ *     element entity, or a `/elements/{id}/sequence` endpoint.
+ *
+ *  4. **Genome alignment / BLAT info.**
+ *     Legacy UI shows where the probe aligns on the genome
+ *     (chromosome, coordinates, alignment quality). Not in REST.
+ *     Want a `/elements/{id}/alignments` returning
+ *     `[{chr, start, end, strand, score, unique}]`.
+ *
+ *  Until those land the UI mocks (1)–(4) with clear "stub" badges
+ *  so the curator knows the data isn't real.
+ * ---------------------------------------------------------------- */
+
+export async function getAllPlatforms(
+  args: AllPlatformsArgs = {},
+  signal?: AbortSignal,
+): Promise<PaginatedResponse<Platform>> {
+  const first = await fetchPlatformPage(0, args, signal);
+  const total = first.totalElements ?? first.data.length;
+  if (total <= PLATFORM_PAGE_SIZE) return first;
+  const pageCount = Math.ceil(total / PLATFORM_PAGE_SIZE) - 1;
+  const more = await Promise.all(
+    Array.from({ length: pageCount }, (_, i) =>
+      fetchPlatformPage((i + 1) * PLATFORM_PAGE_SIZE, args, signal),
+    ),
+  );
+  return {
+    ...first,
+    data: [...first.data, ...more.flatMap((p) => p.data)],
+    offset: 0,
+    limit: total,
+  };
+}
+
 export async function getPlatforms(args: PlatformsArgs, signal?: AbortSignal) {
   let mFilter = args.filter
     .map((c) => c.filter((sc) => !sc.startsWith("bioAssays.arrayDesignUsed.") && !sc.startsWith("bioAssays.originalPlatform.")))
@@ -171,6 +404,20 @@ export async function getDatasetAnnotations(datasetId: number, signal?: AbortSig
     `${BASE}/datasets/${datasetId}/annotations`,
     { signal },
   );
+}
+
+/** Single dataset by id (numeric id) or short-name (e.g. "GSE12345"). The
+ *  REST endpoint accepts both forms and returns a paged response with at
+ *  most one element. */
+export async function getDatasetById(
+  idOrShortName: number | string,
+  signal?: AbortSignal,
+): Promise<Dataset | null> {
+  const r = await apiGet<PaginatedResponse<Dataset>>(
+    `${BASE}/datasets/${idOrShortName}`,
+    { signal },
+  );
+  return r.data?.[0] ?? null;
 }
 
 /**

@@ -81,6 +81,10 @@ export interface HeatmapConfig {
   maxColLabelPx?: number;
   /** Per-annotation-strip height. Default 10. */
   annotationStripHeight?: number;
+  /** Vertical gap (in CSS px) between adjacent annotation strips and
+   *  between the strip stack and the matrix. Adds breathing room when
+   *  multiple categorical annotations stack above the matrix. Default 2. */
+  annotationStripGap?: number;
 }
 
 /** Resolved config — every field present, used internally by renderers. */
@@ -96,6 +100,7 @@ export interface ResolvedConfig {
   fontFamily: string;
   maxColLabelPx: number;
   annotationStripHeight: number;
+  annotationStripGap: number;
 }
 
 /**

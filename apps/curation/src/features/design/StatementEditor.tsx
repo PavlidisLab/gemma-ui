@@ -232,8 +232,7 @@ export function StatementEditor({
             statement.object?.label,
           ]
             .filter(Boolean)
-            .join(" · ") +
-          "\n\nNothing is committed until you click Commit at the bottom."
+            .join(" · ")
         }
         confirmLabel="remove"
         onConfirm={() => {

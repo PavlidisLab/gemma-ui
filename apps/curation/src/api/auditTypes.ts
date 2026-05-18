@@ -156,6 +156,42 @@ export interface AuditFinding {
    *  Empty string or absent = no debate was run (``--debate`` not
    *  used) or finding is a gold-only-miss. */
   debate_badge?: string;
+  /** Structured side-by-side diff for a ``calibration_factor_rename``
+   *  finding. Populated when the arbiter classifies a factor pair as
+   *  same-factor-different-label (commit 767f7f6, 2026-05-17). Null
+   *  on every other finding type and on older packages. The UI gates
+   *  the FV-pair diff render on ``rename != null``. */
+  rename?: FactorRenamePayload | null;
+}
+
+/** One FV-pair across a renamed factor (agent FV ↔ gold FV). */
+export interface FvPair {
+  agent: OntologyTerm;
+  gold: OntologyTerm;
+  /** How strong the pair is:
+   *  - ``"exact"``    — same URI or string-identical label
+   *  - ``"synonym"``  — different label, arbiter judged equivalent
+   *  - ``"judgment"`` — same partition position, arbiter only ranked
+   *                     by index (no semantic match) */
+  equivalence: "exact" | "synonym" | "judgment" | (string & {});
+}
+
+/** Compact factor reference inside a rename payload. */
+export interface FactorRef {
+  category: OntologyTerm;
+  factor_type?: string;
+}
+
+/** Side-by-side diff for a factor classified as same-factor-different-
+ *  label by the calibration arbiter. ``direction`` is load-bearing
+ *  for the UI: ``"gold_correct"`` → curator keeps Gemma's label
+ *  (severity ok), ``"agent_correct"`` → adopt agent's label (severity
+ *  minor), ``"equivalent"`` → arbiter declines to pick (severity ok). */
+export interface FactorRenamePayload {
+  agent: FactorRef;
+  gold: FactorRef;
+  fv_pairs: FvPair[];
+  direction: "gold_correct" | "agent_correct" | "equivalent" | (string & {});
 }
 
 /** Judge's verdict on a single audit finding. ``side`` constrains

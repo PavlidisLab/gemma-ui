@@ -91,9 +91,20 @@ export function Heatmap({
   );
   const colLabelsTextVisible =
     colLabelsRequested && initialLayout.cellW >= COL_LABEL_MIN_CELL_W;
+  // Adaptive gutter: size to the longest label's rendered length instead
+  // of always reserving `maxColLabelPx`. With short labels (e.g. `gene_007`)
+  // the old fixed gutter left a huge empty band above the labels (they
+  // anchor at the bottom of the gutter). 0.6em-per-character is a
+  // reasonable Helvetica width estimate.
+  const labelFontSize = Math.min(10, Math.max(7, initialLayout.cellW));
+  const longestColLabelChars = (data.colLabels ?? []).reduce(
+    (m, l) => Math.max(m, l?.length ?? 0),
+    0,
+  );
+  const adaptiveLabelPx = Math.ceil(longestColLabelChars * labelFontSize * 0.6 + 6);
   const colLabelGutter = colLabelsRequested
     ? colLabelsTextVisible
-      ? resolved.maxColLabelPx
+      ? Math.min(resolved.maxColLabelPx, Math.max(20, adaptiveLabelPx))
       : COL_LABEL_HOVER_BAR_PX
     : 0;
   const matrixAvailableH = height != null ? height - colLabelGutter : null;
@@ -118,7 +129,13 @@ export function Heatmap({
   }, [data, config, matrixAvailableW, matrixAvailableH]);
 
   const annotations = data.colAnnotations ?? [];
-  const stripsH = annotations.length * resolved.annotationStripHeight;
+  // Total stripped block height, including inter-strip gaps so the
+  // grid row matches what the canvas renderer draws.
+  const stripsH =
+    annotations.length === 0
+      ? 0
+      : annotations.length * resolved.annotationStripHeight +
+        (annotations.length - 1) * resolved.annotationStripGap;
   const gapAfterStrips = annotations.length > 0 ? 4 : 0;
 
   const handleMouseMove = (ev: React.MouseEvent<HTMLCanvasElement>) => {
@@ -227,12 +244,13 @@ export function Heatmap({
             color: '#374151',
           }}
         >
-          {annotations.map((a) => (
+          {annotations.map((a, i) => (
             <div
               key={a.name}
               style={{
                 height: resolved.annotationStripHeight,
                 lineHeight: `${resolved.annotationStripHeight}px`,
+                marginTop: i === 0 ? 0 : resolved.annotationStripGap,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',

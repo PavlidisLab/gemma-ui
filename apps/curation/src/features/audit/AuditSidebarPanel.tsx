@@ -18,6 +18,7 @@ import {
   parseTargetId,
 } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
+import { setFactorFields, setFvLabel } from "@/features/design/mutations";
 import { resolveApplyAction } from "./applyHandlers";
 import { DismissDialog, type DialogChip } from "./DismissDialog";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
@@ -480,10 +481,10 @@ function SidebarHeader({
                 "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border",
                 palette,
               )}
-              title={`auditor: ${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`}
+              title={`AI agent that produced this audit: ${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`}
             >
               <span className="text-[9px] uppercase tracking-wide opacity-70">
-                auditor
+                agent
               </span>
               <span className="truncate max-w-[14rem]">{report.model}</span>
             </span>
@@ -557,24 +558,20 @@ function SidebarHeader({
             title="drop dev override, fall back to live audit"
           >drop</button>
         ) : null}
-        {/* Triage status + lifecycle button — right-aligned */}
+        {/* Triage status + lifecycle button — right-aligned. The
+            ready-state is now expressed by the button itself (green
+            "Clear" when every actionable finding has a disposition,
+            blue "Close audit" otherwise). The separate "✓ ready to
+            close" text indicator was redundant once the button changes
+            colour, so it's gone. */}
         <span className="ml-auto flex items-center gap-1.5">
-          {!isFinalized && lifecycleAvailable ? (
-            pendingActionable > 0 ? (
-              <span
-                className="text-[10px] text-amber-600 dark:text-amber-400"
-                title="some actionable findings have no disposition yet"
-              >
-                {pendingActionable} pending
-              </span>
-            ) : (
-              <span
-                className="text-[10px] text-emerald-600 dark:text-emerald-400"
-                title="every actionable finding has a disposition — you can close the audit"
-              >
-                ✓ ready to close
-              </span>
-            )
+          {!isFinalized && lifecycleAvailable && pendingActionable > 0 ? (
+            <span
+              className="text-[10px] text-amber-600 dark:text-amber-400"
+              title="some actionable findings have no disposition yet"
+            >
+              {pendingActionable} pending
+            </span>
           ) : null}
           {isFinalized && finalizedBy ? (
             <span className="text-[10px] text-slate-500 dark:text-slate-400">
@@ -604,16 +601,26 @@ function SidebarHeader({
                 title={
                   pendingActionable > 0
                     ? "close audit (pending findings recorded as undecided)"
-                    : "close audit; agent side aggregates only closed audits"
+                    : "every actionable finding has a disposition — clear this audit"
                 }
                 className={cn(
-                  "text-[10px] px-1.5 py-0.5 rounded font-medium",
+                  "text-[11px] px-2 py-0.5 rounded font-medium",
                   finalizeSaving
-                    ? "bg-blue-200 text-blue-700 cursor-progress"
-                    : "bg-blue-700 text-white hover:bg-blue-800",
+                    ? pendingActionable === 0
+                      ? "bg-emerald-200 text-emerald-800 cursor-progress"
+                      : "bg-blue-200 text-blue-700 cursor-progress"
+                    : pendingActionable === 0
+                      ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                      : "bg-blue-700 text-white hover:bg-blue-800",
                 )}
               >
-                {finalizeSaving ? "closing…" : "Close audit"}
+                {finalizeSaving
+                  ? pendingActionable === 0
+                    ? "clearing…"
+                    : "closing…"
+                  : pendingActionable === 0
+                    ? "✓ Clear"
+                    : "Close audit"}
               </button>
             )
           ) : null}
@@ -1071,7 +1078,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
       {visibleRenames.length > 0 ? (
         <div className="space-y-1.5">
           <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
-            Renames — same factor, different label
+            Alternate factor — agent proposes a different categorization
           </div>
           {visibleRenames.map((f) => (
             <RenameFindingCard
@@ -1270,10 +1277,14 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full text-left px-2 py-1 flex items-center gap-2 text-xs"
-        title={open ? "collapse" : "expand"}
+        className="w-full text-left px-2 py-1 flex items-center gap-2 text-xs hover:bg-emerald-100/40 dark:hover:bg-emerald-900/30"
+        title={
+          open
+            ? "collapse"
+            : "click to compare — matches can still differ subtly (URI, casing, FV labels)"
+        }
       >
-        <span className="text-slate-400 dark:text-slate-500 text-[10px]">
+        <span className="text-emerald-600 dark:text-emerald-500 text-xs leading-none">
           {open ? "▾" : "▸"}
         </span>
         <span className="text-emerald-600 dark:text-emerald-400 font-bold text-sm leading-none">
@@ -1292,10 +1303,97 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
       </button>
       {open ? (
         <div className="px-2 pb-1.5 pl-7 space-y-1.5 border-t border-emerald-200/50 dark:border-emerald-700/40">
+          <MatchCompareCard finding={finding} label={label} />
+          {/* For factor-kind confirmed matches, render the agent's
+              FactorProposal (FVs + statements + URIs) inline so the
+              curator can verify the match goes deeper than just the
+              category label. Same embed used by alternate-factor
+              cards — see RenameFactorEmbed. Tag matches don't have
+              factor-shaped detail, so the embed silently no-ops on
+              those via its label-lookup miss. */}
+          {finding.target_kind === "factor" ? (
+            <RenameFactorEmbed finding={finding} />
+          ) : null}
           <AgentSuggestionPanel finding={finding} />
           <FindingActionRow finding={finding} />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** What-matched comparison shown when a curator expands a confirmed
+ *  match. Matches can still hide subtle divergence — different URI
+ *  for the same label, casing/whitespace drift, FV-level differences
+ *  on factor matches. This block surfaces the agent-side structured
+ *  data (term URI, FV statements) so the curator can verify the
+ *  match against the rationale's quoted label without leaving the
+ *  card. */
+function MatchCompareCard({
+  finding,
+  label,
+}: {
+  finding: AuditFinding;
+  label: string;
+}) {
+  const { experimentId } = useAudit();
+  const term = finding.proposer_term;
+  const hasTerm = !!(term?.label || term?.uri);
+  const hasStatements = (finding.proposer_statements?.length ?? 0) > 0;
+  // Nothing structured to show — fall back silently.
+  if (!hasTerm && !hasStatements) return null;
+  return (
+    <div className="rounded border border-emerald-200/60 dark:border-emerald-700/40 bg-white/70 dark:bg-slate-900/30 p-1.5 space-y-1">
+      <div className="text-[9px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        What matched
+      </div>
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center text-[11px]">
+        <span
+          className="font-mono text-slate-900 dark:text-slate-100 truncate"
+          title="agent's proposed value"
+        >
+          {term?.label || label}
+        </span>
+        <span
+          className="text-emerald-600 dark:text-emerald-500 text-center select-none"
+          title="audit treats these as the same"
+        >
+          ≡
+        </span>
+        <span
+          className="font-mono text-slate-900 dark:text-slate-100 truncate"
+          title="Gemma's existing value"
+        >
+          {label}
+        </span>
+      </div>
+      {term?.uri ? (
+        <div className="text-[10px] text-slate-500 dark:text-slate-400">
+          URI:{" "}
+          <a
+            href={term.uri}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-sky-700 hover:underline dark:text-sky-300"
+            title={term.uri}
+          >
+            {term.uri.replace(/^https?:\/\/[^/]+\//, "")}
+          </a>
+        </div>
+      ) : null}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] text-slate-500 dark:text-slate-400 italic">
+          Matches can still differ subtly — verify in context.
+        </span>
+        <button
+          type="button"
+          onClick={() => requestAuditFocus(experimentId, finding.target_id)}
+          className="text-[10px] text-sky-700 hover:underline dark:text-sky-300"
+          title="scroll to this element in the design / tags tab"
+        >
+          Focus in design →
+        </button>
+      </div>
     </div>
   );
 }
@@ -1312,8 +1410,15 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
   if (!labels) return <CompactFindingCard finding={finding} />;
 
   const [open, setOpen] = useState(false);
-  const { activeFindingKey, setActiveFindingKey, dispositionByTarget } =
-    useAudit();
+  const {
+    activeFindingKey,
+    setActiveFindingKey,
+    dispositionByTarget,
+    experimentId,
+  } = useAudit();
+  const { draft, apply } = useDesignDraft();
+  const { data: serverDesign } = useDesign(experimentId);
+  const toast = useToast();
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
   const isClosed =
@@ -1353,8 +1458,11 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
           <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
             factor
           </span>
-          <span className="text-[10px] text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-600 px-1 py-0 rounded bg-blue-50 dark:bg-blue-900/40 font-medium">
-            renamed category
+          <span
+            className="text-[10px] text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-600 px-1 py-0 rounded bg-blue-50 dark:bg-blue-900/40 font-medium"
+            title="The agent proposes a substantively different categorization of the same samples — not just a relabel"
+          >
+            alternate factor
           </span>
           <DebateBadgeChip
             badge={finding.debate_badge}
@@ -1398,10 +1506,21 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
           </div>
         </div>
 
+        {/* Embedded factor detail — what the bottom of the panel
+            (DesignComparisonPanel) shows for the agent's factor, but
+            INSIDE this card so curators don't have to scroll to see
+            what the agent is actually proposing. Falls back to the
+            FV-pair table from the rename payload when comparison_
+            proposal isn't available (e.g. older audits). */}
+        <RenameFactorEmbed finding={finding} />
+
         <div className="text-[11px] text-slate-600 dark:text-slate-300 px-1">
-          Which label is right?{" "}
+          The agent proposes a different category for this factor.{" "}
           <span className="text-slate-500 dark:text-slate-400">
-            Accept = keep Gemma's. Dismiss = adopt the agent's.
+            Sample assignments may match Gemma's — the arbiter judged
+            the partition equivalent. Inspect the FVs below to see
+            whether the difference is just a relabel or a substantive
+            reframing. Accept = keep Gemma's. Dismiss = adopt the agent's.
           </span>
         </div>
       </button>
@@ -1427,18 +1546,434 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
             </div>
           ) : null}
 
-          {/* Full rationale text (arbiter's reasoning) once the curator
-              expands. The diff is the headline; the prose is the
-              "why". */}
-          <div className="text-[11px] text-slate-700 dark:text-slate-200 pl-1.5">
-            {splitRationaleTrail(trimRationaleBoilerplate(finding.rationale)).summary}
-          </div>
+          {/* Arbiter's reasoning trail — useful "why" detail but
+              suppressed when the structured agent/Gemma labels +
+              embedded factor detail above already convey the same
+              thing. The boilerplate-strip drops repeated headline
+              prose ("Category rename: agent proposes X where Gemma
+              has Y..."); what's left is the deeper rationale. */}
+          {(() => {
+            const rest = splitRationaleTrail(
+              trimRationaleBoilerplate(finding.rationale),
+            ).summary;
+            // Drop the prose if it's just the rename header template —
+            // the labels + structured embed above already say this.
+            if (/^Category rename:/i.test(rest)) return null;
+            if (!rest.trim()) return null;
+            return (
+              <div className="text-[11px] text-slate-700 dark:text-slate-200 pl-1.5">
+                {rest}
+              </div>
+            );
+          })()}
 
           <AgentSuggestionPanel finding={finding} />
         </div>
       ) : null}
 
+      {/* Preview-into-draft button: applies the agent's category +
+          FV labels to the matched Gemma factor in the draft so the
+          curator can hop to the Samples / Design tab and see how the
+          renamed factor reads in context. Doesn't commit — the
+          floating CommitBar's "Discard draft" rolls it back. The
+          underlying action is `setFactorFields` (category swap) +
+          `setFvLabel` for each fv_pair (FV-level relabel). */}
+      <RenamePreviewControl
+        finding={finding}
+        labels={labels}
+        serverDesign={serverDesign}
+        draft={draft}
+        apply={apply}
+        experimentId={experimentId}
+        toast={toast}
+      />
+
       <FindingActionRow finding={finding} />
+    </div>
+  );
+}
+
+function RenamePreviewControl({
+  finding,
+  labels,
+  serverDesign,
+  draft,
+  apply,
+  experimentId: _experimentId,
+  toast,
+}: {
+  finding: AuditFinding;
+  labels: { agent: string; gold: string };
+  serverDesign: Design | undefined;
+  draft: Design | null;
+  apply: (mutator: (d: Design) => Design) => void;
+  experimentId: number;
+  toast: ReturnType<typeof useToast>;
+}) {
+  // Already-renamed check: if the draft's factor with the gold label
+  // is no longer there (because the curator already previewed and the
+  // category is now the agent's label), surface a "Previewed" pill
+  // instead of letting them re-fire and create a confusing no-op.
+  const goldLower = labels.gold.toLowerCase().trim();
+  const agentLower = labels.agent.toLowerCase().trim();
+  const draftHasGold =
+    !!draft?.factors.find(
+      (f) => f.category.label.toLowerCase().trim() === goldLower,
+    );
+  const draftHasAgent =
+    !!draft?.factors.find(
+      (f) => f.category.label.toLowerCase().trim() === agentLower,
+    );
+  const previewed = !draftHasGold && draftHasAgent;
+
+  const handlePreview = () => {
+    if (!serverDesign || !draft) {
+      toast.show("Design draft not loaded yet — try again in a moment.", "danger", 4000);
+      return;
+    }
+    const gemmaFactor = serverDesign.factors.find(
+      (f) => f.category.label.toLowerCase().trim() === goldLower,
+    );
+    if (!gemmaFactor) {
+      toast.show(
+        `Couldn't find Gemma's factor "${labels.gold}" to preview against.`,
+        "danger",
+        5000,
+      );
+      return;
+    }
+    // Build the agent's category term. Prefer the structured rename
+    // payload (carries URI); fall back to a free-text label-only term
+    // when only the rationale prose is available.
+    const agentCategory = finding.rename?.agent.category
+      ? { ...finding.rename.agent.category }
+      : { label: labels.agent, uri: null };
+    apply((d) => {
+      let next = setFactorFields(d, gemmaFactor.id, {
+        category: agentCategory,
+        name: agentCategory.label || gemmaFactor.name,
+      });
+      // FV-level relabels: pair each agent fv to a gold fv via the
+      // rename payload (when present) or by URI/label match. Iterate
+      // over the *renamed* draft's factor (use `next`, not `d`, so
+      // we operate on the freshly-renamed factor).
+      const renamedFactor = next.factors.find((f) => f.id === gemmaFactor.id);
+      if (renamedFactor && finding.rename?.fv_pairs?.length) {
+        for (const pair of finding.rename.fv_pairs) {
+          if (!pair.agent.label || !pair.gold.label) continue;
+          if (pair.agent.label === pair.gold.label) continue;
+          const fv = renamedFactor.factor_values.find(
+            (v) =>
+              (v.free_text_label || "").toLowerCase().trim() ===
+              pair.gold.label.toLowerCase().trim(),
+          );
+          if (fv) {
+            next = setFvLabel(next, gemmaFactor.id, fv.id, pair.agent.label);
+          }
+        }
+      }
+      return next;
+    });
+    toast.show(
+      `Preview applied: "${labels.gold}" → "${labels.agent}". Open the Samples tab to inspect; the floating commit bar's "Discard" rolls it back.`,
+      "success",
+      8000,
+    );
+  };
+
+  if (previewed) {
+    return (
+      <div className="text-[10px] text-emerald-700 dark:text-emerald-400 italic px-1 pt-1">
+        ✓ Previewed in draft as <span className="font-mono">{labels.agent}</span>.
+        Open Samples to inspect, or use the commit bar to discard.
+      </div>
+    );
+  }
+  return (
+    <div className="pt-1">
+      <button
+        type="button"
+        onClick={handlePreview}
+        disabled={!serverDesign || !draft}
+        className="text-[11px] px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50"
+        title={`Apply "${labels.agent}" to the draft so you can inspect it in the Samples / Design tab; discard via the floating commit bar to roll back.`}
+      >
+        Preview in draft →
+      </button>
+    </div>
+  );
+}
+
+/** Embedded agent-factor detail for an alternate-factor finding.
+ *
+ *  Looks up the agent's `FactorProposal` from
+ *  `report.evidence.comparison_proposal.factors` by matching the
+ *  rename payload's `agent.category.label`, and renders the same
+ *  per-FV view the bottom-of-panel DesignComparisonPanel shows for
+ *  this factor: each FV's label, sample count, statement glyph, and
+ *  the structured statement detail with URIs. This puts the "what is
+ *  the agent actually proposing" answer inside the audit card so
+ *  curators don't have to scroll to the bottom of the panel to see it.
+ *
+ *  Falls back to the FV-pair table (label-only) when no
+ *  comparison_proposal is available — older audits or experiments
+ *  where the agent didn't ship a structured proposal alongside the
+ *  rename. */
+function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
+  const { report } = useAudit();
+  // Three label-source paths (most specific first):
+  //   1. Structured `finding.rename` payload (calibration package v11+).
+  //   2. Parsed rename rationale ("agent proposes `X` where Gemma has
+  //      `Y`") for v10 alternate-factor findings.
+  //   3. First backticked token in the rationale — works for plain
+  //      confirmed-match rationales ("Is factor `treatment` correctly
+  //      captured?") so this same embed renders the agent's FV /
+  //      statement detail inside MatchFindingRow expansions, not just
+  //      inside alternate-factor cards.
+  const rename = finding.rename ?? null;
+  const parsed = parseRenameLabels(finding.rationale || "");
+  const firstBacktick = finding.rationale?.match(/`([^`]+)`/)?.[1];
+  const agentLabel = (
+    rename?.agent.category.label ??
+    parsed?.agent ??
+    firstBacktick ??
+    ""
+  )
+    .toLowerCase()
+    .trim();
+  // For confirmed matches the agent and gold share a label, so the
+  // "Gemma calls this:" footer is suppressed (its only job is showing
+  // the divergent gold label on alternate-factor cards).
+  const goldLabelRaw = rename?.gold.category.label ?? parsed?.gold ?? "";
+  const goldLabel =
+    goldLabelRaw && goldLabelRaw.toLowerCase().trim() !== agentLabel
+      ? goldLabelRaw
+      : "";
+  if (!agentLabel) return null;
+
+  const cp = report?.evidence?.comparison_proposal ?? null;
+  const agentFactor =
+    cp?.factors.find(
+      (f) => f.category.label?.toLowerCase().trim() === agentLabel,
+    ) ?? null;
+
+  // No structured factor available — fall back to the bare FV-pair
+  // table from the rename payload when present (labels only, no
+  // statements). When neither factor proposal nor pair table is
+  // available there's nothing structured to render.
+  if (!agentFactor) {
+    return rename && rename.fv_pairs?.length > 0 ? (
+      <FactorRenameFvPairs pairs={rename.fv_pairs} />
+    ) : null;
+  }
+
+  const fvs = agentFactor.factor_values ?? [];
+  return (
+    <div className="px-2 py-1.5 rounded bg-white/60 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-1">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <span>Agent factor</span>
+        <span className="font-mono text-slate-700 dark:text-slate-200 normal-case tracking-normal">
+          {agentFactor.category.label}
+        </span>
+        {agentFactor.factor_type ? (
+          <span className="text-slate-400 dark:text-slate-500 normal-case tracking-normal">
+            · {agentFactor.factor_type}
+          </span>
+        ) : null}
+        <span className="text-slate-400 dark:text-slate-500 ml-auto normal-case tracking-normal">
+          {fvs.length} {fvs.length === 1 ? "value" : "values"}
+        </span>
+      </div>
+      <div className="space-y-1 pl-1">
+        {fvs.map((fv, i) => (
+          <div key={i} className="text-[11px] space-y-0.5">
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="font-mono text-slate-900 dark:text-slate-100 truncate">
+                {fv.free_text_label || <em className="text-slate-400">(unnamed)</em>}
+              </span>
+              {(fv.statements?.length ?? 0) > 0 ? (
+                <StatementGlyph statements={fv.statements} />
+              ) : null}
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                ({fv.biomaterial_short_names.length})
+              </span>
+            </div>
+            {(fv.statements?.length ?? 0) > 0 ? (
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 pl-1.5 leading-snug">
+                {fv.statements.map((s, j) => (
+                  <div key={j} className="flex items-center gap-1 flex-wrap">
+                    <StatementChip term={s.subject} />
+                    <span className="text-slate-400 dark:text-slate-500">·</span>
+                    <StatementChip term={s.predicate} />
+                    <span className="text-slate-400 dark:text-slate-500">·</span>
+                    <StatementChip term={s.object} />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {/* Gold-side reference: small footer line so the curator has
+          the comparison without leaving the card. Label comes from
+          either the structured rename payload or the parsed rationale,
+          whichever is available. */}
+      {goldLabel ? (
+        <div className="text-[10px] text-slate-500 dark:text-slate-400 border-t border-slate-200/70 dark:border-slate-700/70 pt-1">
+          <span className="font-medium text-slate-600 dark:text-slate-300">
+            Gemma calls this:
+          </span>{" "}
+          <span className="font-mono text-slate-700 dark:text-slate-200">
+            {goldLabel}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Inline chip for a single subject/predicate/object slot in an
+ *  embedded factor-detail view. Renders label + tiny URI hint when
+ *  grounded, italic grey "(free text)" when not. Keeps the chip
+ *  light — full URI is in the title tooltip. */
+function StatementChip({
+  term,
+}: {
+  term: { label?: string; uri?: string | null } | null | undefined;
+}) {
+  if (!term?.label && !term?.uri) {
+    return <span className="text-slate-400 italic">—</span>;
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline gap-1",
+        term.uri ? "text-emerald-800 dark:text-emerald-200" : "text-slate-600 dark:text-slate-300",
+      )}
+      title={term.uri || "free text"}
+    >
+      <span>{term.label || term.uri}</span>
+      {term.uri ? (
+        <span className="font-mono text-[9px] text-slate-400 dark:text-slate-500">
+          {term.uri.split(/[#/]/).filter(Boolean).pop()}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Compact FV-pairs table for an alternate-factor finding without a
+ *  structured comparison_proposal. Fallback view; the richer
+ *  `RenameFactorEmbed` is preferred when the agent's factor proposal
+ *  is available. Renders one row per (agent FV, gold FV) pair from
+ *  the arbiter's `FactorRenamePayload`. */
+function FactorRenameFvPairs({ pairs }: { pairs: import("@/api/auditTypes").FvPair[] }) {
+  if (!pairs || pairs.length === 0) return null;
+  return (
+    <div className="px-1 py-1.5 rounded bg-white/60 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-0.5">
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 text-[9px] uppercase tracking-wide text-slate-500 dark:text-slate-400 px-1">
+        <span>agent FVs</span>
+        <span>&nbsp;</span>
+        <span>Gemma FVs</span>
+      </div>
+      {pairs.map((p, i) => {
+        const marker =
+          p.equivalence === "exact"
+            ? { ch: "=", title: "exact: same URI or identical label" }
+            : p.equivalence === "synonym"
+              ? { ch: "~", title: "synonym: different label, arbiter judged equivalent" }
+              : { ch: "?", title: "judgment: same partition position only (no semantic match)" };
+        return (
+          <div
+            key={i}
+            className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center text-[11px] px-1"
+          >
+            <span
+              className="font-mono text-slate-900 dark:text-slate-100 truncate"
+              title={p.agent.label || p.agent.uri || ""}
+            >
+              {p.agent.label || <em className="text-slate-400">(none)</em>}
+            </span>
+            <span
+              className="text-slate-400 dark:text-slate-500 text-center select-none"
+              title={marker.title}
+              aria-label={p.equivalence}
+            >
+              {marker.ch}
+            </span>
+            <span
+              className="font-mono text-slate-900 dark:text-slate-100 truncate"
+              title={p.gold.label || p.gold.uri || ""}
+            >
+              {p.gold.label || <em className="text-slate-400">(none)</em>}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Compact, visible list of FV labels for a `proposer_statements` set.
+ *
+ *  Each FV gets:
+ *    - A small dot indicating URI status (filled emerald = grounded
+ *      URI, open slate = free-text).
+ *    - The subject label (the FV's value).
+ *    - On click: the structural S-P-O popover via StatementGlyph.
+ *
+ *  Used in place of the previous "single compact glyph + ×N" render so
+ *  the proposed FVs are visible at a glance, not buried in a multi-
+ *  sentence description. Falls back to the bare StatementGlyph when
+ *  every statement's subject is empty / missing a label (e.g. malformed
+ *  proposer output) so the structural view stays available. */
+function ProposedFvList({
+  statements,
+}: {
+  statements: import("@/components/ui/StatementGlyph").GlyphStatement[];
+}) {
+  const labeled = statements.filter((s) => s.subject?.label);
+  if (labeled.length === 0) {
+    return <StatementGlyph statements={statements} />;
+  }
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex flex-wrap items-center gap-1">
+        {labeled.map((s, i) => {
+          const grounded = !!s.subject?.uri;
+          return (
+            <span
+              key={i}
+              className={cn(
+                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border",
+                grounded
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700/60 dark:text-emerald-100"
+                  : "bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200",
+              )}
+              title={
+                grounded
+                  ? `grounded: ${s.subject!.uri}`
+                  : "free-text (no ontology URI)"
+              }
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "inline-block w-1.5 h-1.5 rounded-full",
+                  grounded
+                    ? "bg-emerald-500"
+                    : "bg-slate-300 dark:bg-slate-500",
+                )}
+              />
+              <span className="truncate max-w-[18ch]">{s.subject!.label}</span>
+            </span>
+          );
+        })}
+      </div>
+      {/* Existing structural popover — click to see S-P-O details for
+          all statements. Sits alongside the labels so the structural
+          view is one click away when the labels alone aren't enough. */}
+      <StatementGlyph statements={statements} />
     </div>
   );
 }
@@ -1524,13 +2059,12 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // follow-up. The card greys out when closed so the eye skips
   // past finished work; undo still lives in the action row so
   // mistakes are reversible.
-  // Closed = curator has decided. As of 2026-05-10, needs_more_info
-  // counts too — the new "Park…" flow requires a structured reason
-  // before setting that status, so it's no longer an open question.
-  const isClosed =
-    currentDisposition === "dismissed" ||
-    currentDisposition === "needs_more_info" ||
-    (currentDisposition === "accepted" && !!disposition?.resolved_at);
+  // 2026-05-17: switched from a single ``isClosed`` boolean to
+  // ``hasDisposition`` (any non-pending status) — see below where it's
+  // defined alongside ``dispositionTint``. Any disposition now mutes
+  // the headline content and swaps the SeverityBadge for a
+  // DispositionBadge, so MAJOR/BLK fade out as soon as the curator
+  // acts.
 
   // Stamp the first-seen timestamp once per finding. Sent on the
   // first PATCH for this target so my brother can compute triage
@@ -1613,13 +2147,19 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   const hasExpandableContent =
     hasCitation || hasAgentSuggestion || nonEmpty(trail);
 
+  // Once dispositioned, the finding fades — it's no longer load-bearing
+  // for the curator's attention. No coloured "verdict" badge competes
+  // for the eye; the whole card just recedes (kept legible enough to
+  // re-read, but unmistakably "done"). A tiny ✓ / × / ⋯ glyph replaces
+  // the severity badge as a quiet marker of what was decided.
+  const hasDisposition = currentDisposition !== "pending";
   return (
     <div
       ref={cardRef}
       className={cn(
         "card p-2 text-xs space-y-1.5",
         severityRowCls(finding.severity),
-        isClosed && "opacity-60",
+        hasDisposition && "opacity-40 hover:opacity-90 transition-opacity",
         activeFindingKey === myKey && "ring-2 ring-blue-400",
       )}
     >
@@ -1654,7 +2194,17 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             : "no further detail"
         }
       >
-        <SeverityBadge severity={finding.severity} />
+        {hasDisposition ? (
+          <DispositionDot
+            status={
+              currentDisposition as "accepted" | "dismissed" | "needs_more_info"
+            }
+            resolved={!!disposition?.resolved_at}
+            severity={finding.severity}
+          />
+        ) : (
+          <SeverityBadge severity={finding.severity} />
+        )}
         <span className="flex-1 min-w-0">
           <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400 mr-1">
             {TARGET_KIND_LABEL[finding.target_kind]}
@@ -1826,7 +2376,14 @@ const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
 const CAL_EXTRA_TAG_DISMISS_CHIPS: DialogChip[] = [
   { key: "not_sample_applicable",  label: "Subset only",                help: "applies to only a subset of profiled samples (e.g., case half of a case/control study)" },
   { key: "no_evidence",            label: "No evidence",                help: "no supporting evidence in the paper/data" },
-  { key: "redundant_with_bm_source", label: "Covered by cell line",    help: "covered by a more-specific cell line or sample-source characteristic on the biomaterial" },
+  // Server wire key stays `redundant_with_bm_source` (validator
+  // contract), but the curator-facing label is now category-neutral.
+  // The same reason fires for: a BM characteristic carrying the term
+  // (cell line, organism part, sample source, etc.), a factor value
+  // with full sample coverage (every sample has the term — making
+  // the tag a constant), or any other curation surface that already
+  // captures what the agent proposed.
+  { key: "redundant_with_bm_source", label: "Redundant",                help: "the term is already captured elsewhere — by a biomaterial characteristic, a fully-covering factor value, or another tag" },
   { key: "out_of_scope",           label: "Out of scope",               help: "outside the scope of this tag category" },
   { key: "borderline",             label: "Borderline",                 help: "close call — could reasonably go either way" },
   { key: "other",                  label: "Other",                      help: "add a note" },
@@ -2161,9 +2718,26 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
 
   async function handleAcceptConfirm(tag: string | null, notes: string) {
     setAcceptOpen(false);
-    await handleApply({
+    // Mutating findings (e.g. calibration_agent_extra → add tag) route
+    // through handleApply so the draft mutation runs alongside the
+    // disposition stamp. Non-mutating findings (calibration_factor_match,
+    // calibration_match, etc.) just need the disposition + optional
+    // note — patch directly so the curator's notes don't get dropped.
+    if (action?.mutates) {
+      await handleApply({
+        acceptReason: (tag ?? undefined) as AcceptReason | undefined,
+        notes,
+      });
+      return;
+    }
+    await patch("accepted", {
       acceptReason: (tag ?? undefined) as AcceptReason | undefined,
       notes,
+      // No-follow-up findings (match / gold_only_miss) have nothing
+      // left to do once the curator agrees — auto-stamp resolved_at
+      // so they don't sit in the parked queue. Findings with follow-up
+      // stay parked; curator marks resolved after doing the work.
+      ...(noFollowUp ? { resolvedAt: new Date().toISOString() } : {}),
     });
   }
 
@@ -2284,10 +2858,21 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             is just clutter when the judge is telling you to dismiss. */}
         {action?.mutates || judgeWeak ? null : (
         <button
+          ref={acceptBtnRef}
           type="button"
-          onClick={() =>
-            patch(current === "accepted" ? "pending" : "accepted")
-          }
+          onClick={() => {
+            // Undo path stays single-click — re-Agreeing on something
+            // already accepted means "back to pending".
+            if (current === "accepted") {
+              patch("pending");
+              return;
+            }
+            // Fresh agree → open the accept dialog so the curator can
+            // pick a reason chip and add a note. Previously this was a
+            // direct patch with no dialog, so notes were impossible to
+            // attach when agreeing on factor / match findings.
+            setAcceptOpen(true);
+          }}
           disabled={dispositionSaving}
           title={
             isResolved
@@ -2890,6 +3475,23 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
       >
         {strength ? `${strength} suggestion` : "suggestion"}
       </div>
+      {/* FV / term first — the proposal's headline. Goes inside the
+          suggestion box, above the fix verb and the long description,
+          so the curator sees WHAT the agent proposes before reading
+          HOW to act on it. Previously this sat below the verbose
+          defense paragraph, so the structural answer was buried under
+          its own prose. */}
+      {hasProposer && (statements.length > 0 || term || (legacyText && !trimmedDefense && evidence.length === 0)) ? (
+        <div>
+          {statements.length > 0 ? (
+            <ProposedFvList statements={statements} />
+          ) : term ? (
+            <Term uri={term.uri ?? null}>{term.label}</Term>
+          ) : legacyText ? (
+            <div className="text-slate-700 dark:text-slate-300">{legacyText}</div>
+          ) : null}
+        </div>
+      ) : null}
       {fixText ? (
         <div className="text-slate-800 dark:text-slate-200 leading-snug">
           {fixText}
@@ -2897,13 +3499,6 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
       ) : null}
       {hasProposer ? (
         <div className="space-y-1.5">
-          {statements.length > 0 ? (
-            <StatementGlyph statements={statements} />
-          ) : term ? (
-            <Term uri={term.uri ?? null}>{term.label}</Term>
-          ) : legacyText && !trimmedDefense && evidence.length === 0 ? (
-            <div className="text-slate-700 dark:text-slate-300">{legacyText}</div>
-          ) : null}
           {trimmedDefense ? (
             <div className="text-slate-600 dark:text-slate-300 leading-snug">
               {trimmedDefense}
@@ -3339,6 +3934,40 @@ function DebateBadgeChip({
       title={cfg.title}
     >
       {cfg.label}
+    </span>
+  );
+}
+
+/** Quiet status dot replacing the SeverityBadge once the curator has
+ *  dispositioned a finding. Once acted on, the finding is no longer
+ *  MAJOR / BLOCKER — it's just done. So the whole card fades and the
+ *  big severity stamp drops out; a small ✓ / × keeps a visual marker
+ *  of what verdict was given (full info in the tooltip). */
+function DispositionDot({
+  status,
+  resolved,
+  severity,
+}: {
+  status: "accepted" | "dismissed" | "needs_more_info";
+  resolved: boolean;
+  severity: Severity;
+}) {
+  const cfg =
+    status === "accepted"
+      ? {
+          glyph: "✓",
+          title: `${resolved ? "resolved" : "agreed (follow-up owed)"} — was ${severity}`,
+        }
+      : status === "dismissed"
+        ? { glyph: "×", title: `dismissed — was ${severity}` }
+        : { glyph: "⋯", title: `parked — was ${severity}` };
+  return (
+    <span
+      className="inline-block text-[11px] leading-none text-slate-500 dark:text-slate-400 mt-0.5 shrink-0"
+      title={cfg.title}
+      aria-label={cfg.title}
+    >
+      {cfg.glyph}
     </span>
   );
 }

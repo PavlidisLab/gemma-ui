@@ -12,9 +12,23 @@ export interface Platform {
   id: number;
   name?: string;
   shortName?: string;
+  description?: string;
   technologyType?: string;
+  color?: string;
   numberOfExpressionExperiments?: number;
   numberOfExpressionExperimentsForTechnologyType?: number;
+  numberOfSwitchedExpressionExperiments?: number;
+  taxon?: Taxon;
+  taxonID?: number;
+  isMerged?: boolean;
+  isMergee?: boolean;
+  troubled?: boolean;
+  needsAttention?: boolean;
+  curationNote?: string;
+  lastUpdated?: string;
+  releaseVersion?: string;
+  releaseUrl?: string | null;
+  externalReferences?: Array<{ accession?: string; externalDatabase?: { name?: string } }>;
 }
 
 export interface AnnotationTerm {

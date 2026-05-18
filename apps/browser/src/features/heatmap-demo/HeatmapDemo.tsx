@@ -1,94 +1,130 @@
 import { useMemo, useState } from 'react';
 import {
-  Heatmap,
-  Legend,
-  PALETTES,
+  HeatmapWidget,
   type CategoricalAnnotation,
-  type CellGeometry,
   type HeatmapData,
 } from '@/lib/heatmap';
 
 /**
- * Synthetic-data demo route for the heatmap lib.
- *
- * Generates a 100×60 expression matrix with two latent factor groups so the
- * patterns are visible at a glance, plus two categorical column annotations.
- * Wraps the heatmap in a resizable container so reflow behavior is visible.
+ * Demo route for the HeatmapWidget. Renders the widget two ways:
+ *   1. Embedded in the page (with chrome on).
+ *   2. Inside a popover-style modal — the same widget, chromeless and
+ *      sitting on top of the page, to verify it works as a drop-in
+ *      popup component as well as an inline one.
  */
 export function HeatmapDemo(): JSX.Element {
   const data = useMemo<HeatmapData>(() => buildSyntheticData(100, 60), []);
-  const [palette, setPalette] = useState<'ambsky' | 'blackbody'>('ambsky');
-  const [maxH, setMaxH] = useState(12);
-  const [maxW, setMaxW] = useState(13);
-  const [hover, setHover] = useState<CellGeometry | null>(null);
-
-  const config = useMemo(
-    () => ({
-      palette: PALETTES[palette],
-      clip: 3,
-      cell: { maxHeight: maxH, maxWidth: maxW },
-    }),
-    [palette, maxH, maxW],
-  );
+  const [popupOpen, setPopupOpen] = useState(false);
 
   return (
-    <div style={{ maxWidth: 1200, margin: '24px auto', padding: '0 16px', fontFamily: 'Helvetica, Arial, sans-serif' }}>
-      <h1 style={{ fontSize: 18, marginBottom: 4 }}>Heatmap library — demo</h1>
-      <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
-        Drag the bottom-right corner of the dashed box to resize the viewport.
-        The heatmap reflows as the available width changes.
-      </p>
+    <div
+      style={{
+        maxWidth: 1100,
+        margin: '24px auto',
+        padding: '0 16px',
+        fontFamily: 'Helvetica, Arial, sans-serif',
+        color: '#1f2937',
+      }}
+    >
+      <header style={{ marginBottom: 16 }}>
+        <h1 style={{ fontSize: 18, margin: 0, fontWeight: 600 }}>
+          Heatmap widget — demo
+        </h1>
+        <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>
+          A self-contained, drop-in widget. Same component used inline and
+          inside the popup.
+        </p>
+      </header>
 
-      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12, fontSize: 12, color: '#374151' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span>Palette</span>
-          <select
-            value={palette}
-            onChange={(e) => setPalette(e.target.value as 'ambsky' | 'blackbody')}
-          >
-            <option value="ambsky">ambsky (diverging)</option>
-            <option value="blackbody">blackbody (sequential)</option>
-          </select>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span>maxHeight: {maxH}px</span>
-          <input type="range" min={2} max={20} value={maxH} onChange={(e) => setMaxH(+e.target.value)} />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span>maxWidth: {maxW}px</span>
-          <input type="range" min={2} max={20} value={maxW} onChange={(e) => setMaxW(+e.target.value)} />
-        </label>
-        <Legend
-          palette={PALETTES[palette]}
-          domain={palette === 'ambsky' ? [-3, 3] : [0, 6]}
-          label={palette === 'ambsky' ? 'Z-score (clip ±3)' : 'Intensity'}
-        />
-        <div style={{ fontSize: 11, color: '#6b7280', flex: 1, minWidth: 200 }}>
-          {hover
-            ? `${data.rowLabels?.[hover.row]} × ${data.colLabels?.[hover.col]}  (merged=${hover.mergedCols})`
-            : 'Hover a cell.'}
-        </div>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+        <button
+          type="button"
+          onClick={() => setPopupOpen(true)}
+          style={{
+            padding: '6px 12px',
+            fontSize: 12,
+            border: '1px solid #2563eb',
+            background: '#2563eb',
+            color: '#fff',
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+        >
+          Open in popup
+        </button>
       </div>
 
+      <HeatmapWidget
+        data={data}
+        title="Expression — 100 genes × 60 samples"
+        caption="Synthetic data; two latent factor groups."
+      />
+
+      {popupOpen && (
+        <Popup onClose={() => setPopupOpen(false)}>
+          <HeatmapWidget
+            data={data}
+            title="Expression heatmap"
+            caption="Embedded as a popup widget."
+          />
+        </Popup>
+      )}
+    </div>
+  );
+}
+
+function Popup({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(15, 23, 42, 0.5)',
+        zIndex: 900,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}
+    >
       <div
+        onClick={(e) => e.stopPropagation()}
         style={{
-          resize: 'both',
+          position: 'relative',
+          maxWidth: '90vw',
+          maxHeight: '90vh',
           overflow: 'auto',
-          border: '1px dashed #cbd5e1',
-          padding: 8,
-          width: 700,
-          height: 520,
-          minWidth: 240,
-          minHeight: 220,
-          background: '#fafafa',
         }}
       >
-        <Heatmap
-          data={data}
-          config={config}
-          onCellHover={(c) => setHover(c)}
-          onCellLeave={() => setHover(null)}
-        />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="close"
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 8,
+            zIndex: 2,
+            background: 'transparent',
+            border: 0,
+            cursor: 'pointer',
+            fontSize: 18,
+            color: '#6b7280',
+            lineHeight: 1,
+            fontFamily: 'inherit',
+          }}
+        >
+          ×
+        </button>
+        {children}
       </div>
     </div>
   );

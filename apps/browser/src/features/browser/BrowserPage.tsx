@@ -6,6 +6,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronUp, Code2 } from "lucide-react";
 import { getMyself } from "@/api/endpoints";
+import { HelpHint } from "@/features/shared/HelpHint";
 import { fallbackTaxa } from "@/lib/gemmaConfig";
 import { emptySearchSettings } from "@/lib/types";
 import { generateFilter, generateFilterDescription, generateFilterSummary } from "@/lib/filter";
@@ -152,10 +153,19 @@ export function BrowserPage() {
           aria-hidden
         />
         <div className="flex items-center gap-3 px-3 h-10 border-b border-gemma-grid">
-          <h2 className="text-sm font-medium">
+          <h2 className="text-sm font-medium inline-flex items-center gap-1.5">
             {total > 0 ? (
               <>Showing <span className="tabular-nums">{total.toLocaleString()}</span> results</>
             ) : datasets.isLoading ? "Loading…" : "No results"}
+            <HelpHint
+              label="Result row"
+              body={
+                "Each row is one Gemma expression dataset." +
+                "\nClick a row to expand: full description, ontology annotations, and outbound links to Gemma / GEO." +
+                "\nClick an annotation chip to add it to your filters; click the column header to sort." +
+                "\nThe colored dot is the GEEQ quality score (green / amber / red)."
+              }
+            />
           </h2>
           {filterSummary ? (
             <div className="text-xs text-gemma-subtle truncate" title={filterDescription}>

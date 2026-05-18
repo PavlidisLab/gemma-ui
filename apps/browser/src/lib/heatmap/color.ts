@@ -47,6 +47,38 @@ function sequentialScale(palette: Palette, lo: number, hi: number, nanColor: str
   };
 }
 
+/** Z-score each row over its non-null cells.
+ *
+ *  Rows with zero variance collapse to all-zero (palette midpoint —
+ *  visually "no signal"). NaN / null cells stay missing. The standard
+ *  expression-heatmap normalization: each gene becomes relative to its
+ *  own range, so high-expression and low-expression genes share a
+ *  common contrast scale. */
+export function rowStandardize(values: CellValue[][]): CellValue[][] {
+  return values.map((row) => {
+    let sum = 0;
+    let n = 0;
+    for (const v of row) {
+      if (v == null || Number.isNaN(v)) continue;
+      sum += v;
+      n++;
+    }
+    if (n === 0) return row.slice();
+    const mean = sum / n;
+    let ss = 0;
+    for (const v of row) {
+      if (v == null || Number.isNaN(v)) continue;
+      const d = v - mean;
+      ss += d * d;
+    }
+    const sd = Math.sqrt(ss / Math.max(1, n - 1));
+    if (sd === 0) return row.map((v) => (v == null || Number.isNaN(v) ? null : 0));
+    return row.map((v) =>
+      v == null || Number.isNaN(v) ? null : (v - mean) / sd,
+    );
+  });
+}
+
 /** Compute the data min/max ignoring null/NaN. Used as a fallback domain. */
 export function dataExtent(values: CellValue[][]): [number, number] {
   let lo = Infinity;

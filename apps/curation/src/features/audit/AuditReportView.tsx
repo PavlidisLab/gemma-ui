@@ -576,15 +576,20 @@ export function DesignComparisonPanel({
   );
 
   // Factor labels already covered by a `calibration_factor_match`
-  // finding above in CONFIRMED MATCHES — rendering them again here
-  // as "✓ X = Gemma" rows is pure duplication. Pull the label out of
-  // each match-finding's rationale (`Is factor \`X\` …`) so the
-  // EXPERIMENTAL DESIGN section can skip them.
+  // finding above — rendering them again here as either "✓ X = Gemma"
+  // (exact match, severity ok) or as a duplicate "disease model ≈
+  // treatment" row (rename / alternate-factor, severity≠ok) is pure
+  // duplication. The Confirmed-matches and Alternate-factor cards in
+  // the sidebar already render the per-FV detail (via
+  // `RenameFactorEmbed`), so the EXPERIMENTAL DESIGN section can skip
+  // every factor a match finding covers. Pull the agent's label out
+  // of each match-finding's rationale (first backticked token —
+  // works for both "Is factor `X`…" exact-match rationales and "agent
+  // proposes `X` where Gemma has `Y`" rename rationales).
   const matchedFactorLabels = (() => {
     const s = new Set<string>();
     for (const f of report.findings ?? []) {
       if (f.issue_code !== "calibration_factor_match") continue;
-      if (f.severity !== "ok") continue; // rename matches (severity≠ok) stay
       const m = (f.rationale || "").match(/`([^`]+)`/);
       if (m) s.add(m[1].trim().toLowerCase());
     }
@@ -807,19 +812,37 @@ export function DesignComparisonPanel({
           const m = (f.rationale || "").match(/`([^`:]+?)`/);
           if (m) findingLabels.add(m[1].trim().toLowerCase());
         }
+        // Union of factor labels covered by either an agent factor row
+        // or a finding card. Used as the "this factor is already
+        // surfaced somewhere visible" set for both factor- and
+        // factor_pair-scoped subtask filtering.
+        const coveredFactors = new Set<string>([
+          ...factorLabels,
+          ...findingLabels,
+        ]);
         const globalDecisions = cp.evidence!.subtask_decisions!.filter((d) => {
           if (d.confidence === "high") return false;
           const t = (d.target_id || "").toLowerCase();
+          // Factor-pair subtasks (S2i_confounding_check etc.) target
+          // two factors at once: `factor_pair:treatment|disease model`.
+          // Hide the pair when BOTH factors are already covered by a
+          // finding card or agent-factor row — the curator has the
+          // detail above and the pair-level commentary is just noise.
+          if (t.startsWith("factor_pair:")) {
+            const rest = t.slice("factor_pair:".length);
+            const [a, b] = rest.split("|").map((s) => s.trim());
+            if (a && b && coveredFactors.has(a) && coveredFactors.has(b)) {
+              return false;
+            }
+            return true;
+          }
           if (!t.startsWith("factor:")) return true;
           // Mirror the inline filter (`target_id.startsWith("factor:<label>")`)
           // so anything claimed by an agent factor stays inline-only. The
           // agent emits target_ids in two shapes for factor-scoped subtasks:
           // `factor:<label>` (factor-level) and `factor:<label>:fv:<fv>`
           // (FV-level under a factor); both share the same prefix.
-          for (const label of factorLabels) {
-            if (t.startsWith(`factor:${label}`)) return false;
-          }
-          for (const label of findingLabels) {
+          for (const label of coveredFactors) {
             if (t === `factor:${label}`) return false;
             if (t.startsWith(`factor:${label}:`)) return false;
             if (t.startsWith(`factor:${label}/`)) return false;

@@ -153,7 +153,7 @@ export function CommitBar({
               onClick={onDiscard}
               disabled={saving}
             >
-              discard
+              undo
             </button>
             <button
               type="button"

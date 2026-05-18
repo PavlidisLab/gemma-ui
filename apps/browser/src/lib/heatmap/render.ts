@@ -37,11 +37,15 @@ export function renderMatrix(
   const layout = computeLayout(data, resolved, opts.availableW, opts.availableH);
 
   const annotations = data.colAnnotations ?? [];
-  const stripsH = annotations.length * resolved.annotationStripHeight;
+  const stripsBlockH =
+    annotations.length === 0
+      ? 0
+      : annotations.length * resolved.annotationStripHeight +
+        (annotations.length - 1) * resolved.annotationStripGap;
   const gapAfterStrips = annotations.length > 0 ? 4 : 0;
 
   const totalW = layout.matrixW;
-  const totalH = stripsH + gapAfterStrips + layout.matrixH;
+  const totalH = stripsBlockH + gapAfterStrips + layout.matrixH;
 
   const dpr = opts.dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 
@@ -63,7 +67,8 @@ export function renderMatrix(
   // --- Annotation strips ---
   for (let s = 0; s < annotations.length; s++) {
     const strip = annotations[s];
-    const y = s * resolved.annotationStripHeight;
+    const y =
+      s * (resolved.annotationStripHeight + resolved.annotationStripGap);
     for (let r = 0; r < layout.columns.length; r++) {
       const { srcStart, srcCount } = layout.columns[r];
       const value = srcCount === 1
@@ -76,7 +81,7 @@ export function renderMatrix(
   }
 
   // --- Matrix ---
-  const matrixY = stripsH + gapAfterStrips;
+  const matrixY = stripsBlockH + gapAfterStrips;
   const colorOf = makeColorScale(resolved);
   const cells: CellGeometry[] = [];
 

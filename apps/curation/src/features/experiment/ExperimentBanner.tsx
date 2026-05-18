@@ -222,10 +222,15 @@ export function ExperimentBanner({
         </div>
         <div className="flex items-center justify-end gap-2 shrink-0">
           {commitBar}
-          <SetNavCluster
-            experimentId={experimentId}
-            groupContext={groupContext}
-          />
+          {/* Set picker + navigator collapsed into a single control:
+             ExperimentGroupChips is now the only set surface. Each chip
+             shows the set name + member count, and the chip's popover
+             carries prev/next + member-list navigation. The standalone
+             `← 1/42 →` SetNavCluster was redundant when the experiment
+             was a member of multiple sets — curator was looking at
+             three set chips PLUS a separate paginator for "the active
+             one", with the same data echoed twice. Open the active
+             chip to navigate. */}
           <ExperimentGroupChips
             experimentId={experimentId}
             groupContext={groupContext}
@@ -394,7 +399,7 @@ function SetChip({
             aria-label="active set context"
           />
         ) : null}
-        <span className="font-medium truncate max-w-[14ch]">{group.name}</span>
+        <span className="font-medium truncate max-w-[28ch]">{group.name}</span>
         <span className="text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
           {group.member_count}
         </span>
@@ -554,37 +559,17 @@ function SetNavigatorPopover({
           </span>
         </div>
         {summaries && summaries.length > 0 ? (
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
-            <button
-              type="button"
-              className="px-1.5 py-0.5 rounded hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
-              onClick={() => goToIndex(currentIdx - 1)}
-              disabled={currentIdx < 0}
-              title="Previous experiment in this set ([)"
-              aria-label="previous"
-            >
-              ←
-            </button>
-            <span className="tabular-nums">
-              {currentIdx >= 0
-                ? `${currentIdx + 1} of ${summaries.length}`
-                : `not in set · ${summaries.length} member${
-                    summaries.length === 1 ? "" : "s"
-                  }`}
-            </span>
-            <button
-              type="button"
-              className="px-1.5 py-0.5 rounded hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
-              onClick={() => goToIndex(currentIdx + 1)}
-              disabled={currentIdx < 0}
-              title="Next experiment in this set (])"
-              aria-label="next"
-            >
-              →
-            </button>
-            <span className="ml-auto text-slate-400 dark:text-slate-500 text-[10px]">
-              [ / ] to navigate
-            </span>
+          // Retired 2026-05-17: dropped the ← / → buttons. The member
+          // list below is the primary navigator (click to jump); [ / ]
+          // keyboard shortcuts still work for power users. Just the
+          // bare position readout remains so the curator knows where
+          // they are in the set without a chrome-heavy paginator.
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+            {currentIdx >= 0
+              ? `${currentIdx + 1} of ${summaries.length}  ·  [ / ] to navigate`
+              : `not in set · ${summaries.length} member${
+                  summaries.length === 1 ? "" : "s"
+                }`}
           </div>
         ) : null}
       </div>
@@ -707,118 +692,6 @@ function SetMemberRow({
         </span>
       </Component>
     </li>
-  );
-}
-
-/**
- * Inline prev/next cluster anchored to a single workflow Group.
- * Renders directly in the action row when a group context is known —
- * either pulled from the URL ``?group=<id>`` or auto-picked when the
- * experiment belongs to exactly one ``review`` group. Lets curators
- * walk a calibration set without bouncing back to the workflow tab
- * between experiments (the popover is still there for search /
- * arbitrary jumps; this cluster is the at-a-glance cycle button).
- *
- * Hides entirely when:
- *   - no group context is available, OR
- *   - the active group has fewer than 2 members (no "next" target).
- *
- * Page-level keyboard shortcuts (`[` / `]`) live in the popover; the
- * cluster only adds the click affordance + visible position counter.
- */
-function SetNavCluster({
-  experimentId,
-  groupContext,
-}: {
-  experimentId: number;
-  groupContext?: string;
-}) {
-  // Auto-pick fallback: when the URL doesn't carry a group context,
-  // walk the experiment's review-type memberships. Exactly one →
-  // anchor here; zero or many → render nothing (curator opens the
-  // chip popover to pick).
-  const { data: reviewGroups } = useExperimentGroups(experimentId, {});
-  const fallbackId = useMemo(() => {
-    if (groupContext) return null;
-    const reviews = (reviewGroups ?? []).filter((g) => g.type === "review");
-    return reviews.length === 1 ? reviews[0].id : null;
-  }, [groupContext, reviewGroups]);
-  const activeGroupId = groupContext ?? fallbackId ?? null;
-
-  const { data: group } = useGroup(activeGroupId, {
-    includeSummaries: true,
-  });
-
-  // Position lookup: index of this experiment within the ordered
-  // member list. Index by experiment_id to avoid string/number
-  // coercion bugs on member_ids.
-  const summaries = group?.member_summaries ?? null;
-  const idx = useMemo(() => {
-    if (!summaries) return -1;
-    return summaries.findIndex((s) => s.experiment_id === experimentId);
-  }, [summaries, experimentId]);
-
-  if (!activeGroupId || !group || !summaries) return null;
-  if (summaries.length < 2) return null;
-  if (idx < 0) return null;
-
-  const prev = idx > 0 ? summaries[idx - 1] : null;
-  const next =
-    idx < summaries.length - 1 ? summaries[idx + 1] : null;
-  const goTo = (target: ExperimentSummary | null) => {
-    if (!target || target.experiment_id <= 0) return;
-    navigate(
-      experimentRoute(target.experiment_id, undefined, activeGroupId),
-    );
-  };
-
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-[11px] text-slate-700 px-1.5 py-0.5 rounded border border-slate-300 bg-white/70 dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200"
-      title={`Walking ${group.name} (${group.type}): experiment ${
-        idx + 1
-      } of ${summaries.length}`}
-    >
-      <button
-        type="button"
-        className="px-1 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed dark:hover:bg-slate-700/70"
-        onClick={() => goTo(prev)}
-        disabled={!prev}
-        aria-label="previous experiment in set"
-        title={
-          prev
-            ? `← ${prev.short_name}${
-                prev.title ? ` — ${prev.title.slice(0, 60)}` : ""
-              }`
-            : "no previous (start of set)"
-        }
-      >
-        ←
-      </button>
-      <a
-        href={workflowRoute(activeGroupId)}
-        className="tabular-nums hover:underline truncate max-w-[16ch] text-slate-600 dark:text-slate-300"
-        title={`${group.name} — open in Workflow`}
-      >
-        {idx + 1} / {summaries.length}
-      </a>
-      <button
-        type="button"
-        className="px-1 rounded hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed dark:hover:bg-slate-700/70"
-        onClick={() => goTo(next)}
-        disabled={!next}
-        aria-label="next experiment in set"
-        title={
-          next
-            ? `${next.short_name}${
-                next.title ? ` — ${next.title.slice(0, 60)}` : ""
-              } →`
-            : "no next (end of set)"
-        }
-      >
-        →
-      </button>
-    </span>
   );
 }
 

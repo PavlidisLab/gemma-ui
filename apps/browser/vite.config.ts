@@ -10,7 +10,9 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "src") },
   },
   server: {
-    port: 5173,
+    // 5183 to leave 5173 to the curation app (default Vite port) so
+    // both can run in parallel without the auto-bump dance.
+    port: 5183,
     proxy: {
       "/rest": {
         target: GEMMA_TARGET,

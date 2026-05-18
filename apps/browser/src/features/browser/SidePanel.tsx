@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Dispatch } from "react";
 import { Search } from "lucide-react";
 import { getMyself } from "@/api/endpoints";
+import { HelpHint } from "@/features/shared/HelpHint";
 import type {
   CategoryWithChildren,
   Platform,
@@ -64,7 +65,17 @@ export function SidePanel({
   return (
     <aside className="w-[360px] shrink-0 border-r border-gemma-grid bg-white overflow-y-auto p-3">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-medium">Search & filter</h2>
+        <h2 className="text-sm font-medium inline-flex items-center gap-1.5">
+          Search & filter
+          <HelpHint
+            label="Search & filter"
+            body={
+              "Free-text search runs against dataset titles, descriptions, and annotated terms." +
+              "\nFilters narrow the same corpus by taxon, platform / technology, and ontology annotations." +
+              "\nAll filters compose as AND; multi-pick within a section is OR."
+            }
+          />
+        </h2>
         {filledCount > 1 ? (
           <button onClick={clearAll} className="text-xs text-gemma-accent hover:underline">
             Clear all

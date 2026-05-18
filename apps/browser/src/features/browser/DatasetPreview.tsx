@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import pluralize from "pluralize";
 import { titleCase } from "title-case";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Minus, ExternalLink, AlertOctagon, ArrowRight } from "lucide-react";
 import { marked } from "marked";
 import { getDatasetAnnotations } from "@/api/endpoints";
-import { gemmaUrl } from "@/lib/gemmaConfig";
+import { HelpHint } from "@/features/shared/HelpHint";
 import type {
   AnnotationTerm,
   Category,
@@ -15,7 +16,14 @@ import type {
   Dataset,
   DatasetAnnotation,
 } from "@/lib/types";
-import { getCategoryId, getTermId, highlight, TERM_ID_SEP } from "@/lib/utils";
+import {
+  formatDecimal,
+  formatNumber,
+  getCategoryId,
+  getTermId,
+  highlight,
+  TERM_ID_SEP,
+} from "@/lib/utils";
 
 interface Props {
   dataset: Dataset;
@@ -51,21 +59,35 @@ export function DatasetPreview({
     queryFn: ({ signal }) => getDatasetAnnotations(dataset.id, signal),
   });
 
-  const description = useMemo(() => {
+  const [showFullDescription, setShowFullDescription] = useState(false);
+
+  const { description, descriptionTruncated } = useMemo(() => {
     if (
       dataset.searchResult?.highlights &&
       "description" in dataset.searchResult.highlights &&
       dataset.description
     ) {
-      return marked.parseInline(
-        highlight(dataset.description, dataset.searchResult.highlights.description),
-      );
+      return {
+        description: marked.parseInline(
+          highlight(dataset.description, dataset.searchResult.highlights.description),
+        ),
+        descriptionTruncated: false,
+      };
     }
     const text = dataset.description ?? "";
-    const words = text.split(" ");
-    if (words.length > 150) return marked.parseInline(words.slice(0, 150).join(" ") + "…");
-    return marked.parseInline(text);
-  }, [dataset]);
+    const words = text.split(/\s+/);
+    const LIMIT = 250;
+    if (!showFullDescription && words.length > LIMIT) {
+      return {
+        description: marked.parseInline(words.slice(0, LIMIT).join(" ") + "…"),
+        descriptionTruncated: true,
+      };
+    }
+    return {
+      description: marked.parseInline(text),
+      descriptionTruncated: false,
+    };
+  }, [dataset, showFullDescription]);
 
   const selectedCategoryIds = useMemo(
     () => new Set(selectedCategories.map((c) => getCategoryId(c))),
@@ -141,73 +163,214 @@ export function DatasetPreview({
     return { mainTerms: main, grouped: groupedObj };
   }, [terms]);
 
-  return (
-    <div className="py-3 px-2">
-      <h3 className="mb-2">
-        <a
-          href={gemmaUrl(`/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`)}
-          target="_blank"
-          rel="noreferrer"
-          className="font-medium"
-        >
-          {dataset.shortName}
-        </a>
-        : <span className="text-gemma-ink">{dataset.name}</span>
-      </h3>
+  const quality = dataset.geeq?.publicQualityScore;
+  const accession = dataset.accession?.accession;
+  const isGeo = !!accession && /^GSE/i.test(accession);
+  const geoUrl = isGeo
+    ? `https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${encodeURIComponent(accession!)}`
+    : null;
 
-      <div className="flex flex-wrap gap-1 mb-2">
-        {mainTerms.map((t) => {
-          const sel = isSelectable(t);
-          const unsel = isUnselectable(t);
-          const interactive = sel || unsel;
-          return (
-            <button
-              key={getId(t)}
-              onClick={() => interactive && handleClick(t)}
-              disabled={!interactive}
-              className={`chip ${chipColor(t.objectClass)} ${interactive ? "cursor-pointer hover:shadow-sm" : "cursor-default opacity-80"}`}
-              title={`${(t.className ?? "").charAt(0).toUpperCase() + (t.className ?? "").slice(1)}: ${t.termUri ?? "free text"} via ${t.objectClass}`}
-            >
-              {titleCase(t.termName ?? "")}
-              {sel ? <Plus className="h-3 w-3" /> : unsel ? <Minus className="h-3 w-3" /> : null}
-            </button>
-          );
-        })}
-        {Object.keys(grouped).map((cls) => (
-          <span key={cls} className="contents">
-            <button
-              onClick={() => setGroupedOpen({ ...groupedOpen, [cls]: !groupedOpen[cls] })}
-              className="chip border-gemma-grid bg-white text-gemma-subtle hover:bg-gray-50"
-            >
-              {pluralize(cls)} {groupedOpen[cls] ? "▾" : "▸"}
-            </button>
-            {groupedOpen[cls]
-              ? grouped[cls].map((t) => {
-                  const sel = isSelectable(t);
-                  const unsel = isUnselectable(t);
-                  const interactive = sel || unsel;
-                  return (
-                    <button
-                      key={getId(t)}
-                      onClick={() => interactive && handleClick(t)}
-                      disabled={!interactive}
-                      className={`chip ${chipColor(t.objectClass)} ${interactive ? "cursor-pointer hover:shadow-sm" : "cursor-default opacity-80"}`}
-                      title={`${(t.className ?? "").charAt(0).toUpperCase() + (t.className ?? "").slice(1)}: ${t.termUri ?? "free text"} via ${t.objectClass}`}
-                    >
-                      {titleCase(t.termName ?? "")}
-                      {sel ? <Plus className="h-3 w-3" /> : unsel ? <Minus className="h-3 w-3" /> : null}
-                    </button>
-                  );
-                })
-              : null}
+  return (
+    <div className="py-3 px-2 space-y-3">
+      {/* Meta strip: at-a-glance facts + outbound links. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gemma-subtle">
+        {dataset.taxon?.commonName ? (
+          <span className="capitalize text-gemma-ink">{dataset.taxon.commonName}</span>
+        ) : null}
+        {typeof dataset.numberOfBioAssays === "number" ? (
+          <span>
+            <span className="tabular-nums text-gemma-ink">
+              {formatNumber(dataset.numberOfBioAssays)}
+            </span>{" "}
+            samples
           </span>
-        ))}
+        ) : null}
+        {typeof quality === "number" ? (
+          <span className="inline-flex items-center gap-1">
+            <QualityDot value={quality} />
+            <span>
+              quality{" "}
+              <span className="tabular-nums text-gemma-ink">
+                {formatDecimal(quality)}
+              </span>
+            </span>
+            <HelpHint
+              label="GEEQ quality score"
+              body="Gemma's public quality score (GEEQ) reflects experimental design + data-suitability heuristics. Green ≥ 0.45 · amber > 0.1 · red ≤ 0.1."
+            />
+          </span>
+        ) : null}
+        {dataset.lastUpdated ? (
+          <span title={new Date(dataset.lastUpdated).toString()}>
+            updated{" "}
+            <span className="text-gemma-ink">
+              {new Date(dataset.lastUpdated).toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+          </span>
+        ) : null}
+        <span className="flex-1" />
+        <Link
+          to="/dataset/$id"
+          params={{ id: String(dataset.id) }}
+          className="inline-flex items-center gap-0.5 text-gemma-accent hover:underline"
+          title="open the experiment page"
+        >
+          View experiment
+          <ArrowRight className="h-3 w-3" />
+        </Link>
+        {geoUrl ? (
+          <a
+            href={geoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 text-gemma-accent hover:underline"
+            title="open on NCBI GEO"
+          >
+            GEO: {accession}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : null}
       </div>
 
-      <div
-        className="text-sm text-gemma-ink/90 prose-sm max-w-none"
-        dangerouslySetInnerHTML={{ __html: String(description) }}
-      />
+      {/* Curator note callout — surfaced when a curator left a flag. */}
+      {dataset.curationNote ? (
+        <div className="flex items-start gap-2 rounded border border-amber-200 bg-amber-50/60 px-2 py-1.5 text-xs text-amber-900">
+          <AlertOctagon className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gemma-accent3" />
+          <div className="flex-1 min-w-0">
+            <div className="font-medium uppercase tracking-wider text-[10px] text-amber-800/80">
+              Curator note
+            </div>
+            <div className="whitespace-pre-wrap">{dataset.curationNote}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Description. Inline highlight for search hits; expand-to-full
+          when the trimmed preview cuts off content. */}
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wider text-gemma-subtle font-medium">
+            Description
+          </span>
+          <HelpHint
+            label="Description"
+            body="Free-text abstract Gemma stores for this dataset — usually mirrors the GEO study summary. Search-query hits are highlighted."
+          />
+        </div>
+        {dataset.description ? (
+          <>
+            <div
+              className="text-sm text-gemma-ink/90 max-w-none"
+              dangerouslySetInnerHTML={{ __html: String(description) }}
+            />
+            {descriptionTruncated ? (
+              <button
+                type="button"
+                onClick={() => setShowFullDescription(true)}
+                className="text-xs text-gemma-accent hover:underline"
+              >
+                Show full description
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <div className="text-xs italic text-gemma-subtle">No description.</div>
+        )}
+      </div>
+
+      {/* Annotations — chips drive the include/exclude filter state. */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wider text-gemma-subtle font-medium">
+            Annotations
+          </span>
+          <HelpHint
+            label="Annotations"
+            body={
+              "Ontology terms tagged on this dataset. Color = source:" +
+              "\n· blue = biomaterial (sample-level metadata)" +
+              "\n· green = experiment tag (whole-experiment)" +
+              "\n· amber = factor value (experimental design)." +
+              "\nClick a chip to add it as a filter; click again to remove."
+            }
+          />
+          {ann.isLoading ? (
+            <span className="text-[11px] italic text-gemma-subtle">loading…</span>
+          ) : null}
+        </div>
+        {!ann.isLoading && mainTerms.length === 0 && Object.keys(grouped).length === 0 ? (
+          <div className="text-xs italic text-gemma-subtle">No annotations.</div>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {mainTerms.map((t) => {
+              const sel = isSelectable(t);
+              const unsel = isUnselectable(t);
+              const interactive = sel || unsel;
+              return (
+                <button
+                  key={getId(t)}
+                  onClick={() => interactive && handleClick(t)}
+                  disabled={!interactive}
+                  className={`chip ${chipColor(t.objectClass)} ${interactive ? "cursor-pointer hover:shadow-sm" : "cursor-default opacity-80"}`}
+                  title={`${(t.className ?? "").charAt(0).toUpperCase() + (t.className ?? "").slice(1)}: ${t.termUri ?? "free text"} via ${t.objectClass}`}
+                >
+                  {titleCase(t.termName ?? "")}
+                  {sel ? <Plus className="h-3 w-3" /> : unsel ? <Minus className="h-3 w-3" /> : null}
+                </button>
+              );
+            })}
+            {Object.keys(grouped).map((cls) => (
+              <span key={cls} className="contents">
+                <button
+                  onClick={() => setGroupedOpen({ ...groupedOpen, [cls]: !groupedOpen[cls] })}
+                  className="chip border-gemma-grid bg-white text-gemma-subtle hover:bg-gray-50"
+                >
+                  {pluralize(cls)} ({grouped[cls].length}) {groupedOpen[cls] ? "▾" : "▸"}
+                </button>
+                {groupedOpen[cls]
+                  ? grouped[cls].map((t) => {
+                      const sel = isSelectable(t);
+                      const unsel = isUnselectable(t);
+                      const interactive = sel || unsel;
+                      return (
+                        <button
+                          key={getId(t)}
+                          onClick={() => interactive && handleClick(t)}
+                          disabled={!interactive}
+                          className={`chip ${chipColor(t.objectClass)} ${interactive ? "cursor-pointer hover:shadow-sm" : "cursor-default opacity-80"}`}
+                          title={`${(t.className ?? "").charAt(0).toUpperCase() + (t.className ?? "").slice(1)}: ${t.termUri ?? "free text"} via ${t.objectClass}`}
+                        >
+                          {titleCase(t.termName ?? "")}
+                          {sel ? <Plus className="h-3 w-3" /> : unsel ? <Minus className="h-3 w-3" /> : null}
+                        </button>
+                      );
+                    })
+                  : null}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+function QualityDot({ value }: { value: number }) {
+  const cls =
+    value > 0.45
+      ? "bg-gemma-accent2"
+      : value > 0.1
+        ? "bg-gemma-accent3"
+        : "bg-gemma-accent4";
+  return (
+    <span
+      className={`inline-block h-2 w-2 rounded-full ${cls}`}
+      aria-hidden
+    />
+  );
+}
+

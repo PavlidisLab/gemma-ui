@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { X as XIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
 import { useImportFromGemma } from "@/api/datasets";
@@ -710,10 +711,7 @@ function DesignSummary({
             </thead>
             <tbody>
               {sortedRows.map((row, i) => (
-                <tr
-                  key={i}
-                  className={i % 2 ? "bg-slate-50/40" : "bg-white"}
-                >
+                <tr key={i}>
                   <td className="px-2 py-1 border border-slate-200 font-mono text-slate-700">
                     {row.count}
                   </td>
@@ -1948,15 +1946,15 @@ function EditableDirectGroupChip({
         {protectedCategory ? null : (
           <button
             type="button"
-            className="ml-0.5 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover/chip:opacity-100"
+            className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-rose-100 hover:text-rose-700 dark:text-emerald-300/70 dark:hover:bg-rose-900/40 dark:hover:text-rose-300"
             onClick={(e) => {
               e.stopPropagation();
               deleteOne(tag.id);
             }}
-            title="delete tag"
-            aria-label="delete tag"
+            title="remove this tag from the experiment"
+            aria-label="remove tag"
           >
-            ×
+            <XIcon size={11} strokeWidth={2.5} />
           </button>
         )}
       </span>
@@ -2048,15 +2046,15 @@ function EditableDirectGroupChip({
                 {protectedCategory ? null : (
                   <button
                     type="button"
-                    className="ml-1 text-emerald-700/60 hover:text-rose-700 opacity-0 group-hover:opacity-100"
+                    className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-rose-100 hover:text-rose-700 dark:text-emerald-300/70 dark:hover:bg-rose-900/40 dark:hover:text-rose-300"
                     onClick={(e) => {
                       e.stopPropagation();
                       deleteOne(tag.id);
                     }}
-                    title="delete tag"
-                    aria-label="delete tag"
+                    title="remove this tag from the experiment"
+                    aria-label="remove tag"
                   >
-                    ×
+                    <XIcon size={11} strokeWidth={2.5} />
                   </button>
                 )}
               </span>

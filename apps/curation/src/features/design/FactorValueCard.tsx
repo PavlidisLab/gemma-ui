@@ -387,10 +387,10 @@ export function FactorValueCard({
                 fv.biomaterial_short_names.length === 1 ? "" : "s"
               } and ${fv.statements.length} statement${
                 fv.statements.length === 1 ? "" : "s"
-              }.\n\nNothing is committed until you click Commit at the bottom.`
+              }.`
             : `Removes ${fv.statements.length} statement${
                 fv.statements.length === 1 ? "" : "s"
-              }.\n\nNothing is committed until you click Commit at the bottom.`
+              }.`
         }
         confirmLabel="delete FV"
         onConfirm={() => {

@@ -36,6 +36,7 @@ export function resolveConfig(data: HeatmapData, config: HeatmapConfig | undefin
     fontFamily: c.fontFamily ?? 'Helvetica, Arial, sans-serif',
     maxColLabelPx: c.maxColLabelPx ?? 120,
     annotationStripHeight: c.annotationStripHeight ?? 12,
+    annotationStripGap: c.annotationStripGap ?? 2,
   };
 }
 
