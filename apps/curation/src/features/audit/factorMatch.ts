@@ -26,7 +26,12 @@
  * eval-repo ``docs/HANDOFF_2026-05-18_UI_FACTOR_MATCH_PAIRING.md``.
  */
 import type { AuditFinding } from "@/api/auditTypes";
-import type { FactorProposal, Proposal } from "@/api/types";
+import type {
+  FactorProposal,
+  FactorValueProposal,
+  Proposal,
+} from "@/api/types";
+import type { Factor, FactorValue } from "@/features/experiment/types";
 
 /** Match-code variant. ``legacy`` is the pre-split
  *  ``calibration_factor_match`` code that older builds still emit. */
@@ -129,4 +134,170 @@ export function resolveAgentFactor(
       (f) => (f.category.label || "").toLowerCase().trim() === label,
     ) ?? null
   );
+}
+
+/** Per-FV pairing between an agent factor and its paired gold
+ *  factor. ``status`` mirrors the audit-side FvStatusGlyph:
+ *    - ``"exact"``      — labels match (or ``match_type === "exact"``)
+ *    - ``"near"``       — paired (via gemma_ref or biomaterial overlap)
+ *                          but labels differ
+ *    - ``"agent_only"`` — no Gemma counterpart even after biomaterial
+ *                          fallback
+ *  ``gemmaLabel`` carries the paired Gemma FV's label, empty when
+ *  agent-only. */
+export type FvPairingStatus = "exact" | "near" | "agent_only";
+export interface FvPairing {
+  status: FvPairingStatus;
+  gemmaLabel: string;
+  pairedGoldId: number | null;
+}
+
+/** Compute the per-FV correspondence between an agent factor and the
+ *  Gemma factor the audit paired it with. Three lookup paths per
+ *  agent FV, mirroring ``RenameFactorEmbed``:
+ *
+ *    1. ``gemma_ref`` on the proposal (proposer's pre-computed
+ *       alignment).
+ *    2. Biomaterial-overlap against unconsumed gold FVs (partition-
+ *       equal pairing — works even when the proposer didn't emit a
+ *       gemma_ref).
+ *    3. Genuinely unpaired → ``agent_only``.
+ *
+ *  Returns the per-FV pairings, the gold FVs the agent didn't claim
+ *  (``goldOnly``), and a derived ``hasDrift`` flag that is true iff
+ *  any FV pair isn't an exact label/URI match. Use ``hasDrift`` to
+ *  decide whether a factor-level "exact" classification should be
+ *  visually downgraded — a calibration_factor_match_exact whose FVs
+ *  don't all line up is still drifted from the curator's POV. */
+export function computeFvCorrespondence(
+  agentFactor: FactorProposal,
+  goldFactor: Factor | undefined,
+): { pairings: FvPairing[]; goldOnly: FactorValue[]; hasDrift: boolean } {
+  if (!goldFactor) {
+    const pairings: FvPairing[] = (agentFactor.factor_values ?? []).map(
+      (fv) => {
+        const refLabel = fv.gemma_ref?.label?.trim() || "";
+        const refUri = fv.gemma_ref?.uri?.trim() || "";
+        if (!refLabel && !refUri) {
+          return { status: "agent_only", gemmaLabel: "", pairedGoldId: null };
+        }
+        const isExact =
+          fv.match_type === "exact" ||
+          (fv.free_text_label || "").toLowerCase().trim() ===
+            refLabel.toLowerCase();
+        return {
+          status: isExact ? "exact" : "near",
+          gemmaLabel: refLabel,
+          pairedGoldId: null,
+        };
+      },
+    );
+    return {
+      pairings,
+      goldOnly: [],
+      hasDrift: pairings.some((p) => p.status !== "exact"),
+    };
+  }
+
+  const consumed = new Set<number>();
+  const pairings: FvPairing[] = (agentFactor.factor_values ?? []).map(
+    (fv: FactorValueProposal) => {
+      let refLabel = fv.gemma_ref?.label?.trim() || "";
+      const refUri = fv.gemma_ref?.uri?.trim() || "";
+      let pairedId: number | null = null;
+      // Path 1: gemma_ref → resolve to a gold FV id.
+      if ((refLabel || refUri)) {
+        const byUri = refUri
+          ? goldFactor.factor_values.find((gfv) =>
+              gfv.statements.some(
+                (s) =>
+                  s.subject?.uri === refUri || s.object?.uri === refUri,
+              ),
+            )
+          : undefined;
+        const byLabel = !byUri && refLabel
+          ? goldFactor.factor_values.find(
+              (gfv) =>
+                (gfv.free_text_label || "").toLowerCase().trim() ===
+                refLabel.toLowerCase(),
+            )
+          : undefined;
+        const hit = byUri ?? byLabel;
+        if (hit) pairedId = hit.id;
+      }
+      // Path 2: biomaterial-overlap fallback.
+      if (!refLabel && !refUri) {
+        const agentBms = new Set(fv.biomaterial_short_names);
+        let best = 0;
+        let bestGfv: FactorValue | null = null;
+        for (const gfv of goldFactor.factor_values) {
+          if (consumed.has(gfv.id)) continue;
+          let n = 0;
+          for (const bm of gfv.biomaterial_short_names) {
+            if (agentBms.has(bm)) n++;
+          }
+          if (n > best) {
+            best = n;
+            bestGfv = gfv;
+          }
+        }
+        if (bestGfv) {
+          refLabel = bestGfv.free_text_label || "";
+          pairedId = bestGfv.id;
+        }
+      }
+      if (pairedId != null) consumed.add(pairedId);
+      if (!refLabel && !refUri) {
+        return { status: "agent_only", gemmaLabel: "", pairedGoldId: null };
+      }
+      const isExact =
+        fv.match_type === "exact" ||
+        (fv.free_text_label || "").toLowerCase().trim() ===
+          refLabel.toLowerCase();
+      return {
+        status: isExact ? "exact" : "near",
+        gemmaLabel: refLabel,
+        pairedGoldId: pairedId,
+      };
+    },
+  );
+  const goldOnly = goldFactor.factor_values.filter(
+    (gfv) => !consumed.has(gfv.id),
+  );
+  const hasDrift =
+    pairings.some((p) => p.status !== "exact") || goldOnly.length > 0;
+  return { pairings, goldOnly, hasDrift };
+}
+
+/** Pair an agent factor to a *specific* gold factor when multiple
+ *  Gemma factors share the same category slug (multi-factor-same-
+ *  category designs, e.g. GSE93824's two ``genotype`` factors).
+ *  Picks the gold candidate whose biomaterial assignments overlap
+ *  the agent's most. Returns the single candidate when there's no
+ *  ambiguity, ``undefined`` when none match. */
+export function pickGoldFactor(
+  agentFactor: FactorProposal | null,
+  goldCandidates: Factor[],
+): Factor | undefined {
+  if (goldCandidates.length === 0) return undefined;
+  if (goldCandidates.length === 1) return goldCandidates[0];
+  if (!agentFactor) return goldCandidates[0];
+  const agentBms = new Set(
+    agentFactor.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+  );
+  let best = -1;
+  let pick: Factor | undefined;
+  for (const g of goldCandidates) {
+    let overlap = 0;
+    for (const gfv of g.factor_values) {
+      for (const bm of gfv.biomaterial_short_names) {
+        if (agentBms.has(bm)) overlap++;
+      }
+    }
+    if (overlap > best) {
+      best = overlap;
+      pick = g;
+    }
+  }
+  return pick;
 }

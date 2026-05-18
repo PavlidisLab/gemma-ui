@@ -46,9 +46,11 @@ import {
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import {
+  computeFvCorrespondence,
   factorMatchVariant,
   isCloseFactorMatch,
   isExactFactorMatch,
+  pickGoldFactor,
   resolveAgentFactor,
 } from "./factorMatch";
 
@@ -1258,8 +1260,9 @@ function parseRenameLabels(
  *  a glance without losing the dense match-row affordance. */
 function MatchFindingRow({ finding }: { finding: AuditFinding }) {
   const [open, setOpen] = useState(false);
-  const { activeFindingKey, setActiveFindingKey, dispositionByTarget, report } =
+  const { activeFindingKey, setActiveFindingKey, dispositionByTarget, report, experimentId } =
     useAudit();
+  const { data: serverDesign } = useDesign(experimentId);
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
   const isClosed =
@@ -1307,13 +1310,31 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
     return labels.length > 2 ? `${head} / …` : head;
   }, [agentFactor]);
 
-  // Visual split: exact (and tag matches) get green ✓ + "= Gemma";
-  // close (or the legacy ``calibration_factor_match`` at ok severity,
-  // which we treat as close per the 2026-05-18 handoff) gets amber
-  // ≈ + "peek to confirm" so the row reads as "look but don't
-  // necessarily act" at a glance.
-  const isClose = isCloseFactorMatch(finding);
-  const isExact = isExactFactorMatch(finding);
+  // Derive whether any FV-level drift exists so the top-level row
+  // glyph stays honest: a green ✓ "= Gemma" + an inner row that
+  // shows "+ not in Gemma" reads as a contradiction. Same pairing
+  // logic the expanded body uses (``computeFvCorrespondence``), so
+  // the two surfaces never disagree.
+  const fvDrift = useMemo(() => {
+    if (!agentFactor || !serverDesign) return false;
+    const goldCandidates = serverDesign.factors.filter(
+      (f) =>
+        f.category.label.toLowerCase().trim() ===
+        agentFactor.category.label.toLowerCase().trim(),
+    );
+    const goldFactor = pickGoldFactor(agentFactor, goldCandidates);
+    if (!goldFactor) return false;
+    return computeFvCorrespondence(agentFactor, goldFactor).hasDrift;
+  }, [agentFactor, serverDesign]);
+
+  // Visual split. Factor-level isExact / isClose comes from the
+  // issue code (the agent's verdict). If FV-correspondence detects
+  // drift, downgrade an "exact" to behave like "close" so the row
+  // doesn't claim a green-check clean match while showing yellow
+  // FV mismatches below.
+  const rawExact = isExactFactorMatch(finding);
+  const isClose = isCloseFactorMatch(finding) || (rawExact && fvDrift);
+  const isExact = rawExact && !fvDrift;
 
   return (
     <div
@@ -1438,7 +1459,31 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
           {finding.target_kind === "factor" ? (
             <RenameFactorEmbed finding={finding} />
           ) : null}
-          <AgentSuggestionPanel finding={finding} />
+          {/* AgentSuggestionPanel re-renders the proposer_term, which
+              MatchCompareCard above already shows for tag matches —
+              the duplicate "SUGGESTION" block ends up echoing
+              "dorsal root ganglion UBERON:0000044" right after the
+              "what matched" comparison. Skip it on confirmed matches
+              unless there's a defender verdict (rare on matches; the
+              defender doesn't usually run on _match findings) or a
+              non-calibration fix text that adds real new info. */}
+          {(() => {
+            const dv = finding.defender_verdict;
+            const hasDefender = !!(
+              dv &&
+              (dv.rationale || dv.citation || dv.verdict)
+            );
+            const isCalibrationCode =
+              finding.issue_code === "calibration_gold_only_miss" ||
+              finding.issue_code === "calibration_match" ||
+              finding.issue_code === "calibration_agent_extra";
+            const fixAdds =
+              !isCalibrationCode &&
+              !!(finding.suggested_fix && finding.suggested_fix.trim());
+            return hasDefender || fixAdds ? (
+              <AgentSuggestionPanel finding={finding} />
+            ) : null;
+          })()}
           <FindingActionRow finding={finding} />
         </div>
       ) : null}
@@ -1514,6 +1559,14 @@ function MatchCompareCard({
   const hasStatements = (finding.proposer_statements?.length ?? 0) > 0;
   // Nothing structured to show — fall back silently.
   if (!hasTerm && !hasStatements) return null;
+  // When both sides report the same label AND the agent shipped a URI,
+  // the match is mechanically identical and the "verify in context"
+  // hedge reads as cargo-culted caution. Hide it for those cases — the
+  // ≡ glyph + URI already say enough.
+  const labelsIdentical =
+    !!term?.label &&
+    term.label.trim().toLowerCase() === (label || "").trim().toLowerCase();
+  const showVerifyCaption = !(labelsIdentical && !!term?.uri);
   return (
     <div className="rounded border border-emerald-200/60 dark:border-emerald-700/40 bg-white/70 dark:bg-slate-900/30 p-1.5 space-y-1">
       <div className="text-[9px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -1553,11 +1606,13 @@ function MatchCompareCard({
           </a>
         </div>
       ) : null}
+      {showVerifyCaption ? (
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] text-slate-500 dark:text-slate-400 italic">
           Matches can still differ subtly — verify in context.
         </span>
       </div>
+      ) : null}
     </div>
   );
 }
