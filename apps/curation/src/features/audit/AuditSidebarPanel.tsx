@@ -37,7 +37,7 @@ import type {
   Severity,
 } from "@/api/auditTypes";
 import type { Design } from "@/features/experiment/types";
-import type { FactorValueProposal, SubtaskDecision } from "@/api/types";
+import type { FactorProposal, FactorValueProposal, SubtaskDecision } from "@/api/types";
 import {
   DesignComparisonPanel,
   SubtaskDecisionRow,
@@ -2340,6 +2340,172 @@ function StatementChip({
   );
 }
 
+/** Gold-side factor embed for ``calibration_factor_gold_only_miss``
+ *  findings — the agent didn't propose this factor, so the gold side
+ *  is primary. Mirrors ``RenameFactorEmbed``'s shape so the visual
+ *  rhythm stays consistent across (match, extra, miss) cards.
+ *
+ *  Looks up the gold factor via target_id slug (with biomaterial-
+ *  overlap disambiguation for multi-factor-same-category) and tries
+ *  to surface a paired agent factor pointer when biomaterial overlap
+ *  hints at one — same heuristic the extra side uses, so a demoted
+ *  near-match pair's two cards can be visually correlated by curators
+ *  scanning the column. */
+function GoldFactorMissEmbed({ finding }: { finding: AuditFinding }) {
+  const { report, experimentId } = useAudit();
+  const { data: serverDesign } = useDesign(experimentId);
+  const cp = report?.evidence?.comparison_proposal ?? null;
+
+  // Pull the gold factor's label from the rationale's first
+  // backticked token (same trick the headline uses).
+  const firstBacktick = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? "";
+  const goldSlug = firstBacktick.toLowerCase().trim();
+  const goldCandidates =
+    serverDesign?.factors.filter(
+      (f) => f.category.label.toLowerCase().trim() === goldSlug,
+    ) ?? [];
+  // Multi-factor-same-category disambiguation: pick the gold factor
+  // whose biomaterials overlap the most with any agent factor (the
+  // demoted-near-match pair's agent side). Falls back to first match
+  // for the unambiguous single-factor case.
+  let goldFactor = goldCandidates[0];
+  let pairedAgentFactor: FactorProposal | null = null;
+  if (goldCandidates.length > 0 && cp?.factors?.length) {
+    let bestOverlap = -1;
+    for (const g of goldCandidates) {
+      const gBms = new Set(
+        g.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+      );
+      for (const a of cp.factors) {
+        const aBms = new Set(
+          a.factor_values.flatMap((fv) => fv.biomaterial_short_names),
+        );
+        let overlap = 0;
+        for (const bm of aBms) if (gBms.has(bm)) overlap++;
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          goldFactor = g;
+          pairedAgentFactor = bestOverlap > 0 ? a : null;
+        }
+      }
+    }
+  }
+  if (!goldFactor) return null;
+
+  // Agent FV label lookup for the inline "↔ agent: <label>" hint per
+  // gold FV. Built from the paired agent factor's biomaterial sets.
+  const agentFvByBiomaterial = new Map<string, string>();
+  if (pairedAgentFactor) {
+    for (const afv of pairedAgentFactor.factor_values) {
+      for (const bm of afv.biomaterial_short_names) {
+        agentFvByBiomaterial.set(bm, afv.free_text_label || "");
+      }
+    }
+  }
+  function agentLabelForGoldFv(
+    gfv: typeof goldFactor.factor_values[number],
+  ): string {
+    if (!pairedAgentFactor) return "";
+    // Pick the most-common agent label across this gold FV's
+    // biomaterials. If they all agree, we get a clean pairing.
+    const counts = new Map<string, number>();
+    for (const bm of gfv.biomaterial_short_names) {
+      const lab = agentFvByBiomaterial.get(bm);
+      if (!lab) continue;
+      counts.set(lab, (counts.get(lab) ?? 0) + 1);
+    }
+    let best = "";
+    let bestN = 0;
+    for (const [lab, n] of counts) {
+      if (n > bestN) {
+        best = lab;
+        bestN = n;
+      }
+    }
+    return best;
+  }
+
+  return (
+    <div className="px-2 py-1.5 rounded bg-white/60 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-1">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 flex-wrap">
+        <span>Gemma factor</span>
+        <span className="font-mono text-slate-700 dark:text-slate-200 normal-case tracking-normal">
+          {goldFactor.category.label}
+        </span>
+        {goldFactor.name &&
+        goldFactor.name.toLowerCase().trim() !==
+          goldFactor.category.label.toLowerCase().trim() ? (
+          <span className="text-slate-400 dark:text-slate-500 italic normal-case tracking-normal">
+            ({goldFactor.name})
+          </span>
+        ) : null}
+        {pairedAgentFactor ? (
+          <span
+            className="text-slate-400 dark:text-slate-500 normal-case tracking-normal inline-flex items-baseline gap-1"
+            title="biomaterial overlap suggests the agent proposed this same partition under a different category"
+          >
+            <span>↔</span>
+            <span className="text-slate-500 dark:text-slate-400 uppercase tracking-wide text-[9px]">
+              agent
+            </span>
+            <span className="font-mono text-slate-700 dark:text-slate-200">
+              {pairedAgentFactor.category.label}
+            </span>
+          </span>
+        ) : null}
+        <span className="text-slate-400 dark:text-slate-500 ml-auto normal-case tracking-normal">
+          {goldFactor.factor_values.length}{" "}
+          {goldFactor.factor_values.length === 1 ? "value" : "values"}
+        </span>
+      </div>
+      <div className="space-y-1 pl-1">
+        {goldFactor.factor_values.map((gfv) => {
+          const agentLab = agentLabelForGoldFv(gfv);
+          const sameLabel =
+            agentLab &&
+            agentLab.toLowerCase().trim() ===
+              (gfv.free_text_label || "").toLowerCase().trim();
+          const status: "exact" | "near" | "gold_only" = !agentLab
+            ? "gold_only"
+            : sameLabel
+              ? "exact"
+              : "near";
+          return (
+            <div
+              key={gfv.id}
+              className="text-[11px] flex items-center gap-1 flex-wrap"
+            >
+              <FvStatusGlyph status={status} />
+              <span className="font-mono text-slate-900 dark:text-slate-100 truncate">
+                {gfv.free_text_label || "(unnamed)"}
+              </span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                ({gfv.biomaterial_short_names.length})
+              </span>
+              {status === "near" ? (
+                <span
+                  className="text-[10px] text-amber-700 dark:text-amber-300 italic"
+                  title="agent put these biomaterials under a different label"
+                >
+                  ↔ agent: <span className="font-mono not-italic">{agentLab}</span>
+                </span>
+              ) : null}
+              {status === "gold_only" ? (
+                <span
+                  className="text-[10px] text-amber-700 dark:text-amber-300 italic"
+                  title="agent didn't claim this partition under any factor"
+                >
+                  not in agent proposal
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Compact FV-pairs table for an alternate-factor finding without a
  *  structured comparison_proposal. Fallback view; the richer
  *  `RenameFactorEmbed` is preferred when the agent's factor proposal
@@ -2744,6 +2910,23 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 <span>{finding.citation}</span>
               )}
             </div>
+          ) : null}
+
+          {/* For factor-kind extra/miss findings, render the same
+              FV-correspondence detail the match cards use so the
+              visual shape stays consistent across (match, extra,
+              miss) — curators see exactly the same agent FVs +
+              ↔ Gemma pairing + ✓ / ≈ / + / − glyphs whether the
+              finding lived through the stricter near-match gate or
+              got demoted out of it. For miss findings the gold side
+              is primary; we use GoldFactorMissEmbed instead. */}
+          {finding.target_kind === "factor" &&
+          finding.issue_code === "calibration_factor_extra" ? (
+            <RenameFactorEmbed finding={finding} />
+          ) : null}
+          {finding.target_kind === "factor" &&
+          finding.issue_code === "calibration_factor_gold_only_miss" ? (
+            <GoldFactorMissEmbed finding={finding} />
           ) : null}
 
           <AgentSuggestionPanel finding={finding} />
