@@ -34,8 +34,10 @@ import type {
 import type { Factor, FactorValue } from "@/features/experiment/types";
 
 /** Match-code variant. ``legacy`` is the pre-split
- *  ``calibration_factor_match`` code that older builds still emit. */
-export type FactorMatchVariant = "exact" | "close" | "legacy";
+ *  ``calibration_factor_match`` code that older builds still emit.
+ *  ``near`` covers both ``_near`` (post-stricter-gate, 2026-05-18)
+ *  and ``_close`` (the earlier name) — same render path. */
+export type FactorMatchVariant = "exact" | "near" | "legacy";
 
 /** Classify a finding's ``issue_code`` against the factor-match codes.
  *  Returns ``null`` for anything else (including the rename code,
@@ -45,7 +47,14 @@ export function factorMatchVariant(
 ): FactorMatchVariant | null {
   if (!issue_code) return null;
   if (issue_code === "calibration_factor_match_exact") return "exact";
-  if (issue_code === "calibration_factor_match_close") return "close";
+  // Two wire spellings for the same concept: brother renamed _close
+  // → _near alongside the stricter near-match gate (2026-05-18).
+  // Keep both so audit.json files from either era render the same.
+  if (
+    issue_code === "calibration_factor_match_near" ||
+    issue_code === "calibration_factor_match_close"
+  )
+    return "near";
   if (issue_code === "calibration_factor_match") return "legacy";
   return null;
 }
@@ -67,19 +76,22 @@ export function isExactFactorMatch(f: AuditFinding): boolean {
   return f.issue_code === "calibration_factor_match_exact";
 }
 
-/** Whether the finding is a "close — peek to confirm" match. Covers
- *  both the new ``_close`` code and the legacy ``calibration_factor_
- *  match`` code (the conservative default per the 2026-05-18 handoff:
- *  older builds didn't distinguish exact from close, so treating the
- *  legacy code as ``_close`` errs on the side of curator attention).
+/** Whether the finding is a "near — peek to confirm" match. Covers
+ *  three wire spellings:
+ *    - ``calibration_factor_match_near``   (post-2026-05-18 stricter gate)
+ *    - ``calibration_factor_match_close``  (earlier name for the same idea)
+ *    - ``calibration_factor_match`` at ok severity (legacy pre-split;
+ *      conservative default: older builds didn't distinguish exact
+ *      from close, so treating the legacy code as near errs on the
+ *      side of curator attention)
  *
  *  Excludes the rename case (legacy code with non-ok severity is a
- *  rename, not a close match — see ``isRenameMatch`` in
+ *  rename, not a near match — see ``isRenameMatch`` in
  *  ``AuditSidebarPanel.tsx``). */
 export function isCloseFactorMatch(f: AuditFinding): boolean {
+  if (f.issue_code === "calibration_factor_match_near") return true;
   if (f.issue_code === "calibration_factor_match_close") return true;
   if (f.issue_code === "calibration_factor_match" && f.severity === "ok") {
-    // Legacy ok-severity match: treat as close (peek to confirm).
     return true;
   }
   return false;

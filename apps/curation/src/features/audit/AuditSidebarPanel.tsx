@@ -1197,7 +1197,7 @@ function isMatchFinding(f: AuditFinding): boolean {
   if (f.issue_code === "calibration_match") return f.severity === "ok";
   const v = factorMatchVariant(f.issue_code);
   if (v === "exact") return true;
-  if (v === "close") return true;
+  if (v === "near") return true;
   if (v === "legacy") {
     // Legacy ``calibration_factor_match``: severity=ok is a match;
     // severity!=ok is a category rename and goes through

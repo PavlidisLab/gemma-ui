@@ -67,9 +67,12 @@ function finding(partial: Partial<AuditFinding>): AuditFinding {
 }
 
 describe("factorMatchVariant", () => {
-  it("classifies the three factor-match codes", () => {
+  it("classifies the factor-match codes", () => {
     expect(factorMatchVariant("calibration_factor_match_exact")).toBe("exact");
-    expect(factorMatchVariant("calibration_factor_match_close")).toBe("close");
+    // Both _near (post-2026-05-18) and _close (earlier name) map to
+    // the same render path.
+    expect(factorMatchVariant("calibration_factor_match_near")).toBe("near");
+    expect(factorMatchVariant("calibration_factor_match_close")).toBe("near");
     expect(factorMatchVariant("calibration_factor_match")).toBe("legacy");
   });
 
