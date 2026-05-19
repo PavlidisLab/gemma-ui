@@ -7,6 +7,83 @@ the product.
 
 ---
 
+## Lifecycle state diagram
+
+![Lifecycle](../../../gemma-curation-agents-eval/docs/figures/workflow_lifecycle.svg)
+
+Figure source: `gemma-curation-agents-eval/scripts/build_workflow_lifecycle_figure.py`.
+Caption: `gemma-curation-agents-eval/decks/CAPTIONS.md`.
+
+The full journey from a GEO accession (or a date-range scrape) to a public
+Gemma experiment runs through **eight states**, with three orthogonal layers
+hanging off the main flow:
+
+### Main flow
+
+| State | Entity in Gemma | Driver |
+|---|---|---|
+| **Discovery** | none — external GEO query | Scraper (deterministic) + AI relevance filter |
+| **Candidate** | `Candidate` row in the curation DB (no Gemma ID) | AI recommends "should we load?" → curator triages |
+| **Skeleton** | `SkeletonInvestigation` ⊂ `Investigation` + append-only `AgentProposal` (JSON) | Proposer agent (Opus / chain / arbiter) |
+| **Loaded** | `ExpressionExperiment` exists; data + autofill arrived (taxon, platform, PMID) | Gemma data pipeline (deterministic) |
+| **Curate** | EE has design + tags being built | Proposer + curator review |
+| **Process** | QC, MV analysis, batch info, vectors, DEA | Gemma pipelines (deterministic) |
+| **Audit** | `AuditReport` artifact + audit events written to Gemma | Auditor agent + curator dispositions |
+| **Public** | EE published | Curator decision against the pre-public checklist |
+
+### Recuration loop
+
+Audit → Curate is a hard arrow, not a soft one. When the auditor flags a
+problem and the curator accepts the disposition, the experiment returns to
+the Curate state with the audit's findings as the worklist. The
+`PUT /curationDetails` writeback (shipped 2026-05-18) plus a future
+`PUT /design` are what make this loop closeable in production.
+
+### Cross-cutting layer 1 — task tickets
+
+Independent of the linear lifecycle, the system carries **task tickets**:
+specific work items targeted at one or more experiments. Examples that
+matter today:
+
+- "needs alignment to genome" — a deterministic pipeline gap
+- "outlier review" — a curator review against the Diagnostics tab
+- "batch confound revisit" — usually GEEQ-triggered
+- "publication relink" — when CC1 / PMID lookup updates
+- "tag drift sweep" — a periodic check across already-curated EEs
+
+Tickets can fire against any lifecycle state. They are a separate object
+type from audits (which are produced by the auditor agent and consumed
+through dispositions) — a ticket is "do this specific thing" rather than
+"react to this finding."
+
+### Cross-cutting layer 2 — evaluations
+
+Evaluations are also state-targeted but produce **metrics rather than
+curation actions**. The current eval harness (holdout sets, calibration
+packages, ablations, inter-curator agreement runs, regression guardrails)
+lives in `gemma-curation-agents-eval` and reads from the Audit-state
+artifacts plus, in some cases, fresh Skeleton-state runs. Treating
+evaluations as a first-class workflow object lets us:
+
+- queue a benchmark run from the same UI curators use
+- carry the same provenance + dispositions back into the audit trail
+- avoid the current "evals exist in a parallel universe from production
+  curation" split
+
+### Two-world boundary
+
+The Discovery + Candidate states are **the screening world** — external
+accession only, no Gemma ID. Skeleton onwards is **the Gemma world** —
+every state has an Investigation row, an ID, ACLs, audit trail. Crossing
+the boundary (Candidate → Skeleton) is a one-way promotion; screening
+provenance carries forward as read-only history.
+
+See `~/Dev/eclipseworkspace/Gemma/AGENT_WRITEBACK_RECCE.md` for the
+Gemma-side schema sketch (Investigation subclass + append-only
+AgentProposal entity holding the JSON payload).
+
+---
+
 ## The full curation pipeline
 
 From Confluence (`How-to-Curate-an-Experiment`), order is "partly arbitrary":
