@@ -44,8 +44,14 @@ export const COPY = {
 } as const;
 
 /** Top-line navigation surfaces shown on every variant.
- *  Each variant decides its own visual treatment. */
-export const SURFACES = [
+ *  Each variant decides its own visual treatment.
+ *  `to: null` means the page isn't built yet — variants render a
+ *  grayed-out card. */
+export const SURFACES: ReadonlyArray<{
+  to: string | null;
+  label: string;
+  blurb: string;
+}> = [
   {
     to: "/browser",
     label: "Datasets",
@@ -57,13 +63,13 @@ export const SURFACES = [
     blurb: "Microarray and sequencing platforms — manufacturer, technology, taxon.",
   },
   {
-    to: null, // not yet built
+    to: "/genes",
     label: "Genes",
-    blurb: "Coming soon — per-gene expression and coexpression views.",
+    blurb: "Per-gene expression and differential expression results across datasets.",
   },
   {
-    to: null,
+    to: "/about",
     label: "About",
-    blurb: "Coming soon — pipeline, citation, and contact.",
+    blurb: "Pipeline, citation, team, licenses, and programmatic access.",
   },
-] as const;
+];

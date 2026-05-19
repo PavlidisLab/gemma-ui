@@ -18,11 +18,13 @@ export function AppBar() {
       <nav className="flex items-center gap-1 ml-4">
         <NavTab to="/browser">Datasets</NavTab>
         <NavTab to="/platforms">Platforms</NavTab>
+        <NavTab to="/genes">Genes</NavTab>
         <NavTab to="/summary">Summary</NavTab>
       </nav>
 
       <div className="flex-1" />
 
+      <NavTab to="/about">About</NavTab>
       <a
         href={gemmaUrl("/expressionExperiment/showAllExpressionExperiments.html")}
         className="text-sm text-gemma-subtle hover:text-gemma-ink hover:no-underline"

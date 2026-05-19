@@ -1,21 +1,6 @@
 // Public, read-only Expression Experiment page.
-//
-// Mirrors the curator-UI banner-with-tabs pattern (see
-// apps/curation/src/features/experiment/ExperimentBanner.tsx) so the
-// two surfaces feel like the same product. Tabs:
-//   - Overview     description + annotations + meta
-//   - Design       factors × FVs × per-FV sample counts (placeholder)
-//   - Samples      per-sample biomaterial table (placeholder)
-//   - Expression   DE analyses + heatmap viz (synthetic for now)
-//   - Downloads    bulk data + metadata links
-//
-// Tab state lives in the URL search-param `?tab=` so a curator can
-// link directly to a specific section. Sections that need backend
-// endpoints we haven't wired render skeleton bodies with a small
-// "backend wire pending" badge — keeps the layout honest about what
-// will land where (see Backend gaps note at bottom of this file).
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { marked } from "marked";
@@ -23,23 +8,35 @@ import { ExternalLink } from "lucide-react";
 import {
   getDatasetById,
   getDatasetAnnotations,
+  getDatasetDesign,
+  getDatasetSamples,
+  getDatasetPublications,
+  getDatasetPipelineStatus,
+  getDatasetDiffExAnalyses,
+  getDatasetSvd,
+  getDatasetGeeq,
 } from "@/api/endpoints";
 import { gemmaUrl } from "@/lib/gemmaConfig";
-import {
-  HeatmapWidget,
-  type CategoricalAnnotation,
-  type HeatmapData,
-} from "@/lib/heatmap";
-import type { Dataset, DatasetAnnotation } from "@/lib/types";
+import type {
+  Dataset,
+  DatasetAnnotation,
+  BioAssay,
+  ExperimentalDesign,
+  Publication,
+  PipelineStatus,
+  DiffExAnalysis,
+  SvdResult,
+  GeeqScores,
+} from "@/lib/types";
 
 type TabId = "overview" | "design" | "samples" | "expression" | "downloads";
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "design", label: "Design" },
-  { id: "samples", label: "Samples" },
-  { id: "expression", label: "Expression" },
-  { id: "downloads", label: "Downloads" },
+  { id: "overview",   label: "Overview"    },
+  { id: "design",     label: "Design"      },
+  { id: "samples",    label: "Samples"     },
+  { id: "expression", label: "Expression"  },
+  { id: "downloads",  label: "Downloads"   },
 ];
 
 function isTabId(s: unknown): s is TabId {
@@ -49,8 +46,6 @@ function isTabId(s: unknown): s is TabId {
 export function DatasetPage() {
   const { id } = useParams({ from: "/dataset/$id" });
   const navigate = useNavigate();
-  // useSearch on a route without validateSearch is loosely typed; we
-  // just want the `tab` param. Fall back to "overview".
   const search = useSearch({ strict: false }) as { tab?: string };
   const activeTab: TabId = isTabId(search.tab) ? search.tab : "overview";
 
@@ -58,84 +53,51 @@ export function DatasetPage() {
     queryKey: ["dataset", id],
     queryFn: ({ signal }) => getDatasetById(id, signal),
   });
-  const ann = useQuery({
-    queryKey: ["datasetAnnotations", id],
-    queryFn: ({ signal }) => getDatasetAnnotations(Number(id), signal),
-    enabled: !!ds.data?.id,
-  });
 
-  if (ds.isLoading) {
-    return (
-      <PageShell>
-        <SkeletonBanner />
-      </PageShell>
-    );
-  }
+  if (ds.isLoading) return <PageShell><SkeletonBanner /></PageShell>;
   if (ds.isError || !ds.data) return <NotFoundCard id={id} />;
 
   const dataset = ds.data;
-  const annotations = ann.data?.data ?? [];
 
-  const setTab = (id: TabId) =>
+  const setTab = (tab: TabId) =>
     navigate({
       to: "/dataset/$id",
       params: { id: dataset.shortName ?? String(dataset.id) },
-      search: id === "overview" ? {} : { tab: id },
+      search: tab === "overview" ? {} : { tab },
       replace: true,
     });
 
   return (
     <PageShell>
-      <Banner
-        dataset={dataset}
-        annotationCount={annotations.length}
-        activeTab={activeTab}
-        onTabChange={setTab}
-      />
+      <Banner dataset={dataset} activeTab={activeTab} onTabChange={setTab} />
       <div className="mx-auto w-full max-w-[1200px] px-6 py-6 space-y-6">
-        {activeTab === "overview" && (
-          <OverviewTab dataset={dataset} annotations={annotations} annLoading={ann.isLoading} />
-        )}
-        {activeTab === "design" && <DesignTab />}
-        {activeTab === "samples" && <SamplesTab nSamples={dataset.numberOfBioAssays} />}
-        {activeTab === "expression" && <ExpressionTab />}
-        {activeTab === "downloads" && <DownloadsTab dataset={dataset} />}
+        {activeTab === "overview"   && <OverviewTab   dataset={dataset} />}
+        {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
+        {activeTab === "expression" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "downloads"  && <DownloadsTab  dataset={dataset} />}
       </div>
     </PageShell>
   );
 }
 
-// ─── Layout shell ────────────────────────────────────────────────────
+// ─── Layout helpers ───────────────────────────────────────────────────────────
 
 function PageShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="h-full overflow-auto bg-slate-50 dark:bg-slate-900">
-      {children}
-    </div>
-  );
+  return <div className="h-full overflow-auto bg-slate-50">{children}</div>;
 }
 
 function SectionCard({
-  title,
-  subtitle,
-  right,
-  children,
+  title, subtitle, right, children,
 }: {
-  title: string;
-  subtitle?: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
+  title: string; subtitle?: string; right?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
-    <section className="bg-white border border-slate-200 rounded shadow-sm dark:bg-slate-800 dark:border-slate-700">
-      <header className="flex items-baseline justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700 gap-3">
+    <section className="bg-white border border-slate-200 rounded shadow-sm">
+      <header className="flex items-baseline justify-between px-5 py-3 border-b border-slate-200 gap-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold tracking-wide">{title}</h2>
-          {subtitle && (
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {subtitle}
-            </p>
-          )}
+          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
         </div>
         {right}
       </header>
@@ -144,98 +106,76 @@ function SectionCard({
   );
 }
 
-// ─── Banner ──────────────────────────────────────────────────────────
+function Empty({ msg }: { msg: string }) {
+  return <p className="text-xs text-slate-500 italic">{msg}</p>;
+}
+
+// ─── Banner ───────────────────────────────────────────────────────────────────
 
 function Banner({
-  dataset,
-  annotationCount,
-  activeTab,
-  onTabChange,
+  dataset, activeTab, onTabChange,
 }: {
-  dataset: Dataset;
-  annotationCount: number;
-  activeTab: TabId;
-  onTabChange: (id: TabId) => void;
+  dataset: Dataset; activeTab: TabId; onTabChange: (t: TabId) => void;
 }) {
   const geo = dataset.accession?.accession;
   const geeq = dataset.geeq?.publicQualityScore;
-  const legacyUrl = gemmaUrl(
-    `/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`,
-  );
+  const legacyUrl = gemmaUrl(`/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`);
+
+  const pipeline = useQuery({
+    queryKey: ["pipelineStatus", dataset.id],
+    queryFn: ({ signal }) => getDatasetPipelineStatus(dataset.id, signal),
+    staleTime: 5 * 60_000,
+  });
+  const ps = pipeline.data ?? null;
 
   return (
-    <section className="sticky top-0 z-10 bg-white border-b border-slate-200 dark:bg-slate-800 dark:border-slate-700">
+    <section className="sticky top-0 z-10 bg-white border-b border-slate-200">
       <div className="h-1 bg-gradient-to-r from-amber-500 via-slate-900 to-sky-500" />
       <div className="mx-auto w-full max-w-[1200px] px-6 py-3 flex gap-4 flex-wrap items-start">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
-            <a
-              href={legacyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-lg font-semibold text-slate-900 hover:underline dark:text-slate-100"
-              title="open on Gemma"
-            >
+            <a href={legacyUrl} target="_blank" rel="noopener noreferrer"
+              className="text-lg font-semibold text-slate-900 hover:underline">
               {dataset.shortName}
             </a>
-            <h1 className="text-sm text-slate-600 dark:text-slate-300 leading-snug min-w-0">
-              {dataset.name}
-            </h1>
+            <h1 className="text-sm text-slate-600 leading-snug min-w-0">{dataset.name}</h1>
           </div>
-          <div className="mt-1 text-xs text-slate-600 dark:text-slate-400 flex flex-wrap gap-x-4 gap-y-1">
+          <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
             {geo && (
-              <a
-                href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${geo}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sky-700 hover:underline inline-flex items-center gap-1 dark:text-sky-300"
-              >
-                {geo}
-                <ExternalLink size={11} />
+              <a href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${geo}`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-sky-700 hover:underline inline-flex items-center gap-1">
+                {geo}<ExternalLink size={11} />
               </a>
             )}
-            <a
-              href={legacyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sky-700 hover:underline inline-flex items-center gap-1 dark:text-sky-300"
-            >
-              view on Gemma
-              <ExternalLink size={11} />
+            <a href={legacyUrl} target="_blank" rel="noopener noreferrer"
+              className="text-sky-700 hover:underline inline-flex items-center gap-1">
+              Gemma<ExternalLink size={11} />
             </a>
           </div>
+          {ps && <PipelineStatusRow ps={ps} />}
         </div>
         {geeq != null && (
-          <span
-            className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700 shrink-0"
-            title="GEEQ quality score (public)"
-          >
-            GEEQ {geeq.toFixed(2)}
+          <GeeqChip datasetId={dataset.id} score={geeq} />
+        )}
+        {ps?.troubled && (
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 shrink-0"
+            title={ps.troubleDetails ?? undefined}>
+            troubled
           </span>
         )}
       </div>
       <div className="mx-auto w-full max-w-[1200px] px-6">
         <nav className="flex items-center gap-1 -mb-px overflow-x-auto">
           {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => onTabChange(t.id)}
-              className={
-                "px-3 py-2 text-sm cursor-pointer border-b-2 bg-transparent " +
+            <button key={t.id} type="button" onClick={() => onTabChange(t.id)}
+              className={"px-3 py-2 text-sm cursor-pointer border-b-2 bg-transparent " +
                 (t.id === activeTab
-                  ? "border-sky-600 text-slate-900 font-medium dark:text-slate-100 dark:border-sky-400"
-                  : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100")
-              }
-            >
+                  ? "border-sky-600 text-slate-900 font-medium"
+                  : "border-transparent text-slate-600 hover:text-slate-900")}>
               {t.label}
-              {t.id === "overview" && annotationCount > 0 && (
-                <span className="ml-1.5 text-[10px] tabular-nums text-slate-400">
-                  {annotationCount}
-                </span>
-              )}
             </button>
           ))}
         </nav>
@@ -244,13 +184,171 @@ function Banner({
   );
 }
 
+const STEP_LABELS: Record<string, string> = {
+  preprocess: "Processed", batchInfo: "Batch", pca: "PCA",
+  sampleCorrelation: "Corr", meanVariance: "MV", dea: "DEA",
+};
+
+function PipelineStatusRow({ ps }: { ps: PipelineStatus }) {
+  const shown = ps.steps.filter(
+    (s) => s.state !== "notApplicable" && s.step in STEP_LABELS,
+  );
+  if (!shown.length) return null;
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+      {shown.map((s) => (
+        <span key={s.step}
+          title={s.lastRun ? `${s.step}: ${s.state} — ${s.lastRun}` : `${s.step}: ${s.state}`}
+          className={
+            "text-[10px] px-1.5 py-0.5 rounded border font-mono " +
+            (s.state === "ok"     ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+             s.state === "failed" ? "bg-red-50 text-red-700 border-red-200" :
+                                    "bg-slate-100 text-slate-500 border-slate-200")
+          }>
+          {STEP_LABELS[s.step]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ─── GEEQ popover ─────────────────────────────────────────────────────────────
+
+const S_SCORE_LABELS: Record<string, string> = {
+  sScorePublication:              "Publication",
+  sScoreOutliers:                 "Few outliers",
+  sScoreSampleMeanCorrelation:    "Sample correlation",
+  sScoreExperimentDesignProblems: "Design (no problems)",
+  sScoreReplicates:               "Has replicates",
+  sScorePlatformTechMulti:        "Single technology",
+  sScorePlatformPopularity:       "Platform popularity",
+};
+
+const Q_SCORE_LABELS: Record<string, string> = {
+  qScoreOutlierLow:           "Outlier detection (low)",
+  qScoreOutlierHigh:          "Outlier detection (high)",
+  qScoreSampleCorrelation:    "Sample correlation",
+  qScorePlatformAmount:       "Platform amount",
+  qScoreReplicateCorrelation: "Replicate correlation",
+  qScoreRawDataAvailable:     "Raw data available",
+  qScoreRawDataSuitable:      "Raw data suitable",
+  qScorePublicBatchEffect:    "Batch effect",
+  qScorePublicBatchConfound:  "Batch confound",
+};
+
+function GeeqChip({ datasetId, score }: { datasetId: number; score: number }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const geeqQ = useQuery({
+    queryKey: ["geeq", datasetId],
+    queryFn: ({ signal }) => getDatasetGeeq(datasetId, signal),
+    enabled: open,
+    staleTime: Infinity,
+  });
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+        title="GEEQ quality score — click for breakdown"
+      >
+        GEEQ {score.toFixed(2)}
+      </button>
+      {open && <GeeqPopover geeq={geeqQ.data ?? null} loading={geeqQ.isLoading} />}
+    </div>
+  );
+}
+
+function GeeqPopover({ geeq, loading }: { geeq: GeeqScores | null; loading: boolean }) {
+  return (
+    <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white border border-slate-200 rounded shadow-lg text-[11px]">
+      <div className="px-3 py-2 border-b border-slate-100 flex items-baseline justify-between">
+        <span className="text-xs font-semibold text-slate-700">GEEQ scores</span>
+        {geeq?.publicSuitabilityScore != null && (
+          <span className="text-slate-500">
+            suitability {geeq.publicSuitabilityScore.toFixed(2)}
+          </span>
+        )}
+      </div>
+      {loading ? (
+        <div className="px-3 py-3 text-slate-400 italic">Loading…</div>
+      ) : !geeq ? (
+        <div className="px-3 py-3 text-slate-400 italic">No GEEQ data.</div>
+      ) : (
+        <div className="divide-y divide-slate-100">
+          <ScoreGroup label="Suitability" scores={geeq} labels={S_SCORE_LABELS} />
+          <ScoreGroup label="Quality" scores={geeq} labels={Q_SCORE_LABELS} />
+        </div>
+      )}
+      <div className="px-3 py-1.5 border-t border-slate-100 text-[10px] text-slate-400">
+        Scores range −1 to 1; higher is better.
+      </div>
+    </div>
+  );
+}
+
+function ScoreGroup({
+  label, scores, labels,
+}: {
+  label: string;
+  scores: GeeqScores;
+  labels: Record<string, string>;
+}) {
+  const entries = Object.entries(labels)
+    .map(([key, name]) => ({ key, name, value: scores[key] as number | null | undefined }))
+    .filter((e) => e.value != null);
+
+  if (!entries.length) return null;
+
+  return (
+    <div className="px-3 py-2 space-y-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-slate-400 font-medium mb-1">
+        {label}
+      </div>
+      {entries.map(({ key, name, value }) => (
+        <ScoreRow key={key} name={name} value={value!} />
+      ))}
+    </div>
+  );
+}
+
+function ScoreRow({ name, value }: { name: string; value: number }) {
+  // Normalise −1…1 → 0…100% for the bar width
+  const pct = Math.round(((value + 1) / 2) * 100);
+  const barColor =
+    value >= 0.5  ? "bg-emerald-400" :
+    value >= 0    ? "bg-amber-400"   :
+                    "bg-rose-400";
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-36 shrink-0 text-slate-600 truncate" title={name}>{name}</span>
+      <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-8 text-right tabular-nums text-slate-500">{value.toFixed(2)}</span>
+    </div>
+  );
+}
+
 function SkeletonBanner() {
   return (
-    <div className="bg-white border-b border-slate-200 dark:bg-slate-800 dark:border-slate-700">
+    <div className="bg-white border-b border-slate-200">
       <div className="h-1 bg-gradient-to-r from-amber-500 via-slate-900 to-sky-500" />
       <div className="mx-auto w-full max-w-[1200px] px-6 py-3 animate-pulse">
-        <div className="h-4 w-24 bg-slate-200 rounded dark:bg-slate-700" />
-        <div className="h-3 mt-3 w-2/3 bg-slate-200 rounded dark:bg-slate-700" />
+        <div className="h-4 w-24 bg-slate-200 rounded" />
+        <div className="h-3 mt-3 w-2/3 bg-slate-200 rounded" />
       </div>
     </div>
   );
@@ -261,63 +359,49 @@ function NotFoundCard({ id }: { id: string }) {
     <PageShell>
       <div className="mx-auto w-full max-w-[1200px] px-6 py-6">
         <SectionCard title="Not found">
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            No experiment found for id <span className="font-mono">{id}</span>.
-          </p>
+          <p className="text-sm text-slate-600">No experiment found for id <span className="font-mono">{id}</span>.</p>
         </SectionCard>
       </div>
     </PageShell>
   );
 }
 
-// ─── Tab: Overview ───────────────────────────────────────────────────
+// ─── Overview tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({
-  dataset,
-  annotations,
-  annLoading,
-}: {
-  dataset: Dataset;
-  annotations: DatasetAnnotation[];
-  annLoading: boolean;
-}) {
+function OverviewTab({ dataset }: { dataset: Dataset }) {
+  const ann = useQuery({
+    queryKey: ["datasetAnnotations", dataset.id],
+    queryFn: ({ signal }) => getDatasetAnnotations(dataset.id, signal),
+  });
+  const pubs = useQuery({
+    queryKey: ["datasetPublications", dataset.id],
+    queryFn: ({ signal }) => getDatasetPublications(dataset.id, signal),
+  });
   return (
     <>
-      <Description dataset={dataset} />
-      <AnnotationsSection annotations={annotations} loading={annLoading} />
+      <DescriptionSection dataset={dataset} />
+      <AnnotationsSection annotations={ann.data?.data ?? []} loading={ann.isLoading} />
+      <PublicationsSection publications={pubs.data ?? []} loading={pubs.isLoading} />
     </>
   );
 }
 
-function Description({ dataset }: { dataset: Dataset }) {
+function DescriptionSection({ dataset }: { dataset: Dataset }) {
   const html = useMemo(() => {
     if (!dataset.description) return null;
     return marked.parse(dataset.description, { async: false }) as string;
   }, [dataset.description]);
-  if (!html) {
-    return (
-      <SectionCard title="Description">
-        <p className="text-xs text-slate-500 italic">no description provided</p>
-      </SectionCard>
-    );
-  }
   return (
     <SectionCard title="Description">
-      <div
-        className="prose prose-sm dark:prose-invert max-w-none text-sm text-slate-700 dark:text-slate-200"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      {html
+        ? <div className="prose prose-sm max-w-none text-sm text-slate-700"
+               dangerouslySetInnerHTML={{ __html: html }} />
+        : <Empty msg="no description provided" />}
     </SectionCard>
   );
 }
 
-function AnnotationsSection({
-  annotations,
-  loading,
-}: {
-  annotations: DatasetAnnotation[];
-  loading: boolean;
-}) {
+function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnnotation[]; loading: boolean }) {
   const grouped = useMemo(() => {
     const m = new Map<string, DatasetAnnotation[]>();
     for (const a of annotations) {
@@ -330,31 +414,18 @@ function AnnotationsSection({
   }, [annotations]);
 
   return (
-    <SectionCard
-      title="Annotations"
-      subtitle={
-        loading
-          ? "loading…"
-          : `${annotations.length} term${annotations.length === 1 ? "" : "s"}`
-      }
-    >
-      {loading ? (
-        <div className="h-6 w-2/3 bg-slate-200 rounded animate-pulse dark:bg-slate-700" />
-      ) : annotations.length === 0 ? (
-        <p className="text-xs text-slate-500 italic">no annotations</p>
-      ) : (
+    <SectionCard title="Annotations"
+      subtitle={loading ? "loading…" : `${annotations.length} term${annotations.length === 1 ? "" : "s"}`}>
+      {loading ? <div className="h-6 w-2/3 bg-slate-200 rounded animate-pulse" /> :
+       annotations.length === 0 ? <Empty msg="no annotations" /> : (
         <div className="space-y-2">
-          {grouped.map(([category, terms]) => (
-            <div key={category} className="flex items-baseline gap-2 flex-wrap">
-              <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wide dark:text-slate-400">
-                {category}
-              </span>
+          {grouped.map(([cat, terms]) => (
+            <div key={cat} className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">{cat}</span>
               {terms.map((t, i) => (
-                <span
-                  key={`${t.termUri ?? t.termName}-${i}`}
-                  className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600"
-                  title={t.termUri ?? undefined}
-                >
+                <span key={`${t.termUri ?? t.termName}-${i}`}
+                  className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200"
+                  title={t.termUri ?? undefined}>
                   {t.termName}
                 </span>
               ))}
@@ -366,118 +437,294 @@ function AnnotationsSection({
   );
 }
 
-// ─── Tab: Design (PLACEHOLDER) ───────────────────────────────────────
-
-function DesignTab() {
+function PublicationsSection({ publications, loading }: { publications: Publication[]; loading: boolean }) {
+  if (!loading && publications.length === 0) return null;
   return (
-    <SectionCard
-      title="Experimental design"
-      subtitle="Factors, factor values, and sample assignments"
-      right={<GapBadge />}
-    >
-      <p className="text-xs text-slate-500 italic">
-        Backend wire: <code>GET /rest/v2/datasets/{"{id}"}/factors</code> →
-        factor / FV / sample shape. Once wired, render a compact table:
-        factor × factor-values × per-FV sample count, with continuous-
-        factor histograms inline.
-      </p>
+    <SectionCard title="Publications"
+      subtitle={loading ? "loading…" : `${publications.length}`}>
+      {loading ? <div className="h-6 w-1/2 bg-slate-200 rounded animate-pulse" /> : (
+        <ul className="space-y-3">
+          {publications.map((p, i) => (
+            <li key={p.id ?? i} className="text-sm">
+              <div className="font-medium text-slate-800 leading-snug">{p.title ?? "Untitled"}</div>
+              {p.authorList && (
+                <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">{p.authorList}</div>
+              )}
+              <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap gap-x-2">
+                {p.publication && <span>{p.publication}</span>}
+                {p.publicationDate && <span>{new Date(p.publicationDate).getFullYear()}</span>}
+                {p.volume && p.issue && <span>Vol {p.volume}({p.issue})</span>}
+                {p.pages && <span>pp.{p.pages}</span>}
+                {p.pubAccession && (
+                  <a href={`https://pubmed.ncbi.nlm.nih.gov/${p.pubAccession}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-sky-700 hover:underline inline-flex items-center gap-0.5">
+                    PMID:{p.pubAccession}<ExternalLink size={10} />
+                  </a>
+                )}
+              </div>
+              {p.retracted && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 mt-1 inline-block">
+                  RETRACTED
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </SectionCard>
   );
 }
 
-// ─── Tab: Samples (PLACEHOLDER) ──────────────────────────────────────
+// ─── Design tab ───────────────────────────────────────────────────────────────
 
-function SamplesTab({ nSamples }: { nSamples: number }) {
+function DesignTab({ datasetId }: { datasetId: number }) {
+  const q = useQuery({
+    queryKey: ["datasetDesign", datasetId],
+    queryFn: ({ signal }) => getDatasetDesign(datasetId, signal),
+  });
+
+  if (q.isLoading) return <SectionCard title="Experimental design"><LoadingRow /></SectionCard>;
+  if (q.isError)   return <SectionCard title="Experimental design"><ErrorRow /></SectionCard>;
+  if (!q.data || !q.data.experimentalFactors.length)
+    return <SectionCard title="Experimental design"><Empty msg="no experimental design recorded" /></SectionCard>;
+
+  const design: ExperimentalDesign = q.data;
+
   return (
-    <SectionCard
-      title="Samples"
-      subtitle={`${nSamples} biomaterial${nSamples === 1 ? "" : "s"}`}
-      right={<GapBadge />}
-    >
-      <p className="text-xs text-slate-500 italic">
-        Backend wire: <code>GET /rest/v2/datasets/{"{id}"}/samples</code>{" "}
-        → per-sample biomaterial + GEO sample id + characteristics +
-        factor-value assignments. Render the same compact table the
-        curation app uses (see <code>apps/curation/src/features/samples/</code>),
-        read-only.
-      </p>
+    <SectionCard title="Experimental design"
+      subtitle={`${design.experimentalFactors.length} factor${design.experimentalFactors.length === 1 ? "" : "s"} · ${design.bioMaterialAssignments.length} samples`}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="border-b border-slate-200">
+              <th className="text-left py-1.5 pr-4 font-medium text-slate-600 w-40">Factor</th>
+              <th className="text-left py-1.5 pr-4 font-medium text-slate-600 w-24">Type</th>
+              <th className="text-left py-1.5 font-medium text-slate-600">Values</th>
+            </tr>
+          </thead>
+          <tbody>
+            {design.experimentalFactors.map((f) => (
+              <tr key={f.id} className="border-b border-slate-100 align-top">
+                <td className="py-2 pr-4 text-slate-800 font-medium">{f.name ?? `Factor ${f.id}`}</td>
+                <td className="py-2 pr-4 text-slate-500 italic">{f.type ?? "—"}</td>
+                <td className="py-2">
+                  <div className="flex flex-wrap gap-1">
+                    {f.values.map((v) => (
+                      <span key={v.id}
+                        className="px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200">
+                        {v.value ?? `FV ${v.id}`}
+                      </span>
+                    ))}
+                    {f.values.length === 0 && <span className="text-slate-400 italic">no values</span>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </SectionCard>
   );
 }
 
-// ─── Tab: Expression ─────────────────────────────────────────────────
+// ─── Samples tab ──────────────────────────────────────────────────────────────
 
-function ExpressionTab() {
-  const data = useMemo<HeatmapData>(() => buildSyntheticDataset(40, 30), []);
+function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: number }) {
+  const q = useQuery({
+    queryKey: ["datasetSamples", datasetId],
+    queryFn: ({ signal }) => getDatasetSamples(datasetId, signal),
+  });
+
+  const samples: BioAssay[] = q.data ?? [];
+
+  return (
+    <SectionCard title="Samples"
+      subtitle={q.isLoading ? "loading…" : `${samples.length || nSamples} sample${nSamples === 1 ? "" : "s"}`}>
+      {q.isLoading ? <LoadingRow /> : q.isError ? <ErrorRow /> : samples.length === 0 ? <Empty msg="no samples" /> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Name</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Accession</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Platform</th>
+                <th className="text-left py-1.5 font-medium text-slate-600">Flags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {samples.map((s) => {
+                const outlier = s.outlier || s.predictedOutlier || s.userFlaggedOutlier;
+                return (
+                  <tr key={s.id} className={"border-b border-slate-100 " + (outlier ? "bg-amber-50/40" : "")}>
+                    <td className="py-1.5 pr-4 text-slate-800">{s.name ?? s.shortName ?? `BA ${s.id}`}</td>
+                    <td className="py-1.5 pr-4 font-mono text-slate-600">
+                      {s.accession?.accession
+                        ? <a href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${s.accession.accession}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-sky-700 hover:underline">
+                            {s.accession.accession}
+                          </a>
+                        : "—"}
+                    </td>
+                    <td className="py-1.5 pr-4 text-slate-600">{s.arrayDesign?.shortName ?? "—"}</td>
+                    <td className="py-1.5">
+                      {s.userFlaggedOutlier && <FlagChip label="outlier" color="red" />}
+                      {!s.userFlaggedOutlier && s.predictedOutlier && <FlagChip label="predicted outlier" color="amber" />}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function FlagChip({ label, color }: { label: string; color: "red" | "amber" }) {
+  const cls = color === "red"
+    ? "bg-red-50 text-red-700 border-red-200"
+    : "bg-amber-50 text-amber-700 border-amber-200";
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${cls}`}>{label}</span>
+  );
+}
+
+// ─── Expression tab ───────────────────────────────────────────────────────────
+
+function ExpressionTab({ datasetId }: { datasetId: number }) {
+  const analyses = useQuery({
+    queryKey: ["datasetDiffEx", datasetId],
+    queryFn: ({ signal }) => getDatasetDiffExAnalyses(datasetId, signal),
+  });
+  const svd = useQuery({
+    queryKey: ["datasetSvd", datasetId],
+    queryFn: ({ signal }) => getDatasetSvd(datasetId, signal),
+    staleTime: 10 * 60_000,
+  });
+
   return (
     <>
-      <SectionCard
-        title="Differential expression"
-        subtitle="Analyses and top contrasts"
-        right={<GapBadge />}
-      >
-        <p className="text-xs text-slate-500 italic">
-          Backend wire:{" "}
-          <code>
-            GET /rest/v2/datasets/{"{id}"}/analyses/differential
-          </code>{" "}
-          → list of analyses; per-analysis result-set links for top genes.
-          Render one card per analysis: contrast names, threshold, top-N
-          genes (gene symbol, log2FC, q-value), and a "view in heatmap"
-          action that drives the viz panel below.
-        </p>
+      <SectionCard title="Differential expression analyses"
+        subtitle={analyses.isLoading ? "loading…" : `${(analyses.data ?? []).length} analys${(analyses.data ?? []).length === 1 ? "is" : "es"}`}>
+        {analyses.isLoading ? <LoadingRow /> :
+         analyses.isError   ? <ErrorRow /> :
+         !analyses.data?.length ? <Empty msg="no differential expression analyses" /> : (
+          <DiffExTable analyses={analyses.data} datasetId={datasetId} />
+        )}
       </SectionCard>
-      <SectionCard
-        title="Visualization"
-        subtitle="Heatmap of top differential genes"
-        right={<GapBadge label="synthetic data" />}
-      >
-        <HeatmapWidget
-          data={data}
-          title="Top 40 DE genes × 30 samples"
-          caption="Placeholder — wires to real DE result set once available."
-        />
-      </SectionCard>
+      <SvdSection svd={svd.data ?? null} loading={svd.isLoading} />
     </>
   );
 }
 
-// ─── Tab: Downloads ──────────────────────────────────────────────────
+function DiffExTable({ analyses, datasetId }: { analyses: DiffExAnalysis[]; datasetId: number }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="border-b border-slate-200">
+            <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Analysis</th>
+            <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Factors</th>
+            <th className="text-left py-1.5 font-medium text-slate-600">Links</th>
+          </tr>
+        </thead>
+        <tbody>
+          {analyses.map((a) => {
+            const factorNames = Object.values(a.factorValuesUsed ?? {})
+              .flat()
+              .map((fv) => fv.factor?.name)
+              .filter(Boolean);
+            const uniqueFactors = [...new Set(factorNames)];
+            return (
+              <tr key={a.id} className="border-b border-slate-100">
+                <td className="py-2 pr-4 text-slate-800 font-mono">ID {a.id}</td>
+                <td className="py-2 pr-4 text-slate-600">
+                  {uniqueFactors.length ? uniqueFactors.join(", ") : "—"}
+                  {a.subsetFactor && (
+                    <span className="ml-1 text-slate-400 italic">
+                      (subset: {a.subsetFactor.name})
+                    </span>
+                  )}
+                </td>
+                <td className="py-2">
+                  <a href={gemmaUrl(`/expressionExperiment/showExpressionExperiment.html?id=${datasetId}#dea-${a.id}`)}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-sky-700 hover:underline inline-flex items-center gap-1">
+                    View on Gemma<ExternalLink size={10} />
+                  </a>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SvdSection({ svd, loading }: { svd: SvdResult | null; loading: boolean }) {
+  if (loading) return (
+    <SectionCard title="PCA / SVD"><LoadingRow /></SectionCard>
+  );
+  if (!svd || !svd.variances?.length) return (
+    <SectionCard title="PCA / SVD"><Empty msg="no SVD computed for this dataset" /></SectionCard>
+  );
+
+  const variances = svd.variances.slice(0, 10);
+  const maxV = Math.max(...variances);
+
+  return (
+    <SectionCard title="PCA / SVD" subtitle="Variance explained per component">
+      <div className="space-y-1.5">
+        {variances.map((v, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <span className="text-[11px] font-mono text-slate-500 w-6 text-right">{i + 1}</span>
+            <div className="flex-1 h-3 bg-slate-100 rounded overflow-hidden">
+              <div
+                className="h-full bg-sky-500 rounded"
+                style={{ width: `${(v / maxV) * 100}%` }}
+              />
+            </div>
+            <span className="text-[11px] tabular-nums text-slate-600 w-12 text-right">
+              {(v * 100).toFixed(1)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+// ─── Downloads tab ────────────────────────────────────────────────────────────
 
 function DownloadsTab({ dataset }: { dataset: Dataset }) {
   const id = dataset.id;
   const u = (path: string) => gemmaUrl(path);
   return (
     <SectionCard title="Downloads" subtitle="Bulk data and metadata">
-      <ul className="text-sm space-y-1.5 text-sky-700 dark:text-sky-300">
+      <ul className="text-sm space-y-1.5 text-sky-700">
         <li>
-          <a
-            className="hover:underline inline-flex items-center gap-1"
+          <a className="hover:underline inline-flex items-center gap-1"
             href={u(`/expressionExperiment/downloadExpressionExperiment.html?id=${id}`)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Expression matrix <ExternalLink size={11} />
+            target="_blank" rel="noopener noreferrer">
+            Expression matrix<ExternalLink size={11} />
           </a>
         </li>
         <li>
-          <a
-            className="hover:underline inline-flex items-center gap-1"
+          <a className="hover:underline inline-flex items-center gap-1"
             href={u(`/expressionExperiment/downloadDEA.html?id=${id}`)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Differential expression results <ExternalLink size={11} />
+            target="_blank" rel="noopener noreferrer">
+            Differential expression results<ExternalLink size={11} />
           </a>
         </li>
         <li>
-          <a
-            className="hover:underline inline-flex items-center gap-1"
+          <a className="hover:underline inline-flex items-center gap-1"
             href={u(`/expressionExperiment/showExpressionExperiment.html?id=${id}`)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Legacy Gemma page (full details) <ExternalLink size={11} />
+            target="_blank" rel="noopener noreferrer">
+            Legacy Gemma page (full details)<ExternalLink size={11} />
           </a>
         </li>
       </ul>
@@ -485,79 +732,12 @@ function DownloadsTab({ dataset }: { dataset: Dataset }) {
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────
+// ─── Shared micro-components ──────────────────────────────────────────────────
 
-function GapBadge({ label = "backend wire pending" }: { label?: string }) {
-  return (
-    <span
-      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700"
-      title="This section is scaffolded — backend endpoint or data wiring needed."
-    >
-      {label}
-    </span>
-  );
+function LoadingRow() {
+  return <div className="h-6 w-2/3 bg-slate-200 rounded animate-pulse" />;
 }
 
-function buildSyntheticDataset(numRows: number, numCols: number): HeatmapData {
-  const rng = mulberry32(1337);
-  const values: Array<Array<number | null>> = [];
-  const groupIsUp = (i: number) => i % 2 === 0;
-  const colIsTreated = (j: number) => j >= numCols / 2;
-  for (let i = 0; i < numRows; i++) {
-    const row: Array<number | null> = [];
-    for (let j = 0; j < numCols; j++) {
-      const signal = colIsTreated(j) ? (groupIsUp(i) ? 1.5 : -1.5) : 0;
-      const noise = (rng() - 0.5) * 1.1;
-      row.push(rng() < 0.005 ? null : signal + noise);
-    }
-    values.push(row);
-  }
-  const rowLabels = Array.from(
-    { length: numRows },
-    (_, i) => `gene_${String(i + 1).padStart(3, "0")}`,
-  );
-  const colLabels = Array.from({ length: numCols }, (_, j) => `sample_${j + 1}`);
-  const treatment: CategoricalAnnotation = {
-    name: "treatment",
-    values: Array.from({ length: numCols }, (_, j) =>
-      colIsTreated(j) ? "treated" : "control",
-    ),
-    palette: { treated: "#ef4444", control: "#9ca3af" },
-  };
-  return { values, rowLabels, colLabels, colAnnotations: [treatment] };
+function ErrorRow() {
+  return <p className="text-xs text-red-600">Failed to load. Try refreshing.</p>;
 }
-
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return function () {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-// ─── Backend gaps for REACT_PORT_HANDOFF.md ──────────────────────────
-//
-// Endpoints needed for full functionality of each tab:
-//
-// Design tab:
-// - GET /rest/v2/datasets/{id}/factors
-//     Factor[] with category, factorValues[], sample assignments.
-//
-// Samples tab:
-// - GET /rest/v2/datasets/{id}/samples
-//     BioAssay[] with biomaterial id, GEO sample id, characteristics,
-//     factor-value assignments. Curation app already has the table UI
-//     (apps/curation/src/features/samples/) — port read-only.
-//
-// Expression tab:
-// - GET /rest/v2/datasets/{id}/analyses/differential
-//     Per-experiment list of DE analyses with result-set ids.
-// - GET /rest/v2/datasets/{id}/analyses/differential/resultSets/{rsId}/results
-//     Top genes per result set: gene symbol, log2FC, q-value, t-stat.
-// - GET /rest/v2/datasets/{id}/expressions/genes?gene=<ids>
-//     Expression vectors for a list of genes × samples (feeds HeatmapWidget).
-//
-// File asks in apps/browser/REACT_PORT_HANDOFF.md once shape preferences land.

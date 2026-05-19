@@ -125,7 +125,7 @@ const LS_KEY = "gemma-home-variant";
 const URL_PARAM = "v";
 
 function readInitialVariant(): VariantKey {
-  if (typeof window === "undefined") return "cards";
+  if (typeof window === "undefined") return "brutalist";
   const url = new URL(window.location.href);
   const fromUrl = url.searchParams.get(URL_PARAM);
   if (fromUrl && fromUrl in VARIANTS) return fromUrl as VariantKey;
@@ -135,7 +135,7 @@ function readInitialVariant(): VariantKey {
   } catch {
     /* localStorage disabled — silently fall through */
   }
-  return "cards";
+  return "brutalist";
 }
 
 export function HomePage() {

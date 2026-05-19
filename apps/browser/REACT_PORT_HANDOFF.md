@@ -171,9 +171,18 @@ Specifically:
 
 Each stage should be in a working state when you hand off mid-stream.
 
-## Open backend gaps (fill as discovered)
+## Open backend gaps
 
-- *(none filed yet)*
+Full inventory filed 2026-05-19 in [`GEMMA_1X_PARITY_GAPS.md`](./GEMMA_1X_PARITY_GAPS.md).
+
+Quick summary of backend-only items (no REST endpoint exists yet):
+- `GET /rest/v2/summary` — per-taxon dataset/sample counts + weekly deltas (home page)
+- `GET /rest/v2/datasets/{id}/sampleCorrelation` — N×N matrix for QC heatmap
+- `GET /rest/v2/datasets/{id}/meanVariance` — mean/variance arrays for QC scatter
+- `q=` free-text search on `GET /rest/v2/datasets` (needs search backend)
+- `manufacturer` field on `ArrayDesignValueObject`
+- `gene=` filter param on `GET /rest/v2/platforms/{id}/elements`
+- `include=genes` opt-in on the elements bulk list
 
 ## Visual identity — explicit checkpoint before stage 6
 
