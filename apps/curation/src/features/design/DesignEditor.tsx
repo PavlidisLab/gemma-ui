@@ -97,7 +97,7 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
       <div className="card p-4 text-sm text-rose-700">
         couldn't load design for experiment {experimentId}: {loadError}
         <p className="mt-1 text-slate-500 text-[11px]">
-          Mock not seeded? Restart with{" "}
+          Local server not seeded? Restart with{" "}
           <code>./run_mock.sh</code> — it auto-seeds GSE277245.1 on
           first start.
         </p>

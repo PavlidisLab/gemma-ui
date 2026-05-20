@@ -5,6 +5,7 @@ import { experimentRoute, navigate } from "@/routes";
 import { useStickyState } from "@/lib/useStickyState";
 import { cn } from "@/lib/cn";
 import type { AuditReport, OverallVerdict, Severity } from "@/api/auditTypes";
+import { ModeChip } from "@/components/ui/ModeChip";
 
 /**
  * Cross-experiment inbox of audit reports.
@@ -72,6 +73,7 @@ export function AuditsInbox({ reviewer }: { reviewer: string }) {
             <span>
               signed in as <span className="font-medium">{reviewer}</span>
             </span>
+            <ModeChip />
             <button
               type="button"
               className="text-slate-500 hover:text-slate-900 underline"
@@ -132,7 +134,7 @@ export function AuditsInbox({ reviewer }: { reviewer: string }) {
           ) : grouped.length === 0 ? (
             <div className="px-3 py-6 text-sm text-slate-500">
               {items.length === 0
-                ? "No audits in the mock yet. Submit one with `gca audit-curation … --submit` from the agents repo."
+                ? "No audits on the local server yet. Submit one with `gca audit-curation … --submit` from the agents repo."
                 : `No audits matching "${filter}".`}
             </div>
           ) : (

@@ -21,6 +21,10 @@ import { PlatformsPage } from "@/features/platforms/PlatformsPage";
 import { PlatformDetailPage } from "@/features/platforms/PlatformDetailPage";
 import { HeatmapDemo } from "@/features/heatmap-demo/HeatmapDemo";
 import { DatasetPage } from "@/features/dataset/DatasetPage";
+import { GenePage } from "@/features/gene/GenePage";
+import { GenesPage } from "@/features/gene/GenesPage";
+import { AboutPage } from "@/features/about/AboutPage";
+import { McpPage } from "@/features/mcp/McpPage";
 import { NotFound } from "@/features/shared/NotFound";
 import { AppShell } from "@/features/shared/AppShell";
 
@@ -109,6 +113,32 @@ const datasetRoute = createRoute({
   component: () => <DatasetPage />,
 });
 
+// Gene search landing page.
+const genesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/genes",
+  component: () => <GenesPage />,
+});
+
+// Per-gene page. Accepts numeric id or official symbol.
+const geneRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/gene/$id",
+  component: () => <GenePage />,
+});
+
+const aboutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/about",
+  component: () => <AboutPage />,
+});
+
+const mcpRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/mcp",
+  component: () => <McpPage />,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   browserRoute,
@@ -121,4 +151,8 @@ export const routeTree = rootRoute.addChildren([
   summaryRoute,
   heatmapDemoRoute,
   datasetRoute,
+  genesRoute,
+  geneRoute,
+  aboutRoute,
+  mcpRoute,
 ]);

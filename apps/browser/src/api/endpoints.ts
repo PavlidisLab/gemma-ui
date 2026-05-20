@@ -457,6 +457,190 @@ export async function getOpenApiSpec(signal?: AbortSignal) {
   }>(`${BASE}/openapi.json`, { signal });
 }
 
+// ─── Dataset detail endpoints ─────────────────────────────────────────────────
+
+import type {
+  ExperimentalDesign,
+  BioAssay,
+  Publication,
+  PipelineStatus,
+  DiffExAnalysis,
+  SvdResult,
+  GeeqScores,
+} from "@/lib/types";
+
+export async function getDatasetDesign(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<ExperimentalDesign | null> {
+  const r = await apiGet<{ data?: ExperimentalDesign }>(`${BASE}/datasets/${id}/design`, {
+    signal,
+    // Request JSON explicitly — endpoint also serves TSV.
+    headers: { Accept: "application/json" },
+  });
+  return r.data ?? null;
+}
+
+export async function getDatasetSamples(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<BioAssay[]> {
+  const r = await apiGet<{ data?: BioAssay[] }>(`${BASE}/datasets/${id}/samples`, { signal });
+  return r.data ?? [];
+}
+
+export async function getDatasetPublications(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<Publication[]> {
+  const r = await apiGet<{ data?: Publication[] }>(`${BASE}/datasets/${id}/publications`, { signal });
+  return r.data ?? [];
+}
+
+export async function getDatasetPipelineStatus(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<PipelineStatus | null> {
+  const r = await apiGet<{ data?: PipelineStatus }>(`${BASE}/datasets/${id}/pipelineStatus`, { signal });
+  return r.data ?? null;
+}
+
+export async function getDatasetDiffExAnalyses(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<DiffExAnalysis[]> {
+  const r = await apiGet<{ data?: DiffExAnalysis[] }>(
+    `${BASE}/datasets/${id}/analyses/differential`,
+    { signal },
+  );
+  return r.data ?? [];
+}
+
+export async function getDatasetSvd(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<SvdResult | null> {
+  try {
+    const r = await apiGet<{ data?: SvdResult }>(`${BASE}/datasets/${id}/svd`, { signal });
+    return r.data ?? null;
+  } catch (e: unknown) {
+    // 404 = no SVD computed yet; not an error worth surfacing
+    if (e && typeof e === "object" && "status" in e && (e as { status: number }).status === 404) {
+      return null;
+    }
+    throw e;
+  }
+}
+
+export async function getDatasetGeeq(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<GeeqScores | null> {
+  try {
+    const r = await apiGet<{ data?: GeeqScores }>(`${BASE}/datasets/${id}/geeq`, { signal });
+    return r.data ?? null;
+  } catch (e: unknown) {
+    if (e && typeof e === "object" && "status" in e && (e as { status: number }).status === 404) {
+      return null;
+    }
+    throw e;
+  }
+}
+
+// ─── Platform detail endpoints ────────────────────────────────────────────────
+
+export async function getPlatformAnnotations(
+  platformId: number | string,
+  signal?: AbortSignal,
+): Promise<AnnotationTerm[]> {
+  const r = await apiGet<PaginatedResponse<AnnotationTerm>>(
+    `${BASE}/platforms/${platformId}/annotations`,
+    { params: { limit: 500 }, signal },
+  );
+  return r.data ?? [];
+}
+
+// ─── Gene endpoints ───────────────────────────────────────────────────────────
+
+export interface Gene {
+  id: number;
+  officialSymbol?: string | null;
+  officialName?: string | null;
+  ncbiId?: number | null;
+  ensemblId?: string | null;
+  aliases?: string[] | null;
+  taxon?: Taxon | null;
+  ncbiUri?: string | null;
+  description?: string | null;
+}
+
+export interface GeneLocation {
+  chromosome?: string | null;
+  strand?: string | null;
+  nucleotideStart?: number | null;
+  nucleotideEnd?: number | null;
+  taxon?: Taxon | null;
+}
+
+export interface GoTerm {
+  termUri?: string | null;
+  term?: string | null;
+  goId?: string | null;
+  aspect?: string | null;
+  definition?: string | null;
+  evidence?: string | null;
+}
+
+export async function getGene(
+  idOrSymbol: number | string,
+  signal?: AbortSignal,
+): Promise<Gene | null> {
+  const r = await apiGet<PaginatedResponse<Gene>>(`${BASE}/genes/${idOrSymbol}`, { signal });
+  return r.data?.[0] ?? null;
+}
+
+export async function getGeneLocations(
+  geneId: number | string,
+  signal?: AbortSignal,
+): Promise<GeneLocation[]> {
+  const r = await apiGet<PaginatedResponse<GeneLocation>>(
+    `${BASE}/genes/${geneId}/locations`,
+    { signal },
+  );
+  return r.data ?? [];
+}
+
+export async function getGeneGoTerms(
+  geneId: number | string,
+  signal?: AbortSignal,
+): Promise<GoTerm[]> {
+  const r = await apiGet<PaginatedResponse<GoTerm>>(
+    `${BASE}/genes/${geneId}/goTerms`,
+    { signal },
+  );
+  return r.data ?? [];
+}
+
+export async function getGeneDiffExResults(
+  geneId: number | string,
+  signal?: AbortSignal,
+): Promise<PaginatedResponse<{
+  experimentId?: number;
+  experimentShortName?: string;
+  analysisId?: number;
+  contrastId?: number;
+  log2FoldChange?: number | null;
+  pValue?: number | null;
+  correctedPValue?: number | null;
+  tStat?: number | null;
+  metaQVal?: number | null;
+}>> {
+  return apiGet(
+    `${BASE}/datasets/analyses/differential/results/genes/${geneId}`,
+    { params: { limit: 50 }, signal },
+  );
+}
+
 /** Categories endpoint also returns annotations under each category as a separate call. */
 export async function getCategoriesWithChildren(
   args: CategoriesArgs,

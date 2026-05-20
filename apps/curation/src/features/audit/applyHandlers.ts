@@ -110,7 +110,7 @@ export function resolveApplyAction(
   // mutations — adding or removing an experiment tag — so the
   // curator's "Apply" click writes the change into the design
   // draft, then the disposition PATCH stamps applied_fix.
-  const calibrationApply = resolveCalibrationApply(finding);
+  const calibrationApply = resolveCalibrationApply(finding, ctx?.design ?? null);
   if (calibrationApply) return calibrationApply;
 
   // Factor-level calibration apply: agent_extra → add factor;
@@ -182,7 +182,10 @@ function labelEq(a: string | null | undefined, b: string): boolean {
  *  - ``calibration_match``: nothing to apply (both sides have it);
  *    falls through to focus-only.
  */
-function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
+function resolveCalibrationApply(
+  finding: AuditFinding,
+  design: Design | null,
+): ApplyAction | null {
   const code = finding.issue_code;
   if (
     code !== "calibration_agent_extra" &&
@@ -229,6 +232,35 @@ function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
     const valueLabel = term?.label || t.value;
     const valueUri = term?.uri ?? null;
     const categoryLabel = t.category;
+    // Idempotency: same `(category, value)` pair already on the
+    // design → "Already in draft". Matches on label (case-
+    // insensitive) AND — when both sides have a URI — on URI too.
+    // Tags without URIs match by label alone. See
+    // HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS §3.
+    const alreadyApplied = (design?.tags ?? []).some((tag) => {
+      const sameCategory =
+        tag.category.label.toLowerCase().trim() ===
+        categoryLabel.toLowerCase().trim();
+      if (!sameCategory) return false;
+      const sameValueLabel =
+        tag.value.label.toLowerCase().trim() ===
+        valueLabel.toLowerCase().trim();
+      if (!sameValueLabel) return false;
+      if (valueUri && tag.value.uri) {
+        return tag.value.uri === valueUri;
+      }
+      return true;
+    });
+    if (alreadyApplied) {
+      return {
+        mutates: false,
+        label: "✓ Already in draft",
+        tooltip:
+          `Tag "${categoryLabel}: ${valueLabel}" is already on the design. ` +
+          `Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
     const tooltip = valueUri
       ? `Agree → add tag "${categoryLabel}: ${valueLabel}" (${valueUri}) to the design.`
       : `Agree → add tag "${categoryLabel}: ${valueLabel}" (free-text — resolve later) to the design.`;
@@ -263,6 +295,26 @@ function resolveCalibrationApply(finding: AuditFinding): ApplyAction | null {
   // and disagree manually with a free-text note.
   if (isProtectedTagCategory(t.category)) {
     return null;
+  }
+  // Idempotency: tag already gone from the design → "Already
+  // removed". Inverse of the agent_extra add-side check; same
+  // rationale (see HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS
+  // §3).
+  const stillPresent = (design?.tags ?? []).some(
+    (tag) =>
+      tag.category.label.toLowerCase().trim() ===
+        t.category.toLowerCase().trim() &&
+      tag.value.label.toLowerCase().trim() === t.value.toLowerCase().trim(),
+  );
+  if (!stillPresent && design) {
+    return {
+      mutates: false,
+      label: "✓ Already removed",
+      tooltip:
+        `Tag "${t.category}: ${t.value}" is not on the design. Agree to ` +
+        `disposition without re-applying.`,
+      successMessage: "",
+    };
   }
   const tooltip =
     `Agree → remove tag "${t.category}: ${t.value}" from the design.`;
@@ -331,14 +383,40 @@ function resolveFactorCalibrationApply(
       finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
     const proposal = resolveAgentFactor(finding, cp, labelHint);
     if (!proposal) return null;
-    const proposalBms = new Set(
-      proposal.factor_values.flatMap((fv) => fv.biomaterial_short_names),
-    );
     // Idempotency: if an existing factor already covers this exact
-    // partition (same biomaterial set, same category label), the
-    // add would be a no-op or a duplicate. Surface as
-    // "already applied" so the curator doesn't get a useless
-    // mutate-click.
+    // partition + carries the same FV labels, the add would be a
+    // no-op or a duplicate. Surface as "already applied" so the
+    // curator doesn't get a useless mutate-click.
+    //
+    // Earlier this check matched on (category label, biomaterial
+    // UNION set) only — partition-equivalent factors with DIFFERENT
+    // FV labels (e.g. agent says ``genotype: [WT, Rag1, PHIL]`` and
+    // gold has ``genotype: [WT, Rag2, eosinophil-DTA]`` over the
+    // same samples) fired "Already in draft" wrongly. The curator
+    // would Agree against a phantom, ending up with the gold factor
+    // unchanged but the disposition recorded as accepted-without-
+    // action — design state no longer matched the recorded
+    // verdict. See HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS
+    // §3 (GSE67136 worked example).
+    //
+    // Current check requires a bijection on (FV label, FV
+    // biomaterial-set) tuples — captures partition + labels in one
+    // signature. Two factors are "already applied" iff their FV
+    // signature sets are equal.
+    const fvSig = (
+      fvs: { free_text_label: string; biomaterial_short_names: string[] }[],
+    ) =>
+      new Set(
+        fvs.map(
+          (fv) =>
+            `${(fv.free_text_label || "").toLowerCase().trim()} ${[
+              ...fv.biomaterial_short_names,
+            ]
+              .sort()
+              .join("|")}`,
+        ),
+      );
+    const pSig = fvSig(proposal.factor_values);
     const alreadyApplied = (design.factors ?? []).some((f) => {
       if (
         f.category.label.toLowerCase().trim() !==
@@ -346,11 +424,12 @@ function resolveFactorCalibrationApply(
       ) {
         return false;
       }
-      const fBms = new Set(
-        f.factor_values.flatMap((fv) => fv.biomaterial_short_names),
-      );
-      if (fBms.size !== proposalBms.size) return false;
-      for (const bm of proposalBms) if (!fBms.has(bm)) return false;
+      if (f.factor_values.length !== proposal.factor_values.length) {
+        return false;
+      }
+      const fSig = fvSig(f.factor_values);
+      if (fSig.size !== pSig.size) return false;
+      for (const s of pSig) if (!fSig.has(s)) return false;
       return true;
     });
     if (alreadyApplied) {
@@ -364,10 +443,11 @@ function resolveFactorCalibrationApply(
       };
     }
     // Category-name clash guard: a factor with the same category
-    // label but a DIFFERENT partition exists. Adding silently would
-    // give the design two factors named the same. Surface as a
-    // warning in the tooltip so the curator knows the add is
-    // genuinely new, not duplicating.
+    // label exists but is NOT already-applied — either a different
+    // partition or different FV labels. Adding silently would give
+    // the design two factors named the same. Surface as a warning
+    // in the tooltip so the curator knows the add is genuinely new,
+    // not duplicating.
     const nameClash = (design.factors ?? []).some(
       (f) =>
         f.category.label.toLowerCase().trim() ===
@@ -377,7 +457,7 @@ function resolveFactorCalibrationApply(
       mutates: true,
       label: "Agree (add) →",
       tooltip: nameClash
-        ? `Agree → add a SECOND factor "${proposal.category.label}" to the design (an existing factor shares the category label but covers different biomaterials).`
+        ? `Agree → add a SECOND factor "${proposal.category.label}" to the design (an existing factor shares the category label but differs in partition or FV labels).`
         : `Agree → add factor "${proposal.category.label}" (${proposal.factor_values.length} value${
             proposal.factor_values.length === 1 ? "" : "s"
           }) to the design.`,

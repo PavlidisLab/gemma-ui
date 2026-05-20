@@ -194,7 +194,30 @@ export interface AuditFinding {
   gold_target_index?: number | null;
 }
 
-/** One FV-pair across a renamed factor (agent FV ↔ gold FV). */
+/** One statement decomposed into (subject, predicate, object). Each
+ *  part is an ``OntologyTerm`` (label + uri) or ``null`` when that
+ *  role isn't populated — wild-type FVs typically have only a
+ *  subject, for instance.
+ *
+ *  Carried on ``FvPair`` to give the UI's three-comparator editor
+ *  matching parsed shape on both Agent and Gemma sides (without
+ *  this, Gemma's column conflates everything into the FV-level
+ *  label). Schema mirror of agents-side ``StatementParts`` shipped
+ *  in commit ``b157073``. */
+export interface StatementParts {
+  subject?: OntologyTerm | null;
+  predicate?: OntologyTerm | null;
+  object?: OntologyTerm | null;
+}
+
+/** One FV-pair across a renamed factor (agent FV ↔ gold FV).
+ *
+ *  ``agent_statement`` / ``gold_statement`` carry the parsed
+ *  (subject, predicate, object) decomposition of the primary
+ *  statement on each side, when available. Optional / nullable for
+ *  back-compat with rename payloads from older builders. When
+ *  present, the UI prefers these for its three-comparator display;
+ *  when absent it falls back to ``agent.label`` / ``gold.label``. */
 export interface FvPair {
   agent: OntologyTerm;
   gold: OntologyTerm;
@@ -204,6 +227,8 @@ export interface FvPair {
    *  - ``"judgment"`` — same partition position, arbiter only ranked
    *                     by index (no semantic match) */
   equivalence: "exact" | "synonym" | "judgment" | (string & {});
+  agent_statement?: StatementParts | null;
+  gold_statement?: StatementParts | null;
 }
 
 /** Compact factor reference inside a rename payload. */
@@ -212,16 +237,36 @@ export interface FactorRef {
   factor_type?: string;
 }
 
+/** Sub-flavor of a partition-equal factor pair whose labels disagree.
+ *  Drives the UI's affordance choice between an inline relabel editor
+ *  (``label_drift``, ``synonym``) and a subject-correction editor
+ *  (``wrong_subject``). ``unknown`` is the back-compat default on
+ *  rename payloads that pre-date the builder routing change for §4
+ *  of HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS. */
+export type ConceptDiffKind =
+  | "none"           // concepts match (label-string drift only)
+  | "label_drift"    // same concept; agent's label generic where gold's is specific
+  | "synonym"        // different label, semantically equivalent concept
+  | "wrong_subject"  // partition matches but agent named the wrong gene/treatment/…
+  | "unknown";
+
 /** Side-by-side diff for a factor classified as same-factor-different-
  *  label by the calibration arbiter. ``direction`` is load-bearing
  *  for the UI: ``"gold_correct"`` → curator keeps Gemma's label
  *  (severity ok), ``"agent_correct"`` → adopt agent's label (severity
- *  minor), ``"equivalent"`` → arbiter declines to pick (severity ok). */
+ *  minor), ``"equivalent"`` → arbiter declines to pick (severity ok).
+ *
+ *  ``concept_diff_kind`` (added 2026-05-19, §4 of the inter-curator-
+ *  audit follow-ups handoff) routes the curator's affordance — inline
+ *  relabel vs subject-correction. Defaults to ``"unknown"`` on
+ *  payloads from agents pre-dating the field; check explicitly before
+ *  switching on it. */
 export interface FactorRenamePayload {
   agent: FactorRef;
   gold: FactorRef;
   fv_pairs: FvPair[];
   direction: "gold_correct" | "agent_correct" | "equivalent" | (string & {});
+  concept_diff_kind?: ConceptDiffKind;
 }
 
 /** Judge's verdict on a single audit finding. ``side`` constrains
@@ -310,6 +355,55 @@ export interface AuditSummary {
   overall_verdict: OverallVerdict;
 }
 
+/** Structured `applied_fix` payload — per-element curator verdicts +
+ *  edits, replacing the legacy free-text string form. Schema mirrors
+ *  bro's Pydantic ``AppliedFix`` (agents repo
+ *  ``feature/audit-schema-extensions`` commit ``e9e52ea``).
+ *
+ *  The wire field ``applied_fix`` on both ``AuditFindingDisposition``
+ *  and ``AuditFindingDispositionPatch`` is a union: ``AppliedFix |
+ *  string``. Legacy unstructured notes still round-trip as plain
+ *  strings; new dispositions emit the structured form. */
+export type AppliedFixKind = "details_edit" | "structural" | "free_text";
+
+/** Path-keyed convention for the ``path`` field on an ``AppliedEdit``:
+ *
+ *  - ``"factor.category"``                       (label + uri)
+ *  - ``"fv[<i>].statements[<j>].subject"``       (label + uri)
+ *  - ``"fv[<i>].statements[<j>].predicate"``
+ *  - ``"fv[<i>].statements[<j>].object"``
+ *  - ``"tag.category"`` / ``"tag.value"``        (label + uri)
+ *
+ *  No strict path-grammar validator server-side — apply-handler and
+ *  scorer navigate at use time. New path kinds can be added without
+ *  bumping the schema. */
+export interface AppliedEdit {
+  path: string;
+  /** Curator's verdict on this specific row. ``null`` when untouched. */
+  ok?: boolean | null;
+  /** Curator's corrected value, when typed. ``null`` when the row was
+   *  flagged ✗ without a fix in mind. */
+  to_label?: string | null;
+  to_uri?: string | null;
+  /** Audit trail: what the agent originally proposed for this row.
+   *  Optional — the server can backfill from the finding. */
+  from_label?: string;
+  from_uri?: string | null;
+  /** Optional free-text per-row note. */
+  note?: string | null;
+}
+
+export interface AppliedFix {
+  kind: AppliedFixKind;
+  /** Free-text fallback for ``"structural"`` kind (rationale for the
+   *  dismiss) and curator-typed notes that don't fit the structured
+   *  shape (``"free_text"``). */
+  note?: string | null;
+  /** Per-row verdicts + edits. Non-empty only for
+   *  ``kind === "details_edit"``. */
+  edits?: AppliedEdit[];
+}
+
 /** Where a finding sits in the curator's triage. The audit pipeline
  *  always emits findings as ``pending``; the disposition table tracks
  *  the curator's verdicts. The UI sources from `AuditFinding`s on
@@ -355,6 +449,39 @@ export interface AuditFindingDisposition {
   dismiss_reason?: DismissReason | null;
   accept_reason?: AcceptReason | null;
   not_sure_reason?: NotSureReason | null;
+  /** Curator's "what got applied" record. Union of structured
+   *  ``AppliedFix`` (per-row verdicts + edits) and legacy free-text
+   *  string. Server stores both forms; reads disambiguate by
+   *  JSON-parseability. */
+  applied_fix?: AppliedFix | string | null;
+  /** Two orthogonal verdict axes added 2026-05-19 per §2 of
+   *  HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS. ``status``
+   *  stays the curator's headline verdict; these booleans carry the
+   *  structural-vs-detail refinement the scorer needs to split
+   *  structural F1 from detail F1.
+   *
+   *  Conventional mappings (wire allows any combination):
+   *    - structure_ok=true,  details_ok=true   → status=accepted
+   *    - structure_ok=true,  details_ok=false  → status=accepted
+   *        (proposal applies; ``applied_fix`` carries the curator's
+   *        inline label edits — kind=details_edit)
+   *    - structure_ok=false                    → status=dismissed
+   *
+   *  On a fresh disposition the UI infers defaults from
+   *  ``issue_code`` rather than sending a pre-populated PATCH:
+   *    - ``*_match_exact`` / ``*_match_near`` /
+   *      ``calibration_factor_rename`` → ``structure_ok=true``
+   *      (matcher already pre-confirmed partition equality);
+   *      ``details_ok`` null until acted on
+   *    - ``*_extra`` / ``*_gold_only_miss`` → both null
+   *  First curator action sends both explicitly.
+   *
+   *  Legacy reviews (pre-2026-05-19) carry null on both. The scorer
+   *  falls back to ``status`` when both are null:
+   *    - status=accepted   → infer ✅ structure, null details
+   *    - status=dismissed  → infer ✗ structure, null details */
+  structure_ok?: boolean | null;
+  details_ok?: boolean | null;
 }
 
 /** Closed enum of structured "why this is a dismiss" reasons.
@@ -459,7 +586,12 @@ export interface AuditFindingDispositionPatch {
    *  a decided disposition (counts as closed in the UI), so my
    *  brother needs to know what kind of follow-up is missing. */
   not_sure_reason?: NotSureReason | null;
-  applied_fix?: string;
+  /** Curator's "what got applied" record. Union: structured
+   *  ``AppliedFix`` (per-row verdicts + edits, shipped 2026-05-19
+   *  per ``e9e52ea``) or legacy free-text string (pre-2026-05-19
+   *  dispositions). Server accepts both forms; reads
+   *  disambiguate by JSON-parseability. */
+  applied_fix?: AppliedFix | string;
   first_seen_at?: string;
   /** Two-step accept marker — see `AUDIT_DISPOSITIONS.md` Ask #6.
    *  Server validator: `resolved_at` is only valid alongside
@@ -475,6 +607,13 @@ export interface AuditFindingDispositionPatch {
    *  dispositions. Lets the dispositions report weight cascaded
    *  dispositions differently from direct ones. */
   inherited_from?: string;
+  /** Structural-vs-detail axes (§2 of
+   *  HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS, 2026-05-19).
+   *  Independent of ``status``. A PATCH can set one and leave the
+   *  other null; a follow-up PATCH fills the other. See
+   *  ``AuditFindingDisposition`` for the full semantics + convention. */
+  structure_ok?: boolean | null;
+  details_ok?: boolean | null;
 }
 
 export interface AuditReport {

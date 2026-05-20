@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { InlineText } from "@/components/ui/InlineText";
@@ -80,6 +80,24 @@ export function FactorList({
     useState<Factor | null>(null);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const templateMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Convention: nuisance factors (block / batch) sort to the bottom
+  // of the factor list, after biological factors. Mirrors the
+  // SampleDetailsPanel's "nuisance factors to the right end" rule
+  // so curators see the load-bearing biological factors first
+  // whether they're scanning rows (here) or columns (samples tab).
+  // Stable within each band — original order preserved.
+  const sortedFactors = useMemo(() => {
+    const bio: Factor[] = [];
+    const nuisance: Factor[] = [];
+    for (const f of factors) {
+      const cat = (f.category?.label || "").trim().toLowerCase();
+      if (cat === "block" || cat === "batch") nuisance.push(f);
+      else bio.push(f);
+    }
+    return [...bio, ...nuisance];
+  }, [factors]);
+
   // Close on outside click. Cheaper than a full Popper / floating-ui
   // dance for a 8-row menu.
   useEffect(() => {
@@ -165,7 +183,7 @@ export function FactorList({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {factors.map((f) => {
+          {sortedFactors.map((f) => {
             const selected = f.id === selectedId;
             const isAdded = addedFactorIds.has(f.id);
             const modified = !isAdded && modifiedFactorIds.has(f.id);

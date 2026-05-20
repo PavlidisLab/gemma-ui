@@ -29,11 +29,21 @@ export function Term({
   uri,
   variant = "default",
   className,
+  asLink = true,
 }: {
   children: ReactNode;
   uri?: string | null;
   variant?: TermVariant;
   className?: string;
+  /** Whether a URI-resolved Term renders as an `<a>` that opens the
+   *  ontology page in a new tab. Default ``true`` keeps the existing
+   *  behaviour for callers (proposal cards, audit reports) where the
+   *  term is read-only and the link is the only thing to click.
+   *  Pass ``false`` on surfaces where clicking the term should
+   *  either open an inline editor or do nothing — the convention
+   *  Paul confirmed 2026-05-19 for the per-element disposition
+   *  editor. */
+  asLink?: boolean;
 }) {
   // Auto-pick free vs default based on URI presence when caller
   // didn't pin a variant. Predicates and baselines bypass the auto-
@@ -43,10 +53,11 @@ export function Term({
 
   // Resolved (variant default with URI present, or explicit "baseline"
   // with a URI) → render the chip as a link so a click opens the
-  // ontology term page. Free-text and predicates without URIs render
-  // as a span. We open in a new tab; ``rel`` follows the standard
-  // noopener+noreferrer pair to avoid window.opener leakage.
-  const isLink = !!uri && effectiveVariant !== "free";
+  // ontology term page, unless the caller opted out via ``asLink=false``.
+  // Free-text and predicates without URIs always render as a span.
+  // We open in a new tab; ``rel`` follows the standard noopener+
+  // noreferrer pair to avoid window.opener leakage.
+  const isLink = asLink && !!uri && effectiveVariant !== "free";
   const tooltipUri = uri || undefined;
 
   const inner = (

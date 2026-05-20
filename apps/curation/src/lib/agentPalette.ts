@@ -37,3 +37,20 @@ export function agentPalette(model: string): string {
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return PALETTES[h % PALETTES.length];
 }
+
+/** True when `model` is a human prose context label rather than an
+ *  agent identifier. Agents-side builder writes prose like
+ *  ``"inter-curator audit · cyan's curation applied · amanda reviews"``
+ *  here for inter-curator audit packages, where "what model ran the
+ *  audit" stops being the load-bearing identity for the surface and
+ *  "who curated vs who reviews" takes over. The pill render switches
+ *  off ``font-mono`` + drops the truncate cap when this returns true,
+ *  and the tag-label flips from ``agent`` to ``review``.
+ *
+ *  Heuristic: prose contains spaces and/or middle-dot (``·``).
+ *  Standard agent IDs like ``hybrid-v6`` / ``s2j-opus-pipeline`` /
+ *  ``claude-opus-4-5`` have neither. */
+export function isProseModel(model: string | null | undefined): boolean {
+  if (!model) return false;
+  return /\s/.test(model) || model.includes("·");
+}

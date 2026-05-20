@@ -15,6 +15,7 @@ import { useCurationDetails } from "@/api/curation";
 import { useLogout, useMe } from "@/api/session";
 import { useDatasetVisibility, usePublishExperiment } from "@/api/datasets";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
+import { ModeChip } from "@/components/ui/ModeChip";
 import { experimentPageUrl, platformPageUrl } from "@/lib/gemmaUrls";
 import {
   inferModality,
@@ -1288,6 +1289,7 @@ export function TopBar({
           <span>
             signed in as <span className="font-medium">{reviewer}</span>
           </span>
+          <ModeChip />
           <SettingsMenu />
           <LogoutButton />
         </div>

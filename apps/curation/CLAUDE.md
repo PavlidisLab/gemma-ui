@@ -15,9 +15,18 @@ React + TypeScript + Vite + TanStack Query + Tailwind. Path alias
 `files` and skips the app code — running it directly catches
 nothing) and the browser for everything else. Dev server:
 `npm run dev` → `:5173`. Vite proxies `/rest`, `/propose`, `/audit`,
-`/find-publication`, `/find-term` to the mock agent service on
-`:8080` (started from the agent repo via `./run_mock.sh`; auth token
-`dev-token-123`).
+`/find-publication`, `/find-term` to the local curation server
+on `:8080` (started from the agent repo via `./run_mock.sh`; auth
+token `dev-token-123`). The local server is a full standalone
+curation backend that doesn't talk to real Gemma — used for dev
+work AND for the portable review-package workflow
+(`calibration_packages/`). Bro renamed the module to `local_api`
+(commit `b48e94e` on `feature/local-api-rename`); the runner
+script name (`run_mock.sh`) + SQLite filename (`mock_curation.sqlite`)
+are still on the old name pending follow-up cleanup. Future
+**remote mode** points at the real Gemma REST API — see
+`gemma-curation-agents-eval/docs/HANDOFF_2026-05-19_LOCAL_VS_REMOTE_MODE.md`
+for the mode-switch + capability-gating design.
 
 ## Cross-repo collaboration
 
@@ -30,9 +39,11 @@ nothing) and the browser for everything else. Dev server:
 - Don't edit the Python repo. Read it for context; file questions
   or new-field requests as comments in the relevant handoff doc and
   my brother picks them up next session.
-- Mock data behaving oddly?
+- Local-server data behaving oddly?
   `sqlite3 ../gemma-curation-agents/mock_curation.sqlite` and
-  inspect directly.
+  inspect directly. (The SQLite filename will flip to
+  `local_curation.sqlite` when bro's follow-up rename pass
+  lands — update this line in the same commit.)
 - **Compatibility matrix** (which UI version pairs with which agent
   version) lives in [`CROSS_REPO_COMPAT.md`](./CROSS_REPO_COMPAT.md).
   Update it when shipping a release; same row goes on the agent side.
