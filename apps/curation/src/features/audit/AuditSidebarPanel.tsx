@@ -276,7 +276,7 @@ function EmptyState({
   return (
     <div className="card p-3 text-xs text-slate-500 space-y-2">
       <p className="italic">
-        No audits on this experiment yet. The detached server's GET / PATCH
+        No audits on this experiment yet. The local server's GET / PATCH
         endpoints are live; the in-UI trigger button (which would
         POST to the agent's <code>/audit/{"{accession}"}</code>)
         lands once that service ships.
@@ -3509,7 +3509,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               );
             }
             // Wire-format: until bro's ``feature/audit-schema-extensions``
-            // merges to main and the running detached server is
+            // merges to main and the running local server is
             // restarted on it, ``applied_fix`` is still typed as
             // ``str`` on the server. JSON-stringify the structured
             // payload so the PATCH validates; the design mutation

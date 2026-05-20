@@ -870,7 +870,7 @@ function MainGrid({
             <div className="card p-3 text-xs text-rose-700">
               {proposalsError}
               <p className="mt-1 text-slate-500 text-[11px]">
-                Is the detached server running?{" "}
+                Is the local server running?{" "}
                 <code>./run_mock.sh</code>
               </p>
             </div>

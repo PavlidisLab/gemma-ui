@@ -10,6 +10,7 @@ import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { experimentRoute, navigate, workflowRoute, type ExperimentTab } from "@/routes";
 import { useState } from "react";
 import { useStickyState } from "@/lib/useStickyState";
+import { ModeChip } from "@/components/ui/ModeChip";
 
 /**
  * Landing page: lists experiments imported into the mock. Click
@@ -159,6 +160,7 @@ export function ExperimentList({
             <span>
               signed in as <span className="font-medium">{reviewer}</span>
             </span>
+            <ModeChip />
             <button
               type="button"
               className="text-slate-500 hover:text-slate-900 underline"
