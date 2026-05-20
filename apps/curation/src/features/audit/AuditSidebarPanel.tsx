@@ -27,6 +27,7 @@ import {
 } from "./FindingDetailsEditor";
 import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
 import { deriveStatus, deriveDismissReason } from "./dispositionSave";
+import { trimRationaleBoilerplate, splitRationaleTrail } from "./rationaleText";
 import { DismissDialog, type DialogChip } from "./DismissDialog";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
@@ -2961,6 +2962,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 {findingActionLabel(finding)}
               </span>
               <PairedFindingBadge finding={finding} />
+              <ConsequentsBadges finding={finding} />
               <ProposerFlagsChips flags={finding.proposer_flags} />
               <DebateBadgeChip
                 badge={finding.debate_badge}
@@ -2996,12 +2998,31 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           )}
         </span>
         {hasExpandableContent ? (
-          <span
-            aria-hidden
-            className="text-slate-400 dark:text-slate-500 text-base leading-none mt-0.5"
-          >
-            {open ? "▾" : "▸"}
-          </span>
+          // When the editor renders below, the bare caret is too
+          // subtle — curators don't know that's where the agent's
+          // defense + supporting-evidence + reasoning trail live.
+          // Replace with a labeled pill so the affordance is
+          // self-explanatory. Without the editor (legacy CompactFindingCard
+          // path) the card body itself signals expandability via
+          // line-clamp truncation, so the bare caret still reads
+          // right.
+          editorWillRender ? (
+            <span
+              aria-hidden
+              className="ml-1 mt-0.5 inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold text-sky-700 dark:text-sky-300 whitespace-nowrap"
+              title={open ? "collapse agent details" : "show agent reasoning + supporting evidence"}
+            >
+              {open ? "hide agent details" : "agent details"}
+              <span className="text-xs leading-none">{open ? "▾" : "▸"}</span>
+            </span>
+          ) : (
+            <span
+              aria-hidden
+              className="text-slate-400 dark:text-slate-500 text-base leading-none mt-0.5"
+            >
+              {open ? "▾" : "▸"}
+            </span>
+          )
         ) : null}
       </div>
 
@@ -3607,6 +3628,18 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           }}
           onDismiss={() => setDismissOpen(true)}
           onPark={() => setNotSureOpen(true)}
+          onUndo={() => {
+            // Mirror the legacy action-row undo: restore the
+            // pre-apply draft snapshot (if one was taken when the
+            // curator clicked Apply) and PATCH back to pending so
+            // the server disposition reverts in lockstep.
+            if (preApplyDraftSnapshot) {
+              const snap = preApplyDraftSnapshot;
+              setPreApplyDraftSnapshot(null);
+              applyDraft(() => snap);
+            }
+            patch("pending");
+          }}
         />
       ) : (
       <div className="flex items-center gap-1 flex-wrap">
@@ -4105,33 +4138,6 @@ function rewriteCalibrationRationale(
   return rationale;
 }
 
-function trimRationaleBoilerplate(s: string): string {
-  if (!s) return s;
-  let out = s;
-  // 1) "Accept if … dismiss if …" tail. Anchor on "Accept if" /
-  //    "Accept this" + a trailing "dismiss if" so we don't chop
-  //    legitimate rationales that contain "accept" mid-sentence.
-  out = out.replace(
-    /\s*(?:^|\.\s+)Accept\s+(?:if|this)\b[^.]*?\bdismiss\s+if\b[^.]*?\.?\s*$/i,
-    "",
-  );
-  // 2) "(see the supporting-evidence panel)" / "Agent emitted with
-  //    the evidence quote on file (see the supporting-evidence
-  //    panel)." — wasted verbiage that points at a panel the
-  //    curator can already see. Match the parenthetical anywhere
-  //    AND, if the whole sentence is just the "Agent emitted with
-  //    the evidence quote on file" frame, drop the whole sentence.
-  out = out.replace(
-    /\s*\(\s*see\s+the\s+supporting[- ]evidence\s+panel\.?\s*\)\s*\.?/gi,
-    "",
-  );
-  out = out.replace(
-    /\s*(?:^|\.\s+)Agent\s+emitted\s+with\s+the\s+evidence\s+quote\s+on\s+file\.?/i,
-    "",
-  );
-  return out.trim();
-}
-
 /** Inline "Reasoning ▸" link that pops the agent's full reasoning
  *  trail. Renders nothing when the rationale carries no trail
  *  marker. Popover aligns right + sized small so it sits next to
@@ -4250,18 +4256,6 @@ export function findingCoveredFactorLabels(
  *
  *  Returns ``{summary, trail}`` where ``trail`` is ``null`` when no
  *  marker is present (the whole string is summary). */
-function splitRationaleTrail(
-  s: string,
-): { summary: string; trail: string | null } {
-  if (!s) return { summary: s, trail: null };
-  const re = /\s*—\s*(?:Full\s+)?Agent\s+reasoning\s+trail\s*—\s*/i;
-  const m = s.match(re);
-  if (!m || m.index === undefined) return { summary: s, trail: null };
-  const summary = s.slice(0, m.index).trim();
-  const trail = s.slice(m.index + m[0].length).trim();
-  return { summary, trail: trail || null };
-}
-
 /** Combined "suggested fix + proposer suggestion" panel. Shows both
  *  in a single box so the curator sees one coherent "what the agent
  *  thinks you should do" block instead of two differently-coloured
@@ -4774,6 +4768,82 @@ function PairedFindingBadge({ finding }: { finding: AuditFinding }) {
     >
       ↔ paired
     </button>
+  );
+}
+
+/** Short label for a finding being linked to from another card.
+ *  Prefers the first backticked token in the rationale (the
+ *  curator-friendly factor / tag name); falls back to the
+ *  target_id. Used by `ConsequentsBadges` so the cross-link chips
+ *  read as "absorbed by `treatment` split" rather than
+ *  "absorbed by `factor:9325`". */
+function consequentLabel(f: AuditFinding): string {
+  const m = f.rationale?.match(/`([^`]+)`/);
+  if (m) return m[1];
+  return f.target_id;
+}
+
+/** Cross-link chips for the bidirectional `consequent_of` /
+ *  `consequents` linkage (HANDOFF_2026-05-20_CONSEQUENT_OF_BIDIRECTIONAL).
+ *  Both halves are conceptually one curator decision — agent's
+ *  finer partition on factor A absorbs the partition gold encoded
+ *  in factor B, so removing B is a consequence of accepting A's
+ *  split. The chips make the linkage visible from either card.
+ *
+ *  Renders:
+ *  - On a finding carrying `consequent_of`: one "← absorbed by …"
+ *    chip jumping to the upstream partition_mismatch.
+ *  - On a finding carrying `consequents`: one "implies removal of
+ *    …" chip per entry, each jumping to the downstream miss.
+ *
+ *  Silently skips entries whose target_id can't be resolved in the
+ *  current report (defensive against partial round-trips). */
+function ConsequentsBadges({ finding }: { finding: AuditFinding }) {
+  const { report, setActiveFindingKey } = useAudit();
+  const findings = report?.findings ?? [];
+  const chips: Array<{ key: string; label: string; title: string; onClick: () => void }> = [];
+
+  if (finding.consequent_of) {
+    const upstream = findings.find((f) => f.target_id === finding.consequent_of);
+    if (upstream) {
+      const label = consequentLabel(upstream);
+      chips.push({
+        key: `up-${upstream.target_id}`,
+        label: `← absorbed by \`${label}\` split`,
+        title: `This finding is a consequence of the partition mismatch on ${upstream.target_id} — click to jump.`,
+        onClick: () => setActiveFindingKey(findingKey(upstream)),
+      });
+    }
+  }
+  for (const childId of finding.consequents ?? []) {
+    const downstream = findings.find((f) => f.target_id === childId);
+    if (!downstream) continue;
+    const label = consequentLabel(downstream);
+    chips.push({
+      key: `down-${childId}`,
+      label: `implies removal of \`${label}\``,
+      title: `Accepting this partition mismatch implies removing ${childId} — click to jump.`,
+      onClick: () => setActiveFindingKey(findingKey(downstream)),
+    });
+  }
+  if (chips.length === 0) return null;
+  return (
+    <>
+      {chips.map((c) => (
+        <button
+          key={c.key}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            c.onClick();
+          }}
+          title={c.title}
+          className="ml-1 inline-flex items-center text-[10px] uppercase tracking-wide font-semibold px-1 py-0 rounded border border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300 dark:hover:bg-violet-900/30"
+        >
+          {c.label}
+        </button>
+      ))}
+    </>
   );
 }
 

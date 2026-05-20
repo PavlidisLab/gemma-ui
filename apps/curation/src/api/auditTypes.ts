@@ -236,6 +236,32 @@ export interface AuditFinding {
    *  type as ``string[]`` so unknown values just don't render a
    *  chip. */
   proposer_flags?: string[];
+  /** Target-id of an upstream finding whose existence implies this
+   *  one — the absorbed-side half of a bidirectional finding link.
+   *  Populated on `_factor_gold_only_miss` findings when a partition-
+   *  mismatch finding (on a different gold factor) absorbs the same
+   *  partition via its `consequents` list. Walking
+   *  ``consequent_of → consequents`` is the canonical way to find
+   *  the linked partition_mismatch from any absorbed miss.
+   *
+   *  Schema mirror of agents-side per
+   *  HANDOFF_2026-05-20_CONSEQUENT_OF_BIDIRECTIONAL.md. Null on
+   *  findings outside a partition-absorption pair and on pre-2026-05-20
+   *  builders. */
+  consequent_of?: string | null;
+  /** Target-ids of downstream findings absorbed by this one — the
+   *  upstream-side half of the bidirectional link. Populated on
+   *  `calibration_factor_partition_mismatch` findings when the
+   *  builder detects that the agent's finer split also absorbs
+   *  unmatched gold factors (e.g. agent's `treatment` split absorbs
+   *  gold's separate `timepoint` factor → consequent listed here).
+   *
+   *  Schema mirror of agents-side per
+   *  HANDOFF_2026-05-20_CONSEQUENT_OF_BIDIRECTIONAL.md. Empty list
+   *  on findings outside an absorption pair. Today fires only on
+   *  `direction='agent_finer'`; agent_coarser is symmetric
+   *  follow-up agent-side. */
+  consequents?: string[];
 }
 
 /** One statement decomposed into (subject, predicate, object). Each

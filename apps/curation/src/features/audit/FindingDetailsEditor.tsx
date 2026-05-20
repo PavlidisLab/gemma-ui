@@ -55,6 +55,7 @@ import type {
 import type { FactorValueProposal } from "@/api/types";
 import { resolveAgentFactor, resolveGoldFactor } from "./factorMatch";
 import { verdictToStructureDetails } from "./dispositionSave";
+import { consequentHint, type ConsequentHintState } from "./consequentHint";
 import {
   isSideEmpty,
   lc,
@@ -277,12 +278,27 @@ export function buildFactorRows(
       : isAgentOnly
         ? { label: "", uri: null }
         : null;
-    const reference: SideValue | null = rename?.gold?.category
-      ? {
-          label: rename.gold.category.label || "",
-          uri: rename.gold.category.uri ?? null,
-        }
-      : null;
+    // ``rename.gold.category`` is the canonical Gemma-side reference;
+    // ``gold`` is the resolved live design factor. Both refer to the
+    // same concept on a regular agent audit (no inter-curator
+    // divergence). The agent-side builder doesn't always populate
+    // ``rename.gold.category.uri`` — when the label matches the
+    // resolved gold factor, fall back to that factor's URI so the
+    // "Gemma has" chip renders as an ontology term, not italic
+    // free-text. Pure UI-side patch; bro-side fix can replace this
+    // once the builder mirrors the URI consistently.
+    const reference: SideValue | null = (() => {
+      if (!rename?.gold?.category) return null;
+      const rgc = rename.gold.category;
+      const fallbackUri =
+        gold && lc(rgc.label) === lc(gold.category.label)
+          ? (gold.category.uri ?? null)
+          : null;
+      return {
+        label: rgc.label || "",
+        uri: rgc.uri || fallbackUri,
+      };
+    })();
     rows.push({
       path: "factor.category",
       rowLabel: "Category",
@@ -609,6 +625,7 @@ export function FindingDetailsEditor({
   onSave,
   onDismiss,
   onPark,
+  onUndo,
 }: {
   finding: AuditFinding;
   report: AuditReport | null;
@@ -621,6 +638,12 @@ export function FindingDetailsEditor({
   ) => Promise<void>;
   onDismiss: () => void;
   onPark: () => void;
+  /** Revert the disposition to ``pending``. Rendered as an "undo"
+   *  link in the action row when the finding is already
+   *  dispositioned. The sidebar wires this to the same draft-
+   *  snapshot restore + ``patch("pending")`` path the legacy
+   *  action row used. */
+  onUndo?: () => void;
 }) {
   const toast = useToast();
   const identities = useMemo(
@@ -636,6 +659,14 @@ export function FindingDetailsEditor({
 
   const disagreementRows = rows.filter((r) => !r.allAgree);
   const agreementRows = rows.filter((r) => r.allAgree);
+
+  // Cross-link cue for bidirectional consequent_of / consequents
+  // pairs. Computed once per render; the banner below in the
+  // partition-mismatch and removal branches consumes it.
+  const hint: ConsequentHintState | null = useMemo(
+    () => consequentHint(finding, report),
+    [finding, report],
+  );
 
   // Group disagreement rows by (fvIndex, statementIndex). Rows
   // within the same statement render together inside one decision
@@ -892,9 +923,17 @@ export function FindingDetailsEditor({
           </div>
         ) : null}
 
+        {hint ? (
+          <ConsequentHintBanner
+            state={hint}
+            onApply={dispatchSave}
+            saving={saving}
+          />
+        ) : null}
+
         <ActionRow
           saving={saving}
-          disabled={currentDisposition === "dismissed"}
+          disabled={currentDisposition !== "pending"}
           buttons={[
             {
               key: "keep",
@@ -915,6 +954,9 @@ export function FindingDetailsEditor({
           ]}
           onDismiss={onDismiss}
           onPark={onPark}
+          onUndo={
+            currentDisposition !== "pending" ? onUndo : undefined
+          }
         />
       </div>
     );
@@ -958,6 +1000,36 @@ export function FindingDetailsEditor({
         design?.factors ?? [],
         labelHint,
       );
+    })();
+    // For tag removals, decompose the "category: value" label and
+    // look up the gold tag in design.tags so we can resolve URIs
+    // for each side. Without this, both halves render as italic
+    // free-text (the same problem we fix for factor removals
+    // above). In inter-curator audits the gold side is the other
+    // curator's design draft, which still carries URIs on resolved
+    // tags — the lookup works the same way.
+    const goldTagParts = (() => {
+      if (finding.target_kind !== "tag") return null;
+      if (!removeTargetLabel) return null;
+      const colon = removeTargetLabel.indexOf(":");
+      if (colon === -1) return null;
+      const cat = removeTargetLabel.slice(0, colon).trim();
+      const val = removeTargetLabel.slice(colon + 1).trim();
+      const tag = design?.tags?.find(
+        (t) =>
+          lc(t.category?.label) === lc(cat) &&
+          lc(t.value?.label) === lc(val),
+      );
+      return {
+        category: {
+          label: tag?.category?.label || cat,
+          uri: tag?.category?.uri ?? null,
+        },
+        value: {
+          label: tag?.value?.label || val,
+          uri: tag?.value?.uri ?? null,
+        },
+      };
     })();
     const categoryUri = goldFactor?.category?.uri ?? null;
     const removalFvSummary =
@@ -1017,9 +1089,43 @@ export function FindingDetailsEditor({
           <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
             <span className="text-slate-600 dark:text-slate-300">
               <strong>{identities.goldCurator}</strong> {goldVerb}
+              {/* "in current design" lives in the identity (left)
+                  column so it stays adjacent to "you have" even when
+                  the FV chips on the right wrap onto multiple lines.
+                  Stacked underneath the identity label as a small
+                  caption. */}
+              <span
+                className="block text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300 mt-0.5"
+                title="This is what's currently on the design tab (the working draft)."
+              >
+                ← in current design
+              </span>
             </span>
             <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-              {currentTermLabel ? (
+              {goldTagParts ? (
+                // Tag removal — render category + value as two
+                // separate ontology chips so each can resolve to
+                // its own term.
+                <>
+                  <Term
+                    uri={goldTagParts.category.uri}
+                    asLink={false}
+                    className="!whitespace-normal break-words"
+                  >
+                    {goldTagParts.category.label}
+                  </Term>
+                  <span className="text-slate-400 dark:text-slate-500">
+                    :
+                  </span>
+                  <Term
+                    uri={goldTagParts.value.uri}
+                    asLink={false}
+                    className="!whitespace-normal break-words"
+                  >
+                    {goldTagParts.value.label}
+                  </Term>
+                </>
+              ) : currentTermLabel ? (
                 <Term
                   uri={categoryUri}
                   asLink={false}
@@ -1053,19 +1159,21 @@ export function FindingDetailsEditor({
                   ))}
                 </span>
               ) : null}
-              <span
-                className="ml-1 text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300"
-                title="This is what's currently on the design tab (the working draft)."
-              >
-                ← in current design
-              </span>
             </span>
           </div>
         </div>
 
+        {hint ? (
+          <ConsequentHintBanner
+            state={hint}
+            onApply={dispatchSave}
+            saving={saving}
+          />
+        ) : null}
+
         <ActionRow
           saving={saving}
-          disabled={currentDisposition === "dismissed"}
+          disabled={currentDisposition !== "pending"}
           buttons={[
             {
               key: "keep",
@@ -1082,6 +1190,9 @@ export function FindingDetailsEditor({
           ]}
           onDismiss={onDismiss}
           onPark={onPark}
+          onUndo={
+            currentDisposition !== "pending" ? onUndo : undefined
+          }
         />
       </div>
     );
@@ -1181,7 +1292,7 @@ export function FindingDetailsEditor({
           per-row-save + Dismiss/Park. */}
       <ActionRow
         saving={saving}
-        disabled={currentDisposition === "dismissed"}
+        disabled={currentDisposition !== "pending"}
         buttons={
           allAgreeAtCard
             ? [
@@ -1239,6 +1350,7 @@ export function FindingDetailsEditor({
         }
         onDismiss={onDismiss}
         onPark={onPark}
+        onUndo={currentDisposition !== "pending" ? onUndo : undefined}
       />
     </div>
   );
@@ -1585,18 +1697,102 @@ interface ActionButton {
   title?: string;
 }
 
+/** Inline suggestion banner for findings linked through
+ *  `consequent_of` / `consequents`. Renders one of three states:
+ *
+ *  - "implied": the linked side decided + this side hasn't.
+ *    Suggests the verdict that would keep the pair consistent +
+ *    a one-click action button. Curator can ignore and pick
+ *    differently using the normal buttons.
+ *  - "consistent": both sides decided, same direction. Tiny ✓
+ *    stamp acknowledging the consistency.
+ *  - "diverges": both sides decided, opposite directions. Small
+ *    ⚠ stamp surfacing the divergence — no forced action, just
+ *    visible so the curator can revisit if it was unintentional.
+ *
+ *  Per Paul (2026-05-20): "accepting one should somehow mark the
+ *  other... the curators should be cued to do the logically
+ *  consistent thing... there has to be an override, so it's more
+ *  a suggestion that I'm looking for the curators to see". */
+function ConsequentHintBanner({
+  state,
+  onApply,
+  saving,
+}: {
+  state: ConsequentHintState;
+  onApply: (verdict: "proposal" | "currently") => void;
+  saving: boolean;
+}) {
+  if (state.kind === "implied") {
+    const headline =
+      state.linkedVerdict === "proposal"
+        ? `\`${state.linkedLabel}\` was accepted`
+        : `\`${state.linkedLabel}\` was kept`;
+    const tail =
+      state.side === "downstream"
+        ? state.linkedVerdict === "proposal"
+          ? "accepting removal here keeps them consistent"
+          : "keeping this also keeps them consistent"
+        : state.linkedVerdict === "proposal"
+          ? "adopting the split here keeps them consistent"
+          : "keeping the existing factor here keeps them consistent";
+    return (
+      <div className="flex items-baseline flex-wrap gap-2 rounded border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-[11px] text-sky-900 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-100">
+        <span className="text-[10px] uppercase tracking-wide font-semibold opacity-70">
+          Linked
+        </span>
+        <span className="flex-1 min-w-0">
+          {headline} — {tail}.
+        </span>
+        <button
+          type="button"
+          onClick={() => onApply(state.impliedVerdict)}
+          disabled={saving}
+          className="px-2 py-0.5 rounded text-[11px] font-semibold bg-sky-700 text-white hover:bg-sky-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
+          title="Apply the suggested verdict; you can still pick differently using the buttons below."
+        >
+          {state.impliedActionLabel}
+        </button>
+      </div>
+    );
+  }
+  if (state.kind === "consistent") {
+    return (
+      <div className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 dark:text-emerald-300">
+        ✓ consistent with `{state.linkedLabel}`
+      </div>
+    );
+  }
+  // diverges
+  const divergePhrase =
+    state.linkedVerdict === "proposal"
+      ? `\`${state.linkedLabel}\` was accepted, this was dismissed`
+      : `\`${state.linkedLabel}\` was kept, this was accepted`;
+  return (
+    <div className="text-[10px] uppercase tracking-wide font-semibold text-amber-700 dark:text-amber-300">
+      ⚠ diverges from linked decision — {divergePhrase}
+    </div>
+  );
+}
+
 function ActionRow({
   saving,
   disabled,
   buttons,
   onDismiss,
   onPark,
+  onUndo,
 }: {
   saving: boolean;
   disabled: boolean;
   buttons: ActionButton[];
   onDismiss: () => void;
   onPark: () => void;
+  /** When provided, renders an "undo" text link on the far right
+   *  that reverts the disposition to ``pending``. The caller (the
+   *  editor body) decides whether to pass this based on
+   *  ``currentDisposition !== "pending"``. */
+  onUndo?: () => void;
 }) {
   return (
     <div className="flex items-center gap-2 pt-1 text-xs flex-wrap">
@@ -1639,6 +1835,17 @@ function ActionRow({
       >
         Park…
       </button>
+      {onUndo ? (
+        <button
+          type="button"
+          onClick={onUndo}
+          disabled={saving}
+          title="undo — reverts disposition and any draft change"
+          className="ml-auto text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline dark:text-slate-400 dark:hover:text-slate-100"
+        >
+          undo
+        </button>
+      ) : null}
     </div>
   );
 }
