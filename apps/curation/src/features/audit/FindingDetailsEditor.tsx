@@ -1,29 +1,44 @@
 /**
- * Per-element 2-axis disposition editor.
+ * Per-element disposition editor — three-comparator, tired-human shape.
  *
- * Replaces the single Agree / Dismiss / Park button row on findings
- * that have resolvable structured content (factor proposals + tag
- * proposals). The curator can flag each individual element —
- * category, per-FV label, per-statement subject/predicate/object —
- * as ✓ or ✗, and edit the labels inline.
+ * One block per disagreement. Each block shows up to three
+ * comparators with identity-first labels ("cyan said", "amanda
+ * has", "Gemma has") + one button per available party + "edit…".
+ * Matched elements collapse to a single agreement-summary line.
+ * The 2-axis structure/details vocabulary stays on the wire (the
+ * scorer needs it) but is hidden from the curator — the button
+ * the curator clicks is the verdict.
  *
- * Wire shape lives in HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS
- * §2 (structure_ok / details_ok on `AuditFindingDisposition`,
- * landed in agents repo commit 9eb5dfa) and the UI-Claude reply
- * below ($applied_fix structured payload$). Until the structured
- * applied_fix shape ships, this component serialises its output
- * as a JSON-stringified ``AppliedFix`` into the existing string
- * field; the server treats it as opaque text.
+ * Identity strings come from the audit's ``report.model`` field.
+ * For inter-curator-audit packages (e.g. "inter-curator audit ·
+ * amanda's curation applied · cyan reviews") this parses to
+ * goldCurator="amanda" / proposer="cyan" / reference="Gemma".
+ * For regular agent audits the labels default to "Agent" /
+ * "current curation" / "Gemma".
  *
- * Findings without a resolvable agent proposal (no
- * comparison_proposal entry, missing proposer_term on tag side)
- * fall through to the legacy single-button DispositionBar — see
- * the gating helper ``findingHasStructuredContent`` exported at
- * the bottom.
+ * Wire details:
+ *   - Agreement-everywhere card → Keep/Dismiss/Park.
+ *   - keep <gold>'s → status=dismissed, structure_ok=false,
+ *     applied_fix.kind="structural".
+ *   - adopt <proposer>'s → status=accepted, structure_ok=true,
+ *     details_ok=true, no edits.
+ *   - match <reference> → currently records as "accept proposal"
+ *     too (since reference == upstream which is what proposal
+ *     usually aims at). Stored as applied_fix entries with the
+ *     reference values so the scorer can disambiguate later.
+ *   - per-block edit → status=accepted, structure_ok=true,
+ *     details_ok=false, applied_fix.edits carries the typed value.
+ *
+ * Reference data (Gemma snapshot) is not separately stored
+ * locally yet — until §1 design-per-batch ships, the Reference
+ * column populates as null and the third button is suppressed.
+ * The shape is built to accept it the moment data flows in.
  */
+
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
+import { Term } from "@/components/ui/Term";
 import type {
   AppliedEdit,
   AppliedFix,
@@ -40,87 +55,53 @@ import type { FactorValueProposal } from "@/api/types";
 import { resolveAgentFactor, resolveGoldFactor } from "./factorMatch";
 
 // ---------------------------------------------------------------------------
-// Row model
+// Identity strings
 // ---------------------------------------------------------------------------
 
-/** One editable row in the per-element table. The ``path`` follows
- *  the convention documented in the UI-Claude reply on the handoff
- *  doc:
- *    - ``factor.category.label`` / ``factor.category.uri``
- *    - ``fv[i].label``                — free_text_label
- *    - ``fv[i].statements[j].subject``   (carries label + uri)
- *    - ``fv[i].statements[j].predicate``
- *    - ``fv[i].statements[j].object``
- *    - ``tag.category`` / ``tag.value``  (each carries label + uri)
- *
- *  The path is the load-bearing identity for an applied_fix edit. */
-interface Row {
-  path: string;
-  /** UI label for the row's left-hand column — "Category", "Label",
-   *  "Subject", etc. The grouping into FV blocks happens at render
-   *  time off ``fvIndex``. */
-  rowLabel: string;
-  agent: { label: string; uri: string | null };
-  /** Gold-side counterpart for the side-by-side diff column. ``null``
-   *  when no gold counterpart resolved (proposal is an add). */
-  gold: { label: string; uri: string | null } | null;
-  /** Which FV this row belongs to (0-indexed). ``null`` for
-   *  factor-level rows like Category. */
-  fvIndex: number | null;
-  /** Which statement within the FV (0-indexed). ``null`` for
-   *  non-statement rows. */
-  statementIndex: number | null;
-  /** Whether agent's label/uri equals gold's. Computed at row build
-   *  time; drives the ``= / ≠`` diff cue. ``null`` when no gold to
-   *  compare against. */
-  matchesGold: boolean | null;
+interface AuditIdentities {
+  /** Party whose values appear in the "proposal" column. */
+  proposer: string;
+  /** Party whose curation is baked into design.json. */
+  goldCurator: string;
+  /** Label for the third comparator slot. */
+  reference: string;
 }
 
-/** Per-row curator state. Untouched rows carry ``ok=null`` and
- *  ``edited=false``. */
-interface RowEditState {
-  ok: boolean | null;
-  /** Live label value in the input. Initialised to agent's label;
-   *  user typing updates it. */
-  toLabel: string;
-  /** ``true`` when ``toLabel`` differs from agent's label. */
-  edited: boolean;
-}
+const DEFAULT_IDENTITIES: AuditIdentities = {
+  proposer: "Agent",
+  goldCurator: "current",
+  reference: "Gemma",
+};
 
-// ---------------------------------------------------------------------------
-// Public gating helper
-// ---------------------------------------------------------------------------
-
-/** Returns ``true`` when the finding has enough structured content
- *  for the 2-axis editor to render meaningful rows. Factor findings
- *  need a resolvable agent proposal AND a gold counterpart (or
- *  acceptance of "this is an add", which still has agent-only rows).
- *  Tag findings need either a ``proposer_term`` (calibration_agent_extra)
- *  or a parseable target_id (calibration_gold_only_miss). */
-export function findingHasStructuredContent(
-  finding: AuditFinding,
-  report: AuditReport | null,
-  design: Design | null,
-): boolean {
-  if (finding.target_kind === "factor") {
-    const cp = report?.evidence?.comparison_proposal ?? null;
-    const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
-    const agent = resolveAgentFactor(finding, cp, labelHint);
-    if (agent) return true;
-    // gold_only_miss with no agent — we can still render the gold-side
-    // rows in read-only mode (curator confirms removal).
-    const gold = resolveGoldFactor(finding, design?.factors ?? [], labelHint);
-    return !!gold;
+/** Pull party identities from the audit's ``model`` field. Matches
+ *  the inter-curator-audit pattern ("inter-curator audit · X's
+ *  curation applied · Y reviews") and otherwise falls back to
+ *  generic role names. */
+function extractAuditIdentities(
+  model: string | null | undefined,
+): AuditIdentities {
+  if (!model) return DEFAULT_IDENTITIES;
+  const m = model.match(
+    /inter-curator audit\s*·\s*(\S+?)'s curation applied\s*·\s*(\S+?)\s*reviews/i,
+  );
+  if (m) {
+    return {
+      proposer: m[2],
+      goldCurator: m[1],
+      reference: "Gemma",
+    };
   }
-  if (finding.target_kind === "tag") {
-    return !!finding.proposer_term || finding.target_id.startsWith("calibration:");
-  }
-  return false;
+  return DEFAULT_IDENTITIES;
 }
 
 // ---------------------------------------------------------------------------
-// Row builders
+// Row helpers (preserved from the previous shape)
 // ---------------------------------------------------------------------------
+
+interface SideValue {
+  label: string;
+  uri: string | null;
+}
 
 function lc(s: string | null | undefined): string {
   return (s || "").toLowerCase().trim();
@@ -129,7 +110,7 @@ function lc(s: string | null | undefined): string {
 function statementPart(
   st: Statement,
   part: "subject" | "predicate" | "object",
-): { label: string; uri: string | null } {
+): SideValue {
   if (part === "subject") {
     return {
       label: st.subject?.label || "",
@@ -151,15 +132,9 @@ function statementPart(
 function fvProposalStatementPart(
   fv: FactorValueProposal,
   part: "subject" | "predicate" | "object",
-): { label: string; uri: string | null } {
-  // FactorValueProposal carries ``statements: StatementProposal[]``
-  // — same shape as Statement (category/subject/predicate/object)
-  // but Pydantic-mirrored as a different interface in api/types.ts.
+): SideValue {
   const st = fv.statements?.[0];
   if (!st) return { label: "", uri: null };
-  // Read with permissive ``any`` because StatementProposal and
-  // Statement carry the same shape with slightly different optional
-  // markers — narrowing via the runtime structure keeps both happy.
   const s = st as unknown as Statement;
   return statementPart(s, part);
 }
@@ -168,11 +143,11 @@ function pairAgentStatementToGold(
   agentFv: FactorValueProposal,
   gold: Factor | null,
   part: "subject" | "predicate" | "object",
-): { label: string; uri: string | null } | null {
+): SideValue | null {
   if (!gold) return null;
-  const agentBms = new Set(agentFv.biomaterial_short_names || []);
+  const agentBms = new Set(agentFv.biomaterial_short_names ?? []);
   for (const goldFv of gold.factor_values) {
-    const gBms = new Set(goldFv.biomaterial_short_names || []);
+    const gBms = new Set(goldFv.biomaterial_short_names ?? []);
     if (gBms.size !== agentBms.size) continue;
     let allIn = true;
     for (const bm of agentBms) {
@@ -183,51 +158,103 @@ function pairAgentStatementToGold(
     }
     if (allIn) {
       const st = goldFv.statements?.[0];
-      if (!st) return null;
-      return statementPart(st, part);
+      return st ? statementPart(st, part) : null;
     }
   }
   return null;
 }
 
-function rowMatches(
-  agent: { label: string; uri: string | null },
-  gold: { label: string; uri: string | null } | null,
-): boolean | null {
-  if (!gold) return null;
-  // Labels-equal beats URI-equal — same human surface should read
-  // ``=`` regardless of which ontology URI each side resolved to.
-  // The opposite ordering (URI first) flagged "Homozygous negative"
-  // ≠ "Homozygous negative" when agent + gold picked different
-  // canonical URIs for the same term.
-  if (lc(agent.label) === lc(gold.label)) return true;
-  if (agent.uri && gold.uri && agent.uri === gold.uri) return true;
+function sidesAgree(a: SideValue | null, b: SideValue | null): boolean {
+  if (a === null && b === null) return true;
+  if (!a || !b) return false;
+  if (a.uri && b.uri && a.uri === b.uri) return true;
+  if (lc(a.label) === lc(b.label)) return true;
   return false;
 }
 
-/** Per-FV metadata sidecar — sample partition sizes for both
- *  agent and gold. Rendered in the FV-block header so the curator
- *  can see how many samples each level covers (and whether the
- *  partition sizes match across agent and gold) without scanning
- *  the rows. */
+function isSideEmpty(s: SideValue | null): boolean {
+  if (!s) return true;
+  return !s.label && !s.uri;
+}
+
+// ---------------------------------------------------------------------------
+// Row model
+// ---------------------------------------------------------------------------
+
+interface Row {
+  path: string;
+  rowLabel: string;
+  /** Always present — the change being proposed. */
+  proposal: SideValue;
+  /** What's in the local draft (gold curator's design). ``null``
+   *  when no counterpart exists (true new-factor adds). */
+  currently: SideValue | null;
+  /** Upstream (Gemma) reference. ``null`` until §1 ships a
+   *  separately-stored Gemma snapshot. */
+  reference: SideValue | null;
+  fvIndex: number | null;
+  statementIndex: number | null;
+  /** True iff every present non-empty comparator agrees. Drives the
+   *  agreement-summary collapse. */
+  allAgree: boolean;
+}
+
 interface FvMeta {
-  /** Number of biomaterials assigned to the agent's FV. */
   agentSampleCount: number;
-  /** Number assigned to the paired gold FV; null when no gold
-   *  counterpart resolved. */
   goldSampleCount: number | null;
 }
 
-interface FactorRowsResult {
+interface BuildResult {
   rows: Row[];
   fvMeta: Map<number, FvMeta>;
+}
+
+function pairAgentGoldFv(
+  agentFactor: FactorValueProposal,
+  gold: Factor | null,
+): { biomaterial_short_names: string[] } | null {
+  if (!gold) return null;
+  const agentBms = new Set(agentFactor.biomaterial_short_names ?? []);
+  for (const goldFv of gold.factor_values) {
+    const gBms = new Set(goldFv.biomaterial_short_names ?? []);
+    if (gBms.size !== agentBms.size) continue;
+    let allIn = true;
+    for (const bm of agentBms) {
+      if (!gBms.has(bm)) {
+        allIn = false;
+        break;
+      }
+    }
+    if (allIn) {
+      return { biomaterial_short_names: goldFv.biomaterial_short_names ?? [] };
+    }
+  }
+  return null;
+}
+
+function rowAgreement(
+  proposal: SideValue,
+  currently: SideValue | null,
+  reference: SideValue | null,
+): boolean {
+  const sides: SideValue[] = [proposal];
+  if (currently && !isSideEmpty(currently)) sides.push(currently);
+  if (reference && !isSideEmpty(reference)) sides.push(reference);
+  if (sides.length <= 1) {
+    // Single comparator → no disagreement possible.
+    return true;
+  }
+  for (let i = 1; i < sides.length; i++) {
+    if (!sidesAgree(sides[0], sides[i])) return false;
+  }
+  return true;
 }
 
 function buildFactorRows(
   finding: AuditFinding,
   report: AuditReport | null,
   design: Design | null,
-): FactorRowsResult {
+): BuildResult {
   const cp = report?.evidence?.comparison_proposal ?? null;
   const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
   const agent = resolveAgentFactor(finding, cp, labelHint);
@@ -239,27 +266,27 @@ function buildFactorRows(
 
   // Category row.
   {
-    const agentSide = {
+    const proposal: SideValue = {
       label: agent.category.label || "",
       uri: agent.category.uri ?? null,
     };
-    const goldSide = gold
+    const currently: SideValue | null = gold
       ? { label: gold.category.label || "", uri: gold.category.uri ?? null }
       : null;
+    // Reference (Gemma) snapshot not separately stored locally yet.
+    const reference: SideValue | null = null;
     rows.push({
       path: "factor.category",
       rowLabel: "Category",
-      agent: agentSide,
-      gold: goldSide,
+      proposal,
+      currently,
+      reference,
       fvIndex: null,
       statementIndex: null,
-      matchesGold: rowMatches(agentSide, goldSide),
+      allAgree: rowAgreement(proposal, currently, reference),
     });
   }
 
-  // Per-FV rows. Label row dropped — `free_text_label` is a
-  // generated surface; statement parts (subject/predicate/object)
-  // are the load-bearing comparison. See feedback 2026-05-19.
   agent.factor_values.forEach((fv, fvIdx) => {
     const pairedGoldFv = pairAgentGoldFv(fv, gold);
     fvMeta.set(fvIdx, {
@@ -269,35 +296,30 @@ function buildFactorRows(
         : null,
     });
 
-    // Statement parts. v1 only inspects ``statements[0]`` —
-    // multi-statement FVs are rare and add later if needed.
-    // Predicate + Object rows render only when at least one side
-    // (agent or gold) has a non-empty value; degenerate FVs
-    // (wild-type / single-term tags) collapse to just the Subject
-    // row.
     const partOrder: Array<"subject" | "predicate" | "object"> = [
       "subject",
       "predicate",
       "object",
     ];
     for (const part of partOrder) {
-      const agentSide = fvProposalStatementPart(fv, part);
-      const goldSide = pairAgentStatementToGold(fv, gold, part);
-      // Always render subject; skip predicate/object when both
-      // sides are empty (no content for the curator to flag).
+      const proposal = fvProposalStatementPart(fv, part);
+      const currently = pairAgentStatementToGold(fv, gold, part);
+      const reference: SideValue | null = null;
       if (part !== "subject") {
-        const agentEmpty = !agentSide.label && !agentSide.uri;
-        const goldEmpty = !goldSide || (!goldSide.label && !goldSide.uri);
-        if (agentEmpty && goldEmpty) continue;
+        const proposalEmpty = isSideEmpty(proposal);
+        const currentlyEmpty = isSideEmpty(currently);
+        const referenceEmpty = isSideEmpty(reference);
+        if (proposalEmpty && currentlyEmpty && referenceEmpty) continue;
       }
       rows.push({
         path: `fv[${fvIdx}].statements[0].${part}`,
         rowLabel: part[0].toUpperCase() + part.slice(1),
-        agent: agentSide,
-        gold: goldSide,
+        proposal,
+        currently,
+        reference,
         fvIndex: fvIdx,
         statementIndex: 0,
-        matchesGold: rowMatches(agentSide, goldSide),
+        allAgree: rowAgreement(proposal, currently, reference),
       });
     }
   });
@@ -305,48 +327,7 @@ function buildFactorRows(
   return { rows, fvMeta };
 }
 
-/** Pair an agent FV to the gold FV that covers the same biomaterial
- *  set. Same logic the row builders use internally — extracted so
- *  the FV-meta sidecar can read the paired gold FV's sample count. */
-function pairAgentGoldFv(
-  agentFv: FactorValueProposal,
-  gold: Factor | null,
-): { biomaterial_short_names: string[]; free_text_label: string } | null {
-  if (!gold) return null;
-  const agentBms = new Set(agentFv.biomaterial_short_names || []);
-  for (const goldFv of gold.factor_values) {
-    const gBms = new Set(goldFv.biomaterial_short_names || []);
-    if (gBms.size !== agentBms.size) continue;
-    let allIn = true;
-    for (const bm of agentBms) {
-      if (!gBms.has(bm)) {
-        allIn = false;
-        break;
-      }
-    }
-    if (allIn) {
-      return {
-        biomaterial_short_names: goldFv.biomaterial_short_names ?? [],
-        free_text_label: goldFv.free_text_label ?? "",
-      };
-    }
-  }
-  // Label fallback for the meta — biomaterial counts on a label-
-  // matched gold FV are at least informative.
-  const labelHit = gold.factor_values.find(
-    (g) => lc(g.free_text_label) === lc(agentFv.free_text_label),
-  );
-  return labelHit
-    ? {
-        biomaterial_short_names: labelHit.biomaterial_short_names ?? [],
-        free_text_label: labelHit.free_text_label ?? "",
-      }
-    : null;
-}
-
 function buildTagRows(finding: AuditFinding): Row[] {
-  // Parse target_id for category + value. Format set by agents-side
-  // build_calibration_batch.py: ``calibration:<status>:<category>/<value>``.
   if (!finding.target_id.startsWith("calibration:")) return [];
   const rest = finding.target_id.slice("calibration:".length);
   const colon = rest.indexOf(":");
@@ -356,40 +337,35 @@ function buildTagRows(finding: AuditFinding): Row[] {
   if (slash === -1) return [];
   const agentCategory = tail.slice(0, slash);
   const agentValue = tail.slice(slash + 1);
-  // Proposer term carries the resolved value-side ontology term;
-  // ``proposer_defense`` would carry per-attribute provenance but
-  // for v1 we just surface category + value.
   const term = finding.proposer_term ?? null;
 
-  const rows: Row[] = [
+  const categoryProposal: SideValue = { label: agentCategory, uri: null };
+  const valueProposal: SideValue = {
+    label: term?.label || agentValue,
+    uri: term?.uri ?? null,
+  };
+  return [
     {
       path: "tag.category",
       rowLabel: "Category",
-      agent: { label: agentCategory, uri: null },
-      gold: null,
+      proposal: categoryProposal,
+      currently: null,
+      reference: null,
       fvIndex: null,
       statementIndex: null,
-      matchesGold: null,
+      allAgree: rowAgreement(categoryProposal, null, null),
     },
     {
       path: "tag.value",
       rowLabel: "Value",
-      agent: {
-        label: term?.label || agentValue,
-        uri: term?.uri ?? null,
-      },
-      gold: null,
+      proposal: valueProposal,
+      currently: null,
+      reference: null,
       fvIndex: null,
       statementIndex: null,
-      matchesGold: null,
+      allAgree: rowAgreement(valueProposal, null, null),
     },
   ];
-  return rows;
-}
-
-interface BuildResult {
-  rows: Row[];
-  fvMeta: Map<number, FvMeta>;
 }
 
 function buildRows(
@@ -407,36 +383,105 @@ function buildRows(
 }
 
 // ---------------------------------------------------------------------------
-// applied_fix payload construction
+// Public gating helper
 // ---------------------------------------------------------------------------
 
-/** Build the structured applied_fix from the per-row state. Only
- *  rows the curator touched (ok !== null OR edited === true) are
- *  serialised — leaves the wire payload tight. Types live in
- *  ``@/api/auditTypes`` (``AppliedFix`` / ``AppliedEdit``) mirroring
- *  bro's Pydantic shape. */
+export function findingHasStructuredContent(
+  finding: AuditFinding,
+  report: AuditReport | null,
+  design: Design | null,
+): boolean {
+  if (finding.target_kind === "factor") {
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
+    const agent = resolveAgentFactor(finding, cp, labelHint);
+    if (agent) return true;
+    const gold = resolveGoldFactor(finding, design?.factors ?? [], labelHint);
+    return !!gold;
+  }
+  if (finding.target_kind === "tag") {
+    return !!finding.proposer_term || finding.target_id.startsWith("calibration:");
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Per-row state + applied_fix construction
+// ---------------------------------------------------------------------------
+
+/** Curator's verdict on one disagreeing element. ``null`` means
+ *  the curator hasn't picked yet. */
+type Pick = "proposal" | "currently" | "reference" | "edit" | null;
+
+interface RowState {
+  pick: Pick;
+  /** Custom value when ``pick === "edit"``. */
+  editLabel: string;
+  editUri: string | null;
+}
+
+function freshRowState(): RowState {
+  return { pick: null, editLabel: "", editUri: null };
+}
+
+/** Aggregate per-row picks into a structured ``AppliedFix``. The
+ *  scorer uses the ``edits[]`` shape to disambiguate per-element
+ *  verdicts after the headline status. */
 function buildAppliedFix(
   rows: Row[],
-  state: Map<string, RowEditState>,
-): AppliedFix {
+  state: Map<string, RowState>,
+): { fix: AppliedFix; allPicked: Pick | "mixed" | "none" } {
   const edits: AppliedEdit[] = [];
+  const picksSeen = new Set<Pick>();
   for (const row of rows) {
+    if (row.allAgree) continue;
     const s = state.get(row.path);
-    if (!s) continue;
-    const touched = s.ok !== null || s.edited;
-    if (!touched) continue;
-    const edit: AppliedEdit = {
-      path: row.path,
-      ok: s.ok,
-      from_label: row.agent.label,
-      from_uri: row.agent.uri,
-    };
-    if (s.edited && s.toLabel !== row.agent.label) {
-      edit.to_label = s.toLabel;
+    if (!s || s.pick === null) {
+      picksSeen.add(null);
+      continue;
     }
-    edits.push(edit);
+    picksSeen.add(s.pick);
+    const pickedSide: SideValue | null =
+      s.pick === "proposal"
+        ? row.proposal
+        : s.pick === "currently"
+          ? row.currently
+          : s.pick === "reference"
+            ? row.reference
+            : { label: s.editLabel, uri: s.editUri };
+    edits.push({
+      path: row.path,
+      ok: s.pick === "proposal",
+      to_label: pickedSide?.label ?? null,
+      to_uri: pickedSide?.uri ?? null,
+      from_label: row.proposal.label,
+      from_uri: row.proposal.uri,
+      note: `pick=${s.pick}`,
+    });
   }
-  return { kind: "details_edit", edits };
+  // Decide aggregate verdict shape:
+  //   - ``proposal`` everywhere → accept proposal
+  //   - ``currently`` everywhere → keep gold
+  //   - ``reference`` everywhere → conceptually "match upstream"
+  //   - any mixture (or ``edit``) → mixed
+  const nonNull = Array.from(picksSeen).filter((p) => p !== null) as Pick[];
+  const allPicked: Pick | "mixed" | "none" =
+    nonNull.length === 0
+      ? "none"
+      : nonNull.length === 1
+        ? nonNull[0]
+        : "mixed";
+  return {
+    fix: {
+      kind: allPicked === "currently" ? "structural" : "details_edit",
+      note:
+        allPicked === "currently"
+          ? "Curator kept existing curation across the board."
+          : null,
+      edits,
+    },
+    allPicked,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -456,11 +501,6 @@ export function FindingDetailsEditor({
   report: AuditReport | null;
   design: Design | null;
   currentDisposition: DispositionStatus;
-  /** Called when the curator clicks "Save edits". Payload carries
-   *  the structured ``AppliedFix`` object directly (bro shipped the
-   *  union typing on the wire in agents commit ``e9e52ea``).
-   *  ``structure_ok`` is the card-level axis; ``details_ok`` is
-   *  derived from per-row state (true iff every touched row is ✓). */
   onSave: (
     appliedFix: AppliedFix,
     structureOk: boolean | null,
@@ -470,184 +510,58 @@ export function FindingDetailsEditor({
   onPark: () => void;
 }) {
   const toast = useToast();
+  const identities = useMemo(
+    () => extractAuditIdentities(report?.model),
+    [report?.model],
+  );
   const { rows, fvMeta } = useMemo(
     () => buildRows(finding, report, design),
     [finding, report, design],
   );
-  // Per-row state — keyed by path. Initialised lazily on first
-  // touch; rows the curator hasn't interacted with stay out of the
-  // map (treated as untouched / ok=null).
-  const [rowState, setRowState] = useState<Map<string, RowEditState>>(
-    new Map(),
-  );
-  // Structure axis. Inferred default from issue_code (per
-  // §2 of the handoff doc): match codes pre-confirm structure=true;
-  // extra/gold_only_miss start at null.
-  const inferredStructureOk = useMemo<boolean | null>(() => {
-    const code = finding.issue_code;
-    if (
-      code === "calibration_factor_match_exact" ||
-      code === "calibration_factor_match_near" ||
-      code === "calibration_factor_rename" ||
-      code === "calibration_match"
-    ) {
-      return true;
-    }
-    return null;
-  }, [finding.issue_code]);
-  const [structureOk, setStructureOk] = useState<boolean | null>(
-    inferredStructureOk,
-  );
+  const [rowState, setRowState] = useState<Map<string, RowState>>(new Map());
   const [saving, setSaving] = useState(false);
-  // Per-FV expanded state. Default: an FV-block where every row
-  // matches gold collapses to a single "all match" line; everything
-  // else expands. Curator clicks the collapsed header to expand,
-  // or the expanded header to re-collapse. Decisions persist while
-  // the editor is mounted but reset on finding change.
-  const [fvExpanded, setFvExpanded] = useState<Map<number, boolean>>(
-    new Map(),
-  );
 
-  // Derived: aggregated details_ok across rows the curator touched.
-  // null until any row is touched; false if any touched row is ✗;
-  // true if every touched row is ✓.
-  const detailsOk = useMemo<boolean | null>(() => {
-    let any = false;
-    let allOk = true;
-    for (const s of rowState.values()) {
-      if (s.ok === null && !s.edited) continue;
-      any = true;
-      if (s.ok === false || s.edited) {
-        allOk = false;
-      }
-    }
-    if (!any) return null;
-    return allOk;
-  }, [rowState]);
+  const disagreementRows = rows.filter((r) => !r.allAgree);
+  const agreementRows = rows.filter((r) => r.allAgree);
 
-  function getRow(path: string, agentLabel: string): RowEditState {
-    return (
-      rowState.get(path) ?? {
-        ok: null,
-        toLabel: agentLabel,
-        edited: false,
-      }
-    );
-  }
+  const isRemovalFinding =
+    finding.issue_code === "calibration_factor_gold_only_miss" ||
+    finding.issue_code === "calibration_gold_only_miss";
 
-  function setRow(path: string, patch: Partial<RowEditState>): void {
+  function setPick(path: string, patch: Partial<RowState>): void {
     setRowState((prev) => {
       const next = new Map(prev);
-      const row = rows.find((r) => r.path === path);
-      const base =
-        next.get(path) ?? {
-          ok: null,
-          toLabel: row?.agent.label || "",
-          edited: false,
-        };
+      const base = next.get(path) ?? freshRowState();
       next.set(path, { ...base, ...patch });
       return next;
     });
   }
 
-  async function save() {
+  async function dispatchSave(verdict: "proposal" | "currently" | "reference") {
     setSaving(true);
     try {
-      const applied = buildAppliedFix(rows, rowState);
-      await onSave(applied, structureOk, detailsOk);
-    } catch (err) {
-      toast.show(
-        `Save failed: ${(err as Error).message}`,
-        "danger",
-        6000,
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  /** "Accept agent" — the curator's "agent's proposal is right,
-   *  apply it as-is" verdict. Sets structure_ok=true,
-   *  details_ok=true, empty edits — no per-row corrections.
-   *  Downstream apply-handlers do the actual mutation (add factor /
-   *  rename / remove) based on the finding's issue_code; the wire
-   *  just records the verdict. */
-  async function acceptAgent() {
-    setSaving(true);
-    try {
-      const applied: AppliedFix = { kind: "details_edit", edits: [] };
-      await onSave(applied, true, true);
-    } catch (err) {
-      toast.show(
-        `Save failed: ${(err as Error).message}`,
-        "danger",
-        6000,
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  /** "Keep gold" — the curator's "existing curation is right, don't
-   *  change anything" verdict. The single most common call on a
-   *  finding when the agent's proposal is wrong; bypasses the
-   *  per-row clicking entirely. Semantics depend on the finding's
-   *  ``issue_code``:
-   *
-   *  - ``*_match_*`` / ``*_rename``: confirm gold's labels stand —
-   *    structure_ok=true, details_ok=true, no applied_fix edits.
-   *    Maps to ``accepted/resolved``.
-   *  - ``*_extra`` (agent says ADD): don't add — structure_ok=false,
-   *    details_ok=null. Maps to ``dismissed`` with a structural-
-   *    rationale ``applied_fix(kind="structural")``.
-   *  - ``*_gold_only_miss`` (gold has X agent didn't propose):
-   *    keep X — structure_ok=false (don't honour the removal),
-   *    details_ok=null. Maps to ``dismissed``.
-   *
-   *  Saves immediately; no curator confirmation step. The dismiss-
-   *  reason chip dialog gets skipped because "keep gold" carries
-   *  the rationale on its own. */
-  async function keepGold() {
-    setSaving(true);
-    try {
-      const code = finding.issue_code;
-      const isMatch =
-        code === "calibration_factor_match_exact" ||
-        code === "calibration_factor_match_near" ||
-        code === "calibration_factor_rename" ||
-        code === "calibration_match";
-      const isExtra =
-        code === "calibration_factor_extra" ||
-        code === "calibration_agent_extra";
-      const isMiss =
-        code === "calibration_factor_gold_only_miss" ||
-        code === "calibration_gold_only_miss";
-      let nextStructureOk: boolean | null = null;
-      let nextDetailsOk: boolean | null = null;
-      let applied: AppliedFix;
-      if (isMatch) {
-        nextStructureOk = true;
-        nextDetailsOk = true;
-        applied = { kind: "details_edit", edits: [] };
-      } else if (isExtra || isMiss) {
-        nextStructureOk = false;
-        applied = {
-          kind: "structural",
-          note: isExtra
-            ? "Keep gold — agent's proposed addition is wrong."
-            : "Keep gold — existing curation stands.",
-          edits: [],
-        };
-      } else {
-        // Conservative default: treat as "agent's proposal is
-        // wrong" → dismiss with structural note.
-        nextStructureOk = false;
-        applied = {
-          kind: "structural",
-          note: "Keep gold — existing curation is correct.",
-        };
+      // Default-fill any un-picked disagreement rows with the
+      // header-level verdict. Curator pressed the same button at
+      // the top; they implicitly mean "do this for all rows that
+      // disagree".
+      const filledState = new Map(rowState);
+      for (const row of disagreementRows) {
+        const cur = filledState.get(row.path) ?? freshRowState();
+        if (cur.pick === null) {
+          filledState.set(row.path, { ...cur, pick: verdict });
+        }
       }
-      await onSave(applied, nextStructureOk, nextDetailsOk);
+      const { fix } = buildAppliedFix(rows, filledState);
+      let structureOk: boolean | null = true;
+      let detailsOk: boolean | null = true;
+      if (verdict === "currently") {
+        structureOk = false;
+        detailsOk = null;
+      }
+      // The sidebar's onSave handler derives ``status`` from
+      // structure_ok / details_ok per the conventional mapping
+      // (see AuditSidebarPanel.onSave); editor stays pure.
+      await onSave(fix, structureOk, detailsOk);
     } catch (err) {
       toast.show(
         `Save failed: ${(err as Error).message}`,
@@ -659,317 +573,183 @@ export function FindingDetailsEditor({
     }
   }
 
-  // Group rows by FV for the FV-block rendering.
-  const factorRows = rows.filter((r) => r.fvIndex === null);
-  const fvBuckets = new Map<number, Row[]>();
-  for (const r of rows) {
-    if (r.fvIndex !== null) {
-      const list = fvBuckets.get(r.fvIndex) ?? [];
-      list.push(r);
-      fvBuckets.set(r.fvIndex, list);
+  async function dispatchPerRowSave() {
+    setSaving(true);
+    try {
+      const { fix, allPicked } = buildAppliedFix(rows, rowState);
+      if (allPicked === "none") {
+        toast.show(
+          "Nothing to save — pick a verdict on each disagreement first.",
+          "info",
+          4000,
+        );
+        return;
+      }
+      let structureOk: boolean | null = true;
+      let detailsOk: boolean | null = true;
+      if (allPicked === "currently") {
+        structureOk = false;
+        detailsOk = null;
+      } else if (allPicked === "mixed" || allPicked === "edit") {
+        structureOk = true;
+        detailsOk = false;
+      }
+      await onSave(fix, structureOk, detailsOk);
+    } catch (err) {
+      toast.show(
+        `Save failed: ${(err as Error).message}`,
+        "danger",
+        6000,
+      );
+    } finally {
+      setSaving(false);
     }
   }
-  const fvIndices = Array.from(fvBuckets.keys()).sort((a, b) => a - b);
 
-  // Detect the mis-framed "Add factor X?" case where partition
-  // matches gold — old audits (pre-2026-05-19 builder change
-  // a741daf) emit ``calibration_factor_extra`` for cases that
-  // should now be ``calibration_factor_match_near``. The agent's
-  // FVs cover the same biomaterials as gold's; only the labels
-  // differ. Surface a banner that explains the actual decision
-  // is "change labels", not "add a new factor". Three-way verdict
-  // (Keep gold / Accept agent / per-row edit) is the right frame
-  // for these, not "should I add this thing".
-  const code = finding.issue_code;
-  const isExtraButPairedToGold =
-    (code === "calibration_factor_extra" ||
-      code === "calibration_agent_extra") &&
-    fvIndices.length > 0 &&
-    fvIndices.every((idx) => {
-      const meta = fvMeta.get(idx);
-      return (
-        meta &&
-        meta.goldSampleCount !== null &&
-        meta.goldSampleCount === meta.agentSampleCount
-      );
-    });
+  const hasReferenceData = rows.some((r) => r.reference !== null);
+  const allAgreeAtCard = rows.length > 0 && disagreementRows.length === 0;
 
-  // Removal-only findings (``*_gold_only_miss``) collapse to a
-  // binary "keep vs remove" decision — there's nothing to edit at
-  // the row level because the curator's verdict is on the gold
-  // factor's existence, not its labels. Hide the per-row panel
-  // entirely; the Keep-gold / Accept-agent buttons carry the
-  // whole verdict.
-  const isRemovalFinding =
-    code === "calibration_factor_gold_only_miss" ||
-    code === "calibration_gold_only_miss";
-
-  // Stronger sub-case of ``isExtraButPairedToGold``: the proposal
-  // matches gold on EVERY row (category + all FV statement parts).
-  // Effectively noise — bro's pre-a741daf builder emitted these
-  // when its own judges disagreed about whether to fold the
-  // proposal into an existing gold factor. The right curator call
-  // is almost always "Keep gold" (dismiss as duplicate). Surface
-  // a more emphatic banner so the curator doesn't pore over rows
-  // looking for the difference that isn't there.
-  const isExtraDuplicateOfGold =
-    isExtraButPairedToGold &&
-    rows.length > 0 &&
-    rows.every((r) => r.matchesGold === true);
+  // Removal-only findings collapse to keep-vs-remove. No row
+  // disagreement model applies.
+  if (isRemovalFinding) {
+    return (
+      <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+        <div className="text-[12px] text-slate-700 dark:text-slate-200">
+          <strong>{identities.proposer}</strong> proposes removing this
+          factor.{" "}
+          <em>{identities.goldCurator}</em> currently has it.
+        </div>
+        <ActionRow
+          saving={saving}
+          disabled={currentDisposition === "dismissed"}
+          buttons={[
+            {
+              key: "keep",
+              kind: "primary-keep",
+              label: `keep ${identities.goldCurator}'s`,
+              onClick: () => dispatchSave("currently"),
+            },
+            {
+              key: "remove",
+              kind: "primary-accept",
+              label: `accept ${identities.proposer}'s (remove)`,
+              onClick: () => dispatchSave("proposal"),
+            },
+          ]}
+          onDismiss={onDismiss}
+          onPark={onPark}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
-      {/* Mis-framed-extra banner. Pre-a741daf audits framed
-          partition-equal cases as "Add factor X?" when the curator's
-          actual call is "change labels on the existing X" — or, in
-          the strongest sub-case, "nothing to do, this is a
-          duplicate". Bump the frame explicitly. */}
-      {isExtraDuplicateOfGold ? (
-        <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100">
-          <strong>Proposal duplicates existing curation</strong> —
-          category and all FVs match gold exactly. The agent's
-          judges disagreed about whether to emit this finding;
-          there's nothing to fix. <em>Keep gold</em> dismisses it
-          cleanly.
-        </div>
-      ) : isExtraButPairedToGold ? (
-        <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100">
-          <strong>Framed as "add" but partition matches existing
-          curation</strong> — this is really a label-correction case.
-          Use <em>Keep gold</em> / <em>Accept proposal</em> / per-row
-          edits below to decide.
-        </div>
-      ) : null}
-
-      {/* Structure axis — card-level. Hidden for removal findings
-          (``*_gold_only_miss``) where the verdict is binary and the
-          Keep-gold / Accept-agent buttons already carry it. */}
-      {isRemovalFinding ? (
-        <div className="text-[11px] text-slate-500 dark:text-slate-400">
-          Proposed removing this factor — pick{" "}
-          <strong>Keep gold</strong> to keep it, or{" "}
-          <strong>Accept proposal</strong> to remove it.
-        </div>
-      ) : (
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 w-20">
-            Structure
-          </span>
-          <AxisToggle
-            value={structureOk}
-            onChange={setStructureOk}
-            okLabel="ok"
-            wrongLabel="wrong"
-          />
-          <span className="text-[11px] text-slate-400">
-            ← the factor itself
-          </span>
-        </div>
-      )}
-
-      {/* Details — per-row rows. Equal rows collapse to a single
-          condensed line (no checkboxes, no input, no side-by-side
-          comparison) so the curator's eye lands on the rows that
-          actually disagree. Suppressed for removal-only findings
-          (``*_gold_only_miss``) — verdict is binary, no row-level
-          fixes possible. */}
-      {!isRemovalFinding ? (
-      <div className="space-y-2">
-        <div className="grid grid-cols-[5rem_auto_minmax(8rem,1fr)_minmax(8rem,1fr)] gap-x-2 gap-y-1 items-center text-[11px] text-slate-500 dark:text-slate-400">
-          <span className="text-[10px] uppercase tracking-wide font-semibold col-start-1">
-            Details
-          </span>
-          <span></span>
-          <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-            proposal
-          </span>
-          <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-            currently
-          </span>
-        </div>
-
-        {/* Factor-level rows (Category). */}
-        {factorRows.map((row) => (
-          <RowView
-            key={row.path}
-            row={row}
-            state={getRow(row.path, row.agent.label)}
-            onToggle={(ok) => setRow(row.path, { ok })}
-            onLabelChange={(toLabel) =>
-              setRow(row.path, {
-                toLabel,
-                edited: toLabel !== row.agent.label,
-                // Editing a label flips the row to ✗ automatically;
-                // matches bro's spec "edit a label → row flips to ✗".
-                ok: toLabel !== row.agent.label ? false : null,
-              })
-            }
-          />
-        ))}
-
-        {/* Per-FV blocks. The header carries the sample count for
-            both agent and gold — partition-size differences are
-            often the curator's first cue that a near-match is
-            actually a wrong-subject case.
-            FV-blocks where every row matches gold collapse to a
-            single "all match ✓" line by default; curator expands by
-            clicking the header. Reduces the visual scan for cases
-            where only 1 of 3 FVs has any drift. */}
-        {fvIndices.map((fvIdx) => {
-          const meta = fvMeta.get(fvIdx);
-          const countTxt = meta
-            ? meta.goldSampleCount !== null &&
-              meta.goldSampleCount !== meta.agentSampleCount
-              ? ` · ${meta.agentSampleCount} samples (gold: ${meta.goldSampleCount})`
-              : ` · ${meta.agentSampleCount} sample${meta.agentSampleCount === 1 ? "" : "s"}`
-            : "";
-          const partitionMismatch =
-            meta &&
-            meta.goldSampleCount !== null &&
-            meta.goldSampleCount !== meta.agentSampleCount;
-          const fvRows = fvBuckets.get(fvIdx) ?? [];
-          const anyTouched = fvRows.some((r) => {
-            const s = rowState.get(r.path);
-            return s && (s.ok !== null || s.edited);
-          });
-          const allMatch =
-            fvRows.length > 0 &&
-            fvRows.every((r) => r.matchesGold === true) &&
-            !partitionMismatch;
-          // Collapse by default when ALL rows match AND nothing's
-          // been touched. Curator's explicit expand wins via the
-          // ``fvExpanded`` map.
-          const explicitlyExpanded = fvExpanded.get(fvIdx);
-          const expanded =
-            explicitlyExpanded !== undefined
-              ? explicitlyExpanded
-              : !allMatch || anyTouched;
-          const toggleExpanded = () => {
-            setFvExpanded((prev) => {
-              const next = new Map(prev);
-              next.set(fvIdx, !expanded);
-              return next;
-            });
-          };
-          return (
-            <div
-              key={fvIdx}
-              className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 space-y-1 dark:border-slate-700 dark:bg-slate-700/40"
-            >
-              <button
-                type="button"
-                onClick={toggleExpanded}
-                className="w-full text-left text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 flex items-baseline gap-1 hover:text-slate-700 dark:hover:text-slate-200"
-                title={expanded ? "collapse FV" : "expand FV"}
-              >
-                <span className="font-mono text-slate-400">
-                  {expanded ? "▾" : "▸"}
-                </span>
-                <span>FV {fvIdx + 1}</span>
-                <span
-                  className={cn(
-                    "font-normal normal-case tracking-normal",
-                    partitionMismatch ? "text-rose-600" : "text-slate-400",
-                  )}
-                >
-                  {countTxt}
-                </span>
-                {!expanded && allMatch ? (
-                  <span className="ml-auto font-normal normal-case tracking-normal text-emerald-600 dark:text-emerald-400 text-[11px]">
-                    all match <span className="font-bold">✓</span>
-                  </span>
-                ) : null}
-              </button>
-              {expanded
-                ? fvRows.map((row) => (
-                    <RowView
-                      key={row.path}
-                      row={row}
-                      state={getRow(row.path, row.agent.label)}
-                      onToggle={(ok) => setRow(row.path, { ok })}
-                      onLabelChange={(toLabel) =>
-                        setRow(row.path, {
-                          toLabel,
-                          edited: toLabel !== row.agent.label,
-                          ok: toLabel !== row.agent.label ? false : null,
-                        })
-                      }
-                    />
-                  ))
-                : null}
-            </div>
-          );
-        })}
-      </div>
-      ) : null}
-
-      {/* Action row. Three-way verdict: ``Keep gold`` (existing
-          curation is right) and ``Accept agent`` (agent's proposal
-          is right) are the two common calls — one click each, no
-          per-row noise. ``Save edits`` is the rarer "both are
-          partially wrong" path where the curator's typed
-          corrections are the real fix. */}
-      <div className="flex items-center gap-2 pt-1 text-xs">
-        <button
-          type="button"
-          onClick={keepGold}
-          disabled={saving}
-          title="Existing curation is correct — no changes needed."
-          className="px-2.5 py-1 rounded bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
-        >
-          {saving ? "Saving…" : "Keep gold"}
-        </button>
-        <button
-          type="button"
-          onClick={acceptAgent}
-          disabled={saving}
-          title="The proposal is correct — apply it as-is."
-          className="px-2.5 py-1 rounded bg-blue-700 text-white text-xs font-semibold hover:bg-blue-800 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
-        >
-          {saving ? "Saving…" : "Accept proposal"}
-        </button>
-        {!isRemovalFinding ? (
-          <>
-            <span className="text-slate-300 dark:text-slate-600">·</span>
-            <button
-              type="button"
-              onClick={save}
-              disabled={
-                saving ||
-                (structureOk === null && detailsOk === null) ||
-                currentDisposition === "dismissed"
-              }
-              title="Both gold and agent are wrong — use your per-row edits."
-              className="px-2.5 py-1 rounded border border-slate-400 text-slate-700 text-xs font-semibold hover:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed dark:border-slate-500 dark:text-slate-200 dark:hover:bg-slate-700 dark:disabled:text-slate-500"
-            >
-              {saving ? "Saving…" : "Save edits"}
-            </button>
-          </>
-        ) : null}
-        <button
-          type="button"
-          onClick={onDismiss}
-          disabled={saving}
-          className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
-          Dismiss…
-        </button>
-        <button
-          type="button"
-          onClick={onPark}
-          disabled={saving}
-          className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
-          Park…
-        </button>
-        <span className="ml-auto text-[10px] text-slate-400">
-          {detailsOk === null
-            ? "details: untouched"
-            : detailsOk
-              ? "details: ✓ all ok"
-              : "details: ✗ some wrong"}
+      {/* Title row — replaces the role of the legacy MatchCompareCard
+          header. Carries the factor's category + a count of
+          disagreements so the curator sees the scope at a glance. */}
+      <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+          {finding.target_kind === "factor" ? "Factor" : "Tag"}
         </span>
+        <span className="font-mono text-slate-800 dark:text-slate-100">
+          {rows[0]?.proposal.label || finding.target_id}
+        </span>
+        <span className="text-slate-400 dark:text-slate-500">·</span>
+        {allAgreeAtCard ? (
+          <span className="text-emerald-700 dark:text-emerald-300">
+            <strong>everyone agrees</strong> ✓
+          </span>
+        ) : (
+          <span className="text-amber-700 dark:text-amber-300">
+            <strong>
+              {disagreementRows.length} disagreement
+              {disagreementRows.length === 1 ? "" : "s"}
+            </strong>
+          </span>
+        )}
       </div>
+
+      {/* Agreement summary — single line listing the elements where
+          all comparators agree. Skipped when the card has nothing in
+          disagreement (the title row's "everyone agrees ✓" carries
+          the same message). */}
+      {agreementRows.length > 0 && !allAgreeAtCard ? (
+        <AgreementSummary rows={agreementRows} fvMeta={fvMeta} />
+      ) : null}
+
+      {/* One block per disagreement. */}
+      {disagreementRows.map((row) => (
+        <DisagreementBlock
+          key={row.path}
+          row={row}
+          fvMeta={fvMeta}
+          identities={identities}
+          state={rowState.get(row.path) ?? freshRowState()}
+          onPick={(pick) => setPick(row.path, { pick })}
+          onEditCommit={(label, uri) =>
+            setPick(row.path, { pick: "edit", editLabel: label, editUri: uri })
+          }
+        />
+      ))}
+
+      {/* Action row — when all rows agree, this is just Dismiss/Park.
+          Otherwise the three header-level verdict buttons +
+          per-row-save + Dismiss/Park. */}
+      <ActionRow
+        saving={saving}
+        disabled={currentDisposition === "dismissed"}
+        buttons={
+          allAgreeAtCard
+            ? [
+                {
+                  key: "confirm",
+                  kind: "primary-accept",
+                  label: "confirm",
+                  onClick: () => dispatchSave("currently"),
+                  title:
+                    "All comparators agree — confirm and close this finding.",
+                },
+              ]
+            : [
+                {
+                  key: "keep",
+                  kind: "primary-keep",
+                  label: `keep ${identities.goldCurator}'s`,
+                  onClick: () => dispatchSave("currently"),
+                  title: `Take ${identities.goldCurator}'s value on every disagreement.`,
+                },
+                {
+                  key: "accept",
+                  kind: "primary-accept",
+                  label: `adopt ${identities.proposer}'s`,
+                  onClick: () => dispatchSave("proposal"),
+                  title: `Take ${identities.proposer}'s value on every disagreement.`,
+                },
+                ...(hasReferenceData
+                  ? [
+                      {
+                        key: "ref",
+                        kind: "primary-ref" as const,
+                        label: `match ${identities.reference}`,
+                        onClick: () => dispatchSave("reference"),
+                        title: `Take ${identities.reference}'s value on every disagreement.`,
+                      },
+                    ]
+                  : []),
+                {
+                  key: "save",
+                  kind: "secondary",
+                  label: "save per-row picks",
+                  onClick: dispatchPerRowSave,
+                  title:
+                    "Save what's been picked per-row (mix of proposal / kept / edited).",
+                },
+              ]
+        }
+        onDismiss={onDismiss}
+        onPark={onPark}
+      />
     </div>
   );
 }
@@ -978,179 +758,334 @@ export function FindingDetailsEditor({
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function AxisToggle({
-  value,
-  onChange,
-  okLabel,
-  wrongLabel,
+function AgreementSummary({
+  rows,
+  fvMeta,
 }: {
-  value: boolean | null;
-  onChange: (v: boolean | null) => void;
-  okLabel: string;
-  wrongLabel: string;
+  rows: Row[];
+  fvMeta: Map<number, FvMeta>;
 }) {
+  // Group agreed-rows by fvIndex for compact rendering.
+  const factorRows = rows.filter((r) => r.fvIndex === null);
+  const byFv = new Map<number, Row[]>();
+  for (const r of rows) {
+    if (r.fvIndex !== null) {
+      const list = byFv.get(r.fvIndex) ?? [];
+      list.push(r);
+      byFv.set(r.fvIndex, list);
+    }
+  }
+  const fvIndices = Array.from(byFv.keys()).sort((a, b) => a - b);
+  const items: string[] = [];
+  for (const r of factorRows) {
+    items.push(`${r.rowLabel.toLowerCase()} · ${r.proposal.label}`);
+  }
+  for (const idx of fvIndices) {
+    const meta = fvMeta.get(idx);
+    const sampleHint = meta ? ` (${meta.agentSampleCount})` : "";
+    items.push(`FV ${idx + 1}${sampleHint}`);
+  }
+  if (items.length === 0) return null;
   return (
-    <span className="inline-flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => onChange(value === true ? null : true)}
-        className={cn(
-          "px-2 py-0.5 rounded border text-xs",
-          value === true
-            ? "bg-emerald-100 border-emerald-400 text-emerald-900 font-semibold dark:bg-emerald-900/40 dark:border-emerald-600 dark:text-emerald-100"
-            : "bg-white border-slate-300 text-slate-500 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700",
-        )}
-        title={`Toggle ${okLabel}`}
-      >
-        ✓ {okLabel}
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange(value === false ? null : false)}
-        className={cn(
-          "px-2 py-0.5 rounded border text-xs",
-          value === false
-            ? "bg-rose-100 border-rose-400 text-rose-900 font-semibold dark:bg-rose-900/40 dark:border-rose-600 dark:text-rose-100"
-            : "bg-white border-slate-300 text-slate-500 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700",
-        )}
-        title={`Toggle ${wrongLabel}`}
-      >
-        ✗ {wrongLabel}
-      </button>
-    </span>
+    <div className="text-[11px] text-slate-600 dark:text-slate-400 italic">
+      <span className="text-emerald-600 dark:text-emerald-400 font-bold not-italic mr-1">
+        ✓
+      </span>
+      Everyone agrees: {items.join(" · ")}
+    </div>
   );
 }
 
-function RowView({
+function DisagreementBlock({
   row,
+  fvMeta,
+  identities,
   state,
-  onToggle,
-  onLabelChange,
+  onPick,
+  onEditCommit,
 }: {
   row: Row;
-  state: RowEditState;
-  onToggle: (ok: boolean | null) => void;
-  onLabelChange: (toLabel: string) => void;
+  fvMeta: Map<number, FvMeta>;
+  identities: AuditIdentities;
+  state: RowState;
+  onPick: (pick: Pick) => void;
+  onEditCommit: (label: string, uri: string | null) => void;
 }) {
-  // Two render variants:
-  //  - **Equal row** (matchesGold === true AND curator hasn't
-  //    edited): collapsed to a single line. Just label + value
-  //    + small ✓ glyph. No toggle (Paul's "skip checkboxes when
-  //    equal"), no input (nothing to fix), no separate gold
-  //    column (values are identical). Visually muted so the
-  //    curator's eye skips past it.
-  //  - **Unequal row** (matchesGold === false OR null, OR the
-  //    curator has typed an edit): full layout with toggle +
-  //    editable input + proposal/currently side-by-side. This is
-  //    the row that actually needs attention.
-  // Curator-edited equal rows still render as "unequal" because
-  // the curator's typing implies they're working on it.
-  const isEqualAndUntouched = row.matchesGold === true && !state.edited;
-  const isEmpty = !row.agent.label;
+  const meta = row.fvIndex !== null ? fvMeta.get(row.fvIndex) : undefined;
+  const sampleNote =
+    meta && meta.agentSampleCount
+      ? meta.goldSampleCount !== null &&
+        meta.goldSampleCount !== meta.agentSampleCount
+        ? `${meta.agentSampleCount} samples · ${identities.goldCurator} has ${meta.goldSampleCount}`
+        : `${meta.agentSampleCount} samples`
+      : null;
+  const elementLabel =
+    row.fvIndex !== null
+      ? `FV ${row.fvIndex + 1} ${row.rowLabel.toLowerCase()}`
+      : row.rowLabel;
+  const hasReference = row.reference !== null;
 
-  if (isEqualAndUntouched) {
-    return (
-      <div className="grid grid-cols-[5rem_1fr_auto] gap-x-2 items-baseline text-[11px]">
-        <span className="text-slate-500 dark:text-slate-400">
-          {row.rowLabel}
-        </span>
-        <span className="text-slate-700 dark:text-slate-200 truncate">
-          {row.agent.label || (
-            <span className="italic text-slate-400">—</span>
-          )}
-        </span>
-        <span
-          className="text-emerald-600 dark:text-emerald-400 text-sm font-bold leading-none"
-          title="matches existing curation"
-        >
-          ✓
-        </span>
-      </div>
-    );
-  }
-
-  const diffCue =
-    row.matchesGold === null ? "·" : row.matchesGold ? "=" : "≠";
-  const diffCls =
-    row.matchesGold === false
-      ? "text-amber-600 dark:text-amber-400"
-      : row.matchesGold === true
-        ? "text-emerald-500/80 dark:text-emerald-400/70"
-        : "text-slate-400 dark:text-slate-500";
+  // Inline edit state — typed value before commit. Mirrors the
+  // ``editLabel`` already on RowState so the box is controlled.
+  const [editOpen, setEditOpen] = useState(state.pick === "edit");
+  const [editVal, setEditVal] = useState(state.editLabel);
 
   return (
-    <div className="grid grid-cols-[5rem_auto_minmax(8rem,1fr)_minmax(8rem,1fr)] gap-x-2 items-center">
-      <span className="text-[11px] text-slate-700 dark:text-slate-300">
-        {row.rowLabel}
-      </span>
-      <span className="inline-flex items-center gap-0.5">
-        <RowToggle ok={state.ok} onChange={onToggle} />
-      </span>
-      <input
-        type="text"
-        value={state.toLabel}
-        onChange={(e) => onLabelChange(e.target.value)}
-        placeholder={isEmpty ? "—" : ""}
-        className={cn(
-          "text-[11px] px-1.5 py-0.5 rounded border",
-          state.edited
-            ? "border-amber-400 bg-amber-50/40 dark:bg-amber-950/30 dark:border-amber-600"
-            : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
-          isEmpty && !state.edited
-            ? "italic text-slate-400 placeholder-slate-300 dark:text-slate-500"
-            : "text-slate-800 dark:text-slate-100",
-        )}
+    <div className="rounded border border-amber-200 bg-amber-50/30 dark:border-amber-800/60 dark:bg-amber-900/15 p-2 space-y-1.5">
+      <div className="text-[11px] uppercase tracking-wide font-semibold text-amber-800 dark:text-amber-300 flex items-baseline gap-2">
+        <span>{elementLabel}</span>
+        {sampleNote ? (
+          <span className="font-normal normal-case tracking-normal text-slate-500 dark:text-slate-400">
+            ({sampleNote})
+          </span>
+        ) : null}
+      </div>
+
+      <SideLine
+        who={identities.proposer}
+        verb="said"
+        value={row.proposal}
+        picked={state.pick === "proposal"}
       />
-      <span
-        className={cn(
-          "text-[11px] inline-flex items-baseline gap-1",
-          diffCls,
+      {row.currently ? (
+        <SideLine
+          who={identities.goldCurator}
+          verb="has"
+          value={row.currently}
+          picked={state.pick === "currently"}
+        />
+      ) : (
+        <SideLine
+          who={identities.goldCurator}
+          verb="has"
+          value={null}
+          picked={state.pick === "currently"}
+        />
+      )}
+      {hasReference ? (
+        <SideLine
+          who={identities.reference}
+          verb="has"
+          value={row.reference}
+          picked={state.pick === "reference"}
+        />
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+        <PickButton
+          active={state.pick === "currently"}
+          onClick={() => onPick("currently")}
+          tone="keep"
+        >
+          keep {identities.goldCurator}'s
+        </PickButton>
+        <PickButton
+          active={state.pick === "proposal"}
+          onClick={() => onPick("proposal")}
+          tone="accept"
+        >
+          adopt {identities.proposer}'s
+        </PickButton>
+        {hasReference ? (
+          <PickButton
+            active={state.pick === "reference"}
+            onClick={() => onPick("reference")}
+            tone="ref"
+          >
+            match {identities.reference}
+          </PickButton>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            setEditOpen((v) => !v);
+            if (!editOpen) setEditVal(state.editLabel);
+          }}
+          className={cn(
+            "px-2 py-0.5 rounded border text-[11px]",
+            state.pick === "edit"
+              ? "bg-violet-100 border-violet-400 text-violet-900 dark:bg-violet-900/40 dark:border-violet-600 dark:text-violet-100 font-semibold"
+              : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700",
+          )}
+          title="None of the choices is right — type the correct value."
+        >
+          edit…
+        </button>
+      </div>
+
+      {editOpen ? (
+        <div className="pt-1 space-y-1">
+          <input
+            type="text"
+            value={editVal}
+            onChange={(e) => setEditVal(e.target.value)}
+            placeholder="Type the correct value (label-only for now; ontology picker coming)"
+            className="w-full text-[11px] px-1.5 py-0.5 rounded border border-violet-300 dark:border-violet-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+          />
+          <div className="flex gap-1.5 text-[11px]">
+            <button
+              type="button"
+              onClick={() => {
+                onEditCommit(editVal, null);
+                setEditOpen(false);
+              }}
+              disabled={!editVal.trim()}
+              className="px-2 py-0.5 rounded bg-violet-700 text-white font-semibold hover:bg-violet-800 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed"
+            >
+              save edit
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditOpen(false);
+                setEditVal("");
+              }}
+              className="px-2 py-0.5 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SideLine({
+  who,
+  verb,
+  value,
+  picked,
+}: {
+  who: string;
+  verb: string;
+  value: SideValue | null;
+  picked: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]",
+        picked && "rounded bg-blue-50 dark:bg-blue-900/30 px-1 py-0.5",
+      )}
+    >
+      <span className="text-slate-600 dark:text-slate-300">
+        <strong>{who}</strong> {verb}
+      </span>
+      <span className="truncate">
+        {value && value.label ? (
+          <Term uri={value.uri ?? null} asLink={false}>
+            {value.label}
+          </Term>
+        ) : value === null ? (
+          <span className="italic text-slate-400">no entry</span>
+        ) : (
+          <span className="italic text-slate-400">—</span>
         )}
-      >
-        <span className="font-mono">{diffCue}</span>
-        <span className="truncate">
-          {row.gold?.label || (row.gold === null ? "—" : "(empty)")}
-        </span>
       </span>
     </div>
   );
 }
 
-function RowToggle({
-  ok,
-  onChange,
+interface ActionButton {
+  key: string;
+  kind: "primary-keep" | "primary-accept" | "primary-ref" | "secondary";
+  label: string;
+  onClick: () => void;
+  title?: string;
+}
+
+function ActionRow({
+  saving,
+  disabled,
+  buttons,
+  onDismiss,
+  onPark,
 }: {
-  ok: boolean | null;
-  onChange: (ok: boolean | null) => void;
+  saving: boolean;
+  disabled: boolean;
+  buttons: ActionButton[];
+  onDismiss: () => void;
+  onPark: () => void;
 }) {
   return (
-    <span className="inline-flex">
+    <div className="flex items-center gap-2 pt-1 text-xs flex-wrap">
+      {buttons.map((b) => (
+        <button
+          key={b.key}
+          type="button"
+          onClick={b.onClick}
+          disabled={saving || disabled}
+          title={b.title}
+          className={cn(
+            "px-2.5 py-1 rounded text-xs font-semibold disabled:cursor-not-allowed",
+            b.kind === "primary-keep" &&
+              "bg-emerald-700 text-white hover:bg-emerald-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
+            b.kind === "primary-accept" &&
+              "bg-blue-700 text-white hover:bg-blue-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
+            b.kind === "primary-ref" &&
+              "bg-sky-700 text-white hover:bg-sky-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
+            b.kind === "secondary" &&
+              "border border-slate-400 text-slate-700 hover:bg-slate-100 dark:border-slate-500 dark:text-slate-200 dark:hover:bg-slate-700 disabled:text-slate-400 dark:disabled:text-slate-500",
+          )}
+        >
+          {saving ? "Saving…" : b.label}
+        </button>
+      ))}
+      <span className="text-slate-300 dark:text-slate-600">·</span>
       <button
         type="button"
-        onClick={() => onChange(ok === true ? null : true)}
-        className={cn(
-          "w-5 h-5 inline-flex items-center justify-center text-[11px] border rounded-l",
-          ok === true
-            ? "bg-emerald-100 border-emerald-400 text-emerald-900 font-semibold dark:bg-emerald-900/40 dark:border-emerald-600 dark:text-emerald-100"
-            : "bg-white border-slate-300 text-slate-400 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700",
-        )}
-        title="✓ ok"
+        onClick={onDismiss}
+        disabled={saving}
+        className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
       >
-        ✓
+        Dismiss…
       </button>
       <button
         type="button"
-        onClick={() => onChange(ok === false ? null : false)}
-        className={cn(
-          "w-5 h-5 inline-flex items-center justify-center text-[11px] border -ml-px rounded-r",
-          ok === false
-            ? "bg-rose-100 border-rose-400 text-rose-900 font-semibold dark:bg-rose-900/40 dark:border-rose-600 dark:text-rose-100"
-            : "bg-white border-slate-300 text-slate-400 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700",
-        )}
-        title="✗ wrong"
+        onClick={onPark}
+        disabled={saving}
+        className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
       >
-        ✗
+        Park…
       </button>
-    </span>
+    </div>
+  );
+}
+
+function PickButton({
+  active,
+  onClick,
+  tone,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  tone: "keep" | "accept" | "ref";
+  children: React.ReactNode;
+}) {
+  const activeCls = {
+    keep: "bg-emerald-700 text-white border-emerald-700",
+    accept: "bg-blue-700 text-white border-blue-700",
+    ref: "bg-sky-700 text-white border-sky-700",
+  }[tone];
+  const inactiveCls = {
+    keep:
+      "border-emerald-400 text-emerald-800 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/30",
+    accept:
+      "border-blue-400 text-blue-800 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/30",
+    ref: "border-sky-400 text-sky-800 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30",
+  }[tone];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "px-2 py-0.5 rounded border text-[11px] font-semibold",
+        active ? activeCls : inactiveCls,
+      )}
+    >
+      {children}
+    </button>
   );
 }
