@@ -1289,6 +1289,21 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
   const { activeFindingKey, setActiveFindingKey, dispositionByTarget, report, experimentId } =
     useAudit();
   const { data: serverDesign } = useDesign(experimentId);
+  // Retire the legacy MatchCompareCard + RenameFactorEmbed when the
+  // new per-element editor (FindingDetailsEditor inside the
+  // FindingActionRow below) has resolvable structured content for
+  // this finding — the editor's title row + comparator lines
+  // subsume both. Falls back to the legacy cards when the editor
+  // can't render meaningful rows (no comparison_proposal, no gold
+  // counterpart). The 3-circle per-FV pairing glyph cluster
+  // (``FvStatusGlyph`` inside RenameFactorEmbed) is shelved with
+  // the embed; bring it back as its own component if we want it
+  // back later.
+  const editorWillRender = findingHasStructuredContent(
+    finding,
+    report,
+    serverDesign ?? null,
+  );
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
   const isClosed =
@@ -1484,16 +1499,18 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
               : "border-emerald-200/50 dark:border-emerald-700/40",
           )}
         >
-          <MatchCompareCard finding={finding} label={label} />
-          {/* For factor-kind confirmed matches, render the agent's
-              FactorProposal (FVs + statements + URIs) inline so the
-              curator can verify the match goes deeper than just the
-              category label. Same embed used by alternate-factor
-              cards — see RenameFactorEmbed. Tag matches don't have
-              factor-shaped detail, so the embed silently no-ops on
-              those via its label-lookup miss. */}
-          {finding.target_kind === "factor" ? (
-            <RenameFactorEmbed finding={finding} />
+          {/* MatchCompareCard + RenameFactorEmbed retired in favour
+              of the per-element editor below (FindingActionRow ->
+              FindingDetailsEditor). The fallback render only fires
+              for findings the editor can't structure — see the
+              ``editorWillRender`` gate above. */}
+          {!editorWillRender ? (
+            <>
+              <MatchCompareCard finding={finding} label={label} />
+              {finding.target_kind === "factor" ? (
+                <RenameFactorEmbed finding={finding} />
+              ) : null}
+            </>
           ) : null}
           {/* AgentSuggestionPanel re-renders the proposer_term, which
               MatchCompareCard above already shows for tag matches —
@@ -1670,6 +1687,7 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
     setActiveFindingKey,
     dispositionByTarget,
     experimentId,
+    report,
   } = useAudit();
   const { draft, apply } = useDesignDraft();
   const { data: serverDesign } = useDesign(experimentId);
@@ -1681,6 +1699,14 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
     current === "needs_more_info" ||
     (current === "accepted" && !!disposition?.resolved_at);
   markFirstSeen(finding.target_id);
+  // Retire the legacy RenameFactorEmbed when the per-element editor
+  // (FindingDetailsEditor inside the FindingActionRow below) has
+  // resolvable structured content for this finding.
+  const editorWillRender = findingHasStructuredContent(
+    finding,
+    report,
+    draft ?? serverDesign ?? null,
+  );
 
   const cardRef = useRef<HTMLDivElement>(null);
   const myKey = findingKey(finding);
@@ -1761,13 +1787,10 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
           </div>
         </div>
 
-        {/* Embedded factor detail — what the bottom of the panel
-            (DesignComparisonPanel) shows for the agent's factor, but
-            INSIDE this card so curators don't have to scroll to see
-            what the agent is actually proposing. Falls back to the
-            FV-pair table from the rename payload when comparison_
-            proposal isn't available (e.g. older audits). */}
-        <RenameFactorEmbed finding={finding} />
+        {/* Embedded factor detail — retired when the per-element
+            editor renders below. Falls back here for findings the
+            editor can't structure. */}
+        {!editorWillRender ? <RenameFactorEmbed finding={finding} /> : null}
 
         <div className="text-[11px] text-slate-600 dark:text-slate-300 px-1">
           Proposed a different category for this factor.{" "}
@@ -2733,8 +2756,16 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
     dispositionByTarget,
     report,
   } = useAudit();
+  const { draft } = useDesignDraft();
   const disposition = dispositionByTarget.get(finding.target_id);
   const currentDisposition = disposition?.status ?? "pending";
+  // Retire the legacy RenameFactorEmbed when the per-element editor
+  // renders below.
+  const editorWillRender = findingHasStructuredContent(
+    finding,
+    report,
+    draft ?? null,
+  );
   // The finding is "closed" once the curator has acted on it and
   // there's nothing left to resolve — dismissed counts (already a
   // terminal verdict), and accepted+resolved counts (the curator
@@ -2964,7 +2995,8 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
               got demoted out of it. For miss findings the gold side
               is primary; we use GoldFactorMissEmbed instead. */}
           {finding.target_kind === "factor" &&
-          finding.issue_code === "calibration_factor_extra" ? (
+          finding.issue_code === "calibration_factor_extra" &&
+          !editorWillRender ? (
             <RenameFactorEmbed finding={finding} />
           ) : null}
           {finding.target_kind === "factor" &&

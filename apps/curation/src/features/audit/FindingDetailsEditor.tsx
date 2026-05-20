@@ -45,6 +45,7 @@ import type {
   AuditFinding,
   AuditReport,
   DispositionStatus,
+  StatementParts,
 } from "@/api/auditTypes";
 import type {
   Design,
@@ -69,7 +70,13 @@ interface AuditIdentities {
 
 const DEFAULT_IDENTITIES: AuditIdentities = {
   proposer: "Agent",
-  goldCurator: "current",
+  // The curator opening the page IS the gold side in every regular
+  // audit (their own design draft). "you" anchors the trichotomy
+  // better than a generic "current" — when the curator scrolls
+  // through 7 disagreements they don't lose track of which side is
+  // theirs. For inter-curator-audit packages parsed below, the
+  // gold curator's actual name overrides this default.
+  goldCurator: "you",
   reference: "Gemma",
 };
 
@@ -260,6 +267,16 @@ function buildFactorRows(
   const agent = resolveAgentFactor(finding, cp, labelHint);
   if (!agent) return { rows: [], fvMeta: new Map() };
   const gold = resolveGoldFactor(finding, design?.factors ?? [], labelHint);
+  // Reference data — the upstream (Gemma) snapshot. For
+  // inter-curator-audit packages, the builder bakes this into
+  // ``finding.rename`` (FactorRenamePayload): ``.gold.category``
+  // carries the Gemma category, ``.fv_pairs[i].gold`` carries the
+  // Gemma per-FV subject term. The local design.json is the gold
+  // curator's mutated version, so it's "currently", NOT
+  // "reference". Without ``finding.rename`` we have no separate
+  // reference data; reference stays null per-row and the third
+  // comparator suppresses.
+  const rename = finding.rename ?? null;
 
   const rows: Row[] = [];
   const fvMeta = new Map<number, FvMeta>();
@@ -273,8 +290,12 @@ function buildFactorRows(
     const currently: SideValue | null = gold
       ? { label: gold.category.label || "", uri: gold.category.uri ?? null }
       : null;
-    // Reference (Gemma) snapshot not separately stored locally yet.
-    const reference: SideValue | null = null;
+    const reference: SideValue | null = rename?.gold?.category
+      ? {
+          label: rename.gold.category.label || "",
+          uri: rename.gold.category.uri ?? null,
+        }
+      : null;
     rows.push({
       path: "factor.category",
       rowLabel: "Category",
@@ -296,6 +317,49 @@ function buildFactorRows(
         : null,
     });
 
+    // Reference statement parts — pair the agent FV to its
+    // rename-payload partner. The builder's ``fv_pairs`` are
+    // pre-paired but the key is the agent's free_text_label, not
+    // the FV index. Once paired, prefer ``gold_statement`` (parsed
+    // subject/predicate/object per b157073) and fall back to the
+    // FV-level ``gold.label`` on the Subject row when the new
+    // fields are absent on older rename payloads.
+    const pairedGoldStatement: StatementParts | null = (() => {
+      if (!rename?.fv_pairs?.length) return null;
+      const myLabel = lc(fv.free_text_label);
+      const byAgentLabel = rename.fv_pairs.find(
+        (p) => lc(p.agent?.label) === myLabel,
+      );
+      const pick =
+        byAgentLabel ??
+        rename.fv_pairs.find(
+          (p) =>
+            lc(p.agent?.label) ===
+            lc(fvProposalStatementPart(fv, "subject").label),
+        );
+      if (!pick) return null;
+      // Prefer the parsed parts when present.
+      if (pick.gold_statement) return pick.gold_statement;
+      // Fallback: synthesise a subject-only StatementParts from the
+      // pair's gold OntologyTerm. Predicate + object stay null.
+      if (pick.gold) {
+        return {
+          subject: pick.gold,
+          predicate: null,
+          object: null,
+        };
+      }
+      return null;
+    })();
+
+    const referencePart = (
+      part: "subject" | "predicate" | "object",
+    ): SideValue | null => {
+      const term = pairedGoldStatement?.[part];
+      if (!term) return null;
+      return { label: term.label || "", uri: term.uri ?? null };
+    };
+
     const partOrder: Array<"subject" | "predicate" | "object"> = [
       "subject",
       "predicate",
@@ -304,7 +368,7 @@ function buildFactorRows(
     for (const part of partOrder) {
       const proposal = fvProposalStatementPart(fv, part);
       const currently = pairAgentStatementToGold(fv, gold, part);
-      const reference: SideValue | null = null;
+      const reference: SideValue | null = referencePart(part);
       if (part !== "subject") {
         const proposalEmpty = isSideEmpty(proposal);
         const currentlyEmpty = isSideEmpty(currently);
@@ -524,6 +588,22 @@ export function FindingDetailsEditor({
   const disagreementRows = rows.filter((r) => !r.allAgree);
   const agreementRows = rows.filter((r) => r.allAgree);
 
+  // Group disagreement rows by (fvIndex, statementIndex). Rows
+  // within the same statement render together inside one decision
+  // block; Category rows are their own group. Preserves the
+  // builder's ordering — first occurrence of a (fv,stmt) key
+  // determines block order.
+  const groupedDisagreements: Row[][] = (() => {
+    const groups = new Map<string, Row[]>();
+    for (const r of disagreementRows) {
+      const k = `${r.fvIndex ?? "f"}.${r.statementIndex ?? "0"}`;
+      const list = groups.get(k) ?? [];
+      list.push(r);
+      groups.set(k, list);
+    }
+    return Array.from(groups.values());
+  })();
+
   const isRemovalFinding =
     finding.issue_code === "calibration_factor_gold_only_miss" ||
     finding.issue_code === "calibration_gold_only_miss";
@@ -612,12 +692,19 @@ export function FindingDetailsEditor({
   // Removal-only findings collapse to keep-vs-remove. No row
   // disagreement model applies.
   if (isRemovalFinding) {
+    const keepLabel =
+      identities.goldCurator === "you"
+        ? "keep yours"
+        : `keep ${identities.goldCurator}'s`;
+    const youOrName =
+      identities.goldCurator === "you"
+        ? "You have"
+        : `${identities.goldCurator} has`;
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
         <div className="text-[12px] text-slate-700 dark:text-slate-200">
           <strong>{identities.proposer}</strong> proposes removing this
-          factor.{" "}
-          <em>{identities.goldCurator}</em> currently has it.
+          factor. {youOrName} it.
         </div>
         <ActionRow
           saving={saving}
@@ -626,7 +713,7 @@ export function FindingDetailsEditor({
             {
               key: "keep",
               kind: "primary-keep",
-              label: `keep ${identities.goldCurator}'s`,
+              label: keepLabel,
               onClick: () => dispatchSave("currently"),
             },
             {
@@ -678,18 +765,41 @@ export function FindingDetailsEditor({
         <AgreementSummary rows={agreementRows} fvMeta={fvMeta} />
       ) : null}
 
-      {/* One block per disagreement. */}
-      {disagreementRows.map((row) => (
+      {/* One block per *statement* — Subject/Predicate/Object rows
+          that share an FV+statement collapse into a single decision
+          block with shared buttons. Category rows are their own
+          group (no FV index). Per Paul: "I don't want a separate
+          thing for the predicate and another for the object" — the
+          statement is one decision, not three. */}
+      {groupedDisagreements.map((groupRows) => (
         <DisagreementBlock
-          key={row.path}
-          row={row}
+          key={`${groupRows[0].fvIndex ?? "f"}.${groupRows[0].statementIndex ?? "0"}.${groupRows[0].path}`}
+          rows={groupRows}
           fvMeta={fvMeta}
           identities={identities}
-          state={rowState.get(row.path) ?? freshRowState()}
-          onPick={(pick) => setPick(row.path, { pick })}
-          onEditCommit={(label, uri) =>
-            setPick(row.path, { pick: "edit", editLabel: label, editUri: uri })
-          }
+          rowState={rowState}
+          onPick={(pick) => {
+            for (const row of groupRows) setPick(row.path, { pick });
+          }}
+          onEditCommit={(label, uri) => {
+            // For statement-level edits, the curator's typed value
+            // currently lands on the SUBJECT row (the headline of
+            // the statement). Predicate/object stay at their current
+            // values. Richer per-part edit is a follow-up; the
+            // single-input shape covers ~95% of the wrong-subject
+            // case Paul described.
+            const target =
+              groupRows.find((r) => r.rowLabel === "Subject") ??
+              groupRows[0];
+            setPick(target.path, {
+              pick: "edit",
+              editLabel: label,
+              editUri: uri,
+            });
+            // Other rows in the group implicitly stay on their
+            // current pick (or null) — the curator's edit on the
+            // subject doesn't force a stance on the predicate.
+          }}
         />
       ))}
 
@@ -715,9 +825,16 @@ export function FindingDetailsEditor({
                 {
                   key: "keep",
                   kind: "primary-keep",
-                  label: `keep ${identities.goldCurator}'s`,
+                  label:
+                    identities.goldCurator === "you"
+                      ? "keep yours"
+                      : `keep ${identities.goldCurator}'s`,
                   onClick: () => dispatchSave("currently"),
-                  title: `Take ${identities.goldCurator}'s value on every disagreement.`,
+                  title: `Take ${
+                    identities.goldCurator === "you"
+                      ? "your"
+                      : `${identities.goldCurator}'s`
+                  } value on every disagreement.`,
                 },
                 {
                   key: "accept",
@@ -796,39 +913,74 @@ function AgreementSummary({
   );
 }
 
+/** One block per *statement*. Takes one or more rows that share an
+ *  FV+statement (or the single Category row). Renders:
+ *   - Header: "FV N · X samples" (or "Category")
+ *   - One line per comparator (proposer / gold-curator / reference)
+ *     showing what THAT party has across the statement parts
+ *     (subject + predicate + object joined by `·`)
+ *   - One shared set of decision buttons — the verdict applies to
+ *     the whole statement, not individually per part. */
 function DisagreementBlock({
-  row,
+  rows,
   fvMeta,
   identities,
-  state,
+  rowState,
   onPick,
   onEditCommit,
 }: {
-  row: Row;
+  rows: Row[];
   fvMeta: Map<number, FvMeta>;
   identities: AuditIdentities;
-  state: RowState;
+  rowState: Map<string, RowState>;
   onPick: (pick: Pick) => void;
   onEditCommit: (label: string, uri: string | null) => void;
 }) {
-  const meta = row.fvIndex !== null ? fvMeta.get(row.fvIndex) : undefined;
+  if (rows.length === 0) return null;
+  const first = rows[0];
+  const meta = first.fvIndex !== null ? fvMeta.get(first.fvIndex) : undefined;
   const sampleNote =
     meta && meta.agentSampleCount
       ? meta.goldSampleCount !== null &&
         meta.goldSampleCount !== meta.agentSampleCount
-        ? `${meta.agentSampleCount} samples · ${identities.goldCurator} has ${meta.goldSampleCount}`
+        ? `${meta.agentSampleCount} samples · ${identities.goldCurator === "you" ? "yours" : identities.goldCurator}: ${meta.goldSampleCount}`
         : `${meta.agentSampleCount} samples`
       : null;
   const elementLabel =
-    row.fvIndex !== null
-      ? `FV ${row.fvIndex + 1} ${row.rowLabel.toLowerCase()}`
-      : row.rowLabel;
-  const hasReference = row.reference !== null;
+    first.fvIndex !== null
+      ? `FV ${first.fvIndex + 1}`
+      : first.rowLabel;
+  // ANY row in the group having reference data → show the reference
+  // line + button. Each row's reference can be null even when the
+  // statement has one (subject has Gemma, predicate doesn't).
+  const hasReference = rows.some((r) => r.reference !== null);
 
-  // Inline edit state — typed value before commit. Mirrors the
-  // ``editLabel`` already on RowState so the box is controlled.
-  const [editOpen, setEditOpen] = useState(state.pick === "edit");
-  const [editVal, setEditVal] = useState(state.editLabel);
+  // The block's pick state — consensus of its rows. If every row
+  // shares the same pick, the block reads as that. Mixed picks
+  // collapse to "edit" (curator is mid-decision).
+  const groupPicks = new Set<Pick>();
+  for (const r of rows) {
+    const s = rowState.get(r.path);
+    groupPicks.add(s?.pick ?? null);
+  }
+  const blockPick: Pick | "mixed" =
+    groupPicks.size === 1
+      ? (Array.from(groupPicks)[0] as Pick)
+      : "mixed";
+
+  // Pre-existing edit value — pull from the subject row when
+  // it has one (most common edit anchor).
+  const subjectRow = rows.find((r) => r.rowLabel === "Subject") ?? rows[0];
+  const subjectState = rowState.get(subjectRow.path);
+  const [editOpen, setEditOpen] = useState(subjectState?.pick === "edit");
+  const [editVal, setEditVal] = useState(subjectState?.editLabel ?? "");
+
+  // Pretty button label for keep — "keep yours" reads better than
+  // "keep you's".
+  const keepLabel =
+    identities.goldCurator === "you"
+      ? "keep yours"
+      : `keep ${identities.goldCurator}'s`;
 
   return (
     <div className="rounded border border-amber-200 bg-amber-50/30 dark:border-amber-800/60 dark:bg-amber-900/15 p-2 space-y-1.5">
@@ -841,46 +993,41 @@ function DisagreementBlock({
         ) : null}
       </div>
 
-      <SideLine
+      <ComparatorLine
         who={identities.proposer}
         verb="said"
-        value={row.proposal}
-        picked={state.pick === "proposal"}
+        rows={rows}
+        side="proposal"
+        picked={blockPick === "proposal"}
       />
-      {row.currently ? (
-        <SideLine
-          who={identities.goldCurator}
-          verb="has"
-          value={row.currently}
-          picked={state.pick === "currently"}
-        />
-      ) : (
-        <SideLine
-          who={identities.goldCurator}
-          verb="has"
-          value={null}
-          picked={state.pick === "currently"}
-        />
-      )}
+      <ComparatorLine
+        who={identities.goldCurator}
+        verb={identities.goldCurator === "you" ? "have" : "has"}
+        rows={rows}
+        side="currently"
+        picked={blockPick === "currently"}
+        isActiveInDesign
+      />
       {hasReference ? (
-        <SideLine
+        <ComparatorLine
           who={identities.reference}
           verb="has"
-          value={row.reference}
-          picked={state.pick === "reference"}
+          rows={rows}
+          side="reference"
+          picked={blockPick === "reference"}
         />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
         <PickButton
-          active={state.pick === "currently"}
+          active={blockPick === "currently"}
           onClick={() => onPick("currently")}
           tone="keep"
         >
-          keep {identities.goldCurator}'s
+          {keepLabel}
         </PickButton>
         <PickButton
-          active={state.pick === "proposal"}
+          active={blockPick === "proposal"}
           onClick={() => onPick("proposal")}
           tone="accept"
         >
@@ -888,7 +1035,7 @@ function DisagreementBlock({
         </PickButton>
         {hasReference ? (
           <PickButton
-            active={state.pick === "reference"}
+            active={blockPick === "reference"}
             onClick={() => onPick("reference")}
             tone="ref"
           >
@@ -899,15 +1046,15 @@ function DisagreementBlock({
           type="button"
           onClick={() => {
             setEditOpen((v) => !v);
-            if (!editOpen) setEditVal(state.editLabel);
+            if (!editOpen) setEditVal(subjectState?.editLabel ?? "");
           }}
           className={cn(
             "px-2 py-0.5 rounded border text-[11px]",
-            state.pick === "edit"
+            subjectState?.pick === "edit"
               ? "bg-violet-100 border-violet-400 text-violet-900 dark:bg-violet-900/40 dark:border-violet-600 dark:text-violet-100 font-semibold"
               : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700",
           )}
-          title="None of the choices is right — type the correct value."
+          title="None of the choices is right — type the correct value (label-only; lands on subject)."
         >
           edit…
         </button>
@@ -951,40 +1098,126 @@ function DisagreementBlock({
   );
 }
 
-function SideLine({
+/** Render a single comparator's contribution to a statement-level
+ *  block. Reads the appropriate side off each row in the group and
+ *  joins them with " · " into one inline statement. Missing parts
+ *  are skipped — degenerate statements (subject-only) just show
+ *  the subject. */
+function ComparatorLine({
   who,
   verb,
-  value,
+  rows,
+  side,
   picked,
+  isActiveInDesign,
 }: {
   who: string;
   verb: string;
-  value: SideValue | null;
+  rows: Row[];
+  side: "proposal" | "currently" | "reference";
   picked: boolean;
+  /** True when this comparator's value is the one currently
+   *  visible on the design tab (i.e. the gold-curator's row).
+   *  Adds a small "← in your design" suffix so the curator can
+   *  see at a glance which line maps to what they have open on
+   *  the left side of the screen. */
+  isActiveInDesign?: boolean;
 }) {
+  // Sort within the group by part order: Subject → Predicate →
+  // Object → (anything else, e.g. Category alone).
+  const ORDER = ["Category", "Subject", "Predicate", "Object"];
+  const sorted = [...rows].sort(
+    (a, b) => ORDER.indexOf(a.rowLabel) - ORDER.indexOf(b.rowLabel),
+  );
+  const parts: { value: SideValue; partLabel: string }[] = [];
+  for (const r of sorted) {
+    const v =
+      side === "proposal"
+        ? r.proposal
+        : side === "currently"
+          ? r.currently
+          : r.reference;
+    if (v && v.label) {
+      parts.push({ value: v, partLabel: r.rowLabel });
+    }
+  }
   return (
     <div
       className={cn(
-        "grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]",
+        "grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]",
         picked && "rounded bg-blue-50 dark:bg-blue-900/30 px-1 py-0.5",
       )}
     >
       <span className="text-slate-600 dark:text-slate-300">
         <strong>{who}</strong> {verb}
       </span>
-      <span className="truncate">
-        {value && value.label ? (
-          <Term uri={value.uri ?? null} asLink={false}>
-            {value.label}
-          </Term>
-        ) : value === null ? (
+      <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+        {parts.length === 0 ? (
           <span className="italic text-slate-400">no entry</span>
         ) : (
-          <span className="italic text-slate-400">—</span>
+          parts.map((p) => {
+            // Predicates render small + muted, no chip styling —
+            // they're structural plumbing (e.g. "has_genotype"
+            // between subject and object). Gemma's own per-FV
+            // display uses the same teeny-predicate convention.
+            if (p.partLabel === "Predicate") {
+              return (
+                <span
+                  key={p.partLabel}
+                  className="text-[10px] text-slate-500 dark:text-slate-400 font-mono"
+                  title={p.value.uri || undefined}
+                >
+                  {p.value.label}
+                </span>
+              );
+            }
+            // Subject / Object / Category render as Term chips.
+            // Gene labels (NCBI gene URIs) collapse to the symbol
+            // (everything before the "[organism]" bracket); the
+            // full canonical label sits in the hover title so it
+            // stays one click away.
+            const displayLabel = shortenGeneLabel(p.value.label, p.value.uri);
+            return (
+              <Term
+                key={p.partLabel}
+                uri={p.value.uri ?? null}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                <span
+                  title={
+                    displayLabel !== p.value.label ? p.value.label : undefined
+                  }
+                >
+                  {displayLabel}
+                </span>
+              </Term>
+            );
+          })
         )}
+        {isActiveInDesign ? (
+          <span
+            className="ml-1 text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300"
+            title="This is what's currently on the design tab (the working draft)."
+          >
+            ← in current design
+          </span>
+        ) : null}
       </span>
     </div>
   );
+}
+
+/** NCBI-gene labels carry the full canonical description ("Rpl22
+ *  [mouse] ribosomal protein L22"). On Gemma's design surface
+ *  curators see just the symbol; mirror that here so the editor
+ *  stays compact. Full label hangs off the Term's title attribute.
+ *  No-op for non-NCBI-gene terms. */
+function shortenGeneLabel(label: string, uri: string | null): string {
+  if (!uri || !label) return label;
+  if (!uri.includes("ncbi_gene")) return label;
+  const m = label.match(/^(\S+)\s*\[/);
+  return m ? m[1] : label;
 }
 
 interface ActionButton {

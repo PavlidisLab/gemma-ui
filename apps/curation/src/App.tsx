@@ -14,6 +14,7 @@ import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
 import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { PipelinePanel } from "@/features/workflow/PipelinePanel";
 import { useGroup } from "@/api/workflow";
+import { useAuditsForExperiment } from "@/api/audits";
 import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
 import {
@@ -171,26 +172,56 @@ export default function App() {
 }
 
 /** Full-width banner that fires when the curator is viewing an
- *  experiment in an inter-curator-audit set. The "viewing: <pkg>"
- *  framing is non-negotiable for these sessions because the same
- *  experiment can appear in two different gold-curator packages
- *  with different design overlays; without the banner curators
- *  can't tell which view they're in (the audit's model badge alone
- *  is too easy to miss). Hidden when there's no group context, when
- *  the group's a normal screening/pipeline/review set, or when the
- *  group's name doesn't carry the inter-curator-audit framing. See
- *  HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS §1 (bro's
+ *  experiment in an inter-curator-audit context. Two detection
+ *  paths:
+ *    1. Group context — URL ``?group=<id>`` resolves to a Group
+ *       whose name matches /inter-curator audit/i.
+ *    2. Audit model — the experiment's latest audit's ``model``
+ *       field carries the inter-curator pattern ("inter-curator
+ *       audit · X's curation applied · Y reviews"). Catches the
+ *       case where the curator opened the experiment directly,
+ *       without the group context in the URL.
+ *
+ *  If either fires, the banner shows. The label content prefers
+ *  the parsed identities (e.g. "cyan's review of amanda's
+ *  curation") when available, falling back to the raw group name.
+ *  See HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS §1 (bro's
  *  reply, "viewing chip" ask). */
 function ComparisonModeBanner({
+  experimentId,
   groupId,
 }: {
+  experimentId: number;
   groupId: string | undefined;
 }) {
   const { data: group } = useGroup(groupId);
-  if (!groupId || !group) return null;
-  const name = group.name || "";
-  const isInterCuratorAudit = /inter-curator audit/i.test(name);
-  if (!isInterCuratorAudit) return null;
+  const { data: auditList } = useAuditsForExperiment(experimentId);
+
+  const groupName = group?.name || "";
+  const fromGroup = /inter-curator audit/i.test(groupName);
+
+  // Find the most recent audit with an inter-curator-audit model
+  // string. Audits are list-fetched per-experiment; the latest is
+  // usually the active one but we scan for safety.
+  const interCuratorAudit = (auditList?.items ?? []).find((a) =>
+    /inter-curator audit/i.test(a.model || ""),
+  );
+  const fromAudit = !!interCuratorAudit;
+
+  if (!fromGroup && !fromAudit) return null;
+
+  // Parse identities from whichever signal fired. Group name takes
+  // precedence when present; audit's model is the fallback. Both
+  // patterns share the "X's curation applied · Y reviews" framing
+  // (bro encodes the same shape in both surfaces).
+  const sourceText =
+    (fromGroup ? groupName : interCuratorAudit?.model) || "";
+  const m = sourceText.match(
+    /(\S+?)'s curation applied\s*·\s*(\S+?)\s*reviews/i,
+  );
+  const goldCurator = m ? m[1] : null;
+  const reviewer = m ? m[2] : null;
+
   return (
     <div
       className="w-full bg-amber-100 border-b border-amber-300 px-4 py-2 text-sm text-amber-900 dark:bg-amber-900/40 dark:border-amber-700 dark:text-amber-100"
@@ -200,7 +231,14 @@ function ComparisonModeBanner({
       <span className="font-semibold uppercase tracking-wide text-[11px] mr-2">
         Viewing
       </span>
-      <span className="font-mono text-[13px]">{name}</span>
+      {goldCurator && reviewer ? (
+        <span className="text-[13px]">
+          <strong>{reviewer}</strong>'s review of{" "}
+          <strong>{goldCurator}</strong>'s curation
+        </span>
+      ) : (
+        <span className="font-mono text-[13px]">{sourceText || groupName}</span>
+      )}
       <span className="ml-2 text-[11px] opacity-80">
         — design overlay + dispositions belong to this package only
       </span>
@@ -380,7 +418,10 @@ function Shell({
         experimentShortName={shortName}
         reviewer={fullName || reviewer}
       />
-      <ComparisonModeBanner groupId={groupContext} />
+      <ComparisonModeBanner
+        experimentId={experimentId}
+        groupId={groupContext}
+      />
       <ExperimentBanner
         experimentId={experimentId}
         shortName={shortName}

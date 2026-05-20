@@ -194,7 +194,30 @@ export interface AuditFinding {
   gold_target_index?: number | null;
 }
 
-/** One FV-pair across a renamed factor (agent FV ↔ gold FV). */
+/** One statement decomposed into (subject, predicate, object). Each
+ *  part is an ``OntologyTerm`` (label + uri) or ``null`` when that
+ *  role isn't populated — wild-type FVs typically have only a
+ *  subject, for instance.
+ *
+ *  Carried on ``FvPair`` to give the UI's three-comparator editor
+ *  matching parsed shape on both Agent and Gemma sides (without
+ *  this, Gemma's column conflates everything into the FV-level
+ *  label). Schema mirror of agents-side ``StatementParts`` shipped
+ *  in commit ``b157073``. */
+export interface StatementParts {
+  subject?: OntologyTerm | null;
+  predicate?: OntologyTerm | null;
+  object?: OntologyTerm | null;
+}
+
+/** One FV-pair across a renamed factor (agent FV ↔ gold FV).
+ *
+ *  ``agent_statement`` / ``gold_statement`` carry the parsed
+ *  (subject, predicate, object) decomposition of the primary
+ *  statement on each side, when available. Optional / nullable for
+ *  back-compat with rename payloads from older builders. When
+ *  present, the UI prefers these for its three-comparator display;
+ *  when absent it falls back to ``agent.label`` / ``gold.label``. */
 export interface FvPair {
   agent: OntologyTerm;
   gold: OntologyTerm;
@@ -204,6 +227,8 @@ export interface FvPair {
    *  - ``"judgment"`` — same partition position, arbiter only ranked
    *                     by index (no semantic match) */
   equivalence: "exact" | "synonym" | "judgment" | (string & {});
+  agent_statement?: StatementParts | null;
+  gold_statement?: StatementParts | null;
 }
 
 /** Compact factor reference inside a rename payload. */
