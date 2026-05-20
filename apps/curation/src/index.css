@@ -55,9 +55,12 @@
   .btn.warn    { @apply bg-amber-700 text-white border-amber-700 hover:bg-amber-800; }
   .btn.ghost   { @apply bg-transparent border-transparent text-slate-600 hover:bg-slate-100; }
 
-  .card { @apply bg-white border border-slate-200 rounded-lg; }
+  /* Card border bumped slate-200 → slate-300 (2026-05-19) for a
+     light-mode contrast nudge per Paul. Dark-mode .card override
+     below stays slate-700. */
+  .card { @apply bg-white border border-slate-300 rounded-lg; }
 
-  .section-h { @apply text-xs uppercase tracking-wider text-slate-600 font-semibold; }
+  .section-h { @apply text-xs uppercase tracking-wider text-slate-700 font-semibold; }
 
   .diff-add { @apply bg-emerald-50 border-l-[3px] border-emerald-500 px-2 py-1; }
   .diff-del { @apply bg-rose-50 border-l-[3px] border-rose-500 px-2 py-1 line-through text-rose-900/80; }

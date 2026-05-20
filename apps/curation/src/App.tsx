@@ -13,6 +13,7 @@ import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
 import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
 import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { PipelinePanel } from "@/features/workflow/PipelinePanel";
+import { useGroup } from "@/api/workflow";
 import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
 import {
@@ -166,6 +167,44 @@ export default function App() {
         </DesignDraftProvider>
       </ProposalReviewProvider>
     </ToastProvider>
+  );
+}
+
+/** Full-width banner that fires when the curator is viewing an
+ *  experiment in an inter-curator-audit set. The "viewing: <pkg>"
+ *  framing is non-negotiable for these sessions because the same
+ *  experiment can appear in two different gold-curator packages
+ *  with different design overlays; without the banner curators
+ *  can't tell which view they're in (the audit's model badge alone
+ *  is too easy to miss). Hidden when there's no group context, when
+ *  the group's a normal screening/pipeline/review set, or when the
+ *  group's name doesn't carry the inter-curator-audit framing. See
+ *  HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS §1 (bro's
+ *  reply, "viewing chip" ask). */
+function ComparisonModeBanner({
+  groupId,
+}: {
+  groupId: string | undefined;
+}) {
+  const { data: group } = useGroup(groupId);
+  if (!groupId || !group) return null;
+  const name = group.name || "";
+  const isInterCuratorAudit = /inter-curator audit/i.test(name);
+  if (!isInterCuratorAudit) return null;
+  return (
+    <div
+      className="w-full bg-amber-100 border-b border-amber-300 px-4 py-2 text-sm text-amber-900 dark:bg-amber-900/40 dark:border-amber-700 dark:text-amber-100"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="font-semibold uppercase tracking-wide text-[11px] mr-2">
+        Viewing
+      </span>
+      <span className="font-mono text-[13px]">{name}</span>
+      <span className="ml-2 text-[11px] opacity-80">
+        — design overlay + dispositions belong to this package only
+      </span>
+    </div>
   );
 }
 
@@ -341,6 +380,7 @@ function Shell({
         experimentShortName={shortName}
         reviewer={fullName || reviewer}
       />
+      <ComparisonModeBanner groupId={groupContext} />
       <ExperimentBanner
         experimentId={experimentId}
         shortName={shortName}
@@ -830,7 +870,8 @@ function MainGrid({
             <div className="card p-3 text-xs text-rose-700">
               {proposalsError}
               <p className="mt-1 text-slate-500 text-[11px]">
-                Is the mock API running? <code>./run_mock.sh</code>
+                Is the detached server running?{" "}
+                <code>./run_mock.sh</code>
               </p>
             </div>
           ) : !hasProposals ? (

@@ -132,7 +132,7 @@ export function AuditsInbox({ reviewer }: { reviewer: string }) {
           ) : grouped.length === 0 ? (
             <div className="px-3 py-6 text-sm text-slate-500">
               {items.length === 0
-                ? "No audits in the mock yet. Submit one with `gca audit-curation … --submit` from the agents repo."
+                ? "No audits on the detached server yet. Submit one with `gca audit-curation … --submit` from the agents repo."
                 : `No audits matching "${filter}".`}
             </div>
           ) : (

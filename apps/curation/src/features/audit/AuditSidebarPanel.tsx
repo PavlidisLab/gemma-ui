@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { agentPalette } from "@/lib/agentPalette";
+import { agentPalette, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { StatementGlyph } from "@/components/ui/StatementGlyph";
@@ -21,6 +21,11 @@ import {
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { setFactorFields, setFvLabel } from "@/features/design/mutations";
 import { resolveApplyAction } from "./applyHandlers";
+import {
+  FindingDetailsEditor,
+  findingHasStructuredContent,
+} from "./FindingDetailsEditor";
+import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
 import { DismissDialog, type DialogChip } from "./DismissDialog";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
@@ -271,7 +276,7 @@ function EmptyState({
   return (
     <div className="card p-3 text-xs text-slate-500 space-y-2">
       <p className="italic">
-        No audits on this experiment yet. The mock-API GET / PATCH
+        No audits on this experiment yet. The detached server's GET / PATCH
         endpoints are live; the in-UI trigger button (which would
         POST to the agent's <code>/audit/{"{accession}"}</code>)
         lands once that service ships.
@@ -435,26 +440,43 @@ function SidebarHeader({
         ) : null}
         {/* Auditor identity — prominent enough that a curator
          *  switching between two audits (e.g. dual-agent
-         *  hybrid-vs-oneshot review, HANDOFF_2026-05-17_DUAL_AGENT_REVIEW)
-         *  can tell at a glance which one they're looking at. The
-         *  palette is hashed off the auditor's BASE name (version
-         *  suffixes like ``-v5b`` / ``-2026-05-17`` stripped) so
-         *  ``hybrid-v5b`` and ``hybrid-v6`` get the same pill colour
-         *  but ``hybrid`` and ``oneshot`` get distinct ones. */}
+         *  hybrid-vs-oneshot review, HANDOFF_2026-05-17_DUAL_AGENT_REVIEW;
+         *  or inter-curator-audit packages where the same experiment
+         *  appears in both ``X-gold`` and ``Y-gold`` sets) can tell at
+         *  a glance which one they're looking at. The palette is
+         *  hashed off the auditor's BASE name (version suffixes like
+         *  ``-v5b`` / ``-2026-05-17`` stripped) so ``hybrid-v5b`` and
+         *  ``hybrid-v6`` get the same pill colour but ``hybrid`` and
+         *  ``oneshot`` get distinct ones. For inter-curator packages,
+         *  the gold/reviewer pair gives the two siblings distinct
+         *  hashes too.
+         *
+         *  Two render variants on the same field:
+         *  - agent identifier (``hybrid-v6``, ``s2j-opus-pipeline``) —
+         *    mono, narrow, tag-label "agent".
+         *  - prose context (``"inter-curator audit · cyan's curation
+         *    applied · amanda reviews"``) — sans, full-width,
+         *    tag-label "review". The agents-side builder writes prose
+         *    here for inter-curator audits since "model" stops being
+         *    the load-bearing identity for that surface. */}
         {report.model ? (() => {
           const palette = agentPalette(report.model);
+          const isProse = isProseModel(report.model);
           return (
             <span
               className={cn(
-                "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border",
+                "inline-flex items-baseline gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded border",
+                isProse ? null : "font-mono",
                 palette,
               )}
-              title={`AI agent that produced this audit: ${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`}
+              title={`${isProse ? "audit context" : "AI agent that produced this audit"}: ${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`}
             >
               <span className="text-[9px] uppercase tracking-wide opacity-70">
-                agent
+                {isProse ? "review" : "agent"}
               </span>
-              <span className="truncate max-w-[14rem]">{report.model}</span>
+              <span className={isProse ? "" : "truncate max-w-[14rem]"}>
+                {report.model}
+              </span>
             </span>
           );
         })() : null}
@@ -1074,7 +1096,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
       {visibleRenames.length > 0 ? (
         <div className="space-y-1.5">
           <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
-            Alternate factor — agent proposes a different categorization
+            Alternate factor — proposed a different categorization
           </div>
           {visibleRenames.map((f) => (
             <RenameFindingCard
@@ -1693,7 +1715,7 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
           </span>
           <span
             className="text-[10px] text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-600 px-1 py-0 rounded bg-blue-50 dark:bg-blue-900/40 font-medium"
-            title="The agent proposes a substantively different categorization of the same samples — not just a relabel"
+            title="Proposed a substantively different categorization of the same samples — not just a relabel"
           >
             alternate factor
           </span>
@@ -1748,7 +1770,7 @@ function RenameFindingCard({ finding }: { finding: AuditFinding }) {
         <RenameFactorEmbed finding={finding} />
 
         <div className="text-[11px] text-slate-600 dark:text-slate-300 px-1">
-          The agent proposes a different category for this factor.{" "}
+          Proposed a different category for this factor.{" "}
           <span className="text-slate-500 dark:text-slate-400">
             Sample assignments may match Gemma's — the arbiter judged
             the partition equivalent. Inspect the FVs below to see
@@ -2684,7 +2706,7 @@ function FactorReplacementHint({
   if (proposed.length === 0) return null;
   return (
     <span className="block mt-0.5 text-[11px] text-blue-700 dark:text-blue-400">
-      ↪ Agent proposes adding:{" "}
+      ↪ Proposed adding:{" "}
       {proposed.map((f, i) => (
         <span key={i}>
           {i > 0 ? ", " : ""}
@@ -3218,8 +3240,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
       dismissReason?: DismissReason;
       acceptReason?: AcceptReason;
       notSureReason?: NotSureReason;
-      appliedFix?: string;
+      appliedFix?: import("@/api/auditTypes").AppliedFix | string;
       resolvedAt?: string;
+      structureOk?: boolean | null;
+      detailsOk?: boolean | null;
     } = {},
   ) {
     const firstSeenAt = consumeFirstSeen(finding.target_id) ?? undefined;
@@ -3431,8 +3455,81 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     setNotSureOpen(false);
   }
 
+  // Per-element 2-axis editor — when the finding has resolvable
+  // structured content (factor proposals with comparison_proposal
+  // entries; tag proposals with proposer_term), the editor replaces
+  // the legacy single-button action row. Dismiss + Park still route
+  // through the existing dialogs (rendered below); only the primary
+  // affordance changes. See HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS
+  // §2 + §3 for the wire-shape design.
+  const useStructuredEditor =
+    !isFinalized &&
+    findingHasStructuredContent(finding, report, draft);
+
   return (
     <div className="pl-1.5 space-y-1.5 relative">
+      {useStructuredEditor ? (
+        <FindingDetailsEditor
+          finding={finding}
+          report={report}
+          design={draft}
+          currentDisposition={current}
+          onSave={async (appliedFix, structureOk, detailsOk) => {
+            // Conventional status mapping (see auditTypes.ts comment):
+            //   structure_ok=false                 → dismissed
+            //   structure_ok=true,  details_ok=true  → accepted/resolved
+            //   structure_ok=true,  details_ok=false → accepted/resolved
+            //       (applied_fix carries the inline label edits)
+            //   any null → leave status untouched (treat as parked)
+            let status: DispositionStatus = "accepted";
+            if (structureOk === false) status = "dismissed";
+            else if (structureOk === null && detailsOk === null) {
+              status = "needs_more_info";
+            }
+            const resolvedAt =
+              status === "accepted" ? new Date().toISOString() : undefined;
+            // Dual-write: apply the curator's per-row edits to the
+            // design draft BEFORE patching the disposition. The
+            // draft mutation shows up immediately in the Design tab
+            // and rides to commit via CommitBar; the disposition
+            // PATCH records the same edits on the audit (for the
+            // scorer + audit trail). Mirrors the legacy
+            // ``Apply & Focus`` dual-write, just driven by the
+            // structured per-row payload.
+            if (
+              typeof appliedFix !== "string" &&
+              appliedFix.kind === "details_edit" &&
+              appliedFix.edits &&
+              appliedFix.edits.length > 0
+            ) {
+              // Pass a function rather than the computed Design so
+              // the mutation runs against the latest draft state.
+              applyDraft((current) =>
+                applyDetailsEditsToDesign(current, finding, report, appliedFix),
+              );
+            }
+            // Wire-format: until bro's ``feature/audit-schema-extensions``
+            // merges to main and the running detached server is
+            // restarted on it, ``applied_fix`` is still typed as
+            // ``str`` on the server. JSON-stringify the structured
+            // payload so the PATCH validates; the design mutation
+            // above runs unchanged. Flip to passing the object
+            // directly once the schema merge lands.
+            const wireFix =
+              typeof appliedFix === "string"
+                ? appliedFix
+                : JSON.stringify(appliedFix);
+            await patch(status, {
+              appliedFix: wireFix,
+              structureOk,
+              detailsOk,
+              resolvedAt,
+            });
+          }}
+          onDismiss={() => setDismissOpen(true)}
+          onPark={() => setNotSureOpen(true)}
+        />
+      ) : (
       <div className="flex items-center gap-1 flex-wrap">
         {action ? (
           (() => {
@@ -3682,6 +3779,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           </span>
         ) : null}
       </div>
+      )}
       <DispositionNoteRow
         disposition={disposition}
         isFinalized={isFinalized}
@@ -3913,17 +4011,17 @@ function rewriteCalibrationRationale(
   if (issueCode === "calibration_gold_only_miss") {
     // "Should `cell type: microglial cell` be removed from the curation? (the agent did not propose it.)"
     const m = rationale.match(/`([^`]+)`/);
-    if (m) return `Agent does not propose \`${m[1]}\` and suggests removing it.`;
+    if (m) return `Proposed removing \`${m[1]}\` (not in the proposal).`;
   }
   if (issueCode === "calibration_agent_extra") {
     // "Should we add `organism part: bone marrow`?"
     const m = rationale.match(/`([^`]+)`/);
-    if (m) return `Agent proposes adding \`${m[1]}\`. Do you agree?`;
+    if (m) return `Proposed adding \`${m[1]}\`. Do you agree?`;
   }
   if (issueCode === "calibration_match") {
     // "Is `disease model: alzheimer disease` correctly assigned?"
     const m = rationale.match(/`([^`]+)`/);
-    if (m) return `Agent and Gemma both have \`${m[1]}\`. Is this correct?`;
+    if (m) return `Proposal and existing curation both have \`${m[1]}\`. Is this correct?`;
   }
   return rationale;
 }
@@ -4152,7 +4250,7 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
         title={
           strength
             ? `judge graded this (${dv!.verdict})`
-            : "what the agent suggests"
+            : "what was proposed"
         }
       >
         {strength ? `${strength} suggestion` : "suggestion"}

@@ -163,7 +163,10 @@ interface AuditContextValue {
        *  The Park button gates the status change on the not-sure
        *  dialog so it never sends without a reason. */
       notSureReason?: import("@/api/auditTypes").NotSureReason;
-      appliedFix?: string;
+      /** Structured ``AppliedFix`` (per-row edits) or legacy
+       *  free-text string. Server accepts both via the union type
+       *  bro shipped in agents commit ``e9e52ea``. */
+      appliedFix?: import("@/api/auditTypes").AppliedFix | string;
       firstSeenAt?: string;
       /** Stamp the finding as accepted+resolved (two-step accept,
        *  Ask #6). Only valid with status=accepted; the server
@@ -174,6 +177,13 @@ interface AuditContextValue {
        *  cascaded from a factor to its subsumed FV children. Omit for
        *  direct curator dispositions. */
       inheritedFrom?: string;
+      /** Structural-vs-detail axes per §2 of
+       *  HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS. Independent
+       *  of ``status``. The per-element editor PATCHes these alongside
+       *  the canonical status/notes/applied_fix flow; the legacy
+       *  three-button DispositionBar leaves both null. */
+      structureOk?: boolean | null;
+      detailsOk?: boolean | null;
     },
   ) => Promise<void>;
   /** True while a PATCH is in flight (live path only — the override
@@ -290,10 +300,12 @@ export function AuditProvider({
         dismissReason?: DismissReason;
         acceptReason?: import("@/api/auditTypes").AcceptReason;
         notSureReason?: import("@/api/auditTypes").NotSureReason;
-        appliedFix?: string;
+        appliedFix?: import("@/api/auditTypes").AppliedFix | string;
         firstSeenAt?: string;
         resolvedAt?: string;
         inheritedFrom?: string;
+        structureOk?: boolean | null;
+        detailsOk?: boolean | null;
       } = {},
     ) => {
       if (!report) return;
@@ -354,6 +366,8 @@ export function AuditProvider({
       if (extras.firstSeenAt) patch.first_seen_at = extras.firstSeenAt;
       if (extras.resolvedAt) patch.resolved_at = extras.resolvedAt;
       if (extras.inheritedFrom) patch.inherited_from = extras.inheritedFrom;
+      if (extras.structureOk !== undefined) patch.structure_ok = extras.structureOk;
+      if (extras.detailsOk !== undefined) patch.details_ok = extras.detailsOk;
       await patchDisposition.mutateAsync({
         auditId: report.audit_id,
         patch,

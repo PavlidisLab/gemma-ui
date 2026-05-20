@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { normalizeWikiUrl } from "@/lib/guidelines";
+import { isProseModel } from "@/lib/agentPalette";
 import type {
   AuditFinding,
   AuditFindingDisposition,
@@ -81,14 +82,20 @@ function ReportHeader({ report }: { report: AuditReport }) {
         <span className="text-xs text-slate-500">
           · audited {formatTimestamp(report.audited_at)}
         </span>
-        {report.model ? (
-          <span
-            className="text-[11px] text-slate-700 font-mono px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200"
-            title={`audit ran with model: ${report.model}`}
-          >
-            {report.model}
-          </span>
-        ) : null}
+        {report.model ? (() => {
+          const isProse = isProseModel(report.model);
+          return (
+            <span
+              className={cn(
+                "text-[11px] text-slate-700 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200",
+                isProse ? null : "font-mono",
+              )}
+              title={`${isProse ? "audit context" : "audit ran with model"}: ${report.model}`}
+            >
+              {report.model}
+            </span>
+          );
+        })() : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <VerdictPill verdict={summary.overall_verdict} />

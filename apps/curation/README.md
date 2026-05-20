@@ -2,9 +2,10 @@
 
 Modernised curation interface for the [Gemma](https://gemma.msl.ubc.ca)
 database. Replaces the legacy ExtJS / JSP curation pages with a React
-+ TypeScript app that drives the curation REST API (mock in dev,
-real Gemma later) and integrates agent-proposed designs / tags /
-audits with a structured curator-feedback loop.
++ TypeScript app that drives the curation REST API (detached
+standalone server in dev + for portable review packages; real Gemma
+later) and integrates agent-proposed designs / tags / audits with a
+structured curator-feedback loop.
 
 ## Stack
 
@@ -14,15 +15,16 @@ audits with a structured curator-feedback loop.
 - **API types** — hand-written in `src/api/*.ts`; shapes mirror the
   Pydantic models in
   [`gemma-curation-agents`](https://github.com/PavlidisLab/gemma-curation-agents)
-  (the agent + mock REST repo). When the agent side ships a schema
-  change, the doc updates first and the TS catches up.
+  (the agent + detached REST repo). When the agent side ships a
+  schema change, the doc updates first and the TS catches up.
 
 ## Running
 
 ```bash
-# 1. Start the mock curation API (in the gemma-curation-agents repo)
+# 1. Start the detached curation server (in the gemma-curation-agents repo)
 cd ../gemma-curation-agents
 ./run_mock.sh                                 # preferred — handles keychain + GEMMA_RESOURCES_DIR
+                                              #   (pending bro's rename to ./run_detached.sh)
 
 # 2. Start the UI
 cd ../gemma-curation-ui
@@ -34,8 +36,8 @@ npm run dev                                   # → http://localhost:5173
 The Vite dev server proxies `/rest/*`, `/propose/*`, `/audit/*`,
 `/find-publication`, and `/find-term` to the URL in
 `GEMMA_CURATION_URL` (default `http://localhost:8080`). Auth is the
-session bearer token issued by `useLogin` (mock token
-`dev-token-123` in dev).
+session bearer token issued by `useLogin` (dev token
+`dev-token-123` against the detached server).
 
 ## Landing dashboard
 
@@ -129,8 +131,8 @@ running an audit. Streaming progress reuses the existing
   shows green vs grey (ontology vs free text) and bold + count badge
   when previously used in Gemma. Used for Statement.subject,
   Statement.object, Tag.value.
-- Mock loads ~660 ranked terms from
-  `valueStringToOntologyTermMappings.txt`.
+- The detached server loads ~660 ranked terms from
+  `valueStringToOntologyTermMappings.txt` on first start.
 
 ## Project layout
 
@@ -214,10 +216,10 @@ CLAUDE.md                   # meta orientation for the GUI Claude
 
 ## What's still TODO
 
-1. **Real Gemma integration** — at the moment the mock owns
-   `/annotations/search` (with a usage_count synthesised from the
-   value-mappings file). See `TODO-gemma-api.md` in the agents repo
-   for the upstream gaps.
+1. **Real Gemma integration** — at the moment the detached server
+   owns `/annotations/search` (with a usage_count synthesised from
+   the value-mappings file). See `TODO-gemma-api.md` in the agents
+   repo for the upstream gaps.
 2. **AuditDetailPage Apply & Focus** — cross-experiment audit page
    doesn't yet wire the Apply & Focus flow; needs cross-tab
    navigation from outside an experiment Shell. Tracked in

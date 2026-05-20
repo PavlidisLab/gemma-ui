@@ -15,9 +15,16 @@ React + TypeScript + Vite + TanStack Query + Tailwind. Path alias
 `files` and skips the app code — running it directly catches
 nothing) and the browser for everything else. Dev server:
 `npm run dev` → `:5173`. Vite proxies `/rest`, `/propose`, `/audit`,
-`/find-publication`, `/find-term` to the mock agent service on
-`:8080` (started from the agent repo via `./run_mock.sh`; auth token
-`dev-token-123`).
+`/find-publication`, `/find-term` to the detached curation server
+on `:8080` (started from the agent repo via `./run_mock.sh`; auth
+token `dev-token-123`). "Detached" because it's a full standalone
+curation backend that just doesn't talk to real Gemma — used for
+dev work AND for the portable review-package workflow
+(`calibration_packages/`). The `run_mock.sh` script name + the
+`mock_gemma_curation_api` Python module name are pending bro's
+rename pass per
+`gemma-curation-agents-eval/docs/HANDOFF_2026-05-19_DETACHED_MODE_AND_PORTABLE_PACKAGES.md`;
+this doc uses the new terminology ahead of the file moves.
 
 ## Cross-repo collaboration
 
@@ -30,9 +37,11 @@ nothing) and the browser for everything else. Dev server:
 - Don't edit the Python repo. Read it for context; file questions
   or new-field requests as comments in the relevant handoff doc and
   my brother picks them up next session.
-- Mock data behaving oddly?
+- Detached-server data behaving oddly?
   `sqlite3 ../gemma-curation-agents/mock_curation.sqlite` and
-  inspect directly.
+  inspect directly. (The `mock_curation.sqlite` filename will
+  flip to `detached_curation.sqlite` when bro lands the rename
+  pass — update this line in the same commit.)
 - **Compatibility matrix** (which UI version pairs with which agent
   version) lives in [`CROSS_REPO_COMPAT.md`](./CROSS_REPO_COMPAT.md).
   Update it when shipping a release; same row goes on the agent side.
