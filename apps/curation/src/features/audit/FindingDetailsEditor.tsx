@@ -54,6 +54,13 @@ import type {
 } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
 import { resolveAgentFactor, resolveGoldFactor } from "./factorMatch";
+import { verdictToStructureDetails } from "./dispositionSave";
+import {
+  isSideEmpty,
+  lc,
+  rowAgreement,
+  type SideValue,
+} from "./rowComparison";
 
 // ---------------------------------------------------------------------------
 // Identity strings
@@ -104,15 +111,6 @@ function extractAuditIdentities(
 // ---------------------------------------------------------------------------
 // Row helpers (preserved from the previous shape)
 // ---------------------------------------------------------------------------
-
-interface SideValue {
-  label: string;
-  uri: string | null;
-}
-
-function lc(s: string | null | undefined): string {
-  return (s || "").toLowerCase().trim();
-}
 
 function statementPart(
   st: Statement,
@@ -171,18 +169,6 @@ function pairAgentStatementToGold(
   return null;
 }
 
-function sidesAgree(a: SideValue | null, b: SideValue | null): boolean {
-  if (a === null && b === null) return true;
-  if (!a || !b) return false;
-  if (a.uri && b.uri && a.uri === b.uri) return true;
-  if (lc(a.label) === lc(b.label)) return true;
-  return false;
-}
-
-function isSideEmpty(s: SideValue | null): boolean {
-  if (!s) return true;
-  return !s.label && !s.uri;
-}
 
 // ---------------------------------------------------------------------------
 // Row model
@@ -239,25 +225,8 @@ function pairAgentGoldFv(
   return null;
 }
 
-function rowAgreement(
-  proposal: SideValue,
-  currently: SideValue | null,
-  reference: SideValue | null,
-): boolean {
-  const sides: SideValue[] = [proposal];
-  if (currently && !isSideEmpty(currently)) sides.push(currently);
-  if (reference && !isSideEmpty(reference)) sides.push(reference);
-  if (sides.length <= 1) {
-    // Single comparator → no disagreement possible.
-    return true;
-  }
-  for (let i = 1; i < sides.length; i++) {
-    if (!sidesAgree(sides[0], sides[i])) return false;
-  }
-  return true;
-}
 
-function buildFactorRows(
+export function buildFactorRows(
   finding: AuditFinding,
   report: AuditReport | null,
   design: Design | null,
@@ -266,7 +235,17 @@ function buildFactorRows(
   const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
   const agent = resolveAgentFactor(finding, cp, labelHint);
   if (!agent) return { rows: [], fvMeta: new Map() };
-  const gold = resolveGoldFactor(finding, design?.factors ?? [], labelHint);
+  // ``_factor_extra`` is by definition agent-only — the builder
+  // already decided there's no gold counterpart, so the UI must
+  // not pair via slug or label and pretend agreement. Empty-but-
+  // present gold side triggers the proper "agent proposed, gold
+  // doesn't have it" disagreement render. See
+  // HANDOFF_2026-05-20_DEMOTED_MATCH_SPLIT_FACTOR_UI.md §1.
+  const isAgentOnly =
+    finding.issue_code === "calibration_factor_extra";
+  const gold = isAgentOnly
+    ? null
+    : resolveGoldFactor(finding, design?.factors ?? [], labelHint);
   // Reference data — the upstream (Gemma) snapshot. For
   // inter-curator-audit packages, the builder bakes this into
   // ``finding.rename`` (FactorRenamePayload): ``.gold.category``
@@ -287,9 +266,17 @@ function buildFactorRows(
       label: agent.category.label || "",
       uri: agent.category.uri ?? null,
     };
+    // For agent-only findings (``_factor_extra``) the gold side is
+    // explicitly empty (the builder confirmed no pair); for paired
+    // findings we render gold's category, and for cases where gold
+    // exists but doesn't have this specific factor we'd still want
+    // empty rather than null. Use ``null`` only when we have no
+    // gold lookup at all.
     const currently: SideValue | null = gold
       ? { label: gold.category.label || "", uri: gold.category.uri ?? null }
-      : null;
+      : isAgentOnly
+        ? { label: "", uri: null }
+        : null;
     const reference: SideValue | null = rename?.gold?.category
       ? {
           label: rename.gold.category.label || "",
@@ -367,7 +354,12 @@ function buildFactorRows(
     ];
     for (const part of partOrder) {
       const proposal = fvProposalStatementPart(fv, part);
-      const currently = pairAgentStatementToGold(fv, gold, part);
+      // For agent-only findings (``_factor_extra``) every part on
+      // the gold side is explicit-empty (the builder confirmed no
+      // pair). Otherwise pair via biomaterial-set as usual.
+      const currently: SideValue | null = isAgentOnly
+        ? { label: "", uri: null }
+        : pairAgentStatementToGold(fv, gold, part);
       const reference: SideValue | null = referencePart(part);
       if (part !== "subject") {
         const proposalEmpty = isSideEmpty(proposal);
@@ -391,7 +383,7 @@ function buildFactorRows(
   return { rows, fvMeta };
 }
 
-function buildTagRows(finding: AuditFinding): Row[] {
+function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
   if (!finding.target_id.startsWith("calibration:")) return [];
   const rest = finding.target_id.slice("calibration:".length);
   const colon = rest.indexOf(":");
@@ -408,26 +400,64 @@ function buildTagRows(finding: AuditFinding): Row[] {
     label: term?.label || agentValue,
     uri: term?.uri ?? null,
   };
+
+  // Look up the gold side from the local design's tags by
+  // (category, value) match — case-insensitive, plus URI match
+  // when both sides carry one. For agent_extra findings the
+  // expected outcome is no-match (gold doesn't have the proposed
+  // tag) → explicit empty SideValue so the agreement check
+  // registers the disagreement. For match findings the lookup
+  // succeeds and rowAgreement collapses to true.
+  // Reference (Gemma) lookup deferred — no separate Gemma
+  // snapshot of tags is stored locally today (same constraint as
+  // factor reference data).
+  const matchedTag =
+    design?.tags?.find((t) => {
+      const sameCategory =
+        lc(t.category?.label) === lc(agentCategory);
+      if (!sameCategory) return false;
+      const sameValueLabel =
+        lc(t.value?.label) === lc(valueProposal.label);
+      if (sameValueLabel) return true;
+      if (valueProposal.uri && t.value?.uri) {
+        return t.value.uri === valueProposal.uri;
+      }
+      return false;
+    }) ?? null;
+
+  const categoryCurrently: SideValue = matchedTag
+    ? {
+        label: matchedTag.category.label || "",
+        uri: matchedTag.category.uri ?? null,
+      }
+    : { label: "", uri: null };
+  const valueCurrently: SideValue = matchedTag
+    ? {
+        label: matchedTag.value.label || "",
+        uri: matchedTag.value.uri ?? null,
+      }
+    : { label: "", uri: null };
+
   return [
     {
       path: "tag.category",
       rowLabel: "Category",
       proposal: categoryProposal,
-      currently: null,
+      currently: categoryCurrently,
       reference: null,
       fvIndex: null,
       statementIndex: null,
-      allAgree: rowAgreement(categoryProposal, null, null),
+      allAgree: rowAgreement(categoryProposal, categoryCurrently, null),
     },
     {
       path: "tag.value",
       rowLabel: "Value",
       proposal: valueProposal,
-      currently: null,
+      currently: valueCurrently,
       reference: null,
       fvIndex: null,
       statementIndex: null,
-      allAgree: rowAgreement(valueProposal, null, null),
+      allAgree: rowAgreement(valueProposal, valueCurrently, null),
     },
   ];
 }
@@ -441,7 +471,7 @@ function buildRows(
     return buildFactorRows(finding, report, design);
   }
   if (finding.target_kind === "tag") {
-    return { rows: buildTagRows(finding), fvMeta: new Map() };
+    return { rows: buildTagRows(finding, design), fvMeta: new Map() };
   }
   return { rows: [], fvMeta: new Map() };
 }
@@ -464,7 +494,21 @@ export function findingHasStructuredContent(
     return !!gold;
   }
   if (finding.target_kind === "tag") {
-    return !!finding.proposer_term || finding.target_id.startsWith("calibration:");
+    // Three shapes the editor handles:
+    //   - `calibration:extra:<cat>/<val>` — agent proposed adding
+    //     a tag (calibration_agent_extra).
+    //   - `calibration:miss:<cat>/<val>`  — agent proposed removing
+    //     a gold tag (calibration_gold_only_miss, label form).
+    //   - `tag:<id>`                      — same as above but in
+    //     numeric-id form when the gold tag already lived in the
+    //     design at audit-build time. Removal-only collapse.
+    // ``proposer_term`` also signals structured content (any tag
+    // proposal that's been resolved to an ontology term).
+    if (finding.proposer_term) return true;
+    return (
+      finding.target_id.startsWith("calibration:") ||
+      finding.target_id.startsWith("tag:")
+    );
   }
   return false;
 }
@@ -632,12 +676,10 @@ export function FindingDetailsEditor({
         }
       }
       const { fix } = buildAppliedFix(rows, filledState);
-      let structureOk: boolean | null = true;
-      let detailsOk: boolean | null = true;
-      if (verdict === "currently") {
-        structureOk = false;
-        detailsOk = null;
-      }
+      const { structureOk, detailsOk } = verdictToStructureDetails(
+        verdict,
+        finding.issue_code,
+      );
       // The sidebar's onSave handler derives ``status`` from
       // structure_ok / details_ok per the conventional mapping
       // (see AuditSidebarPanel.onSave); editor stays pure.
@@ -696,16 +738,142 @@ export function FindingDetailsEditor({
       identities.goldCurator === "you"
         ? "keep yours"
         : `keep ${identities.goldCurator}'s`;
-    const youOrName =
-      identities.goldCurator === "you"
-        ? "You have"
-        : `${identities.goldCurator} has`;
+    // What is being removed — extract from the target_id when
+    // structured ("calibration:miss:<cat>/<val>"), or fall back to
+    // the rationale's first backticked token.
+    const removeTargetLabel = (() => {
+      if (finding.target_id.startsWith("calibration:")) {
+        const tail = finding.target_id.split(":").slice(2).join(":");
+        const slash = tail.indexOf("/");
+        if (slash !== -1) {
+          return `${tail.slice(0, slash)}: ${tail.slice(slash + 1)}`;
+        }
+      }
+      const m = finding.rationale?.match(/`([^`]+)`/);
+      return m ? m[1] : null;
+    })();
+    const kindWord = finding.target_kind === "tag" ? "Tag" : "Factor";
+    // For factor removals, pull the gold factor + its FV labels +
+    // their URIs so the "you have" line renders the category and
+    // FV subjects as proper ontology chips (green) when they
+    // resolve, and the curator can tell WHICH treatment factor is
+    // being removed when the design has more than one. Without
+    // the URIs the chips fell through to free-text styling
+    // (italic grey) even for terms like ``biological sex``
+    // (EFO:0000695).
+    const goldFactor = (() => {
+      if (finding.target_kind !== "factor") return null;
+      const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
+      return resolveGoldFactor(
+        finding,
+        design?.factors ?? [],
+        labelHint,
+      );
+    })();
+    const categoryUri = goldFactor?.category?.uri ?? null;
+    const removalFvSummary =
+      goldFactor && goldFactor.factor_values.length > 0
+        ? goldFactor.factor_values.map((fv) => {
+            // Prefer the primary statement's subject URI when
+            // available — for typed-statement FVs (gene, treatment
+            // dose etc.) that's the ontology-resolved part. Falls
+            // back to free-text styling when no URI.
+            const stUri = fv.statements?.[0]?.subject?.uri ?? null;
+            return {
+              label: fv.free_text_label || `FV ${fv.id}`,
+              uri: stUri,
+              count: fv.biomaterial_short_names?.length ?? 0,
+            };
+          })
+        : null;
+    // The tag/factor being voted on. For tags it's a single
+    // category:value chip; for factor removals it's the category
+    // name (the per-FV detail isn't surfaced — the decision is
+    // binary). The proposer's row shows nothing (their proposal
+    // IS removal); the gold curator's row shows what's there.
+    const currentTermLabel = removeTargetLabel ?? "";
+    const proposerVerb =
+      identities.proposer === "Agent" ? "says" : "says";
+    const goldVerb =
+      identities.goldCurator === "you" ? "have" : "has";
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
-        <div className="text-[12px] text-slate-700 dark:text-slate-200">
-          <strong>{identities.proposer}</strong> proposes removing this
-          factor. {youOrName} it.
+        {/* Title row — matches the factor-card title shape so the
+            two surfaces read consistently. */}
+        <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+            {kindWord}
+          </span>
+          <span className="font-mono text-slate-800 dark:text-slate-100">
+            {currentTermLabel || finding.target_id}
+          </span>
+          <span className="text-slate-400 dark:text-slate-500">·</span>
+          <span className="text-amber-700 dark:text-amber-300">
+            <strong>removal proposed</strong>
+          </span>
         </div>
+
+        {/* Comparator-row lines — same labeled-identity shape the
+            disagreement blocks use, so curators read both surfaces
+            with the same convention. */}
+        <div className="space-y-1.5">
+          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+            <span className="text-slate-600 dark:text-slate-300">
+              <strong>{identities.proposer}</strong> {proposerVerb}
+            </span>
+            <span className="italic text-slate-400">
+              (proposes removing — no entry)
+            </span>
+          </div>
+          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+            <span className="text-slate-600 dark:text-slate-300">
+              <strong>{identities.goldCurator}</strong> {goldVerb}
+            </span>
+            <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+              {currentTermLabel ? (
+                <Term
+                  uri={categoryUri}
+                  asLink={false}
+                  className="!whitespace-normal break-words"
+                >
+                  {currentTermLabel}
+                </Term>
+              ) : (
+                <span className="italic text-slate-400">
+                  (in the design)
+                </span>
+              )}
+              {removalFvSummary && removalFvSummary.length > 0 ? (
+                <span className="flex flex-wrap items-baseline gap-x-1">
+                  {removalFvSummary.map((fv, i) => (
+                    <span key={i} className="inline-flex items-baseline">
+                      <span className="text-slate-400 dark:text-slate-500 mx-1">
+                        ·
+                      </span>
+                      <Term
+                        uri={fv.uri}
+                        asLink={false}
+                        className="!whitespace-normal break-words"
+                      >
+                        {fv.label}
+                      </Term>
+                      <span className="ml-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                        ({fv.count})
+                      </span>
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+              <span
+                className="ml-1 text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300"
+                title="This is what's currently on the design tab (the working draft)."
+              >
+                ← in current design
+              </span>
+            </span>
+          </div>
+        </div>
+
         <ActionRow
           saving={saving}
           disabled={currentDisposition === "dismissed"}
@@ -733,14 +901,28 @@ export function FindingDetailsEditor({
   return (
     <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
       {/* Title row — replaces the role of the legacy MatchCompareCard
-          header. Carries the factor's category + a count of
-          disagreements so the curator sees the scope at a glance. */}
+          header. Carries the entity identity (category for factors;
+          ``category: value`` for tags) + a count of disagreements
+          so the curator sees the scope at a glance. */}
       <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
         <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
           {finding.target_kind === "factor" ? "Factor" : "Tag"}
         </span>
         <span className="font-mono text-slate-800 dark:text-slate-100">
-          {rows[0]?.proposal.label || finding.target_id}
+          {(() => {
+            // Tag findings carry two rows (Category + Value); the
+            // load-bearing identity is the full ``category: value``
+            // pair, not just the category. Factor findings put the
+            // load-bearing identity on the Category row alone.
+            if (finding.target_kind === "tag") {
+              const catRow = rows.find((r) => r.rowLabel === "Category");
+              const valRow = rows.find((r) => r.rowLabel === "Value");
+              if (catRow && valRow) {
+                return `${catRow.proposal.label}: ${valRow.proposal.label}`;
+              }
+            }
+            return rows[0]?.proposal.label || finding.target_id;
+          })()}
         </span>
         <span className="text-slate-400 dark:text-slate-500">·</span>
         {allAgreeAtCard ? (
@@ -758,10 +940,12 @@ export function FindingDetailsEditor({
       </div>
 
       {/* Agreement summary — single line listing the elements where
-          all comparators agree. Skipped when the card has nothing in
-          disagreement (the title row's "everyone agrees ✓" carries
-          the same message). */}
-      {agreementRows.length > 0 && !allAgreeAtCard ? (
+          all comparators agree, including FV identities + sample
+          counts. Shown even when the WHOLE card agrees so the
+          curator can see WHICH factor / FVs this finding is about
+          (otherwise "FACTOR treatment · everyone agrees ✓" reads as
+          "treatment what?"). */}
+      {agreementRows.length > 0 ? (
         <AgreementSummary rows={agreementRows} fvMeta={fvMeta} />
       ) : null}
 
@@ -1172,11 +1356,12 @@ function ComparatorLine({
               );
             }
             // Subject / Object / Category render as Term chips.
-            // Gene labels (NCBI gene URIs) collapse to the symbol
-            // (everything before the "[organism]" bracket); the
-            // full canonical label sits in the hover title so it
-            // stays one click away.
-            const displayLabel = shortenGeneLabel(p.value.label, p.value.uri);
+            // Full label always — the species bracket (e.g.
+            // "Rpl22 [mouse] ribosomal protein L22" vs
+            // "RPL22 [human] ..." ) is load-bearing for the
+            // curator's species check. The URI suffix carries
+            // the canonical NCBI gene ID so the comparison
+            // "are these the same gene" stays unambiguous.
             return (
               <Term
                 key={p.partLabel}
@@ -1184,13 +1369,7 @@ function ComparatorLine({
                 asLink={false}
                 className="!whitespace-normal break-words"
               >
-                <span
-                  title={
-                    displayLabel !== p.value.label ? p.value.label : undefined
-                  }
-                >
-                  {displayLabel}
-                </span>
+                {p.value.label}
               </Term>
             );
           })
@@ -1208,17 +1387,6 @@ function ComparatorLine({
   );
 }
 
-/** NCBI-gene labels carry the full canonical description ("Rpl22
- *  [mouse] ribosomal protein L22"). On Gemma's design surface
- *  curators see just the symbol; mirror that here so the editor
- *  stays compact. Full label hangs off the Term's title attribute.
- *  No-op for non-NCBI-gene terms. */
-function shortenGeneLabel(label: string, uri: string | null): string {
-  if (!uri || !label) return label;
-  if (!uri.includes("ncbi_gene")) return label;
-  const m = label.match(/^(\S+)\s*\[/);
-  return m ? m[1] : label;
-}
 
 interface ActionButton {
   key: string;

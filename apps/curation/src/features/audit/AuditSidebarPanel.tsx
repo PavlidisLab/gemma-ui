@@ -26,6 +26,7 @@ import {
   findingHasStructuredContent,
 } from "./FindingDetailsEditor";
 import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
+import { deriveStatus, deriveDismissReason } from "./dispositionSave";
 import { DismissDialog, type DialogChip } from "./DismissDialog";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
@@ -83,8 +84,6 @@ export function AuditSidebarPanel({
   const { report, setOverrideReport, hasOverride, loading, error } =
     useAudit();
   const { draft } = useDesignDraft();
-  // Server design for the Gemma column.
-  const { data: serverDesign } = useDesign(experimentId);
   const stream = useAuditStream(experimentId);
   const [dialogOpen, setDialogOpen] = useState(false);
   // Auto-close the dialog once the SSE stream takes over.
@@ -183,10 +182,7 @@ export function AuditSidebarPanel({
             ) : (
               <FindingList findings={report.findings} />
             )}
-            <DesignComparisonPanel
-              report={report}
-              gemmaTags={serverDesign?.tags}
-            />
+            <DesignComparisonPanel report={report} />
           </>
         )
       ) : null}
@@ -849,6 +845,32 @@ const TARGET_KIND_LABEL: Record<AuditTargetKind, string> = {
   assignment: "Assignment",
   statement: "Statement",
 };
+
+/** Short action-flavored label for a finding's outer header, used
+ *  when the new per-element editor renders below (the editor's
+ *  title row already carries the entity identity, so the outer
+ *  header just needs to say what kind of action is being proposed).
+ *  Examples:
+ *    - calibration_factor_extra        → "Proposed factor"
+ *    - calibration_factor_gold_only_miss → "Proposed factor removal"
+ *    - calibration_factor_match_near   → "Factor near-match"
+ *    - calibration_agent_extra         → "Proposed tag"
+ *    - calibration_gold_only_miss      → "Proposed tag removal"
+ *    - generic factor / tag findings   → "Factor" / "Tag" */
+function findingActionLabel(finding: AuditFinding): string {
+  const code = finding.issue_code;
+  if (code === "calibration_factor_extra") return "Proposed factor";
+  if (code === "calibration_agent_extra") return "Proposed tag";
+  if (code === "calibration_factor_gold_only_miss") {
+    return "Proposed factor removal";
+  }
+  if (code === "calibration_gold_only_miss") return "Proposed tag removal";
+  if (code === "calibration_factor_match_exact") return "Factor match";
+  if (code === "calibration_factor_match_near") return "Factor near-match";
+  if (code === "calibration_factor_rename") return "Factor rename";
+  if (code === "calibration_match") return "Tag match";
+  return TARGET_KIND_LABEL[finding.target_kind] || finding.target_kind;
+}
 
 const SEVERITY_RANK: Record<Severity, number> = {
   blocker: 0,
@@ -2921,26 +2943,50 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           <SeverityBadge severity={finding.severity} />
         )}
         <span className="flex-1 min-w-0">
-          <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400 mr-1">
-            {TARGET_KIND_LABEL[finding.target_kind]}
-          </span>
-          <IssueCodeBadge issueCode={finding.issue_code} />
-          <DebateBadgeChip badge={finding.debate_badge} defenderVerdict={finding.defender_verdict} />
-          <span
-            className={cn(
-              "block text-[11px] text-slate-700 dark:text-slate-200",
-              open ? "" : "line-clamp-2",
-            )}
-          >
-            {rewriteCalibrationRationale(
-              finding.issue_code,
-              splitRationaleTrail(
-                trimRationaleBoilerplate(finding.rationale),
-              ).summary,
-            )}
-            <ReasoningTrailButton rationale={finding.rationale} />
-          </span>
-          <FactorReplacementHint finding={finding} report={report} />
+          {editorWillRender ? (
+            // The editor's title row below carries the entity
+            // identity ("FACTOR treatment · 3 disagreements"); the
+            // outer header just needs an action flavor. Drop the
+            // issue_code chip and the rationale text — they
+            // duplicated info the editor surfaces with more
+            // precision.
+            <>
+              <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 mr-1">
+                {findingActionLabel(finding)}
+              </span>
+              <PairedFindingBadge finding={finding} />
+              <DebateBadgeChip
+                badge={finding.debate_badge}
+                defenderVerdict={finding.defender_verdict}
+              />
+            </>
+          ) : (
+            <>
+              <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400 mr-1">
+                {TARGET_KIND_LABEL[finding.target_kind]}
+              </span>
+              <IssueCodeBadge issueCode={finding.issue_code} />
+              <DebateBadgeChip
+                badge={finding.debate_badge}
+                defenderVerdict={finding.defender_verdict}
+              />
+              <span
+                className={cn(
+                  "block text-[11px] text-slate-700 dark:text-slate-200",
+                  open ? "" : "line-clamp-2",
+                )}
+              >
+                {rewriteCalibrationRationale(
+                  finding.issue_code,
+                  splitRationaleTrail(
+                    trimRationaleBoilerplate(finding.rationale),
+                  ).summary,
+                )}
+                <ReasoningTrailButton rationale={finding.rationale} />
+              </span>
+              <FactorReplacementHint finding={finding} report={report} />
+            </>
+          )}
         </span>
         {hasExpandableContent ? (
           <span
@@ -3000,7 +3046,8 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             <RenameFactorEmbed finding={finding} />
           ) : null}
           {finding.target_kind === "factor" &&
-          finding.issue_code === "calibration_factor_gold_only_miss" ? (
+          finding.issue_code === "calibration_factor_gold_only_miss" &&
+          !editorWillRender ? (
             <GoldFactorMissEmbed finding={finding} />
           ) : null}
 
@@ -3507,19 +3554,22 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           design={draft}
           currentDisposition={current}
           onSave={async (appliedFix, structureOk, detailsOk) => {
-            // Conventional status mapping (see auditTypes.ts comment):
-            //   structure_ok=false                 → dismissed
-            //   structure_ok=true,  details_ok=true  → accepted/resolved
-            //   structure_ok=true,  details_ok=false → accepted/resolved
-            //       (applied_fix carries the inline label edits)
-            //   any null → leave status untouched (treat as parked)
-            let status: DispositionStatus = "accepted";
-            if (structureOk === false) status = "dismissed";
-            else if (structureOk === null && detailsOk === null) {
-              status = "needs_more_info";
-            }
+            // Conventional mapping lives in ``dispositionSave.ts``
+            // (unit-tested in ``dispositionSave.test.ts``). Editor
+            // computes structure_ok / details_ok per
+            // ``verdictToStructureDetails(verdict, issue_code)``;
+            // here we derive the headline status + a default
+            // dismiss_reason for the "keep gold" one-click path
+            // (the chip dialog still routes through the legacy
+            // Dismiss… button when the curator wants to pick a
+            // reason explicitly).
+            const status = deriveStatus(structureOk, detailsOk);
             const resolvedAt =
               status === "accepted" ? new Date().toISOString() : undefined;
+            const derivedDismissReason = deriveDismissReason(
+              status,
+              finding.issue_code,
+            );
             // Dual-write: apply the curator's per-row edits to the
             // design draft BEFORE patching the disposition. The
             // draft mutation shows up immediately in the Design tab
@@ -3556,6 +3606,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               structureOk,
               detailsOk,
               resolvedAt,
+              dismissReason: derivedDismissReason,
             });
           }}
           onDismiss={() => setDismissOpen(true)}
@@ -4697,6 +4748,39 @@ const ISSUE_CODE_RENDER: Record<
  *  SUGGESTION" panel reads as the surface contradicting itself
  *  (it isn't — they evaluate different things — but the visual
  *  whiplash isn't worth the signal). */
+/** Small "↔ paired" pill rendered on findings carrying a
+ *  ``paired_finding_id``. Both halves of a demoted same-category
+ *  factor match (calibration_factor_extra + _factor_gold_only_miss
+ *  emitted by the partition-mismatch demotion path) share the
+ *  same UUID, so clicking the badge jumps to the sibling — same
+ *  scroll-and-expand path the inline-dot resolver uses. Renders
+ *  nothing when the finding isn't part of a demotion pair, or
+ *  when the report has no sibling carrying the same UUID (e.g. a
+ *  partial round-trip where one half got filtered out). */
+function PairedFindingBadge({ finding }: { finding: AuditFinding }) {
+  const { report, setActiveFindingKey } = useAudit();
+  const pairId = finding.paired_finding_id;
+  if (!pairId) return null;
+  const sibling = (report?.findings ?? []).find(
+    (f) =>
+      f.paired_finding_id === pairId && f.target_id !== finding.target_id,
+  );
+  if (!sibling) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setActiveFindingKey(findingKey(sibling));
+      }}
+      title={`Paired with ${TARGET_KIND_LABEL[sibling.target_kind]} ${sibling.target_id} — click to jump`}
+      className="ml-1 inline-flex items-center text-[10px] uppercase tracking-wide font-semibold px-1 py-0 rounded border border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300 dark:hover:bg-violet-900/30"
+    >
+      ↔ paired
+    </button>
+  );
+}
+
 function DebateBadgeChip({
   badge,
   defenderVerdict,

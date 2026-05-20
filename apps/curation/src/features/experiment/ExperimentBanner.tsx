@@ -305,28 +305,159 @@ function ExperimentGroupChips({
 }) {
   const { data: groups } = useExperimentGroups(experimentId);
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!switcherOpen) return;
+    function onPointer(e: MouseEvent) {
+      if (
+        switcherRef.current &&
+        !switcherRef.current.contains(e.target as Node)
+      ) {
+        setSwitcherOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSwitcherOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [switcherOpen]);
+
   if (!groups || groups.length === 0) return null;
+
+  // Show ONE chip prominently — the active set context if the URL
+  // has one, otherwise the first set. When the experiment belongs
+  // to more than one set, a small "+ N other" pill next to the
+  // primary chip opens a switch dropdown listing the others.
+  // Earlier shape was a flex-wrap row of all chips which didn't
+  // scale past 3 sets and made the active one hard to find.
+  const activeGroup = groupContext
+    ? groups.find((g) => g.id === groupContext)
+    : null;
+  const primary = activeGroup ?? groups[0];
+  const others = groups.filter((g) => g.id !== primary.id);
+
   return (
     <span className="inline-flex items-center gap-1 text-xs">
       <span className="text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[10px]">
-        {groups.length === 1 ? "Set" : "Sets"}
+        {activeGroup ? "In set" : "Set"}
       </span>
-      <span className="inline-flex items-center gap-1 flex-wrap">
-        {groups.map((g) => (
-          <SetChip
-            key={g.id}
-            group={g}
-            currentExperimentId={experimentId}
-            isActiveContext={groupContext === g.id}
-            open={openGroupId === g.id}
-            onToggle={() =>
-              setOpenGroupId((prev) => (prev === g.id ? null : g.id))
-            }
-            onClose={() => setOpenGroupId(null)}
-          />
-        ))}
-      </span>
+      <SetChip
+        key={primary.id}
+        group={primary}
+        currentExperimentId={experimentId}
+        isActiveContext={!!activeGroup}
+        open={openGroupId === primary.id}
+        onToggle={() =>
+          setOpenGroupId((prev) => (prev === primary.id ? null : primary.id))
+        }
+        onClose={() => setOpenGroupId(null)}
+      />
+      {others.length > 0 ? (
+        <span ref={switcherRef} className="relative inline-block">
+          <button
+            type="button"
+            onClick={() => setSwitcherOpen((v) => !v)}
+            className="inline-flex items-baseline gap-0.5 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-[11px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+            title={`Switch to one of ${others.length} other set${others.length === 1 ? "" : "s"} this experiment belongs to`}
+          >
+            + {others.length} other
+            <span className="text-slate-400 dark:text-slate-500 ml-0.5">
+              ▾
+            </span>
+          </button>
+          {switcherOpen ? (
+            <SetSwitchDropdown
+              experimentId={experimentId}
+              activeGroupId={primary.id}
+              groups={groups}
+              onClose={() => setSwitcherOpen(false)}
+            />
+          ) : null}
+        </span>
+      ) : null}
     </span>
+  );
+}
+
+/** Dropdown listing every group the experiment belongs to, with the
+ *  active one marked. Click a non-active row to navigate to that
+ *  set's context (preserves the active tab via experimentRoute +
+ *  the group= query param). */
+function SetSwitchDropdown({
+  experimentId,
+  activeGroupId,
+  groups,
+  onClose,
+}: {
+  experimentId: number;
+  activeGroupId: string;
+  groups: Group[];
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="menu"
+      aria-label="Switch set context"
+      className="absolute right-0 top-full mt-1 z-30 min-w-[20rem] rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg py-1 text-xs"
+    >
+      <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+        This experiment belongs to {groups.length} set
+        {groups.length === 1 ? "" : "s"}
+      </div>
+      {groups.map((g) => {
+        const isActive = g.id === activeGroupId;
+        return (
+          <button
+            key={g.id}
+            type="button"
+            disabled={isActive}
+            onClick={() => {
+              onClose();
+              navigate(experimentRoute(experimentId, undefined, g.id));
+            }}
+            className={cn(
+              "w-full text-left px-3 py-1.5 flex items-baseline gap-2",
+              isActive
+                ? "bg-slate-100 dark:bg-slate-700 cursor-default"
+                : "hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer",
+            )}
+          >
+            <span
+              className={cn(
+                "w-3 text-emerald-600 dark:text-emerald-400 font-bold",
+                !isActive && "opacity-0",
+              )}
+              aria-hidden
+            >
+              ✓
+            </span>
+            <span className="flex-1 min-w-0">
+              <span
+                className={cn(
+                  "block",
+                  isActive
+                    ? "text-slate-900 dark:text-slate-100 font-medium"
+                    : "text-slate-700 dark:text-slate-200",
+                )}
+              >
+                {g.name}
+              </span>
+              <span className="block text-[10px] text-slate-500 dark:text-slate-400">
+                {g.type} · {g.member_count} member
+                {g.member_count === 1 ? "" : "s"}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

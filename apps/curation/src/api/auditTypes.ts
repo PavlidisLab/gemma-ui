@@ -192,6 +192,19 @@ export interface AuditFinding {
    *  definition) and on older builders. Agents-repo commit
    *  ``3868a09``; HANDOFF_2026-05-18_GOLD_TARGET_INDEX.md. */
   gold_target_index?: number | null;
+  /** Cross-reference UUID stamped on both halves of a demoted
+   *  same-category factor match. When the builder demotes a
+   *  partition-mismatched same-label pair into
+   *  ``calibration_factor_extra`` (agent side) +
+   *  ``calibration_factor_gold_only_miss`` (gold side), both findings
+   *  carry the same value here. The UI surfaces a "↔ paired with …"
+   *  badge near the severity chip that jumps to the sibling so the
+   *  curator can see the two halves as one event instead of two
+   *  disconnected (and visually contradictory) cards. Null outside
+   *  demotion pairs + on pre-2026-05-20 builders. Schema mirror of
+   *  agents-side field per
+   *  HANDOFF_2026-05-20_DEMOTED_MATCH_SPLIT_FACTOR_UI.md §2. */
+  paired_finding_id?: string | null;
 }
 
 /** One statement decomposed into (subject, predicate, object). Each

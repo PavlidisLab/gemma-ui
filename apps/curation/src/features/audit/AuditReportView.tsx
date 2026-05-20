@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useToast } from "@/components/ui/Toast";
-import { Term } from "@/components/ui/Term";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { isProseModel } from "@/lib/agentPalette";
 import type {
@@ -12,8 +11,7 @@ import type {
   DispositionStatus,
   Severity,
 } from "@/api/auditTypes";
-import type { SubtaskDecision, TagProposal } from "@/api/types";
-import type { Tag } from "@/features/experiment/types";
+import type { SubtaskDecision } from "@/api/types";
 
 /**
  * Pure-presentation view of an `AuditReport`. Takes a fully-loaded
@@ -548,95 +546,25 @@ function DispositionButton({
 
 export function DesignComparisonPanel({
   report,
-  gemmaTags,
 }: {
   report: AuditReport;
-  /** Existing Gemma EE tags — used to annotate proposed tags as
-   *  matched vs new. Falls back to "unknown" when absent. */
-  gemmaTags?: Tag[];
 }) {
   const cp = report.evidence.comparison_proposal;
-  const [jsonOpen, setJsonOpen] = useState(false);
   // Used by the subtask-decisions section below to filter out
   // factor-scoped decisions already rendered inline with finding cards.
   const agentFactors = cp?.factors ?? [];
 
-  // Gemma tag lookup by value URI (primary) or value label (fallback).
-  const gemmaTagsByValueUri = new Map(
-    (gemmaTags ?? []).filter((t) => t.value.uri).map((t) => [t.value.uri!, t]),
-  );
-  const gemmaTagsByValueLabel = new Map(
-    (gemmaTags ?? []).map((t) => [t.value.label.toLowerCase(), t]),
-  );
-  function isTagInGemma(t: TagProposal): boolean {
-    // Prefer the agent's pre-computed alignment when present.
-    if (t.match_type) return t.match_type === "exact" || t.match_type === "close";
-    if (t.value.uri && gemmaTagsByValueUri.has(t.value.uri)) return true;
-    return gemmaTagsByValueLabel.has(t.value.label.toLowerCase());
-  }
-
-  // Drop tag proposals that already appear as findings — the finding
-  // card above is the canonical, actionable place for them. Without
-  // this filter, calibration audits show the same "agent proposes X"
-  // line twice (once per-finding, once in the panel).
-  //
-  // Calibration findings use target_ids like
-  // `calibration:extra:<category>/<value>` and `tag:<numeric_id>`, not
-  // the `tag:<category-slug>/<value-slug>` shape `tagTarget()` builds.
-  // Match instead by the `<category>: <value>` backticked pair present
-  // in every calibration-tag finding's rationale, plus the
-  // calibration:* target_id suffix when present. Both lookups go into
-  // a single set keyed by `<category>|<value>` (lowercased).
-  const findingTagKeys = new Set<string>();
-  for (const f of report.findings ?? []) {
-    if (f.target_kind !== "tag") continue;
-    const calM = f.target_id.match(
-      /^calibration:(?:extra|miss|match):(.+?)\/(.+)$/,
-    );
-    if (calM) {
-      findingTagKeys.add(`${calM[1].toLowerCase()}|${calM[2].toLowerCase()}`);
-    }
-    const ratM = (f.rationale || "").match(/`([^:`]+):\s*([^`]+)`/);
-    if (ratM) {
-      findingTagKeys.add(
-        `${ratM[1].trim().toLowerCase()}|${ratM[2].trim().toLowerCase()}`,
-      );
-    }
-  }
-  const tagsForPanel = (cp?.tags ?? []).filter((t) => {
-    const key = `${t.category.label.toLowerCase()}|${t.value.label.toLowerCase()}`;
-    return !findingTagKeys.has(key);
-  });
-
   return (
     <div className="card">
-      {/* JSON viewer toggle. */}
-      {cp ? (
-        <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-700/60 flex items-center gap-2 justify-end">
-          <button
-            type="button"
-            className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:underline"
-            onClick={() => setJsonOpen((v) => !v)}
-          >
-            {jsonOpen ? "hide JSON" : "JSON ↓"}
-          </button>
-        </div>
-      ) : null}
-
-      {/* EE tag proposals — only show tags that aren't already covered
-          by a per-finding card above. When every proposed tag has a
-          matching finding (typical for calibration audits) the section
-          collapses entirely to avoid duplicating the finding list. */}
-      {cp && tagsForPanel.length > 0 ? (
-        <div className="border-b border-slate-100 dark:border-slate-700 px-3 py-2 space-y-1">
-          <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 mb-1.5">
-            Tag proposals
-          </div>
-          {tagsForPanel.map((t, i) => (
-            <ProposedTagRow key={i} tag={t} inGemma={gemmaTags ? isTagInGemma(t) : undefined} />
-          ))}
-        </div>
-      ) : null}
+      {/* Tag proposals panel + JSON viewer retired 2026-05-20.
+          Tag proposals were a deduplication-against-findings surface
+          that consistently leaked the duplicate when the dedup
+          missed (e.g. inferred tags that matched Gemma rendered
+          there but were noise — the per-finding cards above are
+          the canonical actionable surface). The raw JSON dump
+          wasn't load-bearing for any curator workflow. Subtask
+          analysis (below) stays — it's the only experiment-level
+          signal that doesn't have a per-finding home. */}
 
       {/* Experiment-level subtask decisions (factor-scoped ones render inline) */}
       {cp && (cp.evidence?.subtask_decisions?.length ?? 0) > 0 ? (() => {
@@ -703,11 +631,6 @@ export function DesignComparisonPanel({
         );
       })() : null}
 
-      {jsonOpen && cp ? (
-        <pre className="px-3 py-2 text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-700 max-h-96 overflow-auto font-mono whitespace-pre-wrap">
-          {JSON.stringify(cp, null, 2)}
-        </pre>
-      ) : null}
     </div>
   );
 }
@@ -749,28 +672,6 @@ export function dedupeSubtaskDecisions(decisions: SubtaskDecision[]): SubtaskDec
         ),
     )
     .concat([summary]);
-}
-
-function ProposedTagRow({ tag, inGemma }: { tag: TagProposal; inGemma?: boolean }) {
-  return (
-    <div className="flex items-start gap-1.5 flex-wrap text-[11px]">
-      <span className="text-slate-500 dark:text-slate-400">{tag.category.label}:</span>
-      <Term uri={tag.value.uri ?? null}>{tag.value.label}</Term>
-      {inGemma === true ? (
-        <span className="text-[10px] text-slate-400 dark:text-slate-500">= Gemma</span>
-      ) : inGemma === false ? (
-        <span className="text-[10px] text-amber-600 dark:text-amber-400">new</span>
-      ) : null}
-      {tag.confidence ? (
-        <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">{tag.confidence}</span>
-      ) : null}
-      {tag.evidence_quote ? (
-        <span className="w-full text-[10px] text-slate-500 dark:text-slate-400 italic pl-1 border-l border-slate-200 dark:border-slate-600 leading-snug">
-          "{tag.evidence_quote}"
-        </span>
-      ) : null}
-    </div>
-  );
 }
 
 export function SubtaskDecisionRow({ decision }: { decision: SubtaskDecision }) {
