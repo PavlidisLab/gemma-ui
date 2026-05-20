@@ -868,6 +868,12 @@ function findingActionLabel(finding: AuditFinding): string {
   if (code === "calibration_factor_match_exact") return "Factor match";
   if (code === "calibration_factor_match_near") return "Factor near-match";
   if (code === "calibration_factor_rename") return "Factor rename";
+  if (code === "calibration_factor_partition_mismatch") {
+    const direction = finding.partition_mismatch?.direction;
+    if (direction === "agent_finer") return "Partition mismatch · split";
+    if (direction === "agent_coarser") return "Partition mismatch · combine";
+    return "Partition mismatch";
+  }
   if (code === "calibration_match") return "Tag match";
   return TARGET_KIND_LABEL[finding.target_kind] || finding.target_kind;
 }
@@ -2955,6 +2961,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 {findingActionLabel(finding)}
               </span>
               <PairedFindingBadge finding={finding} />
+              <ProposerFlagsChips flags={finding.proposer_flags} />
               <DebateBadgeChip
                 badge={finding.debate_badge}
                 defenderVerdict={finding.defender_verdict}
@@ -3590,19 +3597,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 applyDetailsEditsToDesign(current, finding, report, appliedFix),
               );
             }
-            // Wire-format: until bro's ``feature/audit-schema-extensions``
-            // merges to main and the running local server is
-            // restarted on it, ``applied_fix`` is still typed as
-            // ``str`` on the server. JSON-stringify the structured
-            // payload so the PATCH validates; the design mutation
-            // above runs unchanged. Flip to passing the object
-            // directly once the schema merge lands.
-            const wireFix =
-              typeof appliedFix === "string"
-                ? appliedFix
-                : JSON.stringify(appliedFix);
             await patch(status, {
-              appliedFix: wireFix,
+              appliedFix,
               structureOk,
               detailsOk,
               resolvedAt,
@@ -4778,6 +4774,47 @@ function PairedFindingBadge({ finding }: { finding: AuditFinding }) {
     >
       ↔ paired
     </button>
+  );
+}
+
+/** Small "pipeline flagged" chip rendered when the proposer-side
+ *  deterministic detectors (S2j / S2m) fired on this finding's
+ *  factor. Lets the curator know upfront that a structural pattern
+ *  was already detected without having to dig through the subtask
+ *  trail. Renders nothing when ``flags`` is empty or absent (older
+ *  builders or factors the detectors didn't flag). Unknown slugs
+ *  are silently skipped so new agent-side detectors can ship
+ *  without lockstep UI changes. */
+function ProposerFlagsChips({ flags }: { flags?: string[] }) {
+  if (!flags || flags.length === 0) return null;
+  const configs: Record<string, { label: string; title: string }> = {
+    multi_factor_collapse: {
+      label: "⚑ collapse-flag",
+      title:
+        "S2j flagged this factor as a likely cross-product collapse (one FV encoding two variables).",
+    },
+    multi_factor_split: {
+      label: "⚑ split-flag",
+      title:
+        "S2m flagged this factor as a likely cross-product split (N FVs sharing a stem with axis-shaped suffix variation).",
+    },
+  };
+  return (
+    <>
+      {flags.map((flag) => {
+        const cfg = configs[flag];
+        if (!cfg) return null;
+        return (
+          <span
+            key={flag}
+            className="ml-1 inline-flex items-center text-[10px] uppercase tracking-wide font-semibold px-1 py-0 rounded border border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:bg-amber-900/30"
+            title={cfg.title}
+          >
+            {cfg.label}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

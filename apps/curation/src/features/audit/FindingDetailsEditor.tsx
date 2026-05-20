@@ -485,6 +485,11 @@ export function findingHasStructuredContent(
   report: AuditReport | null,
   design: Design | null,
 ): boolean {
+  // Partition-mismatch findings carry their own self-contained
+  // payload (agent FactorRef + gold FactorRef + fv_pairs). The
+  // editor renders directly from the payload without needing the
+  // comparison_proposal / design lookups to succeed.
+  if (finding.partition_mismatch) return true;
   if (finding.target_kind === "factor") {
     const cp = report?.evidence?.comparison_proposal ?? null;
     const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
@@ -652,6 +657,10 @@ export function FindingDetailsEditor({
     finding.issue_code === "calibration_factor_gold_only_miss" ||
     finding.issue_code === "calibration_gold_only_miss";
 
+  const isPartitionMismatch =
+    finding.issue_code === "calibration_factor_partition_mismatch" &&
+    finding.partition_mismatch != null;
+
   function setPick(path: string, patch: Partial<RowState>): void {
     setRowState((prev) => {
       const next = new Map(prev);
@@ -730,6 +739,186 @@ export function FindingDetailsEditor({
 
   const hasReferenceData = rows.some((r) => r.reference !== null);
   const allAgreeAtCard = rows.length > 0 && disagreementRows.length === 0;
+
+  // Partition-mismatch findings — agent and gold disagree on the
+  // partition shape of a same-label factor along a clean
+  // finer/coarser axis. One card, two primary buttons (adopt
+  // agent's view / keep gold's view). No per-row disagreement
+  // model — the payload carries an FV-level nesting map that
+  // renders as a parent→children table.
+  if (isPartitionMismatch) {
+    const pm = finding.partition_mismatch!;
+    const isAgentFiner = pm.direction === "agent_finer";
+    const actionWord = isAgentFiner ? "split" : "combine";
+    const agentVerb = identities.proposer === "Agent" ? "says" : "says";
+    const goldVerb = identities.goldCurator === "you" ? "have" : "has";
+    const keepLabel =
+      identities.goldCurator === "you"
+        ? "keep yours"
+        : `keep ${identities.goldCurator}'s`;
+    const acceptLabel = `adopt ${identities.proposer}'s ${actionWord}`;
+    const acceptTitle = isAgentFiner
+      ? `Split the existing factor along the axis ${identities.proposer} proposed.`
+      : `Combine the existing factors into the single factor ${identities.proposer} proposed.`;
+    // Group fv_pairs by the PARENT side. For agent_finer the
+    // parent is gold; for agent_coarser the parent is agent.
+    // Repeated entries with the same parent collapse into a
+    // single row with multiple children.
+    const groups = (() => {
+      const map = new Map<
+        string,
+        { parent: { label: string; uri: string | null }; children: Array<{ label: string; uri: string | null }> }
+      >();
+      for (const pair of pm.fv_pairs) {
+        const parent = isAgentFiner ? pair.gold : pair.agent;
+        const child = isAgentFiner ? pair.agent : pair.gold;
+        const key = `${parent.label}|${parent.uri ?? ""}`;
+        const entry = map.get(key) ?? { parent, children: [] };
+        entry.children.push(child);
+        map.set(key, entry);
+      }
+      return Array.from(map.values());
+    })();
+    return (
+      <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+        {/* Title row — matches the factor-card title shape. */}
+        <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+            Factor
+          </span>
+          <span className="font-mono text-slate-800 dark:text-slate-100">
+            {pm.gold.category.label || pm.agent.category.label || finding.target_id}
+          </span>
+          <span className="text-slate-400 dark:text-slate-500">·</span>
+          <span className="text-amber-700 dark:text-amber-300">
+            <strong>partition mismatch — {identities.proposer} proposes to {actionWord}</strong>
+          </span>
+        </div>
+
+        {/* Comparator-row lines — identity-first, no FV listing here
+            (the mapping block below has the FV detail). */}
+        <div className="space-y-1.5">
+          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+            <span className="text-slate-600 dark:text-slate-300">
+              <strong>{identities.proposer}</strong> {agentVerb}
+            </span>
+            <span className="flex flex-wrap items-baseline gap-x-1.5">
+              <Term
+                uri={pm.agent.category.uri}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                {pm.agent.category.label}
+              </Term>
+              <span className="text-slate-500 dark:text-slate-400 italic">
+                {isAgentFiner
+                  ? `(${pm.fv_pairs.length} FVs, finer partition)`
+                  : `(${groups.length} parents collapsed into 1 factor)`}
+              </span>
+            </span>
+          </div>
+          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+            <span className="text-slate-600 dark:text-slate-300">
+              <strong>{identities.goldCurator}</strong> {goldVerb}
+            </span>
+            <span className="flex flex-wrap items-baseline gap-x-1.5">
+              <Term
+                uri={pm.gold.category.uri}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                {pm.gold.category.label}
+              </Term>
+              <span className="text-slate-500 dark:text-slate-400 italic">
+                {isAgentFiner
+                  ? `(${groups.length} FVs, coarser partition)`
+                  : `(${pm.fv_pairs.length} FVs across ${groups.length} factor${
+                      groups.length === 1 ? "" : "s"
+                    })`}
+              </span>
+              <span
+                className="ml-1 text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300"
+                title="This is what's currently on the design tab (the working draft)."
+              >
+                ← in current design
+              </span>
+            </span>
+          </div>
+        </div>
+
+        {/* Mapping block — parent → children rows. Renders the
+            nesting that the payload's fv_pairs encode via repeated
+            parents. */}
+        {groups.length > 0 ? (
+          <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+              {isAgentFiner ? "Mapping (gold parent ← agent children)" : "Mapping (agent parent ← gold children)"}
+            </div>
+            <div className="space-y-1 text-[12px]">
+              {groups.map((g, i) => (
+                <div
+                  key={`${g.parent.label}|${g.parent.uri ?? ""}|${i}`}
+                  className="flex items-baseline gap-x-2 flex-wrap"
+                >
+                  <Term
+                    uri={g.parent.uri}
+                    asLink={false}
+                    className="!whitespace-normal break-words"
+                  >
+                    {g.parent.label}
+                  </Term>
+                  <span className="text-slate-400 dark:text-slate-500">←</span>
+                  <span className="flex flex-wrap items-baseline gap-x-1.5">
+                    {g.children.map((c, j) => (
+                      <span key={j} className="inline-flex items-baseline">
+                        {j > 0 ? (
+                          <span className="text-slate-400 dark:text-slate-500 mr-1.5">
+                            ,
+                          </span>
+                        ) : null}
+                        <Term
+                          uri={c.uri}
+                          asLink={false}
+                          className="!whitespace-normal break-words"
+                        >
+                          {c.label}
+                        </Term>
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <ActionRow
+          saving={saving}
+          disabled={currentDisposition === "dismissed"}
+          buttons={[
+            {
+              key: "keep",
+              kind: "primary-keep",
+              label: keepLabel,
+              onClick: () => dispatchSave("currently"),
+              title: isAgentFiner
+                ? `Keep the existing single factor; reject ${identities.proposer}'s proposal to split.`
+                : `Keep the existing separate factors; reject ${identities.proposer}'s proposal to combine.`,
+            },
+            {
+              key: "accept",
+              kind: "primary-accept",
+              label: acceptLabel,
+              onClick: () => dispatchSave("proposal"),
+              title: acceptTitle,
+            },
+          ]}
+          onDismiss={onDismiss}
+          onPark={onPark}
+        />
+      </div>
+    );
+  }
 
   // Removal-only findings collapse to keep-vs-remove. No row
   // disagreement model applies.

@@ -49,6 +49,19 @@ describe("verdictToStructureDetails", () => {
     ).toEqual({ structureOk: false, detailsOk: null });
   });
 
+  it("currently on factor _partition_mismatch → dismiss-shape", () => {
+    // The "keep gold's view" button on a partition_mismatch finding
+    // — curator rejects the agent's structural call (split or
+    // combine). Same shape as the other agent-extra-family
+    // findings: structure_ok=false, dismissed with wont_fix.
+    expect(
+      verdictToStructureDetails(
+        "currently",
+        "calibration_factor_partition_mismatch",
+      ),
+    ).toEqual({ structureOk: false, detailsOk: null });
+  });
+
   it("currently on factor _gold_only_miss → dismiss-shape", () => {
     expect(
       verdictToStructureDetails(
@@ -88,6 +101,17 @@ describe("verdictToStructureDetails", () => {
   it("proposal on _match_near → accept", () => {
     expect(
       verdictToStructureDetails("proposal", "calibration_factor_match_near"),
+    ).toEqual({ structureOk: true, detailsOk: true });
+  });
+
+  it("proposal on _partition_mismatch → accept", () => {
+    // "Adopt agent's split / combine" — curator endorses the
+    // agent's structural call. Accept across the board.
+    expect(
+      verdictToStructureDetails(
+        "proposal",
+        "calibration_factor_partition_mismatch",
+      ),
     ).toEqual({ structureOk: true, detailsOk: true });
   });
 
@@ -283,6 +307,24 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: true,
       expectDetails: true,
       expectDismissReason: undefined,
+    },
+    {
+      name: "adopt agent's split on partition_mismatch",
+      verdict: "proposal",
+      issueCode: "calibration_factor_partition_mismatch",
+      expectStatus: "accepted",
+      expectStructure: true,
+      expectDetails: true,
+      expectDismissReason: undefined,
+    },
+    {
+      name: "keep gold's view on partition_mismatch",
+      verdict: "currently",
+      issueCode: "calibration_factor_partition_mismatch",
+      expectStatus: "dismissed",
+      expectStructure: false,
+      expectDetails: null,
+      expectDismissReason: "wont_fix",
     },
   ];
 

@@ -205,6 +205,37 @@ export interface AuditFinding {
    *  agents-side field per
    *  HANDOFF_2026-05-20_DEMOTED_MATCH_SPLIT_FACTOR_UI.md §2. */
   paired_finding_id?: string | null;
+  /** Structured payload for a
+   *  ``calibration_factor_partition_mismatch`` finding. Populated
+   *  when the builder detects a same-label factor pair whose
+   *  partitions disagree along a clean finer/coarser shape (every
+   *  agent FV is a strict subset of some gold FV, or vice versa).
+   *  Replaces the legacy ``_factor_extra`` + ``_factor_gold_only_miss``
+   *  pair the demoter used to emit. Null otherwise.
+   *
+   *  Schema mirror of agents-side ``PartitionMismatchPayload`` per
+   *  HANDOFF_2026-05-20_DEMOTED_MATCH_SPLIT_FACTOR_UI.md §3. */
+  partition_mismatch?: PartitionMismatchPayload | null;
+  /** Slugs naming proposer-side deterministic detectors that fired
+   *  on the factor this finding references. Lets the UI render a
+   *  "pipeline flagged this" chip without dredging through
+   *  ``evidence.subtask_decisions``.
+   *
+   *  Vocabulary (mirror of agents-side commit ``e474351``):
+   *
+   *  - ``"multi_factor_collapse"`` — S2j flagged the agent's factor
+   *    as encoding a cross-product as one FV (has-modifier predicate,
+   *    "X and Y" coordinator).
+   *  - ``"multi_factor_split"``    — S2m flagged the agent's factor
+   *    as encoding a cross-product as N separate FVs sharing a stem
+   *    with axis-shaped suffix variation (``rotenone 3h`` /
+   *    ``rotenone 3d``).
+   *
+   *  Empty list when no detector fired and on builders predating
+   *  the field. New slugs may appear without UI lockstep — keep the
+   *  type as ``string[]`` so unknown values just don't render a
+   *  chip. */
+  proposer_flags?: string[];
 }
 
 /** One statement decomposed into (subject, predicate, object). Each
@@ -280,6 +311,51 @@ export interface FactorRenamePayload {
   fv_pairs: FvPair[];
   direction: "gold_correct" | "agent_correct" | "equivalent" | (string & {});
   concept_diff_kind?: ConceptDiffKind;
+}
+
+/** Which side has the finer partition in a
+ *  ``calibration_factor_partition_mismatch`` finding.
+ *
+ *  - ``"agent_finer"``   — agent split one gold factor along a hidden
+ *                          axis (GSE28300: ``rotenone 3h`` /
+ *                          ``rotenone 3d`` under one ``treatment``
+ *                          factor where gold has ``treatment`` +
+ *                          ``timepoint`` separately).
+ *  - ``"agent_coarser"`` — agent collapsed two gold factors into one
+ *                          with cross-product FVs (multi-factor-same-
+ *                          category pattern).
+ *
+ *  Drives the editor's card title and the "adopt agent's split" vs
+ *  "restore gold's separate factors" affordance choice. Mirrors
+ *  agents-side ``PartitionMismatchDirection``. */
+export type PartitionMismatchDirection = "agent_finer" | "agent_coarser";
+
+/** Structured payload for a ``calibration_factor_partition_mismatch``
+ *  finding — single-card replacement for the legacy
+ *  ``_factor_extra`` + ``_factor_gold_only_miss`` pair the builder
+ *  emitted when a same-label factor match got demoted because
+ *  partitions disagreed.
+ *
+ *  ``direction`` tells the UI which side is finer; the FV-level
+ *  mapping (``fv_pairs``) carries the nesting:
+ *
+ *  - ``"agent_finer"``   — one row per agent FV; each row's ``gold``
+ *                          is the parent gold FV that subsumes the
+ *                          agent FV's samples (multiple agent rows
+ *                          can share a gold).
+ *  - ``"agent_coarser"`` — one row per gold FV; each row's ``agent``
+ *                          is the parent agent FV that subsumes the
+ *                          gold FV's samples (multiple gold rows can
+ *                          share an agent).
+ *
+ *  ``FvPair`` stays 1:1; the cross-product mapping is captured by
+ *  repeated entries with shared parents on one side. The
+ *  ``direction`` flag encodes which side's repetition is the parent. */
+export interface PartitionMismatchPayload {
+  agent: FactorRef;
+  gold: FactorRef;
+  direction: PartitionMismatchDirection;
+  fv_pairs: FvPair[];
 }
 
 /** Judge's verdict on a single audit finding. ``side`` constrains
