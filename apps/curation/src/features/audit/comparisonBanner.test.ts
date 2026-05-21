@@ -42,11 +42,14 @@ describe("decideComparisonBanner", () => {
     expect(d.reviewer).toBe("cyan");
   });
 
-  it("fires from audit model when the URL has no group context", () => {
+  it("does NOT fire from audit history when the URL has no group context", () => {
+    // Audit-history fallback was removed 2026-05-21 (Paul's
+    // "still seeing the old curation banner — it's stale" repro).
+    // A bare ``#/experiment/<id>`` URL with no ``?group=`` no longer
+    // surfaces the banner even when an inter-curator audit lives in
+    // the experiment's history. Banner is groupName-driven only.
     const d = decideComparisonBanner(undefined, "", [interCuratorAudit]);
-    expect(d.show).toBe(true);
-    expect(d.goldCurator).toBe("amanda");
-    expect(d.reviewer).toBe("cyan");
+    expect(d.show).toBe(false);
   });
 
   it("hides when neither group nor audit history match", () => {

@@ -80,23 +80,30 @@ export function decideComparisonBanner(
   groupName: string,
   audits: ComparisonBannerAudit[],
 ): ComparisonBannerDecision {
+  // Banner fires ONLY when the URL carries an explicit
+  // ``?group=<id>`` AND the resolved Group is inter-curator. The
+  // audit-history fallback (scan the experiment's audits for an
+  // inter-curator marker) was removed 2026-05-21 because it leaked
+  // stale context: any experiment that had ever been audited in an
+  // inter-curator package kept the banner forever, including when
+  // the curator opened the same GSE directly or via a normal
+  // calibration / workflow group. Per Paul: "I'm still seeing the
+  // old curation banner — it's stale."
+  //
+  // Cost of removing the fallback: a curator who opens a bare
+  // ``#/experiment/<id>`` link from inside an inter-curator
+  // package context won't see the banner. Mitigated by always
+  // including the ``?group=`` parameter in package-internal links
+  // (see ``experimentRoute`` + workflow-page row clicks). The
+  // ``groupId`` / ``audits`` arguments are kept in the signature
+  // so existing call sites compile without churn; both are
+  // intentionally unread now.
+  void groupId;
+  void audits;
   const fromGroup = INTER_CURATOR_RE.test(groupName);
+  if (!fromGroup) return HIDDEN;
 
-  // Audit-history fallback is ONLY valid when there's no explicit
-  // group context. If ``groupId`` is set but the group isn't an
-  // inter-curator one, the curator is viewing a different package
-  // and the banner must stay hidden — even if the experiment has a
-  // historical inter-curator audit on its record.
-  const allowAuditFallback = !groupId;
-  const interCuratorAudit = allowAuditFallback
-    ? audits.find((a) => INTER_CURATOR_RE.test(a.model || ""))
-    : undefined;
-  const fromAudit = !!interCuratorAudit;
-
-  if (!fromGroup && !fromAudit) return HIDDEN;
-
-  const sourceText =
-    (fromGroup ? groupName : interCuratorAudit?.model) || "";
+  const sourceText = groupName || "";
   const m = sourceText.match(IDENTITY_RE);
 
   return {
