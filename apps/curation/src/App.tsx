@@ -735,8 +735,14 @@ function MainGrid({
       <aside
         className={
           sidebarOpen
-            ? "shrink-0 space-y-3 relative lg:sticky lg:top-2 lg:self-start lg:max-h-[calc(100vh-1rem)] lg:overflow-y-auto"
-            : "lg:w-10 shrink-0 flex flex-col items-stretch relative lg:sticky lg:top-2 lg:self-start lg:max-h-[calc(100vh-1rem)]"
+            ? // ``h-`` (not ``max-h-``) so the sticky aside fills
+              // the viewport regardless of content height. Without
+              // this the resize gutter (anchored ``top-0 bottom-0``
+              // on the aside) only reaches as far as the content
+              // does, leaving the bottom of the page un-grabbable
+              // when there are few findings.
+              "shrink-0 space-y-3 relative lg:sticky lg:top-2 lg:self-start lg:h-[calc(100vh-1rem)] lg:overflow-y-auto"
+            : "lg:w-10 shrink-0 flex flex-col items-stretch relative lg:sticky lg:top-2 lg:self-start lg:h-[calc(100vh-1rem)]"
         }
         style={
           sidebarOpen

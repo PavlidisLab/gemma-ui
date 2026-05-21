@@ -41,6 +41,7 @@ export function OntologyTermPicker({
   className,
   onCommit,
   allowFreeText = true,
+  autoOpen = false,
 }: {
   value: OntologyTerm | null;
   /** Restrict typeahead candidates to this category_label. ``null``
@@ -52,8 +53,13 @@ export function OntologyTermPicker({
   /** When false, free-text entries are still permitted at the
    *  schema level but the picker visibly warns. */
   allowFreeText?: boolean;
+  /** When true, start in editing mode (input focused, typeahead
+   *  ready). Used by the audit editor's edit-mode where the
+   *  curator already clicked "edit…" — the click should land
+   *  them in the search input, not on a click-to-edit chip. */
+  autoOpen?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(autoOpen);
   const [uriEditing, setUriEditing] = useState(false);
   const [draft, setDraft] = useState(value?.label ?? "");
   const [highlight, setHighlight] = useState(0);

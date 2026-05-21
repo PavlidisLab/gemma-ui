@@ -24,9 +24,18 @@ export function FactorValueList({
   onStatementChange,
   onStatementDelete,
   onRevertFv,
+  compact = false,
+  onToggleCompact,
 }: {
   factor: Factor;
   totalBiomaterials: number;
+  /** Compact view — hides per-FV editing chrome (delete buttons,
+   *  statement-template menu, predicate selects, find-term, etc.)
+   *  and renders the statements as read-only S - P - O rows. */
+  compact?: boolean;
+  /** Toggle handler for the compact view button rendered in the
+   *  header. Hidden when ``onToggleCompact`` isn't supplied. */
+  onToggleCompact?: () => void;
   /** Per-fvId change records for the *currently selected* factor. The
    * `removed` entries are tombstones (FVs the user deleted from the
    * draft); we render them struck through so the deletion is visible
@@ -67,8 +76,15 @@ export function FactorValueList({
   }
 
   return (
-    <div className="card">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200">
+    // Factor-card palette: sky. Matches the overview's "fv" palette
+    // (OverviewPanel.tsx) and distinguishes factor cards from tags
+    // (which use a different colour family). One consistent
+    // convention across the design + overview surfaces so the
+    // curator's eye learns "blue = factor". `!` modifiers force
+    // these over the `.card` class's default white background +
+    // slate border in light mode.
+    <div className="card !bg-sky-50 !border-sky-300 dark:!bg-sky-950 dark:!border-sky-800">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-sky-300 dark:border-sky-800">
         <div className="flex items-center gap-3">
           <span className="section-h">
             Factor values for:{" "}
@@ -80,16 +96,46 @@ export function FactorValueList({
             {factor.factor_values.length} values · {assigned.size} /{" "}
             {totalBiomaterials} samples assigned
           </span>
+          {onToggleCompact ? (
+            <button
+              type="button"
+              onClick={onToggleCompact}
+              title={
+                compact
+                  ? "switch back to the full editor"
+                  : "compact view — hide editing chrome, statements only"
+              }
+              className={
+                "text-[11px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border " +
+                (compact
+                  ? "border-sky-400 text-sky-700 bg-sky-50 hover:bg-sky-100 dark:border-sky-600 dark:text-sky-300 dark:bg-sky-900/30 dark:hover:bg-sky-900/50"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700")
+              }
+            >
+              {compact ? "✓ compact" : "compact"}
+            </button>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1 text-xs text-slate-500">
             baseline
             <GuidelinePopup snippet={BASELINE_GUIDELINE} size="md" align="right" />
           </span>
-          <button className="btn" onClick={onAddFv}>+ value</button>
+          {compact ? null : (
+            <button className="btn" onClick={onAddFv}>+ value</button>
+          )}
         </div>
       </div>
-      {factor.factor_values.map((fv) => {
+      {/* Baselines render first — when the factor declares a
+          baseline ("reference substance role", "control", etc.) the
+          curator's eye should land on it before the
+          treatment / experimental levels. Stable secondary order
+          (server-side declaration) within each group. */}
+      {[...factor.factor_values]
+        .sort((a, b) =>
+          a.is_baseline === b.is_baseline ? 0 : a.is_baseline ? -1 : 1,
+        )
+        .map((fv) => {
         const change = changesByFvId?.get(fv.id) ?? null;
         return (
           <FactorValueCard
@@ -112,6 +158,7 @@ export function FactorValueList({
             onStatementChange={(idx, next) => onStatementChange(fv.id, idx, next)}
             onStatementDelete={(idx) => onStatementDelete(fv.id, idx)}
             onRevert={change ? () => onRevertFv(fv.id, change) : undefined}
+            compact={compact}
           />
         );
       })}
@@ -135,6 +182,7 @@ export function FactorValueList({
             onStatementChange={() => {}}
             onStatementDelete={() => {}}
             onRevert={() => onRevertFv(fv.id, change)}
+            compact={compact}
           />
         );
       })}

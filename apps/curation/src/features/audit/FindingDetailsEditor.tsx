@@ -37,6 +37,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
+import { shortenUri } from "@/lib/curie";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import type {
@@ -57,6 +58,11 @@ import { resolveAgentFactor, resolveGoldFactor } from "./factorMatch";
 import { verdictToStructureDetails } from "./dispositionSave";
 import { consequentHint, type ConsequentHintState } from "./consequentHint";
 import { firstBacktick } from "./rationaleText";
+import { useAudit } from "./AuditContext";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { applyProposalToDesign } from "@/features/design/mutations";
+import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
+import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
 import {
   isSideEmpty,
   lc,
@@ -78,22 +84,38 @@ interface AuditIdentities {
 }
 
 const DEFAULT_IDENTITIES: AuditIdentities = {
-  proposer: "Agent",
-  // The curator opening the page IS the gold side in every regular
-  // audit (their own design draft). "you" anchors the trichotomy
-  // better than a generic "current" — when the curator scrolls
-  // through 7 disagreements they don't lose track of which side is
-  // theirs. For inter-curator-audit packages parsed below, the
-  // gold curator's actual name overrides this default.
-  goldCurator: "you",
+  proposer: "Auditor",
+  // For a regular audit, the gold side IS the curator's own design
+  // draft — so the label is just "Current" (no curator name). For
+  // inter-curator-audit packages parsed below, the gold curator's
+  // actual name overrides this default ("amanda has X" etc.).
+  goldCurator: "Current",
   reference: "Gemma",
 };
+
+/** Verb for the comparator line's "currently" side. The default
+ *  identity "Current" is a noun, not a person — it reads as a
+ *  label, no verb. Named curators ("amanda") get "has"; the
+ *  legacy "you" identity gets "have" so older audits stay
+ *  readable. */
+function currentlyVerb(id: string): string {
+  if (id === "Current") return "";
+  if (id === "you") return "have";
+  return "has";
+}
+
+/** Label for the "keep gold's view" primary button. */
+function keepLabelFor(id: string): string {
+  if (id === "Current") return "keep current";
+  if (id === "you") return "keep yours";
+  return `keep ${id}'s`;
+}
 
 /** Pull party identities from the audit's ``model`` field. Matches
  *  the inter-curator-audit pattern ("inter-curator audit · X's
  *  curation applied · Y reviews") and otherwise falls back to
  *  generic role names. */
-function extractAuditIdentities(
+export function extractAuditIdentities(
   model: string | null | undefined,
 ): AuditIdentities {
   if (!model) return DEFAULT_IDENTITIES;
@@ -568,6 +590,50 @@ export function findingHasStructuredContent(
   return false;
 }
 
+/** How many comparator rows currently disagree — used by the
+ *  CompactFindingCard outer header to render the "N" yellow chip
+ *  without having to wait for the editor body to mount. Returns
+ *  ``null`` for finding shapes the editor doesn't decompose into
+ *  rows (removals, partition_mismatch, etc.); the caller can skip
+ *  the chip in that case. */
+export function countFindingDisagreements(
+  finding: AuditFinding,
+  report: AuditReport | null,
+  design: Design | null,
+): number | null {
+  // Removal + partition-mismatch + factor-extra findings render
+  // bespoke single-decision layouts ("accept the whole thing or
+  // not") — the per-row disagreement count is misleading on
+  // those (it'd count every row as a disagreement since gold has
+  // nothing to compare against). Skip the chip.
+  if (
+    finding.issue_code === "calibration_factor_gold_only_miss" ||
+    finding.issue_code === "calibration_gold_only_miss" ||
+    finding.issue_code === "calibration_factor_extra"
+  ) {
+    return null;
+  }
+  if (
+    finding.issue_code === "calibration_factor_partition_mismatch" &&
+    finding.partition_mismatch
+  ) {
+    return null;
+  }
+  // Tag findings are conceptually one decision (accept-or-dismiss
+  // the tag); the old tag UI doesn't support per-statement
+  // structure, so a category + value pair that's both empty on
+  // one side reads as "2 disagreements" when it's really one. Skip
+  // the count chip on tags until the tag UI grows statement
+  // support. Factor findings still get the row-level count.
+  if (finding.target_kind === "tag") return null;
+  try {
+    const { rows } = buildRows(finding, report, design);
+    return rows.filter((r) => !r.allAgree).length;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Per-row state + applied_fix construction
 // ---------------------------------------------------------------------------
@@ -680,6 +746,14 @@ export function FindingDetailsEditor({
   onUndo?: () => void;
 }) {
   const toast = useToast();
+  const { experimentId } = useAudit();
+  const { apply: applyDraft } = useDesignDraft();
+  // Click-to-locate: jump to the matching factor / FV in the Design
+  // tab. Fires the same focus event the "Apply & focus" buttons use
+  // — Shell switches tabs + scrolls + ring-flashes the row.
+  const onLocateCurrent = (): void => {
+    requestAuditFocus(experimentId, finding.target_id);
+  };
   const identities = useMemo(
     () => extractAuditIdentities(report?.model),
     [report?.model],
@@ -707,20 +781,43 @@ export function FindingDetailsEditor({
   // block; Category rows are their own group. Preserves the
   // builder's ordering — first occurrence of a (fv,stmt) key
   // determines block order.
-  const groupedDisagreements: Row[][] = (() => {
-    const groups = new Map<string, Row[]>();
+  //
+  // For each block we ALSO carry the agreement rows that share the
+  // same (fv, statement) key — the ComparatorLine renders the full
+  // S - P - O context (so a block where only Predicate + Object
+  // disagree still shows the agreed-on Subject as the load-bearing
+  // anchor). Pick state still applies only to the disagreement
+  // rows; the context rows are render-only.
+  const groupedDisagreements: {
+    disagreement: Row[];
+    contextAll: Row[];
+    key: string;
+  }[] = (() => {
+    const groups = new Map<
+      string,
+      { disagreement: Row[]; contextAll: Row[] }
+    >();
     for (const r of disagreementRows) {
       const k = `${r.fvIndex ?? "f"}.${r.statementIndex ?? "0"}`;
-      const list = groups.get(k) ?? [];
-      list.push(r);
-      groups.set(k, list);
+      const g = groups.get(k) ?? { disagreement: [], contextAll: [] };
+      g.disagreement.push(r);
+      g.contextAll.push(r);
+      groups.set(k, g);
     }
-    return Array.from(groups.values());
+    for (const r of agreementRows) {
+      const k = `${r.fvIndex ?? "f"}.${r.statementIndex ?? "0"}`;
+      const g = groups.get(k);
+      if (g) g.contextAll.push(r);
+    }
+    return Array.from(groups.entries()).map(([key, g]) => ({ ...g, key }));
   })();
 
   const isRemovalFinding =
     finding.issue_code === "calibration_factor_gold_only_miss" ||
     finding.issue_code === "calibration_gold_only_miss";
+
+  const isFactorExtraFinding =
+    finding.issue_code === "calibration_factor_extra";
 
   const isPartitionMismatch =
     finding.issue_code === "calibration_factor_partition_mismatch" &&
@@ -815,12 +912,9 @@ export function FindingDetailsEditor({
     const pm = finding.partition_mismatch!;
     const isAgentFiner = pm.direction === "agent_finer";
     const actionWord = isAgentFiner ? "split" : "combine";
-    const agentVerb = identities.proposer === "Agent" ? "says" : "says";
-    const goldVerb = identities.goldCurator === "you" ? "have" : "has";
-    const keepLabel =
-      identities.goldCurator === "you"
-        ? "keep yours"
-        : `keep ${identities.goldCurator}'s`;
+    const agentVerb = "says";
+    const goldVerb = currentlyVerb(identities.goldCurator);
+    const keepLabel = keepLabelFor(identities.goldCurator);
     const acceptLabel = `adopt ${identities.proposer}'s ${actionWord}`;
     const acceptTitle = isAgentFiner
       ? `Split the existing factor along the axis ${identities.proposer} proposed.`
@@ -860,88 +954,77 @@ export function FindingDetailsEditor({
           </span>
         </div>
 
-        {/* Comparator-row lines — identity-first, no FV listing here
-            (the mapping block below has the FV detail). */}
-        <div className="space-y-1.5">
+        {/* FV-count comparison — the headline numbers a curator
+            needs to grok the partition mismatch at a glance. Big
+            digit + "levels" with each comparator's identity on
+            the left. Replaces the small italic "(3 FVs, finer
+            partition)" suffix on the previous chip rows. */}
+        <div className="space-y-1">
           <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
             <span className="text-slate-600 dark:text-slate-300">
               <strong>{identities.proposer}</strong> {agentVerb}
             </span>
-            <span className="flex flex-wrap items-baseline gap-x-1.5">
-              <Term
-                uri={pm.agent.category.uri}
-                asLink={false}
-                className="!whitespace-normal break-words"
-              >
-                {pm.agent.category.label}
-              </Term>
-              <span className="text-slate-500 dark:text-slate-400 italic">
-                {isAgentFiner
-                  ? `(${pm.fv_pairs.length} FVs, finer partition)`
-                  : `(${groups.length} parents collapsed into 1 factor)`}
+            <span className="flex items-baseline gap-x-1.5">
+              <span className="text-xl font-bold text-amber-700 dark:text-amber-300 leading-none">
+                {isAgentFiner ? pm.fv_pairs.length : groups.length}
+              </span>
+              <span className="text-slate-600 dark:text-slate-300">
+                levels {isAgentFiner ? "(finer partition)" : "(combined into 1)"}
               </span>
             </span>
           </div>
           <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
             <span className="text-slate-600 dark:text-slate-300">
-              <strong>{identities.goldCurator}</strong> {goldVerb}
+              <strong>{identities.goldCurator}</strong>
+              {goldVerb ? ` ${goldVerb}` : null}
+              <button
+                type="button"
+                onClick={onLocateCurrent}
+                title="show in Design tab"
+                aria-label="locate in design"
+                className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
+              >
+                🔍
+              </button>
             </span>
-            <span className="flex flex-wrap items-baseline gap-x-1.5">
-              <Term
-                uri={pm.gold.category.uri}
-                asLink={false}
-                className="!whitespace-normal break-words"
-              >
-                {pm.gold.category.label}
-              </Term>
-              <span className="text-slate-500 dark:text-slate-400 italic">
-                {isAgentFiner
-                  ? `(${groups.length} FVs, coarser partition)`
-                  : `(${pm.fv_pairs.length} FVs across ${groups.length} factor${
-                      groups.length === 1 ? "" : "s"
-                    })`}
+            <span className="flex items-baseline gap-x-1.5">
+              <span className="text-xl font-bold text-slate-700 dark:text-slate-200 leading-none">
+                {isAgentFiner ? groups.length : pm.fv_pairs.length}
               </span>
-              <span
-                className="ml-1 text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300"
-                title="This is what's currently on the design tab (the working draft)."
-              >
-                ← in current design
+              <span className="text-slate-600 dark:text-slate-300">
+                levels {isAgentFiner ? "(coarser partition)" : `across ${groups.length} factor${groups.length === 1 ? "" : "s"}`}
               </span>
             </span>
           </div>
         </div>
 
-        {/* Mapping block — parent → children rows. Renders the
-            nesting that the payload's fv_pairs encode via repeated
-            parents. Chips are a compact inline variant (no URI
-            annotation, smaller padding) so a parent + several
-            children fit on one line; full URI still surfaces via
-            the chip's title tooltip. */}
-        {groups.length > 0 ? (
+        {/* Mapping — one row per fv_pair. Child ← parent
+            (Auditor's child level on the left, Current's umbrella
+            on the right for agent_finer; flipped for
+            agent_coarser). One row per pair makes the per-level
+            mapping legible without horizontal wrapping. */}
+        {pm.fv_pairs.length > 0 ? (
           <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
             <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
-              {isAgentFiner ? "Mapping (gold parent ← agent children)" : "Mapping (agent parent ← gold children)"}
+              {isAgentFiner
+                ? `Mapping (${identities.proposer}'s level → ${identities.goldCurator}'s umbrella)`
+                : `Mapping (${identities.goldCurator}'s level → ${identities.proposer}'s umbrella)`}
             </div>
             <div className="space-y-1 text-[11px]">
-              {groups.map((g, i) => (
-                <div
-                  key={`${g.parent.label}|${g.parent.uri ?? ""}|${i}`}
-                  className="flex items-baseline gap-x-1.5 flex-wrap"
-                >
-                  <MappingChip term={g.parent} />
-                  <span className="text-slate-400 dark:text-slate-500">←</span>
-                  {g.children.map((c, j) => (
-                    <span key={j} className="inline-flex items-baseline">
-                      {j > 0 ? (
-                        <span className="text-slate-400 dark:text-slate-500 mr-1">
-                          ,
-                        </span>
-                      ) : null}
-                      <MappingChip term={c} />
-                    </span>
-                  ))}
-                </div>
-              ))}
+              {pm.fv_pairs.map((pair, i) => {
+                const child = isAgentFiner ? pair.agent : pair.gold;
+                const parent = isAgentFiner ? pair.gold : pair.agent;
+                return (
+                  <div
+                    key={i}
+                    className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-baseline"
+                  >
+                    <MappingChip term={child} />
+                    <span className="text-slate-400 dark:text-slate-500">→</span>
+                    <MappingChip term={parent} />
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : null}
@@ -985,13 +1068,194 @@ export function FindingDetailsEditor({
     );
   }
 
+  // Factor-extra findings — agent proposes a NEW factor that
+  // gold doesn't have. The whole card is one decision (accept
+  // the proposed factor or not), so the per-row "Current: no
+  // entry / keep / adopt / edit" repetition is just noise. Show
+  // the proposed factor's FVs as a structured read-only list,
+  // then one set of accept / keep / dismiss / park buttons at
+  // the bottom. Per Paul 2026-05-21.
+  if (isFactorExtraFinding) {
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    const labelHint = firstBacktick(finding.rationale);
+    const agentFactor = resolveAgentFactor(finding, cp, labelHint);
+    const categoryLabel =
+      agentFactor?.category?.label || labelHint || "";
+    const categoryUri = agentFactor?.category?.uri ?? null;
+    const fvs = agentFactor?.factor_values ?? [];
+    return (
+      <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+        {/* FACTOR <category> · proposed */}
+        <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+            Factor
+          </span>
+          {categoryLabel ? (
+            <Term
+              uri={categoryUri}
+              asLink={false}
+              className="!whitespace-normal break-words"
+            >
+              {categoryLabel}
+            </Term>
+          ) : (
+            <span className="font-mono text-slate-800 dark:text-slate-100">
+              {finding.target_id}
+            </span>
+          )}
+          <span className="text-slate-400 dark:text-slate-500">·</span>
+          <span className="text-amber-700 dark:text-amber-300">
+            <strong>proposed (not in current design)</strong>
+          </span>
+        </div>
+
+        {fvs.length > 0 ? (
+          <div className="space-y-1">
+            {fvs.map((fv, i) => {
+              const st = fv.statements?.[0];
+              const subj = st?.subject;
+              const pred = st?.predicate;
+              const obj = st?.object;
+              const subjLabel = subj?.label?.trim() || fv.free_text_label?.trim() || "";
+              const subjUri = subj?.uri ?? null;
+              const predLabel = pred?.label?.trim() ?? "";
+              const objLabel = obj?.label?.trim() ?? "";
+              const objUri = obj?.uri ?? null;
+              return (
+                <div
+                  key={i}
+                  className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]"
+                >
+                  <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 w-20 shrink-0">
+                    FV {i + 1}
+                  </span>
+                  {subjLabel ? (
+                    <Term
+                      uri={subjUri}
+                      asLink={false}
+                      className="!whitespace-normal break-words"
+                    >
+                      {subjLabel}
+                    </Term>
+                  ) : (
+                    <span className="italic text-slate-400">(blank)</span>
+                  )}
+                  {predLabel ? (
+                    <>
+                      <span className="text-slate-400 dark:text-slate-500">{" - "}</span>
+                      <span
+                        className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+                        title={pred?.uri || undefined}
+                      >
+                        {predLabel}
+                      </span>
+                    </>
+                  ) : null}
+                  {objLabel ? (
+                    <>
+                      <span className="text-slate-400 dark:text-slate-500">{" - "}</span>
+                      <Term
+                        uri={objUri}
+                        asLink={false}
+                        className="!whitespace-normal break-words"
+                      >
+                        {objLabel}
+                      </Term>
+                    </>
+                  ) : null}
+                  {fv.is_baseline ? (
+                    <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 ml-0.5">
+                      ★ baseline
+                    </span>
+                  ) : null}
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 ml-0.5">
+                    ({fv.biomaterial_short_names?.length ?? 0})
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <ActionRow
+          saving={saving}
+          disabled={currentDisposition !== "pending"}
+          buttons={[
+            {
+              key: "keep",
+              kind: "primary-keep",
+              label: keepLabelFor(identities.goldCurator),
+              onClick: () => dispatchSave("currently"),
+              title: `Don't add this factor — keep the design as-is.`,
+            },
+            {
+              key: "accept",
+              kind: "primary-accept",
+              label: `adopt ${identities.proposer}'s (add factor)`,
+              onClick: () => {
+                // Dual-write: mutate the design draft to ADD the
+                // agent's proposed factor (so it shows up in the
+                // Design tab + rides commit), then PATCH the
+                // disposition. Uses applyProposalToDesign — the
+                // same path the proposal-accept flow uses, called
+                // with a single-factor proposal here.
+                if (agentFactor) {
+                  applyDraft((current) =>
+                    applyProposalToDesign(current, [], [
+                      {
+                        category: agentFactor.category,
+                        name_in_design:
+                          agentFactor.name_in_design ||
+                          agentFactor.category?.label ||
+                          "new factor",
+                        factor_type:
+                          (agentFactor.factor_type as
+                            | "categorical"
+                            | "continuous"
+                            | undefined) ?? "categorical",
+                        baseline_relevance:
+                          agentFactor.baseline_relevance ?? undefined,
+                        baseline_relevance_reason:
+                          agentFactor.baseline_relevance_reason ?? undefined,
+                        factor_values: (agentFactor.factor_values ?? []).map(
+                          (fv) => ({
+                            free_text_label: fv.free_text_label ?? "",
+                            is_baseline: !!fv.is_baseline,
+                            numeric_value: fv.numeric_value ?? null,
+                            statements: (fv.statements ?? []).map((s) => ({
+                              category: s.category ?? null,
+                              subject: s.subject ?? { label: "" },
+                              predicate: s.predicate ?? null,
+                              object: s.object ?? null,
+                            })),
+                            biomaterial_short_names: [
+                              ...(fv.biomaterial_short_names ?? []),
+                            ],
+                          }),
+                        ),
+                      },
+                    ]),
+                  );
+                }
+                dispatchSave("proposal");
+              },
+              title: `Accept ${identities.proposer}'s proposed factor and add it to the design.`,
+            },
+          ]}
+          onDismiss={onDismiss}
+          onPark={onPark}
+          onUndo={
+            currentDisposition !== "pending" ? onUndo : undefined
+          }
+        />
+      </div>
+    );
+  }
+
   // Removal-only findings collapse to keep-vs-remove. No row
   // disagreement model applies.
   if (isRemovalFinding) {
-    const keepLabel =
-      identities.goldCurator === "you"
-        ? "keep yours"
-        : `keep ${identities.goldCurator}'s`;
+    const keepLabel = keepLabelFor(identities.goldCurator);
     // What is being removed — extract from the target_id when
     // structured ("calibration:miss:<cat>/<val>"), or fall back to
     // the rationale's first backticked token.
@@ -1090,10 +1354,8 @@ export function FindingDetailsEditor({
     // binary). The proposer's row shows nothing (their proposal
     // IS removal); the gold curator's row shows what's there.
     const currentTermLabel = removeTargetLabel ?? "";
-    const proposerVerb =
-      identities.proposer === "Agent" ? "says" : "says";
-    const goldVerb =
-      identities.goldCurator === "you" ? "have" : "has";
+    const proposerVerb = "says";
+    const goldVerb = currentlyVerb(identities.goldCurator);
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
         {/* Title row — matches the factor-card title shape so the
@@ -1125,18 +1387,17 @@ export function FindingDetailsEditor({
           </div>
           <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
             <span className="text-slate-600 dark:text-slate-300">
-              <strong>{identities.goldCurator}</strong> {goldVerb}
-              {/* "in current design" lives in the identity (left)
-                  column so it stays adjacent to "you have" even when
-                  the FV chips on the right wrap onto multiple lines.
-                  Stacked underneath the identity label as a small
-                  caption. */}
-              <span
-                className="block text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300 mt-0.5"
-                title="This is what's currently on the design tab (the working draft)."
+              <strong>{identities.goldCurator}</strong>
+              {goldVerb ? ` ${goldVerb}` : null}
+              <button
+                type="button"
+                onClick={onLocateCurrent}
+                title="show in Design tab"
+                aria-label="locate in design"
+                className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
               >
-                ← in current design
-              </span>
+                🔍
+              </button>
             </span>
             <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
               {goldTagParts ? (
@@ -1204,7 +1465,7 @@ export function FindingDetailsEditor({
                           {" - "}
                         </span>
                         <span
-                          className="text-[10px] text-slate-500 dark:text-slate-400 font-mono"
+                          className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
                           title={fv.predicate.uri || undefined}
                         >
                           {fv.predicate.label}
@@ -1275,54 +1536,53 @@ export function FindingDetailsEditor({
     );
   }
 
+  // Pull the factor category out of the rows (the Category row's
+  // proposal label) — used by the small "FACTOR <category>" title
+  // chip below. The category was previously rendered alongside
+  // subject/predicate/object in every comparator line, which gave
+  // it equal prominence with the actual statement subject and
+  // confused the eye. Moving it to a card-level label (per Paul
+  // 2026-05-21) frees the comparator rows to focus on S - P - O.
+  const factorCategoryRow =
+    finding.target_kind === "factor"
+      ? rows.find((r) => r.rowLabel === "Category")
+      : undefined;
+  const factorCategoryLabel = factorCategoryRow?.proposal.label;
   return (
     <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
-      {/* Title row — replaces the role of the legacy MatchCompareCard
-          header. Carries the entity identity (category for factors;
-          ``category: value`` for tags) + a count of disagreements
-          so the curator sees the scope at a glance. */}
-      <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
-        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-          {finding.target_kind === "factor" ? "Factor" : "Tag"}
-        </span>
-        <span className="font-mono text-slate-800 dark:text-slate-100">
-          {(() => {
-            // Tag findings carry two rows (Category + Value); the
-            // load-bearing identity is the full ``category: value``
-            // pair, not just the category. Factor findings put the
-            // load-bearing identity on the Category row alone.
-            if (finding.target_kind === "tag") {
-              const catRow = rows.find((r) => r.rowLabel === "Category");
-              const valRow = rows.find((r) => r.rowLabel === "Value");
-              if (catRow && valRow) {
-                return `${catRow.proposal.label}: ${valRow.proposal.label}`;
-              }
-            }
-            return rows[0]?.proposal.label || finding.target_id;
-          })()}
-        </span>
-        <span className="text-slate-400 dark:text-slate-500">·</span>
-        {allAgreeAtCard ? (
-          <span className="text-emerald-700 dark:text-emerald-300">
-            <strong>everyone agrees</strong> ✓
+      {/* Card-level FACTOR <category> label — replaces the dropped
+          inner title row for factor findings. Shows the load-
+          bearing category name without competing with the
+          statement-level subject chip in the comparator rows. */}
+      {factorCategoryLabel ? (
+        <div className="flex items-baseline gap-2 text-[12px]">
+          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+            Factor
           </span>
-        ) : (
-          <span className="text-amber-700 dark:text-amber-300">
-            <strong>
-              {disagreementRows.length} disagreement
-              {disagreementRows.length === 1 ? "" : "s"}
-            </strong>
+          <span className="font-mono text-slate-800 dark:text-slate-100">
+            {factorCategoryLabel}
           </span>
-        )}
-      </div>
+        </div>
+      ) : null}
 
-      {/* Agreement summary — single line listing the elements where
-          all comparators agree, including FV identities + sample
-          counts. Shown even when the WHOLE card agrees so the
-          curator can see WHICH factor / FVs this finding is about
-          (otherwise "FACTOR treatment · everyone agrees ✓" reads as
-          "treatment what?"). */}
-      {agreementRows.length > 0 ? (
+      {/* Tag-detail block — for tag findings, always render the
+          category + value chips for both Auditor and Current so
+          the curator sees the full tag identity (including URIs)
+          even on OK matches where the disagreement editor would
+          otherwise be empty. */}
+      {finding.target_kind === "tag" ? (
+        <TagDetailBlock
+          rows={rows}
+          identities={identities}
+          onLocateCurrent={onLocateCurrent}
+        />
+      ) : null}
+
+      {/* Agreement summary + disagreement blocks render only for
+          factor findings — tag findings show their full chip
+          detail in TagDetailBlock above and don't need the
+          row-level breakdown (one decision, not multiple). */}
+      {finding.target_kind !== "tag" && agreementRows.length > 0 ? (
         <AgreementSummary
           rows={agreementRows}
           // Pass the set of FVs that have ANY disagreement so the
@@ -1344,38 +1604,34 @@ export function FindingDetailsEditor({
 
       {/* One block per *statement* — Subject/Predicate/Object rows
           that share an FV+statement collapse into a single decision
-          block with shared buttons. Category rows are their own
-          group (no FV index). Per Paul: "I don't want a separate
-          thing for the predicate and another for the object" — the
-          statement is one decision, not three. */}
-      {groupedDisagreements.map((groupRows) => (
+          block with shared buttons. Skipped for tag findings (one
+          decision, handled by TagDetailBlock above). */}
+      {finding.target_kind !== "tag" && groupedDisagreements.map((g) => (
         <DisagreementBlock
-          key={`${groupRows[0].fvIndex ?? "f"}.${groupRows[0].statementIndex ?? "0"}.${groupRows[0].path}`}
-          rows={groupRows}
+          key={`${g.key}.${g.disagreement[0].path}`}
+          rows={g.disagreement}
+          contextRows={g.contextAll}
           fvMeta={fvMeta}
           identities={identities}
           rowState={rowState}
+          onLocateCurrent={onLocateCurrent}
+          editCategory={firstBacktick(finding.rationale) ?? null}
           onPick={(pick) => {
-            for (const row of groupRows) setPick(row.path, { pick });
+            for (const row of g.disagreement) setPick(row.path, { pick });
           }}
           onEditCommit={(label, uri) => {
             // For statement-level edits, the curator's typed value
-            // currently lands on the SUBJECT row (the headline of
-            // the statement). Predicate/object stay at their current
-            // values. Richer per-part edit is a follow-up; the
-            // single-input shape covers ~95% of the wrong-subject
-            // case Paul described.
+            // lands on the SUBJECT row when there's a disagreement
+            // on subject, otherwise on the first disagreeing row.
+            // Predicate / object stay at their current values.
             const target =
-              groupRows.find((r) => r.rowLabel === "Subject") ??
-              groupRows[0];
+              g.disagreement.find((r) => r.rowLabel === "Subject") ??
+              g.disagreement[0];
             setPick(target.path, {
               pick: "edit",
               editLabel: label,
               editUri: uri,
             });
-            // Other rows in the group implicitly stay on their
-            // current pick (or null) — the curator's edit on the
-            // subject doesn't force a stance on the predicate.
           }}
         />
       ))}
@@ -1402,15 +1658,14 @@ export function FindingDetailsEditor({
                 {
                   key: "keep",
                   kind: "primary-keep",
-                  label:
-                    identities.goldCurator === "you"
-                      ? "keep yours"
-                      : `keep ${identities.goldCurator}'s`,
+                  label: keepLabelFor(identities.goldCurator),
                   onClick: () => dispatchSave("currently"),
                   title: `Take ${
-                    identities.goldCurator === "you"
-                      ? "your"
-                      : `${identities.goldCurator}'s`
+                    identities.goldCurator === "Current"
+                      ? "the current"
+                      : identities.goldCurator === "you"
+                        ? "your"
+                        : `${identities.goldCurator}'s`
                   } value on every disagreement.`,
                 },
                 {
@@ -1431,14 +1686,23 @@ export function FindingDetailsEditor({
                       },
                     ]
                   : []),
-                {
-                  key: "save",
-                  kind: "secondary",
-                  label: "save per-row picks",
-                  onClick: dispatchPerRowSave,
-                  title:
-                    "Save what's been picked per-row (mix of proposal / kept / edited).",
-                },
+                // Per-row save only makes sense when there are
+                // multiple rows the curator picks independently —
+                // tags are a single decision (category + value
+                // travel together), so hide the secondary "save
+                // per-row picks" button for tag findings.
+                ...(finding.target_kind === "tag"
+                  ? []
+                  : [
+                      {
+                        key: "save",
+                        kind: "secondary" as const,
+                        label: "save per-row picks",
+                        onClick: dispatchPerRowSave,
+                        title:
+                          "Save what's been picked per-row (mix of proposal / kept / edited).",
+                      },
+                    ]),
               ]
         }
         onDismiss={onDismiss}
@@ -1506,37 +1770,66 @@ function AgreementSummary({
  *     the whole statement, not individually per part. */
 function DisagreementBlock({
   rows,
+  contextRows,
   fvMeta,
   identities,
   rowState,
   onPick,
   onEditCommit,
+  onLocateCurrent,
+  editCategory,
 }: {
+  /** Rows the curator must pick on. Pick / edit state applies to
+   *  these. */
   rows: Row[];
+  /** All rows (disagreement + agreement) for the same
+   *  (fv, statement) group. ComparatorLine renders parts from
+   *  these so the full S - P - O context shows even when only
+   *  predicate / object disagree. Falls back to ``rows`` when
+   *  not supplied. */
+  contextRows?: Row[];
   fvMeta: Map<number, FvMeta>;
   identities: AuditIdentities;
   rowState: Map<string, RowState>;
   onPick: (pick: Pick) => void;
   onEditCommit: (label: string, uri: string | null) => void;
+  /** Forwarded to the "currently" ComparatorLine's locate button. */
+  onLocateCurrent?: () => void;
+  /** Category label used to filter the ontology-term picker's
+   *  typeahead when the curator opens the "edit…" affordance. */
+  editCategory?: string | null;
 }) {
   if (rows.length === 0) return null;
   const first = rows[0];
   const meta = first.fvIndex !== null ? fvMeta.get(first.fvIndex) : undefined;
+  const goldLabelForCount =
+    identities.goldCurator === "you"
+      ? "yours"
+      : identities.goldCurator === "Current"
+        ? "current"
+        : identities.goldCurator;
   const sampleNote =
     meta && meta.agentSampleCount
       ? meta.goldSampleCount !== null &&
         meta.goldSampleCount !== meta.agentSampleCount
-        ? `${meta.agentSampleCount} samples · ${identities.goldCurator === "you" ? "yours" : identities.goldCurator}: ${meta.goldSampleCount}`
+        ? `${meta.agentSampleCount} samples · ${goldLabelForCount}: ${meta.goldSampleCount}`
         : `${meta.agentSampleCount} samples`
       : null;
   const elementLabel =
     first.fvIndex !== null
       ? `FV ${first.fvIndex + 1}`
       : first.rowLabel;
-  // ANY row in the group having reference data → show the reference
-  // line + button. Each row's reference can be null even when the
-  // statement has one (subject has Gemma, predicate doesn't).
-  const hasReference = rows.some((r) => r.reference !== null);
+  // Display rows = disagreement + agreement (for the same fv +
+  // statement). The ComparatorLine renders parts from these so a
+  // block where only predicate / object disagree still shows the
+  // agreed-on subject — the curator sees the full S - P - O
+  // context, not just the disagreeing fragments.
+  const displayRows = contextRows ?? rows;
+  // ANY row in the (display) group having reference data → show
+  // the reference line + button. Each row's reference can be null
+  // even when the statement has one (subject has Gemma, predicate
+  // doesn't).
+  const hasReferenceCtx = displayRows.some((r) => r.reference !== null);
 
   // The block's pick state — consensus of its rows. If every row
   // shares the same pick, the block reads as that. Mixed picks
@@ -1556,14 +1849,11 @@ function DisagreementBlock({
   const subjectRow = rows.find((r) => r.rowLabel === "Subject") ?? rows[0];
   const subjectState = rowState.get(subjectRow.path);
   const [editOpen, setEditOpen] = useState(subjectState?.pick === "edit");
-  const [editVal, setEditVal] = useState(subjectState?.editLabel ?? "");
 
-  // Pretty button label for keep — "keep yours" reads better than
-  // "keep you's".
-  const keepLabel =
-    identities.goldCurator === "you"
-      ? "keep yours"
-      : `keep ${identities.goldCurator}'s`;
+  // Pretty button label for keep — "keep current" for the default
+  // identity, "keep yours" for legacy "you", "keep amanda's" for
+  // inter-curator audits.
+  const keepLabel = keepLabelFor(identities.goldCurator);
 
   return (
     <div className="rounded border border-amber-200 bg-amber-50/30 dark:border-amber-800/60 dark:bg-amber-900/15 p-2 space-y-1.5">
@@ -1579,23 +1869,23 @@ function DisagreementBlock({
       <ComparatorLine
         who={identities.proposer}
         verb="said"
-        rows={rows}
+        rows={displayRows}
         side="proposal"
         picked={blockPick === "proposal"}
       />
       <ComparatorLine
         who={identities.goldCurator}
-        verb={identities.goldCurator === "you" ? "have" : "has"}
-        rows={rows}
+        verb={currentlyVerb(identities.goldCurator)}
+        rows={displayRows}
         side="currently"
         picked={blockPick === "currently"}
-        isActiveInDesign
+        onLocate={onLocateCurrent}
       />
-      {hasReference ? (
+      {hasReferenceCtx ? (
         <ComparatorLine
           who={identities.reference}
           verb="has"
-          rows={rows}
+          rows={displayRows}
           side="reference"
           picked={blockPick === "reference"}
         />
@@ -1616,7 +1906,7 @@ function DisagreementBlock({
         >
           adopt {identities.proposer}'s
         </PickButton>
-        {hasReference ? (
+        {hasReferenceCtx ? (
           <PickButton
             active={blockPick === "reference"}
             onClick={() => onPick("reference")}
@@ -1627,17 +1917,14 @@ function DisagreementBlock({
         ) : null}
         <button
           type="button"
-          onClick={() => {
-            setEditOpen((v) => !v);
-            if (!editOpen) setEditVal(subjectState?.editLabel ?? "");
-          }}
+          onClick={() => setEditOpen((v) => !v)}
           className={cn(
             "px-2 py-0.5 rounded border text-[11px]",
             subjectState?.pick === "edit"
               ? "bg-violet-100 border-violet-400 text-violet-900 dark:bg-violet-900/40 dark:border-violet-600 dark:text-violet-100 font-semibold"
               : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700",
           )}
-          title="None of the choices is right — type the correct value (label-only; lands on subject)."
+          title="None of the choices is right — pick or type the correct value (lands on subject)."
         >
           edit…
         </button>
@@ -1645,36 +1932,38 @@ function DisagreementBlock({
 
       {editOpen ? (
         <div className="pt-1 space-y-1">
-          <input
-            type="text"
-            value={editVal}
-            onChange={(e) => setEditVal(e.target.value)}
-            placeholder="Type the correct value (label-only for now; ontology picker coming)"
-            className="w-full text-[11px] px-1.5 py-0.5 rounded border border-violet-300 dark:border-violet-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+          {/* Ontology-term picker replaces the bare text input.
+              Typeahead pulls from Gemma's annotation catalog
+              (filtered by the finding's factor category when
+              available); committing a candidate stamps both
+              label + URI onto the edit pick. Free-text commit
+              (Enter on a non-matching draft) lands with URI=null,
+              matching the previous label-only behaviour. */}
+          <OntologyTermPicker
+            value={
+              subjectState?.editLabel
+                ? {
+                    label: subjectState.editLabel,
+                    uri: subjectState.editUri ?? null,
+                  }
+                : null
+            }
+            category={editCategory ?? null}
+            placeholder="type the correct value…"
+            autoOpen
+            onCommit={(next) => {
+              if (next && next.label) {
+                onEditCommit(next.label, next.uri ?? null);
+              }
+            }}
           />
-          <div className="flex gap-1.5 text-[11px]">
-            <button
-              type="button"
-              onClick={() => {
-                onEditCommit(editVal, null);
-                setEditOpen(false);
-              }}
-              disabled={!editVal.trim()}
-              className="px-2 py-0.5 rounded bg-violet-700 text-white font-semibold hover:bg-violet-800 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed"
-            >
-              save edit
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditOpen(false);
-                setEditVal("");
-              }}
-              className="px-2 py-0.5 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-            >
-              cancel
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setEditOpen(false)}
+            className="text-[11px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline dark:text-slate-400 dark:hover:text-slate-100"
+          >
+            close
+          </button>
         </div>
       ) : null}
     </div>
@@ -1686,43 +1975,186 @@ function DisagreementBlock({
  *  joins them with " · " into one inline statement. Missing parts
  *  are skipped — degenerate statements (subject-only) just show
  *  the subject. */
+/** Tag-finding detail block — renders the category + value chips
+ *  for Auditor and Current sides. Always visible on tag findings
+ *  so the curator sees the full chip detail (label + URI) even
+ *  on OK matches, where the existing disagreement-block flow
+ *  would render nothing. Per Paul 2026-05-21. */
+function TagDetailBlock({
+  rows,
+  identities,
+  onLocateCurrent,
+}: {
+  rows: Row[];
+  identities: AuditIdentities;
+  onLocateCurrent?: () => void;
+}) {
+  const catRow = rows.find((r) => r.rowLabel === "Category");
+  const valRow = rows.find((r) => r.rowLabel === "Value");
+  if (!catRow && !valRow) return null;
+  function renderSide(side: "proposal" | "currently"): JSX.Element {
+    const pick = (r: Row | undefined): SideValue | null =>
+      r ? (side === "proposal" ? r.proposal : r.currently) : null;
+    const cat = pick(catRow);
+    const val = pick(valRow);
+    const catEmpty = !cat || !cat.label;
+    const valEmpty = !val || !val.label;
+    if (catEmpty && valEmpty) {
+      return <span className="italic text-slate-400">no entry</span>;
+    }
+    return (
+      <span className="flex flex-wrap items-baseline gap-x-1.5">
+        {!catEmpty ? (
+          <Term
+            uri={cat!.uri ?? null}
+            asLink={false}
+            className="!whitespace-normal break-words"
+          >
+            {cat!.label}
+          </Term>
+        ) : (
+          <span className="italic text-slate-400">(missing category)</span>
+        )}
+        <span className="text-slate-400 dark:text-slate-500">:</span>
+        {!valEmpty ? (
+          <Term
+            uri={val!.uri ?? null}
+            asLink={false}
+            className="!whitespace-normal break-words"
+          >
+            {val!.label}
+          </Term>
+        ) : (
+          <span className="italic text-slate-400">(missing value)</span>
+        )}
+      </span>
+    );
+  }
+  const goldVerb = currentlyVerb(identities.goldCurator);
+  return (
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]">
+        <span className="text-slate-600 dark:text-slate-300">
+          <strong>{identities.proposer}</strong> says
+        </span>
+        {renderSide("proposal")}
+      </div>
+      <div className="grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]">
+        <span className="text-slate-600 dark:text-slate-300">
+          <strong>{identities.goldCurator}</strong>
+          {goldVerb ? ` ${goldVerb}` : null}
+          {onLocateCurrent ? (
+            <button
+              type="button"
+              onClick={onLocateCurrent}
+              title="show in Design tab"
+              aria-label="locate in design"
+              className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
+            >
+              🔍
+            </button>
+          ) : null}
+        </span>
+        {renderSide("currently")}
+      </div>
+    </div>
+  );
+}
+
 function ComparatorLine({
   who,
   verb,
   rows,
   side,
   picked,
-  isActiveInDesign,
+  onLocate,
 }: {
   who: string;
+  /** Optional verb after the identity label ("says" / "have" /
+   *  "has"). Empty string suppresses — the default "Current"
+   *  identity reads as a label alone, no trailing verb. */
   verb: string;
   rows: Row[];
   side: "proposal" | "currently" | "reference";
   picked: boolean;
-  /** True when this comparator's value is the one currently
-   *  visible on the design tab (i.e. the gold-curator's row).
-   *  Adds a small "← in your design" suffix so the curator can
-   *  see at a glance which line maps to what they have open on
-   *  the left side of the screen. */
-  isActiveInDesign?: boolean;
+  /** When provided, renders a small 🔍 button next to the identity
+   *  label. Clicking it triggers a cross-pane jump to the
+   *  matching factor / FV in the Design tab. Only meaningful on
+   *  the ``currently`` side (the gold curator's design data is
+   *  what the Design tab shows). */
+  onLocate?: () => void;
 }) {
-  // Sort within the group by part order: Subject → Predicate →
-  // Object → (anything else, e.g. Category alone).
-  const ORDER = ["Category", "Subject", "Predicate", "Object"];
-  const sorted = [...rows].sort(
-    (a, b) => ORDER.indexOf(a.rowLabel) - ORDER.indexOf(b.rowLabel),
-  );
-  const parts: { value: SideValue; partLabel: string }[] = [];
-  for (const r of sorted) {
+  // Sort within the group by part order. Category is filtered
+  // out when the group has OTHER rows (subject/predicate/object)
+  // — the card-level "FACTOR <category>" label carries the
+  // category in that case, so showing it again here would be
+  // redundant. When the group is Category-only (e.g. an agent
+  // proposed a category rename and the only disagreement is on
+  // the category itself), keep Category visible so the curator
+  // can actually see what's diverging instead of an empty
+  // "no entry / no entry" block.
+  const ORDER = ["Category", "Subject", "Predicate", "Object", "Value"];
+  const hasNonCategory = rows.some((r) => r.rowLabel !== "Category");
+  const sorted = [...rows]
+    .filter((r) => !hasNonCategory || r.rowLabel !== "Category")
+    .sort((a, b) => ORDER.indexOf(a.rowLabel) - ORDER.indexOf(b.rowLabel));
+  // For each row, include it in the rendered parts whenever ANY
+  // comparator side has a value for that part. Empty side gets a
+  // faded "(missing)" placeholder so the curator sees the gap.
+  //
+  // BUT: when the Subject AGREES across all comparators (same
+  // entity), don't flag missing predicate / object on the sides
+  // that lack them. A subject-agreeing, structure-divergent shape
+  // (agent layered S+P+O over gold's S-only) reads as "extra
+  // structure" rather than "gold is missing P+O" — the (missing)
+  // marker overstates the divergence. The placeholder feature is
+  // kept for the case when Subject diverges (different entities
+  // being talked about, where seeing each side's full slot
+  // inventory matters). Per Paul 2026-05-21.
+  const subjectRow = sorted.find((r) => r.rowLabel === "Subject");
+  const suppressMissingPlaceholders = !!subjectRow && subjectRow.allAgree;
+  // If THIS side has no data on any row, the comparator is wholly
+  // absent (e.g. agent_extra / factor_extra findings where gold
+  // doesn't have the proposed factor at all). Skip per-part
+  // "(missing X)" placeholders — they'd repeat "missing" for
+  // every row when the card type already conveys the absence.
+  // Falls through to the existing "no entry" render.
+  const thisSideHasAny = sorted.some((r) => {
     const v =
       side === "proposal"
         ? r.proposal
         : side === "currently"
           ? r.currently
           : r.reference;
-    if (v && v.label) {
-      parts.push({ value: v, partLabel: r.rowLabel });
+    return !!(v && v.label);
+  });
+  const parts: {
+    value: SideValue;
+    partLabel: string;
+    missing: boolean;
+  }[] = [];
+  for (const r of sorted) {
+    const anyHas =
+      !!(r.proposal && r.proposal.label) ||
+      !!(r.currently && r.currently.label) ||
+      !!(r.reference && r.reference.label);
+    if (!anyHas) continue;
+    const v =
+      side === "proposal"
+        ? r.proposal
+        : side === "currently"
+          ? r.currently
+          : r.reference;
+    const missing = !v || !v.label;
+    if (missing && !thisSideHasAny) continue;
+    if (missing && suppressMissingPlaceholders && r.rowLabel !== "Subject") {
+      continue;
     }
+    parts.push({
+      value: v ?? { label: "", uri: null },
+      partLabel: r.rowLabel,
+      missing,
+    });
   }
   return (
     <div
@@ -1732,7 +2164,18 @@ function ComparatorLine({
       )}
     >
       <span className="text-slate-600 dark:text-slate-300">
-        <strong>{who}</strong> {verb}
+        <strong>{who}</strong>{verb ? ` ${verb}` : null}
+        {onLocate ? (
+          <button
+            type="button"
+            onClick={onLocate}
+            title="show in Design tab"
+            aria-label="locate in design"
+            className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
+          >
+            🔍
+          </button>
+        ) : null}
       </span>
       <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
         {parts.length === 0 ? (
@@ -1759,6 +2202,23 @@ function ComparatorLine({
                   {" - "}
                 </span>
               );
+            // Missing slot — this side lacks a part another side
+            // has. Render a faded "(missing <part>)" placeholder
+            // so the curator sees the gap explicitly.
+            if (p.missing) {
+              const partWord = p.partLabel.toLowerCase();
+              return (
+                <span key={p.partLabel} className="inline-flex items-baseline">
+                  {sep}
+                  <span
+                    className="text-[11px] italic text-slate-400 dark:text-slate-500"
+                    title={`${who} has no ${partWord} for this statement`}
+                  >
+                    (missing {partWord})
+                  </span>
+                </span>
+              );
+            }
             // Predicates render small + muted, no chip styling —
             // they're structural plumbing (e.g. "has_genotype"
             // between subject and object). Gemma's own per-FV
@@ -1768,7 +2228,7 @@ function ComparatorLine({
                 <span key={p.partLabel} className="inline-flex items-baseline">
                   {sep}
                   <span
-                    className="text-[10px] text-slate-500 dark:text-slate-400 font-mono"
+                    className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
                     title={p.value.uri || undefined}
                   >
                     {p.value.label}
@@ -1797,14 +2257,10 @@ function ComparatorLine({
             );
           })
         )}
-        {isActiveInDesign ? (
-          <span
-            className="ml-1 text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300"
-            title="This is what's currently on the design tab (the working draft)."
-          >
-            ← in current design
-          </span>
-        ) : null}
+        {/* No "← in current design" caption — the "Current" left-
+            column label already conveys that. Future follow-up:
+            click-to-highlight (magnifying glass icon) cross-pane
+            jump to the corresponding factor in the Design tab. */}
       </span>
     </div>
   );
@@ -1832,13 +2288,18 @@ function MappingChip({ term }: { term: { label: string; uri: string | null } }) 
     <span
       title={term.uri ? `${term.label} — ${term.uri}` : term.label}
       className={cn(
-        "inline-flex items-center px-1 py-0 rounded text-[11px] leading-[1.3rem] border",
+        "inline-flex items-baseline gap-1 px-1 py-0 rounded text-[11px] leading-[1.3rem] border",
         hasUri
           ? "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-700"
           : "bg-stone-50 text-stone-600 border-stone-200 italic dark:bg-stone-800 dark:text-stone-300 dark:border-stone-600",
       )}
     >
-      {term.label}
+      <span>{term.label}</span>
+      {hasUri ? (
+        <span className="text-slate-400 font-mono text-[10px] whitespace-nowrap">
+          {shortenUri(term.uri!)}
+        </span>
+      ) : null}
     </span>
   );
 }

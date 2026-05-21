@@ -45,6 +45,29 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
 
   const [selectedFactorId, setSelectedFactorId] = useState<number | null>(null);
 
+  // Compact view — global toggle that hides editing chrome on each
+  // FV card (delete / revert buttons, statement-template menu,
+  // predicate selects, etc.) and renders the statements as
+  // read-only S - P - O rows. Persists in localStorage so the
+  // curator's preference sticks across reloads.
+  const [compact, setCompact] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("gemma-design-compact") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "gemma-design-compact",
+        compact ? "1" : "0",
+      );
+    } catch {
+      // localStorage unavailable — toggle still works in-memory.
+    }
+  }, [compact]);
+
   const changes = useMemo(() => indexChanges(diff), [diff]);
 
   const validation = useMemo(
@@ -64,10 +87,25 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
     return onAuditFocusTarget(({ targetId }) => {
       const parsed = parseTargetId(targetId);
       if (!parsed) return;
-      if (parsed.kind === "factor") {
-        const target = draft?.factors.find(
-          (f) => slug(f.category?.label || "") === parsed.factorSlug,
+      // The factorSlug field of parseTargetId is the chunk after
+      // ``factor:`` — for finding target_ids it's commonly a
+      // NUMERIC id (e.g. ``factor:9325`` = gold factor's DB id),
+      // not the curator-readable category-label slug. Try numeric
+      // id first, then fall back to label-slug for legacy /
+      // calibration target_ids that use the label form.
+      const resolveFactor = (sl: string) => {
+        if (!draft) return undefined;
+        const asInt = Number.parseInt(sl, 10);
+        if (Number.isFinite(asInt)) {
+          const byId = draft.factors.find((f) => f.id === asInt);
+          if (byId) return byId;
+        }
+        return draft.factors.find(
+          (f) => slug(f.category?.label || "") === sl,
         );
+      };
+      if (parsed.kind === "factor") {
+        const target = resolveFactor(parsed.factorSlug);
         if (target) setSelectedFactorId(target.id);
         requestAnimationFrame(() => {
           focusByAuditTarget(targetId);
@@ -75,9 +113,7 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
         return;
       }
       if (parsed.kind === "fv") {
-        const target = draft?.factors.find(
-          (f) => slug(f.category?.label || "") === parsed.factorSlug,
-        );
+        const target = resolveFactor(parsed.factorSlug);
         if (target) setSelectedFactorId(target.id);
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -267,6 +303,8 @@ export function DesignEditor({ experimentId }: { experimentId: number }) {
                   ),
                 )
               }
+              compact={compact}
+              onToggleCompact={() => setCompact((v) => !v)}
             />
             <SampleAssignmentPreview
               factor={selectedFactor}

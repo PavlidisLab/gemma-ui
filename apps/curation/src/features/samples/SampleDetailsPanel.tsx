@@ -1001,8 +1001,17 @@ function SampleTable({
                 // column; the parent's onPromoteCharacteristic
                 // dispatches to the continuous or categorical
                 // mutation based on the values' shape.
-                const showPromote =
-                  !alreadyAFactor && !constantCharKeys.has(k);
+                // Continuous numberlike chars stay promote-eligible
+                // even when a factor with the same category label
+                // already exists (the existing one may be
+                // categorical / curator-built, and the char's
+                // numeric distribution is its own first-class
+                // factor worth surfacing). Categorical chars
+                // still hide the button when a like-named factor
+                // is already present. Per Paul 2026-05-21.
+                const showPromote = isContinuous
+                  ? !constantCharKeys.has(k)
+                  : !alreadyAFactor && !constantCharKeys.has(k);
                 const promoteTooltip = isContinuous
                   ? `Promote "${k}" to a continuous factor — one FV per sample, with the measurement as the value`
                   : `Promote "${k}" to a categorical factor — one FV per distinct value, samples assigned automatically`;

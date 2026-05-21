@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { InlineText } from "@/components/ui/InlineText";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { Term } from "@/components/ui/Term";
 import {
   StatementEditor,
   StatementGroupEditor,
@@ -35,9 +36,14 @@ export function FactorValueCard({
   onStatementChange,
   onStatementDelete,
   onRevert,
+  compact = false,
 }: {
   fv: FactorValue;
   factorCategory: OntologyTerm | null;
+  /** Compact view — hide per-FV editing chrome and render the
+   *  statements as read-only S - P - O rows. Header (title +
+   *  sample count + MODIFIED badge + revert) stays visible. */
+  compact?: boolean;
   change: FvChange | null;
   onLabelChange: (label: string) => void;
   onToggleBaseline: () => void;
@@ -119,7 +125,7 @@ export function FactorValueCard({
               wasn't. Compaction came as a bonus: each card is now
               ~12px shorter, which adds up over a six-FV factor. */}
           <span className={"font-medium text-sm " + tombstoneText}>
-            {isRemoved ? (
+            {isRemoved || compact ? (
               <span>{fv.free_text_label || <em>(blank)</em>}</span>
             ) : (
               <InlineText
@@ -239,7 +245,7 @@ export function FactorValueCard({
         <div className="flex items-center gap-2">
           {isRemoved ? (
             <span className="text-xs text-rose-700">deleted (uncommitted)</span>
-          ) : (
+          ) : compact ? null : (
             <>
               {onAssignRemaining && (remainingCount ?? 0) > 0 ? (
                 <button
@@ -294,7 +300,17 @@ export function FactorValueCard({
                   <ReadonlyStatement statement={s} />
                 </li>
               ))
-            : groupStatementsBySubject(fv.statements).map((group, gi) => (
+            : compact
+              ? groupStatementsBySubject(fv.statements).map((group, gi) => (
+                  <li key={`cgrp-${gi}`}>
+                    {group.statements.length === 1 ? (
+                      <CompactStatementRow statement={group.statements[0]} />
+                    ) : (
+                      <CompactStatementGroup statements={group.statements} />
+                    )}
+                  </li>
+                ))
+              : groupStatementsBySubject(fv.statements).map((group, gi) => (
                 <li key={`grp-${gi}`}>
                   {group.statements.length === 1 ? (
                     <StatementEditor
@@ -332,7 +348,7 @@ export function FactorValueCard({
                   )}
                 </li>
               ))}
-          {isRemoved ? null : (
+          {isRemoved || compact ? null : (
             <li>
               {/*
                 Compact add-row. Both buttons render as inline
@@ -438,6 +454,128 @@ function ReadonlyStatement({
       <span>{subj}</span>
       {pred ? <span className="mx-1">{pred}</span> : null}
       {obj ? <span>{obj}</span> : null}
+    </div>
+  );
+}
+
+/** Compact-mode statement render — S - P - O row with Term chips
+ *  on subject + object, muted predicate, and " - " separators
+ *  collapsing out missing parts. Matches the audit editor's
+ *  ComparatorLine convention so the design and audit surfaces
+ *  read the same way. */
+function CompactStatementRow({
+  statement,
+}: {
+  statement: FactorValue["statements"][number];
+}) {
+  const subj = statement.subject;
+  const pred = statement.predicate;
+  const obj = statement.object;
+  const hasPred = !!pred?.label?.trim();
+  const hasObj = !!obj?.label?.trim();
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]">
+      <Term
+        uri={subj?.uri ?? null}
+        asLink={false}
+        className="!whitespace-normal break-words"
+      >
+        {subj?.label || "(blank)"}
+      </Term>
+      {hasPred ? (
+        <>
+          <span className="text-slate-400 dark:text-slate-500"> - </span>
+          <span
+            className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+            title={pred?.uri || undefined}
+          >
+            {pred?.label}
+          </span>
+        </>
+      ) : null}
+      {hasObj ? (
+        <>
+          <span className="text-slate-400 dark:text-slate-500"> - </span>
+          <Term
+            uri={obj?.uri ?? null}
+            asLink={false}
+            className="!whitespace-normal break-words"
+          >
+            {obj?.label}
+          </Term>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/** Compact-mode rendering for a group of statements that share the
+ *  same (category, subject). Mirrors `StatementGroupEditor`'s
+ *  layout but read-only — subject chip on the left, each
+ *  statement's `predicate - object` pair stacked in a column to
+ *  the right. So a Srsf1 FV with two has_genotype statements
+ *  collapses to one subject + two stacked P/O rows instead of
+ *  repeating the (long) subject twice. Per Paul 2026-05-21. */
+function CompactStatementGroup({
+  statements,
+}: {
+  /** Length >= 2; singletons go through ``CompactStatementRow``
+   *  directly. */
+  statements: FactorValue["statements"];
+}) {
+  const head = statements[0];
+  const subj = head.subject;
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]">
+      <Term
+        uri={subj?.uri ?? null}
+        asLink={false}
+        className="!whitespace-normal break-words"
+      >
+        {subj?.label || "(blank)"}
+      </Term>
+      <div className="flex flex-col gap-1 min-w-0">
+        {statements.map((s, i) => {
+          const pred = s.predicate;
+          const obj = s.object;
+          const hasPred = !!pred?.label?.trim();
+          const hasObj = !!obj?.label?.trim();
+          return (
+            <div
+              key={i}
+              className="flex flex-wrap items-baseline gap-x-1.5"
+            >
+              {hasPred ? (
+                <>
+                  <span className="text-slate-400 dark:text-slate-500">
+                    {" - "}
+                  </span>
+                  <span
+                    className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+                    title={pred?.uri || undefined}
+                  >
+                    {pred?.label}
+                  </span>
+                </>
+              ) : null}
+              {hasObj ? (
+                <>
+                  <span className="text-slate-400 dark:text-slate-500">
+                    {" - "}
+                  </span>
+                  <Term
+                    uri={obj?.uri ?? null}
+                    asLink={false}
+                    className="!whitespace-normal break-words"
+                  >
+                    {obj?.label}
+                  </Term>
+                </>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
