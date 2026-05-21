@@ -651,22 +651,31 @@ export function addStatement(
 ): Design {
   const factor = design.factors.find((f) => f.id === factorId);
   const defaultCategory = factor?.category ? { ...factor.category } : null;
-  return mapFactorValue(design, factorId, fvId, (fv) => ({
-    ...fv,
-    // Default-inherit the factor's category. If the FV already has
-    // statements with a divergent category (e.g. the user explicitly
-    // set one to "treatment" inside a "genotype" factor), prefer the
-    // last-edited statement's category as the more likely intent.
-    statements: [
-      ...fv.statements,
-      {
-        category: fv.statements.length
-          ? (fv.statements[fv.statements.length - 1].category ?? defaultCategory)
-          : defaultCategory,
-        subject: { label: "" },
-      },
-    ],
-  }));
+  return mapFactorValue(design, factorId, fvId, (fv) => {
+    const last = fv.statements.length
+      ? fv.statements[fv.statements.length - 1]
+      : null;
+    return {
+      ...fv,
+      // Default-inherit the factor's category AND the subject from
+      // the last statement when present — when the curator clicks
+      // "+ statement" on an FV that already has one, they're almost
+      // always adding another claim about the same subject (e.g.
+      // "drug X delivered at dose Y" → "drug X delivered for
+      // duration Z"). Falls back to defaults on the first
+      // statement. Mirrors what `addSiblingStatement` does for the
+      // explicit "+ sibling" affordance — the bottom "+ statement"
+      // link wasn't seeding the subject, which forced the curator
+      // to re-type it.
+      statements: [
+        ...fv.statements,
+        {
+          category: last?.category ?? defaultCategory,
+          subject: last?.subject ? { ...last.subject } : { label: "" },
+        },
+      ],
+    };
+  });
 }
 
 /**

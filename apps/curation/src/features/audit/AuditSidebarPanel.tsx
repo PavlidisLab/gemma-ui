@@ -886,6 +886,44 @@ const SEVERITY_RANK: Record<Severity, number> = {
   ok: 3,
 };
 
+/** Re-arrange findings so each absorbed `_gold_only_miss`
+ *  (carrying ``consequent_of`` pointing at an upstream
+ *  ``_partition_mismatch``) is slotted immediately after its
+ *  upstream parent in the list. Preserves the input order for
+ *  every other finding. Findings whose linked half isn't in the
+ *  passed list stay where the input put them — the cross-link
+ *  badges still surface the relationship, just without
+ *  spatial pairing.
+ *
+ *  Per Paul 2026-05-20: cards that read as one curator decision
+ *  ("agent's split absorbs gold's timepoint factor") should sit
+ *  next to each other, not separated by unrelated findings. */
+function reorderConsequentPairs(items: AuditFinding[]): AuditFinding[] {
+  if (items.length < 2) return items;
+  // Map each upstream finding's target_id → list of absorbed
+  // children present in this group. One upstream can absorb
+  // multiple downstreams (rare today, but the schema allows it).
+  const childrenByUpstream = new Map<string, AuditFinding[]>();
+  const absorbedIds = new Set<string>();
+  for (const f of items) {
+    if (!f.consequent_of) continue;
+    if (!items.some((p) => p.target_id === f.consequent_of)) continue;
+    const list = childrenByUpstream.get(f.consequent_of) ?? [];
+    list.push(f);
+    childrenByUpstream.set(f.consequent_of, list);
+    absorbedIds.add(f.target_id);
+  }
+  if (absorbedIds.size === 0) return items;
+  const out: AuditFinding[] = [];
+  for (const f of items) {
+    if (absorbedIds.has(f.target_id)) continue;
+    out.push(f);
+    const children = childrenByUpstream.get(f.target_id);
+    if (children) out.push(...children);
+  }
+  return out;
+}
+
 /** Compact one-line summary of a closed audit's findings. Default
  *  collapsed; click to expand into the full FindingList (read-only,
  *  since FindingActionRow already detects isFinalized).
@@ -1104,6 +1142,15 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
     const arr = groupedActionable.get(f.target_kind) ?? [];
     arr.push(f);
     groupedActionable.set(f.target_kind, arr);
+  }
+  // Within each group, slot each absorbed `_gold_only_miss`
+  // immediately after its upstream `_partition_mismatch` so the
+  // "implies removal of X" link and the "← absorbed by Y split"
+  // link read as one beat instead of two scattered cards.
+  // Findings whose linked half isn't in the same group stay where
+  // the original sort put them.
+  for (const [kind, items] of groupedActionable) {
+    groupedActionable.set(kind, reorderConsequentPairs(items));
   }
   // One source of truth for both render order and section headers —
   // adding a new AuditTargetKind only touches this list.
@@ -2788,6 +2835,16 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   const { draft } = useDesignDraft();
   const disposition = dispositionByTarget.get(finding.target_id);
   const currentDisposition = disposition?.status ?? "pending";
+
+  // Card-level collapse, separate from `open` (the agent-details
+  // axis). Pending findings start expanded so the curator's
+  // primary surface is one click away; anything dispositioned
+  // starts collapsed since the verdict's already in. Curator
+  // clicks the fat chevron on the left to toggle either way.
+  // Modelled on MatchFindingRow's `▸/▾` collapse — Paul 2026-05-20:
+  // "make it so proposals can be collapsed, like the ones that are
+  // precollapsed".
+  const [cardOpen, setCardOpen] = useState(currentDisposition === "pending");
   // Retire the legacy RenameFactorEmbed when the per-element editor
   // renders below.
   const editorWillRender = findingHasStructuredContent(
@@ -2938,6 +2995,23 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             : "no further detail"
         }
       >
+        {/* Fat collapse chevron on the left, mirroring MatchFindingRow.
+            Clicking it toggles the whole-card collapse without firing
+            the outer header's expand-agent-details handler — the
+            row's onClick uses the `open` axis; this one uses
+            `cardOpen`. */}
+        <button
+          type="button"
+          aria-label={cardOpen ? "collapse card" : "expand card"}
+          onClick={(e) => {
+            e.stopPropagation();
+            setCardOpen((v) => !v);
+          }}
+          className="text-base leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 -mt-0.5"
+          title={cardOpen ? "collapse" : "expand"}
+        >
+          {cardOpen ? "▾" : "▸"}
+        </button>
         {hasDisposition ? (
           <DispositionDot
             status={
@@ -3026,12 +3100,12 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         ) : null}
       </div>
 
-      {/* Expanded body — citation + agent suggestion panel — only
-          when the curator opens the card. The action row stays
-          visible regardless so Agree / Disagree / Park are always
-          one click away (per Paul, 2026-05-13: "for proposals the
-          add/decline buttons should be visible by default"). */}
-      {open ? (
+      {/* Agent-details panel — citation + agent suggestion + subtask
+          reasoning. Gated on `open` (the inner agent-details axis).
+          Only renders when the card itself is expanded — when the
+          curator collapsed the card, the agent details hide
+          regardless of the `open` state. */}
+      {cardOpen && open ? (
         <div className="space-y-1.5 pl-1 border-l-2 border-slate-200 dark:border-slate-700">
           {/* Raw target_id slug — debug-only DOM key for the
               inline-dot resolver, not curator-actionable. Hidden
@@ -3093,7 +3167,11 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         </div>
       ) : null}
 
-      <FindingActionRow finding={finding} />
+      {/* Action row (editor + verdict buttons) only renders when
+          the card is expanded. Collapsed cards are a one-line
+          header for scanning — curator clicks the chevron to
+          bring back the action surface. */}
+      {cardOpen ? <FindingActionRow finding={finding} /> : null}
     </div>
   );
 }
@@ -4859,14 +4937,14 @@ function ProposerFlagsChips({ flags }: { flags?: string[] }) {
   if (!flags || flags.length === 0) return null;
   const configs: Record<string, { label: string; title: string }> = {
     multi_factor_collapse: {
-      label: "⚑ collapse-flag",
+      label: "⚑ may be 2 factors",
       title:
-        "S2j flagged this factor as a likely cross-product collapse (one FV encoding two variables).",
+        "Agent's pattern check noticed values that look like a cross-product of two variables (e.g. \"wild-type × Cre+\"). This may belong as two separate factors.",
     },
     multi_factor_split: {
-      label: "⚑ split-flag",
+      label: "⚑ may be 2 factors",
       title:
-        "S2m flagged this factor as a likely cross-product split (N FVs sharing a stem with axis-shaped suffix variation).",
+        "Agent's pattern check noticed values sharing a stem with varying suffix (e.g. \"rotenone 3h\" / \"rotenone 3d\"). This may belong as treatment + timepoint factors.",
     },
   };
   return (

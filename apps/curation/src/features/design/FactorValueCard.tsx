@@ -222,7 +222,7 @@ export function FactorValueCard({
             <button
               type="button"
               onClick={onRevert}
-              className="text-[11px] text-slate-500 hover:text-rose-700 underline-offset-2 hover:underline"
+              className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-700 hover:text-rose-700 underline-offset-2 hover:underline dark:text-amber-400 dark:hover:text-rose-400"
               title={
                 change.kind === "added"
                   ? "discard this FV — it didn't exist on the saved baseline"
@@ -231,6 +231,7 @@ export function FactorValueCard({
                     : "discard your edits to this FV (label, baseline, statements, sample assignments) and restore from saved"
               }
             >
+              <span aria-hidden className="text-[12px] leading-none">↺</span>
               revert
             </button>
           ) : null}

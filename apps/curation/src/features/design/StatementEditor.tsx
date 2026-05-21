@@ -136,20 +136,23 @@ export function StatementEditor({
 
       <span className="inline-flex items-center gap-1">
         {/*
-          Predicate select recedes to near-text styling — bordered
-          chrome only on hover/focus, slate-500 italic when empty so
-          "(no predicate)" reads as a hint, not a control. Subject
-          and object carry the visual weight of the statement.
+          Predicate select. When a predicate is picked it recedes to
+          near-text styling so subject + object carry the visual
+          weight. When empty it needs to read as a *control*, not a
+          label — the prior italic-grey "(no predicate)" looked like
+          a hint and confused curators ("where do I click to add the
+          object?"). Solution: when empty, render a dashed-border
+          chip labelled "+ predicate" that visibly invites a click.
           ``text-sm`` matches the surrounding statement text so the
           predicate doesn't visually shrink between the subject and
           object terms.
         */}
         <select
           className={
-            "text-sm rounded px-1 py-0 bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 cursor-pointer max-w-[14rem] " +
+            "text-sm rounded px-1 py-0 cursor-pointer max-w-[14rem] " +
             (statement.predicate
-              ? "text-slate-700"
-              : "text-slate-400 italic")
+              ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
+              : "border border-dashed border-slate-400 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:border-slate-500 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")
           }
           value={statement.predicate?.uri ?? ""}
           onChange={(e) => {
@@ -397,12 +400,13 @@ function InlinePredicateObjectPair({
     <span className="group inline-flex items-center gap-1">
       <select
         className={
-          // Same near-text styling as the singleton StatementEditor —
-          // recedes when empty so subject/object carry the eye.
-          "text-[11px] rounded px-0.5 py-0 bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 cursor-pointer " +
+          // Same chrome as the singleton StatementEditor — recedes
+          // when populated, dashed-border affordance when empty so
+          // curators see it as a control.
+          "text-[11px] rounded px-0.5 py-0 cursor-pointer " +
           (statement.predicate
-            ? "text-slate-700"
-            : "text-slate-400 italic")
+            ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
+            : "border border-dashed border-slate-400 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:border-slate-500 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")
         }
         value={statement.predicate?.uri ?? ""}
         onChange={(e) => {
@@ -444,7 +448,12 @@ function InlinePredicateObjectPair({
 
       <button
         type="button"
-        className="text-rose-700 text-xs opacity-0 group-hover:opacity-100 px-1"
+        // Always visible (was hover-hidden). Per-pair × is the
+        // most-local "undo" for a curator who added an extra
+        // predicate/object row they didn't mean to keep; hiding
+        // it on hover meant the curator couldn't see how to back
+        // out of a misclick.
+        className="text-slate-400 hover:text-rose-700 text-xs px-1"
         onClick={onDelete}
         title="remove this predicate/object pair"
         aria-label="remove pair"

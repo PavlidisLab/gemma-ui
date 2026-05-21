@@ -307,10 +307,18 @@ export function OntologyTermPicker({
     );
   }
 
+  const isEmpty = !label;
   return (
     <span
       role="button"
       tabIndex={0}
+      // Single-click opens the picker on an empty slot — curators
+      // need to fill it, so requiring a double-click is friction
+      // (and the placeholder text reads as a label, not a
+      // control). Populated terms keep the double-click guard so
+      // hovering / text-selecting on resolved labels doesn't open
+      // edit mode by mistake.
+      onClick={isEmpty ? () => setEditing(true) : undefined}
       onDoubleClick={() => setEditing(true)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -328,8 +336,15 @@ export function OntologyTermPicker({
         // "ontology-resolved"; reusing it for baseline conflated
         // two distinct states. Baseline status is signalled only
         // by the separate ``★ baseline`` pill.
-        "cursor-text hover:bg-blue-50 rounded px-1 -mx-1 select-none font-medium",
-        !label && "text-slate-400 italic font-normal",
+        "rounded px-1 -mx-1 select-none font-medium",
+        // Empty slot with a placeholder reads as "fill this in" —
+        // give it a dashed border + cursor-pointer so the curator
+        // sees an affordance instead of just an italic-grey
+        // placeholder. Populated terms keep the lighter
+        // hover-only chrome so they don't visually shout.
+        isEmpty
+          ? "cursor-pointer border border-dashed border-slate-400 bg-slate-50 text-slate-500 italic font-normal hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+          : "cursor-text hover:bg-blue-50",
         label && hasUri && "text-emerald-800",
         label && !hasUri && "text-slate-900 italic",
         isUnknown && "outline outline-1 outline-amber-300",
@@ -340,7 +355,7 @@ export function OntologyTermPicker({
           ? `${label} — ${value!.uri} (double-click to edit; URI override inside the picker)`
           : label
             ? `${label} — free text (double-click to edit)`
-            : `double-click to pick a term`
+            : `click to pick a term`
       }
     >
       {label || placeholder || "(term)"}
