@@ -128,13 +128,20 @@ export function DismissDialog({
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useLayoutEffect(() => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
     if (!anchor) {
-      setPos(null);
+      // No anchor (e.g. the editor's Dismiss button doesn't
+      // attach a ref) — fall back to centered-on-screen so the
+      // dialog still renders. Previously this returned null and
+      // the dialog silently failed to open. Per Paul 2026-05-21.
+      setPos({
+        top: Math.max(VIEWPORT_GUTTER, (vh - DIALOG_H_ESTIMATE) / 2),
+        left: Math.max(VIEWPORT_GUTTER, (vw - DIALOG_W) / 2),
+      });
       return;
     }
     const rect = anchor.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
     let top = rect.bottom + ANCHOR_OFFSET;
     let left = rect.left;
     if (left + DIALOG_W + VIEWPORT_GUTTER > vw) {
