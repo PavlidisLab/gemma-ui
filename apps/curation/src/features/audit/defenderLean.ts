@@ -137,26 +137,51 @@ export function leanLabelPrefix(
   return strength.toUpperCase();
 }
 
+/** Strength bucket used by the single-axis label mapping. */
+export type LeanStrength = "weak" | "moderate" | "strong" | null | undefined;
+
 /** Curator-facing label for the SUGGESTION-header in
- *  `AgentSuggestionPanel`. Three shapes:
+ *  `AgentSuggestionPanel`.
  *
- *    - pro_agent + strength → `"STRONG SUGGESTION"` (today's text)
- *    - pro_gold + strength  → `"STRONG: keep current"`
- *    - neutral / no strength → `"suggestion"` (the generic
- *      "no recommendation" fallback the panel already uses)
+ *  Single-axis framing (Paul 2026-05-21): the label always describes
+ *  the *strength of the suggestion to change*. Keep / change are
+ *  inverse senses of one axis, not two separate dimensions; the prior
+ *  "STRONG SUGGESTION" vs "STRONG: keep current" two-axis text made
+ *  "strong-to-keep = weak-to-change" intuitive but read as confusing
+ *  on the card. The new mapping always frames the proposed change
+ *  action:
  *
- *  Lower-case `"suggestion"` is the existing fallback string from
- *  AuditSidebarPanel.tsx; keep it identical so the visual when no
- *  defender attached doesn't change. */
+ *  | lean      | strength | label                |
+ *  |-----------|----------|----------------------|
+ *  | pro_agent | strong   | STRONG SUGGESTION    |
+ *  | pro_agent | moderate | MODERATE SUGGESTION  |
+ *  | pro_agent | weak     | WEAK SUGGESTION      |
+ *  | pro_gold  | weak     | WEAK SUGGESTION      |
+ *  | pro_gold  | moderate | WEAK SUGGESTION      |
+ *  | pro_gold  | strong   | NOT SUGGESTED        |
+ *  | neutral   | any      | NO RECOMMENDATION    |
+ *  | any       | null     | suggestion           |
+ *
+ *  Severity-strip colour (amber/emerald) still tracks raw strength —
+ *  only the label TEXT changes here. Lower-case `"suggestion"` is the
+ *  unchanged fallback when no strength is attached. */
 export function leanSuggestionLabel(
   lean: DefenderLean,
-  strengthPrefix: string | null,
+  strength: LeanStrength,
 ): string {
-  if (!strengthPrefix) return "suggestion";
-  if (lean === "pro_gold") return `${strengthPrefix}: keep current`;
-  if (lean === "pro_agent") return `${strengthPrefix} SUGGESTION`;
-  // neutral but strength present (e.g. moderate borderline verdict)
-  // — show the strength but not a directional verb, so the curator
-  // sees "the judge graded this but didn't pick a side".
-  return `${strengthPrefix} (no recommendation)`;
+  if (!strength) return "suggestion";
+  if (lean === "pro_agent") {
+    if (strength === "strong") return "STRONG SUGGESTION";
+    if (strength === "moderate") return "MODERATE SUGGESTION";
+    return "WEAK SUGGESTION";
+  }
+  if (lean === "pro_gold") {
+    if (strength === "strong") return "NOT SUGGESTED";
+    // pro_gold + moderate collapses with pro_gold + weak: the change
+    // is weakly motivated. (Differentiating "MODERATE AGAINST" was
+    // considered but rejected as still implying a second axis.)
+    return "WEAK SUGGESTION";
+  }
+  // neutral — judge graded the finding but didn't pick a side.
+  return "NO RECOMMENDATION";
 }

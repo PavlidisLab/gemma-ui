@@ -4037,12 +4037,13 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   // header label TEXT — the SUGGESTION header used to say "STRONG
   // SUGGESTION" even when the judge had concluded the agent was
   // wrong (e.g. GSE93824 Arctic-APP concept_gold_right case,
-  // Paul 2026-05-21). The lean-aware label flips to
-  // "STRONG: keep current" in that case so the curator isn't nudged
-  // toward the wrong answer. See ./defenderLean.ts.
+  // Paul 2026-05-21). The lean-aware label flips to "NOT SUGGESTED"
+  // in that case so the curator isn't nudged toward the wrong
+  // answer. Single-axis framing (Paul 2026-05-21): the label always
+  // describes the *strength of the suggestion to change* — see
+  // ./defenderLean.ts for the full mapping table.
   const lean = findingLean(finding);
-  const strengthPrefix = strength ? strength.toUpperCase() : null;
-  const headerLabel = leanSuggestionLabel(lean, strengthPrefix);
+  const headerLabel = leanSuggestionLabel(lean, strength);
 
   // Judge row — always rendered (Paul 2026-05-21: the curator needs
   // the WHY even when the agent emitted nothing). Sentinel branch

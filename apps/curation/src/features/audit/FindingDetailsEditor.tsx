@@ -1716,6 +1716,7 @@ export function FindingDetailsEditor({
           rowState={rowState}
           onLocateCurrent={onLocateCurrent}
           editCategory={firstBacktick(finding.rationale) ?? null}
+          leanKinds={leanKinds}
           onPick={(pick) => {
             for (const row of g.disagreement) setPick(row.path, { pick });
           }}
@@ -1912,6 +1913,7 @@ function DisagreementBlock({
   onEditCommit,
   onLocateCurrent,
   editCategory,
+  leanKinds,
 }: {
   /** Rows the curator must pick on. Pick / edit state applies to
    *  these. */
@@ -1932,6 +1934,15 @@ function DisagreementBlock({
   /** Category label used to filter the ontology-term picker's
    *  typeahead when the curator opens the "edit…" affordance. */
   editCategory?: string | null;
+  /** Lean-driven primary/secondary kinds shared with the outer
+   *  ActionRow. Drives which of the (keep, adopt) per-FV
+   *  PickButtons reads as recommended. Same value the parent passes
+   *  to its bottom-of-card ActionRow — this is the regression-prevent
+   *  for the GSE93824 split-bug (Paul 2026-05-21) where the outer
+   *  row correctly highlighted `keep current` (green-primary) on
+   *  `concept_gold_right` but the per-FV row inside the same block
+   *  still highlighted `adopt Auditor's` (blue-primary). */
+  leanKinds: { keep: ActionButton["kind"]; accept: ActionButton["kind"] };
 }) {
   if (rows.length === 0) return null;
   const first = rows[0];
@@ -2035,6 +2046,7 @@ function DisagreementBlock({
       <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
         <PickButton
           active={blockPick === "currently"}
+          recommended={leanKinds.keep === "primary-keep"}
           onClick={() => onPick("currently")}
           tone="keep"
         >
@@ -2042,6 +2054,7 @@ function DisagreementBlock({
         </PickButton>
         <PickButton
           active={blockPick === "proposal"}
+          recommended={leanKinds.accept === "primary-accept"}
           onClick={() => onPick("proposal")}
           tone="accept"
         >
@@ -2628,36 +2641,55 @@ function ActionRow({
   );
 }
 
+/** Per-FV pick button inside `DisagreementBlock`. Two visual axes:
+ *
+ *  - ``active`` — the curator clicked this side; renders filled in
+ *    the tone colour regardless of lean (their pick always wins
+ *    visually).
+ *  - ``recommended`` — the judge's lean points at this side;
+ *    renders filled in the tone colour by default so the curator
+ *    sees which action is suggested without first clicking
+ *    anything. Mirrors the outer ActionRow's primary-keep /
+ *    primary-accept kinds (Paul 2026-05-21: the outer row was
+ *    lean-aware after 21f7f17 but this per-FV row was still
+ *    highlighting "adopt Auditor's" on `concept_gold_right`
+ *    findings like GSE93824 genotype FV2).
+ *
+ *  Unset on both axes → outlined in tone colour, same as the
+ *  original inactive style. */
 function PickButton({
   active,
+  recommended = false,
   onClick,
   tone,
   children,
 }: {
   active: boolean;
+  recommended?: boolean;
   onClick: () => void;
   tone: "keep" | "accept" | "ref";
   children: React.ReactNode;
 }) {
-  const activeCls = {
+  const filledCls = {
     keep: "bg-emerald-700 text-white border-emerald-700",
     accept: "bg-blue-700 text-white border-blue-700",
     ref: "bg-sky-700 text-white border-sky-700",
   }[tone];
-  const inactiveCls = {
+  const outlinedCls = {
     keep:
       "border-emerald-400 text-emerald-800 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/30",
     accept:
       "border-blue-400 text-blue-800 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/30",
     ref: "border-sky-400 text-sky-800 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30",
   }[tone];
+  const filled = active || recommended;
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
         "px-2 py-0.5 rounded border text-[11px] font-semibold",
-        active ? activeCls : inactiveCls,
+        filled ? filledCls : outlinedCls,
       )}
     >
       {children}

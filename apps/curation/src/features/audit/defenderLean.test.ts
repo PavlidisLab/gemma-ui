@@ -10,13 +10,13 @@ import type {
 } from "@/api/auditTypes";
 
 /** Pins down the verdict→lean mapping (mirror of agents-repo
- *  `_LEGACY_LEANS` / `_ARBITER_LEANS`) and the header-label
- *  strings the UI renders. Drives the GSE93824 Arctic-APP fix
- *  (Paul 2026-05-21): "STRONG SUGGESTION" used to highlight
- *  `adopt Auditor's` even when the judge said `concept_gold_right`
- *  (agent is wrong). With the lean-aware label, that finding now
- *  reads "STRONG: keep current" and the `keep current` button is
- *  the primary action.
+ *  `_LEGACY_LEANS` / `_ARBITER_LEANS`) and the single-axis header
+ *  label the UI renders. Drives the GSE93824 Arctic-APP fix (Paul
+ *  2026-05-21): "STRONG SUGGESTION" used to highlight `adopt
+ *  Auditor's` even when the judge said `concept_gold_right` (agent
+ *  is wrong). With the single-axis label, that finding now reads
+ *  "NOT SUGGESTED" and the `keep current` button is the primary
+ *  action on both the outer and per-FV rows.
  */
 
 function makeFinding(
@@ -183,59 +183,73 @@ describe("findingLean", () => {
 });
 
 // ---------------------------------------------------------------------------
-// leanSuggestionLabel — header text in AgentSuggestionPanel
+// leanSuggestionLabel — header text in AgentSuggestionPanel.
+// Single-axis framing (Paul 2026-05-21): the label always describes
+// the *strength of the suggestion to change*. Keep / change are
+// inverse senses of one axis, not two separate dimensions.
 // ---------------------------------------------------------------------------
 
-describe("leanSuggestionLabel", () => {
-  // ---- Case 1: GSE93824 — concept_gold_right + strong ----
-  it("pro_gold + STRONG → 'STRONG: keep current' (GSE93824 case)", () => {
-    expect(leanSuggestionLabel("pro_gold", "STRONG")).toBe(
-      "STRONG: keep current",
-    );
-  });
-
-  // ---- Case 2: pro_agent — today's behaviour preserved ----
-  it("pro_agent + STRONG → 'STRONG SUGGESTION' (today's behaviour)", () => {
-    expect(leanSuggestionLabel("pro_agent", "STRONG")).toBe(
+describe("leanSuggestionLabel (single-axis)", () => {
+  // ---- pro_agent: change is suggested; strength tracks confidence ----
+  it("pro_agent + strong → 'STRONG SUGGESTION'", () => {
+    expect(leanSuggestionLabel("pro_agent", "strong")).toBe(
       "STRONG SUGGESTION",
     );
   });
 
-  it("pro_agent + MODERATE → 'MODERATE SUGGESTION'", () => {
-    expect(leanSuggestionLabel("pro_agent", "MODERATE")).toBe(
+  it("pro_agent + moderate → 'MODERATE SUGGESTION'", () => {
+    expect(leanSuggestionLabel("pro_agent", "moderate")).toBe(
       "MODERATE SUGGESTION",
     );
   });
 
-  it("pro_agent + WEAK → 'WEAK SUGGESTION'", () => {
-    expect(leanSuggestionLabel("pro_agent", "WEAK")).toBe(
+  it("pro_agent + weak → 'WEAK SUGGESTION'", () => {
+    expect(leanSuggestionLabel("pro_agent", "weak")).toBe(
       "WEAK SUGGESTION",
     );
   });
 
-  // ---- Case 3: neutral / no defender ----
-  it("neutral + null strength → 'suggestion' (no recommendation)", () => {
+  // ---- pro_gold: judge against the change; flips to NOT SUGGESTED at strong ----
+  it("pro_gold + strong → 'NOT SUGGESTED' (GSE93824 case)", () => {
+    expect(leanSuggestionLabel("pro_gold", "strong")).toBe("NOT SUGGESTED");
+  });
+
+  it("pro_gold + moderate → 'WEAK SUGGESTION'", () => {
+    expect(leanSuggestionLabel("pro_gold", "moderate")).toBe(
+      "WEAK SUGGESTION",
+    );
+  });
+
+  it("pro_gold + weak → 'WEAK SUGGESTION'", () => {
+    expect(leanSuggestionLabel("pro_gold", "weak")).toBe("WEAK SUGGESTION");
+  });
+
+  // ---- neutral: judge graded but didn't pick a side ----
+  it("neutral + moderate → 'NO RECOMMENDATION'", () => {
+    expect(leanSuggestionLabel("neutral", "moderate")).toBe(
+      "NO RECOMMENDATION",
+    );
+  });
+
+  it("neutral + strong → 'NO RECOMMENDATION'", () => {
+    expect(leanSuggestionLabel("neutral", "strong")).toBe(
+      "NO RECOMMENDATION",
+    );
+  });
+
+  // ---- null strength: preserve original fallback text ----
+  it("neutral + null strength → 'suggestion' (no defender attached)", () => {
     expect(leanSuggestionLabel("neutral", null)).toBe("suggestion");
   });
 
-  it("pro_gold + null strength → 'suggestion' (no recommendation)", () => {
-    // No strength info → suppress the label even if a lean is
-    // computable from elsewhere. Matches the original "what was
-    // proposed" fallback.
+  it("pro_gold + null strength → 'suggestion'", () => {
+    // No strength info → suppress the directional label even if a
+    // lean is computable from elsewhere. Matches the original "what
+    // was proposed" fallback.
     expect(leanSuggestionLabel("pro_gold", null)).toBe("suggestion");
   });
 
-  // ---- Edge: neutral + strength (e.g. moderate borderline) ----
-  it("neutral + MODERATE → 'MODERATE (no recommendation)'", () => {
-    expect(leanSuggestionLabel("neutral", "MODERATE")).toBe(
-      "MODERATE (no recommendation)",
-    );
-  });
-
-  // ---- Case 4: pro_gold weak (e.g. extra_unsupported, miss_genuine) ----
-  it("pro_gold + WEAK → 'WEAK: keep current'", () => {
-    expect(leanSuggestionLabel("pro_gold", "WEAK")).toBe(
-      "WEAK: keep current",
-    );
+  it("pro_agent + undefined strength → 'suggestion'", () => {
+    expect(leanSuggestionLabel("pro_agent", undefined)).toBe("suggestion");
   });
 });
