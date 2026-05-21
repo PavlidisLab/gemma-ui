@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CellGeometry, HeatmapConfig, HeatmapData } from './types';
+import type {
+  CellGeometry,
+  HeatmapConfig,
+  HeatmapData,
+  StripHit,
+} from './types';
 import { computeLayout, resolveConfig } from './layout';
 import { renderMatrix } from './render';
 
@@ -11,12 +16,38 @@ export interface HeatmapProps {
    * `numRows * cell.maxHeight` (rows render at their max height).
    */
   height?: number;
-  /** Called when the pointer enters a cell. */
-  onCellHover?: (cell: CellGeometry, ev: React.MouseEvent<HTMLCanvasElement>) => void;
+  /**
+   * Pointer-over callback. Fires whenever the cursor moves over the
+   * canvas:
+   *   - over a matrix cell        → `{ kind: 'cell',  hit: CellGeometry }`
+   *   - over an annotation strip  → `{ kind: 'strip', hit: StripHit }`
+   *   - elsewhere (e.g. inside a gap) → not called.
+   */
+  onPointerOver?: (
+    e:
+      | { kind: 'cell'; hit: CellGeometry; ev: React.MouseEvent<HTMLCanvasElement> }
+      | { kind: 'strip'; hit: StripHit; ev: React.MouseEvent<HTMLCanvasElement> },
+  ) => void;
   /** Called when the pointer leaves the matrix area. */
   onCellLeave?: () => void;
+  /** Click handler — same discriminator as `onPointerOver`. */
+  onCellClick?: (
+    e:
+      | { kind: 'cell'; hit: CellGeometry; ev: React.MouseEvent<HTMLCanvasElement> }
+      | { kind: 'strip'; hit: StripHit; ev: React.MouseEvent<HTMLCanvasElement> },
+  ) => void;
+  /** Clicking on the strip's leftmost gutter (the HTML label area)
+   *  sets that factor as the main grouping factor. Spec §4.1. */
+  onStripGutterClick?: (stripIndex: number) => void;
+  /** Visual marker for the currently-selected main-grouping strip
+   *  (2px amber border around the strip's gutter). Spec §4.2. */
+  selectedStripIndex?: number | null;
   /** Wrapper className for styling hooks (Tailwind, etc.). */
   className?: string;
+
+  // — back-compat shims for v1 callers —
+  /** v1 alias: hover on matrix cell only. Prefer `onPointerOver`. */
+  onCellHover?: (cell: CellGeometry, ev: React.MouseEvent<HTMLCanvasElement>) => void;
 }
 
 /**
@@ -39,7 +70,11 @@ export function Heatmap({
   config,
   height,
   onCellHover,
+  onPointerOver,
   onCellLeave,
+  onCellClick,
+  onStripGutterClick,
+  selectedStripIndex,
   className,
 }: HeatmapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -139,15 +174,43 @@ export function Heatmap({
   const gapAfterStrips = annotations.length > 0 ? 4 : 0;
 
   const handleMouseMove = (ev: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!onCellHover) return;
     const rr = renderResultRef.current;
     if (!rr) return;
     const rect = ev.currentTarget.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
     const cell = rr.cellAt(x, y);
-    if (cell) onCellHover(cell, ev);
+    if (cell) {
+      onCellHover?.(cell, ev);
+      onPointerOver?.({ kind: 'cell', hit: cell, ev });
+      return;
+    }
+    const strip = rr.stripAt(x, y);
+    if (strip) {
+      onPointerOver?.({ kind: 'strip', hit: strip, ev });
+    }
   };
+
+  const handleClick = (ev: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!onCellClick) return;
+    const rr = renderResultRef.current;
+    if (!rr) return;
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    const cell = rr.cellAt(x, y);
+    if (cell) {
+      onCellClick({ kind: 'cell', hit: cell, ev });
+      return;
+    }
+    const strip = rr.stripAt(x, y);
+    if (strip) {
+      onCellClick({ kind: 'strip', hit: strip, ev });
+    }
+  };
+
+  const wantsCanvasMouse =
+    !!onCellHover || !!onPointerOver || !!onCellClick;
 
   return (
     <div ref={containerRef} className={className} style={{ width: '100%' }}>
@@ -227,9 +290,14 @@ export function Heatmap({
         <div style={{ gridRow: '2 / span 2', gridColumn: '1 / span 1' }}>
           <canvas
             ref={canvasRef}
-            onMouseMove={onCellHover ? handleMouseMove : undefined}
+            onMouseMove={wantsCanvasMouse ? handleMouseMove : undefined}
             onMouseLeave={onCellLeave}
-            style={{ display: 'block', imageRendering: 'pixelated' }}
+            onClick={onCellClick ? handleClick : undefined}
+            style={{
+              display: 'block',
+              imageRendering: 'pixelated',
+              cursor: onCellClick ? 'pointer' : undefined,
+            }}
           />
         </div>
 
@@ -244,22 +312,48 @@ export function Heatmap({
             color: '#374151',
           }}
         >
-          {annotations.map((a, i) => (
-            <div
-              key={a.name}
-              style={{
-                height: resolved.annotationStripHeight,
-                lineHeight: `${resolved.annotationStripHeight}px`,
-                marginTop: i === 0 ? 0 : resolved.annotationStripGap,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-              title={a.name}
-            >
-              {a.name}
-            </div>
-          ))}
+          {annotations.map((a, i) => {
+            const selected = selectedStripIndex === i;
+            const clickable = !!onStripGutterClick;
+            return (
+              <div
+                key={`${a.name}-${i}`}
+                onClick={
+                  clickable
+                    ? (ev) => {
+                        ev.stopPropagation();
+                        onStripGutterClick(i);
+                      }
+                    : undefined
+                }
+                style={{
+                  height: resolved.annotationStripHeight,
+                  lineHeight: `${resolved.annotationStripHeight}px`,
+                  marginTop: i === 0 ? 0 : resolved.annotationStripGap,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  cursor: clickable ? 'pointer' : undefined,
+                  // 2px amber-500 outline on the selected strip's
+                  // gutter (HEATMAP_SPEC §4.2). `outline` doesn't
+                  // consume layout space, so non-selected strips
+                  // stay flush with the canvas strip baseline.
+                  outline: selected ? '2px solid #f59e0b' : undefined,
+                  outlineOffset: selected ? -1 : undefined,
+                  borderRadius: 2,
+                  background:
+                    clickable && !selected ? 'transparent' : undefined,
+                }}
+                title={
+                  clickable
+                    ? `Group columns by ${a.name}`
+                    : a.name
+                }
+              >
+                {a.name}
+              </div>
+            );
+          })}
         </div>
 
         {/* (3,2) row labels */}

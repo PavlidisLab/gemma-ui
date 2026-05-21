@@ -20,6 +20,7 @@ import { BrowserPage } from "@/features/browser/BrowserPage";
 import { PlatformsPage } from "@/features/platforms/PlatformsPage";
 import { PlatformDetailPage } from "@/features/platforms/PlatformDetailPage";
 import { HeatmapDemo } from "@/features/heatmap-demo/HeatmapDemo";
+import { HeatmapDemoV2 } from "@/features/heatmap-demo/HeatmapDemoV2";
 import { DatasetPage } from "@/features/dataset/DatasetPage";
 import { GenePage } from "@/features/gene/GenePage";
 import { GenesPage } from "@/features/gene/GenesPage";
@@ -105,6 +106,12 @@ const heatmapDemoRoute = createRoute({
   component: () => <HeatmapDemo />,
 });
 
+const heatmapDemoV2Route = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/heatmap-demo-v2",
+  component: () => <HeatmapDemoV2 />,
+});
+
 // Public expression-experiment page. Accepts either numeric id or
 // short-name (GSE...) — getDatasetById takes both.
 const datasetRoute = createRoute({
@@ -150,6 +157,7 @@ export const routeTree = rootRoute.addChildren([
   platformDetailRoute,
   summaryRoute,
   heatmapDemoRoute,
+  heatmapDemoV2Route,
   datasetRoute,
   genesRoute,
   geneRoute,

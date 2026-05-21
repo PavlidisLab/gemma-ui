@@ -1,10 +1,14 @@
 import { makeColorScale } from './color';
 import { computeLayout, meanOverSpan, modeOverSpan, resolveConfig } from './layout';
+import { projectContinuous, projectedDomain } from './strips/continuous';
 import type {
+  AnnotationStrip,
   CellGeometry,
   HeatmapConfig,
   HeatmapData,
   RenderResult,
+  ResolvedConfig,
+  StripHit,
 } from './types';
 
 export interface RenderOptions {
@@ -36,7 +40,7 @@ export function renderMatrix(
   const resolved = resolveConfig(data, config);
   const layout = computeLayout(data, resolved, opts.availableW, opts.availableH);
 
-  const annotations = data.colAnnotations ?? [];
+  const annotations: AnnotationStrip[] = data.colAnnotations ?? [];
   const stripsBlockH =
     annotations.length === 0
       ? 0
@@ -44,7 +48,23 @@ export function renderMatrix(
         (annotations.length - 1) * resolved.annotationStripGap;
   const gapAfterStrips = annotations.length > 0 ? 4 : 0;
 
-  const totalW = layout.matrixW;
+  // Compute per-rendered-column x positions, factoring in any
+  // `colGapsBefore` entries from the v2 main-grouping reorder. Gaps
+  // are read from the SOURCE column index of each rendered cell
+  // (i.e. `colGapsBefore[srcStart]`). Merged cells just take the gap
+  // of their first source column.
+  const xs = new Array<number>(layout.columns.length);
+  const gapsBefore = data.colGapsBefore;
+  let cursorX = 0;
+  for (let r = 0; r < layout.columns.length; r++) {
+    const { srcStart } = layout.columns[r];
+    const g = gapsBefore?.[srcStart] ?? 0;
+    // Spec: no leading gap on the very first rendered column.
+    cursorX += r === 0 ? 0 : g;
+    xs[r] = cursorX;
+    cursorX += layout.cellW;
+  }
+  const totalW = cursorX;
   const totalH = stripsBlockH + gapAfterStrips + layout.matrixH;
 
   const dpr = opts.dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
@@ -65,18 +85,21 @@ export function renderMatrix(
   ctx.imageSmoothingEnabled = false;
 
   // --- Annotation strips ---
+  const stripRects: Array<{ x: number; y: number; w: number; h: number }> = [];
   for (let s = 0; s < annotations.length; s++) {
     const strip = annotations[s];
     const y =
       s * (resolved.annotationStripHeight + resolved.annotationStripGap);
-    for (let r = 0; r < layout.columns.length; r++) {
-      const { srcStart, srcCount } = layout.columns[r];
-      const value = srcCount === 1
-        ? strip.values[srcStart]
-        : modeOverSpan(strip.values, srcStart, srcCount);
-      const color = value != null ? (strip.palette[value] ?? resolved.nanColor) : resolved.nanColor;
-      ctx.fillStyle = color;
-      ctx.fillRect(r * layout.cellW, y, layout.cellW, resolved.annotationStripHeight);
+    stripRects.push({
+      x: 0,
+      y,
+      w: totalW,
+      h: resolved.annotationStripHeight,
+    });
+    if (strip.kind === 'continuous') {
+      renderContinuousStrip(ctx, strip, layout, xs, y, resolved);
+    } else {
+      renderCategoricalStrip(ctx, strip, layout, xs, y, resolved);
     }
   }
 
@@ -92,7 +115,7 @@ export function renderMatrix(
       const { srcStart, srcCount } = layout.columns[r];
       const v = srcCount === 1 ? row[srcStart] : meanOverSpan(row, srcStart, srcCount);
       ctx.fillStyle = colorOf(v);
-      const x = r * layout.cellW;
+      const x = xs[r];
       ctx.fillRect(x, y, layout.cellW, layout.cellH);
       cells.push({
         row: i,
@@ -106,27 +129,167 @@ export function renderMatrix(
     }
   }
 
-  const matrix = { x: 0, y: matrixY, w: layout.matrixW, h: layout.matrixH };
+  // --- Outlier indicator (HEATMAP_SPEC §3.3) ---
+  const outliers = data.colOutliers;
+  if (outliers && outliers.length > 0) {
+    ctx.save();
+    ctx.strokeStyle = '#ef4444'; // red-500
+    ctx.lineWidth = 1;
+    for (let r = 0; r < layout.columns.length; r++) {
+      const { srcStart, srcCount } = layout.columns[r];
+      // Treat the merged-column case as outlier if ANY source col is
+      // outlier — surfaces the flag even after sub-pixel merging.
+      let isOutlier = false;
+      for (let k = 0; k < srcCount; k++) {
+        if (outliers[srcStart + k]) {
+          isOutlier = true;
+          break;
+        }
+      }
+      if (!isOutlier) continue;
+      const x = xs[r] + 0.5;
+      const y0 = 0 + 0.5;
+      const y1 = matrixY + layout.matrixH - 0.5;
+      ctx.strokeRect(x, y0, layout.cellW - 1, y1 - y0);
+    }
+    ctx.restore();
+  }
+
+  const matrix = { x: 0, y: matrixY, w: totalW, h: layout.matrixH };
+
+  // Hit testing — convert canvas-relative CSS coords to a cell.
+  // We binary-search `xs[]` since the rendered columns are not
+  // evenly spaced when gaps are present.
+  const findRenderedCol = (x: number): number => {
+    // Linear scan is plenty fast at typical column counts (<10000).
+    // `xs` is monotone increasing; bail as soon as we pass the point.
+    for (let r = 0; r < layout.columns.length; r++) {
+      const left = xs[r];
+      const right = left + layout.cellW;
+      if (x >= left && x < right) return r;
+      if (x < left) return -1; // landed inside a gap
+    }
+    return -1;
+  };
 
   const cellAt = (x: number, y: number): CellGeometry | null => {
     if (x < matrix.x || x >= matrix.x + matrix.w) return null;
     if (y < matrix.y || y >= matrix.y + matrix.h) return null;
     const ry = y - matrix.y;
     const row = Math.floor(ry / layout.cellH);
-    const colIdx = Math.floor(x / layout.cellW);
+    const colIdx = findRenderedCol(x);
+    if (colIdx < 0) return null;
     if (row < 0 || row >= layout.numRows) return null;
-    if (colIdx < 0 || colIdx >= layout.columns.length) return null;
     const { srcStart, srcCount } = layout.columns[colIdx];
     return {
       row,
       col: srcStart,
       mergedCols: srcCount,
-      x: colIdx * layout.cellW,
+      x: xs[colIdx],
       y: matrix.y + row * layout.cellH,
       w: layout.cellW,
       h: layout.cellH,
     };
   };
 
-  return { width: totalW, height: totalH, matrix, cells, cellAt };
+  const stripAt = (x: number, y: number): StripHit | null => {
+    if (stripRects.length === 0) return null;
+    if (x < 0 || x >= totalW) return null;
+    if (y < 0 || y >= stripsBlockH + gapAfterStrips) return null;
+    // Find which strip band the y-coord is in.
+    let stripIndex = -1;
+    for (let s = 0; s < stripRects.length; s++) {
+      const r = stripRects[s];
+      if (y >= r.y && y < r.y + r.h) {
+        stripIndex = s;
+        break;
+      }
+    }
+    if (stripIndex < 0) return null;
+    const colIdx = findRenderedCol(x);
+    if (colIdx < 0) return null;
+    const { srcStart, srcCount } = layout.columns[colIdx];
+    return {
+      stripIndex,
+      col: srcStart,
+      mergedCols: srcCount,
+      x: xs[colIdx],
+      y: stripRects[stripIndex].y,
+      w: layout.cellW,
+      h: stripRects[stripIndex].h,
+    };
+  };
+
+  return {
+    width: totalW,
+    height: totalH,
+    matrix,
+    strips: stripRects,
+    cells,
+    cellAt,
+    stripAt,
+  };
+}
+
+function renderCategoricalStrip(
+  ctx: CanvasRenderingContext2D,
+  strip: Extract<AnnotationStrip, { kind?: 'categorical' }>,
+  layout: ReturnType<typeof computeLayout>,
+  xs: number[],
+  y: number,
+  resolved: ResolvedConfig,
+): void {
+  for (let r = 0; r < layout.columns.length; r++) {
+    const { srcStart, srcCount } = layout.columns[r];
+    const value =
+      srcCount === 1
+        ? strip.values[srcStart]
+        : modeOverSpan(strip.values, srcStart, srcCount);
+    const color =
+      value != null ? (strip.palette[value] ?? resolved.nanColor) : resolved.nanColor;
+    ctx.fillStyle = color;
+    ctx.fillRect(xs[r], y, layout.cellW, resolved.annotationStripHeight);
+  }
+}
+
+function renderContinuousStrip(
+  ctx: CanvasRenderingContext2D,
+  strip: Extract<AnnotationStrip, { kind: 'continuous' }>,
+  layout: ReturnType<typeof computeLayout>,
+  xs: number[],
+  y: number,
+  resolved: ResolvedConfig,
+): void {
+  // Build a per-strip color sampler that respects the strip's
+  // scale + palette (independent of the main matrix palette).
+  const [lo, hi] = projectedDomain(strip.scale);
+  const sampler = makeColorScale({
+    palette: strip.palette,
+    clip: 1, // only used for diverging palettes; projectContinuous already maps to [-1,1]
+    domain: strip.palette.kind === 'sequential' ? [lo, hi] : null,
+    nanColor: resolved.nanColor,
+  } as ResolvedConfig);
+
+  for (let r = 0; r < layout.columns.length; r++) {
+    const { srcStart, srcCount } = layout.columns[r];
+    // For merged spans we mean the projected values (the
+    // straightforward extension of `meanOverSpan` but for continuous-
+    // strip values rather than the matrix).
+    let projected: number | null;
+    if (srcCount === 1) {
+      projected = projectContinuous(strip.values[srcStart], strip.scale);
+    } else {
+      let sum = 0;
+      let n = 0;
+      for (let k = 0; k < srcCount; k++) {
+        const p = projectContinuous(strip.values[srcStart + k], strip.scale);
+        if (p == null || Number.isNaN(p)) continue;
+        sum += p;
+        n++;
+      }
+      projected = n === 0 ? null : sum / n;
+    }
+    ctx.fillStyle = sampler(projected);
+    ctx.fillRect(xs[r], y, layout.cellW, resolved.annotationStripHeight);
+  }
 }

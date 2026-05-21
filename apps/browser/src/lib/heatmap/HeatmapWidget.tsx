@@ -1,8 +1,11 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Heatmap } from './Heatmap';
 import { Legend } from './Legend';
 import { rowStandardize } from './color';
 import { PALETTES } from './palettes';
+import { buildHeatmapDataFromPayload } from './buildHeatmapData';
+import { HeatmapTooltip, type TooltipState } from './Tooltip';
+import { SidePanel, type SidePanelClick } from './SidePanel';
 import type {
   CellGeometry,
   CellValue,
@@ -10,12 +13,20 @@ import type {
   HeatmapData,
   Palette,
 } from './types';
+import type { HeatmapPayload } from './payload';
 
 export type WidgetPalette = 'ambsky' | 'blackbody';
 export type FitMode = 'squeeze' | 'expand';
 
 export interface HeatmapWidgetProps {
-  data: HeatmapData;
+  /** v1 input — synthetic / pre-built `HeatmapData`. Either `data`
+   *  OR `payload` must be supplied (but not both). */
+  data?: HeatmapData;
+  /** v2 input — wire-shaped `HeatmapPayload` from the Gemma
+   *  `GET /datasets/{id}/heatmap-data` endpoint. When set, the
+   *  widget builds `HeatmapData` itself and threads main-grouping +
+   *  tooltip + side-panel features. */
+  payload?: HeatmapPayload;
   /** Title rendered in the widget header. Omit for a chromeless embed. */
   title?: string;
   /** Subtitle / caption under the title. */
@@ -86,6 +97,11 @@ const FIT_OPTIONS: Array<{ key: FitMode; label: string; hint: string }> = [
   },
 ];
 
+/** Empty fallback so the widget can render even if neither `data`
+ *  nor `payload` is supplied (defensive — typecheck still nags via
+ *  the prop union). */
+const EMPTY_DATA: HeatmapData = { values: [] };
+
 /**
  * Self-contained heatmap widget. Bundles matrix, palette switcher,
  * clip slider, row-standardize toggle, cell-size sliders, fit-mode
@@ -105,6 +121,7 @@ const FIT_OPTIONS: Array<{ key: FitMode; label: string; hint: string }> = [
  */
 export function HeatmapWidget({
   data,
+  payload,
   title,
   caption,
   defaultPalette = 'ambsky',
@@ -129,6 +146,14 @@ export function HeatmapWidget({
   const [maxW, setMaxW] = useState(defaultMaxWidth);
   const [fitMode, setFitMode] = useState<FitMode>(defaultFitMode);
   const [controlsOpen, setControlsOpen] = useState(defaultControlsOpen);
+  // v2: main-grouping factor selection (HEATMAP_SPEC §4). Lives on
+  // the widget; intentionally NOT persisted to the URL — spec §7 #4.
+  const [mainGroupingFactorId, setMainGroupingFactorId] =
+    useState<number | null>(null);
+  // v2 tooltip + side-panel state (HEATMAP_SPEC §5).
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+  const [pinned, setPinned] = useState<SidePanelClick | null>(null);
+  // v1 tooltip — kept for the legacy `data`-only path.
   const [hover, setHover] = useState<{
     cell: CellGeometry;
     value: CellValue;
@@ -136,11 +161,39 @@ export function HeatmapWidget({
     clientY: number;
   } | null>(null);
 
+  // Derive the canvas-input `HeatmapData` from whichever input was
+  // supplied. v2 (payload) takes precedence; v1 (data) is the
+  // fallback for legacy / synthetic callers.
+  const built = useMemo(() => {
+    if (payload) {
+      return buildHeatmapDataFromPayload(payload, {
+        mainGroupingFactorId,
+      });
+    }
+    return null;
+  }, [payload, mainGroupingFactorId]);
+  const rawData: HeatmapData = built?.data ?? data ?? EMPTY_DATA;
+
   const scaledData = useMemo<HeatmapData>(
     () =>
-      rowScale ? { ...data, values: rowStandardize(data.values) } : data,
-    [data, rowScale],
+      rowScale
+        ? { ...rawData, values: rowStandardize(rawData.values) }
+        : rawData,
+    [rawData, rowScale],
   );
+
+  // Pinned-strip index is derived from the main-grouping factor id;
+  // factors render one strip each in `payload.factors[]` order.
+  const selectedStripIndex = useMemo<number | null>(() => {
+    if (!payload || mainGroupingFactorId == null) return null;
+    const i = payload.factors.findIndex((f) => f.id === mainGroupingFactorId);
+    return i < 0 ? null : i;
+  }, [payload, mainGroupingFactorId]);
+
+  // Close the side panel when the payload changes underneath us.
+  useEffect(() => {
+    setPinned(null);
+  }, [payload]);
 
   const palette: Palette = PALETTES[paletteKey];
 
@@ -357,37 +410,139 @@ export function HeatmapWidget({
             label={`${rowScale ? 'Z-score' : 'Value'}  ·  clip ±${fmt(clip)}`}
           />
         )}
-        {/* The matrix lives inside a scrollable region so Expand mode can
-            overflow horizontally without growing the chrome. In Squeeze
-            mode the matrix never overflows; the overflow:auto is a no-op
-            but the wrapper still caps the width sensibly. */}
-        <div
-          style={{
-            overflow: fitMode === 'expand' ? 'auto' : 'visible',
-            maxWidth: '100%',
-            // A faint inner border in Expand mode hints at the scroll region.
-            border:
-              fitMode === 'expand' ? `1px solid ${BORDER}` : '1px solid transparent',
-            borderRadius: 3,
-            padding: fitMode === 'expand' ? 6 : 0,
-          }}
-        >
-          <Heatmap
-            data={scaledData}
-            config={config}
-            onCellHover={
-              showTooltip
-                ? (c, ev) =>
-                    setHover({
-                      cell: c,
-                      value: scaledData.values[c.row]?.[c.col] ?? null,
-                      clientX: ev.clientX,
-                      clientY: ev.clientY,
-                    })
-                : undefined
-            }
-            onCellLeave={showTooltip ? () => setHover(null) : undefined}
-          />
+        {/* v2 — heatmap + docked side panel sit side-by-side. In v1
+            mode `pinned` is always null, so the layout collapses to
+            the single matrix column. */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
+          {/* The matrix lives inside a scrollable region so Expand mode can
+              overflow horizontally without growing the chrome. In Squeeze
+              mode the matrix never overflows; the overflow:auto is a no-op
+              but the wrapper still caps the width sensibly. */}
+          <div
+            style={{
+              flex: '1 1 auto',
+              minWidth: 0,
+              overflow: fitMode === 'expand' ? 'auto' : 'visible',
+              maxWidth: '100%',
+              // A faint inner border in Expand mode hints at the scroll region.
+              border:
+                fitMode === 'expand' ? `1px solid ${BORDER}` : '1px solid transparent',
+              borderRadius: 3,
+              padding: fitMode === 'expand' ? 6 : 0,
+            }}
+          >
+            <Heatmap
+              data={scaledData}
+              config={config}
+              selectedStripIndex={selectedStripIndex}
+              onStripGutterClick={
+                payload
+                  ? (i) => {
+                      const f = payload.factors[i];
+                      if (!f) return;
+                      // Re-click clears.
+                      setMainGroupingFactorId((prev) =>
+                        prev === f.id ? null : f.id,
+                      );
+                    }
+                  : undefined
+              }
+              onPointerOver={
+                payload && showTooltip
+                  ? (e) => {
+                      if (e.kind === 'cell') {
+                        // For v2, tooltip carries SOURCE col / row;
+                        // map cell.col (source col after reorder) back
+                        // through built.columnOrder so the tooltip
+                        // reads original column metadata.
+                        const sourceCol =
+                          built?.columnOrder[e.hit.col] ?? e.hit.col;
+                        setTooltip({
+                          kind: 'cell',
+                          row: e.hit.row,
+                          // built.data was reordered, so e.hit.col is
+                          // the rendered column index expressed in
+                          // SCALED data's column coordinate (post-
+                          // reorder). Translate to source-payload
+                          // column for tooltip + panel content.
+                          col: sourceCol,
+                          value:
+                            scaledData.values[e.hit.row]?.[e.hit.col] ?? null,
+                          clientX: e.ev.clientX,
+                          clientY: e.ev.clientY,
+                        });
+                      } else {
+                        const sourceCol =
+                          built?.columnOrder[e.hit.col] ?? e.hit.col;
+                        setTooltip({
+                          kind: 'strip',
+                          stripIndex: e.hit.stripIndex,
+                          col: sourceCol,
+                          clientX: e.ev.clientX,
+                          clientY: e.ev.clientY,
+                        });
+                      }
+                    }
+                  : undefined
+              }
+              onCellHover={
+                !payload && showTooltip
+                  ? (c, ev) =>
+                      setHover({
+                        cell: c,
+                        value: scaledData.values[c.row]?.[c.col] ?? null,
+                        clientX: ev.clientX,
+                        clientY: ev.clientY,
+                      })
+                  : undefined
+              }
+              onCellLeave={
+                payload
+                  ? () => setTooltip(null)
+                  : showTooltip
+                  ? () => setHover(null)
+                  : undefined
+              }
+              onCellClick={
+                payload && built
+                  ? (e) => {
+                      if (e.kind === 'cell') {
+                        const sourceCol =
+                          built.columnOrder[e.hit.col] ?? e.hit.col;
+                        setPinned({
+                          kind: 'cell',
+                          row: e.hit.row,
+                          col: sourceCol,
+                          value:
+                            scaledData.values[e.hit.row]?.[e.hit.col] ?? null,
+                        });
+                      } else {
+                        const sourceCol =
+                          built.columnOrder[e.hit.col] ?? e.hit.col;
+                        setPinned({
+                          kind: 'strip',
+                          stripIndex: e.hit.stripIndex,
+                          col: sourceCol,
+                        });
+                      }
+                    }
+                  : undefined
+              }
+            />
+          </div>
+          {payload && pinned ? (
+            <SidePanel
+              payload={payload}
+              click={pinned}
+              onClose={() => setPinned(null)}
+              rowValues={
+                pinned.kind === 'cell'
+                  ? scaledData.values[pinned.row]
+                  : undefined
+              }
+              formatValue={fmt}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -420,7 +575,10 @@ export function HeatmapWidget({
         </footer>
       )}
 
-      {showTooltip && hover ? (
+      {showTooltip && payload && tooltip ? (
+        <HeatmapTooltip payload={payload} state={tooltip} formatValue={fmt} />
+      ) : null}
+      {showTooltip && !payload && hover ? (
         <CursorTooltip hover={hover} data={scaledData} formatValue={fmt} />
       ) : null}
     </div>

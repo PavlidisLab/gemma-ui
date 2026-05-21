@@ -20,14 +20,57 @@ export interface CategoricalAnnotation {
   values: Array<string | null>;
   /** Map of category value -> CSS color. Missing keys render as `nanColor`. */
   palette: Record<string, string>;
+  /** Discriminator. Optional in v1 inputs (the renderer treats
+   *  missing as 'categorical'); v2 builders set it explicitly. */
+  kind?: 'categorical';
+  /** Optional factor id — set when the strip was built from a
+   *  payload `Factor`. Drives main-grouping click + side panel. */
+  factorId?: number;
 }
+
+/**
+ * A continuous annotation strip — per-column numeric value rendered
+ * through a sequential or diverging palette (see HEATMAP_SPEC §3.2).
+ * Built by `buildContinuousStrip` from a `Factor` of `type:
+ * 'continuous'` + the payload columns.
+ */
+export interface ContinuousAnnotation {
+  name: string;
+  kind: 'continuous';
+  /** Per-column numeric value. `null` paints as `nanColor`. */
+  values: Array<number | null>;
+  /** Scale used to map values into the palette domain. */
+  scale: ContinuousScale;
+  palette: Palette;
+  /** Optional factor id — set when the strip was built from a
+   *  payload `Factor`. */
+  factorId?: number;
+  /** Parsed unit (e.g. "years") from `Factor.name` if present.
+   *  Used by tooltips / side panel. */
+  unit?: string | null;
+}
+
+/** How a continuous strip's numeric values map onto the palette. */
+export type ContinuousScale =
+  | { kind: 'linear'; domain: [number, number] }
+  | { kind: 'log10'; domain: [number, number] }
+  | { kind: 'diverging'; absMax: number };
+
+export type AnnotationStrip = CategoricalAnnotation | ContinuousAnnotation;
 
 export interface HeatmapData {
   /** Row-major value matrix. `values[row][col]`. All rows must be the same length. */
   values: CellValue[][];
   rowLabels?: string[];
   colLabels?: string[];
-  colAnnotations?: CategoricalAnnotation[];
+  colAnnotations?: AnnotationStrip[];
+  /** Per-column outlier flag — drives the §3.3 red vertical stripe. */
+  colOutliers?: boolean[];
+  /** Per-rendered-column gap, in CSS pixels. Used by main-grouping
+   *  reorder to separate FV groups; layout reads this to insert
+   *  empty space *before* the rendered column at that index.
+   *  Length should equal source columns; index 0 is ignored. */
+  colGapsBefore?: number[];
 }
 
 /**
@@ -121,6 +164,21 @@ export interface CellGeometry {
   h: number;
 }
 
+/**
+ * Hit on an annotation strip cell — emitted by `RenderResult.stripAt`.
+ */
+export interface StripHit {
+  /** Index into `colAnnotations[]`. */
+  stripIndex: number;
+  /** Source column index (after merging is resolved). */
+  col: number;
+  mergedCols: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface RenderResult {
   /** Total rendered pixel width (CSS px, not device px). */
   width: number;
@@ -128,6 +186,9 @@ export interface RenderResult {
   height: number;
   /** Pixel offset of the heatmap matrix within the canvas (after labels/strips). */
   matrix: { x: number; y: number; w: number; h: number };
+  /** Pixel offsets of each annotation strip (one entry per
+   *  `colAnnotations` strip; empty when there are no strips). */
+  strips: Array<{ x: number; y: number; w: number; h: number }>;
   /** Cell geometries, in row-major order. */
   cells: CellGeometry[];
   /**
@@ -135,4 +196,9 @@ export interface RenderResult {
    * within the matrix area, or `null` if outside.
    */
   cellAt: (x: number, y: number) => CellGeometry | null;
+  /**
+   * Strip hit-tester. Returns the strip cell at `(x, y)` if the
+   * point is over an annotation strip band, otherwise null.
+   */
+  stripAt: (x: number, y: number) => StripHit | null;
 }
