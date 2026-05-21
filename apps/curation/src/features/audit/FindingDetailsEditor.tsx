@@ -141,9 +141,28 @@ function fvProposalStatementPart(
   part: "subject" | "predicate" | "object",
 ): SideValue {
   const st = fv.statements?.[0];
-  if (!st) return { label: "", uri: null };
-  const s = st as unknown as Statement;
-  return statementPart(s, part);
+  if (st) {
+    const s = st as unknown as Statement;
+    const v = statementPart(s, part);
+    // For subject specifically: if the statement has an empty
+    // subject slot (common when the agent shaped the statement
+    // as "[implicit] has role X" — the FV's identity is the
+    // implicit subject), fall back to the FV's free_text_label
+    // so the comparator line still renders an S in the canonical
+    // S - P - O shape.
+    if (part === "subject" && !v.label && !v.uri) {
+      const fallback = fv.free_text_label?.trim() ?? "";
+      if (fallback) return { label: fallback, uri: null };
+    }
+    return v;
+  }
+  // No statement attached — only the subject can fall back to the
+  // FV identity; predicate / object stay empty.
+  if (part === "subject") {
+    const fallback = fv.free_text_label?.trim() ?? "";
+    return { label: fallback, uri: null };
+  }
+  return { label: "", uri: null };
 }
 
 function pairAgentStatementToGold(
@@ -165,7 +184,21 @@ function pairAgentStatementToGold(
     }
     if (allIn) {
       const st = goldFv.statements?.[0];
-      return st ? statementPart(st, part) : null;
+      if (st) return statementPart(st, part);
+      // Gold's matching FV has no structured statement — common
+      // for free-text-only curations (e.g. timepoint FVs labeled
+      // "2 h" with no role-of-baseline statement). Fall back to
+      // ``free_text_label`` as the subject so the curator sees
+      // gold's FV identity instead of a bare "no entry", and
+      // emit explicit-empty for predicate / object so a divergent
+      // agent statement (e.g. "has role · initial time point")
+      // reads as a near-match — same subject, agent layered on
+      // extra structure — not as gold-has-nothing.
+      if (part === "subject") {
+        const label = goldFv.free_text_label?.trim() ?? "";
+        return { label, uri: null };
+      }
+      return { label: "", uri: null };
     }
   }
   return null;
@@ -880,44 +913,33 @@ export function FindingDetailsEditor({
 
         {/* Mapping block — parent → children rows. Renders the
             nesting that the payload's fv_pairs encode via repeated
-            parents. */}
+            parents. Chips are a compact inline variant (no URI
+            annotation, smaller padding) so a parent + several
+            children fit on one line; full URI still surfaces via
+            the chip's title tooltip. */}
         {groups.length > 0 ? (
           <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
             <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
               {isAgentFiner ? "Mapping (gold parent ← agent children)" : "Mapping (agent parent ← gold children)"}
             </div>
-            <div className="space-y-1 text-[12px]">
+            <div className="space-y-1 text-[11px]">
               {groups.map((g, i) => (
                 <div
                   key={`${g.parent.label}|${g.parent.uri ?? ""}|${i}`}
-                  className="flex items-baseline gap-x-2 flex-wrap"
+                  className="flex items-baseline gap-x-1.5 flex-wrap"
                 >
-                  <Term
-                    uri={g.parent.uri}
-                    asLink={false}
-                    className="!whitespace-normal break-words"
-                  >
-                    {g.parent.label}
-                  </Term>
+                  <MappingChip term={g.parent} />
                   <span className="text-slate-400 dark:text-slate-500">←</span>
-                  <span className="flex flex-wrap items-baseline gap-x-1.5">
-                    {g.children.map((c, j) => (
-                      <span key={j} className="inline-flex items-baseline">
-                        {j > 0 ? (
-                          <span className="text-slate-400 dark:text-slate-500 mr-1.5">
-                            ,
-                          </span>
-                        ) : null}
-                        <Term
-                          uri={c.uri}
-                          asLink={false}
-                          className="!whitespace-normal break-words"
-                        >
-                          {c.label}
-                        </Term>
-                      </span>
-                    ))}
-                  </span>
+                  {g.children.map((c, j) => (
+                    <span key={j} className="inline-flex items-baseline">
+                      {j > 0 ? (
+                        <span className="text-slate-400 dark:text-slate-500 mr-1">
+                          ,
+                        </span>
+                      ) : null}
+                      <MappingChip term={c} />
+                    </span>
+                  ))}
                 </div>
               ))}
             </div>
@@ -1032,18 +1054,33 @@ export function FindingDetailsEditor({
       };
     })();
     const categoryUri = goldFactor?.category?.uri ?? null;
-    const removalFvSummary =
+    // Per-FV row data for the removal card's gold side. Each FV
+    // gets its own row (S - P - O shape, predicate + object
+    // omitted when empty) below the "you have" line so multi-FV
+    // factors like cell-line don't crush into an unreadable
+    // wrap of long labels. The subject falls back to the FV's
+    // free_text_label when there's no structured statement
+    // attached (the curation-style "label-only" FV shape).
+    const removalFvRows =
       goldFactor && goldFactor.factor_values.length > 0
         ? goldFactor.factor_values.map((fv) => {
-            // Prefer the primary statement's subject URI when
-            // available — for typed-statement FVs (gene, treatment
-            // dose etc.) that's the ontology-resolved part. Falls
-            // back to free-text styling when no URI.
-            const stUri = fv.statements?.[0]?.subject?.uri ?? null;
+            const st = fv.statements?.[0] as unknown as Statement | undefined;
+            const subjLabel =
+              st?.subject?.label?.trim() ||
+              fv.free_text_label?.trim() ||
+              `FV ${fv.id}`;
+            const subjUri = st?.subject?.uri ?? null;
+            const predLabel = st?.predicate?.label?.trim() ?? "";
+            const predUri = st?.predicate?.uri ?? null;
+            const objLabel = st?.object?.label?.trim() ?? "";
+            const objUri = st?.object?.uri ?? null;
             return {
-              label: fv.free_text_label || `FV ${fv.id}`,
-              uri: stUri,
+              key: fv.id,
+              subject: { label: subjLabel, uri: subjUri },
+              predicate: predLabel ? { label: predLabel, uri: predUri } : null,
+              object: objLabel ? { label: objLabel, uri: objUri } : null,
               count: fv.biomaterial_short_names?.length ?? 0,
+              isBaseline: !!fv.is_baseline,
             };
           })
         : null;
@@ -1138,29 +1175,69 @@ export function FindingDetailsEditor({
                   (in the design)
                 </span>
               )}
-              {removalFvSummary && removalFvSummary.length > 0 ? (
-                <span className="flex flex-wrap items-baseline gap-x-1">
-                  {removalFvSummary.map((fv, i) => (
-                    <span key={i} className="inline-flex items-baseline">
-                      <span className="text-slate-400 dark:text-slate-500 mx-1">
-                        ·
-                      </span>
-                      <Term
-                        uri={fv.uri}
-                        asLink={false}
-                        className="!whitespace-normal break-words"
-                      >
-                        {fv.label}
-                      </Term>
-                      <span className="ml-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                        ({fv.count})
-                      </span>
-                    </span>
-                  ))}
-                </span>
-              ) : null}
             </span>
           </div>
+
+          {/* Per-FV rows for the gold side — each FV on its own line
+              in S - P - O shape so the curator can read a multi-FV
+              factor (e.g. cell line with 4 cell-line subtypes)
+              without the labels colliding into an inline wrap. */}
+          {removalFvRows && removalFvRows.length > 0 ? (
+            <div className="grid grid-cols-[8rem_1fr] gap-x-2 gap-y-1 items-baseline text-[12px]">
+              <span aria-hidden />
+              <div className="space-y-1">
+                {removalFvRows.map((fv) => (
+                  <div
+                    key={fv.key}
+                    className="flex flex-wrap items-baseline gap-x-1.5"
+                  >
+                    <Term
+                      uri={fv.subject.uri}
+                      asLink={false}
+                      className="!whitespace-normal break-words"
+                    >
+                      {fv.subject.label}
+                    </Term>
+                    {fv.predicate ? (
+                      <>
+                        <span className="text-slate-400 dark:text-slate-500">
+                          {" - "}
+                        </span>
+                        <span
+                          className="text-[10px] text-slate-500 dark:text-slate-400 font-mono"
+                          title={fv.predicate.uri || undefined}
+                        >
+                          {fv.predicate.label}
+                        </span>
+                      </>
+                    ) : null}
+                    {fv.object ? (
+                      <>
+                        <span className="text-slate-400 dark:text-slate-500">
+                          {" - "}
+                        </span>
+                        <Term
+                          uri={fv.object.uri}
+                          asLink={false}
+                          className="!whitespace-normal break-words"
+                        >
+                          {fv.object.label}
+                        </Term>
+                      </>
+                    ) : null}
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                      ({fv.count})
+                    </span>
+                    {fv.isBaseline ? (
+                      <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 ml-0.5">
+                        ★ baseline
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {hint ? (
@@ -1246,7 +1323,23 @@ export function FindingDetailsEditor({
           (otherwise "FACTOR treatment · everyone agrees ✓" reads as
           "treatment what?"). */}
       {agreementRows.length > 0 ? (
-        <AgreementSummary rows={agreementRows} fvMeta={fvMeta} />
+        <AgreementSummary
+          rows={agreementRows}
+          // Pass the set of FVs that have ANY disagreement so the
+          // summary can suppress those FVs' "everyone agrees"
+          // chips — otherwise an FV whose category-row agrees but
+          // whose subject-row disagrees ends up listed BOTH in
+          // "Everyone agrees: … FV 1" AND as a disagreement block
+          // below, which reads as self-contradicting.
+          fvIndicesWithDisagreement={
+            new Set(
+              disagreementRows
+                .map((r) => r.fvIndex)
+                .filter((i): i is number => i !== null),
+            )
+          }
+          fvMeta={fvMeta}
+        />
       ) : null}
 
       {/* One block per *statement* — Subject/Predicate/Object rows
@@ -1362,16 +1455,21 @@ export function FindingDetailsEditor({
 
 function AgreementSummary({
   rows,
+  fvIndicesWithDisagreement,
   fvMeta,
 }: {
   rows: Row[];
+  /** FVs that have at least one disagreement row. Those FVs are
+   *  filtered OUT of the per-FV agreement chips — they belong
+   *  in the disagreement block below, not here. */
+  fvIndicesWithDisagreement: Set<number>;
   fvMeta: Map<number, FvMeta>;
 }) {
   // Group agreed-rows by fvIndex for compact rendering.
   const factorRows = rows.filter((r) => r.fvIndex === null);
   const byFv = new Map<number, Row[]>();
   for (const r of rows) {
-    if (r.fvIndex !== null) {
+    if (r.fvIndex !== null && !fvIndicesWithDisagreement.has(r.fvIndex)) {
       const list = byFv.get(r.fvIndex) ?? [];
       list.push(r);
       byFv.set(r.fvIndex, list);
@@ -1640,19 +1738,41 @@ function ComparatorLine({
         {parts.length === 0 ? (
           <span className="italic text-slate-400">no entry</span>
         ) : (
-          parts.map((p) => {
+          // Render S - P - O with explicit " - " separators between
+          // the present parts. Missing P or O collapse out, so a
+          // bare subject reads as "X", S+P as "X - p", full triple
+          // as "X - p - Y". Same shape across comparator lines so
+          // "what's there vs what's missing" reads at a glance —
+          // e.g. agent has S+P, gold has just S → curator can see
+          // they share the subject and gold is missing the role
+          // statement around it. Per Paul 2026-05-21: "all the
+          // cards should show statements like S - P - O, though
+          // - P - O can be omitted".
+          parts.map((p, i) => {
+            const sep =
+              i === 0 ? null : (
+                <span
+                  key={`sep-${p.partLabel}`}
+                  className="text-slate-400 dark:text-slate-500"
+                  aria-hidden
+                >
+                  {" - "}
+                </span>
+              );
             // Predicates render small + muted, no chip styling —
             // they're structural plumbing (e.g. "has_genotype"
             // between subject and object). Gemma's own per-FV
             // display uses the same teeny-predicate convention.
             if (p.partLabel === "Predicate") {
               return (
-                <span
-                  key={p.partLabel}
-                  className="text-[10px] text-slate-500 dark:text-slate-400 font-mono"
-                  title={p.value.uri || undefined}
-                >
-                  {p.value.label}
+                <span key={p.partLabel} className="inline-flex items-baseline">
+                  {sep}
+                  <span
+                    className="text-[10px] text-slate-500 dark:text-slate-400 font-mono"
+                    title={p.value.uri || undefined}
+                  >
+                    {p.value.label}
+                  </span>
                 </span>
               );
             }
@@ -1664,14 +1784,16 @@ function ComparatorLine({
             // the canonical NCBI gene ID so the comparison
             // "are these the same gene" stays unambiguous.
             return (
-              <Term
-                key={p.partLabel}
-                uri={p.value.uri ?? null}
-                asLink={false}
-                className="!whitespace-normal break-words"
-              >
-                {p.value.label}
-              </Term>
+              <span key={p.partLabel} className="inline-flex items-baseline">
+                {sep}
+                <Term
+                  uri={p.value.uri ?? null}
+                  asLink={false}
+                  className="!whitespace-normal break-words"
+                >
+                  {p.value.label}
+                </Term>
+              </span>
             );
           })
         )}
@@ -1695,6 +1817,30 @@ interface ActionButton {
   label: string;
   onClick: () => void;
   title?: string;
+}
+
+/** Compact chip for the partition_mismatch mapping block. Drops
+ *  the URI annotation that `Term` renders inline (full URI still
+ *  surfaces on hover via the title attribute) and uses tighter
+ *  padding + text so a parent + several children fit on one
+ *  line. Ontology-resolved terms use the emerald palette;
+ *  free-text falls through to grey italic — same convention as
+ *  Term. */
+function MappingChip({ term }: { term: { label: string; uri: string | null } }) {
+  const hasUri = !!term.uri;
+  return (
+    <span
+      title={term.uri ? `${term.label} — ${term.uri}` : term.label}
+      className={cn(
+        "inline-flex items-center px-1 py-0 rounded text-[11px] leading-[1.3rem] border",
+        hasUri
+          ? "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-700"
+          : "bg-stone-50 text-stone-600 border-stone-200 italic dark:bg-stone-800 dark:text-stone-300 dark:border-stone-600",
+      )}
+    >
+      {term.label}
+    </span>
+  );
 }
 
 /** Inline suggestion banner for findings linked through

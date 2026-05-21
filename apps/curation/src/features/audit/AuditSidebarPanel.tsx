@@ -883,6 +883,159 @@ function findingActionLabel(finding: AuditFinding): string {
   return TARGET_KIND_LABEL[finding.target_kind] || finding.target_kind;
 }
 
+/** Descriptive subject for a finding — appended after the action
+ *  label so collapsed cards read like "Proposed factor —
+ *  `treatment` (rotenone / reference)" instead of just "Proposed
+ *  factor". The subject is built from the most specific source
+ *  available:
+ *
+ *  - `partition_mismatch` payload: the shared category label on
+ *    either side of the link.
+ *  - `proposer_term` (tag findings with a structured proposer
+ *    suggestion): the category:value pair.
+ *  - First backticked token in the rationale: the agent's
+ *    convention for naming the load-bearing factor / tag.
+ *
+ *  For factor-extras the agent's proposed FVs are appended as a
+ *  short fingerprint so multi-factor-same-category designs
+ *  (e.g. two `genotype` factors) read as visually distinct
+ *  even when collapsed. */
+function findingSubjectLabel(
+  finding: AuditFinding,
+  report: AuditReport | null,
+  design: Design | null,
+): string | null {
+  if (finding.partition_mismatch) {
+    const pm = finding.partition_mismatch;
+    // For partition_mismatch the category alone ("treatment") isn't
+    // discriminative — the curator needs to know WHICH treatment.
+    // The parent side of the link carries the umbrella FV labels
+    // ("hypochlorous acid" / "rotenone") that the split / combine
+    // pivots on. Dedup parents, drop baselines (the canonical
+    // "reference substance role" sibling), and emit the +/-
+    // shorthand when the partition is binary
+    // (one non-baseline level + a baseline).
+    const isAgentFiner = pm.direction === "agent_finer";
+    const parents = Array.from(
+      new Set(
+        (pm.fv_pairs ?? [])
+          .map((p) =>
+            (isAgentFiner ? p.gold.label : p.agent.label)?.trim() || "",
+          )
+          .filter((s) => s.length > 0),
+      ),
+    );
+    const category =
+      pm.gold.category.label || pm.agent.category.label || "";
+    if (parents.length === 0) return category || null;
+    // Resolve the parent-side factor so we can use `is_baseline`
+    // for the baseline filter instead of guessing from the label.
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    const parentFactor = isAgentFiner
+      ? resolveGoldFactor(finding, design?.factors ?? [], category)
+      : resolveAgentFactor(finding, cp, category);
+    const baselineLabels = new Set(
+      (parentFactor?.factor_values ?? [])
+        .filter((fv) => fv.is_baseline)
+        .map((fv) => (fv.free_text_label || "").trim().toLowerCase()),
+    );
+    const nonBaseline = parents.filter(
+      (p) => !baselineLabels.has(p.toLowerCase()),
+    );
+    const hadBaseline = nonBaseline.length < parents.length;
+    return formatLevels(category, nonBaseline, hadBaseline);
+  }
+  const code = finding.issue_code;
+  const backtick = firstBacktick(finding.rationale);
+
+  // Build the non-baseline label list from any factor's FVs.
+  // Baselines (FactorValue.is_baseline) are excluded per Paul:
+  // "reference substance role" and its peers don't describe the
+  // factor, they describe the baseline of the factor. The
+  // formatLevels caller decides how to render the +/- shorthand.
+  const nonBaselineLabels = (
+    factor: {
+      factor_values?: Array<{ free_text_label?: string; is_baseline?: boolean }>;
+    } | null | undefined,
+  ): { labels: string[]; hadBaseline: boolean } => {
+    const fvs = factor?.factor_values ?? [];
+    const labels = fvs
+      .filter((fv) => !fv.is_baseline)
+      .map((fv) => fv.free_text_label?.trim())
+      .filter((s): s is string => !!s);
+    const hadBaseline = fvs.some((fv) => fv.is_baseline);
+    return { labels, hadBaseline };
+  };
+
+  if (code === "calibration_factor_extra") {
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    const agent = resolveAgentFactor(finding, cp, backtick);
+    const name = agent?.category.label || backtick;
+    if (!name) return null;
+    const { labels, hadBaseline } = nonBaselineLabels(agent);
+    return formatLevels(name, labels, hadBaseline);
+  }
+  if (code === "calibration_factor_gold_only_miss") {
+    // Gold has the factor; agent wants it removed. The category
+    // alone ("cell line") doesn't tell the curator WHICH cell-line
+    // factor — pull the gold factor's non-baseline FVs from the
+    // live design so the header reads as "cell line: HeLa +/-".
+    const gold = resolveGoldFactor(
+      finding,
+      design?.factors ?? [],
+      backtick,
+    );
+    const name = gold?.category.label || backtick;
+    if (!name) return null;
+    const { labels, hadBaseline } = nonBaselineLabels(gold);
+    return formatLevels(name, labels, hadBaseline);
+  }
+  if (
+    code === "calibration_factor_match_exact" ||
+    code === "calibration_factor_match_near" ||
+    code === "calibration_factor_rename"
+  ) {
+    // Match-side findings already pair an agent factor; same
+    // shape so multi-factor-same-category designs read as
+    // distinct without bouncing tabs.
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    const agent = resolveAgentFactor(finding, cp, backtick);
+    const name = agent?.category.label || backtick;
+    if (!name) return null;
+    const { labels, hadBaseline } = nonBaselineLabels(agent);
+    return formatLevels(name, labels, hadBaseline);
+  }
+  if (code === "calibration_agent_extra" && finding.proposer_term?.label) {
+    return finding.proposer_term.label;
+  }
+  return backtick;
+}
+
+/** Format a factor's category + non-baseline level labels for the
+ *  collapsed-card subject. Three shapes:
+ *
+ *  - 1 non-baseline + a baseline → `<category>: <level> +/-` (the
+ *    canonical binary "treatment vs control" shape).
+ *  - 2+ non-baseline → `<category>: <a> / <b>[ / …]` with an
+ *    optional `+/-` suffix when there's also a baseline.
+ *  - 0 non-baseline → bare `<category>`. */
+function formatLevels(
+  category: string,
+  nonBaselineLabels: string[],
+  hadBaseline: boolean,
+): string {
+  if (nonBaselineLabels.length === 0) return category;
+  if (nonBaselineLabels.length === 1) {
+    return hadBaseline
+      ? `${category}: ${nonBaselineLabels[0]} +/-`
+      : `${category}: ${nonBaselineLabels[0]}`;
+  }
+  const head = nonBaselineLabels.slice(0, 2).join(" / ");
+  const tail = nonBaselineLabels.length > 2 ? " / …" : "";
+  const baselineNote = hadBaseline ? " +/-" : "";
+  return `${category}: ${head}${tail}${baselineNote}`;
+}
+
 const SEVERITY_RANK: Record<Severity, number> = {
   blocker: 0,
   major: 1,
@@ -1501,7 +1654,7 @@ function MatchFindingRow({ finding }: { finding: AuditFinding }) {
       >
         <span
           className={cn(
-            "text-base leading-none",
+            "text-3xl leading-none -my-1",
             isClose
               ? "text-amber-700 dark:text-amber-400"
               : "text-emerald-600 dark:text-emerald-500",
@@ -2973,30 +3126,17 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           browsers swallow the inner click, which is why "REASONING ▸"
           appeared unclickable. */}
       <div
-        role={hasExpandableContent ? "button" : undefined}
-        tabIndex={hasExpandableContent ? 0 : undefined}
-        className={cn(
-          "w-full text-left flex items-start gap-1.5",
-          hasExpandableContent ? "cursor-pointer" : "cursor-default",
-        )}
-        onClick={hasExpandableContent ? () => setOpen((v) => !v) : undefined}
-        onKeyDown={
-          hasExpandableContent
-            ? (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setOpen((v) => !v);
-                }
-              }
-            : undefined
-        }
-        title={
-          hasExpandableContent
-            ? open
-              ? "collapse"
-              : "expand"
-            : "no further detail"
-        }
+        role="button"
+        tabIndex={0}
+        className="w-full text-left flex items-start gap-1.5 cursor-pointer"
+        onClick={() => setCardOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setCardOpen((v) => !v);
+          }
+        }}
+        title={cardOpen ? "collapse card" : "expand card"}
       >
         {/* Fat collapse chevron on the left, mirroring MatchFindingRow.
             Clicking it toggles the whole-card collapse without firing
@@ -3010,7 +3150,12 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             e.stopPropagation();
             setCardOpen((v) => !v);
           }}
-          className="text-base leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 -mt-0.5"
+          // The ▸ / ▾ glyph sits low inside its em-box at text-3xl,
+          // so a negative margin-top pulls the box up enough that
+          // the glyph's visual center lines up with the badge +
+          // label baselines (the outer flex uses items-start, so
+          // the chevron's own box top is the alignment anchor).
+          className="text-3xl leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 px-0.5 -mt-2"
           title={cardOpen ? "collapse" : "expand"}
         >
           {cardOpen ? "▾" : "▸"}
@@ -3038,6 +3183,23 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
               <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 mr-1">
                 {findingActionLabel(finding)}
               </span>
+              {(() => {
+                // Descriptive subject — factor / tag name (+ FV
+                // fingerprint when useful) so the collapsed header
+                // reads as "Proposed factor — treatment
+                // (rotenone / reference)" instead of just
+                // "Proposed factor". Always rendered (expanded or
+                // not) so the curator can still tell two
+                // multi-factor-same-category cards apart even
+                // when both are open.
+                const subj = findingSubjectLabel(finding, report, draft ?? null);
+                if (!subj) return null;
+                return (
+                  <span className="text-[11px] text-slate-600 dark:text-slate-300 mr-1 truncate">
+                    — <span className="font-mono">{subj}</span>
+                  </span>
+                );
+              })()}
               <PairedFindingBadge finding={finding} />
               <ConsequentsBadges finding={finding} />
               <ProposerFlagsChips flags={finding.proposer_flags} />
@@ -3074,33 +3236,50 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             </>
           )}
         </span>
-        {hasExpandableContent ? (
-          // When the editor renders below, the bare caret is too
-          // subtle — curators don't know that's where the agent's
-          // defense + supporting-evidence + reasoning trail live.
-          // Replace with a labeled pill so the affordance is
-          // self-explanatory. Without the editor (legacy CompactFindingCard
-          // path) the card body itself signals expandability via
-          // line-clamp truncation, so the bare caret still reads
-          // right.
-          editorWillRender ? (
-            <span
-              aria-hidden
-              className="ml-1 mt-0.5 inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold text-sky-700 dark:text-sky-300 whitespace-nowrap"
-              title={open ? "collapse agent details" : "show agent reasoning + supporting evidence"}
-            >
-              {open ? "hide agent details" : "agent details"}
-              <span className="text-xs leading-none">{open ? "▾" : "▸"}</span>
-            </span>
-          ) : (
-            <span
-              aria-hidden
-              className="text-slate-400 dark:text-slate-500 text-base leading-none mt-0.5"
-            >
-              {open ? "▾" : "▸"}
-            </span>
-          )
-        ) : null}
+        {/* Agent-details pill — its own toggle, independent of the
+            card-fold chevron on the left. Always rendered so the
+            curator has a stable affordance slot; disabled (and
+            reads "no details") when there's nothing to expand.
+            stopPropagation so a click here doesn't also fire the
+            outer card-fold handler. */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!hasExpandableContent) return;
+            setOpen((v) => !v);
+          }}
+          disabled={!hasExpandableContent}
+          aria-label={
+            !hasExpandableContent
+              ? "no further agent details"
+              : open
+                ? "hide agent details"
+                : "show agent details"
+          }
+          title={
+            !hasExpandableContent
+              ? "no further details"
+              : open
+                ? "collapse agent details"
+                : "show agent reasoning + supporting evidence"
+          }
+          className={cn(
+            "ml-1 mt-0.5 inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold whitespace-nowrap",
+            hasExpandableContent
+              ? "text-sky-700 hover:underline dark:text-sky-300"
+              : "text-slate-400 cursor-not-allowed dark:text-slate-500",
+          )}
+        >
+          {!hasExpandableContent
+            ? "no details"
+            : open
+              ? "hide agent details"
+              : "agent details"}
+          {hasExpandableContent ? (
+            <span className="text-xs leading-none">{open ? "▾" : "▸"}</span>
+          ) : null}
+        </button>
       </div>
 
       {/* Agent-details panel — citation + agent suggestion + subtask

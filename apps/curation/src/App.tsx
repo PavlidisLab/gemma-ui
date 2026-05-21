@@ -648,7 +648,7 @@ function MainGrid({
   // who want more room for the v2 ProposalCard's verify-N or edit
   // affordances drag the left edge wider; persists via localStorage.
   const SIDEBAR_MIN = 240;
-  const SIDEBAR_MAX = 720;
+  const SIDEBAR_MAX = 1200;
   const SIDEBAR_DEFAULT = 320;
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
