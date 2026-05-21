@@ -1,15 +1,15 @@
 // Per-gene page — /gene/$id
 // Endpoints: /rest/v2/genes/{id} · /locations · /goTerms
-// + /rest/v2/datasets/analyses/differential/results/genes/{id}
-// All endpoints exist in Gemma; no backend work needed.
+//
+// Differential expression section is on hold pending the heavy gene-page
+// rework — placeholder for now (see GENE_PAGE_REWORK_RECCE.md once it lands).
 
-import { useParams, Link } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   getGene,
   getGeneLocations,
   getGeneGoTerms,
-  getGeneDiffExResults,
 } from "@/api/endpoints";
 import type { Gene, GeneLocation, GoTerm } from "@/api/endpoints";
 import { gemmaUrl } from "@/lib/gemmaConfig";
@@ -57,7 +57,7 @@ export function GenePage() {
         <GeneHero gene={gene} />
         <LocationsSection geneId={gene.id} />
         <GoTermsSection geneId={gene.id} />
-        <DiffExSection geneId={gene.id} geneSymbol={gene.officialSymbol ?? id} />
+        <DiffExComingSoonSection />
       </div>
     </div>
   );
@@ -263,109 +263,15 @@ function GoTermsSection({ geneId }: { geneId: number }) {
   );
 }
 
-function DiffExSection({
-  geneId,
-  geneSymbol,
-}: {
-  geneId: number;
-  geneSymbol: string;
-}) {
-  const dexQ = useQuery({
-    queryKey: ["gene", geneId, "diffex"],
-    queryFn: ({ signal }) => getGeneDiffExResults(geneId, signal),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  if (dexQ.isLoading) {
-    return (
-      <section className="bg-white border border-gemma-grid rounded-md p-4 text-xs text-gemma-subtle italic">
-        Loading differential expression results…
-      </section>
-    );
-  }
-
-  const results = dexQ.data?.data ?? [];
-  const total = dexQ.data?.totalElements ?? results.length;
-
+function DiffExComingSoonSection() {
   return (
-    <section className="bg-white border border-gemma-grid rounded-md flex flex-col max-h-[480px]">
-      <header className="px-4 py-3 border-b border-gemma-grid shrink-0 flex items-baseline gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-gemma-ink">
-          Differential expression
-        </h2>
-        <span className="text-[11px] text-gemma-subtle tabular-nums">
-          {total > 0 ? `${total.toLocaleString()} contrast${total !== 1 ? "s" : ""}` : "none found"}
-        </span>
-        {total > 50 ? (
-          <span className="text-[10px] text-gemma-subtle ml-auto">showing top 50</span>
-        ) : null}
-      </header>
-
-      {results.length === 0 ? (
-        <div className="p-4 text-xs text-gemma-subtle italic">
-          No differential expression results for {geneSymbol} in the Gemma database.
-        </div>
-      ) : (
-        <div className="flex-1 min-h-0 overflow-auto">
-          <table className="w-full text-[11px] border-collapse">
-            <thead className="bg-gemma-bg text-[10px] uppercase tracking-wide text-gemma-subtle sticky top-0 z-10">
-              <tr>
-                <th className="text-left px-2 py-1 font-medium w-24">Dataset</th>
-                <th className="text-right px-2 py-1 font-medium w-16">log₂FC</th>
-                <th className="text-right px-2 py-1 font-medium w-16">p-value</th>
-                <th className="text-right px-2 py-1 font-medium w-20">adj. p</th>
-                <th className="text-right px-2 py-1 font-medium w-20">meta q</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((r, i) => {
-                const fc = r.log2FoldChange;
-                const fcColor =
-                  fc == null
-                    ? "text-gemma-subtle"
-                    : fc > 0
-                    ? "text-emerald-700 font-semibold"
-                    : "text-rose-700 font-semibold";
-                return (
-                  <tr key={i} className="border-t border-gemma-grid hover:bg-gemma-bg/60">
-                    <td className="px-2 py-1">
-                      {r.experimentShortName ? (
-                        <Link
-                          to="/dataset/$id"
-                          params={{ id: r.experimentShortName }}
-                          className="font-mono text-[10px] text-gemma-accent hover:underline"
-                        >
-                          {r.experimentShortName}
-                        </Link>
-                      ) : (
-                        <span className="text-gemma-subtle">—</span>
-                      )}
-                    </td>
-                    <td className={`px-2 py-1 text-right tabular-nums ${fcColor}`}>
-                      {fc != null ? fc.toFixed(2) : "—"}
-                    </td>
-                    <td className="px-2 py-1 text-right tabular-nums text-gemma-ink">
-                      {fmtPval(r.pValue)}
-                    </td>
-                    <td className="px-2 py-1 text-right tabular-nums text-gemma-ink">
-                      {fmtPval(r.correctedPValue)}
-                    </td>
-                    <td className="px-2 py-1 text-right tabular-nums text-gemma-ink">
-                      {fmtPval(r.metaQVal)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <section className="bg-white border border-gemma-grid rounded-md p-5">
+      <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle mb-1">
+        Differential expression
+      </div>
+      <div className="text-sm text-gemma-subtle italic">
+        Coming soon — the gene page is being heavily redone.
+      </div>
     </section>
   );
-}
-
-function fmtPval(p: number | null | undefined): string {
-  if (p == null) return "—";
-  if (p < 0.001) return p.toExponential(2);
-  return p.toFixed(3);
 }

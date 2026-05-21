@@ -621,26 +621,6 @@ export async function getGeneGoTerms(
   return r.data ?? [];
 }
 
-export async function getGeneDiffExResults(
-  geneId: number | string,
-  signal?: AbortSignal,
-): Promise<PaginatedResponse<{
-  experimentId?: number;
-  experimentShortName?: string;
-  analysisId?: number;
-  contrastId?: number;
-  log2FoldChange?: number | null;
-  pValue?: number | null;
-  correctedPValue?: number | null;
-  tStat?: number | null;
-  metaQVal?: number | null;
-}>> {
-  return apiGet(
-    `${BASE}/datasets/analyses/differential/results/genes/${geneId}`,
-    { params: { limit: 50 }, signal },
-  );
-}
-
 /** Categories endpoint also returns annotations under each category as a separate call. */
 export async function getCategoriesWithChildren(
   args: CategoriesArgs,
