@@ -34,6 +34,15 @@ import {
   splitRationaleTrail,
   trimRationaleBoilerplate,
 } from "./rationaleText";
+import {
+  AGENT_NO_DETAILS_SENTINEL,
+  isActionPrefixRationale,
+  isProposerSuggestionRedundant,
+  isSuggestedFixRedundant,
+  parseProposerSuggestion,
+  pickJudgeRowText,
+  s10MatchesHeaderUri,
+} from "./auditorDetails";
 import { DismissDialog, type DialogChip } from "./DismissDialog";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
@@ -3149,18 +3158,12 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   const nonEmpty = (s: string | null | undefined): boolean =>
     !!(s && s.trim());
   const hasCitation = nonEmpty(finding.citation) || nonEmpty(finding.citation_url);
-  const proposerStatements = (finding.proposer_statements ?? []).filter(
-    (s) => nonEmpty(s.subject?.label) || nonEmpty(s.subject?.uri),
-  );
   const proposerDefense = trimRationaleBoilerplate(
     finding.proposer_defense ?? "",
   );
   const supportingEvidence = (finding.supporting_evidence ?? []).filter(
     (e) => nonEmpty(e.quote) || nonEmpty(e.context),
   );
-  const hasProposerTerm =
-    nonEmpty(finding.proposer_term?.label) ||
-    nonEmpty(finding.proposer_term?.uri);
   const hasDefenderContent =
     !!finding.defender_verdict &&
     (nonEmpty(finding.defender_verdict.rationale) ||
@@ -3184,16 +3187,24 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // render in the panel; don't count it toward expandable
   // content. Legacy text-only proposer_suggestion still counts as
   // a last-resort signal, but only when nothing else is set.
-  const hasAgentSuggestion =
-    nonEmpty(proposerDefense) ||
-    supportingEvidence.length > 0 ||
-    suggestedFixCounts ||
-    hasDefenderContent ||
-    (nonEmpty(finding.proposer_suggestion) &&
-      !hasProposerTerm &&
-      proposerStatements.length === 0 &&
-      !nonEmpty(proposerDefense) &&
-      supportingEvidence.length === 0);
+  //
+  // 2026-05-21: AgentSuggestionPanel now ALWAYS renders the Judge
+  // row (with the ``[agent emitted no details]`` sentinel when
+  // defender + proposer_defense are both empty). So even findings
+  // with no structured content carry the sentinel — keep the
+  // chevron available so the curator can see that signal explicitly.
+  // Per Paul: "we can't tell from this view whether the agent
+  // emitted no details OR whether the renderer dropped them."
+  // Always true now — the Judge row + sentinel render in every
+  // case. Reference variables kept (silenced by ``void``) for
+  // documentation: any of these branches firing meant the panel
+  // had non-sentinel content under the previous rule. The bare
+  // ``true`` codifies the new always-expandable rule.
+  void proposerDefense;
+  void supportingEvidence;
+  void suggestedFixCounts;
+  void hasDefenderContent;
+  const hasAgentSuggestion = true;
   const hasExpandableContent =
     hasCitation || hasAgentSuggestion || nonEmpty(trail);
 
@@ -4627,7 +4638,12 @@ function subtaskDecisionsForFactor(
 
 /** Renders matching subtask decisions inline in a finding's expanded
  *  body. Renders nothing if there are no matches — keeps the body
- *  tight for findings without reasoning. */
+ *  tight for findings without reasoning.
+ *
+ *  Drops S10_term_validator rows whose verdict only echoes the URI
+ *  already shown on the header term chip — that's pure restatement
+ *  (Paul 2026-05-21). Other subtask types (S2j, S7_coverage, S2i,
+ *  …) are kept as-is. */
 function InlineSubtaskReasoning({
   finding,
   report,
@@ -4639,7 +4655,10 @@ function InlineSubtaskReasoning({
   if (!label) return null;
   const decisions = subtaskDecisionsForFactor(report, label);
   if (decisions.length === 0) return null;
-  const deduped = dedupeSubtaskDecisions(decisions);
+  const headerUri = finding.proposer_term?.uri ?? null;
+  const filtered = decisions.filter((d) => !s10MatchesHeaderUri(d, headerUri));
+  if (filtered.length === 0) return null;
+  const deduped = dedupeSubtaskDecisions(filtered);
   return (
     <div className="space-y-1 pl-1.5">
       <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500">
@@ -4669,7 +4688,24 @@ function InlineSubtaskReasoning({
 /** Combined "suggested fix + proposer suggestion" panel. Shows both
  *  in a single box so the curator sees one coherent "what the agent
  *  thinks you should do" block instead of two differently-coloured
- *  nested boxes. */
+ *  nested boxes.
+ *
+ *  Render contract (Paul 2026-05-21, two screenshots flagged):
+ *   - Hide ``suggested_fix`` when it's just an action one-liner
+ *     ("Add factor X.", "Remove factor X.", "Swap …", "Rename …",
+ *     "Keep …") — the header chip already shows the action. Same
+ *     when it duplicates ``rationale`` verbatim modulo punctuation.
+ *   - Hide the legacy ``proposer_suggestion`` text when its
+ *     parsed category + values are already rendered by the FV
+ *     chips above (RenameFactorEmbed / GoldFactorMissEmbed /
+ *     comparator chips). When at least one suggestion value is
+ *     novel, render it — the curator shouldn't lose that signal.
+ *   - ALWAYS render the "Judge:" row: prefer
+ *     ``defender_verdict.rationale``, fall back to
+ *     ``proposer_defense``, and when both are empty render the
+ *     ``"[agent emitted no details]"`` sentinel in muted slate
+ *     italic. The sentinel distinguishes "agent ran but had nothing
+ *     to add" from "renderer dropped the field". */
 function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const verdictFix = shortFixForVerdict(finding.defender_verdict);
   // For calibration triplet codes the collapsed header already states the
@@ -4681,25 +4717,54 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
     finding.issue_code === "calibration_gold_only_miss" ||
     finding.issue_code === "calibration_match" ||
     finding.issue_code === "calibration_agent_extra";
-  const fixText = verdictFix ?? (isCalibrationCode ? null : finding.suggested_fix);
+  const rawFixText =
+    verdictFix ?? (isCalibrationCode ? null : finding.suggested_fix);
+
+  // Suppress fixText when it just restates the header action or the
+  // rationale. ``verdictFix`` (curator-facing override copy for weak
+  // verdicts) is exempted because that prose is genuinely new.
+  const rationale = trimRationaleBoilerplate(finding.rationale ?? "");
+  const fixIsRedundant =
+    !verdictFix &&
+    !!rawFixText &&
+    (isActionPrefixRationale(rawFixText) ||
+      isSuggestedFixRedundant(rawFixText, rationale, finding.rationale));
+  const fixText = fixIsRedundant ? null : rawFixText;
+
   const term = finding.proposer_term;
   const statements = finding.proposer_statements ?? [];
   const trimmedDefense = trimRationaleBoilerplate(
     finding.proposer_defense ?? "",
   );
   const evidence = finding.supporting_evidence ?? [];
-  const legacyText = finding.proposer_suggestion;
-  const hasProposer =
-    !!term ||
-    statements.length > 0 ||
-    !!trimmedDefense ||
-    evidence.length > 0 ||
-    !!legacyText;
 
-  if (!fixText && !hasProposer) return null;
+  // Legacy one-line ``proposer_suggestion`` — keep only when it
+  // adds info beyond the FV chips already on screen. The visible
+  // FV labels come from proposer_statements (subject slot); for
+  // older audits without structured statements the comparison falls
+  // through to "no visible FVs → render as fallback".
+  const legacyTextRaw = finding.proposer_suggestion ?? "";
+  const isLegacySentinel =
+    legacyTextRaw.trim() === AGENT_NO_DETAILS_SENTINEL;
+  const visibleFvLabels = statements
+    .map((s) => s.subject?.label ?? "")
+    .filter((s) => s.trim().length > 0);
+  const parsedLegacy = parseProposerSuggestion(legacyTextRaw);
+  const legacyText =
+    !legacyTextRaw ||
+    isLegacySentinel ||
+    isProposerSuggestionRedundant(parsedLegacy, visibleFvLabels)
+      ? null
+      : legacyTextRaw;
 
   const dv = finding.defender_verdict ?? null;
   const strength = dv?.strength ?? verdictStrength(dv?.verdict);
+
+  // Judge row — always rendered (Paul 2026-05-21: the curator needs
+  // the WHY even when the agent emitted nothing). Sentinel branch
+  // renders muted italic so the absence reads as "no details" not
+  // "missing UI".
+  const judge = pickJudgeRowText(dv?.rationale, trimmedDefense);
 
   // Strength-based visual differentiation. Weak = amber (caution —
   // judge says don't act); strong = emerald (judge backs the
@@ -4738,50 +4803,46 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
       >
         {strength ? `${strength} suggestion` : "suggestion"}
       </div>
-      {/* The proposer_term chip + proposer_statements list used to
-          render here as a "SUGGESTION" headline, but the editor's
-          comparator chips already show the agent's proposed term.
-          Repeating it inside the agent-details panel duplicated
-          the same chip on the same card. The panel is now the
-          JUSTIFICATION only (fix verb + defense + evidence +
-          judge rationale) — the "what" lives in the editor above.
-          Per Paul 2026-05-21. Legacy text-only proposals (older
-          audits with no structured term) still surface here when
-          there's no defense / evidence to anchor them, so the
-          curator doesn't lose access to that signal. */}
-      {hasProposer && legacyText && !term && statements.length === 0 && !trimmedDefense && evidence.length === 0 ? (
+      {/* Row order is fixed: Judge → Supporting Evidence → (legacy
+          one-line proposal as last-resort) → fixText. Putting Judge
+          first answers Paul's "I need the WHY" complaint: even when
+          the agent emitted nothing, the sentinel row stands in. */}
+      <div
+        className={cn(
+          judge.isSentinel
+            ? "text-slate-400 dark:text-slate-500 italic text-[10px] leading-snug"
+            : "text-slate-500 dark:text-slate-400 italic text-[10px] leading-snug",
+        )}
+        title={dv?.citation || undefined}
+      >
+        <span className="not-italic font-semibold text-slate-600 dark:text-slate-300">
+          Judge:
+        </span>{" "}
+        {judge.text}
+      </div>
+      {evidence.length > 0 ? (
+        <div className="space-y-1">
+          {evidence.map((ev, i) => (
+            <FindingEvidenceBlock key={i} evidence={ev} />
+          ))}
+        </div>
+      ) : null}
+      {/* Legacy text-only proposals (older audits with no structured
+          term / statements / defense / evidence) still surface as a
+          last-resort signal so the curator doesn't lose that data.
+          Suppressed when the FV chips above already render it (see
+          ``isProposerSuggestionRedundant``) and when no other slot
+          would carry the info. */}
+      {legacyText &&
+      !term &&
+      statements.length === 0 &&
+      !trimmedDefense &&
+      evidence.length === 0 ? (
         <div className="text-slate-700 dark:text-slate-300">{legacyText}</div>
       ) : null}
       {fixText ? (
         <div className="text-slate-800 dark:text-slate-200 leading-snug">
           {fixText}
-        </div>
-      ) : null}
-      {hasProposer ? (
-        <div className="space-y-1.5">
-          {trimmedDefense ? (
-            <div className="text-slate-600 dark:text-slate-300 leading-snug">
-              {trimmedDefense}
-            </div>
-          ) : null}
-          {evidence.length > 0 ? (
-            <div className="space-y-1">
-              {evidence.map((ev, i) => (
-                <FindingEvidenceBlock key={i} evidence={ev} />
-              ))}
-            </div>
-          ) : null}
-          {dv?.rationale ? (
-            <div
-              className="text-slate-500 dark:text-slate-400 italic text-[10px] leading-snug"
-              title={dv.citation || undefined}
-            >
-              <span className="not-italic font-semibold text-slate-600 dark:text-slate-300">
-                Judge:
-              </span>{" "}
-              {dv.rationale}
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>
