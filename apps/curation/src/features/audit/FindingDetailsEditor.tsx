@@ -54,10 +54,15 @@ import type {
   Statement,
 } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
-import { resolveAgentFactor, resolveGoldFactor } from "./factorMatch";
+import {
+  isCloseFactorMatch,
+  resolveAgentFactor,
+  resolveGoldFactor,
+} from "./factorMatch";
 import { verdictToStructureDetails } from "./dispositionSave";
 import { consequentHint, type ConsequentHintState } from "./consequentHint";
-import { firstBacktick } from "./rationaleText";
+import { firstBacktick, trimRationaleBoilerplate } from "./rationaleText";
+import { findingLean, type DefenderLean } from "./defenderLean";
 import { useAudit } from "./AuditContext";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { applyProposalToDesign } from "@/features/design/mutations";
@@ -67,6 +72,7 @@ import {
   isSideEmpty,
   lc,
   rowAgreement,
+  sidesAgree,
   type SideValue,
 } from "./rowComparison";
 
@@ -823,6 +829,13 @@ export function FindingDetailsEditor({
     finding.issue_code === "calibration_factor_partition_mismatch" &&
     finding.partition_mismatch != null;
 
+  // Lean direction (judge agrees with agent / curator / neither) —
+  // drives which of the (keep, accept) buttons reads as the primary
+  // recommended action. See ./defenderLean.ts. Computed once per
+  // render and threaded into every ActionRow below.
+  const lean = findingLean(finding);
+  const leanKinds = leanButtonKinds(lean);
+
   function setPick(path: string, patch: Partial<RowState>): void {
     setRowState((prev) => {
       const next = new Map(prev);
@@ -899,7 +912,46 @@ export function FindingDetailsEditor({
     }
   }
 
-  const hasReferenceData = rows.some((r) => r.reference !== null);
+  // True only when the reference (Gemma) comparator carries
+  // information that ISN'T already on the Current side. In a
+  // regular calibration audit the agent populates ``reference``
+  // with the same values as ``currently`` (Gemma == the gold
+  // curator's saved state), which collapses the third comparator
+  // to redundant duplication: "Current has X / Gemma has X".
+  // Only in INTER-CURATOR audits does Gemma diverge from Current
+  // (because Current is a second curator's overlay over Gemma's
+  // baseline). Showing the reference row + "match Gemma" button
+  // makes sense only in that case. Per Paul 2026-05-21.
+  const hasReferenceData = rows.some(
+    (r) => r.reference !== null && !sidesAgree(r.reference, r.currently),
+  );
+
+  // True when the auditor's proposal is effectively identical to
+  // the current design — nothing for the curator to accept or
+  // reject. Three triggers:
+  //   1. ``allAgreeAtCard`` — rows exist and none disagree.
+  //   2. Tag finding with the explicit ``calibration_match``
+  //      issue_code — the agent's own classification asserts
+  //      proposal == current, even when the local ``buildTagRows``
+  //      can't resolve the row pair (target_id without the
+  //      ``calibration:`` prefix). Trust the agent's classification
+  //      here; otherwise the editor shows misleading keep/adopt
+  //      buttons that would no-op.
+  //   3. Factor finding with an exact / near match code AND no
+  //      row-level disagreement — same idea, mirrored to the
+  //      factor side via ``isCloseFactorMatch``.
+  // Per Paul 2026-05-21: "if the proposal is exactly the same as
+  // the current, there's no reason to show buttons to accept; all
+  // the curator could do is delete it if it was wrong." Cuts
+  // cognitive load by removing buttons that would no-op on the
+  // common case.
+  const noActionableDelta =
+    (rows.length > 0 && disagreementRows.length === 0) ||
+    (finding.target_kind === "tag" &&
+      finding.issue_code === "calibration_match") ||
+    (isCloseFactorMatch(finding) && disagreementRows.length === 0) ||
+    (finding.issue_code === "calibration_factor_match_exact" &&
+      disagreementRows.length === 0);
   const allAgreeAtCard = rows.length > 0 && disagreementRows.length === 0;
 
   // Partition-mismatch findings — agent and gold disagree on the
@@ -911,14 +963,18 @@ export function FindingDetailsEditor({
   if (isPartitionMismatch) {
     const pm = finding.partition_mismatch!;
     const isAgentFiner = pm.direction === "agent_finer";
-    const actionWord = isAgentFiner ? "split" : "combine";
+    // Direction-aware label fragment for the title + button.
+    // Avoids the older "split / combine" verbs that read as
+    // "split/merge two factors" — partition_mismatch is a
+    // within-factor FV reorg. Per Paul 2026-05-21.
+    const directionPhrase = isAgentFiner ? "finer levels" : "fewer levels";
     const agentVerb = "says";
     const goldVerb = currentlyVerb(identities.goldCurator);
     const keepLabel = keepLabelFor(identities.goldCurator);
-    const acceptLabel = `adopt ${identities.proposer}'s ${actionWord}`;
+    const acceptLabel = `adopt ${identities.proposer}'s ${directionPhrase}`;
     const acceptTitle = isAgentFiner
-      ? `Split the existing factor along the axis ${identities.proposer} proposed.`
-      : `Combine the existing factors into the single factor ${identities.proposer} proposed.`;
+      ? `Use the finer factor-value partition ${identities.proposer} proposed.`
+      : `Use the simpler factor-value partition ${identities.proposer} proposed.`;
     // Group fv_pairs by the PARENT side. For agent_finer the
     // parent is gold; for agent_coarser the parent is agent.
     // Repeated entries with the same parent collapse into a
@@ -950,15 +1006,21 @@ export function FindingDetailsEditor({
           </span>
           <span className="text-slate-400 dark:text-slate-500">·</span>
           <span className="text-amber-700 dark:text-amber-300">
-            <strong>partition mismatch — {identities.proposer} proposes to {actionWord}</strong>
+            <strong>partition mismatch — {identities.proposer} proposes {directionPhrase}</strong>
           </span>
         </div>
 
         {/* FV-count comparison — the headline numbers a curator
             needs to grok the partition mismatch at a glance. Big
             digit + "levels" with each comparator's identity on
-            the left. Replaces the small italic "(3 FVs, finer
-            partition)" suffix on the previous chip rows. */}
+            the left. Both sides' levels live in ONE factor (the
+            partition_mismatch is a within-factor FV reorg, not a
+            cross-factor split/merge), so we just say "levels"
+            without an "across N factors" suffix. Per Paul
+            2026-05-21: the older "(combined into 1)" /
+            "across N factors" copy was misleading — the current
+            disease factor in the GSE28300 example has 3 levels in
+            one factor, not "across 2 factors". */}
         <div className="space-y-1">
           <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
             <span className="text-slate-600 dark:text-slate-300">
@@ -969,7 +1031,7 @@ export function FindingDetailsEditor({
                 {isAgentFiner ? pm.fv_pairs.length : groups.length}
               </span>
               <span className="text-slate-600 dark:text-slate-300">
-                levels {isAgentFiner ? "(finer partition)" : "(combined into 1)"}
+                levels
               </span>
             </span>
           </div>
@@ -992,39 +1054,54 @@ export function FindingDetailsEditor({
                 {isAgentFiner ? groups.length : pm.fv_pairs.length}
               </span>
               <span className="text-slate-600 dark:text-slate-300">
-                levels {isAgentFiner ? "(coarser partition)" : `across ${groups.length} factor${groups.length === 1 ? "" : "s"}`}
+                levels
               </span>
             </span>
           </div>
         </div>
 
-        {/* Mapping — one row per fv_pair. Child ← parent
-            (Auditor's child level on the left, Current's umbrella
-            on the right for agent_finer; flipped for
-            agent_coarser). One row per pair makes the per-level
-            mapping legible without horizontal wrapping. */}
-        {pm.fv_pairs.length > 0 ? (
+        {/* Mapping — grouped by parent (umbrella) so when multiple
+            child levels collapse onto a single parent the parent
+            is shown ONCE on the right with a merged arrow. Avoids
+            visual duplication (the curator was reading "ICU-
+            acquired weakness MONDO:0001957" twice in a row and
+            having to compare the URIs to confirm they were the
+            same target — Paul 2026-05-21). For 1→1 groups this
+            renders identical to the old row-per-pair shape. */}
+        {groups.length > 0 ? (
           <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
             <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
               {isAgentFiner
                 ? `Mapping (${identities.proposer}'s level → ${identities.goldCurator}'s umbrella)`
                 : `Mapping (${identities.goldCurator}'s level → ${identities.proposer}'s umbrella)`}
             </div>
-            <div className="space-y-1 text-[11px]">
-              {pm.fv_pairs.map((pair, i) => {
-                const child = isAgentFiner ? pair.agent : pair.gold;
-                const parent = isAgentFiner ? pair.gold : pair.agent;
-                return (
-                  <div
-                    key={i}
-                    className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-baseline"
-                  >
-                    <MappingChip term={child} />
-                    <span className="text-slate-400 dark:text-slate-500">→</span>
-                    <MappingChip term={parent} />
+            <div className="space-y-1.5 text-[11px]">
+              {groups.map((g, gi) => (
+                <div
+                  key={gi}
+                  className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center"
+                >
+                  <div className="flex flex-col gap-1 min-w-0">
+                    {g.children.map((c, ci) => (
+                      <MappingChip key={ci} term={c} />
+                    ))}
                   </div>
-                );
-              })}
+                  <span
+                    className="text-slate-400 dark:text-slate-500"
+                    aria-hidden
+                    title={
+                      g.children.length > 1
+                        ? `${g.children.length} levels collapse to one`
+                        : undefined
+                    }
+                  >
+                    {g.children.length > 1 ? "⇒" : "→"}
+                  </span>
+                  <div className="min-w-0">
+                    <MappingChip term={g.parent} />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ) : null}
@@ -1043,7 +1120,7 @@ export function FindingDetailsEditor({
           buttons={[
             {
               key: "keep",
-              kind: "primary-keep",
+              kind: leanKinds.keep,
               label: keepLabel,
               onClick: () => dispatchSave("currently"),
               title: isAgentFiner
@@ -1052,7 +1129,7 @@ export function FindingDetailsEditor({
             },
             {
               key: "accept",
-              kind: "primary-accept",
+              kind: leanKinds.accept,
               label: acceptLabel,
               onClick: () => dispatchSave("proposal"),
               title: acceptTitle,
@@ -1183,14 +1260,14 @@ export function FindingDetailsEditor({
           buttons={[
             {
               key: "keep",
-              kind: "primary-keep",
+              kind: leanKinds.keep,
               label: keepLabelFor(identities.goldCurator),
               onClick: () => dispatchSave("currently"),
               title: `Don't add this factor — keep the design as-is.`,
             },
             {
               key: "accept",
-              kind: "primary-accept",
+              kind: leanKinds.accept,
               label: `adopt ${identities.proposer}'s (add factor)`,
               onClick: () => {
                 // Dual-write: mutate the design draft to ADD the
@@ -1515,13 +1592,13 @@ export function FindingDetailsEditor({
           buttons={[
             {
               key: "keep",
-              kind: "primary-keep",
+              kind: leanKinds.keep,
               label: keepLabel,
               onClick: () => dispatchSave("currently"),
             },
             {
               key: "remove",
-              kind: "primary-accept",
+              kind: leanKinds.accept,
               label: `accept ${identities.proposer}'s (remove)`,
               onClick: () => dispatchSave("proposal"),
             },
@@ -1565,12 +1642,19 @@ export function FindingDetailsEditor({
         </div>
       ) : null}
 
-      {/* Tag-detail block — for tag findings, always render the
+      {/* Tag-detail block — for tag findings, render the
           category + value chips for both Auditor and Current so
           the curator sees the full tag identity (including URIs)
-          even on OK matches where the disagreement editor would
-          otherwise be empty. */}
-      {finding.target_kind === "tag" ? (
+          on OK matches and near-matches.
+          Skipped for ``calibration_agent_extra`` (Add tag): the
+          outer collapsed header already shows the same chips for
+          the Auditor side, and the Current side would just read
+          "no entry". Rendering both was pure duplication per
+          Paul 2026-05-21. Removal-tag findings already take a
+          dedicated branch above (``isRemovalFinding``), so this
+          single-line gate covers the add-tag case. */}
+      {finding.target_kind === "tag" &&
+      finding.issue_code !== "calibration_agent_extra" ? (
         <TagDetailBlock
           rows={rows}
           identities={identities}
@@ -1600,6 +1684,22 @@ export function FindingDetailsEditor({
           }
           fvMeta={fvMeta}
         />
+      ) : null}
+
+      {/* Near-match explainer — the agent flagged this as
+          ``_match_near`` but the client's per-row diff finds
+          nothing to disagree on. That means the near signal
+          lives in something rows don't compare (FV count,
+          gene-symbol vs common-name on URIs we don't surface,
+          one-of-N gold instances, baseline picks, sample-count
+          mismatch, etc.). Without this block the curator sees
+          a contradiction: the header says "≈ near" but the body
+          says "✓ Everyone agrees". Surface the agent's
+          rationale inline so the curator can decide whether the
+          delta matters. Per Paul 2026-05-21 (GSE93824 genotype
+          case). */}
+      {isCloseFactorMatch(finding) && allAgreeAtCard ? (
+        <NearMatchExplainer finding={finding} />
       ) : null}
 
       {/* One block per *statement* — Subject/Predicate/Object rows
@@ -1636,28 +1736,21 @@ export function FindingDetailsEditor({
         />
       ))}
 
-      {/* Action row — when all rows agree, this is just Dismiss/Park.
-          Otherwise the three header-level verdict buttons +
-          per-row-save + Dismiss/Park. */}
+      {/* Action row — when proposal == current there's nothing to
+          accept or reject, so the only available actions are
+          Dismiss (delete if wrong) and Park (defer). Otherwise
+          the three header-level verdict buttons + per-row-save +
+          Dismiss/Park. Per Paul 2026-05-21. */}
       <ActionRow
         saving={saving}
         disabled={currentDisposition !== "pending"}
         buttons={
-          allAgreeAtCard
-            ? [
-                {
-                  key: "confirm",
-                  kind: "primary-accept",
-                  label: "confirm",
-                  onClick: () => dispatchSave("currently"),
-                  title:
-                    "All comparators agree — confirm and close this finding.",
-                },
-              ]
+          noActionableDelta
+            ? []
             : [
                 {
                   key: "keep",
-                  kind: "primary-keep",
+                  kind: leanKinds.keep,
                   label: keepLabelFor(identities.goldCurator),
                   onClick: () => dispatchSave("currently"),
                   title: `Take ${
@@ -1670,7 +1763,7 @@ export function FindingDetailsEditor({
                 },
                 {
                   key: "accept",
-                  kind: "primary-accept",
+                  kind: leanKinds.accept,
                   label: `adopt ${identities.proposer}'s`,
                   onClick: () => dispatchSave("proposal"),
                   title: `Take ${identities.proposer}'s value on every disagreement.`,
@@ -1760,6 +1853,47 @@ function AgreementSummary({
   );
 }
 
+/** Surface what the auditor's "near match" classification is
+ *  actually keying on, when our per-row diff finds nothing to
+ *  contrast. Renders the trimmed rationale + a one-line frame
+ *  that explicitly names the contradiction ("rows agree but
+ *  auditor flagged it as near") so the curator doesn't read
+ *  "Everyone agrees" and assume the auditor was wrong. */
+function NearMatchExplainer({ finding }: { finding: AuditFinding }) {
+  const rationale = trimRationaleBoilerplate(finding.rationale ?? "").trim();
+  const defense = trimRationaleBoilerplate(
+    finding.proposer_defense ?? "",
+  ).trim();
+  const body = rationale || defense;
+  return (
+    <div className="rounded border border-amber-200 bg-amber-50/60 px-2.5 py-2 dark:border-amber-700/60 dark:bg-amber-900/15 text-[11px] text-amber-900 dark:text-amber-200">
+      <div className="flex items-baseline gap-1.5 mb-1">
+        <span className="font-bold text-amber-700 dark:text-amber-300">
+          ≈
+        </span>
+        <span className="font-semibold">
+          Auditor sees a small difference
+        </span>
+        <span className="text-[10px] text-amber-700/80 dark:text-amber-300/80">
+          — visible rows agree; the delta is in something the comparator
+          rows don't surface (FV count, URI variant, sample-count,
+          baseline pick, etc.)
+        </span>
+      </div>
+      {body ? (
+        <div className="italic text-amber-900/90 dark:text-amber-100/90 leading-snug">
+          {body}
+        </div>
+      ) : (
+        <div className="italic text-amber-700/70 dark:text-amber-300/70">
+          (no rationale on the wire — see Auditor details below for the
+          judge's reasoning)
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One block per *statement*. Takes one or more rows that share an
  *  FV+statement (or the single Category row). Renders:
  *   - Header: "FV N · X samples" (or "Category")
@@ -1829,7 +1963,14 @@ function DisagreementBlock({
   // the reference line + button. Each row's reference can be null
   // even when the statement has one (subject has Gemma, predicate
   // doesn't).
-  const hasReferenceCtx = displayRows.some((r) => r.reference !== null);
+  // Same "meaningfully different" gate as the card-level
+  // ``hasReferenceData`` check — hide the per-block "Gemma has"
+  // line + "match Gemma" pick button when the reference is just
+  // restating the Current side (regular calibration mode, where
+  // Gemma == Current). Per Paul 2026-05-21.
+  const hasReferenceCtx = displayRows.some(
+    (r) => r.reference !== null && !sidesAgree(r.reference, r.currently),
+  );
 
   // The block's pick state — consensus of its rows. If every row
   // shares the same pick, the block reads as that. Mixed picks
@@ -2275,6 +2416,34 @@ interface ActionButton {
   title?: string;
 }
 
+/** Pick button kinds for the (keep, accept) pair based on the
+ *  judge's lean. Lets the curator see which action the judge
+ *  recommends without changing the underlying wire shape.
+ *
+ *  Defaults (lean=neutral) preserve today's behaviour: both buttons
+ *  styled as primary (filled, prominent). When the judge leans
+ *  pro_gold the accept button demotes to ``secondary`` (outline) so
+ *  the keep button reads as the recommended action — fixes the
+ *  GSE93824 Arctic-APP case (Paul 2026-05-21) where the judge said
+ *  agent is wrong but the UI still highlighted `adopt Auditor's`.
+ *  Mirror case for pro_agent: keep demotes, accept stays primary
+ *  (also matches today's de-facto behaviour where most defender-
+ *  verdict findings lean pro-agent). */
+export function leanButtonKinds(lean: DefenderLean): {
+  keep: ActionButton["kind"];
+  accept: ActionButton["kind"];
+} {
+  if (lean === "pro_gold") {
+    return { keep: "primary-keep", accept: "secondary" };
+  }
+  if (lean === "pro_agent") {
+    return { keep: "secondary", accept: "primary-accept" };
+  }
+  // Neutral / no defender → today's behaviour: both filled. The
+  // curator gets no visual nudge in either direction.
+  return { keep: "primary-keep", accept: "primary-accept" };
+}
+
 /** Compact chip for the partition_mismatch mapping block. Drops
  *  the URI annotation that `Term` renders inline (full URI still
  *  surfaces on hover via the title attribute) and uses tighter
@@ -2425,7 +2594,9 @@ function ActionRow({
           {saving ? "Saving…" : b.label}
         </button>
       ))}
-      <span className="text-slate-300 dark:text-slate-600">·</span>
+      {buttons.length > 0 ? (
+        <span className="text-slate-300 dark:text-slate-600">·</span>
+      ) : null}
       <button
         type="button"
         onClick={onDismiss}

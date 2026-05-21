@@ -1212,6 +1212,35 @@ function TagBar({
     return !fvSynthCats.has(k);
   });
   const inferred = visibleTags.filter((t) => t.inferred);
+
+  // Dedup by (category-label, value-label) — direct wins, then
+  // inferred-from-biomaterial > inferred-from-FactorValue >
+  // anything-else. GSE93824 was rendering ``cell type: microglial
+  // cell`` three times (one direct + biomaterial-synth +
+  // FV-synth); the existing fvSynthCats filter only catches
+  // direct-vs-FV-synth collisions, not biomaterial-vs-FV-synth or
+  // inferred-vs-inferred. Per Paul 2026-05-21.
+  const dedupKey = (t: Tag) =>
+    `${(t.category.label || t.category.uri || "").trim().toLowerCase()}|${(t.value.label || t.value.uri || "").trim().toLowerCase()}`;
+  const seenKeys = new Set<string>();
+  // Track which inferred-key already had a direct chip so the
+  // inferred pass can drop matching duplicates too.
+  for (const t of direct) seenKeys.add(dedupKey(t));
+  const inferredSourceRank = (t: Tag): number => {
+    if (t.inferred_source === "BioMaterial") return 0;
+    if (t.inferred_source === "FactorValue") return 1;
+    return 2;
+  };
+  const inferredSorted = [...inferred].sort(
+    (a, b) => inferredSourceRank(a) - inferredSourceRank(b),
+  );
+  const dedupedInferred: Tag[] = [];
+  for (const t of inferredSorted) {
+    const k = dedupKey(t);
+    if (seenKeys.has(k)) continue;
+    seenKeys.add(k);
+    dedupedInferred.push(t);
+  }
   const showHeader =
     visibleTags.length > 0 || draft != null;
   if (!showHeader) return null;
@@ -1229,7 +1258,7 @@ function TagBar({
     list.push(t);
     directByGroup.set(k, list);
   }
-  for (const t of inferred) {
+  for (const t of dedupedInferred) {
     const k = tagGroup(t.category.label);
     const list = inferredByGroup.get(k) ?? [];
     list.push(t);

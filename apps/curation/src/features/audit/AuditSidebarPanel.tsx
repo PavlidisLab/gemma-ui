@@ -4,6 +4,7 @@ import { agentPalette, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { StatementGlyph } from "@/components/ui/StatementGlyph";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useDesign } from "@/api/design";
 import { useAuditStream } from "@/api/auditStream";
@@ -19,7 +20,6 @@ import {
   parseTargetId,
 } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
-import { setFactorFields, setFvLabel } from "@/features/design/mutations";
 import { resolveApplyAction } from "./applyHandlers";
 import {
   FindingDetailsEditor,
@@ -44,6 +44,10 @@ import {
   s10MatchesHeaderUri,
 } from "./auditorDetails";
 import { DismissDialog, type DialogChip } from "./DismissDialog";
+import {
+  findingLean,
+  leanSuggestionLabel,
+} from "./defenderLean";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
 import { AuditTriggerDialog } from "./AuditTriggerDialog";
@@ -68,7 +72,6 @@ import {
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import {
-  computeFvCorrespondence,
   factorMatchVariant,
   isCloseFactorMatch,
   isExactFactorMatch,
@@ -888,9 +891,12 @@ function findingActionLabel(finding: AuditFinding): string {
   if (code === "calibration_factor_match_near") return "Factor near-match";
   if (code === "calibration_factor_rename") return "Rename factor";
   if (code === "calibration_factor_partition_mismatch") {
-    const direction = finding.partition_mismatch?.direction;
-    if (direction === "agent_finer") return "Split factor into two";
-    if (direction === "agent_coarser") return "Combine two factors";
+    // Always "Modify factor values". The finer/coarser axis is a
+    // within-factor FV reorganization, not a split/merge of two
+    // distinct factors — the older verbs ("Split factor into
+    // two" / "Combine two factors") implied the latter and were
+    // misleading. The mapping table below the header carries the
+    // direction signal. Per Paul 2026-05-21.
     return "Modify factor values";
   }
   if (code === "calibration_match") return "Tag match";
@@ -937,44 +943,17 @@ function findingSubjectLabel(
   design: Design | null,
 ): string | null {
   if (finding.partition_mismatch) {
+    // Header subject is just the category label — no FV umbrella
+    // suffix. Per Paul 2026-05-21: the per-FV labels showing up
+    // as the header subject ("disease: ICU-acquired weakness")
+    // were misread as the ontology term's canonical label, and
+    // for partition_mismatch the curator's question is "which
+    // factor", not "which level". The mapping table below carries
+    // the per-level detail.
     const pm = finding.partition_mismatch;
-    // For partition_mismatch the category alone ("treatment") isn't
-    // discriminative — the curator needs to know WHICH treatment.
-    // The parent side of the link carries the umbrella FV labels
-    // ("hypochlorous acid" / "rotenone") that the split / combine
-    // pivots on. Dedup parents, drop baselines (the canonical
-    // "reference substance role" sibling), and emit the +/-
-    // shorthand when the partition is binary
-    // (one non-baseline level + a baseline).
-    const isAgentFiner = pm.direction === "agent_finer";
-    const parents = Array.from(
-      new Set(
-        (pm.fv_pairs ?? [])
-          .map((p) =>
-            (isAgentFiner ? p.gold.label : p.agent.label)?.trim() || "",
-          )
-          .filter((s) => s.length > 0),
-      ),
-    );
     const category =
       pm.gold.category.label || pm.agent.category.label || "";
-    if (parents.length === 0) return category || null;
-    // Resolve the parent-side factor so we can use `is_baseline`
-    // for the baseline filter instead of guessing from the label.
-    const cp = report?.evidence?.comparison_proposal ?? null;
-    const parentFactor = isAgentFiner
-      ? resolveGoldFactor(finding, design?.factors ?? [], category)
-      : resolveAgentFactor(finding, cp, category);
-    const baselineLabels = new Set(
-      (parentFactor?.factor_values ?? [])
-        .filter((fv) => fv.is_baseline)
-        .map((fv) => (fv.free_text_label || "").trim().toLowerCase()),
-    );
-    const nonBaseline = parents.filter(
-      (p) => !baselineLabels.has(p.toLowerCase()),
-    );
-    const hadBaseline = nonBaseline.length < parents.length;
-    return formatLevels(category, nonBaseline, hadBaseline);
+    return category || null;
   }
   const code = finding.issue_code;
   const backtick = firstBacktick(finding.rationale);
@@ -1363,7 +1342,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
             Alternate factor — proposed a different categorization
           </div>
           {visibleRenames.map((f) => (
-            <RenameFindingCard
+            <CompactFindingCard
               key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
               finding={f}
             />
@@ -1390,10 +1369,11 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
             {/* Match findings for this target_kind render INSIDE
                 the kind's group (tail position), so tag matches
                 live under TAGS, factor matches under DESIGN —
-                FACTORS, etc. Replaces the old standalone
-                "Confirmed matches" section. Per Paul 2026-05-21. */}
+                FACTORS, etc. Same CompactFindingCard template as
+                actionable findings — the badge picker handles
+                ≈/✓ visual difference. Per Paul 2026-05-21. */}
             {matchesForKind.map((f) => (
-              <MatchFindingRow
+              <CompactFindingCard
                 key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
                 finding={f}
               />
@@ -1416,7 +1396,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
               Confirmed matches
             </div>
             {orphan.map((f) => (
-              <MatchFindingRow
+              <CompactFindingCard
                 key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
                 finding={f}
               />
@@ -1563,343 +1543,6 @@ function parseRenameLabels(
   return { agent: m[1], gold: m[2] };
 }
 
-/** Compact green-check row for a calibration match. Default-collapsed
- *  one-liner; chevron expands to reveal the agent's evidence + the
- *  disposition controls so the curator can flag a wrong match.
- *
- *  After the 2026-05-18 issue-code split (agents-repo ``f313770``)
- *  this row also handles ``calibration_factor_match_close``: same
- *  compact shape, but with a "close — peek to confirm" chip and a
- *  warmer amber tint instead of green so the curator gets the cue at
- *  a glance without losing the dense match-row affordance. */
-function MatchFindingRow({ finding }: { finding: AuditFinding }) {
-  const [open, setOpen] = useState(false);
-  const { activeFindingKey, setActiveFindingKey, dispositionByTarget, report, experimentId } =
-    useAudit();
-  const { data: serverDesign } = useDesign(experimentId);
-  // Retire the legacy MatchCompareCard + RenameFactorEmbed when the
-  // new per-element editor (FindingDetailsEditor inside the
-  // FindingActionRow below) has resolvable structured content for
-  // this finding — the editor's title row + comparator lines
-  // subsume both. Falls back to the legacy cards when the editor
-  // can't render meaningful rows (no comparison_proposal, no gold
-  // counterpart). The 3-circle per-FV pairing glyph cluster
-  // (``FvStatusGlyph`` inside RenameFactorEmbed) is shelved with
-  // the embed; bring it back as its own component if we want it
-  // back later.
-  const editorWillRender = findingHasStructuredContent(
-    finding,
-    report,
-    serverDesign ?? null,
-  );
-  const disposition = dispositionByTarget.get(finding.target_id);
-  const current = disposition?.status ?? "pending";
-  const isClosed =
-    current === "dismissed" ||
-    current === "needs_more_info" ||
-    (current === "accepted" && !!disposition?.resolved_at);
-  markFirstSeen(finding.target_id);
-
-  const rowRef = useRef<HTMLDivElement>(null);
-  const myKey = findingKey(finding);
-  useEffect(() => {
-    if (activeFindingKey !== myKey) return;
-    setOpen(true);
-    const raf = requestAnimationFrame(() => {
-      rowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      setActiveFindingKey(null);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [activeFindingKey, myKey, setActiveFindingKey]);
-
-  // Pull the `<category>: <value>` pair out of the rationale for the
-  // headline ("Is `X: Y` correctly assigned?") so the row reads as a
-  // confirmation rather than a question.
-  const m = (finding.rationale || "").match(/`([^`]+)`/);
-  const label = m ? m[1] : finding.rationale;
-
-  // Resolve ontology terms (label + URI) for the row's title so it
-  // renders as Term chips rather than plain text. Bedrock
-  // convention (memory: feedback_stable_ui_conventions): ontology
-  // terms ALWAYS render via the Term component with URI annotation.
-  // For tags: split "category: value", look up URIs in design.tags
-  // (URIs live there even on OK matches). For factors: read from
-  // the resolved agentFactor's category.
-  const labelChips = useMemo(() => {
-    if (finding.target_kind === "tag" && label) {
-      const colon = label.indexOf(":");
-      if (colon !== -1) {
-        const cat = label.slice(0, colon).trim();
-        const val = label.slice(colon + 1).trim();
-        const designTag = serverDesign?.tags?.find(
-          (t) =>
-            (t.category?.label || "").toLowerCase().trim() ===
-              cat.toLowerCase() &&
-            (t.value?.label || "").toLowerCase().trim() ===
-              val.toLowerCase(),
-        );
-        return {
-          kind: "tag" as const,
-          category: {
-            label: cat,
-            uri: designTag?.category?.uri ?? null,
-          },
-          value: {
-            label: val,
-            uri:
-              designTag?.value?.uri ??
-              finding.proposer_term?.uri ??
-              null,
-          },
-        };
-      }
-    }
-    return null;
-  }, [finding.target_kind, label, serverDesign, finding.proposer_term]);
-
-  // FV fingerprint — surface the agent factor's first FV labels in the
-  // collapsed row so multi-factor-same-category designs (e.g.
-  // GSE93824's two ``genotype`` factors) don't show two identical
-  // rows. Reads off ``agent_target_index`` (calibration package v12+);
-  // the label-fallback path inside ``resolveAgentFactor`` handles
-  // older audits.
-  const agentFactor = useMemo(() => {
-    if (finding.target_kind !== "factor") return null;
-    const cp = report?.evidence?.comparison_proposal ?? null;
-    return resolveAgentFactor(finding, cp, label);
-  }, [finding, report, label]);
-  const fvFingerprint = useMemo(() => {
-    if (!agentFactor) return "";
-    const labels = agentFactor.factor_values
-      .map((fv) => fv.free_text_label?.trim())
-      .filter((s): s is string => !!s);
-    if (labels.length === 0) return "";
-    const head = labels.slice(0, 2).join(" / ");
-    return labels.length > 2 ? `${head} / …` : head;
-  }, [agentFactor]);
-
-  // Derive whether any FV-level drift exists so the top-level row
-  // glyph stays honest: a green ✓ "= Gemma" + an inner row that
-  // shows "+ not in Gemma" reads as a contradiction. Same pairing
-  // logic the expanded body uses (``computeFvCorrespondence``), so
-  // the two surfaces never disagree.
-  const fvDrift = useMemo(() => {
-    if (!agentFactor || !serverDesign) return false;
-    // Index-first via ``gold_target_index`` (post-3868a09); slug +
-    // biomaterial-overlap fallback for legacy audits.
-    const indexed = resolveGoldFactor(
-      finding,
-      serverDesign.factors,
-      agentFactor.category.label,
-    );
-    let goldFactor = indexed ?? undefined;
-    if (!goldFactor) {
-      const goldCandidates = serverDesign.factors.filter(
-        (f) =>
-          f.category.label.toLowerCase().trim() ===
-          agentFactor.category.label.toLowerCase().trim(),
-      );
-      goldFactor = pickGoldFactor(agentFactor, goldCandidates);
-    }
-    if (!goldFactor) return false;
-    return computeFvCorrespondence(agentFactor, goldFactor).hasDrift;
-  }, [finding, agentFactor, serverDesign]);
-
-  // Visual split. Factor-level isExact / isClose comes from the
-  // issue code (the agent's verdict). If FV-correspondence detects
-  // drift, downgrade an "exact" to behave like "close" so the row
-  // doesn't claim a green-check clean match while showing yellow
-  // FV mismatches below.
-  const rawExact = isExactFactorMatch(finding);
-  const isClose = isCloseFactorMatch(finding) || (rawExact && fvDrift);
-  // isExact = rawExact && !fvDrift — currently unused in this
-  // component now that the right-side "= Gemma" / "peek to confirm"
-  // text was retired. Left as a comment so the relationship between
-  // raw issue-code and rendered glyph stays documented.
-
-  return (
-    // Match rows now use neutral slate chrome — the green / amber
-    // background tints used to encode "everyone agrees" (emerald)
-    // vs "near match" (amber), but those colours fight the
-    // factor-vs-tag identity convention (sky for factor cards in
-    // the design panel). Encoding OK / near via small badges
-    // instead lets the row chrome stay neutral and the colour
-    // axis stays free for entity identity. Per Paul 2026-05-21.
-    <div
-      ref={rowRef}
-      className={cn(
-        // Use the same `card p-2` shell CompactFindingCard does so
-        // actionable + match rows align at the same left edge.
-        // Previously match rows had no padding while compact cards
-        // had `p-2`, which shifted match-row content noticeably to
-        // the left of the actionable cards' chevrons. Per Paul
-        // 2026-05-21.
-        "card p-2 text-xs",
-        isClosed && "opacity-60",
-        activeFindingKey === myKey && "ring-2 ring-blue-400",
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => {
-          const next = !open;
-          setOpen(next);
-          // Expanding a card at the bottom of the viewport leaves
-          // its body off-screen; scroll-into-view on the expand
-          // transition so the curator sees the content without a
-          // manual scroll. Defer one raf so the expanded body has
-          // mounted + reflowed and the row's height is final.
-          if (next) {
-            requestAnimationFrame(() => {
-              rowRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "nearest",
-              });
-            });
-          }
-        }}
-        className="w-full text-left flex items-start gap-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
-        title={
-          open
-            ? "collapse"
-            : isClose
-              ? "near match — peek to confirm; FV count, gene-symbol vs common name, or one-of-N gold instances may differ"
-              : "click to compare — matches can still differ subtly (URI, casing, FV labels)"
-        }
-      >
-        <span
-          // Match CompactFindingCard's chevron padding so the
-          // actionable + match rows align at the same left edge.
-          className="text-2xl leading-none text-slate-500 dark:text-slate-400 font-bold px-1 -mt-1"
-          aria-hidden
-        >
-          {open ? "⌄" : "›"}
-        </span>
-        {/* Status badge — same left-side slot as the SeverityBadge
-            on actionable cards (CompactFindingCard). Keeps the
-            "what's the status" indicator in a consistent
-            position across both row types. Per Paul 2026-05-21. */}
-        {isClose ? (
-          <span
-            className="inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-5 h-5 text-[12px] leading-none bg-amber-500 text-amber-950 border border-amber-600"
-            title="near match — peek to confirm (severity minor, not skippable)"
-            aria-label="near match"
-          >
-            ≈
-          </span>
-        ) : (
-          <span
-            className="inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-5 h-5 text-[12px] leading-none bg-emerald-600 text-white border border-emerald-700"
-            title="exact match — labels + URIs line up"
-            aria-label="ok match"
-          >
-            ✓
-          </span>
-        )}
-        <span className="font-mono text-[10px] text-slate-600 dark:text-slate-300">
-          {TARGET_KIND_LABEL[finding.target_kind]}
-        </span>
-        {labelChips?.kind === "tag" ? (
-          <span className="inline-flex items-baseline gap-x-1 min-w-0">
-            <Term
-              uri={labelChips.category.uri}
-              asLink={false}
-              className="!whitespace-normal break-words"
-            >
-              {labelChips.category.label}
-            </Term>
-            <span className="text-slate-400 dark:text-slate-500">:</span>
-            <Term
-              uri={labelChips.value.uri}
-              asLink={false}
-              className="!whitespace-normal break-words"
-            >
-              {labelChips.value.label}
-            </Term>
-          </span>
-        ) : agentFactor ? (
-          <Term
-            uri={agentFactor.category?.uri ?? null}
-            asLink={false}
-            className="!whitespace-normal break-words"
-          >
-            {agentFactor.category?.label || label}
-          </Term>
-        ) : (
-          <span className="truncate text-slate-800 dark:text-slate-100">
-            {label}
-          </span>
-        )}
-        {fvFingerprint ? (
-          <span
-            className="text-[10px] italic truncate min-w-0 text-slate-500 dark:text-slate-400"
-            title={`FVs: ${fvFingerprint}`}
-          >
-            · {fvFingerprint}
-          </span>
-        ) : null}
-        {/* Right-aligned spacer collapses the row neatly; the
-            expand/collapse affordance is the caret on the left. The
-            old "= Gemma" / "peek to confirm" right-side captions
-            were redundant once the ✓ / ≈ glyph + the ``near`` chip
-            already conveyed the row's state. */}
-        <span className="ml-auto" />
-        <DebateBadgeChip badge={finding.debate_badge} defenderVerdict={finding.defender_verdict} />
-      </button>
-      {open ? (
-        <div
-          className={cn(
-            "px-2 pb-1.5 pl-7 space-y-1.5 border-t",
-            isClose
-              ? "border-amber-200/50 dark:border-amber-700/40"
-              : "border-emerald-200/50 dark:border-emerald-700/40",
-          )}
-        >
-          {/* MatchCompareCard + RenameFactorEmbed retired in favour
-              of the per-element editor below (FindingActionRow ->
-              FindingDetailsEditor). The fallback render only fires
-              for findings the editor can't structure — see the
-              ``editorWillRender`` gate above. */}
-          {!editorWillRender ? (
-            <>
-              <MatchCompareCard finding={finding} label={label} />
-              {finding.target_kind === "factor" ? (
-                <RenameFactorEmbed finding={finding} />
-              ) : null}
-            </>
-          ) : null}
-          {/* AgentSuggestionPanel re-renders the proposer_term, which
-              MatchCompareCard above already shows for tag matches —
-              the duplicate "SUGGESTION" block ends up echoing
-              "dorsal root ganglion UBERON:0000044" right after the
-              "what matched" comparison. Skip it on confirmed matches
-              unless there's a defender verdict (rare on matches; the
-              defender doesn't usually run on _match findings) or a
-              non-calibration fix text that adds real new info. */}
-          {(() => {
-            const dv = finding.defender_verdict;
-            const hasDefender = !!(
-              dv &&
-              (dv.rationale || dv.citation || dv.verdict)
-            );
-            const isCalibrationCode =
-              finding.issue_code === "calibration_gold_only_miss" ||
-              finding.issue_code === "calibration_match" ||
-              finding.issue_code === "calibration_agent_extra";
-            const fixAdds =
-              !isCalibrationCode &&
-              !!(finding.suggested_fix && finding.suggested_fix.trim());
-            return hasDefender || fixAdds ? (
-              <AgentSuggestionPanel finding={finding} />
-            ) : null;
-          })()}
-          <FindingActionRow finding={finding} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 /** Tiny inline status glyph for the per-FV correspondence indicators
  *  rendered next to each agent FV inside RenameFactorEmbed (near
  *  matches only). Four states:
@@ -1948,396 +1591,6 @@ function FvStatusGlyph({
     </span>
   );
 }
-
-/** What-matched comparison shown when a curator expands a confirmed
- *  match. Matches can still hide subtle divergence — different URI
- *  for the same label, casing/whitespace drift, FV-level differences
- *  on factor matches. This block surfaces the agent-side structured
- *  data (term URI, FV statements) so the curator can verify the
- *  match against the rationale's quoted label without leaving the
- *  card. */
-function MatchCompareCard({
-  finding,
-  label,
-}: {
-  finding: AuditFinding;
-  label: string;
-}) {
-  const term = finding.proposer_term;
-  const hasTerm = !!(term?.label || term?.uri);
-  const hasStatements = (finding.proposer_statements?.length ?? 0) > 0;
-  // Nothing structured to show — fall back silently.
-  if (!hasTerm && !hasStatements) return null;
-  // When both sides report the same label AND the agent shipped a URI,
-  // the match is mechanically identical and the "verify in context"
-  // hedge reads as cargo-culted caution. Hide it for those cases — the
-  // ≡ glyph + URI already say enough.
-  const labelsIdentical =
-    !!term?.label &&
-    term.label.trim().toLowerCase() === (label || "").trim().toLowerCase();
-  const showVerifyCaption = !(labelsIdentical && !!term?.uri);
-  return (
-    <div className="rounded border border-emerald-200/60 dark:border-emerald-700/40 bg-white/70 dark:bg-slate-900/30 p-1.5 space-y-1">
-      <div className="text-[9px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        What matched
-      </div>
-      <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center text-[11px]">
-        <span
-          className="font-mono text-slate-900 dark:text-slate-100 truncate"
-          title="agent's proposed value"
-        >
-          {term?.label || label}
-        </span>
-        <span
-          className="text-emerald-600 dark:text-emerald-500 text-center select-none"
-          title="audit treats these as the same"
-        >
-          ≡
-        </span>
-        <span
-          className="font-mono text-slate-900 dark:text-slate-100 truncate"
-          title="Gemma's existing value"
-        >
-          {label}
-        </span>
-      </div>
-      {term?.uri ? (
-        <div className="text-[10px] text-slate-500 dark:text-slate-400">
-          URI:{" "}
-          <a
-            href={term.uri}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-sky-700 hover:underline dark:text-sky-300"
-            title={term.uri}
-          >
-            {term.uri.replace(/^https?:\/\/[^/]+\//, "")}
-          </a>
-        </div>
-      ) : null}
-      {showVerifyCaption ? (
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] text-slate-500 dark:text-slate-400 italic">
-          Matches can still differ subtly — verify in context.
-        </span>
-      </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** Diff-shaped card for an arbiter-flagged category rename
- *  (calibration_factor_match with severity != ok). The two-label diff
- *  row reads at-a-glance — agent ≈ Gemma — so the curator doesn't have
- *  to parse rationale prose to spot the disagreement. Falls back to
- *  ``CompactFindingCard`` if the rationale doesn't match the expected
- *  arbiter prose template (defensive — broken templates should still
- *  surface, just without the diff). */
-function RenameFindingCard({ finding }: { finding: AuditFinding }) {
-  const labels = parseRenameLabels(finding.rationale || "");
-  if (!labels) return <CompactFindingCard finding={finding} />;
-
-  const [open, setOpen] = useState(false);
-  const {
-    activeFindingKey,
-    setActiveFindingKey,
-    dispositionByTarget,
-    experimentId,
-    report,
-  } = useAudit();
-  const { draft, apply } = useDesignDraft();
-  const { data: serverDesign } = useDesign(experimentId);
-  const toast = useToast();
-  const disposition = dispositionByTarget.get(finding.target_id);
-  const current = disposition?.status ?? "pending";
-  const isClosed =
-    current === "dismissed" ||
-    current === "needs_more_info" ||
-    (current === "accepted" && !!disposition?.resolved_at);
-  markFirstSeen(finding.target_id);
-  // Retire the legacy RenameFactorEmbed when the per-element editor
-  // (FindingDetailsEditor inside the FindingActionRow below) has
-  // resolvable structured content for this finding.
-  const editorWillRender = findingHasStructuredContent(
-    finding,
-    report,
-    draft ?? serverDesign ?? null,
-  );
-
-  const cardRef = useRef<HTMLDivElement>(null);
-  const myKey = findingKey(finding);
-  useEffect(() => {
-    if (activeFindingKey !== myKey) return;
-    setOpen(true);
-    const raf = requestAnimationFrame(() => {
-      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      setActiveFindingKey(null);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [activeFindingKey, myKey, setActiveFindingKey]);
-
-  return (
-    <div
-      ref={cardRef}
-      className={cn(
-        "card p-2 text-xs space-y-1.5 border-blue-200 dark:border-blue-700/50 bg-blue-50/30 dark:bg-blue-900/10",
-        isClosed && "opacity-60",
-        activeFindingKey === myKey && "ring-2 ring-blue-400",
-      )}
-    >
-      <button
-        type="button"
-        className="w-full text-left space-y-1.5"
-        onClick={() => setOpen((v) => !v)}
-        title={open ? "collapse" : "expand"}
-      >
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400">
-            factor
-          </span>
-          <span
-            className="text-[10px] text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-600 px-1 py-0 rounded bg-blue-50 dark:bg-blue-900/40 font-medium"
-            title="Proposed a substantively different categorization of the same samples — not just a relabel"
-          >
-            alternate factor
-          </span>
-          <DebateBadgeChip
-            badge={finding.debate_badge}
-            defenderVerdict={finding.defender_verdict}
-          />
-          <span
-            aria-hidden
-            className="ml-auto text-slate-400 dark:text-slate-500 text-base leading-none"
-          >
-            {open ? "▾" : "▸"}
-          </span>
-        </div>
-
-        {/* The diff — two labels side-by-side with an equivalence
-            symbol between them. Both labels neutral-tinted: the
-            curator's job is to decide which is right, not to
-            pre-judge by colour. */}
-        <div className="flex items-center gap-2 px-1 py-1.5 rounded bg-white/60 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700">
-          <div className="flex-1 min-w-0">
-            <div className="text-[9px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              agent
-            </div>
-            <div className="font-mono text-[12px] text-slate-900 dark:text-slate-100 truncate">
-              {labels.agent}
-            </div>
-          </div>
-          <div
-            className="text-slate-400 dark:text-slate-500 text-sm select-none"
-            aria-label="equivalent to"
-            title="arbiter judged these as the same factor under different labels"
-          >
-            ≈
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[9px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Gemma
-            </div>
-            <div className="font-mono text-[12px] text-slate-900 dark:text-slate-100 truncate">
-              {labels.gold}
-            </div>
-          </div>
-        </div>
-
-        {/* Embedded factor detail — retired when the per-element
-            editor renders below. Falls back here for findings the
-            editor can't structure. */}
-        {!editorWillRender ? <RenameFactorEmbed finding={finding} /> : null}
-
-        <div className="text-[11px] text-slate-600 dark:text-slate-300 px-1">
-          Proposed a different category for this factor.{" "}
-          <span className="text-slate-500 dark:text-slate-400">
-            Sample assignments may match Gemma's — the arbiter judged
-            the partition equivalent. Inspect the FVs below to see
-            whether the difference is just a relabel or a substantive
-            reframing. Accept = keep Gemma's. Dismiss = adopt the agent's.
-          </span>
-        </div>
-      </button>
-
-      {open ? (
-        <div className="space-y-1.5 pl-1 border-l-2 border-blue-200 dark:border-blue-700/40">
-          {finding.citation || finding.citation_url ? (
-            <div className="text-[10px] text-slate-500 pl-1.5">
-              §{" "}
-              {finding.citation_url ? (
-                <a
-                  href={normalizeWikiUrl(finding.citation_url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-700 hover:underline"
-                  title={finding.citation || finding.citation_url}
-                >
-                  {finding.citation || finding.citation_url}
-                </a>
-              ) : (
-                <span>{finding.citation}</span>
-              )}
-            </div>
-          ) : null}
-
-          {/* Arbiter's reasoning trail — useful "why" detail but
-              suppressed when the structured agent/Gemma labels +
-              embedded factor detail above already convey the same
-              thing. The boilerplate-strip drops repeated headline
-              prose ("Category rename: agent proposes X where Gemma
-              has Y..."); what's left is the deeper rationale. */}
-          {(() => {
-            const rest = splitRationaleTrail(
-              trimRationaleBoilerplate(finding.rationale),
-            ).summary;
-            // Drop the prose if it's just the rename header template —
-            // the labels + structured embed above already say this.
-            if (/^Category rename:/i.test(rest)) return null;
-            if (!rest.trim()) return null;
-            return (
-              <div className="text-[11px] text-slate-700 dark:text-slate-200 pl-1.5">
-                {rest}
-              </div>
-            );
-          })()}
-
-          <AgentSuggestionPanel finding={finding} />
-        </div>
-      ) : null}
-
-      {/* Preview-into-draft button: applies the agent's category +
-          FV labels to the matched Gemma factor in the draft so the
-          curator can hop to the Samples / Design tab and see how the
-          renamed factor reads in context. Doesn't commit — the
-          floating CommitBar's "Discard draft" rolls it back. The
-          underlying action is `setFactorFields` (category swap) +
-          `setFvLabel` for each fv_pair (FV-level relabel). */}
-      <RenamePreviewControl
-        finding={finding}
-        labels={labels}
-        serverDesign={serverDesign}
-        draft={draft}
-        apply={apply}
-        experimentId={experimentId}
-        toast={toast}
-      />
-
-      <FindingActionRow finding={finding} />
-    </div>
-  );
-}
-
-function RenamePreviewControl({
-  finding,
-  labels,
-  serverDesign,
-  draft,
-  apply,
-  experimentId: _experimentId,
-  toast,
-}: {
-  finding: AuditFinding;
-  labels: { agent: string; gold: string };
-  serverDesign: Design | undefined;
-  draft: Design | null;
-  apply: (mutator: (d: Design) => Design) => void;
-  experimentId: number;
-  toast: ReturnType<typeof useToast>;
-}) {
-  // Already-renamed check: if the draft's factor with the gold label
-  // is no longer there (because the curator already previewed and the
-  // category is now the agent's label), surface a "Previewed" pill
-  // instead of letting them re-fire and create a confusing no-op.
-  const goldLower = labels.gold.toLowerCase().trim();
-  const agentLower = labels.agent.toLowerCase().trim();
-  const draftHasGold =
-    !!draft?.factors.find(
-      (f) => f.category.label.toLowerCase().trim() === goldLower,
-    );
-  const draftHasAgent =
-    !!draft?.factors.find(
-      (f) => f.category.label.toLowerCase().trim() === agentLower,
-    );
-  const previewed = !draftHasGold && draftHasAgent;
-
-  const handlePreview = () => {
-    if (!serverDesign || !draft) {
-      toast.show("Design draft not loaded yet — try again in a moment.", "danger", 4000);
-      return;
-    }
-    const gemmaFactor = serverDesign.factors.find(
-      (f) => f.category.label.toLowerCase().trim() === goldLower,
-    );
-    if (!gemmaFactor) {
-      toast.show(
-        `Couldn't find Gemma's factor "${labels.gold}" to preview against.`,
-        "danger",
-        5000,
-      );
-      return;
-    }
-    // Build the agent's category term. Prefer the structured rename
-    // payload (carries URI); fall back to a free-text label-only term
-    // when only the rationale prose is available.
-    const agentCategory = finding.rename?.agent.category
-      ? { ...finding.rename.agent.category }
-      : { label: labels.agent, uri: null };
-    apply((d) => {
-      let next = setFactorFields(d, gemmaFactor.id, {
-        category: agentCategory,
-        name: agentCategory.label || gemmaFactor.name,
-      });
-      // FV-level relabels: pair each agent fv to a gold fv via the
-      // rename payload (when present) or by URI/label match. Iterate
-      // over the *renamed* draft's factor (use `next`, not `d`, so
-      // we operate on the freshly-renamed factor).
-      const renamedFactor = next.factors.find((f) => f.id === gemmaFactor.id);
-      if (renamedFactor && finding.rename?.fv_pairs?.length) {
-        for (const pair of finding.rename.fv_pairs) {
-          if (!pair.agent.label || !pair.gold.label) continue;
-          if (pair.agent.label === pair.gold.label) continue;
-          const fv = renamedFactor.factor_values.find(
-            (v) =>
-              (v.free_text_label || "").toLowerCase().trim() ===
-              pair.gold.label.toLowerCase().trim(),
-          );
-          if (fv) {
-            next = setFvLabel(next, gemmaFactor.id, fv.id, pair.agent.label);
-          }
-        }
-      }
-      return next;
-    });
-    toast.show(
-      `Preview applied: "${labels.gold}" → "${labels.agent}". Open the Samples tab to inspect; the floating commit bar's "Discard" rolls it back.`,
-      "success",
-      8000,
-    );
-  };
-
-  if (previewed) {
-    return (
-      <div className="text-[10px] text-emerald-700 dark:text-emerald-400 italic px-1 pt-1">
-        ✓ Previewed in draft as <span className="font-mono">{labels.agent}</span>.
-        Open Samples to inspect, or use the commit bar to discard.
-      </div>
-    );
-  }
-  return (
-    <div className="pt-1">
-      <button
-        type="button"
-        onClick={handlePreview}
-        disabled={!serverDesign || !draft}
-        className="text-[11px] px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50"
-        title={`Apply "${labels.agent}" to the draft so you can inspect it in the Samples / Design tab; discard via the floating commit bar to roll back.`}
-      >
-        Preview in draft →
-      </button>
-    </div>
-  );
-}
-
 /** Embedded agent-factor detail for an alternate-factor finding.
  *
  *  Looks up the agent's `FactorProposal` from
@@ -3214,11 +2467,25 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // re-read, but unmistakably "done"). A tiny ✓ / × / ⋯ glyph replaces
   // the severity badge as a quiet marker of what was decided.
   const hasDisposition = currentDisposition !== "pending";
+  // Entity-identity tint — sky for factor findings, emerald for
+  // tag findings. Subtle (low-alpha background + matching border)
+  // so the colour axis stays available for entity identity without
+  // fighting the severity badge's stronger amber/rose accents.
+  // Per Paul 2026-05-21: blue tint to differentiate factors from
+  // tags; same rule applies to match/extra/miss/rename — kind
+  // identity reads the same everywhere.
+  const kindTint =
+    finding.target_kind === "factor"
+      ? "border-sky-300/70 bg-sky-50/40 dark:border-sky-700/40 dark:bg-sky-900/10"
+      : finding.target_kind === "tag"
+        ? "border-emerald-300/70 bg-emerald-50/40 dark:border-emerald-700/40 dark:bg-emerald-900/10"
+        : "";
   return (
     <div
       ref={cardRef}
       className={cn(
         "card p-2 text-xs space-y-1.5",
+        kindTint,
         severityRowCls(finding.severity),
         hasDisposition && "opacity-40 hover:opacity-90 transition-opacity",
         activeFindingKey === myKey && "ring-2 ring-blue-400",
@@ -3271,6 +2538,11 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             resolved={!!disposition?.resolved_at}
             severity={finding.severity}
           />
+        ) : isMatchFinding(finding) ? (
+          // Match-code findings get the ≈ / ✓ badge instead of the
+          // severity-with-action-glyph one — the same left-edge
+          // status slot, just with the match-status semantic.
+          <MatchBadge finding={finding} />
         ) : (
           <SeverityBadge
             severity={displaySeverity(finding)}
@@ -3293,6 +2565,8 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
               <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 mr-1">
                 {findingActionLabel(finding)}
               </span>
+              <JudgeStrengthGlyph finding={finding} />
+
               {(() => {
                 // Disagreement count badge — yellow circle with
                 // the number of row-level disagreements, promoted
@@ -4012,7 +3286,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
     findingHasStructuredContent(finding, report, draft);
 
   return (
-    <div className="pl-1.5 space-y-1.5 relative">
+    <div className="pl-1.5 pt-2 space-y-1.5 relative">
       {useStructuredEditor ? (
         <FindingDetailsEditor
           finding={finding}
@@ -4759,6 +4033,16 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
 
   const dv = finding.defender_verdict ?? null;
   const strength = dv?.strength ?? verdictStrength(dv?.verdict);
+  // Lean direction (pro_agent / pro_gold / neutral) drives the
+  // header label TEXT — the SUGGESTION header used to say "STRONG
+  // SUGGESTION" even when the judge had concluded the agent was
+  // wrong (e.g. GSE93824 Arctic-APP concept_gold_right case,
+  // Paul 2026-05-21). The lean-aware label flips to
+  // "STRONG: keep current" in that case so the curator isn't nudged
+  // toward the wrong answer. See ./defenderLean.ts.
+  const lean = findingLean(finding);
+  const strengthPrefix = strength ? strength.toUpperCase() : null;
+  const headerLabel = leanSuggestionLabel(lean, strengthPrefix);
 
   // Judge row — always rendered (Paul 2026-05-21: the curator needs
   // the WHY even when the agent emitted nothing). Sentinel branch
@@ -4797,11 +4081,11 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
         )}
         title={
           strength
-            ? `judge graded this (${dv!.verdict})`
+            ? `judge graded this (${dv!.verdict}; lean=${lean})`
             : "what was proposed"
         }
       >
-        {strength ? `${strength} suggestion` : "suggestion"}
+        {headerLabel}
       </div>
       {/* Row order is fixed: Judge → Supporting Evidence → (legacy
           one-line proposal as last-resort) → fixText. Putting Judge
@@ -5504,6 +4788,99 @@ function SeverityBadge({
     >
       <span aria-hidden>{glyph || config.icon}</span>
     </span>
+  );
+}
+
+/** Status badge for a factor / tag MATCH finding — the colored
+ *  square in the card-header's status slot. Mirrors SeverityBadge
+ *  visually so match cards align with actionable cards along the
+ *  same left edge.
+ *
+ *    ✓ emerald — exact match (calibration_factor_match_exact)
+ *    ≈ amber   — near / close match (any other match code, incl.
+ *                 legacy ``calibration_factor_match`` at ok severity
+ *                 and the tag-side ``calibration_match``)
+ *
+ *  Returns null when the finding isn't a match code — the caller
+ *  falls back to ``SeverityBadge`` for non-match findings. */
+function MatchBadge({ finding }: { finding: AuditFinding }) {
+  if (isExactFactorMatch(finding)) {
+    return (
+      <span
+        className="inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-5 h-5 text-[12px] leading-none bg-emerald-600 text-white border border-emerald-700"
+        title="exact match — labels + URIs line up"
+        aria-label="exact match"
+      >
+        ✓
+      </span>
+    );
+  }
+  if (
+    isCloseFactorMatch(finding) ||
+    finding.issue_code === "calibration_match"
+  ) {
+    return (
+      <span
+        className="inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-5 h-5 text-[12px] leading-none bg-amber-500 text-amber-950 border border-amber-600"
+        title="near match — peek to confirm; small differences may exist"
+        aria-label="near match"
+      >
+        ≈
+      </span>
+    );
+  }
+  return null;
+}
+
+/** Inline pie-slice glyph encoding the judge's strength verdict on
+ *  a finding — shown in the collapsed card header next to the
+ *  action label so the curator can scan judge confidence without
+ *  expanding each card.
+ *
+ *    ◔ weak     (amber)
+ *    ◑ moderate (slate)
+ *    ● strong   (emerald)
+ *    (nothing rendered when no judge has weighed in)
+ *
+ *  Reads like a completeness gradient — empty → filled — which the
+ *  curator can intuit without a legend. Hover title spells it out
+ *  for screen-readers and accessibility. Per Paul 2026-05-21.
+ *
+ *  Strength source mirrors AgentSuggestionPanel: prefer the
+ *  explicit ``defender_verdict.strength`` when present (newer
+ *  payloads); fall back to deriving from ``verdict`` via
+ *  ``verdictStrength()`` for backward compat. */
+function JudgeStrengthGlyph({ finding }: { finding: AuditFinding }) {
+  const dv = finding.defender_verdict ?? null;
+  if (!dv) return null;
+  const strength = dv.strength ?? verdictStrength(dv.verdict);
+  if (!strength) return null;
+  const config = {
+    weak: {
+      glyph: "◔",
+      cls: "text-amber-600 dark:text-amber-400",
+      label: "AI judge says this proposal is weak",
+    },
+    moderate: {
+      glyph: "◑",
+      cls: "text-slate-500 dark:text-slate-400",
+      label: "AI judge says this proposal is moderate",
+    },
+    strong: {
+      glyph: "●",
+      cls: "text-emerald-600 dark:text-emerald-400",
+      label: "AI judge says this proposal is strong",
+    },
+  }[strength];
+  return (
+    <Tooltip label={config.label}>
+      <span
+        className={cn("inline-block mr-1 text-[12px] leading-none", config.cls)}
+        aria-label={config.label}
+      >
+        {config.glyph}
+      </span>
+    </Tooltip>
   );
 }
 
