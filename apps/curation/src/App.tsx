@@ -17,6 +17,7 @@ import { useGroup } from "@/api/workflow";
 import { useAuditsForExperiment } from "@/api/audits";
 import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
+import { decideComparisonBanner } from "@/features/audit/comparisonBanner";
 import {
   parseRoute,
   navigate,
@@ -176,11 +177,20 @@ export default function App() {
  *  paths:
  *    1. Group context — URL ``?group=<id>`` resolves to a Group
  *       whose name matches /inter-curator audit/i.
- *    2. Audit model — the experiment's latest audit's ``model``
- *       field carries the inter-curator pattern ("inter-curator
- *       audit · X's curation applied · Y reviews"). Catches the
- *       case where the curator opened the experiment directly,
- *       without the group context in the URL.
+ *    2. Audit model — when the URL has NO ``?group=``, fall back
+ *       to scanning the experiment's audit list for an audit
+ *       whose ``model`` field carries the inter-curator pattern
+ *       ("inter-curator audit · X's curation applied · Y reviews").
+ *       Catches the case where the curator opened the experiment
+ *       directly, without the group context in the URL.
+ *
+ *  The audit-history fallback is GATED on the URL having no
+ *  ``?group=`` — without that gate it leaked across packages
+ *  (Paul's 2026-05-21 repro: an experiment with a historical
+ *  inter-curator audit kept the banner lit when the curator
+ *  navigated to a non-inter-curator package containing the same
+ *  experiment). Decision logic lives in `comparisonBanner.ts`,
+ *  exported as `decideComparisonBanner` for unit-testing.
  *
  *  If either fires, the banner shows. The label content prefers
  *  the parsed identities (e.g. "cyan's review of amanda's
@@ -197,30 +207,14 @@ function ComparisonModeBanner({
   const { data: group } = useGroup(groupId);
   const { data: auditList } = useAuditsForExperiment(experimentId);
 
-  const groupName = group?.name || "";
-  const fromGroup = /inter-curator audit/i.test(groupName);
-
-  // Find the most recent audit with an inter-curator-audit model
-  // string. Audits are list-fetched per-experiment; the latest is
-  // usually the active one but we scan for safety.
-  const interCuratorAudit = (auditList?.items ?? []).find((a) =>
-    /inter-curator audit/i.test(a.model || ""),
+  const decision = decideComparisonBanner(
+    groupId,
+    group?.name || "",
+    auditList?.items ?? [],
   );
-  const fromAudit = !!interCuratorAudit;
 
-  if (!fromGroup && !fromAudit) return null;
-
-  // Parse identities from whichever signal fired. Group name takes
-  // precedence when present; audit's model is the fallback. Both
-  // patterns share the "X's curation applied · Y reviews" framing
-  // (bro encodes the same shape in both surfaces).
-  const sourceText =
-    (fromGroup ? groupName : interCuratorAudit?.model) || "";
-  const m = sourceText.match(
-    /(\S+?)'s curation applied\s*·\s*(\S+?)\s*reviews/i,
-  );
-  const goldCurator = m ? m[1] : null;
-  const reviewer = m ? m[2] : null;
+  if (!decision.show) return null;
+  const { sourceText, goldCurator, reviewer } = decision;
 
   return (
     <div
@@ -237,7 +231,7 @@ function ComparisonModeBanner({
           <strong>{goldCurator}</strong>'s curation
         </span>
       ) : (
-        <span className="font-mono text-[13px]">{sourceText || groupName}</span>
+        <span className="font-mono text-[13px]">{sourceText}</span>
       )}
       <span className="ml-2 text-[11px] opacity-80">
         — design overlay + dispositions belong to this package only
