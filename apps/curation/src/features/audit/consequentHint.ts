@@ -31,15 +31,19 @@ import type {
   AuditFindingDisposition,
   AuditReport,
 } from "@/api/auditTypes";
+import type { Verdict } from "./dispositionSave";
+import { firstBacktick } from "./rationaleText";
 
-/** What the curator picked on the linked card. */
-type LinkedVerdict = "proposal" | "currently" | null;
-
-/** The verdict THIS card is expected to take to stay consistent
- *  with the linked card's verdict. Mirrors the linked verdict
- *  directly — both sides of a partition-mismatch link move
- *  together (accept-and-accept or dismiss-and-dismiss). */
-type ImpliedVerdict = "proposal" | "currently";
+/** Cross-link cues only fire on the two structural verdicts
+ *  (`proposal` = adopt agent's call, `currently` = keep gold's).
+ *  The editor's third verdict — `reference` ("match Gemma") —
+ *  doesn't apply to partition-mismatch / absorbed-miss pairs, so
+ *  it's excluded from this scope rather than carried as a
+ *  null-handling case downstream. */
+type ConsequentVerdict = Exclude<Verdict, "reference">;
+/** Linked-side state: `null` means "not decided yet" (pending /
+ *  no disposition / pre-2026-05-19 audit without structure_ok). */
+type LinkedVerdict = ConsequentVerdict | null;
 
 export type ConsequentHintState =
   | {
@@ -47,9 +51,9 @@ export type ConsequentHintState =
       /** The linked finding (upstream or downstream). */
       linked: AuditFinding;
       /** The linked finding's current verdict. */
-      linkedVerdict: ImpliedVerdict;
+      linkedVerdict: ConsequentVerdict;
       /** The verdict this card should take to stay consistent. */
-      impliedVerdict: ImpliedVerdict;
+      impliedVerdict: ConsequentVerdict;
       /** Curator-facing short label for the implied action,
        *  derived from the verdict and the local finding's role
        *  in the link. */
@@ -73,17 +77,15 @@ export type ConsequentHintState =
       kind: "diverges";
       linked: AuditFinding;
       linkedLabel: string;
-      linkedVerdict: ImpliedVerdict;
+      linkedVerdict: ConsequentVerdict;
       side: "upstream" | "downstream";
     };
 
 /** Pull a short curator-facing label from a finding — first
- *  backticked token in the rationale (the convention agents use
- *  for the factor / tag name in question), falling back to the
- *  bare target_id. */
+ *  backticked token in the rationale, falling back to the bare
+ *  target_id when the rationale doesn't carry one. */
 function shortLabel(f: AuditFinding): string {
-  const m = f.rationale?.match(/`([^`]+)`/);
-  return m ? m[1] : f.target_id;
+  return firstBacktick(f.rationale) ?? f.target_id;
 }
 
 /** Map a disposition's `structure_ok` / `status` to the verdict
@@ -170,7 +172,7 @@ export function consequentHint(
   // suggest from).
   if (localVerdict === null) {
     if (linkedVerdict === null) return null;
-    const impliedVerdict: ImpliedVerdict = linkedVerdict;
+    const impliedVerdict: ConsequentVerdict = linkedVerdict;
     return {
       kind: "implied",
       linked,
@@ -203,7 +205,7 @@ export function consequentHint(
  *  cards use "adopt agent's split" / "keep yours"; removal cards
  *  use "accept removal" / "keep yours". */
 function impliedActionLabelFor(
-  verdict: ImpliedVerdict,
+  verdict: ConsequentVerdict,
   side: "upstream" | "downstream",
 ): string {
   if (verdict === "proposal") {

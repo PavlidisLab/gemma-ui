@@ -44,6 +44,7 @@ import {
   setStatement,
 } from "@/features/design/mutations";
 import { resolveAgentFactor, resolveGoldFactor } from "./factorMatch";
+import { firstBacktick } from "./rationaleText";
 
 interface CategoryPath {
   kind: "category";
@@ -123,7 +124,7 @@ export function applyDetailsEditsToDesign(
   // one, this is a true new-factor-add case which v1 doesn't
   // handle — see file header.
   const cp = report?.evidence?.comparison_proposal ?? null;
-  const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
+  const labelHint = firstBacktick(finding.rationale);
   const goldFactor = resolveGoldFactor(finding, draft.factors, labelHint);
   if (!goldFactor) return draft;
 

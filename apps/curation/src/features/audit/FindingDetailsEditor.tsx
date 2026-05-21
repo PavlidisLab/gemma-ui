@@ -29,10 +29,10 @@
  *   - per-block edit → status=accepted, structure_ok=true,
  *     details_ok=false, applied_fix.edits carries the typed value.
  *
- * Reference data (Gemma snapshot) is not separately stored
- * locally yet — until §1 design-per-batch ships, the Reference
- * column populates as null and the third button is suppressed.
- * The shape is built to accept it the moment data flows in.
+ * Reference data (Gemma snapshot) flows in via FvPair.gold_statement
+ * + the FactorRenamePayload's gold side. When neither carries
+ * reference values for a row the Reference column populates as
+ * null and the "match Gemma" button is suppressed.
  */
 
 import { useMemo, useState } from "react";
@@ -56,6 +56,7 @@ import type { FactorValueProposal } from "@/api/types";
 import { resolveAgentFactor, resolveGoldFactor } from "./factorMatch";
 import { verdictToStructureDetails } from "./dispositionSave";
 import { consequentHint, type ConsequentHintState } from "./consequentHint";
+import { firstBacktick } from "./rationaleText";
 import {
   isSideEmpty,
   lc,
@@ -233,7 +234,7 @@ export function buildFactorRows(
   design: Design | null,
 ): BuildResult {
   const cp = report?.evidence?.comparison_proposal ?? null;
-  const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
+  const labelHint = firstBacktick(finding.rationale);
   const agent = resolveAgentFactor(finding, cp, labelHint);
   if (!agent) return { rows: [], fvMeta: new Map() };
   // ``_factor_extra`` is by definition agent-only — the builder
@@ -323,10 +324,10 @@ export function buildFactorRows(
     // Reference statement parts — pair the agent FV to its
     // rename-payload partner. The builder's ``fv_pairs`` are
     // pre-paired but the key is the agent's free_text_label, not
-    // the FV index. Once paired, prefer ``gold_statement`` (parsed
-    // subject/predicate/object per b157073) and fall back to the
-    // FV-level ``gold.label`` on the Subject row when the new
-    // fields are absent on older rename payloads.
+    // the FV index. Once paired, prefer parsed
+    // ``gold_statement`` (subject/predicate/object) and fall back
+    // to the FV-level ``gold.label`` on the Subject row when the
+    // parsed fields are absent on older rename payloads.
     const pairedGoldStatement: StatementParts | null = (() => {
       if (!rename?.fv_pairs?.length) return null;
       const myLabel = lc(fv.free_text_label);
@@ -508,7 +509,7 @@ export function findingHasStructuredContent(
   if (finding.partition_mismatch) return true;
   if (finding.target_kind === "factor") {
     const cp = report?.evidence?.comparison_proposal ?? null;
-    const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
+    const labelHint = firstBacktick(finding.rationale);
     const agent = resolveAgentFactor(finding, cp, labelHint);
     if (agent) return true;
     const gold = resolveGoldFactor(finding, design?.factors ?? [], labelHint);
@@ -980,8 +981,7 @@ export function FindingDetailsEditor({
           return `${tail.slice(0, slash)}: ${tail.slice(slash + 1)}`;
         }
       }
-      const m = finding.rationale?.match(/`([^`]+)`/);
-      return m ? m[1] : null;
+      return firstBacktick(finding.rationale);
     })();
     const kindWord = finding.target_kind === "tag" ? "Tag" : "Factor";
     // For factor removals, pull the gold factor + its FV labels +
@@ -994,7 +994,7 @@ export function FindingDetailsEditor({
     // (EFO:0000695).
     const goldFactor = (() => {
       if (finding.target_kind !== "factor") return null;
-      const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
+      const labelHint = firstBacktick(finding.rationale);
       return resolveGoldFactor(
         finding,
         design?.factors ?? [],

@@ -34,6 +34,25 @@ export function trimRationaleBoilerplate(s: string | null | undefined): string {
   return out.trim();
 }
 
+/** Extract the first backticked token from a rationale string.
+ *
+ *  Agents emit the load-bearing label of a finding as the first
+ *  backticked token in the rationale (e.g. "Remove factor
+ *  `timepoint`?", "Should `cell type: microglial cell` be removed
+ *  from the curation?"). The UI uses this label as a
+ *  curator-friendly fallback wherever a structured target field
+ *  isn't available.
+ *
+ *  Returns ``null`` when the rationale has no backticked token, or
+ *  is null/undefined/empty. */
+export function firstBacktick(
+  rationale: string | null | undefined,
+): string | null {
+  if (!rationale) return null;
+  const m = rationale.match(/`([^`]+)`/);
+  return m ? m[1] : null;
+}
+
 /** Split a rationale into the headline summary and the optional
  *  "Agent reasoning trail" suffix. The agent emits the trail as a
  *  long-form chain-of-thought paragraph after a "— Agent reasoning

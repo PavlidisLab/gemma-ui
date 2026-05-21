@@ -27,7 +27,11 @@ import {
 } from "./FindingDetailsEditor";
 import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
 import { deriveStatus, deriveDismissReason } from "./dispositionSave";
-import { trimRationaleBoilerplate, splitRationaleTrail } from "./rationaleText";
+import {
+  firstBacktick,
+  splitRationaleTrail,
+  trimRationaleBoilerplate,
+} from "./rationaleText";
 import { DismissDialog, type DialogChip } from "./DismissDialog";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
@@ -2087,11 +2091,11 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   //      inside alternate-factor cards.
   const rename = finding.rename ?? null;
   const parsed = parseRenameLabels(finding.rationale || "");
-  const firstBacktick = finding.rationale?.match(/`([^`]+)`/)?.[1];
+  const firstBacktickLabel = firstBacktick(finding.rationale) ?? undefined;
   const agentLabel = (
     rename?.agent.category.label ??
     parsed?.agent ??
-    firstBacktick ??
+    firstBacktickLabel ??
     ""
   )
     .toLowerCase()
@@ -2154,7 +2158,7 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   const goldSlug = (
     rename?.gold.category.label ??
     parsed?.gold ??
-    firstBacktick ??
+    firstBacktickLabel ??
     ""
   )
     .toLowerCase()
@@ -2469,8 +2473,7 @@ function GoldFactorMissEmbed({ finding }: { finding: AuditFinding }) {
 
   // Pull the gold factor's label from the rationale's first
   // backticked token (same trick the headline uses).
-  const firstBacktick = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? "";
-  const goldSlug = firstBacktick.toLowerCase().trim();
+  const goldSlug = (firstBacktick(finding.rationale) ?? "").toLowerCase().trim();
   // Index-first via ``gold_target_index`` (post-3868a09 wire); slug +
   // biomaterial-overlap fallback for older audits without the index.
   const indexed = resolveGoldFactor(finding, serverDesign?.factors, goldSlug);
@@ -4198,20 +4201,17 @@ function rewriteCalibrationRationale(
   issueCode: string,
   rationale: string,
 ): string {
-  if (issueCode === "calibration_gold_only_miss") {
-    // "Should `cell type: microglial cell` be removed from the curation? (the agent did not propose it.)"
-    const m = rationale.match(/`([^`]+)`/);
-    if (m) return `Proposed removing \`${m[1]}\` (not in the proposal).`;
-  }
-  if (issueCode === "calibration_agent_extra") {
-    // "Should we add `organism part: bone marrow`?"
-    const m = rationale.match(/`([^`]+)`/);
-    if (m) return `Proposed adding \`${m[1]}\`. Do you agree?`;
-  }
-  if (issueCode === "calibration_match") {
-    // "Is `disease model: alzheimer disease` correctly assigned?"
-    const m = rationale.match(/`([^`]+)`/);
-    if (m) return `Proposal and existing curation both have \`${m[1]}\`. Is this correct?`;
+  const tok = firstBacktick(rationale);
+  if (tok) {
+    if (issueCode === "calibration_gold_only_miss") {
+      return `Proposed removing \`${tok}\` (not in the proposal).`;
+    }
+    if (issueCode === "calibration_agent_extra") {
+      return `Proposed adding \`${tok}\`. Do you agree?`;
+    }
+    if (issueCode === "calibration_match") {
+      return `Proposal and existing curation both have \`${tok}\`. Is this correct?`;
+    }
   }
   return rationale;
 }
@@ -4849,18 +4849,6 @@ function PairedFindingBadge({ finding }: { finding: AuditFinding }) {
   );
 }
 
-/** Short label for a finding being linked to from another card.
- *  Prefers the first backticked token in the rationale (the
- *  curator-friendly factor / tag name); falls back to the
- *  target_id. Used by `ConsequentsBadges` so the cross-link chips
- *  read as "absorbed by `treatment` split" rather than
- *  "absorbed by `factor:9325`". */
-function consequentLabel(f: AuditFinding): string {
-  const m = f.rationale?.match(/`([^`]+)`/);
-  if (m) return m[1];
-  return f.target_id;
-}
-
 /** Cross-link chips for the bidirectional `consequent_of` /
  *  `consequents` linkage (HANDOFF_2026-05-20_CONSEQUENT_OF_BIDIRECTIONAL).
  *  Both halves are conceptually one curator decision — agent's
@@ -4884,7 +4872,7 @@ function ConsequentsBadges({ finding }: { finding: AuditFinding }) {
   if (finding.consequent_of) {
     const upstream = findings.find((f) => f.target_id === finding.consequent_of);
     if (upstream) {
-      const label = consequentLabel(upstream);
+      const label = (firstBacktick(upstream.rationale) ?? upstream.target_id);
       chips.push({
         key: `up-${upstream.target_id}`,
         label: `← absorbed by \`${label}\` split`,
@@ -4896,7 +4884,7 @@ function ConsequentsBadges({ finding }: { finding: AuditFinding }) {
   for (const childId of finding.consequents ?? []) {
     const downstream = findings.find((f) => f.target_id === childId);
     if (!downstream) continue;
-    const label = consequentLabel(downstream);
+    const label = (firstBacktick(downstream.rationale) ?? downstream.target_id);
     chips.push({
       key: `down-${childId}`,
       label: `implies removal of \`${label}\``,
