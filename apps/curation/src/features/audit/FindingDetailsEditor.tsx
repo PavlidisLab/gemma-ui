@@ -66,6 +66,7 @@ import { verdictToStructureDetails } from "./dispositionSave";
 import { consequentHint, type ConsequentHintState } from "./consequentHint";
 import { firstBacktick, trimRationaleBoilerplate } from "./rationaleText";
 import { findingLean, type DefenderLean } from "./defenderLean";
+import { actionLabels, findingActionShape } from "./actionLabels";
 import { useAudit } from "./AuditContext";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { applyProposalToDesign } from "@/features/design/mutations";
@@ -111,13 +112,6 @@ function currentlyVerb(id: string): string {
   if (id === "Current") return "";
   if (id === "you") return "have";
   return "has";
-}
-
-/** Label for the "keep gold's view" primary button. */
-function keepLabelFor(id: string): string {
-  if (id === "Current") return "keep current";
-  if (id === "you") return "keep yours";
-  return `keep ${id}'s`;
 }
 
 /** Pull party identities from the audit's ``model`` field. Matches
@@ -838,6 +832,14 @@ export function FindingDetailsEditor({
   // render and threaded into every ActionRow below.
   const lean = findingLean(finding);
   const leanKinds = leanButtonKinds(lean);
+  // Action shape (add / remove / change / match) drives the TEXT on
+  // the (keep, accept) buttons. The lean-aware kind decides which
+  // side is the primary highlight; the action shape decides the
+  // label. See ./actionLabels.ts. Paul 2026-05-21 — an "Add tag"
+  // finding's keep button shouldn't read "keep current" when there
+  // IS no current; it should read "don't add".
+  const actionShape = findingActionShape(finding);
+  const actionLbls = actionLabels(actionShape);
 
   function setPick(path: string, patch: Partial<RowState>): void {
     setRowState((prev) => {
@@ -973,8 +975,12 @@ export function FindingDetailsEditor({
     const directionPhrase = isAgentFiner ? "finer levels" : "fewer levels";
     const agentVerb = "says";
     const goldVerb = currentlyVerb(identities.goldCurator);
-    const keepLabel = keepLabelFor(identities.goldCurator);
-    const acceptLabel = `adopt ${identities.proposer}'s ${directionPhrase}`;
+    // partition_mismatch is a `change` shape (FV reorg within an
+    // existing factor). The "keep" reads "don't change"; the
+    // "accept" reads "adopt <proposer>'s <directionPhrase>" so the
+    // curator still sees WHICH direction they're adopting.
+    const keepLabel = actionLbls.keep;
+    const acceptLabel = `${actionLbls.adopt} ${identities.proposer}'s ${directionPhrase}`;
     const acceptTitle = isAgentFiner
       ? `Use the finer factor-value partition ${identities.proposer} proposed.`
       : `Use the simpler factor-value partition ${identities.proposer} proposed.`;
@@ -1264,14 +1270,14 @@ export function FindingDetailsEditor({
             {
               key: "keep",
               kind: leanKinds.keep,
-              label: keepLabelFor(identities.goldCurator),
+              label: actionLbls.keep,
               onClick: () => dispatchSave("currently"),
               title: `Don't add this factor — keep the design as-is.`,
             },
             {
               key: "accept",
               kind: leanKinds.accept,
-              label: `adopt ${identities.proposer}'s (add factor)`,
+              label: `${actionLbls.adopt} ${identities.proposer}'s factor`,
               onClick: () => {
                 // Dual-write: mutate the design draft to ADD the
                 // agent's proposed factor (so it shows up in the
@@ -1335,7 +1341,9 @@ export function FindingDetailsEditor({
   // Removal-only findings collapse to keep-vs-remove. No row
   // disagreement model applies.
   if (isRemovalFinding) {
-    const keepLabel = keepLabelFor(identities.goldCurator);
+    // `remove` action shape — keep reads "don't remove", accept
+    // reads "remove" (or "remove <proposer>'s"). See ./actionLabels.ts.
+    const keepLabel = actionLbls.keep;
     // What is being removed — extract from the target_id when
     // structured ("calibration:miss:<cat>/<val>"), or fall back to
     // the rationale's first backticked token.
@@ -1602,7 +1610,7 @@ export function FindingDetailsEditor({
             {
               key: "remove",
               kind: leanKinds.accept,
-              label: `accept ${identities.proposer}'s (remove)`,
+              label: `${actionLbls.adopt} ${identities.proposer}'s`,
               onClick: () => dispatchSave("proposal"),
             },
           ]}
@@ -1751,6 +1759,7 @@ export function FindingDetailsEditor({
             onLocateCurrent={onLocateCurrent}
             editCategory={firstBacktick(finding.rationale) ?? null}
             leanKinds={leanKinds}
+            actionLbls={actionLbls}
             judgeText={judgeForBlock}
             judgeCitation={judgeCitationForBlock}
             onPick={(pick) => {
@@ -1789,7 +1798,7 @@ export function FindingDetailsEditor({
                 {
                   key: "keep",
                   kind: leanKinds.keep,
-                  label: keepLabelFor(identities.goldCurator),
+                  label: actionLbls.keep,
                   onClick: () => dispatchSave("currently"),
                   title: `Take ${
                     identities.goldCurator === "Current"
@@ -1802,7 +1811,7 @@ export function FindingDetailsEditor({
                 {
                   key: "accept",
                   kind: leanKinds.accept,
-                  label: `adopt ${identities.proposer}'s`,
+                  label: `${actionLbls.adopt} ${identities.proposer}'s`,
                   onClick: () => dispatchSave("proposal"),
                   title: `Take ${identities.proposer}'s value on every disagreement.`,
                 },
@@ -1965,6 +1974,7 @@ function DisagreementBlock({
   onLocateCurrent,
   editCategory,
   leanKinds,
+  actionLbls,
   judgeText,
   judgeCitation,
 }: {
@@ -1996,6 +2006,11 @@ function DisagreementBlock({
    *  `concept_gold_right` but the per-FV row inside the same block
    *  still highlighted `adopt Auditor's` (blue-primary). */
   leanKinds: { keep: ActionButton["kind"]; accept: ActionButton["kind"] };
+  /** Action-aware button labels (keep, adopt). Threaded from the
+   *  parent so the per-FV PickButton text matches the OUTER button
+   *  row exactly — both rows derive from the same finding-level
+   *  action shape (see ./actionLabels.ts). Per Paul 2026-05-21. */
+  actionLbls: { keep: string; adopt: string };
   /** Optional "Judge:" rationale to render INSIDE this FV block.
    *  Threaded from the parent on near-match findings (Paul 2026-05-21
    *  redesign — GSE93824 case): the factor-card-level
@@ -2070,10 +2085,15 @@ function DisagreementBlock({
   const subjectState = rowState.get(subjectRow.path);
   const [editOpen, setEditOpen] = useState(subjectState?.pick === "edit");
 
-  // Pretty button label for keep — "keep current" for the default
-  // identity, "keep yours" for legacy "you", "keep amanda's" for
-  // inter-curator audits.
-  const keepLabel = keepLabelFor(identities.goldCurator);
+  // Action-aware button labels — `don't add` / `don't remove` /
+  // `don't change` / `confirm` per the finding's action shape (Paul
+  // 2026-05-21). The OUTER ActionRow uses the same `actionLbls`
+  // object so the per-FV row reads consistently with the bottom-of-
+  // card buttons. Replaces the older identity-bearing
+  // `keepLabelFor(identities.goldCurator)` ("keep current" /
+  // "keep amanda's") — those didn't carry the action verb.
+  const keepLabel = actionLbls.keep;
+  const adoptLabel = actionLbls.adopt;
 
   return (
     <div
@@ -2155,7 +2175,7 @@ function DisagreementBlock({
           onClick={() => onPick("proposal")}
           tone="accept"
         >
-          adopt {identities.proposer}'s
+          {adoptLabel} {identities.proposer}'s
         </PickButton>
         {hasReferenceCtx ? (
           <PickButton
