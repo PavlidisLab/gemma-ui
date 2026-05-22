@@ -2,7 +2,16 @@ import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { Term } from "@/components/ui/Term";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import type { FactorProposal, TagProposal } from "@/api/types";
+import { DismissDialog } from "@/features/audit/DismissDialog";
+import type {
+  FactorProposal,
+  StatementProposal,
+  TagProposal,
+} from "@/api/types";
+import type {
+  AttachedDefenderVerdict,
+  SubtaskDecision,
+} from "@/api/justification";
 import type { ProposalDisposition } from "./proposalDispositions";
 
 /**
@@ -25,17 +34,24 @@ import type { ProposalDisposition } from "./proposalDispositions";
 type CardKind = "factor" | "tag";
 
 interface BaseProps {
+  /** Stable identity for this element (factor:proposalId:idx /
+   *  tag:proposalId:idx). Used as DismissDialog's targetId for
+   *  draft-store keying so a half-typed reject note survives the
+   *  curator pressing Escape and reopening. */
+  elementKey: string;
   disposition: ProposalDisposition;
   onDispose: (d: ProposalDisposition) => void;
   /** Optional curator note attached to this element's disposition.
    *  Defaults to empty; the curator can toggle a tiny inline
-   *  textarea via the "add note" affordance. */
+   *  textarea via the "add note" affordance, or capture it through
+   *  the reject/park dialog. */
   note?: string;
   onNoteChange?: (note: string) => void;
 }
 
 export function FactorReviewCard({
   factor,
+  elementKey,
   disposition,
   onDispose,
   note,
@@ -49,6 +65,8 @@ export function FactorReviewCard({
   return (
     <ReviewCardShell
       kind="factor"
+      elementKey={elementKey}
+      identityLabel={label}
       disposition={disposition}
       onDispose={onDispose}
       note={note}
@@ -67,44 +85,66 @@ export function FactorReviewCard({
             {factor.category?.label || "(no category)"}
           </span>
         )}
+        <MatchTypeChip matchType={factor.match_type} />
+        <BaselineRelevanceChip
+          relevance={factor.baseline_relevance}
+          reason={factor.baseline_relevance_reason}
+        />
         <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-auto">
           {isContinuous ? "continuous" : `${fvCount} level${fvCount === 1 ? "" : "s"}`}
         </span>
       </div>
+      <DefenderVerdictsCluster verdicts={factor.defender_verdicts} />
+      <SubtaskDecisionsRow decisions={factor.subtask_decisions} />
       {!isContinuous && fvs.length > 0 ? (
-        <ul className="space-y-0.5 pl-1">
+        <ul className="space-y-1 pl-1">
           {[...fvs]
             .sort((a, b) => (a.is_baseline ? 1 : 0) - (b.is_baseline ? 1 : 0))
             .map((fv, i) => {
               const lab = (fv.free_text_label || "").trim() || "(unlabeled)";
               const n = fv.biomaterial_short_names?.length ?? 0;
+              const statements = fv.statements ?? [];
+              const showFvMatch =
+                fv.match_type && fv.match_type !== factor.match_type;
               return (
-                <li
-                  key={i}
-                  className="flex items-baseline gap-1.5 text-[11px]"
-                >
-                  <span
-                    className={cn(
-                      "w-2.5 inline-block text-center shrink-0 leading-none",
-                      fv.is_baseline
-                        ? "text-amber-500 dark:text-amber-400"
-                        : "text-sky-500/80 dark:text-sky-400/80",
-                    )}
-                    title={
-                      fv.is_baseline
-                        ? "baseline (reference level)"
-                        : "factor level"
-                    }
-                  >
-                    {fv.is_baseline ? "▂" : "○"}
-                  </span>
-                  <span className="flex-1 min-w-0 break-words text-slate-700 dark:text-slate-200">
-                    {lab}
-                  </span>
-                  {n > 0 ? (
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono shrink-0">
-                      ({n})
+                <li key={i} className="text-[11px]">
+                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                    <span
+                      className={cn(
+                        "w-2.5 inline-block text-center shrink-0 leading-none",
+                        fv.is_baseline
+                          ? "text-amber-500 dark:text-amber-400"
+                          : "text-sky-500/80 dark:text-sky-400/80",
+                      )}
+                      title={
+                        fv.is_baseline
+                          ? "baseline (reference level)"
+                          : "factor level"
+                      }
+                    >
+                      {fv.is_baseline ? "▂" : "○"}
                     </span>
+                    <span className="flex-1 min-w-0 break-words text-slate-700 dark:text-slate-200">
+                      {lab}
+                    </span>
+                    {showFvMatch ? (
+                      <MatchTypeChip matchType={fv.match_type} />
+                    ) : null}
+                    <AssignmentConfidenceChip
+                      meta={fv.biomaterial_assignment_meta}
+                    />
+                    {n > 0 ? (
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono shrink-0">
+                        ({n})
+                      </span>
+                    ) : null}
+                  </div>
+                  {statements.length > 0 ? (
+                    <ul className="pl-3.5 mt-0.5 space-y-0.5">
+                      {statements.map((s, si) => (
+                        <StatementLine key={si} statement={s} />
+                      ))}
+                    </ul>
                   ) : null}
                 </li>
               );
@@ -117,14 +157,20 @@ export function FactorReviewCard({
 
 export function TagReviewCard({
   tag,
+  elementKey,
   disposition,
   onDispose,
   note,
   onNoteChange,
 }: BaseProps & { tag: TagProposal }) {
+  const identityLabel =
+    [tag.category?.label, tag.value?.label].filter(Boolean).join(": ") ||
+    "tag";
   return (
     <ReviewCardShell
       kind="tag"
+      elementKey={elementKey}
+      identityLabel={identityLabel}
       disposition={disposition}
       onDispose={onDispose}
       note={note}
@@ -138,7 +184,11 @@ export function TagReviewCard({
         <Term uri={tag.value?.uri ?? null} asLink={false}>
           {tag.value?.label || ""}
         </Term>
+        <MatchTypeChip matchType={tag.match_type} />
+        <DebateBadgeChip badge={tag.badge} />
       </div>
+      <DefenderVerdictsCluster verdicts={tag.defender_verdicts} />
+      <SubtaskDecisionsRow decisions={tag.subtask_decisions} />
       {tag.evidence_quote ? (
         <div className="text-[10px] italic text-slate-500 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-600 pl-2 line-clamp-2">
           “{tag.evidence_quote}”
@@ -148,12 +198,406 @@ export function TagReviewCard({
   );
 }
 
+/**
+ * One statement under an FV — subject [predicate] object. Mirrors the
+ * audit S-P-O comparator render: small predicate (no chip, muted),
+ * Term chips with CURIEs on subject / object when URI-resolved,
+ * italic free-text otherwise. Missing parts are omitted so a
+ * subject-only statement reads as just the subject. Per Paul
+ * 2026-05-22: the per-factor card needs to surface the actual
+ * structured statement so the curator sees the ontology terms
+ * directly, not just the FV label.
+ */
+function StatementLine({ statement }: { statement: StatementProposal }) {
+  const subj = statement.subject;
+  const pred = statement.predicate;
+  const obj = statement.object;
+  const hasSubject = !!(subj?.label || subj?.uri);
+  const hasPredicate = !!(pred?.label || pred?.uri);
+  const hasObject = !!(obj?.label || obj?.uri);
+  const decisions = statement.subtask_decisions;
+  return (
+    <li className="text-[10.5px]">
+      <div className="flex items-baseline gap-1 flex-wrap">
+        {hasSubject ? (
+          <Term uri={subj.uri ?? null} asLink={false}>
+            {subj.label ?? ""}
+          </Term>
+        ) : null}
+        {hasPredicate ? (
+          <Term
+            uri={pred?.uri ?? null}
+            variant="predicate"
+            asLink={false}
+          >
+            {pred?.label ?? ""}
+          </Term>
+        ) : null}
+        {hasObject ? (
+          <Term uri={obj?.uri ?? null} asLink={false}>
+            {obj?.label ?? ""}
+          </Term>
+        ) : null}
+        {decisions && decisions.length > 0
+          ? decisions.map((d, i) => (
+              <SubtaskDecisionChip key={i} decision={d} />
+            ))
+          : null}
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Signal chips — surface the judgment/extra-info signals the
+// new-shape agent_proposal payload already carries: debate badge,
+// match_type, baseline_relevance, BM-assignment confidence. Mirrors
+// the audit conventions (small muted chips with tooltip rationale).
+// Subtask decisions, proposer suggestion, debate transcript, and a
+// proposer-side Boss verdict aren't on the new-shape payload yet —
+// handoff filed for bro to plumb them.
+// ---------------------------------------------------------------------------
+
+function DebateBadgeChip({ badge }: { badge: string | undefined }) {
+  if (!badge) return null;
+  const configs: Record<string, { label: string; title: string; cls: string }> = {
+    platinum: {
+      label: "✓ verified",
+      title: "debate: human-verified outcome",
+      cls: "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-300",
+    },
+    gold: {
+      label: "✓ unchallenged",
+      title:
+        "debate: no challenger raised an objection — not an evidence-quality signal",
+      cls: "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-300",
+    },
+    silver: {
+      label: "✓ settled",
+      title: "debate: settled after one contested round",
+      cls: "bg-slate-100 border-slate-300 text-slate-600 dark:bg-slate-600/50 dark:border-slate-500 dark:text-slate-200",
+    },
+    bronze: {
+      label: "★ contested",
+      title: "debate: settled after multiple contested rounds",
+      cls: "bg-orange-50 border-orange-200 text-orange-700 dark:bg-orange-900/30 dark:border-orange-700 dark:text-orange-300",
+    },
+    stuck: {
+      label: "!! needs call",
+      title: "debate: no consensus — needs human call",
+      cls: "bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/30 dark:border-rose-700 dark:text-rose-300",
+    },
+  };
+  const cfg = configs[badge];
+  if (!cfg) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border",
+        cfg.cls,
+      )}
+      title={cfg.title}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+function MatchTypeChip({
+  matchType,
+}: {
+  matchType: "exact" | "close" | "new" | undefined;
+}) {
+  if (!matchType) return null;
+  const configs: Record<
+    "exact" | "close" | "new",
+    { label: string; title: string; cls: string }
+  > = {
+    exact: {
+      label: "= exact",
+      title: "exact match against existing Gemma curation",
+      cls: "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-300",
+    },
+    close: {
+      label: "≈ close",
+      title: "close match against existing Gemma curation — verify",
+      cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300",
+    },
+    new: {
+      label: "+ new",
+      title: "no counterpart in Gemma — net-new",
+      cls: "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-300",
+    },
+  };
+  const cfg = configs[matchType];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border",
+        cfg.cls,
+      )}
+      title={cfg.title}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+function BaselineRelevanceChip({
+  relevance,
+  reason,
+}: {
+  relevance: "required" | "not_applicable" | "uncertain" | undefined;
+  reason?: string;
+}) {
+  // "required" is the default — don't clutter the card with a chip
+  // for it. Surface the off-default cases only.
+  if (!relevance || relevance === "required") return null;
+  const configs: Record<
+    "not_applicable" | "uncertain",
+    { label: string; cls: string }
+  > = {
+    not_applicable: {
+      label: "baseline n/a",
+      cls: "bg-slate-100 border-slate-300 text-slate-600 dark:bg-slate-600/50 dark:border-slate-500 dark:text-slate-200",
+    },
+    uncertain: {
+      label: "baseline?",
+      cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300",
+    },
+  };
+  const cfg = configs[relevance];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border",
+        cfg.cls,
+      )}
+      title={
+        reason ||
+        (relevance === "uncertain"
+          ? "baseline picker was uncertain — no canonical reference timepoint found"
+          : "no baseline expected by structure (subset axis / continuous / panel)")
+      }
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+/** Summarise the per-sample BM-assignment confidence breakdown for an
+ *  FV. Surface only when the assignment isn't all-"high" — the
+ *  agent's default. */
+function AssignmentConfidenceChip({
+  meta,
+}: {
+  meta:
+    | { confidence: string; source: string; rationale?: string }[]
+    | undefined;
+}) {
+  if (!meta || meta.length === 0) return null;
+  const buckets: Record<string, number> = {};
+  for (const m of meta) {
+    const k = (m.confidence || "").toLowerCase() || "?";
+    buckets[k] = (buckets[k] ?? 0) + 1;
+  }
+  const nonHigh = Object.entries(buckets).filter(
+    ([k]) => k !== "high",
+  );
+  if (nonHigh.length === 0) return null;
+  const summary = nonHigh
+    .map(([k, n]) => `${n} ${k}`)
+    .join(", ");
+  return (
+    <span
+      className="inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
+      title={`Some sample assignments below high confidence: ${summary}. Check the assignment provenance before retaining.`}
+    >
+      ⚠ {summary}
+    </span>
+  );
+}
+
+/**
+ * Defender / arbiter / boss verdicts attached to an element. Renders
+ * a small row of pills, one per verdict. Each pill shows the side
+ * initial + a strength glyph; the tooltip carries the verdict
+ * string + rationale + citation. Tooltip text uses native `title`
+ * for now; a richer popover can come later when the audit-side
+ * `AttachedDefenderVerdictPill` extracts into the shared
+ * justification module.
+ *
+ * Per the unified-justification schema (2026-05-22): wire shape uses
+ * `citationUrl` (camelCase) on this type alone — all other compound
+ * names in the payload are snake. Handle both.
+ */
+function DefenderVerdictsCluster({
+  verdicts,
+}: {
+  verdicts: AttachedDefenderVerdict[] | undefined;
+}) {
+  if (!verdicts || verdicts.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {verdicts.map((v, i) => (
+        <DefenderVerdictPill key={i} verdict={v} />
+      ))}
+    </div>
+  );
+}
+
+function DefenderVerdictPill({ verdict }: { verdict: AttachedDefenderVerdict }) {
+  const sideConfig: Record<
+    "defender" | "arbiter" | "boss",
+    { label: string; cls: string }
+  > = {
+    defender: {
+      label: "def",
+      cls: "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-300",
+    },
+    arbiter: {
+      label: "arb",
+      cls: "bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-700 dark:text-indigo-300",
+    },
+    boss: {
+      // Rose — visually distinct from defender (sky) and arbiter
+      // (indigo), and crucially NOT purple (predicates already
+      // claim the purple/violet hue family for their Term variant).
+      label: "boss",
+      cls: "bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/30 dark:border-rose-700 dark:text-rose-300",
+    },
+  };
+  const cfg = sideConfig[verdict.side];
+  if (!cfg) return null;
+  const strengthGlyph =
+    verdict.strength === "strong"
+      ? "●"
+      : verdict.strength === "weak"
+        ? "○"
+        : "◐";
+  const citation = verdict.citation ?? "";
+  const citationUrl = verdict.citationUrl ?? "";
+  const rationale = verdict.rationale ?? "";
+  // Concise tooltip: side · strength · verdict · rationale · citation.
+  // Some browsers truncate long titles; for now this is best-effort.
+  const titleParts = [
+    `${verdict.side} · ${verdict.strength ?? "moderate"}`,
+    verdict.verdict ? `"${verdict.verdict}"` : "",
+    rationale,
+    citation,
+  ].filter(Boolean);
+  const title = titleParts.join("\n\n");
+  const inner = (
+    <>
+      <span>{cfg.label}</span>
+      <span className="ml-0.5 leading-none">{strengthGlyph}</span>
+    </>
+  );
+  return citationUrl ? (
+    <a
+      href={citationUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      className={cn(
+        "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border hover:underline",
+        cfg.cls,
+      )}
+    >
+      {inner}
+    </a>
+  ) : (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border",
+        cfg.cls,
+      )}
+    >
+      {inner}
+    </span>
+  );
+}
+
+/**
+ * Subtask decisions attached to an element. Each decision is a small
+ * chip showing the subtask slug + a confidence dot. Tooltip carries
+ * the label / verdict / citation; clicking opens the citation URL
+ * in a new tab when populated.
+ */
+function SubtaskDecisionsRow({
+  decisions,
+}: {
+  decisions: SubtaskDecision[] | undefined;
+}) {
+  if (!decisions || decisions.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {decisions.map((d, i) => (
+        <SubtaskDecisionChip key={i} decision={d} />
+      ))}
+    </div>
+  );
+}
+
+function SubtaskDecisionChip({ decision }: { decision: SubtaskDecision }) {
+  const confidence = decision.confidence;
+  // Confidence dot: zero=rose (kill switch), low=amber, medium=slate,
+  // high=emerald, undefined=slate.
+  const confCls =
+    confidence === "zero"
+      ? "text-rose-600 dark:text-rose-400"
+      : confidence === "low"
+        ? "text-amber-600 dark:text-amber-400"
+        : confidence === "high"
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-slate-400 dark:text-slate-500";
+  const titleParts = [
+    decision.label || decision.subtask,
+    decision.verdict,
+    decision.citation,
+  ].filter(Boolean);
+  const title = titleParts.join("\n\n");
+  // Shorten the subtask slug for display: "S2r_ontology_normalise"
+  // → "S2r". Keep the full slug in the tooltip via `label` /
+  // `verdict`.
+  const shortSlug = decision.subtask.split("_")[0] || decision.subtask;
+  const url = decision.citation_url;
+  const inner = (
+    <>
+      <span className="font-mono">{shortSlug}</span>
+      {confidence ? (
+        <span className={cn("ml-0.5 leading-none", confCls)}>●</span>
+      ) : null}
+    </>
+  );
+  const baseCls =
+    "inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-700/50 dark:border-slate-600 dark:text-slate-300";
+  return url ? (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      className={cn(baseCls, "hover:underline")}
+    >
+      {inner}
+    </a>
+  ) : (
+    <span title={title} className={baseCls}>
+      {inner}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Shared shell
 // ---------------------------------------------------------------------------
 
 function ReviewCardShell({
   kind,
+  elementKey,
+  identityLabel,
   disposition,
   onDispose,
   children,
@@ -161,6 +605,11 @@ function ReviewCardShell({
   onNoteChange,
 }: {
   kind: CardKind;
+  elementKey: string;
+  /** Plain-text summary of what this element is — used as the
+   *  rationale-row text in the reject/park dialog so the curator
+   *  knows which element they're acting on. */
+  identityLabel: string;
   disposition: ProposalDisposition;
   onDispose: (d: ProposalDisposition) => void;
   children: React.ReactNode;
@@ -173,6 +622,36 @@ function ReviewCardShell({
       : "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/30";
   const isPending = disposition === "pending";
   const [noteOpen, setNoteOpen] = useState(!!note && note.length > 0);
+  // Reject + park route through the audit's DismissDialog so the
+  // curator can attach a note at decision-time (per Paul 2026-05-22:
+  // "like for audits"). Retain stays a one-click positive action.
+  const [dialog, setDialog] = useState<{
+    mode: "dismiss" | "not_sure";
+    anchor: HTMLElement;
+  } | null>(null);
+
+  const requestDispose = (
+    d: ProposalDisposition,
+    e: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    if (d === "rejected") {
+      setDialog({ mode: "dismiss", anchor: e.currentTarget });
+      return;
+    }
+    if (d === "parked") {
+      setDialog({ mode: "not_sure", anchor: e.currentTarget });
+      return;
+    }
+    onDispose(d);
+  };
+
+  const handleDialogConfirm = (_tag: string | null, notes: string) => {
+    if (!dialog) return;
+    onDispose(dialog.mode === "dismiss" ? "rejected" : "parked");
+    if (onNoteChange) onNoteChange(notes);
+    setDialog(null);
+  };
+
   return (
     <div
       className={cn(
@@ -191,6 +670,7 @@ function ReviewCardShell({
       <ActionButtons
         disposition={disposition}
         onDispose={onDispose}
+        onRequestDispose={requestDispose}
         kind={kind}
         noteOpen={noteOpen}
         hasNote={!!note && note.trim().length > 0}
@@ -212,6 +692,17 @@ function ReviewCardShell({
             "placeholder:text-slate-400 dark:placeholder:text-slate-500",
             "focus:outline-none focus:ring-1 focus:ring-sky-400",
           )}
+        />
+      ) : null}
+      {dialog ? (
+        <DismissDialog
+          mode={dialog.mode}
+          finding={{ issue_code: kind, rationale: identityLabel }}
+          targetId={elementKey}
+          anchor={dialog.anchor}
+          initialNotes={note ?? ""}
+          onCancel={() => setDialog(null)}
+          onConfirm={handleDialogConfirm}
         />
       ) : null}
     </div>
@@ -265,13 +756,23 @@ function DispositionBadge({
 function ActionButtons({
   disposition,
   onDispose,
+  onRequestDispose,
   kind,
   noteOpen,
   hasNote,
   onToggleNote,
 }: {
   disposition: ProposalDisposition;
+  /** Direct disposition setter — used for "retain" + "undo" where
+   *  no dialog is needed. */
   onDispose: (d: ProposalDisposition) => void;
+  /** Anchor-aware disposition setter — used for reject + park so the
+   *  parent can open DismissDialog positioned against the clicked
+   *  button. */
+  onRequestDispose: (
+    d: ProposalDisposition,
+    e: React.MouseEvent<HTMLButtonElement>,
+  ) => void;
   kind: CardKind;
   noteOpen: boolean;
   hasNote: boolean;
@@ -335,17 +836,17 @@ function ActionButtons({
       </button>
       <button
         type="button"
-        onClick={() => onDispose("rejected")}
+        onClick={(e) => onRequestDispose("rejected", e)}
         className="px-2 py-0.5 rounded text-[11px] font-semibold bg-white text-rose-700 border border-rose-300 hover:bg-rose-50 dark:bg-slate-800 dark:text-rose-300 dark:border-rose-700 dark:hover:bg-rose-900/30"
-        title={`Reject this proposed ${kind} — remove it from the design.`}
+        title={`Reject this proposed ${kind} — remove it from the design. Opens a note dialog.`}
       >
         reject
       </button>
       <button
         type="button"
-        onClick={() => onDispose("parked")}
+        onClick={(e) => onRequestDispose("parked", e)}
         className="px-2 py-0.5 rounded text-[11px] border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-        title="Defer the decision; commit gate stays active."
+        title="Defer the decision; commit gate stays active. Opens a note dialog."
       >
         park
       </button>

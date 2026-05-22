@@ -8,6 +8,12 @@
  * Until then this file keeps the UI buildable.
  */
 
+import type {
+  AttachedDefenderVerdict,
+  FindingEvidence,
+  SubtaskDecision,
+} from "./justification";
+
 export type ProposalStatus =
   | "pending"
   | "accepted"
@@ -31,6 +37,7 @@ export interface TagProposal {
    *  ``"silver"`` = settled after one contested round,
    *  ``"bronze"`` = multiple contested rounds,
    *  ``"stuck"`` = no consensus — needs human call.
+   *  ``"dropped"`` = retracted before landing.
    *  Empty/absent = debate wasn't run. */
   badge?: string;
   /** Pre-computed alignment against an existing Gemma tag. Absent on
@@ -38,6 +45,16 @@ export interface TagProposal {
    *  falls back to its pre-landing heuristic. */
   match_type?: MatchType;
   gemma_ref?: GemmaRef | null;
+  /** Unified-justification fields (landed 2026-05-22 per
+   *  `SCHEMA_UNIFIED_JUSTIFICATION.md`). All optional; defaults to
+   *  empty / absent when the producer hasn't filled them in yet. */
+  defender_verdicts?: AttachedDefenderVerdict[];
+  subtask_decisions?: SubtaskDecision[];
+  rationale?: string;
+  citation?: string;
+  citation_url?: string;
+  supporting_evidence?: FindingEvidence[];
+  proposer_flags?: string[];
 }
 
 export interface StatementProposal {
@@ -45,6 +62,9 @@ export interface StatementProposal {
   subject: OntologyTerm;
   predicate: OntologyTerm | null;
   object: OntologyTerm | null;
+  /** Subtask decisions targeted at this statement (target_id format
+   *  e.g. `factor:0/fv:1/subject`). Populated today. */
+  subtask_decisions?: SubtaskDecision[];
 }
 
 /**
@@ -113,6 +133,16 @@ export interface FactorValueProposal {
    *  landed — UI falls back to its pre-landing heuristic. */
   match_type?: MatchType;
   gemma_ref?: GemmaRef | null;
+  /** Unified-justification fields — not yet populated by today's
+   *  payloads but typed for forward-compat. */
+  defender_verdicts?: AttachedDefenderVerdict[];
+  subtask_decisions?: SubtaskDecision[];
+  rationale?: string;
+  citation?: string;
+  citation_url?: string;
+  supporting_evidence?: FindingEvidence[];
+  debate_badge?: string;
+  proposer_flags?: string[];
 }
 
 export interface FactorProposal {
@@ -146,6 +176,17 @@ export interface FactorProposal {
    *  UI falls back to its pre-landing heuristic. */
   match_type?: MatchType;
   gemma_ref?: GemmaRef | null;
+  /** Unified-justification fields (landed 2026-05-22).
+   *  `defender_verdicts` populated; `rationale` / `citation` /
+   *  `supporting_evidence` pending producer migration 4b. */
+  defender_verdicts?: AttachedDefenderVerdict[];
+  subtask_decisions?: SubtaskDecision[];
+  rationale?: string;
+  citation?: string;
+  citation_url?: string;
+  supporting_evidence?: FindingEvidence[];
+  debate_badge?: string;
+  proposer_flags?: string[];
 }
 
 /**
@@ -156,22 +197,10 @@ export interface FactorProposal {
  * etc.); each emits a structured decision with a citation pointing
  * to the Confluence guideline that grounded it.
  */
-export interface SubtaskDecision {
-  subtask: string;       // "S6_baseline" / "S2_forbidden_efc" / etc.
-  label: string;         // human-friendly section label
-  verdict: string;       // plain-English summary of what was decided
-  citation: string;      // short Confluence page reference
-  citation_url: string;  // optional full URL
-  /** Free-form scope tag — "factor:42" / "fv:813" / "tag:7" / ""
-   *  (proposal-wide). UI groups decisions by this. */
-  target_id: string;
-  /** Structured confidence tier. Optional; existing subtasks leave
-   *  it unset. ``zero`` is the kill switch — the UI auto-unchecks
-   *  the targeted entity (e.g. zero-coverage factors are removed
-   *  from the accept set by default). Eval scoring treats ``zero``
-   *  as a coverage failure regardless of UI filtering. */
-  confidence?: "zero" | "low" | "medium" | "high";
-}
+// `SubtaskDecision` moved to `./justification.ts` per the unified-
+// justification schema (2026-05-22). Re-exported here for callers
+// that still import from `./types`.
+export type { SubtaskDecision } from "./justification";
 
 export interface ProposalEvidence {
   preboarding_excerpt: string;
@@ -195,6 +224,11 @@ export interface Proposal {
   tags: TagProposal[];
   factors: FactorProposal[];
   evidence: ProposalEvidence;
+  /** Proposal-wide subtask decisions (target_id="" or routed to
+   *  specific elements). Populated today on new-shape proposals. */
+  subtask_decisions?: SubtaskDecision[];
+  /** Top-level Boss verdict. Stub-only on today's payloads. */
+  boss_verdict?: import("./justification").BossVerdict | null;
 }
 
 export interface CuratorCheckboxes {

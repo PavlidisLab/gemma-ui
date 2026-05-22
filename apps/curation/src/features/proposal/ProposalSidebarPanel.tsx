@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Proposal } from "@/api/types";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
   FactorReviewCard,
   TagReviewCard,
 } from "./ProposalReviewCard";
 import {
+  MetadataBadge,
+  summariseDataset,
+} from "./MetadataBadge";
+import {
   factorElementKey,
   loadDispositions,
+  loadFeedback,
   loadNotes,
   saveDispositions,
+  saveFeedback,
   saveNotes,
   tagElementKey,
   type DispositionMap,
@@ -36,8 +43,17 @@ import {
  */
 export function ProposalSidebarPanel({
   proposal,
+  onApplyToDesign,
 }: {
   proposal: Proposal;
+  /** Optional callback for the bulk "apply proposal to design"
+   *  affordance — renders an Apply button in the panel header next to
+   *  Retain all. Used by the new-shape arm where the curator's
+   *  explicit click is what seeds the design draft from the
+   *  proposal. When omitted (legacy arm), no Apply button shows;
+   *  the legacy ProposalCardV2 still owns its own accept/apply
+   *  affordance. */
+  onApplyToDesign?: () => void;
 }) {
   const proposalId = proposal.proposal_id ?? "";
   const experimentId = proposal.experiment_id;
@@ -48,6 +64,20 @@ export function ProposalSidebarPanel({
   const [notes, setNotes] = useState<NoteMap>(() =>
     loadNotes(experimentId, proposalId),
   );
+  const [feedback, setFeedback] = useState<string>(() =>
+    loadFeedback(experimentId, proposalId),
+  );
+  const [applied, setApplied] = useState(false);
+
+  // Dataset summary mirrors what v2 ProposalCardV2 surfaces — sample
+  // count, individual count, batch presence — computed from the saved
+  // server Design's biomaterials. Saved (not draft) is the canonical
+  // cohort source.
+  const { saved } = useDesignDraft();
+  const datasetSummary = useMemo(
+    () => (saved ? summariseDataset(saved.biomaterials) : null),
+    [saved],
+  );
 
   useEffect(() => {
     saveDispositions(experimentId, proposalId, dispositions);
@@ -56,6 +86,10 @@ export function ProposalSidebarPanel({
   useEffect(() => {
     saveNotes(experimentId, proposalId, notes);
   }, [experimentId, proposalId, notes]);
+
+  useEffect(() => {
+    saveFeedback(experimentId, proposalId, feedback);
+  }, [experimentId, proposalId, feedback]);
 
   const setOne = (key: string, d: ProposalDisposition) => {
     setDispositions((prev) => {
@@ -120,6 +154,11 @@ export function ProposalSidebarPanel({
     // ``card`` class — the global ``html.dark .card`` rule in
     // index.css overrode the dark sky tint. Per Paul 2026-05-21.
     <div className="p-2 space-y-2 rounded-lg border border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/40">
+      {datasetSummary && datasetSummary.nSamples > 0 ? (
+        <div className="px-1 pb-1.5 border-b border-sky-200 dark:border-sky-800">
+          <MetadataBadge summary={datasetSummary} />
+        </div>
+      ) : null}
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300">
           Proposal review
@@ -158,6 +197,31 @@ export function ProposalSidebarPanel({
               : `Retain remaining (${counts.total - counts.reviewed})`}
           </button>
         ) : null}
+        {onApplyToDesign ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (applied) return;
+              onApplyToDesign();
+              setApplied(true);
+            }}
+            disabled={applied}
+            title={
+              applied
+                ? "Already applied — clicking again would duplicate factors. Discard the draft or reset the experiment to re-apply."
+                : "Push this proposal's tags and factors into the design draft"
+            }
+            className={
+              (counts.reviewed < counts.total ? "" : "ml-auto ") +
+              "px-2 py-0.5 rounded text-[11px] font-semibold border " +
+              (applied
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800 cursor-not-allowed"
+                : "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100")
+            }
+          >
+            {applied ? "✓ Applied" : "Apply to design"}
+          </button>
+        ) : null}
       </div>
 
       {proposal.factors?.length ? (
@@ -170,6 +234,7 @@ export function ProposalSidebarPanel({
             return (
               <FactorReviewCard
                 key={key}
+                elementKey={key}
                 factor={f}
                 disposition={getOne(key)}
                 onDispose={(d) => setOne(key, d)}
@@ -191,6 +256,7 @@ export function ProposalSidebarPanel({
             return (
               <TagReviewCard
                 key={key}
+                elementKey={key}
                 tag={t}
                 disposition={getOne(key)}
                 onDispose={(d) => setOne(key, d)}
@@ -201,6 +267,28 @@ export function ProposalSidebarPanel({
           })}
         </div>
       ) : null}
+
+      {/* Proposal-wide feedback — ported from v2 ProposalCardV2. The
+          textarea captures the curator's notes about the proposal as
+          a whole; per-element notes live on each review card. Submit
+          wiring (redo with notes / log on accept-reject) follows
+          later; today this just persists the value to localStorage. */}
+      <div className="pt-1.5 border-t border-sky-200 dark:border-sky-800 space-y-1">
+        <div className="text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300 px-1">
+          Feedback
+        </div>
+        <textarea
+          placeholder='e.g. "treat cell type as the EFC" / "rename FV labels to ..." / "drop the biological sex factor"'
+          rows={2}
+          className="w-full text-xs border border-slate-200 dark:border-slate-700 rounded p-1 bg-white dark:bg-slate-900 dark:text-slate-100"
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+        />
+        <p className="text-[10px] text-slate-500 dark:text-slate-400 italic px-1">
+          Captured for retry instructions on a future redo-with-notes
+          and for prompt-tuning logs on accept / reject.
+        </p>
+      </div>
     </div>
   );
 }

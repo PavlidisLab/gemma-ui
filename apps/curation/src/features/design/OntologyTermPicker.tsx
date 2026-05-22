@@ -30,9 +30,9 @@ import type { OntologyTerm } from "@/features/experiment/types";
  * mirrors that priority order so a curator's eye lands on the right
  * pick.
  *
- * Affordance: double-click opens edit mode (matches the InlineText
- * pattern). Enter commits; Escape cancels; arrow keys move the
- * highlighted suggestion.
+ * Affordance: single-click opens edit mode and shows the typeahead.
+ * Enter commits; Escape cancels; arrow keys move the highlighted
+ * suggestion.
  */
 export function OntologyTermPicker({
   value,
@@ -318,14 +318,7 @@ export function OntologyTermPicker({
     <span
       role="button"
       tabIndex={0}
-      // Single-click opens the picker on an empty slot — curators
-      // need to fill it, so requiring a double-click is friction
-      // (and the placeholder text reads as a label, not a
-      // control). Populated terms keep the double-click guard so
-      // hovering / text-selecting on resolved labels doesn't open
-      // edit mode by mistake.
-      onClick={isEmpty ? () => setEditing(true) : undefined}
-      onDoubleClick={() => setEditing(true)}
+      onClick={() => setEditing(true)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -358,9 +351,9 @@ export function OntologyTermPicker({
       )}
       title={
         hasUri
-          ? `${label} — ${value!.uri} (double-click to edit; URI override inside the picker)`
+          ? `${label} — ${value!.uri} (click to edit; URI override inside the picker)`
           : label
-            ? `${label} — free text (double-click to edit)`
+            ? `${label} — free text (click to edit)`
             : `click to pick a term`
       }
     >

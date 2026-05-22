@@ -780,11 +780,25 @@ export function applyProposalToDesign(
   }
 
   // -- Factors -----------------------------------------------------
+  // Dedup by factor category (URI when present, label otherwise) —
+  // mirrors the tag dedup above. A second click on Apply must NOT
+  // double-add factors that the curator already accepted on a prior
+  // click; the proposer convention is one factor per category, so
+  // matching on category is the right granularity. To re-apply a
+  // proposal after editing, the curator discards the draft (which
+  // drops the in-progress factors) and clicks Apply again.
   const existingFactors = design.factors ?? [];
+  const seenFactorKeys = new Set(
+    existingFactors.map((f) => factorKey(f.category)),
+  );
   let nextFactorId =
     existingFactors.reduce((m, f) => Math.max(m, f.id), 0) + 1;
   let nextFvId = nextFvIdValue(design);
-  const addedFactors: Factor[] = proposalFactors.map((p) => {
+  const addedFactors: Factor[] = [];
+  for (const p of proposalFactors) {
+    const k = factorKey(p.category);
+    if (seenFactorKeys.has(k)) continue;
+    seenFactorKeys.add(k);
     const factorId = nextFactorId++;
     const factor: Factor = {
       id: factorId,
@@ -814,8 +828,8 @@ export function applyProposalToDesign(
         })),
       })),
     };
-    return factor;
-  });
+    addedFactors.push(factor);
+  }
 
   return {
     ...design,
@@ -899,6 +913,10 @@ function tagKey(
   const c = (cat.uri || cat.label || "").toLowerCase();
   const v = (val.uri || val.label || "").toLowerCase();
   return `${c}${v}`;
+}
+
+function factorKey(cat: { label: string; uri?: string | null }): string {
+  return (cat.uri || cat.label || "").toLowerCase();
 }
 
 function nextFvIdValue(design: Design): number {

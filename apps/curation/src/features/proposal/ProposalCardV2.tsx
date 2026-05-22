@@ -14,7 +14,10 @@ import type {
   ProposalStatus,
   SubtaskDecision,
 } from "@/api/types";
-import type { Biomaterial } from "@/features/experiment/types";
+import {
+  MetadataBadge,
+  summariseDataset,
+} from "@/features/proposal/MetadataBadge";
 import { useReviewProposal, useTriggerProposal } from "@/api/proposals";
 import { useProposeStream } from "@/api/proposeStream";
 import { ApiError } from "@/api/client";
@@ -43,109 +46,6 @@ import {
   tierForProviderModel,
   type ModelTier,
 } from "@/lib/modelTiers";
-
-// ---------------------------------------------------------------------------
-// Dataset-summary badge — surfaces operational metadata (batch info,
-// individual count) without polluting the proposal's tag list. Per
-// Paul (2026-04-29): batch / individual / subject / replicate are
-// not curator EE tags; they're cohort bookkeeping. The tag proposer
-// drops them; this strip reports on them so the curator still sees
-// the underlying data.
-// ---------------------------------------------------------------------------
-
-interface DatasetSummary {
-  nSamples: number;
-  nIndividuals: number | null;   // null = couldn't infer
-  hasBatch: boolean;
-  batchKey: string;              // characteristic key that signalled batch presence
-}
-
-/** Infer dataset-level metadata from per-sample characteristics.
- *  Permissive about which characteristic keys count — we look at
- *  common patterns Gemma uses. */
-function summariseDataset(biomaterials: Biomaterial[]): DatasetSummary {
-  const out: DatasetSummary = {
-    nSamples: biomaterials.length,
-    nIndividuals: null,
-    hasBatch: false,
-    batchKey: "",
-  };
-
-  const individualKeys = [
-    "individual",
-    "subject",
-    "subject id",
-    "subject_id",
-    "donor",
-    "donor id",
-    "donor_id",
-    "patient",
-    "patient id",
-    "patient_id",
-  ];
-  const batchKeys = ["batch", "block", "processing batch", "run", "library batch"];
-
-  // Walk one sample's keys to find which canonical individual / batch
-  // key (if any) is present. Then count distinct values across all
-  // samples for that key.
-  const sampleKeys = new Set<string>();
-  for (const b of biomaterials) {
-    for (const k of Object.keys(b.characteristics || {})) {
-      sampleKeys.add(k.toLowerCase());
-    }
-  }
-
-  const matchedIndividualKey = individualKeys.find((k) => sampleKeys.has(k));
-  if (matchedIndividualKey) {
-    const values = new Set<string>();
-    for (const b of biomaterials) {
-      for (const [k, v] of Object.entries(b.characteristics || {})) {
-        if (k.toLowerCase() === matchedIndividualKey && v) {
-          values.add(String(v));
-        }
-      }
-    }
-    out.nIndividuals = values.size > 0 ? values.size : null;
-  }
-
-  const matchedBatchKey = batchKeys.find((k) => sampleKeys.has(k));
-  if (matchedBatchKey) {
-    out.hasBatch = true;
-    out.batchKey = matchedBatchKey;
-  }
-
-  return out;
-}
-
-function MetadataBadge({ summary }: { summary: DatasetSummary }) {
-  const parts: { label: string; title: string }[] = [];
-  parts.push({
-    label: `${summary.nSamples} samples`,
-    title: `${summary.nSamples} biomaterials in this experiment`,
-  });
-  if (summary.nIndividuals !== null) {
-    parts.push({
-      label: `${summary.nIndividuals} individuals`,
-      title: `${summary.nIndividuals} distinct subjects across ${summary.nSamples} biomaterials`,
-    });
-  }
-  if (summary.hasBatch) {
-    parts.push({
-      label: "has batch info",
-      title: `batch annotation present on per-sample characteristic '${summary.batchKey}' — see the design tab`,
-    });
-  }
-  return (
-    <div className="px-3 py-1.5 border-b border-slate-100 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-      {parts.map((p, i) => (
-        <span key={i} title={p.title}>
-          {p.label}
-          {i < parts.length - 1 ? " ·" : ""}
-        </span>
-      ))}
-    </div>
-  );
-}
 
 /**
  * v2 layout for the agent-proposal sidebar card.
@@ -1459,7 +1359,9 @@ export function ProposalCardV2({
           proposer used to emit. The data lives in the design tab; this
           strip is the curator's at-a-glance hint. */}
       {datasetSummary && datasetSummary.nSamples > 0 ? (
-        <MetadataBadge summary={datasetSummary} />
+        <div className="px-3 py-1.5 border-b border-slate-100">
+          <MetadataBadge summary={datasetSummary} />
+        </div>
       ) : null}
 
       {/* ---------------- Skip-reason line ---------------- */}

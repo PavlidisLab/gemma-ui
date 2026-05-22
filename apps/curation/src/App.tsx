@@ -61,10 +61,17 @@ import {
   useDesignDraft,
 } from "@/features/design/DesignDraftContext";
 import { NotesDrawer } from "@/features/notes/NotesDrawer";
+import { useTriggerProposal } from "@/api/proposals";
 import {
-  useProposalsForExperiment,
-  useTriggerProposal,
-} from "@/api/proposals";
+  useProposalsAutoShape,
+  type AgentProposal,
+} from "@/api/agentProposals";
+import { parseAgentProposalPayload } from "@/api/agentProposals";
+import {
+  agentProposalToApplyArgs,
+  agentProposalToLegacyProposal,
+} from "@/features/proposal/agentProposalAdapter";
+import { applyProposalToDesign } from "@/features/design/mutations";
 import { useToast } from "@/components/ui/Toast";
 import { Spinner } from "@/components/ui/Spinner";
 import {
@@ -380,7 +387,7 @@ function Shell({
     isLoading,
     isFetching: proposalsFetching,
     error,
-  } = useProposalsForExperiment(experimentId);
+  } = useProposalsAutoShape(experimentId);
 
   // If the experiment id resolves to nothing in storage, the
   // /design GET 404s. Show the import prompt instead of the
@@ -391,7 +398,14 @@ function Shell({
 
   const externalSource = draft?.external_source ?? null;
   const shortName = draft?.experiment_short_name ?? `experiment ${experimentId}`;
-  const pending = (data?.items ?? []).filter((p) => p.status === "pending");
+  // Endpoint returns one of two shapes (see useProposalsAutoShape):
+  // new agent_proposal rows for the 50 eval-pkg experiments, legacy
+  // {items, total} for the 47 backup-restored ones. Derive both
+  // arms regardless of shape — MainGrid renders whichever is
+  // populated.
+  const legacyItems = data?.kind === "legacy" ? data.items : [];
+  const agentProposals = data?.kind === "new" ? data.items : [];
+  const pending = legacyItems.filter((p) => p.status === "pending");
   // Most recent non-pending proposal — surfaces as a slim
   // ProposalSummaryCard above the pending list so the sidebar
   // doesn't go from full v2 card straight to "no proposals" the
@@ -401,12 +415,13 @@ function Shell({
   // to pick the most recent non-pending. ``findLast`` is the
   // semantic fit; previous code used ``find`` and surfaced the
   // *oldest* rejected proposal once a curator had rejected more
-  // than one (the original would persist on top forever).
-  const items = data?.items ?? [];
+  // than one (the original would persist on top forever). New-shape
+  // agent_proposal rows have no status — they're append-only — so
+  // recentClosed only applies to the legacy arm.
   let recentClosed: Proposal | null = null;
-  for (let i = items.length - 1; i >= 0; i--) {
-    if (items[i].status !== "pending") {
-      recentClosed = items[i];
+  for (let i = legacyItems.length - 1; i >= 0; i--) {
+    if (legacyItems[i].status !== "pending") {
+      recentClosed = legacyItems[i];
       break;
     }
   }
@@ -509,6 +524,7 @@ function Shell({
         proposalsError={error ? (error as Error).message : null}
         pendingProposals={pending}
         recentClosedProposal={recentClosed}
+        agentProposals={agentProposals}
       />
 
       <footer className="border-t border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800">
@@ -548,6 +564,7 @@ function MainGrid({
   proposalsError,
   pendingProposals,
   recentClosedProposal,
+  agentProposals,
   proposalsFetching: _proposalsFetching,
 }: {
   activeTab: TabId;
@@ -561,6 +578,12 @@ function MainGrid({
    *  list so the sidebar doesn't snap from full card to empty when
    *  the curator accepts. */
   recentClosedProposal: Proposal | null;
+  /** New-shape `agent_proposal` rows from the auto-shape endpoint.
+   *  Populated for experiments that have a row in the
+   *  `agent_proposal` table (eval-pkg seeded experiments); empty for
+   *  legacy experiments — those go through `pendingProposals`
+   *  instead. */
+  agentProposals: AgentProposal[];
   proposalsFetching: boolean;
 }) {
   const toast = useToast();
@@ -591,8 +614,11 @@ function MainGrid({
   // otherwise leave the stale draft in place. Calling ``reload()``
   // nukes the localStorage cache + null-resets the in-memory draft
   // so the loader effect re-seeds from the freshly-fetched saved.
-  const { reload: reloadDraft } = useDesignDraft();
-  const hasProposals = pendingProposals.length > 0;
+  const { reload: reloadDraft, draft, apply } = useDesignDraft();
+  // Either legacy pending OR a new-shape agent_proposal counts as
+  // "the sidebar has work to show". Both arms render below.
+  const proposalCount = pendingProposals.length + agentProposals.length;
+  const hasProposals = proposalCount > 0;
   // Demo / dev affordance: re-use cached proposer outputs instead
   // of paying the LLM round-trip again. Persisted across page
   // loads; ``true`` flips ``refresh_cache`` to ``false`` on the
@@ -775,9 +801,7 @@ function MainGrid({
               <ViewToggleButton
                 active={sidebarView === "proposals"}
                 onClick={() => setSidebarView("proposals")}
-                badge={
-                  hasProposals ? pendingProposals.length : undefined
-                }
+                badge={hasProposals ? proposalCount : undefined}
                 badgeCls="text-amber-700"
               >
                 Proposals
@@ -806,7 +830,7 @@ function MainGrid({
                     Hidden once a pending proposal exists — the
                     proposal card's "redo with notes" is the
                     canonical retry path. */}
-                {pendingProposals.length === 0 ||
+                {proposalCount === 0 ||
                 proposeStream.status === "running" ? (
                   <button
                     type="button"
@@ -885,7 +909,7 @@ function MainGrid({
             title={
               sidebarView === "audit"
                 ? "Open audit findings"
-                : `Open proposals${hasProposals ? ` (${pendingProposals.length} pending)` : ""}`
+                : `Open proposals${hasProposals ? ` (${proposalCount} pending)` : ""}`
             }
             className="card lg:flex-1 lg:min-h-[12rem] hover:bg-slate-50 flex flex-col items-center gap-3 py-3 text-slate-600 hover:text-slate-900 transition-colors"
           >
@@ -900,7 +924,7 @@ function MainGrid({
             </span>
             {sidebarView === "proposals" && hasProposals ? (
               <span className="text-[10px] uppercase tracking-wide font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-auto">
-                {pendingProposals.length}
+                {proposalCount}
               </span>
             ) : null}
           </button>
@@ -945,6 +969,42 @@ function MainGrid({
               {recentClosedProposal ? (
                 <ProposalSummaryCard proposal={recentClosedProposal} />
               ) : null}
+              {/* New-shape agent_proposal rows (eval-pkg seeded
+                  experiments). One surface: the per-element
+                  ProposalSidebarPanel rendering the synthesized legacy
+                  Proposal, with the explicit "Apply to design"
+                  button in its header (per Paul 2026-05-22). */}
+              {agentProposals.map((p) => {
+                const payload = parseAgentProposalPayload(p.payload_json);
+                if (!payload) return null;
+                const synth = agentProposalToLegacyProposal(p, payload);
+                const handleApply = () => {
+                  if (!draft) {
+                    toast.show(
+                      "Design draft not loaded yet.",
+                      "danger",
+                      4000,
+                    );
+                    return;
+                  }
+                  const { tags, factors } = agentProposalToApplyArgs(payload);
+                  const next = applyProposalToDesign(draft, tags, factors);
+                  apply(next);
+                  toast.show(
+                    `Applied proposal to draft: ${factors.length} factor${
+                      factors.length === 1 ? "" : "s"
+                    }, ${tags.length} tag${tags.length === 1 ? "" : "s"}.`,
+                    "success",
+                  );
+                };
+                return (
+                  <ProposalSidebarPanel
+                    key={`ap-${p.proposal_id}`}
+                    proposal={synth}
+                    onApplyToDesign={handleApply}
+                  />
+                );
+              })}
               {pendingProposals.map((p) => (
                 <div key={p.proposal_id ?? Math.random()} className="space-y-2">
                   {/* New per-element review panel — Paul 2026-05-21.

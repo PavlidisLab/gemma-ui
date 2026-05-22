@@ -46,6 +46,7 @@ export function tagElementKey(proposalId: string, idx: number): ProposalElementK
 
 const LS_PREFIX = "gemma-proposal-dispositions";
 const LS_NOTES_PREFIX = "gemma-proposal-disposition-notes";
+const LS_FEEDBACK_PREFIX = "gemma-proposal-feedback";
 
 function storageKey(experimentId: number, proposalId: string): string {
   return `${LS_PREFIX}:${experimentId}:${proposalId}`;
@@ -53,6 +54,10 @@ function storageKey(experimentId: number, proposalId: string): string {
 
 function notesStorageKey(experimentId: number, proposalId: string): string {
   return `${LS_NOTES_PREFIX}:${experimentId}:${proposalId}`;
+}
+
+function feedbackStorageKey(experimentId: number, proposalId: string): string {
+  return `${LS_FEEDBACK_PREFIX}:${experimentId}:${proposalId}`;
 }
 
 export type DispositionMap = Map<ProposalElementKey, ProposalDisposition>;
@@ -120,6 +125,44 @@ export function saveNotes(
       notesStorageKey(experimentId, proposalId),
       JSON.stringify(obj),
     );
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Proposal-wide free-text feedback the curator captures while
+ * reviewing — mirrors the textarea v2's ProposalCardV2 used to expose.
+ * Persisted per (experiment, proposal) in localStorage; submit-wire
+ * (redo with notes / accept / reject) lives one layer up.
+ */
+export function loadFeedback(
+  experimentId: number,
+  proposalId: string,
+): string {
+  try {
+    return (
+      window.localStorage.getItem(
+        feedbackStorageKey(experimentId, proposalId),
+      ) ?? ""
+    );
+  } catch {
+    return "";
+  }
+}
+
+export function saveFeedback(
+  experimentId: number,
+  proposalId: string,
+  value: string,
+): void {
+  try {
+    const key = feedbackStorageKey(experimentId, proposalId);
+    if (value && value.trim().length > 0) {
+      window.localStorage.setItem(key, value);
+    } else {
+      window.localStorage.removeItem(key);
+    }
   } catch {
     // ignore
   }
