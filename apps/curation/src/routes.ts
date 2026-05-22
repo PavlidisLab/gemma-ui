@@ -38,6 +38,7 @@ export type Route =
       groupContext?: string;
     }
   | { kind: "audit-preview" }
+  | { kind: "proposal-preview" }
   | { kind: "workflow"; groupId?: string };
 
 export function parseRoute(): Route {
@@ -72,6 +73,10 @@ export function parseRoute(): Route {
   // on the UI before /audit/* endpoints are live. Hidden from the
   // landing page navigation — paste the URL or follow a dev link.
   if (/^#\/audit-preview\b/.test(h)) return { kind: "audit-preview" };
+  // Fixture-driven preview for the new per-element proposal review
+  // surface. Paste #/proposal-preview into the URL bar. Removed once
+  // the live ``CurationWorkspace`` entity lands.
+  if (/^#\/proposal-preview\b/.test(h)) return { kind: "proposal-preview" };
   const workflowGroupMatch = h.match(/^#\/workflow\/([^/?#]+)/);
   if (workflowGroupMatch) {
     return { kind: "workflow", groupId: decodeURIComponent(workflowGroupMatch[1]) };

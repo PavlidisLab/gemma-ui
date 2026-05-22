@@ -53,7 +53,7 @@ export function markPaperDismissed(
 }
 
 /** Clear every dismissal flag for an experiment — called by the
- *  reset-experiment flow so a fresh skeleton gets fresh auto-apply
+ *  reset-experiment flow so a fresh preboarding state gets fresh auto-apply
  *  behaviour for any pending proposals. */
 export function clearPaperDismissalsForExperiment(experimentId: number): void {
   try {

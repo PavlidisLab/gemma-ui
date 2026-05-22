@@ -1220,7 +1220,7 @@ export function ProposalCardV2({
     // looked like a stale cache hit.
     //
     // Body fields:
-    //   - ``fresh_skeleton: true`` matches the sidebar "+ propose"
+    //   - ``fresh_preboarding: true`` matches the sidebar "+ propose"
     //     button — without it the proposer silently skips when the
     //     experiment has any curated factors in its Design.
     //   - ``refresh_cache: true`` so the new run doesn't replay the
@@ -1234,7 +1234,7 @@ export function ProposalCardV2({
     //     → null so the agent doesn't get an empty feedback block.
     const trimmedFeedback = feedback.trim();
     proposeStream.start(String(proposal.experiment_id), {
-      fresh_skeleton: true,
+      fresh_preboarding: true,
       refresh_cache: true,
       tier: retryTier,
       prior_feedback: trimmedFeedback || null,
@@ -1335,7 +1335,7 @@ export function ProposalCardV2({
       {/* ---------------- Tabs strip ----------------
           Three views over the same proposal: ``review`` (the default
           curator workflow — accept/reject), ``context`` (paper +
-          skeleton excerpts the agent read), ``decisions`` (full
+          preboarding excerpts the agent read), ``decisions`` (full
           structured rationale per subtask). Only Review shows the
           feedback / action row; Context and Decisions are read-only
           audit panes. */}
@@ -1682,7 +1682,7 @@ export function ProposalCardV2({
                         />
                         {fv.is_baseline ? (
                           <Pill variant="baseline" className="ml-1">
-                            ★ baseline
+                            ▂ baseline
                           </Pill>
                         ) : null}
                         {/* Statement-structure glyph: three discs
@@ -2137,7 +2137,7 @@ export function ProposalCardV2({
                 <>
                   <div className="bg-rose-50 border border-rose-200 rounded px-2 py-1.5 text-xs text-rose-800">
                     <span className="font-semibold">No notes attached.</span>{" "}
-                    The agent will re-run on the same skeleton with
+                    The agent will re-run on the same preboarding state with
                     the default prompt — without a curator-feedback
                     block to nudge it, likely a similar proposal,
                     just slower and pricier than reusing the cached
@@ -2276,7 +2276,7 @@ const QUOTE_KEYS = new Set([
   "excerpt",
   "citation_quote",
   "source_quote",
-  "skeleton_quote",
+  "preboarding_quote",
   "metadata_quote",
   "supporting_quote",
 ]);

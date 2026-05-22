@@ -59,7 +59,7 @@ export function useProposal(proposalId: string | undefined) {
 /**
  * Body shape for ``POST /propose/{accession}``. Mirrors
  * ``ProposeRequest`` in ``gemma_curation_agents/proposer_service.py``.
- * Every field optional; default is "use cache, fresh skeleton off,
+ * Every field optional; default is "use cache, fresh preboarding off,
  * no overwrite" — same as ``./run_propose.sh GSE…`` with no flags.
  */
 export interface TriggerProposalBody {
@@ -71,7 +71,7 @@ export interface TriggerProposalBody {
    *  this exists for ad-hoc overrides (e.g. trying a brand-new
    *  model id before adding it to the tier registry). */
   model?: string;
-  fresh_skeleton?: boolean;
+  fresh_preboarding?: boolean;
   allow_overwrite?: boolean;
   use_cache?: boolean;
   refresh_cache?: boolean;
@@ -88,7 +88,7 @@ export interface TriggerProposalBody {
 /**
  * Kick the proposer service to build + submit a fresh proposal for
  * an accession. The service runs the pipeline synchronously, so this
- * mutation can take 30-90s for a fresh skeleton (cache hits return
+ * mutation can take 30-90s for a fresh preboarding state (cache hits return
  * in seconds). On success, invalidate the proposal queries so the
  * sidebar pulls in the new pending row.
  *

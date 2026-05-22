@@ -10,6 +10,7 @@ import { clearPaperDismissalsForExperiment } from "@/features/proposal/paperDism
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
 import { AuditsInbox } from "@/features/inbox/AuditsInbox";
 import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
+import { ProposalPreviewPage } from "@/features/proposal/ProposalPreviewPage";
 import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
 import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { PipelinePanel } from "@/features/workflow/PipelinePanel";
@@ -41,6 +42,7 @@ import {
   type TabId,
 } from "@/features/experiment/ExperimentBanner";
 import { ProposalCardV2 } from "@/features/proposal/ProposalCardV2";
+import { ProposalSidebarPanel } from "@/features/proposal/ProposalSidebarPanel";
 import { ProposalSummaryCard } from "@/features/proposal/ProposalSummaryCard";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import { useProposeStream } from "@/api/proposeStream";
@@ -132,6 +134,10 @@ export default function App() {
 
   if (route.kind === "audit-preview") {
     return <AuditPreviewPage />;
+  }
+
+  if (route.kind === "proposal-preview") {
+    return <ProposalPreviewPage />;
   }
 
   if (route.kind === "workflow") {
@@ -609,7 +615,7 @@ function MainGrid({
   const [resetConfirm, setResetConfirm] = useState(false);
   // Wraps useTriggerProposal so the sidebar button doesn't have to
   // care about toast wiring or error mapping. Pipeline runs are
-  // 30-90s for a fresh skeleton, seconds on a cache hit; the
+  // 30-90s for a fresh preboarding state, seconds on a cache hit; the
   // mutation's ``isPending`` keeps the button disabled until the
   // submitted proposal lands and the proposals query refetches.
   function requestProposal() {
@@ -618,7 +624,7 @@ function MainGrid({
     // Gemma shortName interchangeably.
     //
     // Body shape mirrors ``useTriggerProposal``'s defaults:
-    //   - ``fresh_skeleton: true`` ignores any curated state on the
+    //   - ``fresh_preboarding: true`` ignores any curated state on the
     //     experiment for this run. Without it the pipeline silently
     //     skips an already-curated experiment and returns an empty
     //     proposal.
@@ -631,7 +637,7 @@ function MainGrid({
     proposeStream.start(String(experimentId), {
       use_cache: true,
       refresh_cache: !useCachedProposal,
-      fresh_skeleton: true,
+      fresh_preboarding: true,
     });
   }
   // Default-open. Curators want the proposals panel visible by
@@ -831,7 +837,7 @@ function MainGrid({
                 {/* Demo / dev affordances scoped to the proposer:
                     "use cache" replays cached output instead of a
                     fresh LLM call; "reset experiment" strips curation
-                    so a fresh skeleton is ready for a re-run. */}
+                    so a fresh preboarding state is ready for a re-run. */}
                 <div className="flex items-center gap-2 text-[10px] text-slate-500 pt-1 border-t border-slate-100">
                   <label
                     className="inline-flex items-center gap-1 cursor-pointer hover:text-slate-700"
@@ -940,13 +946,20 @@ function MainGrid({
                 <ProposalSummaryCard proposal={recentClosedProposal} />
               ) : null}
               {pendingProposals.map((p) => (
-                <ProposalCardV2
-                  key={p.proposal_id ?? Math.random()}
-                  proposal={p}
-                  reviewer={reviewer}
-                  triggerProposal={triggerProposal}
-                  proposeStream={proposeStream}
-                />
+                <div key={p.proposal_id ?? Math.random()} className="space-y-2">
+                  {/* New per-element review panel — Paul 2026-05-21.
+                      Sits ABOVE the legacy ProposalCardV2 during
+                      Phase 1 so the curator can compare layouts.
+                      Once the new surface proves out + Phase 2's
+                      draft-seeding lands, ProposalCardV2 retires. */}
+                  <ProposalSidebarPanel proposal={p} />
+                  <ProposalCardV2
+                    proposal={p}
+                    reviewer={reviewer}
+                    triggerProposal={triggerProposal}
+                    proposeStream={proposeStream}
+                  />
+                </div>
               ))}
             </>
           )
@@ -954,7 +967,7 @@ function MainGrid({
       </aside>
       <ConfirmModal
         open={resetConfirm}
-        title="Reset experiment to fresh skeleton?"
+        title="Reset experiment to fresh preboarding?"
         body={
           `Re-imports experiment #${experimentId} from real Gemma and strips ` +
           `curation: factors, IC tags, and FV-source synth tags are cleared. ` +
@@ -976,10 +989,10 @@ function MainGrid({
               // The proposal-paper auto-apply flag survives across
               // sessions; reset wipes the design but doesn't drop
               // proposals, so a stale flag would block the auto-add
-              // from re-firing on the fresh skeleton. Clear all
-              // flags scoped to this experiment.
+              // from re-firing on the fresh preboarding state.
+              // Clear all flags scoped to this experiment.
               clearPaperDismissalsForExperiment(experimentId);
-              toast.show("Experiment reset to fresh skeleton.", "success");
+              toast.show("Experiment reset to fresh preboarding.", "success");
               setResetConfirm(false);
             },
             onError: (err) => {

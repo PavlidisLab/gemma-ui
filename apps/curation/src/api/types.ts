@@ -174,7 +174,7 @@ export interface SubtaskDecision {
 }
 
 export interface ProposalEvidence {
-  skeleton_excerpt: string;
+  preboarding_excerpt: string;
   paper_source: string | null;
   paper_excerpt: string;
   exemplar_experiment_ids: number[];
