@@ -6,8 +6,10 @@ import {
   isCloseFactorMatch,
   isExactFactorMatch,
   isFactorMatchCode,
+  isNearMatchFinding,
   resolveAgentFactor,
 } from "./factorMatch";
+import type { FactorRenamePayload } from "@/api/auditTypes";
 
 /** Minimal ``OntologyTerm`` factory — only ``label`` matters for these
  *  tests; ``uri`` / ``resolver`` / ``score`` are present to satisfy
@@ -132,6 +134,112 @@ describe("isExactFactorMatch / isCloseFactorMatch", () => {
     });
     expect(isExactFactorMatch(f)).toBe(false);
     expect(isCloseFactorMatch(f)).toBe(false);
+  });
+});
+
+/** Tiny rename-payload factory — only the existence of the payload
+ *  matters for ``isNearMatchFinding`` (the body shape is checked
+ *  elsewhere). ``concept_diff_kind`` left unset so we exercise the
+ *  back-compat default. */
+function renamePayload(overrides: Partial<FactorRenamePayload> = {}): FactorRenamePayload {
+  return {
+    agent: { category: term("genotype") },
+    gold: { category: term("genotype") },
+    fv_pairs: [],
+    direction: "equivalent",
+    ...overrides,
+  };
+}
+
+describe("isNearMatchFinding", () => {
+  // Two-header-chip redesign (Paul 2026-05-21 — GSE93824 case).
+  // The predicate gates whether the strength label gets dropped and
+  // whether the Judge: rationale moves to the FV expansion block.
+  // True path = near-match (factor-level OK + lower-level diff);
+  // false path = whole-factor extras / misses / partition-mismatches
+  // where the strength framing is still the right one.
+
+  it("``_match_near`` is a near-match (factor proposal OK, FV-level diff)", () => {
+    expect(
+      isNearMatchFinding(
+        finding({ issue_code: "calibration_factor_match_near" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("``_match_close`` (earlier wire spelling) is also near-match", () => {
+    expect(
+      isNearMatchFinding(
+        finding({
+          issue_code: "calibration_factor_match_close",
+          severity: "minor",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("legacy ``calibration_factor_match`` at ok severity is near-match (back-compat)", () => {
+    expect(
+      isNearMatchFinding(
+        finding({ issue_code: "calibration_factor_match", severity: "ok" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("any finding carrying a rename payload is near-match (concept_diff_kind shapes)", () => {
+    expect(
+      isNearMatchFinding(
+        finding({
+          issue_code: "calibration_factor_rename",
+          severity: "minor",
+          rename: renamePayload(),
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("``_factor_extra`` is NOT near-match — whole-factor decision, strength label stays", () => {
+    expect(
+      isNearMatchFinding(
+        finding({
+          issue_code: "calibration_factor_extra",
+          severity: "minor",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("``_factor_gold_only_miss`` is NOT near-match — strength label stays", () => {
+    expect(
+      isNearMatchFinding(
+        finding({
+          issue_code: "calibration_factor_gold_only_miss",
+          severity: "minor",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("``_factor_partition_mismatch`` is NOT near-match — strength label stays", () => {
+    expect(
+      isNearMatchFinding(
+        finding({
+          issue_code: "calibration_factor_partition_mismatch",
+          severity: "minor",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("exact-match findings are NOT near-match — they short-circuit before any judge UI", () => {
+    expect(
+      isNearMatchFinding(
+        finding({
+          issue_code: "calibration_factor_match_exact",
+          severity: "ok",
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

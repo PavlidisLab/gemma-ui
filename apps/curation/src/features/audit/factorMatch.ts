@@ -97,6 +97,41 @@ export function isCloseFactorMatch(f: AuditFinding): boolean {
   return false;
 }
 
+/** Broader "near-match" predicate that drives the two-header-chip card
+ *  treatment (Paul 2026-05-21 redesign — GSE93824 genotype reference
+ *  case). True when:
+ *
+ *   - the finding is a ``calibration_factor_match_near`` (or any
+ *     ``isCloseFactorMatch`` variant) — the agent's factor-level
+ *     proposal matches gold at the partition / category level but
+ *     differs on something subtle (gene URI species, missing facet,
+ *     URI variant), OR
+ *   - the finding carries a ``rename`` payload — a rename / inner-
+ *     concept-diff finding always means "factor-level proposal is a
+ *     good call, but a lower-level concept differs."
+ *
+ *  Used by:
+ *
+ *   - ``AgentSuggestionPanel`` — suppress the single-axis strength
+ *     label (``leanSuggestionLabel``) and move the Judge rationale
+ *     text out of the factor-card level. The two header chips
+ *     (green disc + yellow N badge) carry the same signal more
+ *     cleanly; the label collapsed two axes into one and read as
+ *     "the whole factor proposal is bad" on findings where it was
+ *     actually right.
+ *   - ``DisagreementBlock`` — render the Judge rationale INSIDE the
+ *     first concept-diff FV block so the WHY binds to the exact FV
+ *     being corrected, not to the entire card.
+ *
+ *  Extra / gold-only-miss / partition-mismatch findings KEEP the
+ *  strength label — those are about full-factor decisions where the
+ *  "should we adopt this whole proposal" framing is the right one. */
+export function isNearMatchFinding(f: AuditFinding): boolean {
+  if (isCloseFactorMatch(f)) return true;
+  if (f.rename != null) return true;
+  return false;
+}
+
 /** Resolve the agent ``FactorProposal`` the builder paired with this
  *  gold match finding.
  *

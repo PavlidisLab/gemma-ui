@@ -75,6 +75,7 @@ import {
   factorMatchVariant,
   isCloseFactorMatch,
   isExactFactorMatch,
+  isNearMatchFinding,
   pickGoldFactor,
   resolveAgentFactor,
   resolveGoldFactor,
@@ -2579,10 +2580,25 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   draft ?? null,
                 );
                 if (n == null || n <= 0) return null;
+                // Tooltip reframes on near-match findings (Paul
+                // 2026-05-21 redesign). For those the count is
+                // explicitly "judge corrections at the FV /
+                // statement level — expand FV details", since the
+                // factor-level proposal itself is fine and the
+                // disagreement is finer-grained. Other finding
+                // shapes keep the plain row-level wording.
+                const nearMatchTip =
+                  `Judge: ${n} correction${n === 1 ? "" : "s"} ` +
+                  `suggested at the FV / statement level ` +
+                  `— expand FV details`;
+                const plainTip = `${n} row-level disagreement${n === 1 ? "" : "s"}`;
+                const title = isNearMatchFinding(finding)
+                  ? nearMatchTip
+                  : plainTip;
                 return (
                   <span
                     className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 mr-1 rounded-full text-[10px] font-bold bg-amber-400 text-amber-950 dark:bg-amber-500 dark:text-amber-950"
-                    title={`${n} row-level disagreement${n === 1 ? "" : "s"}`}
+                    title={title}
                     aria-label={`${n} disagreements`}
                   >
                     {n}
@@ -4045,10 +4061,33 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const lean = findingLean(finding);
   const headerLabel = leanSuggestionLabel(lean, strength);
 
-  // Judge row — always rendered (Paul 2026-05-21: the curator needs
-  // the WHY even when the agent emitted nothing). Sentinel branch
-  // renders muted italic so the absence reads as "no details" not
-  // "missing UI".
+  // Near-match findings (calibration_factor_match_near OR any rename
+  // payload — the GSE93824 genotype gene-URI case) get a different
+  // treatment than whole-factor extra / gold-only-miss findings.
+  // Their factor-level proposal is a good call (the green disc
+  // header chip carries that signal); the disagreement is at the
+  // FV / statement level (the yellow N badge counts it). On these
+  // findings:
+  //   - drop the single-axis strength label here — it collapses
+  //     factor-level OK + lower-level concept-diff into one
+  //     "STRONG / WEAK / NOT SUGGESTED" axis and reads as
+  //     "the whole factor proposal is bad" even when it's mostly
+  //     right (per Paul 2026-05-21).
+  //   - move the Judge rationale into the FV expansion block in
+  //     ``FindingDetailsEditor`` so the WHY binds to the exact FV
+  //     being corrected, not the whole factor card.
+  // Extra / gold-only-miss findings keep both — those are full-
+  // factor decisions where the strength label is the right framing.
+  const isNearMatch = isNearMatchFinding(finding);
+
+  // Judge row — always rendered for non-near-match findings (Paul
+  // 2026-05-21: the curator needs the WHY even when the agent
+  // emitted nothing). Sentinel branch renders muted italic so the
+  // absence reads as "no details" not "missing UI". For near-match
+  // findings the row moves to the FV-level DisagreementBlock — see
+  // FindingDetailsEditor.tsx; we still compute it here so the
+  // sentinel-vs-real distinction stays consistent if the suppression
+  // is later reverted.
   const judge = pickJudgeRowText(dv?.rationale, trimmedDefense);
 
   // Strength-based visual differentiation. Weak = amber (caution —
@@ -4075,36 +4114,45 @@ function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
         strengthBox,
       )}
     >
-      <div
-        className={cn(
-          "text-[9px] uppercase tracking-wide font-semibold",
-          strengthLabel,
-        )}
-        title={
-          strength
-            ? `judge graded this (${dv!.verdict}; lean=${lean})`
-            : "what was proposed"
-        }
-      >
-        {headerLabel}
-      </div>
+      {!isNearMatch ? (
+        <div
+          className={cn(
+            "text-[9px] uppercase tracking-wide font-semibold",
+            strengthLabel,
+          )}
+          title={
+            strength
+              ? `judge graded this (${dv!.verdict}; lean=${lean})`
+              : "what was proposed"
+          }
+        >
+          {headerLabel}
+        </div>
+      ) : null}
       {/* Row order is fixed: Judge → Supporting Evidence → (legacy
           one-line proposal as last-resort) → fixText. Putting Judge
           first answers Paul's "I need the WHY" complaint: even when
-          the agent emitted nothing, the sentinel row stands in. */}
-      <div
-        className={cn(
-          judge.isSentinel
-            ? "text-slate-400 dark:text-slate-500 italic text-[10px] leading-snug"
-            : "text-slate-500 dark:text-slate-400 italic text-[10px] leading-snug",
-        )}
-        title={dv?.citation || undefined}
-      >
-        <span className="not-italic font-semibold text-slate-600 dark:text-slate-300">
-          Judge:
-        </span>{" "}
-        {judge.text}
-      </div>
+          the agent emitted nothing, the sentinel row stands in.
+
+          Near-match findings (rename / calibration_factor_match_near)
+          omit the Judge row here — it renders inside the FV-level
+          DisagreementBlock instead, bound to the exact FV being
+          corrected. Per Paul 2026-05-21. */}
+      {!isNearMatch ? (
+        <div
+          className={cn(
+            judge.isSentinel
+              ? "text-slate-400 dark:text-slate-500 italic text-[10px] leading-snug"
+              : "text-slate-500 dark:text-slate-400 italic text-[10px] leading-snug",
+          )}
+          title={dv?.citation || undefined}
+        >
+          <span className="not-italic font-semibold text-slate-600 dark:text-slate-300">
+            Judge:
+          </span>{" "}
+          {judge.text}
+        </div>
+      ) : null}
       {evidence.length > 0 ? (
         <div className="space-y-1">
           {evidence.map((ev, i) => (
@@ -4856,21 +4904,35 @@ function JudgeStrengthGlyph({ finding }: { finding: AuditFinding }) {
   if (!dv) return null;
   const strength = dv.strength ?? verdictStrength(dv.verdict);
   if (!strength) return null;
+  // Tooltip reframes the strength glyph on near-match findings
+  // (Paul 2026-05-21 redesign — GSE93824 case). For those the
+  // factor-level proposal is the right call and the disagreement
+  // is at the FV level; the green disc reads as "factor-level
+  // match", not "the whole proposal is strong". Extra / gold-only-
+  // miss / partition-mismatch findings keep the original framing —
+  // there the strength refers to the whole-factor decision.
+  const isNearMatch = isNearMatchFinding(finding);
   const config = {
     weak: {
       glyph: "◔",
       cls: "text-amber-600 dark:text-amber-400",
-      label: "AI judge says this proposal is weak",
+      label: isNearMatch
+        ? "Judge: factor-level proposal looks weak"
+        : "AI judge says this proposal is weak",
     },
     moderate: {
       glyph: "◑",
       cls: "text-slate-500 dark:text-slate-400",
-      label: "AI judge says this proposal is moderate",
+      label: isNearMatch
+        ? "Judge: factor-level proposal is moderate"
+        : "AI judge says this proposal is moderate",
     },
     strong: {
       glyph: "●",
       cls: "text-emerald-600 dark:text-emerald-400",
-      label: "AI judge says this proposal is strong",
+      label: isNearMatch
+        ? "Judge: factor-level proposal is a good call"
+        : "AI judge says this proposal is strong",
     },
   }[strength];
   return (

@@ -56,9 +56,12 @@ import type {
 import type { FactorValueProposal } from "@/api/types";
 import {
   isCloseFactorMatch,
+  isExactFactorMatch,
+  isNearMatchFinding,
   resolveAgentFactor,
   resolveGoldFactor,
 } from "./factorMatch";
+import { pickJudgeRowText } from "./auditorDetails";
 import { verdictToStructureDetails } from "./dispositionSave";
 import { consequentHint, type ConsequentHintState } from "./consequentHint";
 import { firstBacktick, trimRationaleBoilerplate } from "./rationaleText";
@@ -1705,37 +1708,71 @@ export function FindingDetailsEditor({
       {/* One block per *statement* — Subject/Predicate/Object rows
           that share an FV+statement collapse into a single decision
           block with shared buttons. Skipped for tag findings (one
-          decision, handled by TagDetailBlock above). */}
-      {finding.target_kind !== "tag" && groupedDisagreements.map((g) => (
-        <DisagreementBlock
-          key={`${g.key}.${g.disagreement[0].path}`}
-          rows={g.disagreement}
-          contextRows={g.contextAll}
-          fvMeta={fvMeta}
-          identities={identities}
-          rowState={rowState}
-          onLocateCurrent={onLocateCurrent}
-          editCategory={firstBacktick(finding.rationale) ?? null}
-          leanKinds={leanKinds}
-          onPick={(pick) => {
-            for (const row of g.disagreement) setPick(row.path, { pick });
-          }}
-          onEditCommit={(label, uri) => {
-            // For statement-level edits, the curator's typed value
-            // lands on the SUBJECT row when there's a disagreement
-            // on subject, otherwise on the first disagreeing row.
-            // Predicate / object stay at their current values.
-            const target =
-              g.disagreement.find((r) => r.rowLabel === "Subject") ??
-              g.disagreement[0];
-            setPick(target.path, {
-              pick: "edit",
-              editLabel: label,
-              editUri: uri,
-            });
-          }}
-        />
-      ))}
+          decision, handled by TagDetailBlock above).
+
+          On near-match findings (calibration_factor_match_near OR
+          rename payloads — the GSE93824 genotype gene-URI case) the
+          Judge rationale text from ``defender_verdict.rationale`` /
+          ``proposer_defense`` is threaded into the FIRST
+          DisagreementBlock — the WHY binds to the exact FV being
+          corrected, not to the entire card. The factor-card-level
+          AgentSuggestionPanel suppresses its own Judge row in this
+          case (see AuditSidebarPanel.tsx). Sentinel
+          ``[agent emitted no details]`` preserved end-to-end so a
+          missing rationale still reads as "no details", not
+          "missing UI". Per Paul 2026-05-21. */}
+      {finding.target_kind !== "tag" && groupedDisagreements.map((g, idx) => {
+        // Only the FIRST disagreement block carries the rationale —
+        // ``concept_diff_kind`` lives at the rename-payload level
+        // (one diff kind per finding, not per FV-pair), so binding
+        // it to the first non-trivial block matches the data shape.
+        // Suppress entirely on findings where the strength label
+        // and Judge row still live at the factor-card level
+        // (whole-factor extras / misses / partition_mismatch).
+        const judgeForBlock =
+          idx === 0 && isNearMatchFinding(finding)
+            ? pickJudgeRowText(
+                finding.defender_verdict?.rationale,
+                finding.proposer_defense,
+              )
+            : null;
+        const judgeCitationForBlock =
+          idx === 0 && isNearMatchFinding(finding)
+            ? finding.defender_verdict?.citation ?? null
+            : null;
+        return (
+          <DisagreementBlock
+            key={`${g.key}.${g.disagreement[0].path}`}
+            rows={g.disagreement}
+            contextRows={g.contextAll}
+            fvMeta={fvMeta}
+            identities={identities}
+            rowState={rowState}
+            onLocateCurrent={onLocateCurrent}
+            editCategory={firstBacktick(finding.rationale) ?? null}
+            leanKinds={leanKinds}
+            judgeText={judgeForBlock}
+            judgeCitation={judgeCitationForBlock}
+            onPick={(pick) => {
+              for (const row of g.disagreement) setPick(row.path, { pick });
+            }}
+            onEditCommit={(label, uri) => {
+              // For statement-level edits, the curator's typed value
+              // lands on the SUBJECT row when there's a disagreement
+              // on subject, otherwise on the first disagreeing row.
+              // Predicate / object stay at their current values.
+              const target =
+                g.disagreement.find((r) => r.rowLabel === "Subject") ??
+                g.disagreement[0];
+              setPick(target.path, {
+                pick: "edit",
+                editLabel: label,
+                editUri: uri,
+              });
+            }}
+          />
+        );
+      })}
 
       {/* Action row — when proposal == current there's nothing to
           accept or reject, so the only available actions are
@@ -1802,6 +1839,20 @@ export function FindingDetailsEditor({
         onDismiss={onDismiss}
         onPark={onPark}
         onUndo={currentDisposition !== "pending" ? onUndo : undefined}
+        // Hide Dismiss / Park for exact matches with no actionable
+        // delta — the proposal is identical to current, so there's
+        // literally nothing to dismiss or park. Other no-actionable
+        // cases (close match where the agent flagged something
+        // subtle, calibration_match tags) keep the escape hatches
+        // so the curator can flag the finding as wrong. Per Paul
+        // 2026-05-21.
+        showEscapeHatches={
+          !(
+            noActionableDelta &&
+            (finding.issue_code === "calibration_factor_match_exact" ||
+              isExactFactorMatch(finding))
+          )
+        }
       />
     </div>
   );
@@ -1914,6 +1965,8 @@ function DisagreementBlock({
   onLocateCurrent,
   editCategory,
   leanKinds,
+  judgeText,
+  judgeCitation,
 }: {
   /** Rows the curator must pick on. Pick / edit state applies to
    *  these. */
@@ -1943,6 +1996,21 @@ function DisagreementBlock({
    *  `concept_gold_right` but the per-FV row inside the same block
    *  still highlighted `adopt Auditor's` (blue-primary). */
   leanKinds: { keep: ActionButton["kind"]; accept: ActionButton["kind"] };
+  /** Optional "Judge:" rationale to render INSIDE this FV block.
+   *  Threaded from the parent on near-match findings (Paul 2026-05-21
+   *  redesign — GSE93824 case): the factor-card-level
+   *  ``AgentSuggestionPanel`` suppresses its Judge row on these
+   *  findings and we render it here so the WHY binds to the exact FV
+   *  being corrected. Sentinel text (``[agent emitted no details]``)
+   *  comes through ``pickJudgeRowText`` so a missing rationale still
+   *  reads as "no details" not "missing UI". ``null`` on non-first
+   *  blocks and on extra / gold-only-miss / partition-mismatch
+   *  findings — those keep the Judge row at the factor-card level. */
+  judgeText?: { text: string; isSentinel: boolean } | null;
+  /** Citation URL accompanying the threaded Judge row (mirrors the
+   *  ``title=`` on the factor-card-level Judge row). ``null`` when
+   *  no citation or no judge text. */
+  judgeCitation?: string | null;
 }) {
   if (rows.length === 0) return null;
   const first = rows[0];
@@ -2008,7 +2076,10 @@ function DisagreementBlock({
   const keepLabel = keepLabelFor(identities.goldCurator);
 
   return (
-    <div className="rounded border border-amber-200 bg-amber-50/30 dark:border-amber-800/60 dark:bg-amber-900/15 p-2 space-y-1.5">
+    <div
+      className="rounded border border-amber-200 bg-amber-50/30 dark:border-amber-800/60 dark:bg-amber-900/15 p-2 space-y-1.5"
+      data-testid="disagreement-block"
+    >
       <div className="text-[11px] uppercase tracking-wide font-semibold text-amber-800 dark:text-amber-300 flex items-baseline gap-2">
         <span>{elementLabel}</span>
         {sampleNote ? (
@@ -2017,6 +2088,32 @@ function DisagreementBlock({
           </span>
         ) : null}
       </div>
+
+      {/* Threaded Judge: row — only present on the first block of a
+          near-match finding (Paul 2026-05-21 redesign — GSE93824
+          gene-URI case). The factor-card-level AgentSuggestionPanel
+          drops its Judge row on these findings; we render it here
+          so the WHY binds to the exact FV being corrected. Sentinel
+          text shows in muted slate italic so "agent emitted no
+          details" stays distinct from "renderer dropped the
+          field". Matches the styling convention from
+          AgentSuggestionPanel's Judge row exactly. */}
+      {judgeText ? (
+        <div
+          data-testid="block-judge-row"
+          className={cn(
+            judgeText.isSentinel
+              ? "text-slate-400 dark:text-slate-500 italic text-[10px] leading-snug"
+              : "text-slate-500 dark:text-slate-400 italic text-[10px] leading-snug",
+          )}
+          title={judgeCitation || undefined}
+        >
+          <span className="not-italic font-semibold text-slate-600 dark:text-slate-300">
+            Judge:
+          </span>{" "}
+          {judgeText.text}
+        </div>
+      ) : null}
 
       <ComparatorLine
         who={identities.proposer}
@@ -2571,6 +2668,7 @@ function ActionRow({
   onDismiss,
   onPark,
   onUndo,
+  showEscapeHatches = true,
 }: {
   saving: boolean;
   disabled: boolean;
@@ -2582,7 +2680,23 @@ function ActionRow({
    *  editor body) decides whether to pass this based on
    *  ``currentDisposition !== "pending"``. */
   onUndo?: () => void;
+  /** When false, suppress the Dismiss / Park buttons entirely.
+   *  Used for exact-match findings where the proposal is identical
+   *  to current — there's nothing to dismiss or park because there
+   *  was no proposed change in the first place. Per Paul
+   *  2026-05-21: "if it's exactly the same factor, and it's
+   *  pre-resolved, we don't need to show the dismiss and park
+   *  buttons." Defaults to true so every existing call site keeps
+   *  showing the escape hatches. */
+  showEscapeHatches?: boolean;
 }) {
+  // If there's nothing for the curator to act on AND we've hidden
+  // the escape hatches, the whole row collapses to either the undo
+  // affordance (if dispositioned) or nothing at all.
+  const hasNothingToRender =
+    buttons.length === 0 && !showEscapeHatches && !onUndo;
+  if (hasNothingToRender) return null;
+
   return (
     <div className="flex items-center gap-2 pt-1 text-xs flex-wrap">
       {buttons.map((b) => (
@@ -2607,25 +2721,29 @@ function ActionRow({
           {saving ? "Saving…" : b.label}
         </button>
       ))}
-      {buttons.length > 0 ? (
+      {buttons.length > 0 && showEscapeHatches ? (
         <span className="text-slate-300 dark:text-slate-600">·</span>
       ) : null}
-      <button
-        type="button"
-        onClick={onDismiss}
-        disabled={saving}
-        className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-      >
-        Dismiss…
-      </button>
-      <button
-        type="button"
-        onClick={onPark}
-        disabled={saving}
-        className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-      >
-        Park…
-      </button>
+      {showEscapeHatches ? (
+        <>
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={saving}
+            className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            Dismiss…
+          </button>
+          <button
+            type="button"
+            onClick={onPark}
+            disabled={saving}
+            className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            Park…
+          </button>
+        </>
+      ) : null}
       {onUndo ? (
         <button
           type="button"
