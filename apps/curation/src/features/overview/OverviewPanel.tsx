@@ -6,6 +6,7 @@ import { useImportFromGemma } from "@/api/datasets";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { HelpPopup } from "@/components/ui/HelpPopup";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { InlineText } from "@/components/ui/InlineText";
 import { CategoryPicker } from "@/features/design/CategoryPicker";
 import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
@@ -1090,6 +1091,165 @@ function TagBarLegend() {
   );
 }
 
+/** Compact factor chips for the overview header — one small sky-tinted
+ *  card per factor. Mirrors the audit sidebar's factor-card tint so
+ *  curator and non-curator views read the same "this is a factor"
+ *  signal. Clicking jumps to the Design tab with that factor focused.
+ *
+ *  Renders one row positioned right after ``sample source`` in the
+ *  TagBar so the structural design surface is visible alongside the
+ *  tag annotations. Per Paul 2026-05-21: factors used to render
+ *  somewhere in the overview area as blue cards; this restores them
+ *  as a dedicated row below SAMPLE SOURCE.
+ */
+function FactorsRow({
+  factors,
+  experimentId,
+}: {
+  factors: Factor[];
+  experimentId: number;
+}) {
+  if (factors.length === 0) return null;
+  return (
+    <div className="flex items-baseline gap-2 flex-wrap pl-2 py-0.5">
+      <span
+        className="text-[10px] uppercase tracking-wide text-slate-500 mr-1 min-w-[5.5rem]"
+        title="experimental design factors — categorical axes of the study"
+      >
+        factors
+      </span>
+      {factors.map((f) => (
+        <FactorChip key={f.id} factor={f} experimentId={experimentId} />
+      ))}
+    </div>
+  );
+}
+
+/** Rich tooltip body for a FactorChip hover. Categorical factors
+ *  get a bulleted FV list (baselines sorted to the END); continuous
+ *  factors get a numeric range or sample-count summary. Rendered
+ *  through the styled ``Tooltip`` portal — small enough to scan, big
+ *  enough to enumerate a 6-level cohort without overflow. */
+function FactorChipTooltipBody({ factor }: { factor: Factor }) {
+  const label = factor.category?.label || factor.name || "factor";
+  const fvs = factor.factor_values ?? [];
+  const isContinuous = factor.type === "continuous";
+
+  let rangeText: string | null = null;
+  if (isContinuous && fvs.length > 0) {
+    const numericVals = fvs
+      .map((fv) => Number((fv.free_text_label || "").trim()))
+      .filter((n) => Number.isFinite(n));
+    if (numericVals.length > 0) {
+      const lo = Math.min(...numericVals);
+      const hi = Math.max(...numericVals);
+      rangeText =
+        lo === hi
+          ? `value ${lo} · ${numericVals.length} samples`
+          : `range ${lo} – ${hi} · ${fvs.length} samples`;
+    } else {
+      rangeText = `${fvs.length} sample value${fvs.length === 1 ? "" : "s"}`;
+    }
+  }
+
+  const sortedFvs = isContinuous
+    ? []
+    : [...fvs].sort(
+        (a, b) => (a.is_baseline ? 1 : 0) - (b.is_baseline ? 1 : 0),
+      );
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline gap-1.5">
+        <span className="font-semibold text-sky-300">{label}</span>
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+          {isContinuous
+            ? "continuous"
+            : `${fvs.length} level${fvs.length === 1 ? "" : "s"}`}
+        </span>
+      </div>
+      {rangeText ? (
+        <div className="text-[11px] text-slate-200 font-mono">{rangeText}</div>
+      ) : null}
+      {sortedFvs.length > 0 ? (
+        <ul className="space-y-0.5">
+          {sortedFvs.map((fv) => {
+            const lab = (fv.free_text_label || "").trim() || "(unlabeled)";
+            const n = fv.biomaterial_short_names?.length ?? 0;
+            return (
+              <li
+                key={fv.id}
+                className="flex items-baseline gap-1.5 text-[11px]"
+              >
+                <span
+                  className={cn(
+                    "w-2.5 inline-block text-center shrink-0 leading-none",
+                    fv.is_baseline
+                      ? "text-amber-400"
+                      : "text-sky-300/80 dark:text-sky-400/80",
+                  )}
+                  title={
+                    fv.is_baseline
+                      ? "baseline (reference level)"
+                      : "factor level"
+                  }
+                >
+                  {fv.is_baseline ? "▂" : "○"}
+                </span>
+                <span className="flex-1 min-w-0 break-words">{lab}</span>
+                {n > 0 ? (
+                  <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                    {n}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <div className="text-[10px] text-slate-400 italic pt-0.5">
+        Click to focus in the Design tab →
+      </div>
+    </div>
+  );
+}
+
+function FactorChip({
+  factor,
+  experimentId,
+}: {
+  factor: Factor;
+  experimentId: number;
+}) {
+  const label = factor.category?.label || factor.name || "factor";
+  const fvCount = factor.factor_values?.length ?? 0;
+  const isContinuous = factor.type === "continuous";
+  return (
+    <Tooltip label={<FactorChipTooltipBody factor={factor} />}>
+      <button
+        type="button"
+        onClick={() =>
+          // Jump to the Design tab and focus this factor — reuses
+          // the audit-focus event channel so the Shell handles tab
+          // switch + scroll-into-view + ring-flash.
+          requestAuditFocus(experimentId, `factor:${label.toLowerCase()}`)
+        }
+        className={cn(
+          "inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded border text-[11px]",
+          "bg-sky-50 border-sky-300 text-sky-900",
+          "dark:bg-sky-900/40 dark:border-sky-700 dark:text-sky-100",
+          "hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors",
+        )}
+      >
+        <span className="font-medium">{label}</span>
+        <span className="text-[10px] text-sky-700/80 dark:text-sky-300/80">
+          {isContinuous ? "cont." : `(${fvCount})`}
+        </span>
+      </button>
+    </Tooltip>
+  );
+}
+
 function TagBar({
   tags,
   biomaterials,
@@ -1213,34 +1373,68 @@ function TagBar({
   });
   const inferred = visibleTags.filter((t) => t.inferred);
 
-  // Dedup by (category-label, value-label) — direct wins, then
-  // inferred-from-biomaterial > inferred-from-FactorValue >
-  // anything-else. GSE93824 was rendering ``cell type: microglial
-  // cell`` three times (one direct + biomaterial-synth +
-  // FV-synth); the existing fvSynthCats filter only catches
-  // direct-vs-FV-synth collisions, not biomaterial-vs-FV-synth or
-  // inferred-vs-inferred. Per Paul 2026-05-21.
-  const dedupKey = (t: Tag) =>
-    `${(t.category.label || t.category.uri || "").trim().toLowerCase()}|${(t.value.label || t.value.uri || "").trim().toLowerCase()}`;
-  const seenKeys = new Set<string>();
-  // Track which inferred-key already had a direct chip so the
-  // inferred pass can drop matching duplicates too.
-  for (const t of direct) seenKeys.add(dedupKey(t));
-  const inferredSourceRank = (t: Tag): number => {
-    if (t.inferred_source === "BioMaterial") return 0;
-    if (t.inferred_source === "FactorValue") return 1;
-    return 2;
+  // Dedup direct + inferred chips. Two rules, applied together
+  // within each tag-group row (so an "organism part: microglial
+  // cell" chip and a "cell type: microglial cell" chip both
+  // landing in ``sample_source`` collapse to one):
+  //
+  //   1. Same ontology term (same URI) — redundant; keep the
+  //      higher-priority chip. Direct > biomaterial-synth >
+  //      FV-synth > anything-else.
+  //   2. Free-text duplicate of a resolved ontology term — when
+  //      a chip with a URI exists for the same value-label in the
+  //      same group, drop the free-text duplicate. Ontology-
+  //      resolved chips win because they carry the verifiable
+  //      identity. Per Paul 2026-05-21: "ontology terms are the
+  //      best, so just hide free text ones, and same-ontology-
+  //      term are redundant."
+  //
+  // The dedup runs across direct + inferred together so a direct
+  // free-text "microglial cell" can be hidden by an inferred URI-
+  // bearing "microglial cell" within the same row, and vice versa.
+  const groupKeyOf = (t: Tag): string => tagGroup(t.category.label) as string;
+  const valLabelLc = (t: Tag) => (t.value.label || "").trim().toLowerCase();
+  const sourceRank = (t: Tag): number => {
+    if (!t.inferred) return 0;
+    if (t.inferred_source === "BioMaterial") return 1;
+    if (t.inferred_source === "FactorValue") return 2;
+    return 3;
   };
-  const inferredSorted = [...inferred].sort(
-    (a, b) => inferredSourceRank(a) - inferredSourceRank(b),
-  );
-  const dedupedInferred: Tag[] = [];
-  for (const t of inferredSorted) {
-    const k = dedupKey(t);
-    if (seenKeys.has(k)) continue;
-    seenKeys.add(k);
-    dedupedInferred.push(t);
+  // Build "URI exists for (group, label)" lookup so the free-text
+  // pass can drop chips that share their label with a URI-bearing
+  // sibling in the same row.
+  const uriBearingByGroupLabel = new Set<string>();
+  for (const t of [...direct, ...inferred]) {
+    if (t.value.uri && (t.value.label || "").trim().length > 0) {
+      uriBearingByGroupLabel.add(`${groupKeyOf(t)}|${valLabelLc(t)}`);
+    }
   }
+  // First pass: dedup by URI within each row. Lower sourceRank
+  // wins (direct > biomaterial > FV). Free-text chips (no URI)
+  // sail through here; the next pass handles them.
+  const seenUriKeys = new Set<string>();
+  const allSorted = [...direct, ...inferred].sort(
+    (a, b) => sourceRank(a) - sourceRank(b),
+  );
+  const afterUriDedup: Tag[] = [];
+  for (const t of allSorted) {
+    if (t.value.uri) {
+      const key = `${groupKeyOf(t)}|${t.value.uri}`;
+      if (seenUriKeys.has(key)) continue;
+      seenUriKeys.add(key);
+    }
+    afterUriDedup.push(t);
+  }
+  // Second pass: drop free-text chips whose label is already
+  // covered by a URI-bearing chip in the same row.
+  const dedupedAll = afterUriDedup.filter((t) => {
+    if (t.value.uri) return true; // URI chip — keep
+    const k = `${groupKeyOf(t)}|${valLabelLc(t)}`;
+    return !uriBearingByGroupLabel.has(k);
+  });
+  // Split back into direct vs inferred for the bucketing below.
+  const dedupedDirect = dedupedAll.filter((t) => !t.inferred);
+  const dedupedInferred = dedupedAll.filter((t) => t.inferred);
   const showHeader =
     visibleTags.length > 0 || draft != null;
   if (!showHeader) return null;
@@ -1252,7 +1446,7 @@ function TagBar({
   // doesn't get padded with empty rows.
   const directByGroup = new Map<TagGroupKey, Tag[]>();
   const inferredByGroup = new Map<TagGroupKey, Tag[]>();
-  for (const t of direct) {
+  for (const t of dedupedDirect) {
     const k = tagGroup(t.category.label);
     const list = directByGroup.get(k) ?? [];
     list.push(t);
@@ -1264,11 +1458,6 @@ function TagBar({
     list.push(t);
     inferredByGroup.set(k, list);
   }
-  const groupsWithTags = TAG_GROUP_ORDER.filter(
-    (g) => (directByGroup.get(g)?.length ?? 0) +
-      (inferredByGroup.get(g)?.length ?? 0) > 0,
-  );
-
   return (
     <div className="pt-1 space-y-0.5">
       <div className="flex items-baseline gap-1.5">
@@ -1279,35 +1468,57 @@ function TagBar({
           <TagBarLegend />
         </HelpPopup>
       </div>
-      {groupsWithTags.map((g) => (
-        <div
-          key={g}
-          // gap-2 (was gap-1) so neighbouring chips have visible
-          // breathing room — the prior gap-1 let dense rows visually
-          // bleed across category boundaries. py-0.5 gives the row a
-          // little vertical rhythm against the next group's row.
-          className="flex items-baseline gap-2 flex-wrap pl-2 py-0.5"
-        >
-          <span
-            className="text-[10px] uppercase tracking-wide text-slate-500 mr-1 min-w-[5.5rem]"
-            title={`${g} category — reproducible spot for this kind of annotation`}
-          >
-            {TAG_GROUP_LABEL[g]}
-          </span>
-          <EditableDirectTagGroups
-            tags={directByGroup.get(g) ?? []}
-            addedTagIds={addedTagIds}
-          />
-          <TagGroups
-            tags={inferredByGroup.get(g) ?? []}
-            variant="inferred"
-            charUriLookup={charUriLookup}
-            fvUriLookup={fvUriLookup}
-            baselineLookup={baselineLookup}
-            experimentId={experimentId}
-          />
-        </div>
-      ))}
+      {/* Render tag-group rows in order, slotting the Factors row
+          right after ``sample_source`` per Paul 2026-05-21. Factors
+          are the experimental design's structural axis; surfacing
+          them in the overview header (with the audit sidebar's sky
+          palette so curator + non-curator views agree on entity
+          identity) lets non-curators see the design without the
+          audit context. */}
+      {TAG_GROUP_ORDER.flatMap((g) => {
+        const rows: JSX.Element[] = [];
+        const hasContent =
+          (directByGroup.get(g)?.length ?? 0) +
+            (inferredByGroup.get(g)?.length ?? 0) >
+          0;
+        if (hasContent) {
+          rows.push(
+            <div
+              key={g}
+              className="flex items-baseline gap-2 flex-wrap pl-2 py-0.5"
+            >
+              <span
+                className="text-[10px] uppercase tracking-wide text-slate-500 mr-1 min-w-[5.5rem]"
+                title={`${g} category — reproducible spot for this kind of annotation`}
+              >
+                {TAG_GROUP_LABEL[g]}
+              </span>
+              <EditableDirectTagGroups
+                tags={directByGroup.get(g) ?? []}
+                addedTagIds={addedTagIds}
+              />
+              <TagGroups
+                tags={inferredByGroup.get(g) ?? []}
+                variant="inferred"
+                charUriLookup={charUriLookup}
+                fvUriLookup={fvUriLookup}
+                baselineLookup={baselineLookup}
+                experimentId={experimentId}
+              />
+            </div>,
+          );
+        }
+        if (g === "sample_source" && (draft?.factors?.length ?? 0) > 0) {
+          rows.push(
+            <FactorsRow
+              key="factors-row"
+              factors={draft!.factors}
+              experimentId={experimentId}
+            />,
+          );
+        }
+        return rows;
+      })}
       {draft && !adding ? (
         <div className="flex items-center gap-1 pl-2 pt-0.5">
           <button
@@ -2189,7 +2400,7 @@ const TAG_PALETTE: Record<
   },
   fv: {
     outer:
-      "bg-sky-50 border-sky-300 dark:bg-sky-900/30 dark:border-sky-700",
+      "bg-sky-50 border-sky-300 dark:bg-sky-900/40 dark:border-sky-700",
     cat:
       "bg-sky-100 text-sky-900 dark:bg-sky-800/50 dark:text-sky-100",
     label: "text-sky-900/70 dark:text-sky-200/70",

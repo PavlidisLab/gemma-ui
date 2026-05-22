@@ -27,7 +27,7 @@ export function ValidatorBanner({
 
   if (state.ok) {
     return (
-      <div className="card border-emerald-200 bg-emerald-50/40">
+      <div className="rounded-lg border bg-emerald-50 border-emerald-200 dark:bg-emerald-900/30 dark:border-emerald-700/60">
         <div className="px-3 py-2 text-xs text-emerald-900 space-y-1">
           <div className="flex items-center gap-3 flex-wrap">
             <span className="font-semibold">✓ design valid</span>

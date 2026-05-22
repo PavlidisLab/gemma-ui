@@ -282,7 +282,7 @@ function ValidationSummary({
   const factorCount = factors.length;
   if (validation.ok) {
     return (
-      <div className="card border-emerald-200 bg-emerald-50/40 px-3 py-2 text-xs text-emerald-900">
+      <div className="rounded-lg border bg-emerald-50 border-emerald-200 px-3 py-2 text-xs text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700/60 dark:text-emerald-100">
         <span className="font-semibold">✓ design valid</span>
         {factorCount > 0 ? (
           <span className="ml-2 text-emerald-900/80">

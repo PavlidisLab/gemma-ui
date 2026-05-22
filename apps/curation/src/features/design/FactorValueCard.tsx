@@ -168,7 +168,7 @@ export function FactorValueCard({
               className="cursor-pointer"
             >
               {fv.is_baseline ? (
-                <Pill variant="baseline">★ baseline</Pill>
+                <Pill variant="baseline">▂ baseline</Pill>
               ) : (
                 <span className="text-xs text-slate-400 hover:text-slate-700 underline">
                   set baseline

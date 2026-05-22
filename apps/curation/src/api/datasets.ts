@@ -127,7 +127,7 @@ export function useGemmaSearch(query: string, options: { enabled?: boolean } = {
  *
  * Variant accepting ``strip_curation`` mirrors the CLI's
  * ``--strip-curation`` flag — drops factors / IC tags / FV-synth
- * tags before storing so the dataset lands as a fresh skeleton.
+ * tags before storing so the dataset lands as a fresh preboarding state.
  * Used by the UI's "Reset experiment" affordance.
  */
 export interface ImportArgs {
@@ -159,7 +159,7 @@ export function useImportFromGemma() {
 }
 
 /**
- * Reset an experiment to its fresh-skeleton state by re-importing
+ * Reset an experiment to its fresh preboarding state by re-importing
  * from real Gemma with ``strip_curation: true``. Curated factors and
  * curator-attached / IC tags get dropped; biomaterials, characteristics,
  * and metadata stay. Equivalent to running

@@ -83,7 +83,7 @@ export function FactorValueList({
     // curator's eye learns "blue = factor". `!` modifiers force
     // these over the `.card` class's default white background +
     // slate border in light mode.
-    <div className="card !bg-sky-50 !border-sky-300 dark:!bg-sky-950 dark:!border-sky-800">
+    <div className="rounded-lg border bg-sky-50 border-sky-300 dark:bg-sky-900/40 dark:border-sky-700">
       <div className="flex items-center justify-between px-3 py-2 border-b border-sky-300 dark:border-sky-800">
         <div className="flex items-center gap-3">
           <span className="section-h">
@@ -97,22 +97,33 @@ export function FactorValueList({
             {totalBiomaterials} samples assigned
           </span>
           {onToggleCompact ? (
+            // Double-chevron compact-mode toggle. ≪ when expanded
+            // (click to collapse / hide editing chrome); ≫ when
+            // compact (click to expand back to full editor). The
+            // earlier "✓ COMPACT" text-label badge read as a
+            // self-important status pill and the toggle action
+            // wasn't obvious. Per Paul 2026-05-21.
             <button
               type="button"
               onClick={onToggleCompact}
-              title={
+              aria-label={
                 compact
                   ? "switch back to the full editor"
-                  : "compact view — hide editing chrome, statements only"
+                  : "compact view — hide editing chrome"
+              }
+              title={
+                compact
+                  ? "expand — show editing chrome"
+                  : "compact — hide editing chrome, statements only"
               }
               className={
-                "text-[11px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border " +
+                "inline-flex items-center justify-center w-6 h-6 rounded border text-[14px] leading-none font-semibold transition-colors " +
                 (compact
                   ? "border-sky-400 text-sky-700 bg-sky-50 hover:bg-sky-100 dark:border-sky-600 dark:text-sky-300 dark:bg-sky-900/30 dark:hover:bg-sky-900/50"
-                  : "border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700")
+                  : "border-slate-300 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100")
               }
             >
-              {compact ? "✓ compact" : "compact"}
+              <span aria-hidden>{compact ? "≫" : "≪"}</span>
             </button>
           ) : null}
         </div>

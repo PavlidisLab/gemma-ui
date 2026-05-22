@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
  * Baseline status is **not** a Term variant — green is reserved
  * for "ontology-resolved", and reusing it for baseline conflated
  * two distinct states. Callers signal baseline via a separate
- * ``<Pill variant="baseline">★ baseline</Pill>`` chip alongside
+ * ``<Pill variant="baseline">▂ baseline</Pill>`` chip alongside
  * the term.
  */
 export type TermVariant = "default" | "free" | "predicate";
