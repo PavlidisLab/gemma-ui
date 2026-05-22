@@ -229,6 +229,9 @@ export function FactorList({
                 />
                 <td className="px-3 py-2 font-medium align-top">
                   <div className="flex items-center gap-2">
+                    {selected ? (
+                      <span className="text-blue-600 font-bold select-none shrink-0" aria-hidden>›</span>
+                    ) : null}
                     <InlineText
                       value={f.name}
                       placeholder="factor name"

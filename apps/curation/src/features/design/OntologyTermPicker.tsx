@@ -341,7 +341,7 @@ export function OntologyTermPicker({
         // bespoke colour. Green is the house signal for
         // "ontology-resolved"; reusing it for baseline conflated
         // two distinct states. Baseline status is signalled only
-        // by the separate ``★ baseline`` pill.
+        // by the separate ``▂ baseline`` pill.
         "rounded px-1 -mx-1 select-none font-medium",
         // Empty slot with a placeholder reads as "fill this in" —
         // give it a dashed border + cursor-pointer so the curator
@@ -350,9 +350,9 @@ export function OntologyTermPicker({
         // hover-only chrome so they don't visually shout.
         isEmpty
           ? "cursor-pointer border border-dashed border-slate-400 bg-slate-50 text-slate-500 italic font-normal hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
-          : "cursor-text hover:bg-blue-50",
-        label && hasUri && "text-emerald-800",
-        label && !hasUri && "text-slate-900 italic",
+          : "cursor-text hover:bg-blue-50 dark:hover:bg-blue-900/30",
+        label && hasUri && "text-emerald-700 dark:text-emerald-400",
+        label && !hasUri && "text-slate-800 border-b border-sky-500 dark:text-sky-200 dark:border-sky-600",
         isUnknown && "outline outline-1 outline-amber-300",
         className,
       )}
