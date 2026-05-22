@@ -2643,7 +2643,7 @@ function ConsequentHintBanner({
           ? "adopting the split here keeps them consistent"
           : "keeping the existing factor here keeps them consistent";
     return (
-      <div className="flex items-baseline flex-wrap gap-2 rounded border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-[11px] text-sky-900 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-100">
+      <div className="flex items-baseline flex-wrap gap-2 rounded border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-900 dark:border-amber-700/70 dark:bg-amber-900/20 dark:text-amber-100">
         <span className="text-[10px] uppercase tracking-wide font-semibold opacity-70">
           Linked
         </span>

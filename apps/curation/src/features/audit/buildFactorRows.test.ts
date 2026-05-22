@@ -70,7 +70,7 @@ function mkReport(agentFactors: FactorProposal[]): AuditReport {
     notes: "",
     evidence: {
       subtask_decisions: [],
-      skeleton_excerpt: "",
+      preboarding_excerpt: "",
       paper_source: "",
       paper_excerpt: "",
       exemplar_experiment_ids: [],
@@ -87,7 +87,7 @@ function mkReport(agentFactors: FactorProposal[]): AuditReport {
     findings: [],
     evidence: {
       comparison_proposal: proposal,
-      skeleton_excerpt: "",
+      preboarding_excerpt: "",
       paper_source: "",
       paper_excerpt: "",
     },

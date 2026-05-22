@@ -62,7 +62,11 @@ function makeVerdict(
   strength?: "weak" | "moderate" | "strong",
 ): AttachedDefenderVerdict {
   return {
-    side: "fv_concept_diff",
+    // ``side`` narrowed to agent_extra / agent_missed_gold on the
+    // wire (auditTypes.ts:394). Older fixture used "fv_concept_diff"
+    // which no longer matches the type. Pick agent_extra here — this
+    // test exercises layout, not side-specific branches.
+    side: "agent_extra",
     verdict: "concept_gold_right" as AttachedDefenderVerdict["verdict"],
     strength,
     rationale: rationale ?? "",

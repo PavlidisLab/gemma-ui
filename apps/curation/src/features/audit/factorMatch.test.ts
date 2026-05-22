@@ -42,7 +42,7 @@ function proposalWithFactors(factors: FactorProposal[]): Proposal {
     tags: [],
     factors,
     evidence: {
-      skeleton_excerpt: "",
+      preboarding_excerpt: "",
       paper_source: null,
       paper_excerpt: "",
       exemplar_experiment_ids: [],

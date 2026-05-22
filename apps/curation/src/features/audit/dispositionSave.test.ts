@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  deriveAcceptReason,
   deriveDismissReason,
   deriveStatus,
   verdictToStructureDetails,
@@ -219,6 +220,59 @@ describe("deriveDismissReason", () => {
   });
 });
 
+describe("deriveAcceptReason", () => {
+  // The 2026-05-21 bug: server requires accept_reason for
+  // calibration_agent_extra / calibration_factor_extra accepts.
+  // The structured editor bypasses the chip dialog, so defaults
+  // must be backfilled here — mirrors deriveDismissReason.
+
+  it("accepted + calibration_agent_extra → well_evidenced", () => {
+    expect(deriveAcceptReason("accepted", "calibration_agent_extra")).toBe(
+      "well_evidenced",
+    );
+  });
+
+  it("accepted + calibration_factor_extra → well_evidenced", () => {
+    expect(deriveAcceptReason("accepted", "calibration_factor_extra")).toBe(
+      "well_evidenced",
+    );
+  });
+
+  it("accepted + calibration_gold_only_miss → gold_was_wrong", () => {
+    expect(deriveAcceptReason("accepted", "calibration_gold_only_miss")).toBe(
+      "gold_was_wrong",
+    );
+  });
+
+  it("accepted + calibration_factor_gold_only_miss → gold_was_wrong", () => {
+    expect(
+      deriveAcceptReason("accepted", "calibration_factor_gold_only_miss"),
+    ).toBe("gold_was_wrong");
+  });
+
+  it("accepted + match / rename codes → no accept_reason (not required)", () => {
+    expect(
+      deriveAcceptReason("accepted", "calibration_factor_match_near"),
+    ).toBeUndefined();
+    expect(
+      deriveAcceptReason("accepted", "calibration_factor_rename"),
+    ).toBeUndefined();
+    expect(deriveAcceptReason("accepted", "calibration_match")).toBeUndefined();
+  });
+
+  it("dismissed → no accept_reason emitted", () => {
+    expect(
+      deriveAcceptReason("dismissed", "calibration_agent_extra"),
+    ).toBeUndefined();
+  });
+
+  it("needs_more_info → no accept_reason emitted", () => {
+    expect(
+      deriveAcceptReason("needs_more_info", "calibration_agent_extra"),
+    ).toBeUndefined();
+  });
+});
+
 describe("end-to-end button → wire derivation", () => {
   // The full chain the editor + sidebar produces. Each row maps
   // one curator button click through the helpers in order, asserting
@@ -233,6 +287,7 @@ describe("end-to-end button → wire derivation", () => {
     expectStructure: boolean | null;
     expectDetails: boolean | null;
     expectDismissReason: string | undefined;
+    expectAcceptReason: string | undefined;
   };
 
   const cases: Row[] = [
@@ -244,6 +299,7 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: true,
       expectDetails: true,
       expectDismissReason: undefined,
+      expectAcceptReason: undefined,
     },
     {
       name: "keep amanda's on factor_extra",
@@ -253,6 +309,7 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: false,
       expectDetails: null,
       expectDismissReason: "wont_fix",
+      expectAcceptReason: undefined,
     },
     {
       name: "keep amanda's on factor_gold_only_miss",
@@ -262,6 +319,7 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: false,
       expectDetails: null,
       expectDismissReason: "agent_real_miss",
+      expectAcceptReason: undefined,
     },
     {
       name: "adopt cyan's on match_near",
@@ -271,15 +329,47 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: true,
       expectDetails: true,
       expectDismissReason: undefined,
+      expectAcceptReason: undefined,
     },
     {
-      name: "adopt cyan's on factor_extra",
+      name: "adopt cyan's on factor_extra (the 2026-05-21 bug)",
       verdict: "proposal",
       issueCode: "calibration_factor_extra",
       expectStatus: "accepted",
       expectStructure: true,
       expectDetails: true,
       expectDismissReason: undefined,
+      expectAcceptReason: "well_evidenced",
+    },
+    {
+      name: "adopt cyan's on tag agent_extra (the 2026-05-21 bug)",
+      verdict: "proposal",
+      issueCode: "calibration_agent_extra",
+      expectStatus: "accepted",
+      expectStructure: true,
+      expectDetails: true,
+      expectDismissReason: undefined,
+      expectAcceptReason: "well_evidenced",
+    },
+    {
+      name: "adopt cyan's on factor_gold_only_miss",
+      verdict: "proposal",
+      issueCode: "calibration_factor_gold_only_miss",
+      expectStatus: "accepted",
+      expectStructure: true,
+      expectDetails: true,
+      expectDismissReason: undefined,
+      expectAcceptReason: "gold_was_wrong",
+    },
+    {
+      name: "adopt cyan's on tag gold_only_miss",
+      verdict: "proposal",
+      issueCode: "calibration_gold_only_miss",
+      expectStatus: "accepted",
+      expectStructure: true,
+      expectDetails: true,
+      expectDismissReason: undefined,
+      expectAcceptReason: "gold_was_wrong",
     },
     {
       name: "match Gemma on match_near",
@@ -289,6 +379,7 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: true,
       expectDetails: true,
       expectDismissReason: undefined,
+      expectAcceptReason: undefined,
     },
     {
       name: "keep amanda's on tag gold_only_miss",
@@ -298,15 +389,7 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: false,
       expectDetails: null,
       expectDismissReason: "agent_real_miss",
-    },
-    {
-      name: "adopt cyan's on tag agent_extra",
-      verdict: "proposal",
-      issueCode: "calibration_agent_extra",
-      expectStatus: "accepted",
-      expectStructure: true,
-      expectDetails: true,
-      expectDismissReason: undefined,
+      expectAcceptReason: undefined,
     },
     {
       name: "adopt agent's split on partition_mismatch",
@@ -316,6 +399,7 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: true,
       expectDetails: true,
       expectDismissReason: undefined,
+      expectAcceptReason: undefined,
     },
     {
       name: "keep gold's view on partition_mismatch",
@@ -325,6 +409,7 @@ describe("end-to-end button → wire derivation", () => {
       expectStructure: false,
       expectDetails: null,
       expectDismissReason: "wont_fix",
+      expectAcceptReason: undefined,
     },
   ];
 
@@ -336,10 +421,12 @@ describe("end-to-end button → wire derivation", () => {
       );
       const status = deriveStatus(structureOk, detailsOk);
       const dismissReason = deriveDismissReason(status, c.issueCode);
+      const acceptReason = deriveAcceptReason(status, c.issueCode);
       expect(structureOk).toBe(c.expectStructure);
       expect(detailsOk).toBe(c.expectDetails);
       expect(status).toBe(c.expectStatus);
       expect(dismissReason).toBe(c.expectDismissReason);
+      expect(acceptReason).toBe(c.expectAcceptReason);
     });
   }
 });

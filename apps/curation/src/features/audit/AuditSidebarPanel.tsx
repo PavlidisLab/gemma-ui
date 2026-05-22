@@ -4,6 +4,7 @@ import { agentPalette, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { StatementGlyph } from "@/components/ui/StatementGlyph";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useDesign } from "@/api/design";
@@ -28,7 +29,7 @@ import {
   findingHasStructuredContent,
 } from "./FindingDetailsEditor";
 import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
-import { deriveStatus, deriveDismissReason } from "./dispositionSave";
+import { deriveStatus, deriveDismissReason, deriveAcceptReason } from "./dispositionSave";
 import {
   firstBacktick,
   splitRationaleTrail,
@@ -141,10 +142,20 @@ export function AuditSidebarPanel({
   return (
     <div className="space-y-1.5">
       {/* Single unified control card — trigger button + audit run info
-          in one unit, matching the proposals sidebar's layout. */}
+          in one unit. Sky chrome matches the FactorChip + the audit
+          findings' factor-card tint so the whole audit surface reads
+          as one entity-identity color (blue = factor/audit). Per Paul
+          2026-05-21. */}
+      {/* Avoid the ``card`` class here — the global
+          ``html.dark .card`` rule in index.css has higher CSS
+          specificity than Tailwind's ``dark:bg-…`` utility and
+          was forcing slate-800 over the sky tint in dark mode.
+          Inline the rounded/border equivalents so the dark
+          override doesn't hit. Per Paul 2026-05-21. */}
       <div className={cn(
-        "card px-2 py-1.5 space-y-1.5",
-        report?.finalized_at && "border-slate-300 dark:border-slate-600",
+        "px-2 py-1.5 space-y-1.5 rounded-lg border",
+        "border-sky-300 bg-sky-50",
+        "dark:border-sky-700 dark:bg-sky-900/40",
       )}>
         <SidebarTopBar
           accession={accession}
@@ -154,7 +165,7 @@ export function AuditSidebarPanel({
           onRunAudit={() => setDialogOpen(true)}
         />
         {report ? (
-          <div className="border-t border-slate-200 dark:border-slate-700 pt-1">
+          <div className="border-t border-sky-200 dark:border-sky-700/60 pt-1">
             <SidebarHeader
               report={report}
               hasOverride={hasOverride}
@@ -2475,17 +2486,28 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // Per Paul 2026-05-21: blue tint to differentiate factors from
   // tags; same rule applies to match/extra/miss/rename — kind
   // identity reads the same everywhere.
+  // Match the design editor's FV palette + Overview FactorChip
+  // exactly so the same factor identity reads identically across
+  // the audit sidebar, overview, and design editor. Paul
+  // 2026-05-21 caught the audit cards using a faded variant
+  // (sky-50/40 + sky-300/70) that was visibly weaker than the
+  // design editor's full-opacity sky chrome — they're the same
+  // entity, they should look the same. Tags mirror in emerald.
   const kindTint =
     finding.target_kind === "factor"
-      ? "border-sky-300/70 bg-sky-50/40 dark:border-sky-700/40 dark:bg-sky-900/10"
+      ? "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/40"
       : finding.target_kind === "tag"
-        ? "border-emerald-300/70 bg-emerald-50/40 dark:border-emerald-700/40 dark:bg-emerald-900/10"
+        ? "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/30"
         : "";
   return (
     <div
       ref={cardRef}
       className={cn(
-        "card p-2 text-xs space-y-1.5",
+        // Inline rounded/border instead of using the ``card`` class —
+        // ``html.dark .card`` in index.css overrides ``dark:bg-*``
+        // utilities and was clobbering the kind-tint in dark mode.
+        // Per Paul 2026-05-21 dark-mode sweep.
+        "rounded-lg border p-2 text-xs space-y-1.5",
         kindTint,
         severityRowCls(finding.severity),
         hasDisposition && "opacity-40 hover:opacity-90 transition-opacity",
@@ -3326,6 +3348,10 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               status,
               finding.issue_code,
             );
+            const derivedAcceptReason = deriveAcceptReason(
+              status,
+              finding.issue_code,
+            );
             // Dual-write: apply the curator's per-row edits to the
             // design draft BEFORE patching the disposition. The
             // draft mutation shows up immediately in the Design tab
@@ -3352,6 +3378,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               detailsOk,
               resolvedAt,
               dismissReason: derivedDismissReason,
+              acceptReason: derivedAcceptReason,
             });
           }}
           onDismiss={() => setDismissOpen(true)}
@@ -3822,7 +3849,7 @@ function DispositionNoteRow({
  *      from the finding's ``rationale`` (which is "why the gold
  *      curation is wrong").
  *    - Renders each ``supporting_evidence`` as a blockquote with a
- *      small source-label chip (paper / skeleton / sample names /
+ *      small source-label chip (paper / preboarding / sample names /
  *      …). Full sentences come from the agent side.
  *
  *  Hidden entirely when there's nothing to show (no structured
@@ -4257,7 +4284,7 @@ function shortFixForVerdict(
 
 /** One evidence quote — blockquote rendering with a small source chip
  *  on the right. Source vocab matches the agent-side
- *  ``FindingEvidence.source`` literal: paper / skeleton /
+ *  ``FindingEvidence.source`` literal: paper / preboarding /
  *  sample_names / geo_metadata / characteristic.
  *
  *  Three layers per AUDIT_EVIDENCE_CONTEXT_HANDOFF.md:
@@ -4278,9 +4305,14 @@ function FindingEvidenceBlock({
   evidence: NonNullable<AuditFinding["supporting_evidence"]>[number];
 }) {
   const [expanded, setExpanded] = useState(false);
+  // Display labels for the evidence-source discriminated union.
+  // The wire-format literal is still ``"preboarding"`` (mirrors the
+  // Python schema) but the curator-facing string is "preboarding"
+  // per Paul 2026-05-21. When brother renames the wire literal,
+  // update the KEY here too in lockstep.
   const sourceLabel: Record<typeof evidence.source, string> = {
     paper: "paper",
-    skeleton: "skeleton",
+    preboarding: "preboarding",
     sample_names: "sample names",
     geo_metadata: "GEO",
     characteristic: "characteristic",
@@ -4827,16 +4859,11 @@ function SeverityBadge({
     },
   }[severity];
   return (
-    <span
-      className={cn(
-        "inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-5 h-5 text-[12px] leading-none",
-        config.cls,
-      )}
-      title={`severity: ${config.label}`}
-      aria-label={`severity: ${config.label}`}
-    >
-      <span aria-hidden>{glyph || config.icon}</span>
-    </span>
+    <StatusBadge
+      glyph={glyph || config.icon}
+      cls={config.cls}
+      label={`severity: ${config.label}`}
+    />
   );
 }
 
@@ -4855,13 +4882,11 @@ function SeverityBadge({
 function MatchBadge({ finding }: { finding: AuditFinding }) {
   if (isExactFactorMatch(finding)) {
     return (
-      <span
-        className="inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-5 h-5 text-[12px] leading-none bg-emerald-600 text-white border border-emerald-700"
-        title="exact match — labels + URIs line up"
-        aria-label="exact match"
-      >
-        ✓
-      </span>
+      <StatusBadge
+        glyph="✓"
+        cls="bg-emerald-600 text-white border border-emerald-700"
+        label="exact match — labels + URIs line up"
+      />
     );
   }
   if (
@@ -4869,13 +4894,11 @@ function MatchBadge({ finding }: { finding: AuditFinding }) {
     finding.issue_code === "calibration_match"
   ) {
     return (
-      <span
-        className="inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-5 h-5 text-[12px] leading-none bg-amber-500 text-amber-950 border border-amber-600"
-        title="near match — peek to confirm; small differences may exist"
-        aria-label="near match"
-      >
-        ≈
-      </span>
+      <StatusBadge
+        glyph="≈"
+        cls="bg-amber-500 text-amber-950 border border-amber-600"
+        label="near match — peek to confirm; small differences may exist"
+      />
     );
   }
   return null;
@@ -5113,7 +5136,7 @@ function synthesizeFromDraft(draft: Design): AuditReport {
     scope: { include: ["factors", "fvs", "tags", "assignments"] },
     findings,
     evidence: {
-      skeleton_excerpt: "",
+      preboarding_excerpt: "",
       paper_source: null,
       paper_excerpt: "",
       comparison_proposal: null,

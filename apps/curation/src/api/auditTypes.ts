@@ -55,7 +55,7 @@ export interface FindingEvidence {
   quote: string;
   source:
     | "paper"
-    | "skeleton"
+    | "preboarding"
     | "sample_names"
     | "geo_metadata"
     | "characteristic";
@@ -126,7 +126,7 @@ export interface AuditFinding {
    *  alternate. Empty on older reports. */
   proposer_defense?: string;
   /** Per-finding evidence anchors — full-sentence quotes from the
-   *  paper / skeleton / sample names / GEO metadata /
+   *  paper / preboarding / sample names / GEO metadata /
    *  characteristics. Rendered as blockquotes. Empty on older
    *  reports or when no specific quote grounds the suggestion. */
   supporting_evidence?: FindingEvidence[];
@@ -447,7 +447,7 @@ export interface AuditScope {
 }
 
 export interface AuditEvidence {
-  skeleton_excerpt: string;
+  preboarding_excerpt: string;
   paper_source: string | null;
   paper_excerpt: string;
   /** Silent comparison proposer run that anchors judge findings.

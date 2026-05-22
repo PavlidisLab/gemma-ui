@@ -22,6 +22,7 @@
  */
 
 import type {
+  AcceptReason,
   DismissReason,
   DispositionStatus,
 } from "@/api/auditTypes";
@@ -102,4 +103,35 @@ export function deriveDismissReason(
     return "agent_real_miss";
   }
   return "wont_fix";
+}
+
+/** Server requires a structured ``accept_reason`` for calibration
+ *  agent-extra and gold-only-miss accepts when the structured editor
+ *  bypasses the chip dialog (e.g. the "adopt Auditor's" one-click
+ *  path). Derive a sensible default from issue_code:
+ *
+ *    * agent_extra codes → ``well_evidenced`` (curator is saying
+ *      the agent's new tag is supported by the data).
+ *    * gold_only_miss codes → ``gold_was_wrong`` (curator is
+ *      agreeing the gold incorrectly excluded this tag).
+ *    * everything else / non-accepted → ``undefined`` (not required).
+ */
+export function deriveAcceptReason(
+  status: DispositionStatus,
+  issueCode: string,
+): AcceptReason | undefined {
+  if (status !== "accepted") return undefined;
+  if (
+    issueCode === "calibration_agent_extra" ||
+    issueCode === "calibration_factor_extra"
+  ) {
+    return "well_evidenced";
+  }
+  if (
+    issueCode === "calibration_gold_only_miss" ||
+    issueCode === "calibration_factor_gold_only_miss"
+  ) {
+    return "gold_was_wrong";
+  }
+  return undefined;
 }
