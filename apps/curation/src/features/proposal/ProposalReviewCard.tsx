@@ -439,7 +439,12 @@ function AssignmentConfidenceChip({
   meta,
 }: {
   meta:
-    | { confidence: string; source: string; rationale?: string }[]
+    | {
+        biomaterial_short_name?: string;
+        confidence: string;
+        source: string;
+        rationale?: string;
+      }[]
     | undefined;
 }) {
   if (!meta || meta.length === 0) return null;
@@ -455,10 +460,37 @@ function AssignmentConfidenceChip({
   const summary = nonHigh
     .map(([k, n]) => `${n} ${k}`)
     .join(", ");
+  // Enumerate the actually-iffy samples in the tooltip so the curator
+  // can tell WHICH samples are flagged (not just how many). Order
+  // low-confidence first, then medium. Each line shows short_name,
+  // confidence, source, and a rationale fragment when present.
+  const confidenceRank: Record<string, number> = {
+    low: 0,
+    medium: 1,
+    high: 2,
+  };
+  const flagged = meta
+    .filter((m) => (m.confidence || "").toLowerCase() !== "high")
+    .sort(
+      (a, b) =>
+        (confidenceRank[(a.confidence || "").toLowerCase()] ?? 99) -
+        (confidenceRank[(b.confidence || "").toLowerCase()] ?? 99),
+    );
+  const lines: string[] = [
+    `Sample assignments below high confidence: ${summary}.`,
+    "",
+  ];
+  for (const m of flagged) {
+    const sn = m.biomaterial_short_name || "(unknown sample)";
+    const conf = (m.confidence || "?").toLowerCase();
+    const src = m.source ? ` · ${m.source}` : "";
+    const rat = m.rationale ? ` — ${m.rationale}` : "";
+    lines.push(`• ${sn} [${conf}${src}]${rat}`);
+  }
   return (
     <span
-      className="inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
-      title={`Some sample assignments below high confidence: ${summary}. Check the assignment provenance before retaining.`}
+      className="inline-flex items-baseline text-[10px] tracking-wide font-medium px-1 py-0 rounded border bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300 cursor-help"
+      title={lines.join("\n")}
     >
       ⚠ {summary}
     </span>
