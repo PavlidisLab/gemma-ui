@@ -11,9 +11,18 @@ import { Pill } from "@/components/ui/Pill";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ApiError } from "@/api/client";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { setDesignTitle } from "@/features/design/mutations";
 import { useCurationDetails } from "@/api/curation";
 import { useLogout, useMe } from "@/api/session";
-import { useDatasetVisibility, usePublishExperiment } from "@/api/datasets";
+import {
+  useDatasetVisibility,
+  useImportFromGemma,
+  usePublishExperiment,
+  useRenameExperiment,
+} from "@/api/datasets";
+import { useGemmaMode } from "@/lib/gemmaMode";
+import { Pencil as PencilIcon } from "lucide-react";
+import { Spinner } from "@/components/ui/Spinner";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
 import { ModeChip } from "@/components/ui/ModeChip";
 import { experimentPageUrl, platformPageUrl } from "@/lib/gemmaUrls";
@@ -135,19 +144,14 @@ export function ExperimentBanner({
       <div className="mx-auto w-full max-w-[1800px] px-4 py-3 flex gap-4 flex-wrap items-start">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
-            <h1 className="text-lg font-semibold text-slate-900">
-              <a
-                href={gemmaUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-slate-900 hover:underline"
-                title="open on Gemma"
-              >
-                {shortName}
-              </a>
-            </h1>
+            <ShortNameEditor
+              experimentId={experimentId}
+              shortName={shortName}
+            />
             <ModalityIndicator />
-            <span className="text-sm text-slate-500">{title}</span>
+          </div>
+          <div className="mt-1">
+            <TitleEditor title={title} />
           </div>
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
             <span>{taxon}</span>
@@ -254,6 +258,7 @@ export function ExperimentBanner({
             overrides + change summary), and showing both invited the
             collision the curator noticed in the top-right.
            */}
+          <ResyncButton />
           <PublishButton experimentId={experimentId} />
         </div>
       </div>
@@ -278,6 +283,304 @@ export function ExperimentBanner({
         </nav>
       </div>
     </section>
+  );
+}
+
+/**
+ * Click-to-edit display of an experiment's ``short_name``. Replaces
+ * what used to be a linked h1 — the link duplicated the
+ * "view on Gemma ↗" affordance in the metadata row, and the title
+ * is the natural home for the (rarely-needed) rename action.
+ *
+ * Affordance: read mode shows the name in the h1's chrome with a
+ * pencil icon that reveals on hover. Click anywhere on the chip (or
+ * the icon) → enters edit mode. Enter saves; Escape cancels; blur
+ * commits unless the value is unchanged. Save flow surfaces inline
+ * errors for the two cases that matter:
+ *   - 409 (name already in use) — the unique-across-Gemma constraint
+ *   - 404 (endpoint not implemented yet) — pointing at the handoff
+ * Other errors render the server's detail or message verbatim.
+ *
+ * The endpoint contract lives in
+ * ``handoffs/HANDOFF_DATASET_RENAME_SHORT_NAME.md`` (Gemma repo). On
+ * success, the design + datasets caches invalidate so the rest of
+ * the UI repaints with the new name without a reload.
+ */
+function ShortNameEditor({
+  experimentId,
+  shortName,
+}: {
+  experimentId: number;
+  shortName: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(shortName);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rename = useRenameExperiment(experimentId);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(shortName);
+      rename.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, shortName]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  function commit() {
+    const next = draft.trim();
+    if (!next || next === shortName) {
+      setEditing(false);
+      return;
+    }
+    rename.mutate(next, {
+      onSuccess: () => setEditing(false),
+      // onError keeps editing=true so the inline error is visible
+      // next to the still-focused input.
+    });
+  }
+
+  if (!editing) {
+    return (
+      <h1
+        className="text-lg font-semibold text-slate-900 inline-flex items-baseline gap-1 group cursor-text"
+        onClick={() => setEditing(true)}
+        title="click to rename — short_name must be unique across Gemma"
+      >
+        <span className="border-b border-dashed border-transparent group-hover:border-slate-400">
+          {shortName}
+        </span>
+        <PencilIcon
+          className="h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity self-center shrink-0"
+          aria-hidden
+        />
+      </h1>
+    );
+  }
+
+  const err = rename.error;
+  const errMsg =
+    err instanceof ApiError
+      ? err.status === 409
+        ? `"${draft.trim()}" is already in use — short_name must be unique across Gemma`
+        : err.status === 404
+          ? "rename endpoint not yet available — see HANDOFF_DATASET_RENAME_SHORT_NAME.md"
+          : err.detail || err.message
+      : err
+        ? (err as Error).message
+        : null;
+
+  return (
+    <span className="inline-flex flex-col">
+      <span className="inline-flex items-center gap-1">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            // Defer slightly so a click on Save / Cancel can run
+            // before blur tears down the editor. ``commit`` itself
+            // no-ops when the value matches the current short_name.
+            window.setTimeout(() => {
+              if (!rename.isPending) commit();
+            }, 100);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commit();
+              e.preventDefault();
+            } else if (e.key === "Escape") {
+              setEditing(false);
+              e.preventDefault();
+            }
+          }}
+          disabled={rename.isPending}
+          spellCheck={false}
+          className="text-lg font-semibold text-slate-900 border border-blue-300 rounded px-1 py-0 min-w-[14ch] outline-none focus:border-blue-500 disabled:opacity-60"
+          aria-label="short_name"
+        />
+        {rename.isPending ? (
+          <Spinner />
+        ) : (
+          <>
+            <button
+              type="button"
+              className="text-[11px] text-blue-700 hover:underline"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={commit}
+            >
+              save
+            </button>
+            <button
+              type="button"
+              className="text-[11px] text-slate-500 hover:text-slate-800"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setEditing(false)}
+            >
+              cancel
+            </button>
+          </>
+        )}
+      </span>
+      {errMsg ? (
+        <span className="text-[11px] text-rose-700 mt-0.5" role="alert">
+          {errMsg}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * Re-pull this experiment's design from real Gemma. Only meaningful
+ * in **local mode** — in remote mode the UI is already talking to
+ * Gemma directly, so there's nothing to "refresh from Gemma". Hidden
+ * outside local mode rather than shown-disabled, since the action
+ * would be a no-op there.
+ *
+ * Destructive on uncommitted edits — the imported Design replaces
+ * whatever's currently in the local backend. Gated by a confirmation
+ * modal that warns about the draft when the diff is dirty.
+ */
+function ResyncButton() {
+  const { mode } = useGemmaMode();
+  const { draft, diff } = useDesignDraft();
+  const importer = useImportFromGemma();
+  const [confirming, setConfirming] = useState(false);
+
+  if (mode !== "local") return null;
+  if (!draft) return null;
+
+  const isDirty = diff.isDirty;
+  const ref =
+    draft.external_source?.accession ||
+    draft.experiment_short_name ||
+    String(draft.experiment_id);
+
+  return (
+    <>
+      {importer.isError ? (
+        <span
+          className="text-xs text-rose-700 max-w-md truncate"
+          title={(importer.error as Error).message}
+        >
+          import failed: {(importer.error as Error).message}
+        </span>
+      ) : null}
+      <button
+        type="button"
+        className="btn text-xs !px-2 !py-1"
+        onClick={() => setConfirming(true)}
+        disabled={importer.isPending}
+        title="re-pull this experiment's design from Gemma (local mode only)"
+      >
+        {importer.isPending ? "re-importing…" : "re-import from Gemma"}
+      </button>
+      <ConfirmModal
+        open={confirming}
+        title="Re-import from Gemma?"
+        body={
+          (isDirty
+            ? "You have uncommitted changes to this design. Re-importing replaces the saved Design with whatever Gemma has now; your draft is preserved client-side until you discard it.\n\n"
+            : "Replaces the saved Design with whatever Gemma has now. Curator-edited fields stamped on the local backend will be overwritten.\n\n") +
+          `Will resolve "${ref}" against Gemma.`
+        }
+        confirmLabel="re-import"
+        destructive
+        onConfirm={() => {
+          setConfirming(false);
+          importer.mutate(ref);
+        }}
+        onCancel={() => setConfirming(false)}
+      />
+    </>
+  );
+}
+
+/**
+ * Click-to-edit display of the experiment title (the human-readable
+ * descriptive name — e.g. "A STAT5B-driven mouse model of
+ * hepatosplenic γδ T cell lymphoma…"). The title lives on the
+ * design draft and edits flow through the normal commit pipeline
+ * (no separate REST call) — saves stage on the draft, the floating
+ * CommitBar materialises a "save" affordance, and the commit lands
+ * via the usual draft-commit POST.
+ *
+ * Same single-click + pencil-on-hover affordance as ShortNameEditor.
+ * Plain text in read mode; click → input → Enter saves / Esc cancels
+ * / blur commits.
+ */
+function TitleEditor({ title }: { title: string }) {
+  const { draft, apply } = useDesignDraft();
+  const [editing, setEditing] = useState(false);
+  const [d, setD] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) setD(title);
+  }, [editing, title]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  function commit() {
+    const next = d.trim();
+    if (next !== title && draft) apply(setDesignTitle(draft, next));
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <h2
+        className="text-sm font-semibold text-slate-900 leading-snug inline-flex items-baseline gap-1 group cursor-text"
+        onClick={() => setEditing(true)}
+        title="click to edit title"
+      >
+        <span className="border-b border-dashed border-transparent group-hover:border-slate-400">
+          {title || (
+            <span className="italic text-slate-400 font-normal">
+              (no title — click to add)
+            </span>
+          )}
+        </span>
+        <PencilIcon
+          className="h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity self-center shrink-0"
+          aria-hidden
+        />
+      </h2>
+    );
+  }
+  return (
+    <input
+      ref={inputRef}
+      value={d}
+      onChange={(e) => setD(e.target.value)}
+      onBlur={() => {
+        window.setTimeout(commit, 100);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          commit();
+          e.preventDefault();
+        } else if (e.key === "Escape") {
+          setEditing(false);
+          e.preventDefault();
+        }
+      }}
+      spellCheck
+      className="w-full text-sm font-semibold text-slate-900 leading-snug border border-blue-300 rounded px-1 py-0 outline-none focus:border-blue-500"
+      aria-label="experiment title"
+    />
   );
 }
 
@@ -619,17 +922,12 @@ function SetNavigatorPopover({
 
   // Keyboard prev/next: ``[`` and ``]`` while the popover is open.
   // Active only when the popover is open (parent gates render); we
-  // bind on document so the shortcut works regardless of focus, but
-  // skip when the curator is typing in the search field (input ref
-  // captures the event first).
+  // bind on document so the shortcut works regardless of focus —
+  // including while the (autoFocus'd) search input has focus, since
+  // a curator filtering on accession/title never types literal
+  // brackets and the popover hint promises ``[``/``]`` will work.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (
-        (e.target as HTMLElement | null)?.tagName === "INPUT" ||
-        (e.target as HTMLElement | null)?.tagName === "TEXTAREA"
-      ) {
-        return;
-      }
       if (e.key === "[") {
         e.preventDefault();
         goToIndex(currentIdx - 1);
@@ -698,7 +996,7 @@ function SetNavigatorPopover({
           // they are in the set without a chrome-heavy paginator.
           <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
             {currentIdx >= 0
-              ? `${currentIdx + 1} of ${summaries.length}  ·  [ / ] to navigate`
+              ? `${currentIdx + 1} of ${summaries.length}  ·  [ and ] keys to navigate`
               : `not in set · ${summaries.length} member${
                   summaries.length === 1 ? "" : "s"
                 }`}
@@ -1049,7 +1347,7 @@ function NotesButton({
   return (
     <button
       type="button"
-      className={cn("btn ghost relative", ringCls)}
+      className={cn("btn text-xs !px-2 !py-1 relative", ringCls)}
       onClick={onToggle}
       title={title}
     >

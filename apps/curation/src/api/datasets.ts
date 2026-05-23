@@ -188,6 +188,55 @@ export function useResetExperiment(experimentId: number) {
 }
 
 /**
+ * Rename a dataset (its ``short_name``). Rarely used — short_name
+ * is the curator-facing identifier for an experiment across all
+ * downstream Gemma surfaces, so a rename is an exceptional operation
+ * (typo fixes, accession adjustments). The result must be unique
+ * across all datasets; the endpoint enforces that and returns
+ * ``409`` if the candidate name collides.
+ *
+ * Endpoint contract:
+ *   ``PUT /rest/v2/datasets/{id}/short-name``
+ *   body: ``{ "short_name": "<new>" }``
+ *   responses:
+ *     200 → ``{ "experiment_id": <id>, "short_name": "<new>" }``
+ *     400 → invalid (empty / whitespace / too long / bad chars)
+ *     404 → dataset not found OR endpoint not implemented
+ *     409 → ``short_name`` already in use
+ *
+ * See ``handoffs/HANDOFF_DATASET_RENAME_SHORT_NAME.md`` in the Gemma
+ * repo for the wire contract bro 2 implements against; until that
+ * ships, the UI 404s with a clear "endpoint not yet available"
+ * inline hint.
+ */
+export interface RenameDatasetResponse {
+  experiment_id: number;
+  short_name: string;
+}
+
+export function useRenameExperiment(experimentId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (shortName: string) =>
+      api.put<RenameDatasetResponse>(
+        `/rest/v2/datasets/${experimentId}/short-name`,
+        { short_name: shortName },
+      ),
+    onSuccess: () => {
+      // Source of truth for the banner's short_name is the design
+      // query (it hydrates ``experiment_short_name`` from
+      // ``datasetMeta.short_name``). Invalidate both so the banner
+      // + landing list both repaint with the new name. Audit history
+      // also gets a rename event server-side; bust that cache so the
+      // History tab reflects it next view.
+      qc.invalidateQueries({ queryKey: ["design", experimentId] });
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["audit-events", experimentId] });
+    },
+  });
+}
+
+/**
  * Mirrors what the legacy `GET /visibility` / `POST /publish` mock
  * endpoints return. Real Gemma 1.32.7 prefers the new
  * `PUT /permissions` endpoint (with a slimmer

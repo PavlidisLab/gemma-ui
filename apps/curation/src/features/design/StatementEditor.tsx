@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { CategoryPicker } from "./CategoryPicker";
 import { OntologyTermPicker } from "./OntologyTermPicker";
-import { FindTermButton } from "./FindTermButton";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { shortenUri } from "@/lib/curie";
@@ -104,6 +103,8 @@ export function StatementEditor({
       <OntologyTermPicker
         value={statement.subject}
         category={null}
+        searchCategory={cat?.label || factorCategory?.label || null}
+        searchContext="subject"
         placeholder="subject"
         onCommit={(next) =>
           onChange({
@@ -116,22 +117,6 @@ export function StatementEditor({
         <span className="text-slate-400 text-[10px]">
           {shortenUri(statement.subject.uri)}
         </span>
-      ) : statement.subject.label?.trim() &&
-        (cat?.label || factorCategory?.label) ? (
-        // Free-text subject — surface the find-term agent next to it.
-        // Hidden once the picker resolves to a URI; also hidden when
-        // there's no category to scope the search against.
-        <FindTermButton
-          currentLabel={statement.subject.label}
-          category={(cat?.label || factorCategory?.label) ?? ""}
-          context="subject"
-          onPick={(term) =>
-            onChange({
-              ...statement,
-              subject: term,
-            })
-          }
-        />
       ) : null}
 
       <span className="inline-flex items-center gap-1">
@@ -186,6 +171,8 @@ export function StatementEditor({
           <OntologyTermPicker
             value={statement.object ?? null}
             category={null}
+            searchCategory={cat?.label || factorCategory?.label || null}
+            searchContext="object"
             placeholder="object"
             onCommit={(next) =>
               onChange({
@@ -198,19 +185,6 @@ export function StatementEditor({
             <span className="text-slate-400 text-[10px]">
               {shortenUri(statement.object.uri)}
             </span>
-          ) : statement.object?.label?.trim() &&
-            (cat?.label || factorCategory?.label) ? (
-            <FindTermButton
-              currentLabel={statement.object.label}
-              category={(cat?.label || factorCategory?.label) ?? ""}
-              context="object"
-              onPick={(term) =>
-                onChange({
-                  ...statement,
-                  object: term,
-                })
-              }
-            />
           ) : null}
         </>
       ) : null}
@@ -350,6 +324,8 @@ export function StatementGroupEditor({
         <OntologyTermPicker
           value={head.subject}
           category={null}
+          searchCategory={cat?.label || factorCategory?.label || null}
+          searchContext="subject"
           placeholder="subject"
           onCommit={setSharedSubject}
         />
@@ -365,6 +341,7 @@ export function StatementGroupEditor({
           <InlinePredicateObjectPair
             key={i}
             statement={s}
+            sharedCategory={cat?.label || factorCategory?.label || null}
             onChange={(next) => onChange(i, next)}
             onDelete={() => onDelete(i)}
           />
@@ -389,10 +366,14 @@ export function StatementGroupEditor({
  */
 function InlinePredicateObjectPair({
   statement,
+  sharedCategory,
   onChange,
   onDelete,
 }: {
   statement: Statement;
+  /** Category shared at the group level — threaded so the object
+   *  picker's "Search ontologies" affordance has a scope. */
+  sharedCategory: string | null;
   onChange: (next: Statement) => void;
   onDelete: () => void;
 }) {
@@ -435,6 +416,8 @@ function InlinePredicateObjectPair({
           <OntologyTermPicker
             value={statement.object ?? null}
             category={null}
+            searchCategory={sharedCategory}
+            searchContext="object"
             placeholder="object"
             onCommit={(next) => onChange({ ...statement, object: next })}
           />

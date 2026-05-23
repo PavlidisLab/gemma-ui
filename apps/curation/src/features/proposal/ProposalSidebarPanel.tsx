@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Proposal } from "@/api/types";
+import type { SubtaskDecision } from "@/api/justification";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
   FactorReviewCard,
@@ -9,6 +10,16 @@ import {
   MetadataBadge,
   summariseDataset,
 } from "./MetadataBadge";
+import {
+  TriageBadge,
+  designChipFor,
+  splitChipFor,
+  subsetChipFor,
+  deaUsabilityChipFor,
+  extractLevel,
+  LEVEL_KIND_LABEL,
+} from "./ProposalCardV2";
+import { normalizeWikiUrl } from "@/lib/guidelines";
 import {
   factorElementKey,
   loadDispositions,
@@ -190,7 +201,17 @@ export function ProposalSidebarPanel({
     return { total, reviewed, retained, rejected, parked };
   }, [dispositions, proposal]);
 
-  if (!proposal.factors?.length && !proposal.tags?.length) return null;
+  // Earlier shape hid the panel when both lists were empty. Now the
+  // panel still renders if the agent emitted decisions (or a
+  // boss_verdict) — those judgments are load-bearing even when no
+  // factors / tags landed. Only true silence (no proposals, no
+  // decisions, no boss) hides the panel.
+  const hasAgentSignal =
+    (proposal.factors?.length ?? 0) > 0 ||
+    (proposal.tags?.length ?? 0) > 0 ||
+    (proposal.subtask_decisions?.length ?? 0) > 0 ||
+    !!proposal.boss_verdict;
+  if (!hasAgentSignal) return null;
 
   return (
     // Inline the rounded/border equivalents instead of using the
@@ -202,6 +223,7 @@ export function ProposalSidebarPanel({
           <MetadataBadge summary={datasetSummary} />
         </div>
       ) : null}
+      <DecisionsStrip proposal={proposal} />
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300">
           Proposal review
@@ -305,12 +327,20 @@ export function ProposalSidebarPanel({
         </div>
       ) : null}
 
-      {proposal.tags?.length ? (
-        <div className="space-y-1.5">
-          <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
-            Tags
-          </div>
-          {proposal.tags.map((t, i) => {
+      {/* Tags section — always renders, even when no tags are
+          proposed. Agent judgments on tag normalization /
+          term-validation are load-bearing for the curator even when
+          the agent ultimately produced an empty tag list (e.g.
+          ``S9_tag_normalization`` collapses, term-validator
+          rejections). Empty-tags state shows a placeholder under the
+          tag-side decisions strip rather than hiding the heading. */}
+      <div className="space-y-1.5">
+        <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
+          Tags
+        </div>
+        <DecisionsStrip proposal={proposal} scope="tag" />
+        {proposal.tags?.length ? (
+          proposal.tags.map((t, i) => {
             const key = tagElementKey(proposalId, i);
             return (
               <TagReviewCard
@@ -323,9 +353,13 @@ export function ProposalSidebarPanel({
                 onNoteChange={(n) => setNote(key, n)}
               />
             );
-          })}
-        </div>
-      ) : null}
+          })
+        ) : (
+          <div className="text-[11px] italic text-slate-500 dark:text-slate-400 px-1">
+            No tags proposed.
+          </div>
+        )}
+      </div>
 
       {/* Proposal-wide feedback — ported from v2 ProposalCardV2. The
           textarea captures the curator's notes about the proposal as
@@ -348,6 +382,211 @@ export function ProposalSidebarPanel({
           and for prompt-tuning logs on accept / reject.
         </p>
       </div>
+    </div>
+  );
+}
+
+/** True when a subtask_decision is tag-related rather than
+ *  design/factor/FV-related. Routes on target_id prefix (the agent
+ *  uses ``tag:…`` for all tag-scoped decisions) with a fallback to
+ *  the subtask name carrying "tag" (catches the proposal-wide
+ *  ``S9_tag_normalization`` rows that have empty target_id). */
+function isTagDecision(d: SubtaskDecision): boolean {
+  const tid = d.target_id ?? "";
+  if (tid.startsWith("tag:")) return true;
+  const slug = d.subtask ?? "";
+  if (slug.toLowerCase().includes("tag")) return true;
+  return false;
+}
+
+/**
+ * Proposal-level decisions surface — Triage chips for the high-level
+ * S1/S8 verdicts (only when non-affirmative, mirroring the legacy
+ * ProposalCardV2 strip), a Boss verdict chip when populated, and an
+ * "All decisions" expander listing every ``subtask_decision`` on the
+ * proposal verbatim so nothing the agent emitted is unreachable in
+ * the new review surface.
+ *
+ * ``scope`` splits the surface in two:
+ *   - ``design`` (default): triage chips + boss verdict + every
+ *     decision that ISN'T tag-related. Lives at the top of the
+ *     panel above the factors list.
+ *   - ``tag``: tag-side decisions only (target_id starts with
+ *     ``tag:`` or subtask carries "tag"). No triage / boss chips.
+ *     Lives inside the Tags section header. Renders even when the
+ *     proposal has zero tag rows — agent judgments on tagging
+ *     (S9_tag_normalization, term-validator on tag URIs, etc.) are
+ *     load-bearing for the curator even with an empty tag list.
+ *
+ * Per-element subtask chips still render under each factor / tag
+ * card separately (``SubtaskDecisionsRow`` inside
+ * ProposalReviewCard) — this strip surfaces the proposal-wide ones
+ * plus the long-tail "other" rows that don't pin to a specific
+ * element.
+ */
+function DecisionsStrip({
+  proposal,
+  scope = "design",
+}: {
+  proposal: Proposal;
+  scope?: "design" | "tag";
+}) {
+  const [allOpen, setAllOpen] = useState(false);
+  const all = proposal.subtask_decisions ?? [];
+  const decisions = all.filter((d) =>
+    scope === "tag" ? isTagDecision(d) : !isTagDecision(d),
+  );
+  // Boss / triage chips only ride the design strip — tag-side
+  // decisions don't carry equivalents.
+  const boss = scope === "design" ? proposal.boss_verdict ?? null : null;
+
+  const dv =
+    scope === "design"
+      ? decisions.find((d) => d.subtask === "S1_design_verdict")
+      : undefined;
+  const sv =
+    scope === "design"
+      ? decisions.find((d) => d.subtask === "S1_split_verdict")
+      : undefined;
+  const subv =
+    scope === "design"
+      ? decisions.find((d) => d.subtask === "S1_subset_verdict")
+      : undefined;
+  const deav =
+    scope === "design"
+      ? decisions.find((d) => d.subtask === "S8_dea_usability")
+      : undefined;
+
+  const dChip = dv ? designChipFor(dv.verdict) : null;
+  const sChip = sv ? splitChipFor(sv.verdict) : null;
+  const subChip = subv ? subsetChipFor(subv.verdict) : null;
+  const deaChip = deav ? deaUsabilityChipFor(deav.verdict) : null;
+
+  const hasTriage = !!(dChip || sChip || subChip || deaChip || boss);
+  const hasAny = decisions.length > 0 || !!boss;
+  if (!hasAny) return null;
+
+  const titleFor = (d: SubtaskDecision) => {
+    const { level, kind, clean } = extractLevel(d.verdict);
+    const conf = level ? ` — ${LEVEL_KIND_LABEL[kind]}: ${level}` : "";
+    const cite = d.citation ? ` — ${d.citation}` : "";
+    return `${clean}${conf}${cite}`;
+  };
+
+  const wrapperCls =
+    scope === "tag"
+      ? "space-y-1"
+      : "space-y-1 border-b border-sky-200 dark:border-sky-800 pb-1.5";
+  const expanderLabel =
+    scope === "tag" ? "tag-side decisions" : "agent decisions";
+
+  return (
+    <div className={wrapperCls}>
+      {hasTriage ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 mr-1">
+            Triage
+          </span>
+          {dChip && dv && (
+            <TriageBadge
+              label={dChip.label}
+              tone={dChip.tone}
+              title={titleFor(dv)}
+            />
+          )}
+          {sChip && sv && (
+            <TriageBadge
+              label={sChip.label}
+              tone={sChip.tone}
+              title={titleFor(sv)}
+            />
+          )}
+          {subChip && subv && (
+            <TriageBadge
+              label={subChip.label}
+              tone={subChip.tone}
+              title={titleFor(subv)}
+            />
+          )}
+          {deaChip && deav && (
+            <TriageBadge
+              label={deaChip.label}
+              tone={deaChip.tone}
+              title={titleFor(deav)}
+            />
+          )}
+          {boss ? (
+            <span
+              className="inline-flex items-baseline text-[10px] tracking-wide font-medium px-1.5 py-0.5 rounded border bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700 dark:text-purple-300 cursor-help"
+              title={[
+                boss.rationale ?? "",
+                boss.citation ?? "",
+                boss.targets?.length
+                  ? `targets: ${boss.targets.join(", ")}`
+                  : "",
+              ]
+                .filter(Boolean)
+                .join("\n\n")}
+            >
+              boss: {boss.status}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {decisions.length > 0 ? (
+        <div>
+          <button
+            type="button"
+            className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 underline underline-offset-2"
+            onClick={() => setAllOpen((v) => !v)}
+            title="every subtask decision the agent emitted on this proposal — including ones already surfaced inline above and on each card"
+          >
+            {allOpen ? "▾" : "▸"} all {expanderLabel} ({decisions.length})
+          </button>
+          {allOpen ? (
+            <ul className="mt-1 space-y-0.5 pl-2 max-h-72 overflow-y-auto">
+              {decisions.map((d, i) => (
+                <li key={i} className="text-[11px] leading-snug">
+                  <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400 mr-1">
+                    {d.subtask}
+                  </span>
+                  {d.target_id ? (
+                    <span
+                      className="font-mono text-[10px] text-slate-400 dark:text-slate-500 mr-1"
+                      title={d.target_id}
+                    >
+                      [{d.target_id.length > 32
+                        ? d.target_id.slice(0, 30) + "…"
+                        : d.target_id}
+                      ]
+                    </span>
+                  ) : null}
+                  <span className="text-slate-700 dark:text-slate-200">
+                    {d.verdict}
+                  </span>
+                  {d.citation ? (
+                    d.citation_url ? (
+                      <a
+                        href={normalizeWikiUrl(d.citation_url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-1 text-blue-700 dark:text-blue-300 hover:underline"
+                        title={d.citation_url}
+                      >
+                        — {d.citation}
+                      </a>
+                    ) : (
+                      <span className="ml-1 text-slate-500 dark:text-slate-400">
+                        — {d.citation}
+                      </span>
+                    )
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -2220,6 +2220,7 @@ function DisagreementBlock({
                 : null
             }
             category={editCategory ?? null}
+            searchCategory={editCategory ?? null}
             placeholder="type the correct value…"
             autoOpen
             onCommit={(next) => {

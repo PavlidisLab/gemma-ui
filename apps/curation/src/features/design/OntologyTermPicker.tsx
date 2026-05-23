@@ -3,6 +3,9 @@ import {
   useAnnotationSearch,
   type AnnotationCandidate,
 } from "@/api/annotations";
+import { useFindTerm, type TermCandidate } from "@/api/findTerm";
+import { ApiError } from "@/api/client";
+import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
@@ -37,6 +40,10 @@ import type { OntologyTerm } from "@/features/experiment/types";
 export function OntologyTermPicker({
   value,
   category,
+  searchCategory,
+  searchContext,
+  experimentId,
+  taxon,
   placeholder,
   className,
   onCommit,
@@ -44,9 +51,27 @@ export function OntologyTermPicker({
   autoOpen = false,
 }: {
   value: OntologyTerm | null;
-  /** Restrict typeahead candidates to this category_label. ``null``
-   *  means no filter. */
+  /** Restrict the local-catalog typeahead to this category_label.
+   *  ``null`` means no filter. Independent from ``searchCategory``
+   *  — some surfaces want broad local results but a category-scoped
+   *  agent-side ontology search. */
   category: string | null;
+  /** Category to scope the agent-side ontology search
+   *  (``POST /find-term``). Required by that endpoint to pick the
+   *  right ontology bucket; when ``null`` the "Search ontologies"
+   *  affordance is hidden. Typically the parent statement's or
+   *  factor's category label. */
+  searchCategory?: string | null;
+  /** Slot hint forwarded to the find-term agent so it can prefer
+   *  category-appropriate ontology classes (e.g. ``subject`` of a
+   *  Statement vs. ``object``). Optional — agent works without it. */
+  searchContext?: "subject" | "object";
+  /** Experiment id forwarded to the find-term agent for additional
+   *  context-aware ranking. Optional. */
+  experimentId?: number;
+  /** Taxon forwarded to the find-term agent (taxon-scoped ontologies
+   *  like NCBITaxon / Gene-symbol lookups). Optional. */
+  taxon?: string;
   placeholder?: string;
   className?: string;
   onCommit: (next: OntologyTerm | null) => void;
@@ -74,6 +99,26 @@ export function OntologyTermPicker({
     { enabled: editing, limit: 10 },
   );
 
+  // Agent-side ontology search. Fires only when the curator clicks
+  // the "Search ontologies for …" trigger inside the dropdown —
+  // each call hits an LLM-backed pipeline and isn't cheap, so we
+  // never auto-fire on keystroke. Results render inside the same
+  // dropdown alongside catalog hits; ``findTermQuery`` captures the
+  // exact query the agent was asked, so we can show a "stale"
+  // indicator if the curator keeps typing after firing.
+  const find = useFindTerm();
+  const [findTermQuery, setFindTermQuery] = useState<string | null>(null);
+
+  // Reset the agent results whenever the curator commits, cancels,
+  // or the value changes from outside — stale results would mislead.
+  useEffect(() => {
+    if (!editing) {
+      find.reset();
+      setFindTermQuery(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
   useEffect(() => {
     if (editing && inputRef.current) {
       inputRef.current.focus();
@@ -92,6 +137,35 @@ export function OntologyTermPicker({
     onCommit({ label: c.label, uri: c.uri ?? null });
     setEditing(false);
   }
+
+  function commitTermCandidate(c: TermCandidate) {
+    onCommit({ label: c.label, uri: c.uri });
+    setEditing(false);
+  }
+
+  function runFindTerm() {
+    const q = draft.trim();
+    if (!q || !searchCategory) return;
+    setFindTermQuery(q);
+    find.mutate({
+      free_text: q,
+      category: searchCategory,
+      experiment_id: experimentId,
+      taxon,
+      context: searchContext,
+    });
+  }
+
+  // Dedupe agent results against catalog rows already shown — same
+  // URI → don't render twice. Catalog hits carry usage_count and
+  // win the visual slot.
+  const catalogUris = new Set(
+    candidates.map((c) => c.uri).filter((u): u is string => !!u),
+  );
+  const findCandidates: TermCandidate[] =
+    find.data?.candidates.filter((c) => !catalogUris.has(c.uri)) ?? [];
+  const findStale =
+    !!findTermQuery && findTermQuery !== draft.trim() && find.data != null;
 
   /** Commit ``text`` as free text or as a matched candidate.
    *
@@ -129,6 +203,39 @@ export function OntologyTermPicker({
   }
 
   if (editing) {
+    // Single combined keyboard-nav index space: ``[catalog rows...,
+    // find-term rows..., free-text row?]``. The trigger / "set URI"
+    // footer rows are click-only — they're escape hatches, not part
+    // of the picking flow.
+    const totalRows = candidates.length + findCandidates.length;
+    const hasExactCatalogMatch = candidates.some(
+      (c) => c.label.toLowerCase() === draft.trim().toLowerCase(),
+    );
+    const freeTextRowVisible = !!draft.trim() && !hasExactCatalogMatch;
+    const freeTextRowIdx = freeTextRowVisible ? totalRows : -1;
+
+    function commitHighlighted() {
+      if (highlight < candidates.length) {
+        commitCandidate(candidates[highlight]);
+        return;
+      }
+      const findIdx = highlight - candidates.length;
+      if (findIdx < findCandidates.length) {
+        commitTermCandidate(findCandidates[findIdx]);
+        return;
+      }
+      commitFreeText(draft);
+    }
+
+    const showKeepCurrent =
+      !!value?.uri &&
+      !!draft.trim() &&
+      draft.trim().toLowerCase() ===
+        (value.label ?? "").trim().toLowerCase() &&
+      candidates.length === 0 &&
+      findCandidates.length === 0 &&
+      !find.isPending;
+
     return (
       <span className="relative inline-block">
         <input
@@ -152,16 +259,16 @@ export function OntologyTermPicker({
               setEditing(false);
               e.preventDefault();
             } else if (e.key === "Enter") {
-              if (candidates[highlight]) {
-                commitCandidate(candidates[highlight]);
+              if (totalRows > 0 || freeTextRowVisible) {
+                commitHighlighted();
               } else {
                 commitFreeText(draft);
               }
               e.preventDefault();
             } else if (e.key === "ArrowDown") {
-              setHighlight((h) =>
-                Math.min(h + 1, Math.max(0, candidates.length - 1)),
-              );
+              const max =
+                freeTextRowVisible ? totalRows : Math.max(0, totalRows - 1);
+              setHighlight((h) => Math.min(h + 1, max));
               e.preventDefault();
             } else if (e.key === "ArrowUp") {
               setHighlight((h) => Math.max(0, h - 1));
@@ -174,122 +281,186 @@ export function OntologyTermPicker({
             className,
           )}
         />
-        {candidates.length > 0 ? (
-          <ul
-            className="absolute left-0 top-full mt-0.5 z-20 bg-white border border-slate-200 rounded shadow-md min-w-[18rem] max-w-[28rem] max-h-72 overflow-auto py-1 text-xs"
-            // mousedown-based commit so blur never fires first
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            {candidates.map((c, i) => (
-              <CandidateRow
-                key={`${c.label}|${c.uri ?? ""}`}
-                candidate={c}
-                highlighted={i === highlight}
-                onPick={() => commitCandidate(c)}
-                onHover={() => setHighlight(i)}
+        <ul
+          className="absolute left-0 top-full mt-0.5 z-20 bg-white border border-slate-200 rounded shadow-md min-w-[22rem] max-w-[32rem] max-h-80 overflow-auto py-1 text-xs"
+          // mousedown-based commit so blur never fires first
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {/* Section 1: Gemma catalog hits (with usage counts). */}
+          {candidates.length > 0 ? (
+            <>
+              <SectionHeader
+                label="In Gemma's catalog"
+                hint="terms already curated in Gemma — usage counts shown"
               />
-            ))}
-            {/* Free-text row — only when the user has typed something
-                that isn't an exact-label match. Lets them commit
-                non-ontology values explicitly. */}
-            {draft.trim() &&
-            !candidates.some(
-              (c) => c.label.toLowerCase() === draft.trim().toLowerCase(),
-            ) ? (
-              <li
-                className={
-                  "px-2 py-1 cursor-pointer border-t border-slate-100 text-slate-500 italic " +
-                  (highlight === candidates.length ? "bg-blue-50" : "hover:bg-slate-50")
+              {candidates.map((c, i) => (
+                <CandidateRow
+                  key={`${c.label}|${c.uri ?? ""}`}
+                  candidate={c}
+                  highlighted={i === highlight}
+                  onPick={() => commitCandidate(c)}
+                  onHover={() => setHighlight(i)}
+                />
+              ))}
+            </>
+          ) : isFetching ? (
+            <li className="px-2 py-1 text-slate-400 italic">
+              searching catalog…
+            </li>
+          ) : draft.trim() && !showKeepCurrent ? (
+            <li className="px-2 py-1 text-slate-500 italic">
+              no catalog matches for "{draft.trim()}"
+            </li>
+          ) : null}
+
+          {/* "Keep current" — draft equals the already-resolved value
+              and the catalog didn't echo it back. Stops the picker
+              from coercing the curator into the "free text" path on
+              what was already a valid term. */}
+          {showKeepCurrent ? (
+            <li
+              className="px-2 py-1 cursor-pointer text-emerald-800 hover:bg-slate-50"
+              onClick={() => setEditing(false)}
+              title={`keep ${value!.label} (${value!.uri})`}
+            >
+              keep current:{" "}
+              <span className="font-medium">{value!.label}</span>
+              <span className="ml-1 text-slate-400 font-mono">
+                {shortenUri(value!.uri!)}
+              </span>
+            </li>
+          ) : null}
+
+          {/* Section 2: ontology-agent hits. Only renders after the
+              curator explicitly fires "Search ontologies" — the
+              agent endpoint runs an LLM and is too expensive to
+              auto-fire on each keystroke. */}
+          {findCandidates.length > 0 ? (
+            <>
+              <SectionHeader
+                label={
+                  findStale
+                    ? `From ontology search (for "${findTermQuery}")`
+                    : "From ontology search"
                 }
-                onMouseEnter={() => setHighlight(candidates.length)}
-                onClick={() => commitFreeText(draft)}
-              >
-                use free text: <span className="not-italic">{draft.trim()}</span>
-                {!allowFreeText ? (
-                  <span className="ml-1 text-amber-700 not-italic">
-                    (off-list)
-                  </span>
-                ) : null}
+                hint={
+                  findStale
+                    ? "agent results for a previous query — re-search to refresh"
+                    : "agent-resolved candidates from EFO / MONDO / UBERON / CL / CHEBI etc."
+                }
+                muted={findStale}
+              />
+              {findCandidates.map((c, i) => {
+                const idx = candidates.length + i;
+                return (
+                  <FindTermRow
+                    key={`${c.uri}|${c.source}`}
+                    candidate={c}
+                    requestedCategory={searchCategory ?? null}
+                    highlighted={idx === highlight}
+                    stale={findStale}
+                    onPick={() => commitTermCandidate(c)}
+                    onHover={() => setHighlight(idx)}
+                  />
+                );
+              })}
+            </>
+          ) : null}
+
+          {/* Section 3: find-term status / trigger. Renders only when
+              ``searchCategory`` is provided — the agent requires it
+              to scope the ontology bucket. */}
+          {searchCategory && draft.trim() ? (
+            find.isPending ? (
+              <li className="px-2 py-1 text-slate-500 inline-flex items-center gap-1.5">
+                <Spinner />
+                searching ontologies for "{draft.trim()}"…
               </li>
-            ) : null}
-            {/* Footer escape-hatch: switch to the URI-override form
-                for the rare case the typeahead's catalog doesn't have
-                the right URI for the label the curator wants. Sits
-                inside the same edit flow so we don't need a second
-                pencil affordance on the read view. */}
-            <li
-              className="border-t border-slate-100 px-2 py-1 text-[11px] text-blue-700 hover:underline cursor-pointer"
-              onClick={() => {
-                setEditing(false);
-                setUriEditing(true);
-              }}
-            >
-              set URI manually…
-            </li>
-          </ul>
-        ) : isFetching ? (
-          <ul
-            className="absolute left-0 top-full mt-0.5 z-20 bg-white border border-slate-200 rounded shadow-md min-w-[18rem] py-1 text-xs"
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            <li className="px-2 py-1 text-slate-400">searching…</li>
-            <li
-              className="border-t border-slate-100 px-2 py-1 text-[11px] text-blue-700 hover:underline cursor-pointer"
-              onClick={() => {
-                setEditing(false);
-                setUriEditing(true);
-              }}
-            >
-              set URI manually…
-            </li>
-          </ul>
-        ) : draft.trim() ? (
-          <ul
-            className="absolute left-0 top-full mt-0.5 z-20 bg-white border border-slate-200 rounded shadow-md min-w-[18rem] py-1 text-xs"
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            {/*
-              Edit-open with no typed change yet: draft still equals
-              the current resolved label. Don't lie that there's "no
-              ontology match" — the term IS resolved (has a URI), the
-              live catalog query just didn't echo it back. Show a
-              "keep current term" option so the curator can confirm
-              and dismiss the picker without nudging into free text.
-            */}
-            {value?.uri &&
-            draft.trim().toLowerCase() ===
-              (value.label ?? "").trim().toLowerCase() ? (
-              <li
-                className="px-2 py-1 cursor-pointer text-emerald-800 hover:bg-slate-50"
-                onClick={() => setEditing(false)}
-                title={`keep ${value.label} (${value.uri})`}
-              >
-                keep current:{" "}
-                <span className="font-medium">{value.label}</span>
-                <span className="ml-1 text-slate-400 font-mono">
-                  {shortenUri(value.uri)}
-                </span>
+            ) : find.error ? (
+              <li className="px-2 py-1 text-amber-800 border-t border-slate-100">
+                {find.error instanceof ApiError && find.error.status === 404
+                  ? "find-term endpoint not available — see FIND-TERM-HANDOFF.md"
+                  : find.error instanceof ApiError
+                    ? find.error.detail || find.error.message
+                    : (find.error as Error).message}
+                <button
+                  type="button"
+                  className="ml-2 text-blue-700 hover:underline"
+                  onClick={runFindTerm}
+                >
+                  retry
+                </button>
+              </li>
+            ) : findCandidates.length === 0 && find.data && !findStale ? (
+              // Agent returned (or filtered to) zero candidates. Show
+              // the note so the curator sees why instead of a silent
+              // dead-end.
+              <li className="px-2 py-1 text-slate-500 italic border-t border-slate-100">
+                {find.data.note ||
+                  `no ontology candidates found for "${findTermQuery}"`}
+                <button
+                  type="button"
+                  className="ml-2 text-blue-700 hover:underline not-italic"
+                  onClick={runFindTerm}
+                >
+                  ↻ re-search
+                </button>
               </li>
             ) : (
               <li
-                className="px-2 py-1 cursor-pointer text-slate-500 italic hover:bg-slate-50"
-                onClick={() => commitFreeText(draft)}
+                className="px-2 py-1 cursor-pointer text-blue-700 hover:bg-blue-50 border-t border-slate-100 inline-flex items-center gap-1"
+                onClick={runFindTerm}
+                title={`look up ontology candidates for "${draft.trim()}" — runs the find-term agent`}
               >
-                no ontology match — use free text:{" "}
-                <span className="not-italic">{draft.trim()}</span>
+                <span>↻</span>
+                <span>
+                  {find.data ? "Re-search ontologies" : "Search ontologies"}{" "}
+                  for "{draft.trim()}"
+                </span>
+                <span className="ml-1 text-[10px] text-slate-500">
+                  ({searchCategory})
+                </span>
               </li>
-            )}
+            )
+          ) : null}
+
+          {/* Section 4: explicit free-text commit. Visible whenever
+              the curator's draft isn't already mirrored by a catalog
+              candidate. Highlighted via the same index space as
+              search rows so Enter still lands here on an empty
+              search. */}
+          {freeTextRowVisible ? (
             <li
-              className="border-t border-slate-100 px-2 py-1 text-[11px] text-blue-700 hover:underline cursor-pointer"
-              onClick={() => {
-                setEditing(false);
-                setUriEditing(true);
-              }}
+              className={
+                "px-2 py-1 cursor-pointer border-t border-slate-100 text-slate-500 italic " +
+                (highlight === freeTextRowIdx
+                  ? "bg-blue-50"
+                  : "hover:bg-slate-50")
+              }
+              onMouseEnter={() => setHighlight(freeTextRowIdx)}
+              onClick={() => commitFreeText(draft)}
             >
-              set URI manually…
+              use free text:{" "}
+              <span className="not-italic">{draft.trim()}</span>
+              {!allowFreeText ? (
+                <span className="ml-1 text-amber-700 not-italic">
+                  (off-list)
+                </span>
+              ) : null}
             </li>
-          </ul>
-        ) : null}
+          ) : null}
+
+          {/* Footer escape-hatch: paste a URI directly. */}
+          <li
+            className="border-t border-slate-100 px-2 py-1 text-[11px] text-blue-700 hover:underline cursor-pointer"
+            onClick={() => {
+              setEditing(false);
+              setUriEditing(true);
+            }}
+          >
+            set URI manually…
+          </li>
+        </ul>
       </span>
     );
   }
@@ -492,3 +663,139 @@ function formatCount(n: number): string {
   return String(n);
 }
 
+/** Compact section divider inside the dropdown. Distinguishes the
+ *  catalog-hits block from the ontology-agent-hits block so the
+ *  curator can read the two as separate evidence sources. */
+function SectionHeader({
+  label,
+  hint,
+  muted,
+}: {
+  label: string;
+  hint?: string;
+  muted?: boolean;
+}) {
+  return (
+    <li
+      className={cn(
+        "px-2 py-0.5 text-[10px] uppercase tracking-wide font-semibold border-t border-slate-100 first:border-t-0 bg-slate-50",
+        muted ? "text-slate-400" : "text-slate-500",
+      )}
+      title={hint}
+    >
+      {label}
+    </li>
+  );
+}
+
+/** One ontology-agent candidate. Carries more shape than a catalog
+ *  row: source (catalog / ontology_lookup / llm_match), definition,
+ *  parent label, optional category. Renders without a usage count
+ *  (the agent isn't pulling those — that's a catalog-only signal). */
+function FindTermRow({
+  candidate,
+  requestedCategory,
+  highlighted,
+  stale,
+  onPick,
+  onHover,
+}: {
+  candidate: TermCandidate;
+  /** Slot category the agent was asked to scope to — used to flag
+   *  candidates whose own category disagrees. */
+  requestedCategory: string | null;
+  highlighted: boolean;
+  stale?: boolean;
+  onPick: () => void;
+  onHover: () => void;
+}) {
+  const catMismatch =
+    !!candidate.category &&
+    !!requestedCategory &&
+    candidate.category.trim().toLowerCase() !==
+      requestedCategory.trim().toLowerCase();
+  return (
+    <li
+      onMouseEnter={onHover}
+      onClick={onPick}
+      className={cn(
+        "px-2 py-1 cursor-pointer flex items-start gap-2",
+        highlighted ? "bg-blue-50" : "hover:bg-slate-50",
+        stale && "opacity-60",
+      )}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1 flex-wrap">
+          <span
+            className="text-emerald-800 font-medium truncate"
+            title={candidate.uri}
+          >
+            {candidate.label}
+          </span>
+          <span className="text-[10px] text-slate-400 font-mono shrink-0">
+            {shortenUri(candidate.uri) || candidate.ontology}
+          </span>
+          <SourceBadge source={candidate.source} />
+          {candidate.category ? (
+            <span
+              className={cn(
+                "text-[9px] uppercase tracking-wide font-semibold px-1 py-0 rounded border shrink-0",
+                catMismatch
+                  ? "bg-amber-50 text-amber-800 border-amber-200"
+                  : "bg-slate-50 text-slate-600 border-slate-200",
+              )}
+              title={
+                catMismatch
+                  ? `category mismatch — searched ${requestedCategory}, this candidate is ${candidate.category}`
+                  : `category: ${candidate.category}`
+              }
+            >
+              {candidate.category}
+            </span>
+          ) : null}
+        </div>
+        {candidate.definition ? (
+          <div className="text-[11px] text-slate-600 leading-snug line-clamp-2 mt-0.5">
+            {candidate.definition}
+          </div>
+        ) : null}
+        {candidate.parent_label ? (
+          <div className="text-[10px] text-slate-500 truncate">
+            parent: {candidate.parent_label}
+          </div>
+        ) : null}
+        {candidate.rationale ? (
+          <div className="text-[10px] text-slate-500 italic truncate">
+            {candidate.rationale}
+          </div>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function SourceBadge({ source }: { source: TermCandidate["source"] }) {
+  const cls =
+    source === "annotation_search"
+      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+      : source === "ontology_lookup"
+        ? "bg-slate-50 text-slate-600 border-slate-200"
+        : "bg-amber-50 text-amber-800 border-amber-200";
+  const label =
+    source === "annotation_search"
+      ? "catalog"
+      : source === "ontology_lookup"
+        ? "ontology"
+        : "llm";
+  return (
+    <span
+      className={cn(
+        "text-[9px] uppercase tracking-wide font-semibold px-1 py-0 rounded border shrink-0",
+        cls,
+      )}
+      title={`source: ${source}`}
+    >
+      {label}
+    </span>
+  );
+}

@@ -2,12 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
-import { useImportFromGemma } from "@/api/datasets";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { InlineText } from "@/components/ui/InlineText";
 import { CategoryPicker } from "@/features/design/CategoryPicker";
 import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
 import {
@@ -29,7 +26,6 @@ import {
   deletePublication,
   deleteTag,
   setDesignDescription,
-  setDesignTitle,
   setTagCategory,
   setTagValue,
 } from "@/features/design/mutations";
@@ -210,19 +206,9 @@ export function OverviewPanel() {
       </div>
 
       <article className="card p-3 space-y-2">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <InlineText
-              value={meta?.title ?? ""}
-              placeholder="(no title — double-click to add)"
-              onCommit={(title) =>
-                draft && apply(setDesignTitle(draft, title))
-              }
-              className="text-sm font-semibold text-slate-900 leading-snug"
-            />
-          </div>
-          <ResyncButton />
-        </div>
+        {/* Title + "re-import from Gemma" both moved to the
+            ExperimentBanner. The Overview card now leads with tags
+            and the editable description. */}
         {meta ? (
           <TagBar
             tags={meta.tags ?? []}
@@ -812,64 +798,6 @@ function detectBatchConfound(
     }
   }
   return null;
-}
-
-/**
- * Re-pull this experiment's design from real Gemma. Confirms
- * first because the import is destructive on uncommitted edits —
- * the imported Design replaces whatever's in the mock.
- */
-function ResyncButton() {
-  const { draft, diff } = useDesignDraft();
-  const importer = useImportFromGemma();
-  const [confirming, setConfirming] = useState(false);
-
-  if (!draft) return null;
-
-  const isDirty = diff.isDirty;
-  const ref =
-    draft.external_source?.accession ||
-    draft.experiment_short_name ||
-    String(draft.experiment_id);
-
-  return (
-    <div className="flex items-center gap-2 shrink-0">
-      {importer.isError ? (
-        <span
-          className="text-xs text-rose-700 max-w-md truncate"
-          title={(importer.error as Error).message}
-        >
-          import failed: {(importer.error as Error).message}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        className="btn ghost text-xs"
-        onClick={() => setConfirming(true)}
-        disabled={importer.isPending}
-        title="re-pull this experiment's design from Gemma"
-      >
-        {importer.isPending ? "re-importing…" : "re-import from Gemma"}
-      </button>
-      <ConfirmModal
-        open={confirming}
-        title="Re-import from Gemma?"
-        body={
-          (isDirty
-            ? "You have uncommitted changes to this design. Re-importing replaces the saved Design with whatever Gemma has now; your draft is preserved client-side until you discard it.\n\n"
-            : "Replaces the saved Design with whatever Gemma has now. Curator-edited fields stamped on the mock will be overwritten.\n\n") +
-          `Will resolve "${ref}" against Gemma.`
-        }
-        confirmLabel="re-import"
-        destructive
-        onConfirm={() => {
-          setConfirming(false);
-          importer.mutate(ref);
-        }}
-        onCancel={() => setConfirming(false)}
-      />
-    </div>
-  );
 }
 
 /**
@@ -1663,6 +1591,7 @@ function ChipEditor({
       <OntologyTermPicker
         value={val}
         category={cat?.label || null}
+        searchCategory={cat?.label || null}
         placeholder="value"
         onCommit={(next) => setVal(next ?? null)}
       />
@@ -2642,10 +2571,12 @@ function TagGroupChip({
 }
 
 /**
- * Read mode: paragraphs split on blank lines, scrolling.
- * Edit mode (double-click to enter): textarea, Esc to revert,
- * Cmd/Ctrl-Enter to commit, blur to commit. Same pattern as
- * InlineText but multiline.
+ * Read mode: paragraphs split on blank lines, scrolling. Pencil
+ * icon reveals on hover as the edit affordance — matches the
+ * single-click + pencil-on-hover pattern used by ShortNameEditor /
+ * TitleEditor on the banner.
+ * Edit mode (single-click to enter): textarea, Esc to revert,
+ * Cmd/Ctrl-Enter to commit, blur to commit.
  */
 function EditableDescription({
   value,
@@ -2665,7 +2596,7 @@ function EditableDescription({
       <div
         role="button"
         tabIndex={0}
-        onDoubleClick={() => {
+        onClick={() => {
           setDraft(value);
           setEditing(true);
         }}
@@ -2676,12 +2607,12 @@ function EditableDescription({
             setEditing(true);
           }
         }}
-        className="text-xs text-slate-700 leading-relaxed space-y-1.5 max-h-[24rem] overflow-y-auto cursor-text hover:bg-blue-50/60 dark:hover:bg-slate-700/30 rounded px-1 -mx-1"
-        title="double-click to edit"
+        className="relative text-xs text-slate-700 leading-relaxed space-y-1.5 max-h-[24rem] overflow-y-auto cursor-text hover:bg-blue-50/60 dark:hover:bg-slate-700/30 rounded px-1 -mx-1 group"
+        title="click to edit description"
       >
         {paragraphs.length === 0 ? (
           <p className="italic text-slate-400">
-            (no description — double-click to add)
+            (no description — click to add)
           </p>
         ) : (
           paragraphs.map((p, i) => (
@@ -2690,6 +2621,10 @@ function EditableDescription({
             </p>
           ))
         )}
+        <PencilIcon
+          className="absolute top-1 right-1 h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+          aria-hidden
+        />
       </div>
     );
   }

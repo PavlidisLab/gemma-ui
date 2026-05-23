@@ -78,7 +78,7 @@ import {
 // per-row target_id so we can render each in the right place.
 // ---------------------------------------------------------------------------
 
-interface RoutedDecisions {
+export interface RoutedDecisions {
   /** S1_design_verdict / S1_split_verdict / S1_subset_verdict — the three
    *  Triage badges. Keyed by the subtask field for direct lookup.
    *  ``S8_dea_usability`` (experiment-level, empty target_id) also
@@ -106,7 +106,7 @@ interface RoutedDecisions {
   other: SubtaskDecision[];
 }
 
-function routeDecisions(
+export function routeDecisions(
   decisions: SubtaskDecision[] | undefined,
   proposedFactorCategories: string[],
 ): RoutedDecisions {
@@ -218,7 +218,7 @@ function parseCandidateCategory(targetId: string): string {
  *  Subset axis is parsed dynamically — the verdict carries
  *  ``subset_by_<axis>`` where <axis> can be cell line, cell type,
  *  organism part, tissue, etc. Don't hard-code the list. */
-function designChipFor(
+export function designChipFor(
   verdict: string,
 ): { label: string; tone: "warn" | "neutral" } | null {
   // Affirmative — design-of-experiment. Nothing to flag.
@@ -242,7 +242,7 @@ function designChipFor(
   };
 }
 
-function splitChipFor(verdict: string): { label: string; tone: "warn" } | null {
+export function splitChipFor(verdict: string): { label: string; tone: "warn" } | null {
   // "single_experiment" = no split needed — hide.
   if (verdict.startsWith("single_experiment")) return null;
   if (verdict.startsWith("should_split"))
@@ -250,7 +250,7 @@ function splitChipFor(verdict: string): { label: string; tone: "warn" } | null {
   return null;
 }
 
-function subsetChipFor(verdict: string): { label: string; tone: "warn" } | null {
+export function subsetChipFor(verdict: string): { label: string; tone: "warn" } | null {
   // "no_subset" = run a single DEA — hide.
   if (verdict.startsWith("no_subset")) return null;
   const m = verdict.match(/^subset_by_([a-z_]+)/);
@@ -267,7 +267,7 @@ function subsetChipFor(verdict: string): { label: string; tone: "warn" } | null 
  *  experiments (Sample Study, no within-level replicates, …) are
  *  legitimately curated via TGEMO experiment tags, so this is
  *  advisory and never blocks acceptance. */
-function deaUsabilityChipFor(
+export function deaUsabilityChipFor(
   verdict: string,
 ): { label: string; tone: "warn" } | null {
   if (verdict.startsWith("usable")) return null;
@@ -292,7 +292,7 @@ type LevelKind = "confidence" | "priority";
  *                                              priority, not confidence)
  *  We label the kind so the popover meter can say "priority · high"
  *  rather than mis-stating it as confidence. */
-function extractLevel(
+export function extractLevel(
   text: string,
 ): { level: Confidence | null; kind: LevelKind; clean: string } {
   if (!text) return { level: null, kind: "confidence", clean: text };
@@ -447,7 +447,7 @@ function Why({ text }: { text: string }) {
  *  design?", which is what the EFC priority bucket is actually
  *  trying to convey. "Agent confidence" disambiguates the S1/S3
  *  self-assessed confidence from any other confidence in the UI. */
-const LEVEL_KIND_LABEL: Record<LevelKind, string> = {
+export const LEVEL_KIND_LABEL: Record<LevelKind, string> = {
   confidence: "agent confidence",
   priority: "design importance",
 };
@@ -528,7 +528,7 @@ function BadgeChip({ badge }: { badge: string | undefined }) {
  *  renders with slate styling rather than the Pill ``low`` variant
  *  (which is red — too aggressive for a "no action needed" verdict
  *  like ``no_subset``). */
-function TriageBadge({
+export function TriageBadge({
   label,
   tone,
   title,

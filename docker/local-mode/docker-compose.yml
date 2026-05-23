@@ -41,7 +41,13 @@ services:
       - "8095:8000"
     command: ["python", "-m", "gemma_curation_agents.cli", "mock-gemma", "serve", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/rest/v2/", "||", "exit", "1"]
+      # ``/openapi.json`` is FastAPI's auto-generated schema route —
+      # exists as long as the app is up, no auth, no DB hit, no
+      # per-route handler so the probe stays cheap. The previous
+      # ``/rest/v2/`` probe 404'd (local_api routes live under
+      # specific paths, not the bare prefix) and spammed the log
+      # every 10s.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/openapi.json", "||", "exit", "1"]
       interval: 10s
       timeout: 3s
       retries: 6
