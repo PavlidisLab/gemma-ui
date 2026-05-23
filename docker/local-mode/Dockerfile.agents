@@ -1,0 +1,33 @@
+# Python image used by both the local_api server and the proposer
+# service. Source lives on a bind-mount at /agents so edits to the
+# Python code (in ~/Dev/gemma-curation-agents) take effect without a
+# rebuild — only the dep install + base layer cache.
+#
+# Single image, two services: compose runs different ``gca`` commands
+# against the same image to bring up local_api and the proposer.
+
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# System deps gemma-curation-agents needs at runtime:
+#   - libgomp1: OpenMP (numpy/pandas runtime on some wheels)
+#   - curl: for the proposer's gemma-base-url reachability probe
+#   - git: pyproject deps that ship via git+ URLs
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        libgomp1 curl git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /agents
+
+# The actual ``pip install -e .`` happens at container start, not at
+# build time — we bind-mount /agents from the host so we can't pre-
+# install. The entrypoint below installs (idempotent) then execs the
+# CLI command compose passes in.
+COPY entrypoint-agents.sh /usr/local/bin/entrypoint-agents.sh
+RUN chmod +x /usr/local/bin/entrypoint-agents.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-agents.sh"]

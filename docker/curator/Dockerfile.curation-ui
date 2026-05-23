@@ -1,0 +1,45 @@
+# Curator-distribution image for the curation UI.
+#
+# Multi-stage:
+#   1) node    — install deps + ``vite build`` produces static assets
+#   2) nginx   — serves the SPA + proxies /rest/* to local-api
+#
+# Single port (80 inside, mapped by compose). No node runtime in the
+# final image; no dev-server, no HMR.
+#
+# Build:
+#   docker build \
+#     -f Dockerfile.curation-ui \
+#     -t gemma-curator/curation-ui:latest \
+#     ../..
+
+# ─── stage 1: build SPA ──────────────────────────────────────────
+FROM node:20-slim AS build
+WORKDIR /src
+
+# Copy workspace manifests first for layer caching.
+COPY package.json package-lock.json* ./
+COPY apps/curation/package.json apps/curation/package.json
+COPY apps/browser/package.json apps/browser/package.json
+
+# Install all workspaces (npm workspaces resolves both apps' deps).
+RUN npm ci --no-audit --no-fund
+
+# Now the source.
+COPY . .
+
+# Build only the curation app for this image.
+WORKDIR /src/apps/curation
+RUN npm run build
+
+# ─── stage 2: serve via nginx ─────────────────────────────────────
+FROM nginx:1.27-alpine
+
+# Replace the default config with one that proxies /rest/* to the
+# local-api service on the compose network.
+COPY docker/curator/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy the built SPA assets.
+COPY --from=build /src/apps/curation/dist /usr/share/nginx/html
+
+EXPOSE 80

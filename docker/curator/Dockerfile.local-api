@@ -1,0 +1,54 @@
+# Curator-distribution image for local_api.
+#
+# Baked-in source so the curator doesn't need a git checkout. We use
+# Docker BuildKit "additional contexts" (compose ``additional_contexts``
+# or ``docker build --build-context``) to pull the agents repo source
+# in at build time without forcing the user to copy it under this
+# tree — the agents repo lives parallel to this monorepo on the dev's
+# machine, not nested.
+#
+# Build:
+#   docker build \
+#     --build-context agents=../../../gemma-curation-agents \
+#     -f Dockerfile.local-api \
+#     -t gemma-curator/local-api:latest .
+#
+# Run alone:
+#   docker run --rm -p 8095:8000 -e GEMMA_CURATION_API_KEY=dev-token-123 \
+#     gemma-curator/local-api:latest
+
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        libgomp1 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /agents
+
+# Copy from the ``agents`` build context — this is the
+# gemma-curation-agents repo. Two-step COPY for layer caching:
+# pyproject + lockfile first so deps don't reinstall on every source
+# change; then the rest of the source.
+COPY --from=agents pyproject.toml ./pyproject.toml
+RUN pip install --upgrade pip && \
+    pip install -e .
+
+# The full source replaces the egg-link target installed above.
+COPY --from=agents . .
+
+# A writable spot for the SQLite + any imported calibration packages.
+# Compose mounts a named volume here so data persists across
+# container recreation.
+ENV GEMMA_CURATION_SQLITE=/data/local_curation.sqlite
+VOLUME ["/data"]
+RUN mkdir -p /data
+
+EXPOSE 8000
+
+# Default command — overridden via compose to inject the port.
+CMD ["python", "-m", "gemma_curation_agents.cli", "mock-gemma", "serve", "--host", "0.0.0.0", "--port", "8000"]

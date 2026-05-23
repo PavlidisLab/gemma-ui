@@ -1,0 +1,23 @@
+# Node image for the curation Vite dev server.
+#
+# Source lives on a bind-mount at /ui. node_modules is mounted on a
+# named volume so the host's node_modules (compiled for macOS) and
+# the container's (compiled for Linux) don't fight; first run does
+# ``npm install`` inside the container.
+#
+# Vite binds 0.0.0.0:5173 inside the container; compose maps that
+# out to a host port. Proxy targets are service names on the compose
+# network ("local-api", "proposer"), set via ``GEMMA_CURATION_URL``
+# and ``GEMMA_PROPOSER_URL`` env vars that vite.config consumes.
+
+FROM node:20-slim
+
+ENV NODE_ENV=development
+
+WORKDIR /ui
+
+COPY entrypoint-curation-ui.sh /usr/local/bin/entrypoint-curation-ui.sh
+RUN chmod +x /usr/local/bin/entrypoint-curation-ui.sh
+
+EXPOSE 5173
+ENTRYPOINT ["/usr/local/bin/entrypoint-curation-ui.sh"]

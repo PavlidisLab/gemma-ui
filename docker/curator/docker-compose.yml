@@ -1,0 +1,75 @@
+# Curator-laptop self-contained stack.
+#
+# Two services by default; both baked-in images, no source clone
+# needed on the curator's machine:
+#
+#   curation-ui    nginx serving the built SPA + /rest proxy   :5175 (host)
+#   local-api      FastAPI; calibration-package backend         (internal only)
+#
+# Optional ``agents`` profile adds the proposer service (LLM-backed).
+# Curators reviewing pre-built calibration packages don't need it —
+# proposals + audits in the package are static. Enable when running
+# fresh proposals locally.
+#
+# Real Gemma 2.0 lives off-site — set ``GEMMA_BASE_URL`` in .env so
+# the proposer (and any UI feature that goes direct) hit the remote.
+# The curation UI itself only talks to local-api over the docker
+# network; remote-Gemma traffic flows through the proposer.
+#
+# How a curator runs this:
+#
+#   1) Install Docker Desktop (mac/win) or Docker Engine (linux)
+#   2) Get this folder + the prebuilt images:
+#         docker compose pull              # or build locally — see ../README
+#   3) cp .env.example .env  &&  edit
+#   4) docker compose up -d
+#   5) open http://localhost:5175/
+#
+# Stop:    docker compose down
+# Nuke:    docker compose down -v          # also wipes the SQLite
+
+services:
+  local-api:
+    image: ${LOCAL_API_IMAGE:-gemma-curator/local-api:latest}
+    container_name: gemma-curator-local-api
+    environment:
+      GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
+    volumes:
+      # SQLite + any imported calibration packages persist here so
+      # ``docker compose down`` doesn't lose the curator's work.
+      # ``docker compose down -v`` to wipe.
+      - local-api-data:/data
+      # Drop calibration packages onto the host in this folder; the
+      # curator runs ``docker compose exec local-api gca mock-gemma
+      # import …`` to load. README walks through.
+      - ./calibration-packages:/calibration-packages
+    restart: unless-stopped
+
+  curation-ui:
+    image: ${CURATION_UI_IMAGE:-gemma-curator/curation-ui:latest}
+    container_name: gemma-curator-curation-ui
+    depends_on:
+      - local-api
+    ports:
+      - "${CURATION_UI_PORT:-5175}:80"
+    restart: unless-stopped
+
+  # ─── optional: proposer (LLM agents) ─────────────────────────────
+  proposer:
+    profiles: ["agents"]
+    image: ${LOCAL_API_IMAGE:-gemma-curator/local-api:latest}
+    container_name: gemma-curator-proposer
+    depends_on:
+      - local-api
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
+      GEMMA_CURATION_URL: http://local-api:8000
+      # Remote Gemma 2.0 — set in .env (e.g.
+      # https://gemma.msl.ubc.ca or whatever offsite host bro runs).
+      GEMMA_BASE_URL: ${GEMMA_BASE_URL:-https://staging-gemma.msl.ubc.ca}
+    command: ["python", "-m", "gemma_curation_agents.cli", "proposer-service", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+volumes:
+  local-api-data:
