@@ -142,7 +142,12 @@ function GroupItem({
 }
 
 export function GroupsSidebar({ selectedGroupId }: { selectedGroupId?: string }) {
-  const { data: groups = [], isLoading } = useGroups();
+  const { data: groupsRaw, isLoading } = useGroups();
+  // Defensive: the wire-shape can drift (e.g. Gemma 2.0's envelope
+  // not yet unwrapped, or an error body slipping through). Treat
+  // anything that isn't an array as "no groups" rather than crashing
+  // the whole workflow page with "groups is not iterable".
+  const groups: Group[] = Array.isArray(groupsRaw) ? groupsRaw : [];
   const [creating, setCreating] = useState(false);
   // Single confirmation-modal slot at the rail level rather than a
   // modal-per-row. ``pending`` is the group the curator clicked the

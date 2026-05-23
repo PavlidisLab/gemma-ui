@@ -188,11 +188,29 @@ function isAgentProposalArray(data: unknown): data is AgentProposal[] {
  */
 export function useProposalsAutoShape(experimentId: number) {
   return useQuery({
+    enabled: experimentId > 0,
     queryKey: ["proposals-auto", "experiment", experimentId] as const,
     queryFn: async (): Promise<ProposalsResponse> => {
-      const raw = await api.get<unknown>(
-        `/rest/v2/datasets/${experimentId}/curation-proposals?kind=proposal`,
-      );
+      let raw: unknown;
+      try {
+        raw = await api.get<unknown>(
+          `/rest/v2/datasets/${experimentId}/curation-proposals?kind=proposal`,
+        );
+      } catch (e: unknown) {
+        // Gemma 2.0 doesn't yet expose ``/datasets/{id}/curation-proposals``.
+        // Treat 404 as "no proposals" so the curation shell still
+        // renders the rest of the experiment. See
+        // ``CURATION_TO_GEMMA_2_0_HANDOFF.md``.
+        if (
+          e &&
+          typeof e === "object" &&
+          "status" in e &&
+          (e as { status: number }).status === 404
+        ) {
+          return { kind: "legacy", items: [], total: 0 };
+        }
+        throw e;
+      }
       if (isAgentProposalArray(raw)) {
         // Defensive client-side filter in case the server hasn't
         // landed the ?kind= query param yet (returns all kinds).

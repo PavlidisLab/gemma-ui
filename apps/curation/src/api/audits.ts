@@ -43,10 +43,28 @@ const KEY = {
 export function useAuditsForExperiment(experimentId: number) {
   return useQuery({
     queryKey: KEY.byExperiment(experimentId),
-    queryFn: () =>
-      api.get<AuditListResponse>(
-        `/rest/v2/datasets/${experimentId}/audits`,
-      ),
+    queryFn: async () => {
+      try {
+        return await api.get<AuditListResponse>(
+          `/rest/v2/datasets/${experimentId}/audits`,
+        );
+      } catch (e: unknown) {
+        // Gemma 2.0 doesn't yet expose the local_api ``/audits``
+        // surface (it has ``/auditEvents``, a different concept).
+        // Treat 404 as "no audits" rather than poisoning every
+        // audit-aware surface with an error toast. See
+        // ``CURATION_TO_GEMMA_2_0_HANDOFF.md``.
+        if (
+          e &&
+          typeof e === "object" &&
+          "status" in e &&
+          (e as { status: number }).status === 404
+        ) {
+          return { items: [], total: 0 } as AuditListResponse;
+        }
+        throw e;
+      }
+    },
     enabled: experimentId > 0,
     refetchOnWindowFocus: true,
   });

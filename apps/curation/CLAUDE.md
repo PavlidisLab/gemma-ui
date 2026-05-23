@@ -15,16 +15,24 @@ React + TypeScript + Vite + TanStack Query + Tailwind. Path alias
 `files` and skips the app code — running it directly catches
 nothing) and the browser for everything else. Dev server:
 `npm run dev` → `:5173`. Vite proxies `/rest`, `/propose`, `/audit`,
-`/find-publication`, `/find-term` to the local curation server
-on `:8080` (started from the agent repo via `./run_mock.sh`; auth
-token `dev-token-123`). The local server is a full standalone
-curation backend that doesn't talk to real Gemma — used for dev
-work AND for the portable review-package workflow
-(`calibration_packages/`). Bro renamed the module to `local_api`
-(commit `b48e94e` on `feature/local-api-rename`); the runner
-script name (`run_mock.sh`) + SQLite filename (`mock_curation.sqlite`)
-are still on the old name pending follow-up cleanup. Future
-**remote mode** points at the real Gemma REST API — see
+`/find-publication`, `/find-term` to the local_api curation server.
+Default `:8082` as of 2026-05-23 (was `:8080`; moved off because
+`:8080` now hosts the local Gemma 2.0 instance the browser app
+talks to). Auth token `dev-token-123`. Override via
+`apps/curation/.env` (`GEMMA_CURATION_URL`). Start the backend:
+
+```sh
+cd ~/Dev/gemma-curation-agents && ./run_local.sh --port 8082
+```
+
+The local server is a full standalone curation backend that doesn't
+talk to real Gemma — used for dev work AND for the portable
+review-package workflow (`calibration_packages/`). Bro renamed the
+module to `local_api` (commit `b48e94e` on
+`feature/local-api-rename`); the runner script is now `run_local.sh`
+(SQLite filename still `mock_curation.sqlite` pending the follow-up
+cleanup). Future **remote mode** points at the real Gemma REST API
+— see
 `gemma-curation-agents-eval/docs/HANDOFF_2026-05-19_LOCAL_VS_REMOTE_MODE.md`
 for the mode-switch + capability-gating design.
 

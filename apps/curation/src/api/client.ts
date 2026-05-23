@@ -147,7 +147,30 @@ async function request<T>(
   }
   if (r.status === 204) return undefined as T;
   const json = await r.json();
-  return snakeify(json) as T;
+  // Gemma 2.0 wraps every payload in a standard envelope:
+  // ``{ apiVersion, buildInfo, data: <payload> }``. local_api
+  // returned the payload directly. Auto-unwrap on Gemma's envelope
+  // so all the existing callers (which expect the bare payload type
+  // ``T``) keep working against either backend without touching
+  // every endpoint. Detection is conservative: require BOTH the
+  // ``apiVersion`` sentinel AND a ``data`` field so a bare payload
+  // that happens to expose ``data`` (rare; the curation domain
+  // doesn't currently) isn't accidentally unwrapped.
+  const unwrapped = unwrapGemmaEnvelope(json);
+  return snakeify(unwrapped) as T;
+}
+
+function unwrapGemmaEnvelope(json: unknown): unknown {
+  if (
+    json &&
+    typeof json === "object" &&
+    !Array.isArray(json) &&
+    "apiVersion" in (json as Record<string, unknown>) &&
+    "data" in (json as Record<string, unknown>)
+  ) {
+    return (json as Record<string, unknown>).data;
+  }
+  return json;
 }
 
 export const api = {

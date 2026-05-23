@@ -19,12 +19,33 @@ export function useProposalsForExperiment(
   status?: ProposalStatus,
 ) {
   return useQuery({
+    // ``-1`` is the "no experiment selected" sentinel used by inbox
+    // landing screens; skip the fetch entirely (parallels the
+    // ``audits.ts`` guard) so we don't 404 the sentinel id.
+    enabled: experimentId > 0,
     queryKey: KEY.byExperiment(experimentId, status),
-    queryFn: () => {
+    queryFn: async () => {
       const q = status ? `?status_filter=${status}` : "";
-      return api.get<ProposalListResponse>(
-        `/rest/v2/datasets/${experimentId}/curation-proposals${q}`,
-      );
+      try {
+        return await api.get<ProposalListResponse>(
+          `/rest/v2/datasets/${experimentId}/curation-proposals${q}`,
+        );
+      } catch (e: unknown) {
+        // Gemma 2.0 doesn't yet expose ``/datasets/{id}/curation-proposals``
+        // (the local_api endpoint). Treat 404 as "no proposals
+        // recorded for this experiment" instead of bubbling the
+        // error into every consumer surface. See
+        // ``CURATION_TO_GEMMA_2_0_HANDOFF.md``.
+        if (
+          e &&
+          typeof e === "object" &&
+          "status" in e &&
+          (e as { status: number }).status === 404
+        ) {
+          return { items: [], total: 0 } as ProposalListResponse;
+        }
+        throw e;
+      }
     },
   });
 }

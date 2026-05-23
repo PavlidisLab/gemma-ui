@@ -93,14 +93,22 @@ const EMPTY_DIFF: DesignDiff = {
 
 export function diffDesign(saved: Design | null, draft: Design | null): DesignDiff {
   if (!saved || !draft) return EMPTY_DIFF;
+  // Defensive: a malformed payload (e.g. Gemma 2.0's design shape
+  // mapped through the wrong adapter, or an error envelope reaching
+  // this far) can leave ``factors`` / ``tags`` / ``biomaterials``
+  // undefined. The diff machinery should treat those as empty
+  // rather than crashing the whole DesignDraftProvider with
+  // "cannot read properties of undefined (reading 'map')".
+  const savedFactorList = saved.factors ?? [];
+  const draftFactorList = draft.factors ?? [];
 
-  const savedFactors = new Map(saved.factors.map((f) => [f.id, f]));
-  const draftFactors = new Map(draft.factors.map((f) => [f.id, f]));
+  const savedFactors = new Map(savedFactorList.map((f) => [f.id, f]));
+  const draftFactors = new Map(draftFactorList.map((f) => [f.id, f]));
 
-  const factorsAdded: Factor[] = draft.factors.filter(
+  const factorsAdded: Factor[] = draftFactorList.filter(
     (f) => !savedFactors.has(f.id),
   );
-  const factorsRemoved: Factor[] = saved.factors.filter(
+  const factorsRemoved: Factor[] = savedFactorList.filter(
     (f) => !draftFactors.has(f.id),
   );
 
@@ -110,7 +118,7 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
   let modifiedFvs = 0;
   let factorFieldsChangedCount = 0;
 
-  for (const sf of saved.factors) {
+  for (const sf of savedFactorList) {
     const df = draftFactors.get(sf.id);
     if (!df) continue;
     const fd = diffFactorValues(sf, df);

@@ -24,6 +24,14 @@ interface LoginResponse {
   user: User;
 }
 
+// Real gemma-rest wraps every response in {apiVersion, buildInfo, data: ...}.
+// The mock didn't — the SPA was reading resp.token directly. Once we point at
+// the real backend, that field is on resp.data, not resp. Tolerate both so a
+// switch back to the mock doesn't break login.
+interface RestEnvelope<T> {
+  data?: T;
+}
+
 const STORAGE_KEY = "gemma-curation-session";
 
 interface StoredSession {
@@ -58,7 +66,15 @@ export function saveStoredSession(s: StoredSession | null): void {
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
-    queryFn: () => api.get<User | null>("/rest/v2/me"),
+    queryFn: async () => {
+      const resp = await api.get<User | RestEnvelope<User> | null>(
+        "/rest/v2/me",
+      );
+      if (resp && typeof resp === "object" && "data" in resp) {
+        return (resp as RestEnvelope<User>).data ?? null;
+      }
+      return resp as User | null;
+    },
     staleTime: 1000 * 60 * 5,
     retry: false,
   });
@@ -68,10 +84,20 @@ export function useLogin() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { username: string; password: string }) =>
-      api.post<LoginResponse>("/rest/v2/login", body),
+      api.post<LoginResponse | RestEnvelope<LoginResponse>>(
+        "/rest/v2/login",
+        body,
+      ),
     onSuccess: (resp) => {
-      saveStoredSession({ token: resp.token, user: resp.user });
-      qc.setQueryData(["me"], resp.user);
+      // Unwrap the gemma-rest envelope if present; the mock returns the
+      // LoginResponse directly. ``resp.data?.token`` is the canonical wire
+      // shape on the real backend.
+      const payload =
+        resp && typeof resp === "object" && "data" in resp && resp.data
+          ? (resp as RestEnvelope<LoginResponse>).data!
+          : (resp as LoginResponse);
+      saveStoredSession({ token: payload.token, user: payload.user });
+      qc.setQueryData(["me"], payload.user);
     },
   });
 }
