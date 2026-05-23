@@ -94,7 +94,7 @@ html.skin-extjs {
 
   --skin-font-sans: "Tahoma", "Lucida Sans Unicode", "Lucida Grande";
   --skin-radius:    0;
-  --skin-font-size: 12px;
+  --skin-font-size: 11px;
 }
 
 /* ─── Ink skin (paper / book) ──────────────────────────────────────────
@@ -298,21 +298,42 @@ html.skin-ink {
 /* ─── ExtJS skin: global tweaks beyond the token swap ─────────────
  * Token overrides above re-paint anything using ``gemma-*`` colours,
  * but raw Tailwind utilities (``bg-white``, ``border-slate-200``)
- * don't pick those up. The targeted overrides below cover the
- * most-visible chrome so the look feels consistent across pages
- * without rewriting every component. Sizing isn't touched — per
- * Paul's "constraint": skins change look, not layout.
+ * don't pick those up. The block below covers the most-visible
+ * chrome so the live app reads as "ExtJS" without rewriting every
+ * component. Sizing isn't touched — per Paul's "skins change look,
+ * not layout" constraint.
+ *
+ * The standalone mockup at /mockup-extjs is the visual reference
+ * for this skin; these rules are an aggressive port of its
+ * conventions onto raw Tailwind output.
  */
+/* ExtJS classic ran at 11px Tahoma; Tailwind's text-sm (14px) and
+ * text-base (16px) are too loud under that aesthetic. Shrink the
+ * common text utilities one step so the live app feels as dense as
+ * the standalone mockup without rewriting class names. text-[Npx]
+ * arbitrary values stay untouched (callers picked an explicit size). */
 html.skin-extjs body {
-  font-size: 12px;
+  font-size: 11px;
 }
+html.skin-extjs .text-xs    { font-size: 10px;   line-height: 14px; }
+html.skin-extjs .text-sm    { font-size: 12px;   line-height: 16px; }
+html.skin-extjs .text-base  { font-size: 13px;   line-height: 18px; }
+html.skin-extjs .text-lg    { font-size: 14px;   line-height: 19px; }
+html.skin-extjs .text-xl    { font-size: 16px;   line-height: 21px; }
+html.skin-extjs .text-2xl   { font-size: 19px;   line-height: 24px; }
+
+/* Sharp corners everywhere */
 html.skin-extjs .rounded,
 html.skin-extjs .rounded-md,
 html.skin-extjs .rounded-lg,
 html.skin-extjs .rounded-xl,
-html.skin-extjs .rounded-2xl {
+html.skin-extjs .rounded-2xl,
+html.skin-extjs .rounded-full {
   border-radius: 0;
 }
+
+/* Light insets instead of shadows (ExtJS panels rely on borders
+ * + a faint inset rather than drop shadows) */
 html.skin-extjs .shadow,
 html.skin-extjs .shadow-sm,
 html.skin-extjs .shadow-md,
@@ -320,6 +341,128 @@ html.skin-extjs .shadow-lg,
 html.skin-extjs .shadow-xl,
 html.skin-extjs .shadow-2xl {
   box-shadow: 0 1px 0 #fff inset, 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+/* Stronger borders on cards — ExtJS uses #99bbe8 throughout */
+html.skin-extjs .border,
+html.skin-extjs .border-slate-200,
+html.skin-extjs .border-slate-300,
+html.skin-extjs .border-gray-200,
+html.skin-extjs .border-gray-300 {
+  border-color: rgb(var(--skin-panel-border));
+}
+
+/* Tables: zebra rows + steel-blue gradient header. The selectors
+ * stay scoped to ``table`` so non-table grids (CSS grid layouts)
+ * aren't accidentally affected. */
+html.skin-extjs table thead th {
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--skin-grid-header-from)) 0%,
+    rgb(var(--skin-grid-header-to)) 100%
+  );
+  color: rgb(var(--skin-panel-header-text));
+  border-bottom: 1px solid rgb(var(--skin-panel-border));
+  font-weight: 600;
+}
+html.skin-extjs table tbody tr:nth-child(even) td {
+  background: rgb(var(--skin-grid-stripe));
+}
+html.skin-extjs table tbody tr:hover td {
+  background: rgb(var(--skin-surface-alt));
+}
+
+/* Buttons: blanket gradient + 1px border. Text-only buttons (no
+ * border + no bg) are left alone via the :not() guard so muted
+ * inline links don't suddenly grow chrome. */
+html.skin-extjs button:not([class*="btn-ghost"]):not(.shrink-0):not(.text-slate-400):not(.text-slate-500):not(.opacity-70) {
+  /* Only apply when the button has a visible background or border in
+   * its existing Tailwind chrome. */
+}
+html.skin-extjs button.btn,
+html.skin-extjs button[class*="bg-"]:not([class*="bg-transparent"]):not(.bg-clip-text) {
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--skin-btn-from)) 0%,
+    rgb(var(--skin-btn-to)) 100%
+  );
+  border: 1px solid rgb(var(--skin-btn-border));
+  color: rgb(var(--skin-ink));
+  box-shadow: 0 1px 0 #fff inset;
+}
+html.skin-extjs button.btn:hover,
+html.skin-extjs button[class*="bg-"]:not([class*="bg-transparent"]):not(.bg-clip-text):hover {
+  filter: brightness(1.03);
+  border-color: #7da9d6;
+}
+
+/* "Primary" buttons (any flavour of blue background) get the
+ * steel-blue gradient. */
+html.skin-extjs button[class*="bg-blue-"]:not([class*="bg-blue-50"]):not(.bg-clip-text),
+html.skin-extjs button[class*="bg-sky-"]:not([class*="bg-sky-50"]):not(.bg-clip-text) {
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--skin-btn-primary-from)) 0%,
+    rgb(var(--skin-btn-primary-to)) 100%
+  );
+  color: rgb(var(--skin-panel-header-text));
+  border-color: #4a7baa;
+  font-weight: 600;
+}
+
+/* Inputs / selects / textareas — sharp, white, slim border */
+html.skin-extjs input:not([type="checkbox"]):not([type="radio"]),
+html.skin-extjs select,
+html.skin-extjs textarea {
+  border: 1px solid rgb(var(--skin-input-border));
+  background: #ffffff;
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.02) inset;
+  border-radius: 0;
+}
+html.skin-extjs input:focus,
+html.skin-extjs select:focus,
+html.skin-extjs textarea:focus {
+  border-color: #7da9d6;
+  outline: 0;
+  box-shadow: 0 0 0 1px rgba(125, 169, 214, 0.4);
+}
+
+/* Card "headers" — a heuristic: any direct child of a card-shaped
+ * container that ``border-b``s itself is acting as a header strip.
+ * Apply the panel-header gradient + ExtJS blue text. */
+html.skin-extjs .border-b.bg-slate-50,
+html.skin-extjs .border-b.bg-slate-50\/60,
+html.skin-extjs .border-b.bg-gray-50 {
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--skin-panel-header-from)) 0%,
+    rgb(var(--skin-panel-header-to)) 100%
+  );
+  color: rgb(var(--skin-panel-header-text));
+  border-bottom-color: rgb(var(--skin-panel-border));
+}
+html.skin-extjs .border-b.bg-slate-50 *,
+html.skin-extjs .border-b.bg-slate-50\/60 *,
+html.skin-extjs .border-b.bg-gray-50 * {
+  color: rgb(var(--skin-panel-header-text));
+}
+
+/* Page background — slightly grey wash like ExtJS desktops */
+html.skin-extjs main {
+  background-color: rgb(var(--skin-bg));
+}
+
+/* Headings — bold + ExtJS blue */
+html.skin-extjs h1,
+html.skin-extjs h2,
+html.skin-extjs h3 {
+  color: rgb(var(--skin-panel-header-text));
+  font-weight: 700;
+}
+
+/* Tabs (dataset page) — give the active tab the raised look */
+html.skin-extjs button[class*="border-b"][class*="text-slate-"] {
+  border-bottom-width: 1px;
 }
 
 /* ─── Ink skin: paper background everywhere ────────────────────── */
