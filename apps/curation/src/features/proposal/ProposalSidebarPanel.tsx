@@ -44,6 +44,7 @@ import {
 export function ProposalSidebarPanel({
   proposal,
   onApplyToDesign,
+  onRevertApplication,
 }: {
   proposal: Proposal;
   /** Optional callback for the bulk "apply proposal to design"
@@ -54,6 +55,14 @@ export function ProposalSidebarPanel({
    *  the legacy ProposalCardV2 still owns its own accept/apply
    *  affordance. */
   onApplyToDesign?: () => void;
+  /** Inverse of ``onApplyToDesign`` — drop the proposal's
+   *  applied factors / tags from the draft so the curator can back
+   *  out of an Apply without hand-deleting rows. Only renders the
+   *  Revert button when the proposal is currently applied to the
+   *  draft. Pre-existing saved factors/tags whose identity matches a
+   *  proposal item are NOT removed (the underlying mutator guards by
+   *  saved-id / saved-key). */
+  onRevertApplication?: () => void;
 }) {
   const proposalId = proposal.proposal_id ?? "";
   const experimentId = proposal.experiment_id;
@@ -232,28 +241,44 @@ export function ProposalSidebarPanel({
           </button>
         ) : null}
         {onApplyToDesign ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (applied) return;
-              onApplyToDesign();
-            }}
-            disabled={applied}
-            title={
-              applied
-                ? "Already applied — clicking again would duplicate factors. Discard the draft or reset the experiment to re-apply."
-                : "Push this proposal's tags and factors into the design draft"
-            }
+          <span
             className={
               (counts.reviewed < counts.total ? "" : "ml-auto ") +
-              "px-2 py-0.5 rounded text-[11px] font-semibold border " +
-              (applied
-                ? "border-emerald-300 bg-emerald-50 text-emerald-800 cursor-not-allowed"
-                : "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100")
+              "inline-flex items-center gap-1"
             }
           >
-            {applied ? "✓ Applied" : "Apply to design"}
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (applied) return;
+                onApplyToDesign();
+              }}
+              disabled={applied}
+              title={
+                applied
+                  ? "Already applied — the proposal's factors and tags live in the current draft. Use Revert to back out, or edit individual rows in the Design tab."
+                  : "Push this proposal's tags and factors into the design draft"
+              }
+              className={
+                "px-2 py-0.5 rounded text-[11px] font-semibold border " +
+                (applied
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 cursor-not-allowed"
+                  : "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100")
+              }
+            >
+              {applied ? "✓ Applied" : "Apply to design"}
+            </button>
+            {applied && onRevertApplication ? (
+              <button
+                type="button"
+                onClick={onRevertApplication}
+                title="Revert to original — drop the proposal's applied factors and tags from the draft. Doesn't touch anything that was already on the saved design."
+                className="px-2 py-0.5 rounded text-[11px] font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-700"
+              >
+                ↺ Revert
+              </button>
+            ) : null}
+          </span>
         ) : null}
       </div>
 

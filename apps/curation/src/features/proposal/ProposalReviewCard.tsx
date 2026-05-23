@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { Term } from "@/components/ui/Term";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DismissDialog } from "@/features/audit/DismissDialog";
+import { normalizeWikiUrl } from "@/lib/guidelines";
 import type {
   FactorProposal,
   StatementProposal,
@@ -519,7 +520,10 @@ function DefenderVerdictPill({ verdict }: { verdict: AttachedDefenderVerdict }) 
         ? "○"
         : "◐";
   const citation = verdict.citation ?? "";
-  const citationUrl = verdict.citationUrl ?? "";
+  // Cloud-style atlassian URLs get rewritten to the configured wiki
+  // host so a curator click lands on the intranet page instead of a
+  // 404. Same normalisation the audit/proposal-v2 panels do.
+  const citationUrl = normalizeWikiUrl(verdict.citationUrl ?? "");
   const rationale = verdict.rationale ?? "";
   // Concise tooltip: side · strength · verdict · rationale · citation.
   // Some browsers truncate long titles; for now this is best-effort.
@@ -605,7 +609,7 @@ function SubtaskDecisionChip({ decision }: { decision: SubtaskDecision }) {
   // → "S2r". Keep the full slug in the tooltip via `label` /
   // `verdict`.
   const shortSlug = decision.subtask.split("_")[0] || decision.subtask;
-  const url = decision.citation_url;
+  const url = normalizeWikiUrl(decision.citation_url ?? "") || undefined;
   const inner = (
     <>
       <span className="font-mono">{shortSlug}</span>

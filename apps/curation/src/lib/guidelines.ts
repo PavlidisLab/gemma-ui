@@ -35,22 +35,36 @@ export interface GuidelineSnippet {
 // project workspace at
 // `Gemma curation support/unpacked/gemma/<page>_<id>.html` —
 // re-derive snippets from there rather than from memory.
+
+// Wiki host is configurable via ``VITE_WIKI_BASE_URL`` (no trailing
+// slash). Defaults to the production intranet wiki. Override in
+// ``.env.local`` for off-network dev pointing at a mirror, or to
+// disable click-through entirely by pointing at a placeholder host.
+// The wiki is intranet-only; off-network curators see the inline
+// summary and a non-resolving click target — that's by design until
+// public-mirror plumbing exists.
+const WIKI_HOST: string =
+  (import.meta.env.VITE_WIKI_BASE_URL as string | undefined)?.replace(
+    /\/+$/,
+    "",
+  ) || "https://wiki.pavlab.msl.ubc.ca";
+
 const WIKI_BASE =
-  "https://wiki.pavlab.msl.ubc.ca/display/gemma/Curating+Experimental+Factor+Categories+and+Factor+Values";
+  `${WIKI_HOST}/display/gemma/Curating+Experimental+Factor+Categories+and+Factor+Values`;
 const PREDICATE_URL =
-  "https://wiki.pavlab.msl.ubc.ca/display/gemma/Use+of+predicates+in+factor+values";
+  `${WIKI_HOST}/display/gemma/Use+of+predicates+in+factor+values`;
 const BASELINE_URL =
-  "https://wiki.pavlab.msl.ubc.ca/display/gemma/Curating+Baseline+Factor+Values";
+  `${WIKI_HOST}/display/gemma/Curating+Baseline+Factor+Values`;
 const GENOTYPE_URL =
-  "https://wiki.pavlab.msl.ubc.ca/display/gemma/Curating+Genotype+EFCs";
+  `${WIKI_HOST}/display/gemma/Curating+Genotype+EFCs`;
 const TAGS_URL =
-  "https://wiki.pavlab.msl.ubc.ca/display/gemma/Curate+the+Experimental+Tags";
+  `${WIKI_HOST}/display/gemma/Curate+the+Experimental+Tags`;
 const FREE_TEXT_URL =
-  "https://wiki.pavlab.msl.ubc.ca/display/gemma/Curating+using+Free-Text";
+  `${WIKI_HOST}/display/gemma/Curating+using+Free-Text`;
 const ONTO_URL =
-  "https://wiki.pavlab.msl.ubc.ca/display/gemma/Using+ontologies";
+  `${WIKI_HOST}/display/gemma/Using+ontologies`;
 const CHECKLIST_URL =
-  "https://wiki.pavlab.msl.ubc.ca/display/gemma/Experiment+Checklist";
+  `${WIKI_HOST}/display/gemma/Experiment+Checklist`;
 
 /** Per-EFC guideline lookups, keyed by category label (lowercased). */
 export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
@@ -444,7 +458,8 @@ export function guidelineForCategory(label: string): GuidelineSnippet | null {
 
 /**
  * Rewrite Confluence cloud (`pavlidislab.atlassian.net`) URLs to the
- * production wiki (`wiki.pavlab.msl.ubc.ca`). The agent emits cloud-
+ * configured wiki host (defaults to `wiki.pavlab.msl.ubc.ca`; override
+ * via ``VITE_WIKI_BASE_URL``). The agent emits cloud-
  * style URLs but those aren't valid for the team; the production
  * wiki is the click-through we want. Pass-through for everything
  * else (unknown shapes stay untouched so curators can debug them).
@@ -455,6 +470,6 @@ export function normalizeWikiUrl(url: string | null | undefined): string {
   const m = url.match(
     /^https?:\/\/pavlidislab\.atlassian\.net\/wiki\/spaces\/CG\/pages\/[^/]+\/(.+)$/,
   );
-  if (m) return `https://wiki.pavlab.msl.ubc.ca/display/gemma/${m[1]}`;
+  if (m) return `${WIKI_HOST}/display/gemma/${m[1]}`;
   return url;
 }

@@ -71,7 +71,10 @@ import {
   agentProposalToApplyArgs,
   agentProposalToLegacyProposal,
 } from "@/features/proposal/agentProposalAdapter";
-import { applyProposalToDesign } from "@/features/design/mutations";
+import {
+  applyProposalToDesign,
+  removeAppliedProposalFromDesign,
+} from "@/features/design/mutations";
 import { useToast } from "@/components/ui/Toast";
 import { Spinner } from "@/components/ui/Spinner";
 import {
@@ -614,7 +617,7 @@ function MainGrid({
   // otherwise leave the stale draft in place. Calling ``reload()``
   // nukes the localStorage cache + null-resets the in-memory draft
   // so the loader effect re-seeds from the freshly-fetched saved.
-  const { reload: reloadDraft, draft, apply } = useDesignDraft();
+  const { reload: reloadDraft, draft, saved, apply } = useDesignDraft();
   // Either legacy pending OR a new-shape agent_proposal counts as
   // "the sidebar has work to show". Both arms render below.
   const proposalCount = pendingProposals.length + agentProposals.length;
@@ -997,11 +1000,58 @@ function MainGrid({
                     "success",
                   );
                 };
+                // Inverse of handleApply — drop every factor/tag the
+                // proposal added, regardless of whether it's already
+                // committed to saved. The mutator's normal contract
+                // protects saved items so a curator's reject-after-
+                // apply doesn't kill pre-existing same-name factors;
+                // we deliberately bypass that here by passing
+                // ``null`` for saved, so the curator can revert even
+                // after they've committed the application — the
+                // post-revert draft will show the proposal items as
+                // ``removed`` tombstones, and the next Commit pushes
+                // the deletion to the server. If they want to back
+                // out of the revert itself, the CommitBar's Discard
+                // button still rolls back to saved.
+                //
+                // Edge case: a pre-existing factor with the same
+                // (name, category) as a proposal item gets dropped
+                // too. Discard recovers it. Rare enough that it's
+                // not worth a confirmation modal.
+                const handleRevertApplication = () => {
+                  if (!draft) return;
+                  const { tags, factors } = agentProposalToApplyArgs(payload);
+                  const next = removeAppliedProposalFromDesign(
+                    draft,
+                    null,
+                    tags,
+                    factors,
+                  );
+                  apply(next);
+                  const wasCommitted =
+                    (saved?.factors?.length ?? 0) > 0 ||
+                    (saved?.tags?.length ?? 0) > 0;
+                  toast.show(
+                    wasCommitted
+                      ? `Reverted: ${factors.length} factor${
+                          factors.length === 1 ? "" : "s"
+                        } and ${tags.length} tag${
+                          tags.length === 1 ? "" : "s"
+                        } marked for deletion. Commit to push the removal to the server, or Discard to undo the revert.`
+                      : `Reverted proposal application: dropped ${factors.length} factor${
+                          factors.length === 1 ? "" : "s"
+                        } and ${tags.length} tag${
+                          tags.length === 1 ? "" : "s"
+                        } from the draft.`,
+                    "success",
+                  );
+                };
                 return (
                   <ProposalSidebarPanel
                     key={`ap-${p.proposal_id}`}
                     proposal={synth}
                     onApplyToDesign={handleApply}
+                    onRevertApplication={handleRevertApplication}
                   />
                 );
               })}
