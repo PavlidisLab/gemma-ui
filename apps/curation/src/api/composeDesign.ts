@@ -115,6 +115,16 @@ export interface G2Design {
    *  source_biomaterial_id) can pick it up without a second fetch.
    */
   biomaterials?: LegacyBiomaterial[];
+  /** EE-level tags (curated annotations on the experiment). The
+   *  local_api Design schema emits them alongside the rest of the
+   *  design; real Gemma 2.0's ``/datasets/{id}/design`` may or may
+   *  not include them (the field is optional here for that reason).
+   *  When absent the UI falls back to whatever the proposal overlay
+   *  carries; absent in both → empty list. Without this the banner's
+   *  ``ModalityIndicator`` was always mis-classifying single-cell /
+   *  single-nucleus studies as bulk RNA-seq because the assay tag
+   *  it inspects was missing from the composed Design. */
+  tags?: Tag[];
 }
 
 // ─── Curation-proposal overlay shape ─────────────────────────────
@@ -217,7 +227,15 @@ export function composeCurationDesign(
     experiment_short_name: experimentShortName,
     factors,
     biomaterials,
-    tags: overlay?.tags ?? [],
+    // Overlay tags (from the latest pending proposal) win when
+    // present — that lets the curator preview the agent's tag
+    // suggestions on the design. When no overlay, fall back to the
+    // saved EE-level tags from ``g2`` (what local_api returns; real
+    // Gemma 2.0 may or may not emit them yet). Empty in both → no
+    // tags. Pre-2026-05-23 this was ``overlay?.tags ?? []`` which
+    // dropped the saved tags on the floor and caused the banner's
+    // ModalityIndicator to misclassify single-cell studies as bulk.
+    tags: overlay?.tags ?? g2.tags ?? [],
     external_source: externalSource ?? null,
     title: g2.name ?? undefined,
     description: g2.description ?? undefined,
