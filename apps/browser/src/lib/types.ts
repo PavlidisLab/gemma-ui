@@ -141,6 +141,37 @@ export interface DiffExAnalysis {
   subsetFactorValue?: FactorValueVO | null;
 }
 
+/**
+ * Differential-expression result set descriptor returned by
+ * `/datasets/{id}/analyses/differential/resultSets` (which 302s to
+ * `/resultSets?datasets={id}`). Each result set corresponds to one
+ * contrast within an analysis; the TSV at `/resultSets/{id}` carries
+ * the per-gene stats. Only the fields the Downloads UI surfaces are
+ * typed here — the full VO has more (per-factor contrasts, baseline
+ * groups, etc.) but we don't render them yet.
+ */
+export interface DiffExResultSet {
+  id: number;
+  analysis?: {
+    id?: number;
+    name?: string | null;
+    isSubset?: boolean;
+  } | null;
+  /** Factors in the linear-model design. Multi-factor analyses list
+   *  more than one. The Downloads row labels with the factor name(s);
+   *  the contrast pair lives in `contrasts[]` which we don't surface
+   *  here yet. */
+  experimentalFactors?:
+    | {
+        id?: number;
+        name?: string | null;
+        description?: string | null;
+        category?: string | null;
+      }[]
+    | null;
+  baselineGroup?: { id?: number; factorValue?: string | null } | null;
+}
+
 // ─── SVD ─────────────────────────────────────────────────────────────────────
 
 export interface SvdResult {

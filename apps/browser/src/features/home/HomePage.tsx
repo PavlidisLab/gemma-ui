@@ -205,34 +205,45 @@ function VariantPicker({
         <span className="text-slate-400">{open ? "▾" : "▸"}</span>
       </button>
       {open ? (
-        <div className="mt-1 w-64 rounded border border-slate-300 bg-white shadow-lg text-sm overflow-hidden">
-          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-100">
+        // Bounded to the viewport so 14 variants don't run off the
+        // bottom of the screen on smaller laptops. Sticky header keeps
+        // the section label visible while scrolling. Each row is now
+        // single-line (label inline with the subtitle as a muted
+        // tail) — was a two-line block per row which cost ~55px and
+        // pushed the bottom 4-5 variants below the fold.
+        <div className="mt-1 w-72 max-h-[calc(100vh-5rem)] flex flex-col rounded border border-slate-300 bg-white shadow-lg text-sm">
+          <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-100 bg-white sticky top-0">
             Home design — try one
           </div>
-          {(Object.keys(VARIANTS) as VariantKey[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => {
-                onPick(k);
-                setOpen(false);
-              }}
-              className={
-                "w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-b-0 " +
-                (k === active ? "bg-emerald-50/60" : "")
-              }
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="font-medium text-slate-900">{VARIANTS[k].label}</span>
+          <div className="overflow-y-auto">
+            {(Object.keys(VARIANTS) as VariantKey[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => {
+                  onPick(k);
+                  setOpen(false);
+                }}
+                title={VARIANTS[k].subtitle}
+                className={
+                  "w-full text-left px-2.5 py-1 hover:bg-slate-50 border-b border-slate-100 last:border-b-0 flex items-baseline gap-2 " +
+                  (k === active ? "bg-emerald-50/60" : "")
+                }
+              >
+                <span className="font-medium text-slate-900 shrink-0">
+                  {VARIANTS[k].label}
+                </span>
+                <span className="text-[11px] text-slate-500 truncate">
+                  {VARIANTS[k].subtitle}
+                </span>
                 {k === active ? (
-                  <span className="text-[10px] text-emerald-700 font-mono">active</span>
+                  <span className="ml-auto text-[10px] text-emerald-700 font-mono shrink-0">
+                    active
+                  </span>
                 ) : null}
-              </div>
-              <div className="text-xs text-slate-500 leading-snug mt-0.5">
-                {VARIANTS[k].subtitle}
-              </div>
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>

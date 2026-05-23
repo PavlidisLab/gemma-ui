@@ -13,8 +13,11 @@ import {
   getDatasetPublications,
   getDatasetPipelineStatus,
   getDatasetDiffExAnalyses,
+  getDatasetResultSets,
   getDatasetSvd,
   getDatasetGeeq,
+  datasetDataDownloadUrl,
+  downloadResultSetTsv,
 } from "@/api/endpoints";
 import { gemmaUrl } from "@/lib/gemmaConfig";
 import type {
@@ -25,6 +28,7 @@ import type {
   Publication,
   PipelineStatus,
   DiffExAnalysis,
+  DiffExResultSet,
   SvdResult,
   GeeqScores,
 } from "@/lib/types";
@@ -285,7 +289,17 @@ function GeeqPopover({ geeq, loading }: { geeq: GeeqScores | null; loading: bool
       {loading ? (
         <div className="px-3 py-3 text-slate-400 italic">Loading…</div>
       ) : !geeq ? (
-        <div className="px-3 py-3 text-slate-400 italic">No GEEQ data.</div>
+        // Two reasons we land here on Gemma 1.x: (a) GEEQ hasn't been
+        // computed for this dataset (404), or (b) the breakdown
+        // endpoint is admin-locked and the user isn't signed in (403).
+        // We can't tell them apart from the client side without
+        // probing further; the friendlier message covers both — the
+        // aggregate score is already on the badge above.
+        <div className="px-3 py-3 text-slate-500 italic leading-snug">
+          Per-factor breakdown isn't available here. The aggregate
+          score is on the badge; the breakdown is currently admin-only
+          on Gemma 1.x.
+        </div>
       ) : (
         <div className="divide-y divide-slate-100">
           <ScoreGroup label="Suitability" scores={geeq} labels={S_SCORE_LABELS} />
@@ -702,33 +716,188 @@ function SvdSection({ svd, loading }: { svd: SvdResult | null; loading: boolean 
 
 function DownloadsTab({ dataset }: { dataset: Dataset }) {
   const id = dataset.id;
-  const u = (path: string) => gemmaUrl(path);
+  // Result-set list — populates the per-contrast DE download rows.
+  // We hit `/datasets/{id}/analyses/differential/resultSets` which 302s
+  // to `/resultSets?datasets={id}`; fetch follows the redirect.
+  // Empty data is fine (most datasets without DE will return an empty
+  // list rather than 404).
+  const resultSetsQ = useQuery({
+    queryKey: ["dataset-resultsets", id],
+    queryFn: ({ signal }) => getDatasetResultSets(id, signal),
+    staleTime: 5 * 60_000,
+  });
+
   return (
-    <SectionCard title="Downloads" subtitle="Bulk data and metadata">
-      <ul className="text-sm space-y-1.5 text-sky-700">
-        <li>
-          <a className="hover:underline inline-flex items-center gap-1"
-            href={u(`/expressionExperiment/downloadExpressionExperiment.html?id=${id}`)}
-            target="_blank" rel="noopener noreferrer">
-            Expression matrix<ExternalLink size={11} />
-          </a>
-        </li>
-        <li>
-          <a className="hover:underline inline-flex items-center gap-1"
-            href={u(`/expressionExperiment/downloadDEA.html?id=${id}`)}
-            target="_blank" rel="noopener noreferrer">
-            Differential expression results<ExternalLink size={11} />
-          </a>
-        </li>
-        <li>
-          <a className="hover:underline inline-flex items-center gap-1"
-            href={u(`/expressionExperiment/showExpressionExperiment.html?id=${id}`)}
-            target="_blank" rel="noopener noreferrer">
-            Legacy Gemma page (full details)<ExternalLink size={11} />
-          </a>
-        </li>
-      </ul>
-    </SectionCard>
+    <div className="space-y-4">
+      <SectionCard
+        title="Expression data"
+        subtitle="Processed and raw expression matrices"
+      >
+        <ul className="text-sm space-y-1.5">
+          <li className="flex items-baseline gap-2">
+            {/* `/datasets/{id}/data` returns Content-Disposition
+                attachment so a plain anchor triggers a real file
+                download; no JS dance needed. ``?filter=true`` strips
+                low-variance / batch-only probes — the standard
+                processed export. */}
+            <a
+              className="text-sky-700 hover:underline"
+              href={datasetDataDownloadUrl(id, "processed", { filter: true })}
+            >
+              Processed expression matrix (TSV)
+            </a>
+            <span className="text-[11px] text-slate-500">
+              filtered; gzip-encoded over the wire
+            </span>
+          </li>
+          <li className="flex items-baseline gap-2">
+            <a
+              className="text-sky-700 hover:underline"
+              href={datasetDataDownloadUrl(id, "processed", { filter: false })}
+            >
+              Processed expression matrix — unfiltered (TSV)
+            </a>
+          </li>
+          <li className="flex items-baseline gap-2">
+            {/* Raw data is only present for some datasets; the link
+                404s when there's no raw. We surface the link
+                unconditionally; the curator can try it. */}
+            <a
+              className="text-sky-700 hover:underline"
+              href={datasetDataDownloadUrl(id, "raw")}
+            >
+              Raw expression data (TSV)
+            </a>
+            <span className="text-[11px] text-slate-500">
+              not available for every dataset
+            </span>
+          </li>
+        </ul>
+      </SectionCard>
+
+      <SectionCard
+        title="Differential expression"
+        subtitle="One TSV per analysis result set"
+      >
+        {resultSetsQ.isLoading ? (
+          <LoadingRow />
+        ) : resultSetsQ.isError ? (
+          <ErrorRow />
+        ) : !resultSetsQ.data || resultSetsQ.data.length === 0 ? (
+          <p className="text-xs text-slate-500 italic">
+            No differential expression analyses are available for this
+            dataset.
+          </p>
+        ) : (
+          <ul className="text-sm space-y-1.5">
+            {resultSetsQ.data.map((rs) => (
+              <ResultSetDownloadRow
+                key={rs.id}
+                resultSet={rs}
+                datasetAccession={dataset.shortName || `dataset-${id}`}
+              />
+            ))}
+          </ul>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Other" subtitle="External resources">
+        <ul className="text-sm space-y-1.5 text-sky-700">
+          <li>
+            <a
+              className="hover:underline inline-flex items-center gap-1"
+              href={gemmaUrl(
+                `/expressionExperiment/showExpressionExperiment.html?id=${id}`,
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Legacy Gemma page (full details)
+              <ExternalLink size={11} />
+            </a>
+          </li>
+        </ul>
+      </SectionCard>
+    </div>
+  );
+}
+
+/** One row in the DE downloads list — a label describing the result
+ *  set (factor name(s) + analysis name) plus a "Download TSV" button.
+ *  The button uses ``downloadResultSetTsv`` because a plain anchor
+ *  hitting ``/resultSets/{id}`` would content-negotiate to JSON;
+ *  TSV needs an explicit ``Accept`` header.
+ *
+ *  Filename: ``<accession>_resultSet_<id>.tsv`` — mirrors the legacy
+ *  expression-matrix download naming so a curator's downloads folder
+ *  groups them. */
+function ResultSetDownloadRow({
+  resultSet,
+  datasetAccession,
+}: {
+  resultSet: DiffExResultSet;
+  datasetAccession: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const factorLabels = (resultSet.experimentalFactors ?? [])
+    .map((f) => f.name?.trim() || f.category?.trim())
+    .filter(Boolean) as string[];
+  const label =
+    factorLabels.length > 0
+      ? factorLabels.join(" × ")
+      : `result set ${resultSet.id}`;
+  const analysisName = resultSet.analysis?.name ?? null;
+  const filename = `${datasetAccession}_resultSet_${resultSet.id}.tsv`;
+
+  const handleClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await downloadResultSetTsv(resultSet.id, filename);
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === "object" && "message" in e
+          ? String((e as { message: string }).message)
+          : "Download failed.";
+      setErr(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li className="flex items-baseline gap-2 flex-wrap">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy}
+        className={
+          "text-sky-700 hover:underline disabled:text-slate-400 disabled:cursor-wait"
+        }
+        title={`Download contrast TSV for result set ${resultSet.id}`}
+      >
+        {busy ? "Preparing…" : label}
+      </button>
+      {analysisName ? (
+        <span className="text-[11px] text-slate-500 font-mono">
+          {analysisName}
+        </span>
+      ) : null}
+      <span className="text-[10px] text-slate-400 font-mono">
+        #{resultSet.id}
+      </span>
+      {err ? (
+        <span
+          className="text-[11px] text-rose-600"
+          title={err}
+        >
+          {err}
+        </span>
+      ) : null}
+    </li>
   );
 }
 

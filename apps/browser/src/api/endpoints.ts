@@ -465,6 +465,7 @@ import type {
   Publication,
   PipelineStatus,
   DiffExAnalysis,
+  DiffExResultSet,
   SvdResult,
   GeeqScores,
 } from "@/lib/types";
@@ -516,6 +517,92 @@ export async function getDatasetDiffExAnalyses(
   return r.data ?? [];
 }
 
+/**
+ * List the differential-expression result sets for a dataset. Each
+ * row carries an `id` we can hit at `/resultSets/{id}` (with
+ * `Accept: text/tab-separated-values`) to download the per-gene
+ * stats TSV.
+ *
+ * We hit `/resultSets?datasets={id}` directly rather than the
+ * canonical `/datasets/{id}/analyses/differential/resultSets` —
+ * the latter 302-redirects to the same query-string form, but the
+ * server emits the Location header as an absolute
+ * `https://staging-gemma.msl.ubc.ca/...` URL. `fetch` follows the
+ * redirect cross-origin, escapes the Vite proxy, and trips CORS
+ * (staging Gemma doesn't allow `localhost:5183`). Using the
+ * destination URL directly keeps the request on the proxy and
+ * dodges the redirect entirely.
+ */
+export async function getDatasetResultSets(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<DiffExResultSet[]> {
+  const r = await apiGet<{ data?: DiffExResultSet[] }>(
+    `${BASE}/resultSets`,
+    { params: { datasets: String(id) }, signal },
+  );
+  return r.data ?? [];
+}
+
+/** Absolute(ish) URL for a dataset's expression matrix TSV download.
+ *  The server emits `Content-Disposition: attachment; filename=...`,
+ *  so a plain `<a href>` triggers a real download — no JS needed. */
+export function datasetDataDownloadUrl(
+  id: number | string,
+  kind: "processed" | "raw" = "processed",
+  opts?: { filter?: boolean },
+): string {
+  const path =
+    kind === "raw"
+      ? `${BASE}/datasets/${id}/data/raw`
+      : `${BASE}/datasets/${id}/data`;
+  const filter = opts?.filter ?? true;
+  return kind === "raw" ? path : `${path}?filter=${filter ? "true" : "false"}`;
+}
+
+/**
+ * Fetch a result-set as TSV and trigger a browser download.
+ *
+ * Why JS-driven instead of a plain `<a href>`: the
+ * `/resultSets/{id}` endpoint content-negotiates between JSON and
+ * TSV, and the default `Accept` a browser sends on an `<a>` click
+ * ranks `application/json` above `text/tab-separated-values` (the
+ * server lists TSV at `q=0.9` while JSON is `q=1.0`). Without an
+ * explicit `Accept` header the curator would download JSON. Fetching
+ * with `Accept: text/tab-separated-values` forces the TSV branch;
+ * we then synthesise an `<a download>` against an object URL to
+ * surface the file under the curator's chosen filename.
+ */
+export async function downloadResultSetTsv(
+  resultSetId: number,
+  filename: string,
+): Promise<void> {
+  const r = await fetch(`${BASE}/resultSets/${resultSetId}`, {
+    headers: { Accept: "text/tab-separated-values" },
+  });
+  if (!r.ok) {
+    throw Object.assign(
+      new Error(`Failed to download result set ${resultSetId}: HTTP ${r.status}`),
+      { status: r.status },
+    );
+  }
+  const blob = await r.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    // Defer the revoke so the click had a chance to start the
+    // download; otherwise some browsers cancel the navigation
+    // before the file lands.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+  }
+}
+
 export async function getDatasetSvd(
   id: number | string,
   signal?: AbortSignal,
@@ -540,8 +627,17 @@ export async function getDatasetGeeq(
     const r = await apiGet<{ data?: GeeqScores }>(`${BASE}/datasets/${id}/geeq`, { signal });
     return r.data ?? null;
   } catch (e: unknown) {
-    if (e && typeof e === "object" && "status" in e && (e as { status: number }).status === 404) {
-      return null;
+    // The Gemma 1.x endpoint is GROUP_ADMIN-only; anonymous browse
+    // users hit 403. The badge score itself is public (carried on
+    // ``dataset.geeq.publicQualityScore``); only the per-factor
+    // breakdown is admin-locked. Treat 401/403/404 the same here —
+    // "no breakdown to show" — and let the caller surface a clearer
+    // message rather than throwing. See
+    // ``~/Dev/eclipseworkspace/Gemma/handoffs/GEEQ_PUBLIC_BREAKDOWN_HANDOFF.md``
+    // for the bro ask to expose a public breakdown endpoint.
+    if (e && typeof e === "object" && "status" in e) {
+      const s = (e as { status: number }).status;
+      if (s === 401 || s === 403 || s === 404) return null;
     }
     throw e;
   }
