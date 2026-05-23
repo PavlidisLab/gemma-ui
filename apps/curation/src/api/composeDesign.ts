@@ -79,12 +79,42 @@ interface G2BioMaterialAssignment {
   factor_value_ids?: number[];
 }
 
+/** Legacy biomaterial row carried alongside the Gemma 2.0
+ *  ``bio_material_assignments`` shape. The local API's
+ *  ``Design`` Pydantic model emits both — see
+ *  ``gemma_curation_agents/local_api/design_schemas.py:96`` (the
+ *  "wire-shape compatibility" block). The G2 ``bio_material_assignments``
+ *  array carries only ``bio_material_name`` + ``factor_value_ids``;
+ *  per-sample ``characteristics`` (the popover's bread and butter) live
+ *  on this legacy ``biomaterials`` array.
+ */
+interface LegacyBiomaterial {
+  short_name: string;
+  name?: string | null;
+  characteristics?: Record<string, string>;
+  characteristic_uris?: Record<
+    string,
+    { category_uri?: string | null; value_uri?: string | null }
+  >;
+  bio_assays?: Array<{
+    short_name?: string;
+    name?: string | null;
+  }>;
+  source_biomaterial_id?: number | null;
+}
+
 export interface G2Design {
   id?: number;
   name?: string | null;
   description?: string | null;
   experimental_factors?: G2ExperimentalFactor[];
   bio_material_assignments?: G2BioMaterialAssignment[];
+  /** Legacy field — the local API emits it alongside
+   *  ``bio_material_assignments`` so consumers that need the full
+   *  biomaterial detail (characteristics + bio_assays +
+   *  source_biomaterial_id) can pick it up without a second fetch.
+   */
+  biomaterials?: LegacyBiomaterial[];
 }
 
 // ─── Curation-proposal overlay shape ─────────────────────────────
@@ -155,18 +185,31 @@ export function composeCurationDesign(
     composeFactor(ef, fvOverlay, samplesByFvId),
   );
 
-  // Biomaterials: minimum viable mapping from the assignments table.
-  // The full biomaterial detail (characteristics, source biomaterial
-  // etc.) lives on /datasets/{id}/samples — fetch in a follow-up if
-  // the editor needs it. For the design view's purposes the
-  // short_name + name is enough to populate the sample-assignment
-  // affordances.
+  // Biomaterials: prefer the legacy ``biomaterials`` array when the
+  // server emits it (the local API does — see
+  // ``design_schemas.py:96``). It carries the per-sample
+  // characteristics + characteristic_uris + bio_assays +
+  // source_biomaterial_id the popovers and the per-sample tooltips
+  // depend on. Fall back to the minimum-viable mapping from the
+  // ``bio_material_assignments`` table for any consumer (real Gemma
+  // 2.0?) that doesn't emit the legacy field.
+  const legacyByShortName = new Map<string, LegacyBiomaterial>();
+  for (const lb of g2.biomaterials ?? []) {
+    if (lb.short_name) legacyByShortName.set(lb.short_name, lb);
+  }
   const biomaterials: Biomaterial[] = (g2.bio_material_assignments ?? []).map(
-    (bma) => ({
-      short_name: parseShortName(bma.bio_material_name ?? ""),
-      name: bma.bio_material_name ?? "",
-      characteristics: {},
-    }),
+    (bma) => {
+      const shortName = parseShortName(bma.bio_material_name ?? "");
+      const legacy = legacyByShortName.get(shortName);
+      return {
+        short_name: shortName,
+        name: legacy?.name ?? bma.bio_material_name ?? "",
+        characteristics: legacy?.characteristics ?? {},
+        characteristic_uris: legacy?.characteristic_uris,
+        bio_assays: legacy?.bio_assays,
+        source_biomaterial_id: legacy?.source_biomaterial_id ?? null,
+      };
+    },
   );
 
   return {
