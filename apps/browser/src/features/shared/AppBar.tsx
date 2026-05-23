@@ -3,14 +3,29 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { getMyself } from "@/api/endpoints";
 import { gemmaUrl } from "@/lib/gemmaConfig";
+import { SkinSwitcher } from "@/lib/skin/SkinSwitcher";
 
 export function AppBar() {
   const me = useQuery({ queryKey: ["me"], queryFn: ({ signal }) => getMyself(signal) });
   const user = me.data;
 
   return (
-    <header className="flex items-center gap-3 h-14 px-4 border-b border-gemma-grid bg-white">
-      <Link to="/" className="flex items-center gap-2 font-semibold text-gemma-ink hover:no-underline">
+    <header
+      className="flex items-center gap-3 h-14 px-4 border-b border-gemma-grid bg-surface"
+      style={{
+        // ExtJS skin paints the titlebar via gradient + dark text;
+        // declared inline so the AppBar picks up the skin without
+        // each new skin needing a Tailwind override block.
+        background:
+          "linear-gradient(to bottom, rgb(var(--skin-titlebar-from)) 0%, rgb(var(--skin-titlebar-to)) 100%)",
+        color: "rgb(var(--skin-titlebar-text))",
+      }}
+    >
+      <Link
+        to="/"
+        className="flex items-center gap-2 font-semibold hover:no-underline"
+        style={{ color: "rgb(var(--skin-titlebar-text))" }}
+      >
         <span className="inline-block w-2 h-2 rounded-full bg-gemma-accent" />
         <span>Gemma</span>
       </Link>
@@ -43,11 +58,12 @@ export function AppBar() {
       </a>
 
       {user ? (
-        <div className="text-sm text-gemma-ink">
-          <span className="text-gemma-subtle">Signed in as </span>
+        <div className="text-sm" style={{ color: "rgb(var(--skin-titlebar-text))" }}>
+          <span style={{ opacity: 0.7 }}>Signed in as </span>
           <span className="font-medium">{user.userName}</span>
         </div>
       ) : null}
+      <SkinSwitcher />
     </header>
   );
 }

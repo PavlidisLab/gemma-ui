@@ -2,12 +2,151 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Skin design tokens.
+ *
+ * Values are written as RGB channel triplets (e.g. ``31 41 55``) so
+ * Tailwind's opacity modifiers (``text-gemma-ink/50``) keep working
+ * via ``rgb(var(--skin-ink) / <alpha-value>)`` in tailwind.config.
+ *
+ * Chrome tokens (``--skin-surface``, ``--skin-panel-*``, button
+ * gradients, etc.) are read by the ``.skin-panel`` / ``.skin-btn``
+ * helper classes below — and by the per-skin override blocks that
+ * follow.
+ *
+ * To add a skin: append a block ``html.skin-NAME { … }`` overriding
+ * the vars you want, then register the skin in
+ * ``src/lib/skin/SkinProvider.tsx``.
+ */
+
+:root {
+  /* gemma palette (channel form) */
+  --skin-ink:        31 41 55;        /* slate-800 */
+  --skin-subtle:     107 114 128;     /* slate-500 */
+  --skin-grid:       229 231 235;     /* slate-200 */
+  --skin-accent:     37 99 235;       /* blue-600 */
+  --skin-accent2:    16 185 129;      /* emerald-500 */
+  --skin-accent3:    245 158 11;      /* amber-500 */
+  --skin-accent4:    239 68 68;       /* rose-500 */
+
+  /* surface palette */
+  --skin-surface:      255 255 255;   /* page card / panel body */
+  --skin-surface-sunk: 248 250 252;   /* slate-50 — input bg, subtle alt */
+  --skin-surface-alt:  241 245 249;   /* slate-100 — chips, hover */
+
+  /* chrome */
+  --skin-bg:                 255 255 255;   /* page background */
+  --skin-panel-border:       229 231 235;   /* slate-200 */
+  --skin-panel-header-from:  255 255 255;
+  --skin-panel-header-to:    255 255 255;
+  --skin-panel-header-text:  31 41 55;
+  --skin-grid-header-from:   248 250 252;
+  --skin-grid-header-to:     248 250 252;
+  --skin-grid-stripe:        249 250 251;   /* gray-50 alt rows */
+  --skin-btn-from:           255 255 255;
+  --skin-btn-to:             249 250 251;
+  --skin-btn-border:         209 213 219;   /* gray-300 */
+  --skin-btn-primary-from:   37 99 235;
+  --skin-btn-primary-to:     37 99 235;
+  --skin-input-border:       209 213 219;
+  --skin-titlebar-from:      255 255 255;
+  --skin-titlebar-to:        255 255 255;
+  --skin-titlebar-text:      31 41 55;
+
+  /* typography + shape */
+  --skin-font-sans: "Inter";
+  --skin-radius:    0.25rem;
+  --skin-font-size: 14px;
+}
+
+/* ─── ExtJS-classic skin ────────────────────────────────────────────────
+ * Mirrors the Sencha ExtJS "classic" theme that powered Gemma 1.x:
+ * steel-blue gradients, Tahoma 11px, sharp corners. Activates
+ * globally when ``html`` carries ``.skin-extjs`` (see SkinProvider).
+ */
+html.skin-extjs {
+  --skin-ink:        51 51 51;         /* warmer body */
+  --skin-subtle:     108 108 108;
+  --skin-grid:       208 217 230;      /* #d0d9e6 — soft chrome border */
+  --skin-accent:     21 66 139;        /* #15428b — Gemma 1.x link blue */
+
+  --skin-surface:      255 255 255;
+  --skin-surface-sunk: 245 245 245;
+  --skin-surface-alt:  232 241 250;
+
+  --skin-bg:                 240 240 240;   /* #f0f0f0 page wash */
+  --skin-panel-border:       153 187 232;   /* #99bbe8 */
+  --skin-panel-header-from:  235 243 253;   /* #ebf3fd */
+  --skin-panel-header-to:    208 222 244;   /* #d0def4 */
+  --skin-panel-header-text:  21 66 139;
+  --skin-grid-header-from:   235 243 253;
+  --skin-grid-header-to:     208 222 244;
+  --skin-grid-stripe:        245 245 245;
+  --skin-btn-from:           255 255 255;
+  --skin-btn-to:             208 217 230;
+  --skin-btn-border:         181 184 200;   /* #b5b8c8 */
+  --skin-btn-primary-from:   217 231 248;
+  --skin-btn-primary-to:     165 195 230;
+  --skin-input-border:       181 184 200;
+  --skin-titlebar-from:      28 67 119;      /* #1c4377 */
+  --skin-titlebar-to:        14 44 91;       /* #0e2c5b */
+  --skin-titlebar-text:      255 255 255;
+
+  --skin-font-sans: "Tahoma", "Lucida Sans Unicode", "Lucida Grande";
+  --skin-radius:    0;
+  --skin-font-size: 12px;
+}
+
+/* ─── Ink skin (paper / book) ──────────────────────────────────────────
+ * Warm cream paper, dark-ink type, restrained borders. Useful for
+ * the editorial / abstract-heavy pages. Same sizing as default.
+ */
+html.skin-ink {
+  --skin-ink:        28 25 23;          /* near-black */
+  --skin-subtle:     120 113 108;
+  --skin-grid:       214 196 168;
+  --skin-accent:     153 27 27;         /* dark red ink */
+  --skin-accent2:    78 92 53;
+  --skin-accent3:    138 96 35;
+  --skin-accent4:    143 32 31;
+
+  --skin-surface:      252 247 235;     /* warm paper */
+  --skin-surface-sunk: 245 238 222;
+  --skin-surface-alt:  236 225 200;
+
+  --skin-bg:                 245 238 222;
+  --skin-panel-border:       208 188 158;
+  --skin-panel-header-from:  236 225 200;
+  --skin-panel-header-to:    228 213 178;
+  --skin-panel-header-text:  78 50 40;
+  --skin-grid-header-from:   236 225 200;
+  --skin-grid-header-to:     236 225 200;
+  --skin-grid-stripe:        249 240 220;
+  --skin-btn-from:           252 247 235;
+  --skin-btn-to:             236 225 200;
+  --skin-btn-border:         197 172 134;
+  --skin-btn-primary-from:   153 27 27;
+  --skin-btn-primary-to:     127 23 23;
+  --skin-input-border:       197 172 134;
+  --skin-titlebar-from:      78 50 40;
+  --skin-titlebar-to:        51 27 18;
+  --skin-titlebar-text:      245 238 222;
+
+  --skin-font-sans: "Iowan Old Style", "Charter", "Georgia";
+  --skin-radius:    0.125rem;
+}
+
 @layer base {
   html, body, #root {
     height: 100%;
   }
   body {
-    @apply bg-white text-gemma-ink antialiased;
+    background-color: rgb(var(--skin-bg));
+    color: rgb(var(--skin-ink));
+    font-family: theme('fontFamily.sans');
+    font-size: var(--skin-font-size);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
   a {
@@ -22,7 +161,7 @@
   /* Filter chip used in the active-filter bar */
   .chip {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs;
-    @apply border-gemma-grid bg-white text-gemma-ink;
+    @apply border-gemma-grid bg-surface text-gemma-ink;
   }
   .chip-pos    { @apply bg-emerald-50 text-emerald-800 border-emerald-200; }
   .chip-neg    { @apply bg-rose-50 text-rose-800 border-rose-200; }
@@ -38,34 +177,105 @@
 
   /* Search bar text input + selectors share this look */
   .input {
-    @apply w-full px-2 py-1.5 text-sm rounded border border-gemma-grid bg-white;
-    @apply focus:outline-none focus:ring-2 focus:ring-gemma-accent/30 focus:border-gemma-accent;
+    @apply w-full px-2 py-1.5 text-sm rounded border bg-surface;
+    border-color: rgb(var(--skin-input-border));
+  }
+  .input:focus {
+    @apply outline-none ring-2 ring-gemma-accent/30 border-gemma-accent;
   }
 
+  /* Skin-aware button. ``.btn-primary`` reads the primary-gradient
+     tokens so the ExtJS skin picks up its steel-blue button face
+     without component changes. */
   .btn {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded border bg-white;
-    @apply border-gemma-grid text-gemma-ink hover:bg-gray-50;
+    @apply inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded border;
+    background: linear-gradient(
+      to bottom,
+      rgb(var(--skin-btn-from)) 0%,
+      rgb(var(--skin-btn-to)) 100%
+    );
+    border-color: rgb(var(--skin-btn-border));
+    color: rgb(var(--skin-ink));
+  }
+  .btn:hover {
+    filter: brightness(1.02);
   }
   .btn-primary {
-    @apply bg-gemma-accent text-white border-gemma-accent hover:bg-blue-700;
+    background: linear-gradient(
+      to bottom,
+      rgb(var(--skin-btn-primary-from)) 0%,
+      rgb(var(--skin-btn-primary-to)) 100%
+    );
+    color: #fff;
+    border-color: rgb(var(--skin-btn-primary-to));
   }
   .btn-ghost {
-    @apply border-transparent hover:bg-gray-100;
+    @apply border-transparent hover:bg-surface-alt;
+    background: transparent;
   }
 
-  /* Subtle section heading inside the side-panel */
+  /* Skinnable panel — semantic class new code can opt into. Existing
+     surfaces that just use raw Tailwind don't get re-skinned; this
+     class is the migration target. */
+  .panel {
+    background: rgb(var(--skin-surface));
+    border: 1px solid rgb(var(--skin-panel-border));
+    border-radius: var(--skin-radius);
+  }
+  .panel-header {
+    background: linear-gradient(
+      to bottom,
+      rgb(var(--skin-panel-header-from)) 0%,
+      rgb(var(--skin-panel-header-to)) 100%
+    );
+    color: rgb(var(--skin-panel-header-text));
+    border-bottom: 1px solid rgb(var(--skin-panel-border));
+    padding: 0.375rem 0.625rem;
+    font-weight: 600;
+  }
+  .panel-body { padding: 0.5rem 0.625rem; }
+
+  /* Skinnable data grid */
+  .grid-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: rgb(var(--skin-surface));
+    border: 1px solid rgb(var(--skin-grid));
+  }
+  .grid-table thead th {
+    background: linear-gradient(
+      to bottom,
+      rgb(var(--skin-grid-header-from)) 0%,
+      rgb(var(--skin-grid-header-to)) 100%
+    );
+    color: rgb(var(--skin-panel-header-text));
+    font-weight: 600;
+    text-align: left;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid rgb(var(--skin-panel-border));
+  }
+  .grid-table tbody td {
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid rgb(var(--skin-grid));
+  }
+  .grid-table tbody tr:nth-child(even) td {
+    background: rgb(var(--skin-grid-stripe));
+  }
+  .grid-table tbody tr:hover td {
+    background: rgb(var(--skin-surface-alt));
+  }
+
+  /* Section heading inside the side-panel */
   .side-heading {
     @apply text-xs uppercase tracking-wider text-gemma-subtle font-medium;
   }
 
-  /* Indeterminate top-progress bar shown while queries are in flight.
-     The wrapper is a 2px lane (or spacer when idle, to avoid layout
-     jump); the ::before sweeps across it. */
+  /* Indeterminate top-progress bar shown while queries are in flight. */
   .progress-lane { height: 2px; }
   .progress-lane.busy {
     position: relative;
     overflow: hidden;
-    background-color: theme('colors.gemma.grid');
+    background-color: rgb(var(--skin-grid));
   }
   .progress-lane.busy::before {
     content: "";
@@ -74,7 +284,7 @@
     bottom: 0;
     left: -40%;
     width: 40%;
-    background-color: theme('colors.gemma.accent');
+    background-color: rgb(var(--skin-accent));
     animation: progress-indeterminate 1.2s ease-in-out infinite;
   }
 }
@@ -83,4 +293,36 @@
   0%   { left: -40%; }
   60%  { left: 100%; }
   100% { left: 100%; }
+}
+
+/* ─── ExtJS skin: global tweaks beyond the token swap ─────────────
+ * Token overrides above re-paint anything using ``gemma-*`` colours,
+ * but raw Tailwind utilities (``bg-white``, ``border-slate-200``)
+ * don't pick those up. The targeted overrides below cover the
+ * most-visible chrome so the look feels consistent across pages
+ * without rewriting every component. Sizing isn't touched — per
+ * Paul's "constraint": skins change look, not layout.
+ */
+html.skin-extjs body {
+  font-size: 12px;
+}
+html.skin-extjs .rounded,
+html.skin-extjs .rounded-md,
+html.skin-extjs .rounded-lg,
+html.skin-extjs .rounded-xl,
+html.skin-extjs .rounded-2xl {
+  border-radius: 0;
+}
+html.skin-extjs .shadow,
+html.skin-extjs .shadow-sm,
+html.skin-extjs .shadow-md,
+html.skin-extjs .shadow-lg,
+html.skin-extjs .shadow-xl,
+html.skin-extjs .shadow-2xl {
+  box-shadow: 0 1px 0 #fff inset, 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+/* ─── Ink skin: paper background everywhere ────────────────────── */
+html.skin-ink .bg-white {
+  background-color: rgb(var(--skin-surface));
 }

@@ -26,6 +26,7 @@ import { GenePage } from "@/features/gene/GenePage";
 import { GenesPage } from "@/features/gene/GenesPage";
 import { AboutPage } from "@/features/about/AboutPage";
 import { McpPage } from "@/features/mcp/McpPage";
+import { ExtjsMockup } from "@/features/mockup-extjs/ExtjsMockup";
 import { NotFound } from "@/features/shared/NotFound";
 import { AppShell } from "@/features/shared/AppShell";
 
@@ -146,6 +147,15 @@ const mcpRoute = createRoute({
   component: () => <McpPage />,
 });
 
+// Skin mockup — ExtJS-classic re-skin of the public surfaces. Static
+// data, no API. Lives behind a hidden route so a stylesheet pass
+// doesn't leak into the main app while the look is under review.
+const extjsMockupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/mockup-extjs",
+  component: () => <ExtjsMockup />,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   browserRoute,
@@ -163,4 +173,5 @@ export const routeTree = rootRoute.addChildren([
   geneRoute,
   aboutRoute,
   mcpRoute,
+  extjsMockupRoute,
 ]);

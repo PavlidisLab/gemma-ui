@@ -1,0 +1,321 @@
+/*
+ * ExtJS-classic skin mockup. Scoped to ``.ext-skin``: only descendants
+ * receive the styling. Drop the wrapper class on a page (or sub-section)
+ * to give it the legacy Gemma look.
+ *
+ * Palette + chrome cues from the Sencha ExtJS "classic" theme that
+ * powered Gemma 1.x: steel-blue header gradients, Tahoma 11px,
+ * thin solid borders, alternating zebra rows, gradient buttons.
+ * Light mode only — that's the only mode classic ExtJS ever had.
+ */
+
+.ext-skin {
+  --ext-bg: #f0f0f0;
+  --ext-panel: #ffffff;
+  --ext-stripe: #f5f5f5;
+  --ext-text: #15428b; /* the famous header text colour */
+  --ext-body-text: #333;
+  --ext-muted: #6c6c6c;
+  --ext-border: #99bbe8;
+  --ext-border-soft: #d0d9e6;
+  --ext-grid-border: #ededed;
+  --ext-header-from: #ebf3fd;
+  --ext-header-to: #d0def4;
+  --ext-tab-from: #efefef;
+  --ext-tab-to: #cad5e6;
+  --ext-btn-from: #ffffff;
+  --ext-btn-to: #d0d9e6;
+  --ext-btn-border: #b5b8c8;
+  --ext-link: #15428b;
+  --ext-shadow: 0 1px 0 #fff inset, 0 1px 1px rgba(0, 0, 0, 0.04);
+  font-family: "Tahoma", "Lucida Sans Unicode", "Lucida Grande", "Arial",
+    sans-serif;
+  font-size: 11px;
+  color: var(--ext-body-text);
+  background: var(--ext-bg);
+}
+
+/* Body / page wash */
+.ext-skin .ext-page {
+  background: var(--ext-bg);
+  padding: 6px;
+  min-height: 100vh;
+}
+
+/* Top blue title bar — the famous Gemma 1.x banner */
+.ext-skin .ext-titlebar {
+  background: linear-gradient(to bottom, #1c4377 0%, #0e2c5b 100%);
+  color: #fff;
+  padding: 5px 10px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.2px;
+  border: 1px solid #0a224a;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ext-skin .ext-titlebar a {
+  color: #cfe1ff;
+  text-decoration: none;
+  font-weight: normal;
+  font-size: 12px;
+}
+.ext-skin .ext-titlebar a:hover {
+  text-decoration: underline;
+}
+.ext-skin .ext-titlebar a.active {
+  color: #fff;
+  font-weight: bold;
+}
+
+/* Panel — the building block */
+.ext-skin .ext-panel {
+  background: var(--ext-panel);
+  border: 1px solid var(--ext-border);
+  margin-bottom: 6px;
+  box-shadow: var(--ext-shadow);
+}
+.ext-skin .ext-panel-header {
+  background: linear-gradient(
+    to bottom,
+    var(--ext-header-from) 0%,
+    var(--ext-header-to) 100%
+  );
+  border-bottom: 1px solid var(--ext-border);
+  padding: 4px 8px;
+  font-weight: bold;
+  color: var(--ext-text);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ext-skin .ext-panel-header .ext-tools {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+.ext-skin .ext-panel-body {
+  padding: 6px 8px;
+}
+
+/* Collapsible panel header — clickable chevron */
+.ext-skin .ext-collapse {
+  width: 14px;
+  height: 14px;
+  line-height: 12px;
+  text-align: center;
+  border: 1px solid #b5b8c8;
+  background: linear-gradient(to bottom, #fff, #e6e9ee);
+  color: var(--ext-text);
+  cursor: pointer;
+  font-size: 9px;
+}
+
+/* Tabs — classic ExtJS tab strip */
+.ext-skin .ext-tabs {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--ext-border);
+  background: linear-gradient(to bottom, #dbe5f4 0%, #c2d4eb 100%);
+  gap: 1px;
+  height: 24px;
+}
+.ext-skin .ext-tab {
+  padding: 4px 12px 3px;
+  background: linear-gradient(
+    to bottom,
+    var(--ext-tab-from) 0%,
+    var(--ext-tab-to) 100%
+  );
+  border: 1px solid var(--ext-border);
+  border-bottom: 0;
+  color: var(--ext-text);
+  font-size: 11px;
+  cursor: pointer;
+  position: relative;
+  top: 1px;
+}
+.ext-skin .ext-tab.active {
+  background: #fff;
+  border-color: var(--ext-border);
+  font-weight: bold;
+  z-index: 2;
+}
+
+/* Tables — grids */
+.ext-skin .ext-grid {
+  border: 1px solid var(--ext-border-soft);
+  background: #fff;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.ext-skin .ext-grid thead th {
+  background: linear-gradient(
+    to bottom,
+    var(--ext-header-from) 0%,
+    var(--ext-header-to) 100%
+  );
+  border-right: 1px solid #b6cadc;
+  border-bottom: 1px solid var(--ext-border);
+  color: var(--ext-text);
+  text-align: left;
+  font-weight: bold;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.ext-skin .ext-grid tbody td {
+  padding: 3px 6px;
+  border-right: 1px solid var(--ext-grid-border);
+  border-bottom: 1px solid var(--ext-grid-border);
+  vertical-align: top;
+}
+.ext-skin .ext-grid tbody tr:nth-child(even) td {
+  background: var(--ext-stripe);
+}
+.ext-skin .ext-grid tbody tr:hover td {
+  background: #e8f1fa;
+}
+
+/* Buttons */
+.ext-skin .ext-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  height: 20px;
+  border: 1px solid var(--ext-btn-border);
+  background: linear-gradient(
+    to bottom,
+    var(--ext-btn-from) 0%,
+    var(--ext-btn-to) 100%
+  );
+  color: var(--ext-body-text);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 18px;
+  box-shadow: 0 1px 0 #fff inset;
+}
+.ext-skin .ext-btn:hover {
+  background: linear-gradient(to bottom, #f3f7ff 0%, #b8cce4 100%);
+  border-color: #7da9d6;
+}
+.ext-skin .ext-btn:active {
+  background: linear-gradient(to bottom, #c4d3e7 0%, #d6e0ee 100%);
+  border-color: #4a7baa;
+}
+.ext-skin .ext-btn.primary {
+  border-color: #4a7baa;
+  background: linear-gradient(to bottom, #d9e7f8 0%, #a5c3e6 100%);
+  color: var(--ext-text);
+  font-weight: bold;
+}
+.ext-skin .ext-btn.danger {
+  border-color: #b06868;
+  background: linear-gradient(to bottom, #fbe2e2 0%, #e9a8a8 100%);
+  color: #6b1c1c;
+}
+
+/* Form controls */
+.ext-skin .ext-input,
+.ext-skin .ext-select {
+  border: 1px solid var(--ext-btn-border);
+  padding: 2px 4px;
+  height: 18px;
+  font-family: inherit;
+  font-size: 11px;
+  background: #fff;
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.02) inset;
+}
+.ext-skin .ext-input:focus,
+.ext-skin .ext-select:focus {
+  border-color: #7da9d6;
+  outline: none;
+}
+.ext-skin .ext-label {
+  font-size: 11px;
+  color: var(--ext-body-text);
+  padding-right: 4px;
+}
+
+/* Status bar — sits at the bottom of pages */
+.ext-skin .ext-statusbar {
+  background: linear-gradient(to bottom, #f3f3f3, #dadada);
+  border: 1px solid #b5b8c8;
+  border-top-color: #cfcfcf;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--ext-muted);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Links */
+.ext-skin a.ext-link {
+  color: var(--ext-link);
+  text-decoration: underline;
+}
+
+/* Toolbar — horizontal strip of buttons + form fields */
+.ext-skin .ext-toolbar {
+  background: linear-gradient(to bottom, #ebebeb, #cfcfcf);
+  border: 1px solid var(--ext-btn-border);
+  padding: 3px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Tree-grid row — for sample tables with hierarchy */
+.ext-skin .ext-tree-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 0;
+}
+
+/* Inline badges */
+.ext-skin .ext-badge {
+  display: inline-block;
+  padding: 0 4px;
+  background: #e0e9f5;
+  color: var(--ext-text);
+  border: 1px solid #b6cadc;
+  font-size: 10px;
+  line-height: 13px;
+}
+.ext-skin .ext-badge.warn {
+  background: #fcf3d9;
+  border-color: #e5d39c;
+  color: #7a5c14;
+}
+.ext-skin .ext-badge.err {
+  background: #fbe2e2;
+  border-color: #e9a8a8;
+  color: #6b1c1c;
+}
+
+/* Stat figure for the home page */
+.ext-skin .ext-stat {
+  background: linear-gradient(to bottom, #fff 0%, #e3ebf6 100%);
+  border: 1px solid var(--ext-border);
+  padding: 8px 10px;
+  text-align: center;
+  min-width: 100px;
+}
+.ext-skin .ext-stat .v {
+  font-size: 18px;
+  font-weight: bold;
+  color: var(--ext-text);
+}
+.ext-skin .ext-stat .k {
+  font-size: 10px;
+  color: var(--ext-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
