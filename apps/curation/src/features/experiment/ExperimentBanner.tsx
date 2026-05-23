@@ -347,19 +347,29 @@ function ShortNameEditor({
   }
 
   if (!editing) {
+    // Pencil-on-hover edit. The short_name text itself is plain
+    // selectable content (curators frequently select-copy the
+    // accession to paste into Slack / tickets / wiki), so we gate
+    // the click into edit mode on the pencil affordance — matches
+    // the description editor's pattern. Hover reveals the pencil
+    // and a subtle dashed underline as the discoverability cue.
     return (
-      <h1
-        className="text-lg font-semibold text-slate-900 inline-flex items-baseline gap-1 group cursor-text"
-        onClick={() => setEditing(true)}
-        title="click to rename — short_name must be unique across Gemma"
-      >
-        <span className="border-b border-dashed border-transparent group-hover:border-slate-400">
+      <h1 className="text-lg font-semibold text-slate-900 inline-flex items-baseline gap-1 group">
+        <span
+          className="border-b border-dashed border-transparent group-hover:border-slate-400"
+          title={shortName}
+        >
           {shortName}
         </span>
-        <PencilIcon
-          className="h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity self-center shrink-0"
-          aria-hidden
-        />
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          title="rename short_name — must be unique across Gemma"
+          aria-label="rename short_name"
+          className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-blue-50/60 dark:hover:bg-slate-700/40 opacity-0 group-hover:opacity-100 transition-opacity self-center shrink-0"
+        >
+          <PencilIcon className="h-3 w-3" aria-hidden />
+        </button>
       </h1>
     );
   }
@@ -540,23 +550,46 @@ function TitleEditor({ title }: { title: string }) {
   }
 
   if (!editing) {
+    // Title can be long (full study sentence); curators routinely
+    // select-copy chunks of it. Same pattern as short_name — text
+    // stays plain selectable, pencil is the click target. Empty
+    // state lets the placeholder act as the affordance since
+    // there's nothing to select.
+    const isEmpty = !title;
     return (
-      <h2
-        className="text-sm font-semibold text-slate-900 leading-snug inline-flex items-baseline gap-1 group cursor-text"
-        onClick={() => setEditing(true)}
-        title="click to edit title"
-      >
-        <span className="border-b border-dashed border-transparent group-hover:border-slate-400">
-          {title || (
-            <span className="italic text-slate-400 font-normal">
-              (no title — click to add)
+      <h2 className="text-sm font-semibold text-slate-900 leading-snug inline-flex items-baseline gap-1 group">
+        {isEmpty ? (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={() => setEditing(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setEditing(true);
+              }
+            }}
+            className="italic text-slate-400 font-normal cursor-pointer hover:underline"
+            title="click to add title"
+          >
+            (no title — click to add)
+          </span>
+        ) : (
+          <>
+            <span className="border-b border-dashed border-transparent group-hover:border-slate-400">
+              {title}
             </span>
-          )}
-        </span>
-        <PencilIcon
-          className="h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity self-center shrink-0"
-          aria-hidden
-        />
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              title="edit title"
+              aria-label="edit title"
+              className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-blue-50/60 dark:hover:bg-slate-700/40 opacity-0 group-hover:opacity-100 transition-opacity self-center shrink-0"
+            >
+              <PencilIcon className="h-3 w-3" aria-hidden />
+            </button>
+          </>
+        )}
       </h2>
     );
   }

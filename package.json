@@ -2,7 +2,7 @@
   "name": "gemma-ui",
   "private": true,
   "version": "0.11.0",
-  "description": "Gemma user-facing frontends \u2014 apps/curation (curator workflow) + apps/browser (public browse/search).",
+  "description": "Gemma user-facing frontends — apps/curation (curator workflow) + apps/browser (public browse/search).",
   "workspaces": [
     "apps/*"
   ],
@@ -16,5 +16,8 @@
     "typecheck:browser": "npm --workspace gembrow run typecheck",
     "typecheck": "npm run typecheck:curation && npm run typecheck:browser",
     "test:curation": "npm --workspace gemma-curation-ui run test"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.13.25"
   }
 }

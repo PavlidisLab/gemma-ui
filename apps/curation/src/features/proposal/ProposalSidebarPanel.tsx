@@ -355,21 +355,25 @@ export function ProposalSidebarPanel({
             );
           })
         ) : (
-          <div className="text-[11px] italic text-slate-500 dark:text-slate-400 px-1 space-y-0.5">
-            <div>No tags proposed.</div>
+          <div className="px-1 flex items-baseline gap-2 flex-wrap text-[11px]">
+            <span className="italic text-slate-500 dark:text-slate-400">
+              No tags proposed.
+            </span>
             {(proposal.subtask_decisions ?? []).every(
               (d) => !isTagDecision(d),
             ) ? (
-              <div
-                className="not-italic text-amber-700 dark:text-amber-400"
-                title="The tag proposer didn't emit any S9_tag_normalization / tag-target subtask_decisions on this proposal — neither a 'considered N candidates, kept 0' rationale nor a skip-reason. See bro handoff: TAG_PROPOSER_EMIT_EMPTY_RATIONALE."
+              <span
+                className="inline-flex items-center gap-1 px-1 py-0 rounded border text-[10px] font-medium bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300 cursor-help"
+                title={
+                  "Agent emitted no tag-side subtask_decisions on this proposal — " +
+                  "no S9_tag_normalization wrap-up, no skip-reason. " +
+                  "Can't tell whether the tag proposer skipped, ran and found " +
+                  "nothing, or filtered everything out. See bro handoff: " +
+                  "TAG_PROPOSER_EMIT_EMPTY_RATIONALE."
+                }
               >
-                ⚠ Agent emitted no tag-side rationale —
-                <span className="italic">
-                  {" "}can't tell whether the tag proposer skipped, ran
-                  and found nothing, or filtered everything out.
-                </span>
-              </div>
+                ⚠ no agent rationale
+              </span>
             ) : null}
           </div>
         )}

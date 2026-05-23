@@ -2572,11 +2572,15 @@ function TagGroupChip({
 
 /**
  * Read mode: paragraphs split on blank lines, scrolling. Pencil
- * icon reveals on hover as the edit affordance — matches the
- * single-click + pencil-on-hover pattern used by ShortNameEditor /
- * TitleEditor on the banner.
- * Edit mode (single-click to enter): textarea, Esc to revert,
- * Cmd/Ctrl-Enter to commit, blur to commit.
+ * icon reveals on hover as the edit affordance — but unlike
+ * ShortNameEditor / TitleEditor (single-line, rarely text-selected),
+ * the description body is prose curators commonly select-to-copy.
+ * So entering edit mode is gated on clicking the pencil itself,
+ * not the surrounding text — the text stays plain selectable
+ * content. Empty-state placeholder is click-to-edit since there's
+ * no real text to select there.
+ * Edit mode: textarea, Esc to revert, Cmd/Ctrl-Enter to commit,
+ * blur to commit.
  */
 function EditableDescription({
   value,
@@ -2588,30 +2592,36 @@ function EditableDescription({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
 
+  const beginEdit = () => {
+    setDraft(value);
+    setEditing(true);
+  };
+
   if (!editing) {
     const paragraphs = value
       .split(/\n\s*\n/)
       .filter((p) => p.trim());
+    const isEmpty = paragraphs.length === 0;
     return (
       <div
-        role="button"
-        tabIndex={0}
-        onClick={() => {
-          setDraft(value);
-          setEditing(true);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setDraft(value);
-            setEditing(true);
-          }
-        }}
-        className="relative text-xs text-slate-700 leading-relaxed space-y-1.5 max-h-[24rem] overflow-y-auto cursor-text hover:bg-blue-50/60 dark:hover:bg-slate-700/30 rounded px-1 -mx-1 group"
-        title="click to edit description"
+        className="relative text-xs text-slate-700 leading-relaxed space-y-1.5 max-h-[24rem] overflow-y-auto rounded px-1 -mx-1 group"
       >
-        {paragraphs.length === 0 ? (
-          <p className="italic text-slate-400">
+        {isEmpty ? (
+          // Empty state — no prose to select; let the whole row act
+          // as the affordance.
+          <p
+            role="button"
+            tabIndex={0}
+            onClick={beginEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                beginEdit();
+              }
+            }}
+            className="italic text-slate-400 cursor-pointer hover:bg-blue-50/60 dark:hover:bg-slate-700/30 rounded"
+            title="click to add description"
+          >
             (no description — click to add)
           </p>
         ) : (
@@ -2621,10 +2631,22 @@ function EditableDescription({
             </p>
           ))
         )}
-        <PencilIcon
-          className="absolute top-1 right-1 h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-          aria-hidden
-        />
+        {/* Edit affordance — pencil-on-hover that's the actual click
+            target. Keeping the surrounding text as plain content so
+            curators can select-to-copy without dropping into edit
+            mode. Slightly larger hitbox via padding so the pencil
+            isn't a 12px-square target. */}
+        {!isEmpty ? (
+          <button
+            type="button"
+            onClick={beginEdit}
+            title="edit description"
+            aria-label="edit description"
+            className="absolute top-0 right-0 p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-blue-50/60 dark:hover:bg-slate-700/40 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <PencilIcon className="h-3 w-3" aria-hidden />
+          </button>
+        ) : null}
       </div>
     );
   }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
   addCategoricalFactorFromCharacteristic,
@@ -19,10 +20,17 @@ import type {
   Biomaterial,
   Design,
   Factor,
+  Statement,
 } from "@/features/experiment/types";
 import { cn } from "@/lib/cn";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { Fragment } from "react";
 import { BulkAssignPanel } from "@/features/samples/BulkAssignPanel";
 import { useProposalReview } from "@/features/proposal/ProposalReviewContext";
+import {
+  parseAgentProposalPayload,
+  useProposalsAutoShape,
+} from "@/api/agentProposals";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { assignmentTarget } from "@/features/audit/targetIds";
 import { onSamplesScrollRow } from "@/lib/scrollToSample";
@@ -93,35 +101,11 @@ export function SampleDetailsPanel({ experimentId }: { experimentId: number }) {
     });
     return () => cancelAnimationFrame(raf);
   }, [scrollToFactorId]);
-  // Cross-tab "jump to this sample" — handled here (rather than
-  // inside SampleTable) so the listener survives the table being
-  // remounted on draft swap. The actual DOM scroll runs after a
-  // frame so the row exists before we querySelector for it. Brief
-  // ring-highlight so the curator's eye lands on the target.
-  useEffect(() => {
-    return onSamplesScrollRow(({ shortName }) => {
-      // Two RAFs mirror dispatchSamplesScrollRow on the sender side —
-      // gives React time to flush filter changes (if the search box
-      // ends up clearing) before we measure.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const safe =
-            typeof CSS !== "undefined" && typeof CSS.escape === "function"
-              ? CSS.escape(shortName)
-              : shortName.replace(/"/g, '\\"');
-          const el = document.querySelector<HTMLTableRowElement>(
-            `tr[data-bm-shortname="${safe}"]`,
-          );
-          if (!el) return;
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-          el.classList.add("ring-2", "ring-blue-400", "ring-inset");
-          window.setTimeout(() => {
-            el.classList.remove("ring-2", "ring-blue-400", "ring-inset");
-          }, 1800);
-        });
-      });
-    });
-  }, []);
+  // Cross-tab "jump to this sample" — listener now lives in
+  // SampleTable so it has access to the row virtualizer (rows
+  // outside the current overscan window aren't in the DOM; the
+  // virtualizer's scrollToIndex puts them there before the DOM
+  // querySelector runs). See SampleTable for the implementation.
   // ``filter`` (the search box) stays ephemeral — re-typing on a
   // new experiment is fine, and a stale filter from a different
   // experiment would just hide rows confusingly. Sort preference
@@ -334,6 +318,96 @@ function SampleTable({
       : null;
   const proposalFactors: FactorProposal[] = overlayProposal?.factors ?? [];
 
+  // For the inline per-cell confidence ⚠ markers we don't want to
+  // require the curator to have activated a proposal — the iffy-
+  // assignment signal is useful any time there's a pending agent
+  // proposal for this experiment, even when the overlay column
+  // isn't being rendered. Fall back to the latest pending proposal
+  // via ``useProposalsAutoShape``, which transparently handles both
+  // the legacy ``{items, total}`` envelope and the new-shape flat
+  // list of ``AgentProposal`` rows that ``local_api/server.py`` now
+  // returns by default when an ``agent_proposal`` row exists for
+  // the dataset (``shape=auto``).
+  const { data: pendingProposalsAuto } = useProposalsAutoShape(
+    design.experiment_id,
+  );
+
+  // ``confidenceRows`` is the data the maps below consume —
+  // ``{category, biomaterial_short_name, confidence}`` triples from
+  // whatever proposal shape we ended up with. Normalising at the
+  // boundary keeps the existing ``confBySampleAndFactor`` /
+  // ``worstConfBySample`` loops shape-agnostic.
+  const confidenceRows = useMemo(() => {
+    const rows: Array<{
+      category: string;
+      biomaterial_short_name: string;
+      confidence: string;
+    }> = [];
+    const pushFromFactorProposals = (factors: FactorProposal[]) => {
+      for (const f of factors) {
+        const cat = (f.category?.label || "").toLowerCase();
+        if (!cat) continue;
+        for (const fv of f.factor_values) {
+          for (const m of fv.biomaterial_assignment_meta ?? []) {
+            rows.push({
+              category: cat,
+              biomaterial_short_name: m.biomaterial_short_name,
+              confidence: (m.confidence || "").toLowerCase(),
+            });
+          }
+        }
+      }
+    };
+    // 1. Activated proposal (the overlay column) — highest priority,
+    //    matches the column the curator's already looking at.
+    if (proposalFactors.length > 0) {
+      pushFromFactorProposals(proposalFactors);
+      return rows;
+    }
+    // 2. Auto-shape fetch: handle both new (array of AgentProposal
+    //    rows with payload_json) and legacy ({items: Proposal[]})
+    //    shapes the endpoint can return.
+    if (!pendingProposalsAuto) return rows;
+    if (pendingProposalsAuto.kind === "new") {
+      // Newest first. ``ran_at`` is the agent run timestamp — ISO,
+      // lexically chronological.
+      const sorted = [...pendingProposalsAuto.items].sort((a, b) =>
+        (b.ran_at || "").localeCompare(a.ran_at || ""),
+      );
+      for (const ap of sorted) {
+        const payload = parseAgentProposalPayload(ap.payload_json);
+        if (!payload?.design?.proposed_factors?.length) continue;
+        for (const af of payload.design.proposed_factors) {
+          const cat = (af.category || "").toLowerCase();
+          if (!cat) continue;
+          for (const fv of af.factor_values) {
+            for (const m of fv.biomaterial_assignment_meta ?? []) {
+              rows.push({
+                category: cat,
+                biomaterial_short_name: m.biomaterial_short_name,
+                confidence: (m.confidence || "").toLowerCase(),
+              });
+            }
+          }
+        }
+        if (rows.length > 0) return rows; // first proposal with meta wins
+      }
+      return rows;
+    }
+    // Legacy envelope.
+    const items = pendingProposalsAuto.items;
+    const sorted = [...items].sort((a, b) =>
+      (b.submitted_at || "").localeCompare(a.submitted_at || ""),
+    );
+    for (const p of sorted) {
+      if (p.factors && p.factors.length > 0) {
+        pushFromFactorProposals(p.factors);
+        if (rows.length > 0) return rows;
+      }
+    }
+    return rows;
+  }, [proposalFactors, pendingProposalsAuto]);
+
   // Per-sample worst-confidence summary across all proposal factors.
   // A sample is flagged when ANY of its FV assignments has
   // ``confidence != "high"``; "low" wins over "medium" wins over
@@ -343,20 +417,35 @@ function SampleTable({
   const worstConfBySample = useMemo(() => {
     const out = new Map<string, "low" | "medium">();
     const rank = (c: string) => (c === "low" ? 2 : c === "medium" ? 1 : 0);
-    for (const pf of proposalFactors) {
-      for (const fv of pf.factor_values) {
-        for (const m of fv.biomaterial_assignment_meta ?? []) {
-          const conf = (m.confidence || "").toLowerCase();
-          if (conf !== "low" && conf !== "medium") continue;
-          const prev = out.get(m.biomaterial_short_name);
-          if (!prev || rank(conf) > rank(prev)) {
-            out.set(m.biomaterial_short_name, conf);
-          }
-        }
+    for (const r of confidenceRows) {
+      if (r.confidence !== "low" && r.confidence !== "medium") continue;
+      const prev = out.get(r.biomaterial_short_name);
+      if (!prev || rank(r.confidence) > rank(prev)) {
+        out.set(r.biomaterial_short_name, r.confidence as "low" | "medium");
       }
     }
     return out;
-  }, [proposalFactors]);
+  }, [confidenceRows]);
+
+  // Same signal as ``worstConfBySample`` but keyed by
+  // ``${short_name}|${category_label_lower}`` so the per-factor FV
+  // cells can render an inline ⚠ for the specific column that's
+  // iffy. The factor-id isn't stable across proposal vs design
+  // factor objects, so we key on the lowercased category label
+  // (the shape both sides share).
+  const confBySampleAndFactor = useMemo(() => {
+    const out = new Map<string, "low" | "medium">();
+    const rank = (c: string) => (c === "low" ? 2 : c === "medium" ? 1 : 0);
+    for (const r of confidenceRows) {
+      if (r.confidence !== "low" && r.confidence !== "medium") continue;
+      const key = `${r.biomaterial_short_name}|${r.category}`;
+      const prev = out.get(key);
+      if (!prev || rank(r.confidence) > rank(prev)) {
+        out.set(key, r.confidence as "low" | "medium");
+      }
+    }
+    return out;
+  }, [confidenceRows]);
   // Show the bio_assay column ONLY when it carries information the
   // biomaterial column doesn't already show. Common bulk pattern:
   // one assay per biomaterial, sharing the same short_name (GSM…).
@@ -746,6 +835,88 @@ function SampleTable({
     return () => window.removeEventListener("keydown", onKey);
   }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // --- Row virtualization --------------------------------------------
+  // Big experiments (1000+ samples) and single-cell datasets pre-
+  // collapse can put thousands of <tr>s in the DOM on tab change.
+  // Synchronous render time scales linearly; Chrome flags it as a
+  // 500ms+ long task. We virtualize the body so only the visible
+  // window + a small overscan ring renders.
+  //
+  // Mechanics:
+  //  - `scrollRef` is the scrolling <div> that wraps the <table>.
+  //  - `useVirtualizer` measures it and reports which `groupedRows`
+  //    indices fall in/near the viewport.
+  //  - We render two spacer <tr>s with `height: paddingTop /
+  //    paddingBottom` (single empty <td colSpan>) flanking the
+  //    visible rows. This keeps a single <table> + sticky <thead>;
+  //    column widths set by the resize handle on <th> still apply.
+  //  - `estimateSize` matches the dense `py-0.5` rows (~26px).
+  //    `measureElement` corrects per-row drift so multi-line cells
+  //    (long names, multi-assay BMs) measure right.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: groupedRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 26,
+    overscan: 10,
+    // The <tr>'s own offsetHeight is what we want; default
+    // measureElement reads getBoundingClientRect on the
+    // ref'd element, which works fine on a table row.
+  });
+
+  // Cross-tab "jump to this sample" — see scrollToSample.ts. When
+  // the target row's index is currently outside the virtualized
+  // window we ask the virtualizer to scroll to it first, then on
+  // the next frame the <tr data-bm-shortname=…> exists and we can
+  // ring-highlight it.
+  useEffect(() => {
+    return onSamplesScrollRow(({ shortName }) => {
+      const idx = groupedRows.findIndex((r) =>
+        r.allShortNames.includes(shortName),
+      );
+      if (idx < 0) return;
+      // Virtualizer scrollToIndex (centre alignment matches the
+      // pre-virtualization scrollIntoView({block:"center"})).
+      rowVirtualizer.scrollToIndex(idx, { align: "center" });
+      // Two RAFs: first lets the virtualizer mount the row, second
+      // lets layout settle so getBoundingClientRect on the ring
+      // matches.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const safe =
+            typeof CSS !== "undefined" && typeof CSS.escape === "function"
+              ? CSS.escape(shortName)
+              : shortName.replace(/"/g, '\\"');
+          const el = document.querySelector<HTMLTableRowElement>(
+            `tr[data-bm-shortname="${safe}"]`,
+          );
+          if (!el) return;
+          el.classList.add("ring-2", "ring-blue-400", "ring-inset");
+          window.setTimeout(() => {
+            el.classList.remove("ring-2", "ring-blue-400", "ring-inset");
+          }, 1800);
+        });
+      });
+    });
+  }, [groupedRows, rowVirtualizer]);
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom =
+    virtualItems.length > 0
+      ? totalSize - virtualItems[virtualItems.length - 1].end
+      : 0;
+  // Number of columns the spacer <td colSpan> needs to cover so the
+  // spacer rows don't visually collapse on narrow tables.
+  const totalColCount =
+    1 /* gutter */ +
+    2 /* short_name, name */ +
+    (hasBioAssays ? 1 : 0) +
+    orderedFactors.length +
+    visibleCharKeys.length +
+    proposalFactors.length;
+
   return (
     <div className="card relative">
       <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200 flex-wrap">
@@ -930,7 +1101,10 @@ function SampleTable({
           ever pushing the proposals/audit sidebar off-screen. The
           thead is sticky against this same scroll context, so column
           headers stay visible while the curator scans down. */}
-      <div className="overflow-auto max-h-[calc(100vh-15rem)]">
+      <div
+        ref={scrollRef}
+        className="overflow-auto max-h-[calc(100vh-15rem)]"
+      >
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-600 sticky top-0 z-20">
             <tr className="border-b border-slate-200">
@@ -1095,7 +1269,14 @@ function SampleTable({
             </tr>
           </thead>
           <tbody>
-            {groupedRows.map((row, idx) => {
+            {paddingTop > 0 ? (
+              <tr aria-hidden="true" style={{ height: paddingTop }}>
+                <td colSpan={totalColCount} />
+              </tr>
+            ) : null}
+            {virtualItems.map((vi) => {
+              const idx = vi.index;
+              const row = groupedRows[idx];
               const allShortNames = row.allShortNames;
               const siblings =
                 row.kind === "group" ? row.siblings : [row.bm];
@@ -1108,6 +1289,8 @@ function SampleTable({
               return (
                 <tr
                   key={isGroup ? `grp-${row.sourceId}` : repr.short_name}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={idx}
                   // Stable hooks for the cross-tab "scroll to sample"
                   // jump (see scrollToSample.ts). The first attribute
                   // is the representative short_name; the second is a
@@ -1363,21 +1546,64 @@ function SampleTable({
                   ) : null}
                   {orderedFactors.map(({ factor, index }) => {
                     const agg = aggregateFvId(siblings, index);
+                    // Per-cell confidence — worst across the row's
+                    // siblings for this specific factor. Lights up a
+                    // small ⚠ next to the dropdown when the agent's
+                    // assignment came in below high confidence, so
+                    // the curator can scan the table column-by-
+                    // column and spot which (sample, factor) pairs
+                    // need a second look.
+                    const factorCat = (
+                      factor.category?.label || ""
+                    ).toLowerCase();
+                    let cellConf: "low" | "medium" | undefined;
+                    if (factorCat) {
+                      for (const sn of allShortNames) {
+                        const c = confBySampleAndFactor.get(
+                          `${sn}|${factorCat}`,
+                        );
+                        if (c === "low") {
+                          cellConf = "low";
+                          break;
+                        }
+                        if (c === "medium") cellConf = "medium";
+                      }
+                    }
                     return (
                       <td
                         key={`${repr.short_name}-f${factor.id}`}
                         className="px-3 py-0.5 border-l-2 border-blue-100"
                       >
-                        <FvSelect
-                          factor={factor}
-                          currentFvId={agg.fvId}
-                          isMixed={agg.isMixed}
-                          onChange={(fvId) => {
-                            for (const sn of allShortNames) {
-                              onReassign(sn, factor.id, fvId);
-                            }
-                          }}
-                        />
+                        <span className="inline-flex items-center gap-1">
+                          {cellConf ? (
+                            <span
+                              className={cn(
+                                "text-[11px] leading-none shrink-0 cursor-help",
+                                cellConf === "low"
+                                  ? "text-rose-600 dark:text-rose-400"
+                                  : "text-amber-600 dark:text-amber-400",
+                              )}
+                              title={
+                                cellConf === "low"
+                                  ? "low-confidence agent assignment on this sample for this factor — verify before retaining"
+                                  : "medium-confidence agent assignment on this sample for this factor — spot-check before retaining"
+                              }
+                              aria-label={`${cellConf}-confidence assignment`}
+                            >
+                              ⚠
+                            </span>
+                          ) : null}
+                          <FvSelect
+                            factor={factor}
+                            currentFvId={agg.fvId}
+                            isMixed={agg.isMixed}
+                            onChange={(fvId) => {
+                              for (const sn of allShortNames) {
+                                onReassign(sn, factor.id, fvId);
+                              }
+                            }}
+                          />
+                        </span>
                       </td>
                     );
                   })}
@@ -1488,6 +1714,11 @@ function SampleTable({
                 </tr>
               );
             })}
+            {paddingBottom > 0 ? (
+              <tr aria-hidden="true" style={{ height: paddingBottom }}>
+                <td colSpan={totalColCount} />
+              </tr>
+            ) : null}
             {groupedRows.length === 0 ? (
               <tr>
                 <td
@@ -1729,17 +1960,21 @@ function FvSelect({
       : isOntologyBacked
         ? "border-emerald-300 text-emerald-900 bg-emerald-50"
         : "border-slate-300 text-slate-800";
-  const titleText = isMixed
+  // For unassigned / mixed cells there's no FV with statements to
+  // unpack; a plain native ``title`` is fine. For populated cells
+  // (ontology-backed OR free-text-assigned) we render a rich
+  // ``Tooltip`` showing the FV's statements as S-P-O rows so
+  // curators can read the underlying semantics without opening the
+  // factor. Subject column blanked on subsequent rows when it
+  // matches the row above (Paul 2026-05-23 — "redundant subjects
+  // omitted").
+  const fallbackTitle = isMixed
     ? "siblings disagree on this factor — pick a value to apply to all of them"
     : currentFvId === null
       ? "unassigned — pick a value"
-      : isOntologyBacked
-        ? `ontology-backed — ${currentFv!.statements
-            .map((s) => s.subject.uri)
-            .filter(Boolean)
-            .join(", ")}`
-        : "click to reassign this sample";
-  return (
+      : "click to reassign this sample";
+
+  const selectEl = (
     <select
       value={isMixed ? "" : (currentFvId ?? "")}
       onChange={(e) => {
@@ -1750,7 +1985,9 @@ function FvSelect({
         "text-xs border rounded px-1 py-0.5 bg-white max-w-[14rem] truncate",
         stateCls,
       )}
-      title={titleText}
+      // Native ``title`` only on cells without statements to surface —
+      // the rich tooltip below replaces it on populated cells.
+      title={currentFv && currentFv.statements.length > 0 ? undefined : fallbackTitle}
       onClick={(e) => e.stopPropagation()}
     >
       <option value="" disabled>
@@ -1763,6 +2000,92 @@ function FvSelect({
         </option>
       ))}
     </select>
+  );
+
+  if (!currentFv || currentFv.statements.length === 0) return selectEl;
+  return (
+    <Tooltip label={<FvStatementsTooltipBody fv={currentFv} />}>
+      {selectEl}
+    </Tooltip>
+  );
+}
+
+/** Mini S-P-O rendering for an FV's statements, intended to live
+ *  inside a ``Tooltip`` label. CURIEs hidden (the FV label already
+ *  shows what's resolved; the curator can drill into the factor
+ *  for full URIs). Subject column blanks on subsequent rows whose
+ *  subject matches the previous row, so a chain of statements on
+ *  the same subject reads as a single block. Colours flipped for
+ *  the dark slate-800 tooltip background:
+ *    - URI-backed term → emerald-300
+ *    - free-text term → slate-100 italic
+ *    - predicate → slate-300 italic
+ *  Statement count line lives at the top for >1-statement FVs so
+ *  the curator can see how many rows to expect at a glance. */
+function FvStatementsTooltipBody({
+  fv,
+}: {
+  fv: { free_text_label?: string; statements: Statement[] };
+}) {
+  const sameSubject = (
+    a: Statement | null | undefined,
+    b: Statement,
+  ): boolean => {
+    if (!a) return false;
+    return (
+      (a.subject?.label ?? "") === (b.subject?.label ?? "") &&
+      (a.subject?.uri ?? null) === (b.subject?.uri ?? null)
+    );
+  };
+  return (
+    <div className="space-y-1">
+      {fv.free_text_label ? (
+        <div className="text-slate-100 text-[10px] uppercase tracking-wider font-semibold">
+          {fv.free_text_label}
+        </div>
+      ) : null}
+      <div className="grid grid-cols-[max-content_max-content_max-content] gap-x-2 gap-y-0.5 items-baseline">
+        {fv.statements.map((s, i) => {
+          const subjectSame = sameSubject(fv.statements[i - 1], s);
+          const subj = s.subject?.label ?? "";
+          const subjUri = s.subject?.uri ?? null;
+          const pred = s.predicate?.label ?? "";
+          const obj = s.object?.label ?? "";
+          const objUri = s.object?.uri ?? null;
+          return (
+            <Fragment key={i}>
+              <span
+                className={cn(
+                  "whitespace-nowrap text-[11px]",
+                  subjectSame
+                    ? ""
+                    : subjUri
+                      ? "text-emerald-200 font-semibold"
+                      : "text-slate-50 italic font-medium",
+                )}
+              >
+                {subjectSame ? "" : subj}
+              </span>
+              <span className="whitespace-nowrap text-[11px] text-slate-200 italic">
+                {pred}
+              </span>
+              <span
+                className={cn(
+                  "whitespace-nowrap text-[11px]",
+                  obj
+                    ? objUri
+                      ? "text-emerald-200 font-semibold"
+                      : "text-slate-50 italic font-medium"
+                    : "text-slate-400",
+                )}
+              >
+                {obj || "—"}
+              </span>
+            </Fragment>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

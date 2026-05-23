@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ExperimentList } from "@/features/landing/ExperimentList";
@@ -92,11 +92,23 @@ import type { Proposal } from "@/api/types";
  * share one in-progress draft and the `<CommitBar/>` at the bottom
  * is the single point of commit.
  */
-/** React-side hook over the hash router in @/routes. */
+/** React-side hook over the hash router in @/routes.
+ *  The hashchange event fires synchronously inside ``navigate``'s
+ *  ``window.location.hash = …`` assignment, so without
+ *  ``startTransition`` the resulting render is part of the same
+ *  click-handler tick — Chrome flags a 500+ms violation on
+ *  landing → sample-details transitions because the experiment
+ *  shell + big sample table render inline. Marking the route
+ *  update as a transition lets React deprioritize that render so
+ *  the click handler returns immediately and the browser paints
+ *  the click acknowledgment first. The old page stays visible for
+ *  a frame while the new one streams in. */
 function useRoute(): Route {
   const [route, setRoute] = useState(parseRoute);
   useEffect(() => {
-    const onChange = () => setRoute(parseRoute());
+    const onChange = () => {
+      startTransition(() => setRoute(parseRoute()));
+    };
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
