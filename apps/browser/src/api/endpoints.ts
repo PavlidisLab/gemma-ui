@@ -466,6 +466,8 @@ import type {
   PipelineStatus,
   DiffExAnalysis,
   DiffExResultSet,
+  DiffExpressionResponse,
+  PvalueDistribution,
   SvdResult,
   GeeqScores,
 } from "@/lib/types";
@@ -601,6 +603,81 @@ export async function downloadResultSetTsv(
     // before the file lands.
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
   }
+}
+
+/**
+ * Fetch the top-N differentially-expressed genes (by corrected
+ * p-value) for one result set, with per-sample expression vectors.
+ * Used by the inline heatmap on the Expression tab — the response
+ * already contains everything the heatmap needs (gene labels +
+ * per-sample values) and is constrained to the analysis's subset
+ * (so a single-cell per-cell-type analysis returns only that
+ * subset's samples).
+ *
+ * The `threshold` is applied on the corrected p-value before
+ * sorting; pass a high threshold (e.g. 1) when you want the top
+ * N by p-value regardless of significance.
+ */
+export async function getTopDiffExpressedGenes(
+  datasetId: number | string,
+  diffExSetId: number,
+  opts: { threshold?: number; limit?: number } = {},
+  signal?: AbortSignal,
+): Promise<DiffExpressionResponse | null> {
+  const params: Record<string, string> = {
+    diffExSet: String(diffExSetId),
+  };
+  if (opts.threshold != null) params.threshold = String(opts.threshold);
+  if (opts.limit != null) params.limit = String(opts.limit);
+  const r = await apiGet<{ data?: DiffExpressionResponse[] }>(
+    `${BASE}/datasets/${datasetId}/expressions/differential`,
+    { params, signal },
+  );
+  // The endpoint returns a list keyed by dataset id; we always pass a
+  // single dataset so the list is length 0 or 1. Flatten.
+  const first = r.data?.[0];
+  return first ?? null;
+}
+
+/**
+ * Binned p-value histogram for a DE result set.
+ * `GET /rest/v2/resultSets/{id}/pvalueDistribution?bins=20&column=corrected`
+ *
+ * Returns ``null`` on 204 (result set has no p-values in the chosen
+ * column) so callers can render an "—" empty state without an error.
+ * 404 / 400 still throw via apiGet.
+ */
+export async function getPvalueDistribution(
+  resultSetId: number,
+  opts: { bins?: number; column?: "raw" | "corrected" } = {},
+  signal?: AbortSignal,
+): Promise<PvalueDistribution | null> {
+  const params: Record<string, string> = {};
+  if (opts.bins != null) params.bins = String(opts.bins);
+  if (opts.column != null) params.column = opts.column;
+  // ``apiGet`` throws on non-2xx; 204 has no body so we hit the
+  // `r.json()` step which would fail. Use fetch directly so the
+  // null-on-204 branch stays clean.
+  const q = Object.keys(params).length
+    ? "?" + new URLSearchParams(params).toString()
+    : "";
+  const r = await fetch(`${BASE}/resultSets/${resultSetId}/pvalueDistribution${q}`, {
+    method: "GET",
+    credentials: "include",
+    signal,
+    headers: {
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    },
+  });
+  if (r.status === 204) return null;
+  if (!r.ok) {
+    throw Object.assign(new Error(`GET pvalueDistribution → ${r.status}`), {
+      status: r.status,
+    });
+  }
+  const body = (await r.json()) as { data?: PvalueDistribution };
+  return body.data ?? null;
 }
 
 export async function getDatasetSvd(

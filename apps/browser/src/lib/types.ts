@@ -3,10 +3,48 @@
 
 // ─── Experimental design ─────────────────────────────────────────────────────
 
+/** One S-P-O triple under a factor value. Mirrors the Gemma REST
+ *  ``statements`` array (subject / predicate / object + URIs +
+ *  category). The browser surface renders these read-only with the
+ *  same chip conventions as the curation UI. */
+export interface FactorValueStatement {
+  id?: number;
+  category?: string | null;
+  categoryUri?: string | null;
+  subject?: string | null;
+  subjectUri?: string | null;
+  predicate?: string | null;
+  predicateUri?: string | null;
+  object?: string | null;
+  objectUri?: string | null;
+}
+
 export interface FactorValueBasic {
   id: number;
+  /** Free-text label. Often empty for ontology-resolved FVs whose
+   *  identity is carried by ``statements``. */
   value?: string | null;
-  /** "categorical" | "continuous" */
+  /** Server-rendered summary string — preferred for display when
+   *  available since it composes the structured fields into something
+   *  human-readable. */
+  summary?: string | null;
+  /** Numeric FV (continuous factors). */
+  isMeasurement?: boolean | null;
+  /** ``true`` when this FV is the baseline / reference level for
+   *  its factor. The Gemma 1.x design endpoint may not populate
+   *  this directly; treat as best-effort. */
+  isBaseline?: boolean | null;
+  characteristics?: {
+    id?: number;
+    category?: string | null;
+    categoryUri?: string | null;
+    value?: string | null;
+    valueUri?: string | null;
+  }[];
+  statements?: FactorValueStatement[];
+  /** Legacy field — kept for back-compat with callers that read
+   *  ``value.type``. The Factor's ``type`` is the authoritative
+   *  signal. */
   type?: string | null;
 }
 
@@ -16,7 +54,16 @@ export interface ExperimentalFactorEntry {
   description?: string | null;
   /** "categorical" | "continuous" */
   type?: string | null;
-  category?: { value?: string | null; valueUri?: string | null } | null;
+  /** EFC category for the factor. Gemma returns both ``category``
+   *  (label) and ``categoryUri`` plus a ``value``/``valueUri`` pair
+   *  that mirrors them; the labelled fields are what we display. */
+  category?: {
+    /** EFC label, e.g. "genotype" / "treatment" / "block". */
+    category?: string | null;
+    categoryUri?: string | null;
+    value?: string | null;
+    valueUri?: string | null;
+  } | null;
   values: FactorValueBasic[];
 }
 
@@ -133,12 +180,87 @@ export interface FactorValueVO {
 
 export interface DiffExAnalysis {
   id: number;
+  name?: string | null;
   bioAssaySetId?: number;
   /** Map from factor ID (string key) to list of factor values used. */
   factorValuesUsed?: Record<string, FactorValueVO[]>;
   numberOfDiffExpressedProbes?: number | null;
   subsetFactor?: { name?: string | null; id?: number } | null;
-  subsetFactorValue?: FactorValueVO | null;
+  /** Factor-value the analysis is restricted to (single-cell
+   *  per-cell-type analyses), with a `summary` string suitable for
+   *  display. */
+  subsetFactorValue?:
+    | (FactorValueVO & {
+        summary?: string | null;
+        factorValue?: string | null;
+        characteristics?: { value?: string | null }[];
+      })
+    | null;
+  isSubset?: boolean | null;
+  /** Nested result sets (one per contrast within the analysis). The
+   *  analyses endpoint already returns these with `numberOfDiffExpressedProbes`
+   *  and threshold so we don't need a separate fetch for the counts. */
+  resultSets?: DiffExNestedResultSet[] | null;
+}
+
+/** Result-set as nested under an analysis in
+ *  `/datasets/{id}/analyses/differential`. Carries the surface stats
+ *  the analyses UI needs (DE counts, FDR threshold, up/down split)
+ *  alongside the factors + baseline used for the contrast. */
+export interface DiffExNestedResultSet {
+  id: number;
+  threshold?: number | null;
+  numberOfProbesAnalyzed?: number | null;
+  numberOfGenesAnalyzed?: number | null;
+  numberOfDiffExpressedProbes?: number | null;
+  numberOfUpregulatedProbes?: number | null;
+  numberOfDownregulatedProbes?: number | null;
+  upregulatedCount?: number | null;
+  downregulatedCount?: number | null;
+  experimentalFactors?:
+    | {
+        id?: number;
+        name?: string | null;
+        category?: string | null;
+        description?: string | null;
+      }[]
+    | null;
+  baselineGroup?:
+    | {
+        id?: number;
+        factorValue?: string | null;
+        characteristics?: { value?: string | null }[];
+      }
+    | null;
+}
+
+/**
+ * Binned p-value histogram for one DE result set, returned by
+ * `GET /resultSets/{id}/pvalueDistribution`. Bins are equal-width
+ * over [0, 1]; the last bin is closed on the right.
+ */
+export interface PvalueDistribution {
+  resultSetId: number;
+  /** "raw" or "corrected". */
+  column: "raw" | "corrected";
+  /** Total number of non-null p-values across all bins. */
+  n: number;
+  bins: { lo: number; hi: number; count: number }[];
+}
+
+/** Per-gene expression vectors returned by
+ *  `/datasets/{id}/expressions/differential`. Used to populate the
+ *  top-genes heatmap below a result-set row. */
+export interface DiffExpressionResponse {
+  datasetId?: number;
+  geneExpressionLevels: {
+    geneOfficialSymbol?: string | null;
+    geneNcbiId?: number | null;
+    vectors: {
+      designElementName?: string | null;
+      bioAssayExpressionLevels: Record<string, number | null>;
+    }[];
+  }[];
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Heatmap } from './Heatmap';
 import { Legend } from './Legend';
 import { rowStandardize } from './color';
@@ -33,7 +33,9 @@ export interface HeatmapWidgetProps {
   caption?: string;
   /** Initial palette. Default `'ambsky'`. */
   defaultPalette?: WidgetPalette;
-  /** Initial clip value. Default `3`. */
+  /** Initial clip value. Default `2` — diverging palette saturates at
+   *  ±2 z-score by default, which makes typical row-scaled expression
+   *  heatmaps read at the right contrast for our DE pop-out. */
   defaultClip?: number;
   /** Initial row-standardize state. Default `true` — the lab-standard
    *  default for expression heatmaps. */
@@ -67,6 +69,16 @@ export interface HeatmapWidgetProps {
   chrome?: boolean;
   className?: string;
   style?: CSSProperties;
+  /** Filename stem for the download-image / download-data buttons.
+   *  Final filenames are ``<stem>.png`` and ``<stem>.tsv``. When
+   *  unset, falls back to ``heatmap`` so the buttons always have a
+   *  usable name. Stem is rendered as-is — caller is responsible for
+   *  sanitising spaces / slashes. */
+  downloadFilenameStem?: string;
+  /** Hide the download buttons (image + TSV) entirely. Default
+   *  ``true``. Set ``false`` for a stripped chrome (e.g. an embedded
+   *  thumbnail). */
+  showDownload?: boolean;
 }
 
 // Pavlab-style palette tokens (per CLAUDE.md).
@@ -125,7 +137,7 @@ export function HeatmapWidget({
   title,
   caption,
   defaultPalette = 'ambsky',
-  defaultClip = 3,
+  defaultClip = 2,
   defaultRowScale = true,
   defaultMaxHeight = 12,
   defaultMaxWidth = 13,
@@ -138,7 +150,13 @@ export function HeatmapWidget({
   chrome = true,
   className,
   style,
+  downloadFilenameStem = 'heatmap',
+  showDownload = true,
 }: HeatmapWidgetProps): JSX.Element {
+  // Root ref — used by the download-image button to locate the
+  // rendered canvas inside the matrix wrapper. Avoids threading a
+  // ref into the inner Heatmap component just for one feature.
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [paletteKey, setPaletteKey] = useState<WidgetPalette>(defaultPalette);
   const [clip, setClip] = useState(defaultClip);
   const [rowScale, setRowScale] = useState(defaultRowScale);
@@ -221,6 +239,32 @@ export function HeatmapWidget({
   const numRows = scaledData.values.length;
   const numCols = numRows > 0 ? scaledData.values[0].length : 0;
 
+  // Download handlers — image and data. Per Paul 2026-05-23: the
+  // data download must be the input matrix verbatim, with NO
+  // row-standardisation and NO clipping applied. The downloaded
+  // image, by contrast, reflects whatever the curator sees on
+  // screen (the rendered canvas, after row-scale + clip + palette).
+  const handleDownloadImage = () => {
+    const canvas = rootRef.current?.querySelector('canvas');
+    if (!canvas) return;
+    const url = canvas.toDataURL('image/png');
+    triggerDownload(url, `${downloadFilenameStem}.png`);
+  };
+  const handleDownloadData = () => {
+    // Always export ``rawData`` (the input to the widget). Skip
+    // ``scaledData`` even when row-scale is toggled on — the user
+    // wants to take the numbers home, not the z-scores. Same
+    // reasoning for clip: clipping is a render concern.
+    const tsv = serializeHeatmapDataAsTsv(rawData);
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const url = URL.createObjectURL(blob);
+    try {
+      triggerDownload(url, `${downloadFilenameStem}.tsv`);
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    }
+  };
+
   const cardStyle: CSSProperties = chrome
     ? {
         display: 'flex',
@@ -237,7 +281,7 @@ export function HeatmapWidget({
     : { fontFamily: 'Helvetica, Arial, sans-serif', color: TEXT };
 
   return (
-    <div className={className} style={{ ...cardStyle, ...style }}>
+    <div ref={rootRef} className={className} style={{ ...cardStyle, ...style }}>
       {chrome && (
         <div
           aria-hidden
@@ -286,32 +330,92 @@ export function HeatmapWidget({
               flex: '0 0 auto',
             }}
           >
+            {showDownload && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleDownloadImage}
+                  title="Download the rendered heatmap as PNG"
+                  style={{
+                    background: 'transparent',
+                    color: SUBTLE,
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: 3,
+                    padding: '3px 8px',
+                    fontSize: 11,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    lineHeight: 1,
+                  }}
+                >
+                  PNG
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadData}
+                  title="Download the underlying values as TSV (input matrix; not row-scaled, not clipped)"
+                  style={{
+                    background: 'transparent',
+                    color: SUBTLE,
+                    border: `1px solid ${BORDER}`,
+                    borderRadius: 3,
+                    padding: '3px 8px',
+                    fontSize: 11,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    lineHeight: 1,
+                  }}
+                >
+                  TSV
+                </button>
+              </>
+            )}
             {showControls && (
-              <button
-                type="button"
-                onClick={() => setControlsOpen((v) => !v)}
-                title={controlsOpen ? 'hide controls' : 'show controls'}
-                aria-expanded={controlsOpen}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  background: controlsOpen ? ACCENT : 'transparent',
-                  color: controlsOpen ? '#fff' : SUBTLE,
-                  border: `1px solid ${controlsOpen ? ACCENT : BORDER}`,
-                  borderRadius: 3,
-                  padding: '3px 8px',
-                  fontSize: 11,
-                  fontFamily: 'inherit',
-                  cursor: 'pointer',
-                  lineHeight: 1,
-                }}
-              >
-                <span aria-hidden style={{ fontSize: 10 }}>
-                  {controlsOpen ? '▾' : '▸'}
-                </span>
-                Options
-              </button>
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setControlsOpen((v) => !v)}
+                  title={controlsOpen ? 'hide controls' : 'show controls'}
+                  aria-expanded={controlsOpen}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    background: controlsOpen ? ACCENT : 'transparent',
+                    color: controlsOpen ? '#fff' : SUBTLE,
+                    border: `1px solid ${controlsOpen ? ACCENT : BORDER}`,
+                    borderRadius: 3,
+                    padding: '3px 8px',
+                    fontSize: 11,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    lineHeight: 1,
+                  }}
+                >
+                  <span aria-hidden style={{ fontSize: 10 }}>
+                    {controlsOpen ? '▾' : '▸'}
+                  </span>
+                  Options
+                </button>
+                {controlsOpen && (
+                  <ControlsPopover
+                    paletteKey={paletteKey}
+                    setPaletteKey={setPaletteKey}
+                    clip={clip}
+                    setClip={setClip}
+                    rowScale={rowScale}
+                    setRowScale={setRowScale}
+                    fitMode={fitMode}
+                    setFitMode={setFitMode}
+                    maxH={maxH}
+                    setMaxH={setMaxH}
+                    maxW={maxW}
+                    setMaxW={setMaxW}
+                    fmt={fmt}
+                    onClose={() => setControlsOpen(false)}
+                  />
+                )}
+              </div>
             )}
             <span
               style={{
@@ -326,72 +430,6 @@ export function HeatmapWidget({
             </span>
           </div>
         </header>
-      )}
-
-      {showControls && controlsOpen && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 16,
-            flexWrap: 'wrap',
-            rowGap: 10,
-            padding: '10px 16px',
-            background: SURFACE_SUNK,
-            borderBottom: chrome ? `1px solid ${BORDER}` : undefined,
-            fontSize: 12,
-            color: TEXT,
-            flex: '0 0 auto',
-          }}
-        >
-          <SegmentedControl
-            options={PALETTE_OPTIONS}
-            value={paletteKey}
-            onChange={setPaletteKey}
-          />
-          <CompactSlider
-            label="Clip"
-            value={clip}
-            min={0.5}
-            max={6}
-            step={0.1}
-            onChange={setClip}
-            display={`±${fmt(clip)}`}
-            width={92}
-          />
-          <Toggle
-            checked={rowScale}
-            onChange={setRowScale}
-            label="Row-scale"
-            hint="z-score each row"
-          />
-          <Hairline />
-          <SegmentedControl
-            options={FIT_OPTIONS}
-            value={fitMode}
-            onChange={setFitMode}
-          />
-          <CompactSlider
-            label="H"
-            value={maxH}
-            min={2}
-            max={24}
-            step={1}
-            onChange={setMaxH}
-            display={`${maxH}px`}
-            width={72}
-          />
-          <CompactSlider
-            label="W"
-            value={maxW}
-            min={2}
-            max={24}
-            step={1}
-            onChange={setMaxW}
-            display={`${maxW}px`}
-            width={72}
-          />
-        </div>
       )}
 
       <div
@@ -599,12 +637,167 @@ function stripeFor(palette: Palette): string {
   return `linear-gradient(to right, ${stops.join(', ')})`;
 }
 
-function Hairline() {
+/** Floating vertical control panel — replaces the in-flow horizontal
+ *  controls strip that was eating ~50px below the header. Sticks to
+ *  the top-right of the matrix area, anchored under the Options
+ *  button. Closes on outside-click + Escape. */
+function ControlsPopover({
+  paletteKey,
+  setPaletteKey,
+  clip,
+  setClip,
+  rowScale,
+  setRowScale,
+  fitMode,
+  setFitMode,
+  maxH,
+  setMaxH,
+  maxW,
+  setMaxW,
+  fmt,
+  onClose,
+}: {
+  paletteKey: WidgetPalette;
+  setPaletteKey: (v: WidgetPalette) => void;
+  clip: number;
+  setClip: (v: number) => void;
+  rowScale: boolean;
+  setRowScale: (v: boolean) => void;
+  fitMode: FitMode;
+  setFitMode: (v: FitMode) => void;
+  maxH: number;
+  setMaxH: (v: number) => void;
+  maxW: number;
+  setMaxW: (v: number) => void;
+  fmt: (v: number) => string;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) onClose();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
   return (
-    <span
-      aria-hidden
-      style={{ width: 1, height: 18, background: BORDER, opacity: 0.9 }}
-    />
+    <div
+      ref={ref}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute',
+        top: 'calc(100% + 4px)',
+        right: 0,
+        zIndex: 20,
+        minWidth: 220,
+        background: BG,
+        border: `1px solid ${BORDER}`,
+        borderRadius: 4,
+        boxShadow: '0 6px 18px rgba(15, 23, 42, 0.18)',
+        padding: 10,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        fontSize: 11,
+        color: TEXT,
+      }}
+    >
+      <ControlRow label="Palette">
+        <SegmentedControl
+          options={PALETTE_OPTIONS}
+          value={paletteKey}
+          onChange={setPaletteKey}
+        />
+      </ControlRow>
+      <ControlRow label="Row-scale">
+        <Toggle
+          checked={rowScale}
+          onChange={setRowScale}
+          label=""
+          hint="z-score each row"
+        />
+      </ControlRow>
+      <ControlRow label="Clip">
+        <CompactSlider
+          label=""
+          value={clip}
+          min={0.5}
+          max={6}
+          step={0.1}
+          onChange={setClip}
+          display={`±${fmt(clip)}`}
+          width={112}
+        />
+      </ControlRow>
+      <div style={{ height: 1, background: BORDER, margin: '2px 0' }} />
+      <ControlRow label="Fit">
+        <SegmentedControl
+          options={FIT_OPTIONS}
+          value={fitMode}
+          onChange={setFitMode}
+        />
+      </ControlRow>
+      <ControlRow label="Cell H">
+        <CompactSlider
+          label=""
+          value={maxH}
+          min={2}
+          max={36}
+          step={1}
+          onChange={setMaxH}
+          display={`${maxH}px`}
+          width={112}
+        />
+      </ControlRow>
+      <ControlRow label="Cell W">
+        <CompactSlider
+          label=""
+          value={maxW}
+          min={2}
+          max={48}
+          step={1}
+          onChange={setMaxW}
+          display={`${maxW}px`}
+          width={112}
+        />
+      </ControlRow>
+    </div>
+  );
+}
+
+/** Two-column control row — left label + right control, baseline
+ *  aligned. Keeps the popover scannable at a glance. */
+function ControlRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+      }}
+    >
+      <span style={{ color: SUBTLE, fontSize: 10.5, whiteSpace: 'nowrap' }}>
+        {label}
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+        {children}
+      </span>
+    </div>
   );
 }
 
@@ -849,4 +1042,45 @@ function CursorTooltip({
       </div>
     </div>
   );
+}
+
+/** Programmatically synthesise an anchor click against a URL with a
+ *  `download` attribute. Works for both data: URLs (image) and
+ *  blob: URLs (TSV). */
+function triggerDownload(url: string, filename: string): void {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Serialise a ``HeatmapData`` to TSV, raw values (no row-scaling,
+ *  no clipping). Layout:
+ *
+ *      \t<col-1>\t<col-2>\t...
+ *      <row-1-label>\t<v1>\t<v2>\t...
+ *      <row-2-label>\t...
+ *
+ *  Missing values export as the empty string (matches R / Pandas
+ *  defaults). Row / col labels default to ``row_i`` / ``col_j``
+ *  when the input didn't carry labels. */
+function serializeHeatmapDataAsTsv(data: HeatmapData): string {
+  const numRows = data.values.length;
+  const numCols = numRows > 0 ? data.values[0].length : 0;
+  const colLabels =
+    data.colLabels ??
+    Array.from({ length: numCols }, (_, j) => `col_${j + 1}`);
+  const rowLabels =
+    data.rowLabels ??
+    Array.from({ length: numRows }, (_, i) => `row_${i + 1}`);
+  const lines: string[] = [];
+  lines.push(['', ...colLabels].join('\t'));
+  for (let i = 0; i < numRows; i++) {
+    const row = data.values[i] ?? [];
+    const cells = row.map((v) => (v == null || Number.isNaN(v) ? '' : String(v)));
+    lines.push([rowLabels[i] ?? `row_${i + 1}`, ...cells].join('\t'));
+  }
+  return lines.join('\n');
 }
