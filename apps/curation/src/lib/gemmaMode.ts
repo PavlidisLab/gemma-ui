@@ -39,9 +39,25 @@ export interface GemmaModeInfo {
   /** Short human-readable label of the auth method, for the chip
    *  popover. */
   authLabel: string;
+  /** Host serving ``/rest/v2/annotations/{search,term}`` lookups.
+   *  Equal to ``baseHost`` when no routing split is configured;
+   *  different from ``baseHost`` when the Vite proxy / deployment
+   *  layer routes ontology endpoints to a separate host because
+   *  the main backend lacks ontology coverage (current state in
+   *  local mode: staging-gemma serves ontologies while the local
+   *  Gemma 2.0 stack serves everything else). Drives the
+   *  OntologyTermPicker's "ontology source" footer. */
+  ontologyHost: string;
+  /** True when the ontology routing split is active —
+   *  ``ontologyHost !== baseHost``. Gates the UI indicator. */
+  ontologySplit: boolean;
 }
 
 const DEFAULT_LOCAL_BASE = "http://localhost:8080";
+/** Default ontology host for the routing-split exception. Mirrors
+ *  the Vite proxy's ``GEMMA_ONTOLOGY_URL`` default. Temporary —
+ *  drops when local Gemma 2.0 ontology coverage matches staging. */
+const DEFAULT_ONTOLOGY_BASE = "https://staging-gemma.msl.ubc.ca";
 
 /** Hosts considered "prod Gemma". Anything else with `gemma.msl.ubc.ca`
  *  in the host (e.g. ``staging-gemma.msl.ubc.ca``) is staging. */
@@ -81,7 +97,31 @@ export function resolveGemmaMode(): GemmaModeInfo {
     mode === "local"
       ? "dev-token (local server)"
       : "your Gemma login (HTTP Basic)";
-  return { mode, baseUrl, baseHost, isProd, isStaging, authLabel };
+  // Ontology routing exception. In local mode the Vite proxy
+  // forwards ``/rest/v2/annotations/{search,term}`` to a separate
+  // host (default staging-gemma) because the local stack doesn't
+  // carry full ontology coverage. In remote mode there's no split
+  // — the same Gemma host that serves the rest of /rest also
+  // serves ontology queries — so we collapse ``ontologyHost`` to
+  // ``baseHost`` and ``ontologySplit`` is false.
+  const envOntology = import.meta.env.VITE_GEMMA_ONTOLOGY_URL;
+  const ontologyUrl =
+    mode === "remote"
+      ? baseUrl
+      : envOntology || DEFAULT_ONTOLOGY_BASE;
+  const ontologyHost =
+    ontologyUrl === "(unset)" ? "(unset)" : hostFromUrl(ontologyUrl);
+  const ontologySplit = ontologyHost !== baseHost;
+  return {
+    mode,
+    baseUrl,
+    baseHost,
+    isProd,
+    isStaging,
+    authLabel,
+    ontologyHost,
+    ontologySplit,
+  };
 }
 
 /** React hook over `resolveGemmaMode`. Result is stable per page

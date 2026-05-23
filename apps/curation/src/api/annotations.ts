@@ -33,14 +33,56 @@ export function useAnnotationSearch(
   const { limit = 10, enabled = true } = options;
   return useQuery({
     queryKey: KEY(query, category, limit),
-    queryFn: () => {
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (query) params.set("query", query);
       if (category) params.set("category", category);
       params.set("limit", String(limit));
-      return api.get<AnnotationCandidate[]>(
-        `/rest/v2/annotations/search?${params.toString()}`,
-      );
+      // Two response shapes live on the wire today (2026-05-23):
+      //   - local_api returns the bare list ``[{label, uri,
+      //     category_label, category_uri, usage_count}, …]``.
+      //   - real Gemma's ``AnnotationsWebService`` wraps it in a
+      //     ``ResponseDataObject<List<…>>`` envelope AND uses
+      //     different field names on the value object:
+      //     ``{value, valueUri, category, categoryUri, usageCount}``.
+      //     The client's ``unwrapGemmaEnvelope`` + ``snakeify`` strip
+      //     the envelope and lowercase the keys, but the
+      //     ``value``/``valueUri``/``category`` rename has to happen
+      //     here.
+      // The ontology-routing exception in vite.config.ts can send this
+      // request to either backend, so accept either shape and
+      // normalise. Drop the gemma-shape branch when the routing
+      // exception goes away (see project_ontology_routing_exception).
+      type GemmaShape = {
+        value?: string | null;
+        value_uri?: string | null;
+        category?: string | null;
+        category_uri?: string | null;
+        usage_count?: number | null;
+      };
+      type LocalShape = AnnotationCandidate;
+      const raw = await api.get<
+        Array<LocalShape | GemmaShape> | { data?: Array<LocalShape | GemmaShape> }
+      >(`/rest/v2/annotations/search?${params.toString()}`);
+      const rows: Array<LocalShape | GemmaShape> = Array.isArray(raw)
+        ? raw
+        : raw && Array.isArray(raw.data)
+          ? raw.data
+          : [];
+      return rows.map((r): AnnotationCandidate => {
+        // Local shape carries ``label``; Gemma shape carries
+        // ``value``. ``label`` is what every consumer of
+        // ``AnnotationCandidate`` reads, so coalesce here.
+        const asLocal = r as Partial<LocalShape>;
+        const asGemma = r as Partial<GemmaShape>;
+        return {
+          label: asLocal.label ?? asGemma.value ?? "",
+          uri: asLocal.uri ?? asGemma.value_uri ?? null,
+          category_label: asLocal.category_label ?? asGemma.category ?? "",
+          category_uri: asLocal.category_uri ?? asGemma.category_uri ?? null,
+          usage_count: asLocal.usage_count ?? asGemma.usage_count ?? 0,
+        };
+      });
     },
     staleTime: 1000 * 60 * 5,
     enabled,

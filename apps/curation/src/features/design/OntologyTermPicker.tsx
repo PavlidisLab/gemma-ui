@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
+import { useGemmaMode } from "@/lib/gemmaMode";
 import type { OntologyTerm } from "@/features/experiment/types";
 
 /**
@@ -84,6 +85,12 @@ export function OntologyTermPicker({
    *  them in the search input, not on a click-to-edit chip. */
   autoOpen?: boolean;
 }) {
+  // Ontology routing exception — when active, the dropdown footer
+  // calls out which external host is serving annotation lookups so
+  // curators can tell the typeahead's results aren't coming from the
+  // same backend as the rest of the UI. Temporary; drops when local
+  // Gemma 2.0 ontology coverage matches staging.
+  const { ontologyHost, ontologySplit } = useGemmaMode();
   const [editing, setEditing] = useState(autoOpen);
   const [uriEditing, setUriEditing] = useState(false);
   const [draft, setDraft] = useState(value?.label ?? "");
@@ -450,6 +457,23 @@ export function OntologyTermPicker({
             </li>
           ) : null}
 
+          {/* Ontology-source indicator — only renders when the
+              ontology routing exception is active (local-mode against
+              a local stack that doesn't carry the full ontologies, so
+              ``/rest/v2/annotations/{search,term}`` are routed to a
+              separate host). Tells the curator the typeahead hits are
+              coming from somewhere other than the main backend. */}
+          {ontologySplit ? (
+            <li
+              className="border-t border-slate-100 px-2 py-0.5 text-[10px] text-slate-500 italic"
+              title="The main Gemma backend in local mode doesn't carry the full ontology corpora, so annotation lookups are proxied to this host. Goes away once local ontology coverage lands."
+            >
+              ontology source:{" "}
+              <span className="font-mono not-italic text-slate-600">
+                {ontologyHost}
+              </span>
+            </li>
+          ) : null}
           {/* Footer escape-hatch: paste a URI directly. */}
           <li
             className="border-t border-slate-100 px-2 py-1 text-[11px] text-blue-700 hover:underline cursor-pointer"

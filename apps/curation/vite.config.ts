@@ -21,8 +21,24 @@ export default defineConfig(({ mode }) => {
     env.GEMMA_CURATION_URL || "http://localhost:8080";
   const PROPOSER_URL =
     env.GEMMA_PROPOSER_URL || "http://localhost:8090";
+  // Ontology-search routing exception (temporary, 2026-05-23).
+  // ``/rest/v2/annotations/search`` + ``/rest/v2/annotations/term``
+  // hit Gemma's ontology indexes. The local Gemma 2.0 stack
+  // doesn't carry the full OBO / EFO / MONDO / UBERON / CL / CHEBI
+  // corpora in memory, so the typeahead comes back near-empty
+  // against it. Until local ontology coverage matches staging,
+  // route these two paths to ``GEMMA_ONTOLOGY_URL`` (default
+  // staging-gemma); everything else stays on ``CURATION_URL``.
+  // Drop this exception when local-stack ontology coverage lands
+  // — see ``lib/gemmaMode.ts`` for the matching UI indicator.
+  const ONTOLOGY_URL =
+    env.GEMMA_ONTOLOGY_URL || "https://staging-gemma.msl.ubc.ca";
   // eslint-disable-next-line no-console
   console.log(`[curation] /rest → ${CURATION_URL}`);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[curation] /rest/v2/annotations/{search,term} → ${ONTOLOGY_URL} (ontology routing exception)`,
+  );
   // eslint-disable-next-line no-console
   console.log(`[curation] /propose,/audit,/find-* → ${PROPOSER_URL}`);
   return {
@@ -33,6 +49,17 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       proxy: {
+        // Order matters — Vite matches in declaration order, so the
+        // two ontology-specific routes must come BEFORE the generic
+        // ``/rest`` catch-all below.
+        "/rest/v2/annotations/search": {
+          target: ONTOLOGY_URL,
+          changeOrigin: true,
+        },
+        "/rest/v2/annotations/term": {
+          target: ONTOLOGY_URL,
+          changeOrigin: true,
+        },
         "/rest": {
           target: CURATION_URL,
           changeOrigin: true,

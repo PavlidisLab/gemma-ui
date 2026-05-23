@@ -34,6 +34,18 @@ interface ImportMetaEnv {
    *  For remote, set to e.g. ``https://staging-gemma.msl.ubc.ca`` or
    *  ``https://gemma.msl.ubc.ca``. */
   readonly VITE_GEMMA_BASE_URL?: string;
+  /** Ontology-host indicator surfaced by ``useGemmaMode().ontologyHost``.
+   *  Mirrors the dev-server's ``GEMMA_ONTOLOGY_URL`` proxy target so
+   *  the OntologyTermPicker footer can show curators which host is
+   *  serving ``/rest/v2/annotations/{search,term}`` lookups.
+   *
+   *  Temporary — only matters while local Gemma 2.0 lacks full
+   *  ontology coverage and we route those two paths to staging.
+   *  Defaults to ``https://staging-gemma.msl.ubc.ca`` in local mode
+   *  (matching the Vite proxy default); in remote mode the resolver
+   *  returns the same host as ``VITE_GEMMA_BASE_URL`` so the
+   *  indicator hides (no split happening). */
+  readonly VITE_GEMMA_ONTOLOGY_URL?: string;
 }
 
 interface ImportMeta {
