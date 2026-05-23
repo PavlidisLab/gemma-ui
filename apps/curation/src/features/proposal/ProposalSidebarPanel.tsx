@@ -67,13 +67,47 @@ export function ProposalSidebarPanel({
   const [feedback, setFeedback] = useState<string>(() =>
     loadFeedback(experimentId, proposalId),
   );
-  const [applied, setApplied] = useState(false);
 
   // Dataset summary mirrors what v2 ProposalCardV2 surfaces — sample
   // count, individual count, batch presence — computed from the saved
   // server Design's biomaterials. Saved (not draft) is the canonical
   // cohort source.
-  const { saved } = useDesignDraft();
+  const { saved, draft } = useDesignDraft();
+
+  // Derive "already applied" from the actual draft state rather than a
+  // local boolean — local state resets on page reload, but the draft
+  // (and any committed save) persists. A proposal counts as applied
+  // when every proposed factor's category is present in the draft AND
+  // every proposed tag's (category, value) is in the draft. The dedup
+  // logic in ``applyProposalToDesign`` keys on the same fields, so a
+  // second click would be a no-op — surface that explicitly so the
+  // button doesn't lie about its state.
+  const applied = useMemo(() => {
+    if (!draft) return false;
+    if (!proposal.factors?.length && !proposal.tags?.length) return false;
+    const factorKeys = new Set(
+      (draft.factors ?? []).map((f) =>
+        (f.category?.uri || f.category?.label || "").toLowerCase(),
+      ),
+    );
+    for (const p of proposal.factors ?? []) {
+      const k = (p.category?.uri || p.category?.label || "").toLowerCase();
+      if (!factorKeys.has(k)) return false;
+    }
+    const tagKeys = new Set(
+      (draft.tags ?? []).map((t) => {
+        const c = (t.category?.uri || t.category?.label || "").toLowerCase();
+        const v = (t.value?.uri || t.value?.label || "").toLowerCase();
+        return `${c}|${v}`;
+      }),
+    );
+    for (const p of proposal.tags ?? []) {
+      const c = (p.category?.uri || p.category?.label || "").toLowerCase();
+      const v = (p.value?.uri || p.value?.label || "").toLowerCase();
+      if (!tagKeys.has(`${c}|${v}`)) return false;
+    }
+    return true;
+  }, [draft, proposal.factors, proposal.tags]);
   const datasetSummary = useMemo(
     () => (saved ? summariseDataset(saved.biomaterials) : null),
     [saved],
@@ -203,7 +237,6 @@ export function ProposalSidebarPanel({
             onClick={() => {
               if (applied) return;
               onApplyToDesign();
-              setApplied(true);
             }}
             disabled={applied}
             title={
@@ -240,6 +273,7 @@ export function ProposalSidebarPanel({
                 onDispose={(d) => setOne(key, d)}
                 note={notes.get(key) ?? ""}
                 onNoteChange={(n) => setNote(key, n)}
+                totalSamples={datasetSummary?.nSamples}
               />
             );
           })}

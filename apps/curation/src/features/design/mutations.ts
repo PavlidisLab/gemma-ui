@@ -655,23 +655,23 @@ export function addStatement(
     const last = fv.statements.length
       ? fv.statements[fv.statements.length - 1]
       : null;
+    // First-statement seed: when the FV has no statements yet but
+    // carries a free-text label (the common post-Apply shape — agent
+    // proposed an FV without resolving it to ontology), pre-fill the
+    // subject with that free text so the curator can promote it to
+    // an ontology term in place instead of re-typing.
+    const seedSubject = last?.subject
+      ? { ...last.subject }
+      : fv.free_text_label?.trim()
+        ? { label: fv.free_text_label.trim() }
+        : { label: "" };
     return {
       ...fv,
-      // Default-inherit the factor's category AND the subject from
-      // the last statement when present — when the curator clicks
-      // "+ statement" on an FV that already has one, they're almost
-      // always adding another claim about the same subject (e.g.
-      // "drug X delivered at dose Y" → "drug X delivered for
-      // duration Z"). Falls back to defaults on the first
-      // statement. Mirrors what `addSiblingStatement` does for the
-      // explicit "+ sibling" affordance — the bottom "+ statement"
-      // link wasn't seeding the subject, which forced the curator
-      // to re-type it.
       statements: [
         ...fv.statements,
         {
           category: last?.category ?? defaultCategory,
-          subject: last?.subject ? { ...last.subject } : { label: "" },
+          subject: seedSubject,
         },
       ],
     };

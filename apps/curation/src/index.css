@@ -22,7 +22,7 @@
            bg-emerald-50 text-emerald-800 border border-emerald-200;
   }
   .term.free      { @apply bg-stone-50 text-stone-600 border-stone-200 italic; }
-  .term.predicate { @apply bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200; }
+  .term.predicate { @apply bg-slate-100 text-slate-600 border-slate-300; }
   /*
     ``.term.baseline`` used to apply an emerald wash, but green is
     the house-standard cue for "ontology-resolved" — overloading
@@ -168,9 +168,9 @@ html.dark .term.free {
   border-color: rgb(51 65 85);               /* slate-700 */
 }
 html.dark .term.predicate {
-  background-color: rgb(112 26 117 / 0.4);   /* fuchsia-900 / 40% */
-  color: rgb(245 208 254);                   /* fuchsia-200 */
-  border-color: rgb(112 26 117);
+  background-color: rgb(30 41 59 / 0.55);    /* slate-800 / 55% */
+  color: rgb(203 213 225);                   /* slate-300 */
+  border-color: rgb(71 85 105);              /* slate-600 */
 }
 /* ``.term.baseline`` is a no-op — see the light-theme comment. */
 

@@ -233,7 +233,7 @@ export function FactorList({
                       <span className="text-blue-600 font-bold select-none shrink-0" aria-hidden>›</span>
                     ) : null}
                     <InlineText
-                      value={f.name}
+                      value={f.name || f.category?.label || ""}
                       placeholder="factor name"
                       onCommit={(name) => onFactorFieldsChange(f.id, { name })}
                     />
@@ -304,7 +304,16 @@ export function FactorList({
                   </select>
                 </td>
                 <td className="px-3 py-2 text-slate-400 font-mono text-xs align-top">
-                  {f.id}
+                  {isAdded ? (
+                    <span
+                      className="text-slate-500 italic font-sans"
+                      title="draft — this factor doesn't have a server id until you commit"
+                    >
+                      —
+                    </span>
+                  ) : (
+                    f.id
+                  )}
                 </td>
                 <td
                   className="px-2 py-2 align-top"

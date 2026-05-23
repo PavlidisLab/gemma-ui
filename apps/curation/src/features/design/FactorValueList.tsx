@@ -96,6 +96,14 @@ export function FactorValueList({
             {factor.factor_values.length} values · {assigned.size} /{" "}
             {totalBiomaterials} samples assigned
           </span>
+          {unassignedCount > 0 ? (
+            <span
+              className="inline-flex items-baseline text-[10px] tracking-wide font-semibold px-1 py-0 rounded border bg-amber-100 border-amber-300 text-amber-800 dark:bg-amber-900/40 dark:border-amber-700 dark:text-amber-200"
+              title={`Only ${assigned.size} of ${totalBiomaterials} samples are assigned to a factor value — ${unassignedCount} unassigned. Add or rebalance FVs to cover all samples before committing.`}
+            >
+              ⚠ {unassignedCount} unassigned
+            </span>
+          ) : null}
           {onToggleCompact ? (
             // Double-chevron compact-mode toggle. ≪ when expanded
             // (click to collapse / hide editing chrome); ≫ when
@@ -170,6 +178,7 @@ export function FactorValueList({
             onStatementDelete={(idx) => onStatementDelete(fv.id, idx)}
             onRevert={change ? () => onRevertFv(fv.id, change) : undefined}
             compact={compact}
+            onExpand={onToggleCompact}
           />
         );
       })}

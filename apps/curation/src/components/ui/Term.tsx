@@ -14,7 +14,10 @@ import type { ReactNode } from "react";
  *   - **Free-text** (URI absent, default variant) — grey italic
  *     chip, no link. Signals at a glance that the curator still
  *     needs to resolve the term.
- *   - **Predicate** — fuchsia chip (any URI presence).
+ *   - **Predicate** — muted slate chip (connective tissue between
+ *     subject/object; steps back visually so the two real Terms
+ *     carry the weight). Earlier fuchsia variant clashed with the
+ *     purple boss-verdict chip — 2026-05-22.
  *
  * Baseline status is **not** a Term variant — green is reserved
  * for "ontology-resolved", and reusing it for baseline conflated

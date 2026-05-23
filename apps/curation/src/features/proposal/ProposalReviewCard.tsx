@@ -47,6 +47,10 @@ interface BaseProps {
    *  the reject/park dialog. */
   note?: string;
   onNoteChange?: (note: string) => void;
+  /** Total sample count for the experiment — used by the factor
+   *  card to flag partial sample coverage. Falls back to "no
+   *  warning surfaced" when undefined. */
+  totalSamples?: number;
 }
 
 export function FactorReviewCard({
@@ -56,12 +60,23 @@ export function FactorReviewCard({
   onDispose,
   note,
   onNoteChange,
+  totalSamples,
 }: BaseProps & { factor: FactorProposal }) {
   const fvs = factor.factor_values ?? [];
   const fvCount = fvs.length;
   const isContinuous = factor.factor_type === "continuous";
   const label =
     factor.name_in_design || factor.category?.label || "factor";
+  // Count unique samples assigned across this factor's FVs — total
+  // assigned count is the size of the union (some FVs may carry
+  // overlapping assignments, though that's usually a bug).
+  const assignedSamples = (() => {
+    const set = new Set<string>();
+    for (const fv of fvs) {
+      for (const s of fv.biomaterial_short_names ?? []) set.add(s);
+    }
+    return set.size;
+  })();
   return (
     <ReviewCardShell
       kind="factor"
@@ -90,6 +105,12 @@ export function FactorReviewCard({
           relevance={factor.baseline_relevance}
           reason={factor.baseline_relevance_reason}
         />
+        {!isContinuous ? (
+          <SampleCoverageChip
+            assigned={assignedSamples}
+            total={totalSamples}
+          />
+        ) : null}
         <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-auto">
           {isContinuous ? "continuous" : `${fvCount} level${fvCount === 1 ? "" : "s"}`}
         </span>
@@ -385,6 +406,31 @@ function BaselineRelevanceChip({
   );
 }
 
+/** Sample-coverage flag for a factor — surfaces when the factor's
+ *  FVs don't cover all experiment samples. Renders nothing on full
+ *  coverage; renders an amber warning chip with the deficit when
+ *  partial. Per Paul 2026-05-22: "not having all samples assigned
+ *  should be flagged more clearly". */
+function SampleCoverageChip({
+  assigned,
+  total,
+}: {
+  assigned: number;
+  total: number | undefined;
+}) {
+  if (!total || total <= 0) return null;
+  if (assigned >= total) return null;
+  const unassigned = total - assigned;
+  return (
+    <span
+      className="inline-flex items-baseline text-[10px] tracking-wide font-semibold px-1 py-0 rounded border bg-amber-100 border-amber-300 text-amber-800 dark:bg-amber-900/40 dark:border-amber-700 dark:text-amber-200"
+      title={`Only ${assigned} of ${total} samples are assigned to a factor value — ${unassigned} unassigned. Add or rebalance FVs to cover all samples before committing.`}
+    >
+      ⚠ {assigned}/{total} assigned ({unassigned} left)
+    </span>
+  );
+}
+
 /** Summarise the per-sample BM-assignment confidence breakdown for an
  *  FV. Surface only when the assignment isn't all-"high" — the
  *  agent's default. */
@@ -460,11 +506,8 @@ function DefenderVerdictPill({ verdict }: { verdict: AttachedDefenderVerdict }) 
       cls: "bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-700 dark:text-indigo-300",
     },
     boss: {
-      // Rose — visually distinct from defender (sky) and arbiter
-      // (indigo), and crucially NOT purple (predicates already
-      // claim the purple/violet hue family for their Term variant).
       label: "boss",
-      cls: "bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-900/30 dark:border-rose-700 dark:text-rose-300",
+      cls: "bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700 dark:text-purple-300",
     },
   };
   const cfg = sideConfig[verdict.side];

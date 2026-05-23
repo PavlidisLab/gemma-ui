@@ -37,6 +37,7 @@ export function FactorValueCard({
   onStatementDelete,
   onRevert,
   compact = false,
+  onExpand,
 }: {
   fv: FactorValue;
   factorCategory: OntologyTerm | null;
@@ -66,6 +67,12 @@ export function FactorValueCard({
    *  so older callers (any tombstone-only render path that doesn't
    *  want a revert affordance) can omit it. */
   onRevert?: () => void;
+  /** Optional handler invoked when the curator double-clicks the card
+   *  in compact mode. Wire to the same toggle that drives ``compact``
+   *  so a dbl-click on read-only chrome promotes the card back to the
+   *  full editor — otherwise the curator has to find the ≫ chevron in
+   *  the header to start editing. No-op when not in compact mode. */
+  onExpand?: () => void;
 }) {
   const isAdded = change?.kind === "added";
   const isModified = change?.kind === "modified";
@@ -113,8 +120,31 @@ export function FactorValueCard({
         factorCategory?.label || "",
         fv.free_text_label || "",
       )}
+      // In compact mode the FV label + statements render as read-only
+      // spans, so double-clicking them does nothing. Promote the card
+      // back to the full editor on dbl-click so the curator doesn't
+      // have to hunt for the ≫ chevron in the parent header. The same
+      // dbl-click won't auto-open the underlying InlineText (the
+      // target wasn't rendered yet) but the curator's natural next
+      // motion is to dbl-click again on the now-visible field.
+      onDoubleClick={
+        compact && onExpand && !isRemoved
+          ? (e) => {
+              e.stopPropagation();
+              onExpand();
+            }
+          : undefined
+      }
       className={
-        "px-3 py-1.5 border-b border-slate-100 " + borderClass
+        "px-3 py-1.5 border-b border-slate-100 " + borderClass +
+        (compact && onExpand && !isRemoved
+          ? " cursor-text"
+          : "")
+      }
+      title={
+        compact && onExpand && !isRemoved
+          ? "double-click to expand and edit"
+          : undefined
       }
     >
       <header className="flex items-center justify-between mb-1">
