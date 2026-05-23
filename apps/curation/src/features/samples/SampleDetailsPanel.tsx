@@ -333,6 +333,30 @@ function SampleTable({
       ? activeProposal
       : null;
   const proposalFactors: FactorProposal[] = overlayProposal?.factors ?? [];
+
+  // Per-sample worst-confidence summary across all proposal factors.
+  // A sample is flagged when ANY of its FV assignments has
+  // ``confidence != "high"``; "low" wins over "medium" wins over
+  // "high". Powers a small dot in the short_name column so the
+  // curator can scan the table for iffy assignments without opening
+  // every FV cell's tooltip.
+  const worstConfBySample = useMemo(() => {
+    const out = new Map<string, "low" | "medium">();
+    const rank = (c: string) => (c === "low" ? 2 : c === "medium" ? 1 : 0);
+    for (const pf of proposalFactors) {
+      for (const fv of pf.factor_values) {
+        for (const m of fv.biomaterial_assignment_meta ?? []) {
+          const conf = (m.confidence || "").toLowerCase();
+          if (conf !== "low" && conf !== "medium") continue;
+          const prev = out.get(m.biomaterial_short_name);
+          if (!prev || rank(conf) > rank(prev)) {
+            out.set(m.biomaterial_short_name, conf);
+          }
+        }
+      }
+    }
+    return out;
+  }, [proposalFactors]);
   // Show the bio_assay column ONLY when it carries information the
   // biomaterial column doesn't already show. Common bulk pattern:
   // one assay per biomaterial, sharing the same short_name (GSM…).
@@ -1202,6 +1226,42 @@ function SampleTable({
                         +{groupSize - 1}
                       </span>
                     ) : null}
+                    {(() => {
+                      // Confidence flag — surfaces a small dot next
+                      // to the short_name when ANY proposal factor's
+                      // FV assigned this sample with low/medium
+                      // confidence. Lets a curator scan the table
+                      // for iffy assignments without expanding each
+                      // factor cell's tooltip. For grouped (single-
+                      // cell) rows we take the worst across siblings.
+                      let worst: "low" | "medium" | undefined;
+                      for (const sn of allShortNames) {
+                        const c = worstConfBySample.get(sn);
+                        if (c === "low") {
+                          worst = "low";
+                          break;
+                        }
+                        if (c === "medium") worst = "medium";
+                      }
+                      if (!worst) return null;
+                      const dotCls =
+                        worst === "low"
+                          ? "bg-rose-500"
+                          : "bg-amber-500";
+                      const tip =
+                        worst === "low"
+                          ? "low-confidence assignment on this sample — verify before retaining"
+                          : "medium-confidence assignment on this sample — spot-check before retaining";
+                      return (
+                        <span
+                          className={cn(
+                            "ml-1.5 inline-block align-middle w-1.5 h-1.5 rounded-full",
+                            dotCls,
+                          )}
+                          title={tip}
+                        />
+                      );
+                    })()}
                     {/* Inline audit indicator anchored to this
                         biomaterial's assignment finding (if any).
                         For grouped (single-cell) rows, the dot
