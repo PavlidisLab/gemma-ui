@@ -106,12 +106,30 @@ export interface CurationProposalOverlay {
 
 // ─── Compose ─────────────────────────────────────────────────────
 
+/** Slim metadata strip lifted from `/rest/v2/datasets/{id}` onto the
+ *  composed Design so the banner can render technology_type /
+ *  platform / external_source without an extra fetch. Only the
+ *  banner-relevant fields are read; the full DatasetMeta type lives
+ *  in design.ts. */
+export interface DatasetMetaSlim {
+  taxon_common_name?: string | null;
+  technology_type?: string | null;
+  assay?: string | null;
+  platform?: string | null;
+  platform_short_name?: string | null;
+  platform_id?: number | null;
+  original_platform?: string | null;
+  original_platform_short_name?: string | null;
+  original_platform_id?: number | null;
+}
+
 export function composeCurationDesign(
   g2: G2Design,
   experimentId: number,
   experimentShortName: string,
   overlay?: CurationProposalOverlay | null,
   externalSource?: ExternalSource | null,
+  meta?: DatasetMetaSlim | null,
 ): Design {
   const fvOverlay = overlay?.factor_values ?? {};
 
@@ -160,6 +178,15 @@ export function composeCurationDesign(
     external_source: externalSource ?? null,
     title: g2.name ?? undefined,
     description: g2.description ?? undefined,
+    taxon: meta?.taxon_common_name ?? "",
+    technology_type: meta?.technology_type ?? "",
+    assay: meta?.assay ?? "",
+    platform: meta?.platform ?? "",
+    platform_short_name: meta?.platform_short_name ?? "",
+    platform_id: meta?.platform_id ?? null,
+    original_platform: meta?.original_platform ?? "",
+    original_platform_short_name: meta?.original_platform_short_name ?? "",
+    original_platform_id: meta?.original_platform_id ?? null,
   };
 }
 

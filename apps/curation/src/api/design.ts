@@ -45,15 +45,17 @@ export function useDesign(experimentId: number) {
               uri: datasetMeta.external_uri ?? null,
             }
           : null,
+        datasetMeta,
       );
     },
   });
 }
 
-interface DatasetMeta {
+export interface DatasetMeta {
   id?: number;
   short_name?: string | null;
   name?: string | null;
+  taxon_common_name?: string | null;
   /** Source database label — "GEO", "ArrayExpress", "CELLxGENE",
    *  etc. Absent on true direct-upload datasets. */
   external_database?: string | null;
@@ -61,6 +63,18 @@ interface DatasetMeta {
   accession?: string | null;
   /** Click-through URL at the source database. */
   external_uri?: string | null;
+  /** Gemma technology classifier — drives the banner modality chip
+   *  and the platform-line stub detection. Common values:
+   *  ``ONECOLOR`` / ``TWOCOLOR`` (microarray), ``SEQUENCING`` /
+   *  ``GENELIST`` (RNA-seq), ``OTHER``. */
+  technology_type?: string | null;
+  assay?: string | null;
+  platform?: string | null;
+  platform_short_name?: string | null;
+  platform_id?: number | null;
+  original_platform?: string | null;
+  original_platform_short_name?: string | null;
+  original_platform_id?: number | null;
 }
 
 async function fetchDatasetMeta(experimentId: number): Promise<DatasetMeta> {
