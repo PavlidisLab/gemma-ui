@@ -14,7 +14,7 @@ import { useToast } from "@/components/ui/Toast";
 import { InlineText } from "@/components/ui/InlineText";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { InlineFvPicker } from "@/components/ui/InlineFvPicker";
-import { useStickyState } from "@/lib/useStickyState";
+import { useStickyState, useSessionState } from "@/lib/useStickyState";
 import { useEscape } from "@/lib/useEscape";
 import type {
   Biomaterial,
@@ -604,6 +604,90 @@ function SampleTable({
     return list;
   }, [visibleFactors]);
 
+  // ---------------------------------------------------------------------
+  // User-controlled column order (drag-and-drop, sessionStorage-backed).
+  //
+  // The default order — name, bio_assay (if present), factors, chars —
+  // matches the legacy hard-coded layout. Curator can drag a header
+  // anywhere within the movable region; sticky columns (selector +
+  // short_name) stay pinned-left, and the transient proposal-overlay
+  // columns stay pinned-right.
+  //
+  // The reorder is per-experiment + per-tab-session, NOT persisted
+  // across tab closes (sessionStorage). Closing the tab gives the
+  // curator a clean default the next day.
+  // ---------------------------------------------------------------------
+  const defaultMovableKeys: string[] = useMemo(() => {
+    const out: string[] = ["name"];
+    if (hasBioAssays) out.push("bio_assay");
+    for (const { factor } of orderedFactors) {
+      out.push(`factor:${factor.id}`);
+    }
+    for (const k of visibleCharKeys) {
+      out.push(`char:${k}`);
+    }
+    return out;
+  }, [hasBioAssays, orderedFactors, visibleCharKeys]);
+
+  const [savedColOrder, setSavedColOrder] = useSessionState<string[]>(
+    `samples.colOrder.${design.experiment_id}`,
+    [],
+  );
+
+  /** Apply the saved user order on top of the default. Unknown keys in
+   *  the saved list are dropped silently; new keys not yet seen by
+   *  the saved list slot in at their default position. */
+  const orderedMovableKeys = useMemo(() => {
+    const defaultIdx = new Map<string, number>();
+    defaultMovableKeys.forEach((k, i) => defaultIdx.set(k, i));
+    const inSaved = new Set<string>();
+    const out: string[] = [];
+    for (const k of savedColOrder) {
+      if (defaultIdx.has(k)) {
+        out.push(k);
+        inSaved.add(k);
+      }
+    }
+    // Splice in any never-seen keys at their default positions
+    // (relative to the keys already in `out`).
+    for (const k of defaultMovableKeys) {
+      if (inSaved.has(k)) continue;
+      // Find the closest default-neighbor that IS in `out`; insert
+      // after it. If none, append to the end.
+      const defI = defaultIdx.get(k)!;
+      let insertAt = out.length;
+      for (let i = 0; i < out.length; i++) {
+        const otherI = defaultIdx.get(out[i]) ?? -1;
+        if (otherI > defI) {
+          insertAt = i;
+          break;
+        }
+      }
+      out.splice(insertAt, 0, k);
+    }
+    return out;
+  }, [defaultMovableKeys, savedColOrder]);
+
+  /** Commit a drag drop: move `srcKey` to where `dstKey` currently sits. */
+  const moveColumn = (srcKey: string, dstKey: string) => {
+    if (srcKey === dstKey) return;
+    const next = [...orderedMovableKeys];
+    const srcIdx = next.indexOf(srcKey);
+    const dstIdx = next.indexOf(dstKey);
+    if (srcIdx < 0 || dstIdx < 0) return;
+    next.splice(srcIdx, 1);
+    next.splice(dstIdx, 0, srcKey);
+    setSavedColOrder(next);
+  };
+
+  /** Reset to the natural default. Surfaced as a small affordance
+   *  in the column-filter row so curators who reorder by mistake can
+   *  recover without rage-refreshing. */
+  const resetColOrder = () => setSavedColOrder([]);
+
+  // Drag state — only one key in flight at a time, transient.
+  const [dragKey, setDragKey] = useState<string | null>(null);
+
   // Row filter — searches every searchable field on the BM, regardless
   // of which columns the curator has hidden. The constancy / column-
   // filter toggles only affect what's *displayed*; an accession typed
@@ -995,6 +1079,16 @@ function SampleTable({
               {hiddenColCount === 1 ? "" : "s"} hidden
             </span>
           ) : null}
+          {savedColOrder.length > 0 ? (
+            <button
+              type="button"
+              className="text-[11px] text-slate-500 hover:text-slate-900 underline underline-offset-2"
+              onClick={resetColOrder}
+              title="reset column order to the default (factors then characteristics)"
+            >
+              reset column order
+            </button>
+          ) : null}
           <span
             className="text-[11px] text-slate-500 hidden md:inline"
             title="click a row's left gutter to select; shift-click for range; ⌘/ctrl-click to toggle one row"
@@ -1140,110 +1234,138 @@ function SampleTable({
                 width={colWidths["short_name"]}
                 onResize={(w) => setColWidth("short_name", w)}
               />
-              <SortableTh
-                label="name"
-                colKey="name"
-                sort={sort}
-                onSortChange={onSortChange}
-                width={colWidths["name"]}
-                onResize={(w) => setColWidth("name", w)}
-              />
-              {hasBioAssays ? (
-                <SortableTh
-                  label="bio_assay"
-                  colKey="bio_assay"
-                  sort={sort}
-                  onSortChange={onSortChange}
-                  width={colWidths["bio_assay"]}
-                  onResize={(w) => setColWidth("bio_assay", w)}
-                />
-              ) : null}
-              {/* Factor columns sit immediately after the row-identifier
-                  columns so curators don't have to scroll past a wide
-                  block of characteristics to reach the curated
-                  annotations. Characteristics follow. */}
-              {orderedFactors.map(({ factor }) => {
-                const colKey = `factor:${factor.id}`;
-                const nuisance = isNuisanceFactor(factor);
-                return (
-                  <SortableTh
-                    key={`f-${factor.id}`}
-                    label={factor.name || `factor#${factor.id}`}
-                    colKey={colKey}
-                    sort={sort}
-                    onSortChange={onSortChange}
-                    badge="factor"
-                    className="bg-blue-50/50 border-l-2 border-blue-200"
-                    title={
-                      (factor.description || `factor#${factor.id}`) +
-                      (nuisance ? " · nuisance factor (batch / block)" : "") +
-                      (constantFactorIds.has(factor.id)
-                        ? " · constant across visible rows"
-                        : "")
+              {/* Movable region. Curator can drag any of these column
+                  headers to reorder; sticky columns (selector +
+                  short_name) stay on the left, proposal-overlay
+                  columns stay on the right. Order is per-experiment-
+                  per-tab-session via useSessionState. */}
+              {orderedMovableKeys.map((key) => {
+                const dragHandlers = {
+                  draggable: true,
+                  dragKey: key,
+                  isDragging: dragKey === key,
+                  onDragStart: (k: string) => setDragKey(k),
+                  onDragOver: (
+                    _k: string,
+                    e: React.DragEvent<HTMLElement>,
+                  ) => {
+                    if (dragKey && dragKey !== _k) {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
                     }
-                    dataFactorId={factor.id}
-                    width={colWidths[colKey]}
-                    onResize={(w) => setColWidth(colKey, w)}
-                  />
-                );
-              })}
-              {visibleCharKeys.map((k) => {
-                const colKey = `char:${k}`;
-                const isContinuous = continuousCharKeys.has(k);
-                const alreadyAFactor = factorCategoryLabels.has(
-                  k.trim().toLowerCase(),
-                );
-                // Constant-across-cohort characteristics shouldn't
-                // be promoted — a single-FV factor has nothing to
-                // partition. Show promote on every other non-factor
-                // column; the parent's onPromoteCharacteristic
-                // dispatches to the continuous or categorical
-                // mutation based on the values' shape.
-                // Continuous numberlike chars stay promote-eligible
-                // even when a factor with the same category label
-                // already exists (the existing one may be
-                // categorical / curator-built, and the char's
-                // numeric distribution is its own first-class
-                // factor worth surfacing). Categorical chars
-                // still hide the button when a like-named factor
-                // is already present. Per Paul 2026-05-21.
-                const showPromote = isContinuous
-                  ? !constantCharKeys.has(k)
-                  : !alreadyAFactor && !constantCharKeys.has(k);
-                const promoteTooltip = isContinuous
-                  ? `Promote "${k}" to a continuous factor — one FV per sample, with the measurement as the value`
-                  : `Promote "${k}" to a categorical factor — one FV per distinct value, samples assigned automatically`;
-                return (
-                  <SortableTh
-                    key={`char-${k}`}
-                    label={k}
-                    colKey={colKey}
-                    sort={sort}
-                    onSortChange={onSortChange}
-                    badge="char"
-                    className="bg-slate-50 border-l border-slate-200/60"
-                    title={`raw biomaterial characteristic — sourced from GEO sample metadata${
-                      constantCharKeys.has(k) ? " · constant across visible rows" : ""
-                    }${isContinuous ? " · numeric" : ""}`}
-                    extra={
-                      showPromote ? (
-                        <button
-                          type="button"
-                          className="text-[10px] text-blue-700 hover:text-blue-900 underline underline-offset-2 mt-0.5"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onPromoteCharacteristic(k);
-                          }}
-                          title={promoteTooltip}
-                        >
-                          + promote to factor
-                        </button>
-                      ) : undefined
-                    }
-                    width={colWidths[colKey]}
-                    onResize={(w) => setColWidth(colKey, w)}
-                  />
-                );
+                  },
+                  onDrop: (k: string) => {
+                    if (dragKey && dragKey !== k) moveColumn(dragKey, k);
+                    setDragKey(null);
+                  },
+                  onDragEnd: () => setDragKey(null),
+                };
+                if (key === "name") {
+                  return (
+                    <SortableTh
+                      key="name"
+                      label="name"
+                      colKey="name"
+                      sort={sort}
+                      onSortChange={onSortChange}
+                      width={colWidths["name"]}
+                      onResize={(w) => setColWidth("name", w)}
+                      {...dragHandlers}
+                    />
+                  );
+                }
+                if (key === "bio_assay") {
+                  return (
+                    <SortableTh
+                      key="bio_assay"
+                      label="bio_assay"
+                      colKey="bio_assay"
+                      sort={sort}
+                      onSortChange={onSortChange}
+                      width={colWidths["bio_assay"]}
+                      onResize={(w) => setColWidth("bio_assay", w)}
+                      {...dragHandlers}
+                    />
+                  );
+                }
+                if (key.startsWith("factor:")) {
+                  const fid = Number(key.slice("factor:".length));
+                  const entry = orderedFactors.find(
+                    (e) => e.factor.id === fid,
+                  );
+                  if (!entry) return null;
+                  const { factor } = entry;
+                  const nuisance = isNuisanceFactor(factor);
+                  return (
+                    <SortableTh
+                      key={`f-${factor.id}`}
+                      label={factor.name || `factor#${factor.id}`}
+                      colKey={key}
+                      sort={sort}
+                      onSortChange={onSortChange}
+                      badge="factor"
+                      className="bg-blue-50/50 border-l-2 border-blue-200"
+                      title={
+                        (factor.description || `factor#${factor.id}`) +
+                        (nuisance ? " · nuisance factor (batch / block)" : "") +
+                        (constantFactorIds.has(factor.id)
+                          ? " · constant across visible rows"
+                          : "")
+                      }
+                      dataFactorId={factor.id}
+                      width={colWidths[key]}
+                      onResize={(w) => setColWidth(key, w)}
+                      {...dragHandlers}
+                    />
+                  );
+                }
+                if (key.startsWith("char:")) {
+                  const k = key.slice("char:".length);
+                  if (!visibleCharKeys.includes(k)) return null;
+                  const isContinuous = continuousCharKeys.has(k);
+                  const alreadyAFactor = factorCategoryLabels.has(
+                    k.trim().toLowerCase(),
+                  );
+                  const showPromote = isContinuous
+                    ? !constantCharKeys.has(k)
+                    : !alreadyAFactor && !constantCharKeys.has(k);
+                  const promoteTooltip = isContinuous
+                    ? `Promote "${k}" to a continuous factor — one FV per sample, with the measurement as the value`
+                    : `Promote "${k}" to a categorical factor — one FV per distinct value, samples assigned automatically`;
+                  return (
+                    <SortableTh
+                      key={`char-${k}`}
+                      label={k}
+                      colKey={key}
+                      sort={sort}
+                      onSortChange={onSortChange}
+                      badge="char"
+                      className="bg-slate-50 border-l border-slate-200/60"
+                      title={`raw biomaterial characteristic — sourced from GEO sample metadata${
+                        constantCharKeys.has(k) ? " · constant across visible rows" : ""
+                      }${isContinuous ? " · numeric" : ""}`}
+                      extra={
+                        showPromote ? (
+                          <button
+                            type="button"
+                            className="text-[10px] text-blue-700 hover:text-blue-900 underline underline-offset-2 mt-0.5"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onPromoteCharacteristic(k);
+                            }}
+                            title={promoteTooltip}
+                          >
+                            + promote to factor
+                          </button>
+                        ) : undefined
+                      }
+                      width={colWidths[key]}
+                      onResize={(w) => setColWidth(key, w)}
+                      {...dragHandlers}
+                    />
+                  );
+                }
+                return null;
               })}
               {/* Proposal-overlay columns. Appended after the design
                   factor columns; visually distinct (amber) so the
@@ -1466,223 +1588,220 @@ function SampleTable({
                       groupSize={groupSize}
                     />
                   </td>
-                  <td
-                    className="px-3 py-0.5 text-slate-700 whitespace-nowrap max-w-[16rem] truncate"
-                    title={repr.name}
-                  >
-                    {/*
-                      Editing the representative's name when the row
-                      represents a group fans out to siblings —
-                      keeps the source-sample identity consistent
-                      across cell-type buckets. Mixed-name groups
-                      are rare; we still show the representative.
-                    */}
-                    <InlineText
-                      value={repr.name}
-                      placeholder="add name"
-                      onCommit={(name) => {
-                        for (const sn of allShortNames) onSetName(sn, name);
-                      }}
-                    />
-                  </td>
-                  {hasBioAssays ? (
-                    <td className="px-3 py-0.5 text-slate-700 whitespace-nowrap">
-                      {/*
-                        Bio-assay column. Submitters frequently set
-                        the assay's `name` to the same string as the
-                        biomaterial's `name`; suppress the duplicate.
-                        For grouped rows we union all siblings'
-                        assays (often one per cell-type bucket).
-                      */}
-                      {(() => {
-                        const allAssays = siblings.flatMap(
-                          (b) => b.bio_assays ?? [],
-                        );
-                        if (allAssays.length === 0) {
-                          return <span className="text-slate-300">—</span>;
-                        }
-                        return allAssays.map((a, i) => {
-                          const dupName = (a.name ?? "") === (repr.name ?? "");
-                          const url = sampleExternalUrl(
-                            design.external_source?.database,
-                            a.short_name,
-                          );
-                          return (
-                            <div
-                              key={`${a.short_name}-${i}`}
-                              className={i > 0 ? "mt-0.5" : ""}
-                              title={
-                                dupName
-                                  ? a.short_name
-                                  : `${a.short_name} · ${a.name}`
-                              }
-                            >
-                              {url ? (
-                                <a
-                                  href={url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-mono text-[10px] text-blue-700 hover:underline"
-                                  onClick={(e) => e.stopPropagation()}
-                                  title={`open ${a.short_name} in source database`}
-                                >
-                                  {a.short_name}
-                                </a>
-                              ) : (
-                                <span className="font-mono text-[10px] text-slate-500">
-                                  {a.short_name}
-                                </span>
-                              )}
-                              {!dupName && a.name ? (
-                                <span className="text-slate-700 ml-1">
-                                  {a.name}
-                                </span>
-                              ) : null}
-                            </div>
-                          );
-                        });
-                      })()}
-                    </td>
-                  ) : null}
-                  {orderedFactors.map(({ factor, index }) => {
-                    const agg = aggregateFvId(siblings, index);
-                    // Per-cell confidence — worst across the row's
-                    // siblings for this specific factor. Lights up a
-                    // small ⚠ next to the dropdown when the agent's
-                    // assignment came in below high confidence, so
-                    // the curator can scan the table column-by-
-                    // column and spot which (sample, factor) pairs
-                    // need a second look.
-                    const factorCat = (
-                      factor.category?.label || ""
-                    ).toLowerCase();
-                    let cellConf: "low" | "medium" | undefined;
-                    if (factorCat) {
-                      for (const sn of allShortNames) {
-                        const c = confBySampleAndFactor.get(
-                          `${sn}|${factorCat}`,
-                        );
-                        if (c === "low") {
-                          cellConf = "low";
-                          break;
-                        }
-                        if (c === "medium") cellConf = "medium";
-                      }
-                    }
-                    return (
-                      <td
-                        key={`${repr.short_name}-f${factor.id}`}
-                        className="px-3 py-0.5 border-l-2 border-blue-100"
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          {cellConf ? (
-                            <span
-                              className={cn(
-                                "text-[11px] leading-none shrink-0 cursor-help",
-                                cellConf === "low"
-                                  ? "text-rose-600 dark:text-rose-400"
-                                  : "text-amber-600 dark:text-amber-400",
-                              )}
-                              title={
-                                cellConf === "low"
-                                  ? "low-confidence agent assignment on this sample for this factor — verify before retaining"
-                                  : "medium-confidence agent assignment on this sample for this factor — spot-check before retaining"
-                              }
-                              aria-label={`${cellConf}-confidence assignment`}
-                            >
-                              ⚠
-                            </span>
-                          ) : null}
-                          <FvSelect
-                            factor={factor}
-                            currentFvId={agg.fvId}
-                            isMixed={agg.isMixed}
-                            onChange={(fvId) => {
-                              for (const sn of allShortNames) {
-                                onReassign(sn, factor.id, fvId);
-                              }
-                            }}
-                          />
-                        </span>
-                      </td>
-                    );
-                  })}
-                  {visibleCharKeys.map((k) => {
-                    const agg = aggregateCharValue(siblings, k);
-                    const isOntology = !!agg.valueUri && !agg.isMixed;
-                    // A char cell counts as dirty when ANY sibling's
-                    // current value differs from the saved baseline
-                    // for that biomaterial+key. Walks every sibling
-                    // because grouped (single-cell) rows may share
-                    // an aggregate display while individual buckets
-                    // diverge from saved.
-                    const isDirty =
-                      !agg.isMixed &&
-                      siblings.some((b) => {
-                        const cur = (b.characteristics?.[k] ?? "").trim();
-                        const prior = (
-                          savedCharIndex.get(`${b.short_name}|${k}`) ?? ""
-                        ).trim();
-                        return cur !== prior;
-                      });
-                    const matchedFactor = categoricalFactorByCharKey.get(
-                      k.toLowerCase(),
-                    );
-                    return (
-                      <td
-                        key={`${repr.short_name}-${k}`}
-                        className={cn(
-                          "px-3 py-0.5 border-l border-slate-100 whitespace-nowrap max-w-[16rem] truncate",
-                          agg.isMixed
-                            ? "italic text-slate-500"
-                            : isOntology
-                              ? "text-emerald-900 bg-emerald-50/60"
-                              : "text-slate-700",
-                        )}
-                        title={
-                          agg.isMixed
-                            ? `${agg.distinct.length} distinct values across ${groupSize} cell-type buckets:\n${agg.distinct.join("\n")}`
-                            : isOntology
-                              ? `ontology term — ${agg.valueUri}`
-                              : agg.display || undefined
-                        }
-                      >
-                        {agg.isMixed ? (
-                          // Mixed cells aren't directly editable —
-                          // a single value would obliterate the
-                          // per-bucket differentiation that's the
-                          // whole point of a single-cell experiment.
-                          // To edit per cell-type, expand the row
-                          // (TODO: expand affordance).
-                          <span>{agg.display}</span>
-                        ) : matchedFactor ? (
-                          <InlineFvPicker
-                            value={agg.display}
-                            placeholder="—"
-                            options={matchedFactor.factor_values.map(
-                              (fv) => fv.free_text_label,
-                            )}
-                            dirty={isDirty}
-                            onCommit={(value) => {
-                              for (const sn of allShortNames) {
-                                onSetCharacteristic(sn, k, value);
-                              }
-                            }}
-                          />
-                        ) : (
+                  {/* Movable cells — iterate the same key list the
+                      header uses so column reorder takes effect both
+                      here and in <thead>. Each kind renders its own
+                      <td> via a branch on the key prefix. */}
+                  {orderedMovableKeys.map((key) => {
+                    if (key === "name") {
+                      return (
+                        <td
+                          key={`${repr.short_name}-name`}
+                          className="px-3 py-0.5 text-slate-700 whitespace-nowrap max-w-[16rem] truncate"
+                          title={repr.name}
+                        >
                           <InlineText
-                            value={agg.display}
-                            placeholder="—"
-                            dirty={isDirty}
-                            onCommit={(value) => {
-                              for (const sn of allShortNames) {
-                                onSetCharacteristic(sn, k, value);
-                              }
+                            value={repr.name}
+                            placeholder="add name"
+                            onCommit={(name) => {
+                              for (const sn of allShortNames)
+                                onSetName(sn, name);
                             }}
                           />
-                        )}
-                      </td>
-                    );
+                        </td>
+                      );
+                    }
+                    if (key === "bio_assay") {
+                      return (
+                        <td
+                          key={`${repr.short_name}-ba`}
+                          className="px-3 py-0.5 text-slate-700 whitespace-nowrap"
+                        >
+                          {(() => {
+                            const allAssays = siblings.flatMap(
+                              (b) => b.bio_assays ?? [],
+                            );
+                            if (allAssays.length === 0) {
+                              return (
+                                <span className="text-slate-300">—</span>
+                              );
+                            }
+                            return allAssays.map((a, i) => {
+                              const dupName =
+                                (a.name ?? "") === (repr.name ?? "");
+                              const url = sampleExternalUrl(
+                                design.external_source?.database,
+                                a.short_name,
+                              );
+                              return (
+                                <div
+                                  key={`${a.short_name}-${i}`}
+                                  className={i > 0 ? "mt-0.5" : ""}
+                                  title={
+                                    dupName
+                                      ? a.short_name
+                                      : `${a.short_name} · ${a.name}`
+                                  }
+                                >
+                                  {url ? (
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="font-mono text-[10px] text-blue-700 hover:underline"
+                                      onClick={(e) => e.stopPropagation()}
+                                      title={`open ${a.short_name} in source database`}
+                                    >
+                                      {a.short_name}
+                                    </a>
+                                  ) : (
+                                    <span className="font-mono text-[10px] text-slate-500">
+                                      {a.short_name}
+                                    </span>
+                                  )}
+                                  {!dupName && a.name ? (
+                                    <span className="text-slate-700 ml-1">
+                                      {a.name}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              );
+                            });
+                          })()}
+                        </td>
+                      );
+                    }
+                    if (key.startsWith("factor:")) {
+                      const fid = Number(key.slice("factor:".length));
+                      const entry = orderedFactors.find(
+                        (e) => e.factor.id === fid,
+                      );
+                      if (!entry) return null;
+                      const { factor, index } = entry;
+                      const agg = aggregateFvId(siblings, index);
+                      const factorCat = (
+                        factor.category?.label || ""
+                      ).toLowerCase();
+                      let cellConf: "low" | "medium" | undefined;
+                      if (factorCat) {
+                        for (const sn of allShortNames) {
+                          const c = confBySampleAndFactor.get(
+                            `${sn}|${factorCat}`,
+                          );
+                          if (c === "low") {
+                            cellConf = "low";
+                            break;
+                          }
+                          if (c === "medium") cellConf = "medium";
+                        }
+                      }
+                      return (
+                        <td
+                          key={`${repr.short_name}-f${factor.id}`}
+                          className="px-3 py-0.5 border-l-2 border-blue-100"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {cellConf ? (
+                              <span
+                                className={cn(
+                                  "text-[11px] leading-none shrink-0 cursor-help",
+                                  cellConf === "low"
+                                    ? "text-rose-600 dark:text-rose-400"
+                                    : "text-amber-600 dark:text-amber-400",
+                                )}
+                                title={
+                                  cellConf === "low"
+                                    ? "low-confidence agent assignment on this sample for this factor — verify before retaining"
+                                    : "medium-confidence agent assignment on this sample for this factor — spot-check before retaining"
+                                }
+                                aria-label={`${cellConf}-confidence assignment`}
+                              >
+                                ⚠
+                              </span>
+                            ) : null}
+                            <FvSelect
+                              factor={factor}
+                              currentFvId={agg.fvId}
+                              isMixed={agg.isMixed}
+                              onChange={(fvId) => {
+                                for (const sn of allShortNames) {
+                                  onReassign(sn, factor.id, fvId);
+                                }
+                              }}
+                            />
+                          </span>
+                        </td>
+                      );
+                    }
+                    if (key.startsWith("char:")) {
+                      const k = key.slice("char:".length);
+                      if (!visibleCharKeys.includes(k)) return null;
+                      const agg = aggregateCharValue(siblings, k);
+                      const isOntology = !!agg.valueUri && !agg.isMixed;
+                      const isDirty =
+                        !agg.isMixed &&
+                        siblings.some((b) => {
+                          const cur = (
+                            b.characteristics?.[k] ?? ""
+                          ).trim();
+                          const prior = (
+                            savedCharIndex.get(`${b.short_name}|${k}`) ?? ""
+                          ).trim();
+                          return cur !== prior;
+                        });
+                      const matchedFactor =
+                        categoricalFactorByCharKey.get(k.toLowerCase());
+                      return (
+                        <td
+                          key={`${repr.short_name}-${k}`}
+                          className={cn(
+                            "px-3 py-0.5 border-l border-slate-100 whitespace-nowrap max-w-[16rem] truncate",
+                            agg.isMixed
+                              ? "italic text-slate-500"
+                              : isOntology
+                                ? "text-emerald-900 bg-emerald-50/60"
+                                : "text-slate-700",
+                          )}
+                          title={
+                            agg.isMixed
+                              ? `${agg.distinct.length} distinct values across ${groupSize} cell-type buckets:\n${agg.distinct.join("\n")}`
+                              : isOntology
+                                ? `ontology term — ${agg.valueUri}`
+                                : agg.display || undefined
+                          }
+                        >
+                          {agg.isMixed ? (
+                            <span>{agg.display}</span>
+                          ) : matchedFactor ? (
+                            <InlineFvPicker
+                              value={agg.display}
+                              placeholder="—"
+                              options={matchedFactor.factor_values.map(
+                                (fv) => fv.free_text_label,
+                              )}
+                              dirty={isDirty}
+                              onCommit={(value) => {
+                                for (const sn of allShortNames) {
+                                  onSetCharacteristic(sn, k, value);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <InlineText
+                              value={agg.display}
+                              placeholder="—"
+                              dirty={isDirty}
+                              onCommit={(value) => {
+                                for (const sn of allShortNames) {
+                                  onSetCharacteristic(sn, k, value);
+                                }
+                              }}
+                            />
+                          )}
+                        </td>
+                      );
+                    }
+                    return null;
                   })}
                   {/* Proposal-overlay cells. One per proposal factor;
                       shows the agent's per-sample FV pick (or the
@@ -1766,6 +1885,13 @@ function SortableTh({
   dataFactorId,
   width,
   onResize,
+  draggable,
+  dragKey,
+  isDragging,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   label: string;
   colKey: string;
@@ -1795,6 +1921,20 @@ function SortableTh({
   /** Resize callback. Pass `null` to clear the override (curator
    *  double-clicks the handle to reset to auto-sized). */
   onResize?: (width: number | null) => void;
+  /** When set, the header becomes a drag source AND drop target for
+   *  reordering columns. `dragKey` is the stable identifier (e.g.
+   *  ``factor:42``, ``char:age``, ``name``); the parent maps this
+   *  to a sessionStorage-backed order. `isDragging` greys out the
+   *  source header during drag. The drag handle is a tiny ⋮⋮ icon
+   *  next to the label — clicking the label still sorts; only
+   *  grabbing the icon initiates a drag. */
+  draggable?: boolean;
+  dragKey?: string;
+  isDragging?: boolean;
+  onDragStart?: (key: string, e: React.DragEvent<HTMLElement>) => void;
+  onDragOver?: (key: string, e: React.DragEvent<HTMLElement>) => void;
+  onDrop?: (key: string, e: React.DragEvent<HTMLElement>) => void;
+  onDragEnd?: () => void;
 }) {
   const active = sort.key === colKey;
   const dir = active ? sort.dir : null;
@@ -1810,12 +1950,40 @@ function SortableTh({
       className={cn(
         "text-left font-medium px-3 py-2 align-bottom relative group",
         sticky && "sticky left-8 bg-slate-50",
+        isDragging && "opacity-40",
         className,
       )}
       style={widthStyle}
       title={title}
       data-factor-id={dataFactorId}
+      onDragOver={
+        draggable && onDragOver && dragKey
+          ? (e) => onDragOver(dragKey, e)
+          : undefined
+      }
+      onDrop={
+        draggable && onDrop && dragKey
+          ? (e) => onDrop(dragKey, e)
+          : undefined
+      }
     >
+      {draggable && dragKey ? (
+        <span
+          draggable
+          onDragStart={(e) => {
+            // Firefox needs dataTransfer set or the drag aborts.
+            e.dataTransfer.setData("text/plain", dragKey);
+            e.dataTransfer.effectAllowed = "move";
+            onDragStart?.(dragKey, e);
+          }}
+          onDragEnd={() => onDragEnd?.()}
+          className="absolute left-1 top-2 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-600 select-none text-[10px] leading-none px-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+          title="drag to reorder columns"
+          aria-label="drag column"
+        >
+          ⋮⋮
+        </span>
+      ) : null}
       {badge ? (
         <span
           className={cn(

@@ -18,9 +18,11 @@ export type ExperimentTab =
   | "proposals"
   | "history"
   | "quantitation"
+  | "qc"
   | "diagnostics"
   | "notes"
-  | "pipeline";
+  | "pipeline"
+  | "single-cell";
 
 export type Route =
   | { kind: "landing" }

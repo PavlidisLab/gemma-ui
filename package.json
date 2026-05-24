@@ -4,7 +4,8 @@
   "version": "0.11.0",
   "description": "Gemma user-facing frontends — apps/curation (curator workflow) + apps/browser (public browse/search).",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
     "dev:curation": "npm --workspace gemma-curation-ui run dev",

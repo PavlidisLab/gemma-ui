@@ -7,7 +7,6 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { Pill } from "@/components/ui/Pill";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { ApiError } from "@/api/client";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -25,6 +24,7 @@ import { Pencil as PencilIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
 import { ModeChip } from "@/components/ui/ModeChip";
+import { HealthChip } from "@/components/ui/HealthChip";
 import { experimentPageUrl, platformPageUrl } from "@/lib/gemmaUrls";
 import {
   inferModality,
@@ -46,22 +46,29 @@ export type TabId =
   | "overview"
   | "design"
   | "samples"
+  | "qc"
   | "diagnostics"
   | "qt"
   | "history"
-  | "pipeline";
+  | "pipeline"
+  | "single-cell";
 
 // Order mirrors the Confluence Experiment Checklist workflow:
-// design / sample details before diagnostics, QT next, history last.
-// Tags moved into the Overview tab (curator-attached + inferred chips
-// share one editable surface there) — the dedicated Tags tab was
-// retired 2026-04-30.
+// design / sample details before QC, real expression diagnostics
+// next, QT after, history last. Tags moved into Overview 2026-04-30.
+// The single-cell tab is conditionally rendered (modality ===
+// "single-cell"). Naming split 2026-05-23: the legacy "Diagnostics"
+// tab was design-validity / pre-publish checklist content — that
+// moved to "Quality control"; the new "Diagnostics" tab carries the
+// real expression QC (sample correlation / PCA / M-V).
 export const EXPERIMENT_TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "design", label: "Design setup" },
   { id: "samples", label: "Sample details" },
+  { id: "qc", label: "Quality control" },
   { id: "diagnostics", label: "Diagnostics" },
   { id: "qt", label: "Quantitation types" },
+  { id: "single-cell", label: "Single-cell" },
   { id: "history", label: "History" },
   { id: "pipeline", label: "Pipeline" },
 ];
@@ -156,6 +163,7 @@ export function ExperimentBanner({
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
             <span>{taxon}</span>
             <span>{nSamples} samples</span>
+            <CellTypeCountChip />
             <PlatformLine
               technologyType={technologyType}
               assay={assay}
@@ -240,6 +248,10 @@ export function ExperimentBanner({
             experimentId={experimentId}
             groupContext={groupContext}
           />
+          <BannerStatusChips
+            experimentId={experimentId}
+            onOpenStatus={onToggleNotes}
+          />
           <NotesButton
             experimentId={experimentId}
             open={notesOpen}
@@ -265,24 +277,85 @@ export function ExperimentBanner({
 
       <div className="mx-auto w-full max-w-[1800px] px-4">
         <nav className="flex items-center gap-1 -mb-px overflow-x-auto">
-          {EXPERIMENT_TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => onTabChange(t.id)}
-              className={
-                "px-3 py-2 text-sm cursor-pointer border-b-2 bg-transparent " +
-                (t.id === activeTab
-                  ? "border-blue-700 text-slate-900 font-medium"
-                  : "border-transparent text-slate-600 hover:text-slate-900")
-              }
-            >
-              {t.label}
-            </button>
-          ))}
+          <ExperimentTabs activeTab={activeTab} onTabChange={onTabChange} />
         </nav>
       </div>
     </section>
+  );
+}
+
+/**
+ * Tab bar. Most tabs are always visible; ``single-cell`` is gated on
+ * the inferred modality so it only appears for single-cell / single-
+ * nucleus experiments. Content is placeholder today —
+ * see [[single-cell-summary-tab]] memory for the planned scope.
+ */
+function ExperimentTabs({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: TabId;
+  onTabChange: (id: TabId) => void;
+}) {
+  const { draft } = useDesignDraft();
+  const modality = inferModality(draft);
+  const isSingleCell = modality === "single-cell";
+  const visibleTabs = EXPERIMENT_TABS.filter((t) =>
+    t.id === "single-cell" ? isSingleCell : true,
+  );
+  return (
+    <>
+      {visibleTabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => onTabChange(t.id)}
+          className={
+            "px-3 py-2 text-sm cursor-pointer border-b-2 bg-transparent " +
+            (t.id === activeTab
+              ? "border-blue-700 text-slate-900 font-medium"
+              : "border-transparent text-slate-600 hover:text-slate-900")
+          }
+        >
+          {t.label}
+        </button>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Cell-type count chip in the banner metadata strip. Only renders when
+ * the modality is single-cell / single-nucleus AND the draft carries
+ * any ``cell type`` tags. Reads from useDesignDraft so it picks up
+ * curator edits (e.g. accepting a proposer's cell-type tag set)
+ * without a refetch. List of cell types lives in the tooltip; the
+ * Single-cell tab and Overview TagBar carry the full surface.
+ */
+function CellTypeCountChip() {
+  const { draft } = useDesignDraft();
+  const modality = inferModality(draft);
+  if (modality !== "single-cell") return null;
+  const cellTypeTags = (draft?.tags ?? []).filter(
+    (t) => (t.category?.label || "").trim().toLowerCase() === "cell type",
+  );
+  if (cellTypeTags.length === 0) return null;
+  const labels = cellTypeTags
+    .map((t) => t.value?.label)
+    .filter((s): s is string => !!s);
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-violet-800 dark:text-violet-300"
+      title={
+        labels.length > 0
+          ? `cell types:\n• ${labels.join("\n• ")}`
+          : `${cellTypeTags.length} cell type(s)`
+      }
+    >
+      <span className="text-[10px] uppercase tracking-wide font-semibold px-1 py-0 rounded border border-violet-200 bg-violet-50 dark:border-violet-700 dark:bg-violet-900/30">
+        {cellTypeTags.length} cell types
+      </span>
+    </span>
   );
 }
 
@@ -1324,21 +1397,126 @@ function externalSourceLink(src: ExternalSource | null): string | null {
 }
 
 /**
- * Banner button that toggles the curation-status drawer and
- * surfaces a curator's headline state on the experiment:
+ * Inline status chips that sit alongside the Status button in the
+ * banner action row. Surfaces the three experiment-level state
+ * flags a curator should see at a glance — needs-attention,
+ * troubled, public/private — without forcing them to open the
+ * status modal. Clicking any chip opens the modal so they can
+ * resolve / change it.
  *
- *   - **rose ring** when the experiment is flagged `troubled`
- *     (highest priority: data issues a curator needs to know
- *     about before working on this).
- *   - **amber ring** when flagged `needs_attention` (a curator
- *     needs to look at it; lower priority than troubled).
- *   - **amber dot** when a curation note exists (text in the
- *     scratchpad).
- *   - tooltip with a one-line summary so a curator can decide
- *     whether to open the drawer.
- *
- * The drawer itself surfaces the full CurationDetails — note +
- * both flags + per-aspect last-update metadata.
+ * The public/private chip used to live in TopBar (top-right);
+ * moved here 2026-05-23 so all status flags read as one cluster.
+ * Per Paul: "our Public/Private thing should be near other status
+ * flags like troubled/unusable".
+ */
+function BannerStatusChips({
+  experimentId,
+  onOpenStatus,
+}: {
+  experimentId: number;
+  /** Called when a chip is clicked — opens the curation-status
+   *  modal where the flag can be cleared / the note edited. */
+  onOpenStatus: () => void;
+}) {
+  const { data: details } = useCurationDetails(experimentId);
+  const visibility = useDatasetVisibility(experimentId);
+  const troubled = !!details?.troubled;
+  const needsAttention = !!details?.needs_attention;
+  const visibilityState: "private" | "public" | "unknown" =
+    visibility.isLoading || visibility.error
+      ? "unknown"
+      : visibility.data?.is_public
+        ? "public"
+        : "private";
+  return (
+    <div className="flex items-center gap-1">
+      {troubled ? (
+        <StatusChip
+          tone="rose"
+          label="troubled"
+          title="Known data issue with this experiment. Click to open status."
+          onClick={onOpenStatus}
+        />
+      ) : null}
+      {needsAttention ? (
+        <StatusChip
+          tone="amber"
+          label="needs attention"
+          title="A curator needs to look at this. Click to open status."
+          onClick={onOpenStatus}
+        />
+      ) : null}
+      <StatusChip
+        tone={
+          visibilityState === "public"
+            ? "rose"
+            : visibilityState === "private"
+              ? "emerald"
+              : "slate"
+        }
+        label={
+          visibilityState === "unknown"
+            ? "status unknown"
+            : visibilityState
+        }
+        title={
+          visibilityState === "public"
+            ? "Public — visible to all Gemma users. Edit with care; consider making private first."
+            : visibilityState === "private"
+              ? "Private — only visible to curators."
+              : "Public/private state is not yet retrievable from Gemma's REST API."
+        }
+        onClick={onOpenStatus}
+      />
+    </div>
+  );
+}
+
+/** Single status chip used by BannerStatusChips. Clickable; tone
+ *  picks the palette. Compact pill so multiple fit in the banner
+ *  action row without pushing other actions off-screen. */
+function StatusChip({
+  tone,
+  label,
+  title,
+  onClick,
+}: {
+  tone: "rose" | "amber" | "emerald" | "slate";
+  label: string;
+  title?: string;
+  onClick?: () => void;
+}) {
+  const palette = {
+    rose: "bg-rose-100 text-rose-900 border-rose-300 hover:bg-rose-200 dark:bg-rose-900/40 dark:text-rose-100 dark:border-rose-700 dark:hover:bg-rose-900/60",
+    amber:
+      "bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/60",
+    emerald:
+      "bg-emerald-100 text-emerald-900 border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-100 dark:border-emerald-700 dark:hover:bg-emerald-900/60",
+    slate:
+      "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-700/80",
+  }[tone];
+  const Tag: keyof JSX.IntrinsicElements = onClick ? "button" : "span";
+  return (
+    <Tag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      title={title}
+      className={cn(
+        "inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded border",
+        palette,
+        onClick ? "cursor-pointer" : "",
+      )}
+    >
+      {label}
+    </Tag>
+  );
+}
+
+/**
+ * Status button — the primary "open curation-status modal" entry
+ * point. Compact pill in the banner action row; the inline
+ * BannerStatusChips (above) carry the at-a-glance signal so this
+ * stays a plain action button instead of ringed + dotted.
  */
 function NotesButton({
   experimentId,
@@ -1351,53 +1529,30 @@ function NotesButton({
 }) {
   const { data: details } = useCurationDetails(experimentId);
   const hasNote = !!details?.curation_note?.trim();
-  const troubled = !!details?.troubled;
-  const needsAttention = !!details?.needs_attention;
-
-  const ringCls = troubled
-    ? "ring-2 ring-rose-400"
-    : needsAttention || open || hasNote
-      ? "ring-2 ring-amber-300"
-      : "";
-
-  const titleParts: string[] = [];
-  if (troubled) titleParts.push("troubled");
-  if (needsAttention) titleParts.push("needs attention");
-  if (hasNote) {
-    const preview = details!.curation_note.split(/\r?\n/, 1)[0].slice(0, 120);
-    const lines = details!.curation_note.split(/\r?\n/).length;
-    titleParts.push(
-      `${lines} line${lines === 1 ? "" : "s"} of notes — first line: ${preview}`,
-    );
-  }
-  const title =
-    titleParts.length === 0
-      ? open
-        ? "close curation status"
-        : "open curation status"
-      : titleParts.join(" · ");
-
+  // Note-preview tooltip: lets a curator hover the Status button to
+  // peek at the scratchpad without opening the modal. Flag state is
+  // already surfaced by BannerStatusChips, so this only shows the
+  // note preview when one exists.
+  const title = hasNote
+    ? `${details!.curation_note.split(/\r?\n/).length} line${
+        details!.curation_note.split(/\r?\n/).length === 1 ? "" : "s"
+      } of notes — first line: ${details!.curation_note
+        .split(/\r?\n/, 1)[0]
+        .slice(0, 120)}`
+    : open
+      ? "close curation status"
+      : "open curation status";
   return (
     <button
       type="button"
-      className={cn("btn text-xs !px-2 !py-1 relative", ringCls)}
+      className="btn text-xs !px-2 !py-1"
       onClick={onToggle}
       title={title}
     >
       Status
-      {troubled ? (
+      {hasNote ? (
         <span
-          className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-rose-500 align-middle"
-          aria-label="troubled"
-        />
-      ) : needsAttention ? (
-        <span
-          className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-500 align-middle"
-          aria-label="needs attention"
-        />
-      ) : hasNote ? (
-        <span
-          className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-500/60 align-middle"
+          className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-500/70 align-middle"
           aria-label="has curation note"
         />
       ) : null}
@@ -1679,29 +1834,12 @@ export function TopBar({
   experimentId,
   experimentShortName,
   reviewer,
-  status: statusOverride,
 }: {
   experimentId: number;
   experimentShortName: string;
   reviewer: string;
-  /** Optional override. Normally the bar reads visibility from the
-   *  curation API itself (mock-tracked; see TODO-gemma-api §14 for
-   *  the real-Gemma gap) and renders ``"public"`` / ``"private"``
-   *  / ``"unknown"`` automatically. Pass an explicit value only if
-   *  you need to force a state (e.g. tests, screenshot fixtures). */
-  status?: "private" | "public" | "unknown";
 }) {
   const gemmaUrl = experimentPageUrl(experimentId);
-  // Visibility query is cheap and cached by react-query, so it's
-  // safe to fire here even though the bar lives high in the tree.
-  const visibility = useDatasetVisibility(experimentId);
-  const status: "private" | "public" | "unknown" =
-    statusOverride ??
-    (visibility.isLoading || visibility.error
-      ? "unknown"
-      : visibility.data?.is_public
-        ? "public"
-        : "private");
   return (
     <header className="border-b border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200">
       <div className="mx-auto w-full max-w-[1800px] px-4 py-2 flex items-center justify-between gap-4 flex-wrap">
@@ -1733,25 +1871,15 @@ export function TopBar({
           </a>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-600">
-          <span
-            title={
-              status === "unknown"
-                ? "Public/private state is not yet retrievable from Gemma's REST API. Verify on Gemma if uncertain."
-                : status === "public"
-                  ? "Public — visible to all Gemma users. Edit with care; consider making private first."
-                  : "Private — only visible to curators."
-            }
-          >
-            <Pill
-              variant={status === "public" ? "rejected" : status === "private" ? "accepted" : "needs"}
-            >
-              {status === "unknown" ? "status unknown" : status}
-            </Pill>
-          </span>
+          {/* Public/private pill retired here 2026-05-23 — moved
+              into BannerStatusChips below the banner action row so
+              it sits alongside the other experiment-status chips
+              (needs-attention, troubled). */}
           <span>
             signed in as <span className="font-medium">{reviewer}</span>
           </span>
           <ModeChip />
+          <HealthChip />
           <SettingsMenu />
           <LogoutButton />
         </div>

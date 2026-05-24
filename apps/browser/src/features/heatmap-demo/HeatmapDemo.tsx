@@ -3,7 +3,7 @@ import {
   HeatmapWidget,
   type CategoricalAnnotation,
   type HeatmapData,
-} from '@/lib/heatmap';
+} from '@gemma/heatmap';
 
 /**
  * Demo route for the HeatmapWidget. Renders the widget two ways:

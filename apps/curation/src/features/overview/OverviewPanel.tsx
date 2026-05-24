@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
@@ -1410,6 +1411,39 @@ function TagBar({
             (inferredByGroup.get(g)?.length ?? 0) >
           0;
         if (hasContent) {
+          // Chip-ordering within a row (Paul 2026-05-23):
+          //   1. inferred from factors (FV-synth, ƒ-glyph)
+          //   2. EE tags (direct, curator-attached)
+          //   3. other ontology terms (non-FV inferred, has URI)
+          //   4. free text (no URI)
+          // Splits the inferred bucket into FV-synth vs non-FV, then
+          // sorts non-FV so URI-bearing categories render before
+          // pure-free-text ones. Direct chips slot between #1 and #3.
+          const inferredAll = inferredByGroup.get(g) ?? [];
+          const fvSynth = inferredAll.filter(
+            (t) => t.inferred_source === "FactorValue",
+          );
+          const nonFvInferred = inferredAll.filter(
+            (t) => t.inferred_source !== "FactorValue",
+          );
+          // Stable sort so categories with any URI-resolved value
+          // come before pure-free-text ones. ``Array.sort`` is stable
+          // in modern engines; using a 0/1 key preserves intra-rank
+          // order (so two URI-resolved categories keep their input
+          // order, and same for two free-text categories).
+          const categoryHasUri = new Map<string, boolean>();
+          for (const t of nonFvInferred) {
+            const k = (t.category.label || "").toLowerCase();
+            if (categoryHasUri.get(k)) continue;
+            categoryHasUri.set(k, !!t.value.uri);
+          }
+          const nonFvInferredSorted = [...nonFvInferred].sort((a, b) => {
+            const ak = (a.category.label || "").toLowerCase();
+            const bk = (b.category.label || "").toLowerCase();
+            const au = categoryHasUri.get(ak) ? 0 : 1;
+            const bu = categoryHasUri.get(bk) ? 0 : 1;
+            return au - bu;
+          });
           rows.push(
             <div
               key={g}
@@ -1421,12 +1455,20 @@ function TagBar({
               >
                 {TAG_GROUP_LABEL[g]}
               </span>
+              <TagGroups
+                tags={fvSynth}
+                variant="inferred"
+                charUriLookup={charUriLookup}
+                fvUriLookup={fvUriLookup}
+                baselineLookup={baselineLookup}
+                experimentId={experimentId}
+              />
               <EditableDirectTagGroups
                 tags={directByGroup.get(g) ?? []}
                 addedTagIds={addedTagIds}
               />
               <TagGroups
-                tags={inferredByGroup.get(g) ?? []}
+                tags={nonFvInferredSorted}
                 variant="inferred"
                 charUriLookup={charUriLookup}
                 fvUriLookup={fvUriLookup}
@@ -2385,7 +2427,6 @@ function TagGroupChip({
   baselineLookup: Set<string>;
   experimentId: number;
 }) {
-  const [open, setOpen] = useState(false);
   const values = splitTagValues(tags, category, charUriLookup, fvUriLookup, baselineLookup);
 
   // Single value (after comma-split) renders flat — no collapse to
@@ -2498,75 +2539,222 @@ function TagGroupChip({
     );
   }
 
-  // Multi-value: collapsed = preview values inline; expanded = all
-  // values + collapse chevron. Category lives in the hover title
-  // (per Paul, 2026-05-17 — it's already there, no need to surface
-  // visually on expand). The leading count number ("3 ▸ …") was
-  // dropped — "+N more" already conveys count.
+  // Multi-value: chip always renders the preview + "+N more" /
+  // chevron compact form. The full list reveals into a **popover**
+  // (portal-mounted, click-outside / Esc to close) rather than
+  // expanding inline — high-cardinality groups (30+ cell types
+  // on single-cell EEs) would otherwise blow out the row. Per
+  // Paul 2026-05-23: "we can't show all the cell types, so they
+  // need to be collapsed/grouped; a popup would be needed rather
+  // than an expand-in-place for that, and any other 'collapsed'
+  // one that has a high cardinality inside."
   const PREVIEW_N = 2;
   const shown = values.slice(0, PREVIEW_N);
   const hidden = values.length - shown.length;
+  const titleAttr = evTitle
+    ? `${hoverTitle}${evTitle ? ` ·${evTitle.replace(/^\s·\s/, " ")}` : ""}`
+    : hoverTitle;
   return (
-    <span
-      className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border ${evBorder} ${palette.outer}`}
-      title={
-        evTitle
-          ? `${hoverTitle}${evTitle ? ` ·${evTitle.replace(/^\s·\s/, " ")}` : ""}`
-          : hoverTitle
-      }
+    <TagValuesPopover
+      anchorClassName={`inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border ${evBorder} ${palette.outer}`}
+      anchorTitle={titleAttr}
+      category={category}
+      values={values}
+      hasUriValue={hasUriValue}
+      sources={sources}
+      evTitle={evTitle}
+      paletteLabel={palette.label}
     >
       {factorGlyph}
-      {open ? (
-        <span className="inline-flex items-baseline gap-1 flex-wrap">
-          {values.map((v) => (
+      <span className="inline-flex items-baseline gap-0.5 flex-wrap">
+        {shown.map((v, i) => (
+          <span key={v.key} className="inline-flex items-baseline gap-0.5">
+            {i > 0 ? <span className={palette.label}>,</span> : null}
             <TagValueChip
-              key={v.key}
               value={v}
               categoryLabel={category.label}
               demoted={hasUriValue && !v.uri}
             />
-          ))}
-        </span>
-      ) : (
-        <span className="inline-flex items-baseline gap-0.5 flex-wrap">
-          {shown.map((v, i) => (
-            <span key={v.key} className="inline-flex items-baseline gap-0.5">
-              {i > 0 ? <span className={palette.label}>,</span> : null}
-              <TagValueChip
-                value={v}
-                categoryLabel={category.label}
-                demoted={hasUriValue && !v.uri}
-              />
-            </span>
-          ))}
-          {hidden > 0 ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen(true);
-              }}
-              className={`text-[10px] ${palette.label} hover:underline ml-0.5`}
-              title={`reveal ${hidden} more ${category.label} value${hidden === 1 ? "" : "s"}`}
-            >
-              +{hidden} more
-            </button>
-          ) : null}
-        </span>
-      )}
-      <button
-        type="button"
+          </span>
+        ))}
+        {hidden > 0 ? (
+          <span
+            className={`text-[10px] ${palette.label}`}
+            title={`${hidden} more ${category.label} value${hidden === 1 ? "" : "s"}`}
+          >
+            +{hidden} more
+          </span>
+        ) : null}
+      </span>
+    </TagValuesPopover>
+  );
+}
+
+/**
+ * Click-target wrapper that opens a portal popover showing the full
+ * list of values when the curator wants to see them all. Used for
+ * multi-value tag-group chips (especially high-cardinality ones
+ * like ``cell type`` on single-cell EEs — can be 30+). The popover
+ * also serves the low-N cases (3-4 values) because the affordance
+ * is consistent and the popover scales down cleanly to short
+ * lists.
+ *
+ * Anchored to the trigger element; click-outside / Escape / scroll
+ * close. Portal-mounted so it escapes ``overflow-hidden`` parents.
+ */
+function TagValuesPopover({
+  anchorClassName,
+  anchorTitle,
+  category,
+  values,
+  hasUriValue,
+  sources,
+  evTitle,
+  paletteLabel,
+  children,
+}: {
+  anchorClassName: string;
+  anchorTitle: string;
+  category: Tag["category"];
+  values: ReturnType<typeof splitTagValues>;
+  hasUriValue: boolean;
+  sources: string[];
+  evTitle: string;
+  paletteLabel: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  const WIDTH = 360;
+  const MAX_HEIGHT = 360;
+  const MARGIN = 8;
+
+  // Measure on open + re-measure on resize / scroll so the popover
+  // tracks the trigger position. Standard popover plumbing.
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    const measure = () => {
+      const t = triggerRef.current;
+      if (!t) return;
+      const rect = t.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let left = rect.left;
+      if (left + WIDTH + MARGIN > vw) left = vw - WIDTH - MARGIN;
+      if (left < MARGIN) left = MARGIN;
+      let top = rect.bottom + 4;
+      if (top + MAX_HEIGHT + MARGIN > vh && rect.top > MAX_HEIGHT) {
+        top = rect.top - MAX_HEIGHT - 4;
+      }
+      if (top < MARGIN) top = MARGIN;
+      setPos({ top, left });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [open]);
+
+  // Click-outside / Escape close.
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (popoverRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        className={anchorClassName + " cursor-pointer"}
+        title={anchorTitle}
+        role="button"
+        tabIndex={0}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className={`text-[10px] ${palette.label} hover:underline ml-auto`}
-        title={open ? "collapse" : `expand ${values.length} values`}
-        aria-label={open ? "collapse" : "expand"}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }
+        }}
       >
-        {open ? "▾" : "▸"}
-      </button>
-    </span>
+        {children}
+        <span
+          className={`text-[10px] ${paletteLabel} ml-auto`}
+          aria-hidden
+        >
+          {open ? "▾" : "▸"}
+        </span>
+      </span>
+      {open && pos
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="fixed z-[1000] bg-white border border-slate-300 ring-1 ring-black/10 rounded shadow-xl text-xs text-slate-700 dark:bg-slate-800 dark:border-slate-500 dark:ring-black/40 dark:text-slate-200"
+              style={{ top: pos.top, left: pos.left, width: WIDTH }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-600 flex items-baseline justify-between gap-2">
+                <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
+                  {category.label}
+                </span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                  {values.length} value{values.length === 1 ? "" : "s"}
+                  {sources.length > 0
+                    ? ` · inferred from ${sources.join(", ")}`
+                    : ""}
+                </span>
+              </div>
+              <div
+                className="p-2 flex flex-wrap gap-1.5 overflow-y-auto"
+                style={{ maxHeight: MAX_HEIGHT - 40 }}
+              >
+                {values.map((v) => (
+                  <TagValueChip
+                    key={v.key}
+                    value={v}
+                    categoryLabel={category.label}
+                    demoted={hasUriValue && !v.uri}
+                  />
+                ))}
+              </div>
+              {evTitle ? (
+                <div className="px-2 py-1 border-t border-slate-200 dark:border-slate-600 text-[10px] text-slate-500 dark:text-slate-400">
+                  {evTitle.replace(/^\s·\s/, "")}
+                </div>
+              ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 

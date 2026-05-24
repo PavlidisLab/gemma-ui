@@ -6,6 +6,7 @@ import { useStickyState } from "@/lib/useStickyState";
 import { cn } from "@/lib/cn";
 import type { AuditReport, OverallVerdict, Severity } from "@/api/auditTypes";
 import { ModeChip } from "@/components/ui/ModeChip";
+import { HealthChip } from "@/components/ui/HealthChip";
 
 /**
  * Cross-experiment inbox of audit reports.
@@ -74,6 +75,7 @@ export function AuditsInbox({ reviewer }: { reviewer: string }) {
               signed in as <span className="font-medium">{reviewer}</span>
             </span>
             <ModeChip />
+            <HealthChip />
             <button
               type="button"
               className="text-slate-500 hover:text-slate-900 underline"

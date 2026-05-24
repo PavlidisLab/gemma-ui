@@ -21,8 +21,8 @@ import {
   datasetDataDownloadUrl,
   downloadResultSetTsv,
 } from "@/api/endpoints";
-import { HeatmapWidget } from "@/lib/heatmap";
-import type { HeatmapData } from "@/lib/heatmap/types";
+import { HeatmapWidget } from "@gemma/heatmap";
+import type { HeatmapData } from "@gemma/heatmap";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { gemmaUrl } from "@/lib/gemmaConfig";
 import type {

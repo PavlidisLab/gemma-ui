@@ -5,6 +5,7 @@ import { experimentRoute, navigate } from "@/routes";
 import type { Proposal, ProposalStatus } from "@/api/types";
 import { useStickyState } from "@/lib/useStickyState";
 import { ModeChip } from "@/components/ui/ModeChip";
+import { HealthChip } from "@/components/ui/HealthChip";
 
 /**
  * Cross-experiment inbox of agent-submitted curation proposals.
@@ -59,6 +60,7 @@ export function ProposalsInbox({ reviewer }: { reviewer: string }) {
               signed in as <span className="font-medium">{reviewer}</span>
             </span>
             <ModeChip />
+            <HealthChip />
             <button
               type="button"
               className="text-slate-500 hover:text-slate-900 underline"

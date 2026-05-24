@@ -44,7 +44,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     resolve: {
-      alias: { "@": path.resolve(__dirname, "src") },
+      alias: {
+        "@": path.resolve(__dirname, "src"),
+        "@gemma/heatmap": path.resolve(__dirname, "../../packages/heatmap/src"),
+        "@gemma/ontology": path.resolve(__dirname, "../../packages/ontology/src"),
+      },
     },
     server: {
       port: 5173,
@@ -85,6 +89,20 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           timeout: 0,
           proxyTimeout: 0,
+        },
+        // Health probes — rewrite to /openapi.json on each upstream
+        // so we don't need bro to ship a /health route. FastAPI
+        // auto-exposes /openapi.json; the local_api mock-gemma's
+        // docker healthcheck already pings it.
+        "/__health/gemma": {
+          target: CURATION_URL,
+          changeOrigin: true,
+          rewrite: () => "/openapi.json",
+        },
+        "/__health/agent": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+          rewrite: () => "/openapi.json",
         },
       },
     },

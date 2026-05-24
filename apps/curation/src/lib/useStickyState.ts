@@ -39,3 +39,34 @@ export function useStickyState<T>(
   }, [key, value]);
   return [value, setValue];
 }
+
+/**
+ * Same shape as `useStickyState` but backed by **sessionStorage**.
+ * Persists across in-tab navigation / reloads; cleared when the tab
+ * closes. Use for preferences the curator expects to last "for this
+ * session" but not bleed into the next workday — e.g. column
+ * reorder on a wide table that a curator wants to undo simply by
+ * reopening the page.
+ */
+export function useSessionState<T>(
+  key: string,
+  defaultValue: T,
+): [T, Dispatch<SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (raw === null) return defaultValue;
+      return JSON.parse(raw) as T;
+    } catch {
+      return defaultValue;
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // sessionStorage full / disabled — silently drop.
+    }
+  }, [key, value]);
+  return [value, setValue];
+}

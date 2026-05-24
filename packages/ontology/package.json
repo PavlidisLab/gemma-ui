@@ -1,0 +1,15 @@
+{
+  "name": "@gemma/ontology",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared ontology primitives — term display + linking. Consumed by apps/curation, apps/browser, and packages/heatmap. The full /annotations-backed picker stays in apps/curation for now (tightly coupled to its REST client).",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^18.3.0"
+  }
+}

@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
-import { HeatmapWidget } from '@/lib/heatmap';
+import { HeatmapWidget } from '@gemma/heatmap';
 import type {
   Factor,
   HeatmapPayload,
   HeatmapPayloadColumn,
   HeatmapPayloadRow,
-} from '@/lib/heatmap/payload';
+} from '@gemma/heatmap';
 
 /**
  * Heatmap widget v2 demo — synthetic `HeatmapPayload` with the full

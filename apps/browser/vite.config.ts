@@ -22,7 +22,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     resolve: {
-      alias: { "@": path.resolve(__dirname, "src") },
+      alias: {
+        "@": path.resolve(__dirname, "src"),
+        "@gemma/heatmap": path.resolve(__dirname, "../../packages/heatmap/src"),
+        "@gemma/ontology": path.resolve(__dirname, "../../packages/ontology/src"),
+      },
     },
     // Expose the resolved upstream URL to the client so a footer
     // chip can surface "which Gemma am I talking to". The /rest

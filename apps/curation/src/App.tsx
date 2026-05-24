@@ -3,10 +3,7 @@ import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ExperimentList } from "@/features/landing/ExperimentList";
 import { ImportPrompt } from "@/features/landing/ImportPrompt";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { useStickyState } from "@/lib/useStickyState";
-import { useResetExperiment } from "@/api/datasets";
-import { clearPaperDismissalsForExperiment } from "@/features/proposal/paperDismissal";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
 import { AuditsInbox } from "@/features/inbox/AuditsInbox";
 import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
@@ -46,14 +43,29 @@ import { ProposalSidebarPanel } from "@/features/proposal/ProposalSidebarPanel";
 import { ProposalSummaryCard } from "@/features/proposal/ProposalSummaryCard";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import { useProposeStream } from "@/api/proposeStream";
+import { useAuditStream } from "@/api/auditStream";
+import { useServicesHealth } from "@/api/health";
+import {
+  useProposeSchema,
+  useAuditSchema,
+  warnOnSchemaDrift,
+  UI_PROPOSAL_FIELDS,
+  UI_AUDIT_FIELDS,
+} from "@/api/agentSchema";
+import {
+  AgentRunDialog,
+  type AgentRunRequest,
+} from "@/components/AgentRunDialog";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ProposalReviewProvider } from "@/features/proposal/ProposalReviewContext";
 import { DesignEditor } from "@/features/design/DesignEditor";
 import { SampleDetailsPanel } from "@/features/samples/SampleDetailsPanel";
 import { DiagnosticsPanel } from "@/features/diagnostics/DiagnosticsPanel";
+import { QualityControlPanel } from "@/features/diagnostics/QualityControlPanel";
 import { HistoryPanel } from "@/features/history/HistoryPanel";
 import { OverviewPanel } from "@/features/overview/OverviewPanel";
 import { QuantitationTypesPanel } from "@/features/quantitation/QuantitationTypesPanel";
+import { SingleCellPanel } from "@/features/singlecell/SingleCellPanel";
 import { CommitBar } from "@/features/design/CommitBar";
 import { validateDesign } from "@/features/experiment/types";
 import {
@@ -61,7 +73,6 @@ import {
   useDesignDraft,
 } from "@/features/design/DesignDraftContext";
 import { NotesDrawer } from "@/features/notes/NotesDrawer";
-import { useTriggerProposal } from "@/api/proposals";
 import {
   useProposalsAutoShape,
   type AgentProposal,
@@ -542,23 +553,10 @@ function Shell({
         agentProposals={agentProposals}
       />
 
-      <footer className="border-t border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800">
-        <div className="mx-auto w-full max-w-[1800px] px-4 py-1.5 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-          <div className="flex items-center gap-3">
-            <span>
-              connected to{" "}
-              <span className="font-mono">
-                {import.meta.env.VITE_GEMMA_CURATION_URL ?? "/rest (proxied)"}
-              </span>
-            </span>
-          </div>
-          {/*
-            Removed the "⌘K commands" footer hint — the shortcut
-            isn't wired (there's no command palette). Bringing it
-            back when there's a real palette to open.
-          */}
-        </div>
-      </footer>
+      {/* "connected to /rest (proxied)" footer retired 2026-05-23 —
+          sat below the experiment grid, was effectively invisible
+          (the grid overflows the viewport). Its info now lives in
+          the HealthChip popover in TopBar, which is always on-screen. */}
     </div>
   );
 }
@@ -602,46 +600,47 @@ function MainGrid({
   proposalsFetching: boolean;
 }) {
   const toast = useToast();
-  // Two propose paths in this codebase right now:
-  //
-  //   - ``useTriggerProposal`` — the existing non-streaming POST. Still
-  //     used by ProposalCardV2's "redo with notes" flow, which first
-  //     PATCHes a pending proposal to ``needs_changes`` (a separate
-  //     mutation) and then fires a fresh propose. The stream endpoint
-  //     doesn't change that two-step shape, so the redo path keeps
-  //     using the synchronous mutation.
-  //
-  //   - ``useProposeStream`` — the new SSE-driven path documented in
-  //     ``PROGRESS_SSE.md``. Used by the sidebar's ``+ propose``
-  //     button so the curator sees live progress + log feed instead
-  //     of a 30-90s spinner. ``stream.result``'s ``payload.proposal``
-  //     is the canonical result; the hook also invalidates the
-  //     proposals query so the pending row lands in the sidebar.
-  //
-  // Both hit the same proposer service; ``+ propose`` swapping to
-  // streaming is purely a UX improvement, not a behavioural one.
-  const triggerProposal = useTriggerProposal(experimentId);
+  // SSE-driven hooks for the two agent runs. Both fire from the
+  // unified AgentRunDialog opened by the sidebar header strip;
+  // their progress panels render below the strip on whichever tab
+  // is active. ``useTriggerProposal`` (the legacy synchronous POST)
+  // was retired 2026-05-23 along with the inline redo-with-notes
+  // affordance.
   const proposeStream = useProposeStream(experimentId);
-  const resetExperiment = useResetExperiment(experimentId);
-  // For the reset flow: after the import re-stamps the design
-  // server-side and the design query invalidates, the
-  // DesignDraftContext's "preserve dirty draft" heuristic would
-  // otherwise leave the stale draft in place. Calling ``reload()``
-  // nukes the localStorage cache + null-resets the in-memory draft
-  // so the loader effect re-seeds from the freshly-fetched saved.
-  const { reload: reloadDraft, draft, saved, apply } = useDesignDraft();
+  const auditStream = useAuditStream(experimentId);
+  const servicesHealth = useServicesHealth();
+  // Dev-time schema-drift check — fires once per kind when the
+  // /propose/schema and /audit/schema responses land. Warns if the
+  // dialog is sending a field the agent no longer advertises.
+  const proposeSchema = useProposeSchema();
+  const auditSchema = useAuditSchema();
+  useEffect(() => {
+    if (proposeSchema.data) {
+      warnOnSchemaDrift("propose", proposeSchema.data, UI_PROPOSAL_FIELDS);
+    }
+  }, [proposeSchema.data]);
+  useEffect(() => {
+    if (auditSchema.data) {
+      warnOnSchemaDrift("audit", auditSchema.data, UI_AUDIT_FIELDS);
+    }
+  }, [auditSchema.data]);
+  const { draft, saved, apply } = useDesignDraft();
   // Either legacy pending OR a new-shape agent_proposal counts as
   // "the sidebar has work to show". Both arms render below.
   const proposalCount = pendingProposals.length + agentProposals.length;
   const hasProposals = proposalCount > 0;
-  // Demo / dev affordance: re-use cached proposer outputs instead
-  // of paying the LLM round-trip again. Persisted across page
-  // loads; ``true`` flips ``refresh_cache`` to ``false`` on the
-  // next ``+ propose`` so the proposer service replays from disk.
-  const [useCachedProposal, setUseCachedProposal] = useStickyState<boolean>(
-    "proposer.use-cache",
-    false,
-  );
+  // Unified agent-run dialog state. Replaces the inline "+ propose"
+  // sidebar button, the in-panel "+ audit" button, and the
+  // proposal-card "redo with notes" affordance. All three routes
+  // converge here so the curator always sees a confirmation + the
+  // backend health state before a run starts.
+  const [agentRunDialog, setAgentRunDialog] = useState<
+    | null
+    | {
+        kind: "proposal" | "audit";
+        mode: "fresh" | "redo";
+      }
+  >(null);
   // Sidebar view toggle: Proposals (existing) or Audit (new — see
   // AUDIT_FEATURE.md §UI integration shape, surface B). Sticky so the
   // curator's last choice survives experiment switches. Defaults to
@@ -651,35 +650,48 @@ function MainGrid({
     "sidebar.view",
     "proposals",
   );
-  // Reset confirmation. Destructive (factors / IC tags wiped); the
-  // modal makes the curator pause before re-importing.
-  const [resetConfirm, setResetConfirm] = useState(false);
-  // Wraps useTriggerProposal so the sidebar button doesn't have to
-  // care about toast wiring or error mapping. Pipeline runs are
-  // 30-90s for a fresh preboarding state, seconds on a cache hit; the
-  // mutation's ``isPending`` keeps the button disabled until the
-  // submitted proposal lands and the proposals query refetches.
-  function requestProposal() {
-    // Numeric Gemma ID works as the accession — the pipeline's
-    // reference resolver accepts numeric id, GSE accession, or
-    // Gemma shortName interchangeably.
-    //
-    // Body shape mirrors ``useTriggerProposal``'s defaults:
-    //   - ``fresh_preboarding: true`` ignores any curated state on the
-    //     experiment for this run. Without it the pipeline silently
-    //     skips an already-curated experiment and returns an empty
-    //     proposal.
-    //   - ``refresh_cache`` flips to false when the curator ticks
-    //     the "use cache" sidebar checkbox — useful for demos /
-    //     dev iteration when the LLM round-trip would just burn
-    //     credits.
-    //   - ``use_cache`` keeps the **write** side on so future ad-hoc
-    //     runs (CLI / scripts) can hit the result we just produced.
-    proposeStream.start(String(experimentId), {
-      use_cache: true,
-      refresh_cache: !useCachedProposal,
-      fresh_preboarding: true,
-    });
+  // Open the unified dialog. The strip's single button calls this;
+  // the dialog gathers tier / scope / notes / etc and calls back into
+  // ``submitAgentRun``.
+  function openAgentRunDialog(kind: "proposal" | "audit") {
+    const mode: "fresh" | "redo" =
+      kind === "proposal"
+        ? proposalCount > 0
+          ? "redo"
+          : "fresh"
+        : "fresh";
+    // For audit "redo" mode we'd want to detect a standing open
+    // audit; AuditSidebarPanel knows that, the strip doesn't. For
+    // now treat audit re-runs as fresh (the dialog still works the
+    // same — notes are just hidden). Audit-side redo affordance is
+    // a follow-up.
+    setAgentRunDialog({ kind, mode });
+  }
+
+  function submitAgentRun(req: AgentRunRequest) {
+    const accession = String(experimentId);
+    if (req.kind === "proposal") {
+      proposeStream.start(accession, {
+        fresh_preboarding: true,
+        // Redo mode always forces a fresh agent pass so the
+        // curator's notes / tier change actually shape the run.
+        // Fresh mode trusts the proposer's cache behavior.
+        refresh_cache: req.mode === "redo",
+        tier: req.tier,
+        prior_feedback:
+          req.priorFeedback.length > 0 ? req.priorFeedback : null,
+      });
+    } else {
+      auditStream.start(accession, {
+        tier: req.tier,
+        scope: req.scope,
+        with_comparison: req.withComparison,
+        refresh_cache: req.mode === "redo",
+        prior_feedback:
+          req.priorFeedback.length > 0 ? req.priorFeedback : null,
+      });
+    }
+    setAgentRunDialog(null);
   }
   // Default-open. Curators want the proposals panel visible by
   // default so they notice newly-submitted proposals; if they want
@@ -762,12 +774,16 @@ function MainGrid({
           <DesignEditor experimentId={experimentId} />
         ) : activeTab === "samples" ? (
           <SampleDetailsPanel experimentId={experimentId} />
+        ) : activeTab === "qc" ? (
+          <QualityControlPanel experimentId={experimentId} />
         ) : activeTab === "diagnostics" ? (
           <DiagnosticsPanel experimentId={experimentId} />
         ) : activeTab === "history" ? (
           <HistoryPanel experimentId={experimentId} />
         ) : activeTab === "pipeline" ? (
           <PipelinePanel experimentId={experimentId} />
+        ) : activeTab === "single-cell" ? (
+          <SingleCellPanel />
         ) : (
           <QuantitationTypesPanel experimentId={experimentId} />
         )}
@@ -838,77 +854,21 @@ function MainGrid({
                 <span>hide</span>
               </button>
             </div>
-            {sidebarView === "proposals" ? (
-              <>
-                {/* Phase 1 deployment hook. Triggers POST
-                    /propose/{id} via the SSE stream (proposeStream).
-                    Hidden once a pending proposal exists — the
-                    proposal card's "redo with notes" is the
-                    canonical retry path. */}
-                {proposalCount === 0 ||
-                proposeStream.status === "running" ? (
-                  <button
-                    type="button"
-                    onClick={requestProposal}
-                    disabled={proposeStream.status === "running"}
-                    title={
-                      proposeStream.status === "running"
-                        ? "the proposer is running — watch the log feed below"
-                        : "ask the proposer agent to build a fresh proposal for this experiment"
-                    }
-                    className={
-                      "self-start px-1.5 py-0.5 rounded text-[10px] font-medium inline-flex items-center gap-1 " +
-                      (proposeStream.status === "running"
-                        ? "bg-slate-200 text-slate-500 cursor-progress"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200")
-                    }
-                  >
-                    {proposeStream.status === "running" ? (
-                      <>
-                        <Spinner />
-                        proposing…
-                      </>
-                    ) : (
-                      "+ propose"
-                    )}
-                  </button>
-                ) : null}
-                {/* Demo / dev affordances scoped to the proposer:
-                    "use cache" replays cached output instead of a
-                    fresh LLM call; "reset experiment" strips curation
-                    so a fresh preboarding state is ready for a re-run. */}
-                <div className="flex items-center gap-2 text-[10px] text-slate-500 pt-1 border-t border-slate-100">
-                  <label
-                    className="inline-flex items-center gap-1 cursor-pointer hover:text-slate-700"
-                    title="Replay the cached proposer output instead of running the LLM again. Off = fresh LLM call (refresh_cache=true)."
-                  >
-                    <input
-                      type="checkbox"
-                      className="rounded border-slate-300"
-                      checked={useCachedProposal}
-                      onChange={(e) =>
-                        setUseCachedProposal(e.target.checked)
-                      }
-                    />
-                    <span>use cache</span>
-                  </label>
-                  <span aria-hidden className="text-slate-300">
-                    ·
-                  </span>
-                  <button
-                    type="button"
-                    className="hover:text-rose-700 underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
-                    onClick={() => setResetConfirm(true)}
-                    disabled={resetExperiment.isPending}
-                    title="Re-import this experiment from real Gemma with curation stripped — clears factors and IC tags. Biomaterials and metadata stay."
-                  >
-                    {resetExperiment.isPending
-                      ? "resetting…"
-                      : "reset experiment"}
-                  </button>
-                </div>
-              </>
-            ) : null}
+            {/* Unified request affordance. Replaces the old per-tab
+                "+ propose" / "+ audit" buttons + the "use cache" /
+                "reset experiment" dev knobs. The button text depends
+                on which tab is active AND whether a standing run
+                already exists ("Request" vs "Re-run"). Click opens
+                AgentRunDialog which carries tier + scope + notes
+                inputs and gates on agent health. */}
+            <AgentRunButton
+              sidebarView={sidebarView}
+              proposalCount={proposalCount}
+              proposeRunning={proposeStream.status === "running"}
+              auditRunning={auditStream.status === "running"}
+              agentDown={servicesHealth.data?.agent === "down"}
+              onRequest={openAgentRunDialog}
+            />
           </div>
         ) : (
           /*
@@ -947,7 +907,7 @@ function MainGrid({
 
         {sidebarOpen ? (
           sidebarView === "audit" ? (
-            <AuditSidebarPanel experimentId={experimentId} />
+            <AuditSidebarPanel experimentId={experimentId} stream={auditStream} />
           ) : proposalsLoading ? (
             <div className="card p-3 text-xs text-slate-500">
               loading proposals…
@@ -971,7 +931,7 @@ function MainGrid({
               {recentClosedProposal ? (
                 <ProposalSummaryCard
                   proposal={recentClosedProposal}
-                  onRequestRedo={requestProposal}
+                  onRequestRedo={() => openAgentRunDialog("proposal")}
                 />
               ) : null}
               <ProposeProgressPanel
@@ -1075,61 +1035,112 @@ function MainGrid({
                       Once the new surface proves out + Phase 2's
                       draft-seeding lands, ProposalCardV2 retires. */}
                   <ProposalSidebarPanel proposal={p} />
-                  <ProposalCardV2
-                    proposal={p}
-                    reviewer={reviewer}
-                    triggerProposal={triggerProposal}
-                    proposeStream={proposeStream}
-                  />
+                  <ProposalCardV2 proposal={p} reviewer={reviewer} />
                 </div>
               ))}
             </>
           )
         ) : null}
       </aside>
-      <ConfirmModal
-        open={resetConfirm}
-        title="Reset experiment to fresh preboarding?"
-        body={
-          `Re-imports experiment #${experimentId} from real Gemma and strips ` +
-          `curation: factors, IC tags, and FV-source synth tags are cleared. ` +
-          `Biomaterials, characteristics, and metadata stay.\n\n` +
-          `Equivalent to "mock-gemma import --strip-curation" from the CLI. ` +
-          `Any uncommitted draft on the design tab is discarded.`
+      {/* Reset-experiment affordance retired 2026-05-23 — was a
+          dev-only "strip curation + re-import" path used early in
+          the prototype; not part of the production curator
+          workflow. */}
+      {/* Unified agent-run dialog. Opens for proposal AND audit
+          requests; the per-tab strip button + (TBD) banner shortcut
+          both route here. */}
+      <AgentRunDialog
+        open={agentRunDialog !== null}
+        kind={agentRunDialog?.kind ?? "proposal"}
+        mode={agentRunDialog?.mode ?? "fresh"}
+        experimentShortName={draft?.experiment_short_name || String(experimentId)}
+        agentStatus={servicesHealth.data?.agent ?? "unknown"}
+        curationEmpty={
+          (draft?.factors?.length ?? 0) === 0 &&
+          (draft?.tags ?? []).filter((t) => !t.inferred).length === 0
         }
-        confirmLabel={resetExperiment.isPending ? "resetting…" : "reset"}
-        destructive
-        onConfirm={() => {
-          resetExperiment.mutate({
-            onSuccess: () => {
-              // Force the draft state to follow the freshly-imported
-              // design. Without this, the background-refetch sync's
-              // clean-draft heuristic preserves any in-flight draft
-              // and the curator sees the old factors / tags despite
-              // the server having stripped them.
-              reloadDraft();
-              // The proposal-paper auto-apply flag survives across
-              // sessions; reset wipes the design but doesn't drop
-              // proposals, so a stale flag would block the auto-add
-              // from re-firing on the fresh preboarding state.
-              // Clear all flags scoped to this experiment.
-              clearPaperDismissalsForExperiment(experimentId);
-              toast.show("Experiment reset to fresh preboarding.", "success");
-              setResetConfirm(false);
-            },
-            onError: (err) => {
-              toast.show(
-                `Reset failed: ${(err as Error).message}`,
-                "danger",
-                8000,
-              );
-            },
-          });
-        }}
-        onCancel={() => setResetConfirm(false)}
+        busy={
+          (agentRunDialog?.kind === "proposal" &&
+            proposeStream.status === "running") ||
+          (agentRunDialog?.kind === "audit" &&
+            auditStream.status === "running")
+        }
+        onCancel={() => setAgentRunDialog(null)}
+        onSubmit={submitAgentRun}
       />
       </main>
     </AuditProvider>
+  );
+}
+
+/** Single context-aware request button that lives in the sidebar
+ *  header strip. Replaces the old per-tab "+ propose" / "+ audit"
+ *  buttons + the "use cache" / "reset experiment" knobs. Label flips
+ *  between "Request …" (fresh) and "Re-run …" (something already
+ *  exists); disabled when the agent service is down or a run of the
+ *  matching kind is already in flight.
+ *
+ *  Audit-side redo detection: needs the AuditProvider's state to
+ *  know whether an open audit exists. Today this button stays in
+ *  "Run audit" copy regardless — the dialog still works the same
+ *  (notes field is hidden when mode=fresh) and the Audit sidebar
+ *  panel below the strip surfaces the standing-audit state. A
+ *  follow-up wires the redo mode through here too. */
+function AgentRunButton({
+  sidebarView,
+  proposalCount,
+  proposeRunning,
+  auditRunning,
+  agentDown,
+  onRequest,
+}: {
+  sidebarView: "proposals" | "audit";
+  proposalCount: number;
+  proposeRunning: boolean;
+  auditRunning: boolean;
+  agentDown: boolean;
+  onRequest: (kind: "proposal" | "audit") => void;
+}) {
+  const kind: "proposal" | "audit" =
+    sidebarView === "audit" ? "audit" : "proposal";
+  const running = kind === "audit" ? auditRunning : proposeRunning;
+  // `hasStanding` is only meaningful for proposals at this layer —
+  // audit redo detection needs the AuditProvider state. Audit side
+  // always renders "Run audit…" until that wires through.
+  const hasStanding = kind === "proposal" && proposalCount > 0;
+  const label = running
+    ? kind === "audit"
+      ? "auditing…"
+      : "proposing…"
+    : kind === "audit"
+      ? "Run audit…"
+      : hasStanding
+        ? "Re-run proposal…"
+        : "Request proposal…";
+  const disabled = running || agentDown;
+  const title = agentDown
+    ? "Agent service is unreachable — start it to enable runs"
+    : running
+      ? "A run is already in flight — watch the progress panel below"
+      : hasStanding
+        ? `Opens the re-run dialog. The standing ${kind} is retired when you submit.`
+        : `Opens the run dialog. Fires a fresh ${kind} request on submit.`;
+  return (
+    <button
+      type="button"
+      onClick={() => onRequest(kind)}
+      disabled={disabled}
+      title={title}
+      className={
+        "self-start px-2 py-0.5 rounded text-[11px] font-medium inline-flex items-center gap-1 border " +
+        (disabled
+          ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
+          : "bg-blue-600 text-white border-blue-700 hover:bg-blue-700")
+      }
+    >
+      {running ? <Spinner /> : null}
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -1268,10 +1279,12 @@ function mapRouteTab(tab: string | undefined): {
     tab === "overview" ||
     tab === "design" ||
     tab === "samples" ||
+    tab === "qc" ||
     tab === "diagnostics" ||
     tab === "history" ||
     tab === "pipeline" ||
-    tab === "qt"
+    tab === "qt" ||
+    tab === "single-cell"
   ) {
     return { tab, notesOpen: false };
   }

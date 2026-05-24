@@ -8,7 +8,7 @@
  *   - strip cell   → factor metadata + clicked sample's FV + statements
  */
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { OntologyTermLink } from '../ontology/OntologyTermLink';
+import { OntologyTermLink } from '@gemma/ontology';
 import { continuousValueOf, parseFactorUnit } from './payload';
 import type {
   Factor,

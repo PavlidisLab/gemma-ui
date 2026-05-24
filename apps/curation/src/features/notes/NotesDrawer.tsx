@@ -186,16 +186,28 @@ export function NotesDrawer({
     );
   }
 
+  // Esc closes the modal (NotesDrawer's useEscape doesn't fire for
+  // the outer chrome — only for the resolution sub-modal).
+  useEscape(true, () => {
+    if (!resolving) onClose();
+  });
+
   return (
-    <section className="bg-amber-50/50 border-b border-amber-200">
-      <div className="mx-auto w-full max-w-[1800px] px-4 py-3">
-        <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
+    <div
+      className="fixed inset-0 z-40 bg-slate-900/40 flex items-center justify-center px-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-slate-800 rounded shadow-lg w-full max-w-2xl max-h-[85vh] overflow-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-baseline gap-3">
-            <h2 className="text-sm font-semibold text-slate-900">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               Curation status
             </h2>
             {saved && saved.last_updated ? (
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
                 last updated{" "}
                 <time dateTime={saved.last_updated}>
                   {formatTimestamp(saved.last_updated)}
@@ -203,98 +215,105 @@ export function NotesDrawer({
               </span>
             ) : null}
           </div>
-          <button type="button" className="btn ghost" onClick={onClose}>
-            close
+          <button
+            type="button"
+            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+            onClick={onClose}
+            aria-label="close"
+            title="Esc"
+          >
+            ×
           </button>
         </div>
 
-        {isLoading ? (
-          <div className="text-xs text-slate-500">loading…</div>
-        ) : error ? (
-          <div className="text-xs text-rose-700">
-            couldn't load curation details: {(error as Error).message}
-          </div>
-        ) : saved ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <FlagToggle
-                label="needs attention"
-                description="A curator needs to look at this"
-                set={saved.needs_attention}
-                meta={lastEventMeta(
-                  saved.last_needs_attention_event_at,
-                  saved.last_needs_attention_event_by,
-                )}
-                onClick={() => toggleFlag("needs_attention")}
-                tone="amber"
-                disabled={updater.isPending}
-              />
-              <FlagToggle
-                label="troubled"
-                description="Known data issue with this experiment"
-                set={saved.troubled}
-                meta={lastEventMeta(
-                  saved.last_troubled_event_at,
-                  saved.last_troubled_event_by,
-                )}
-                onClick={() => toggleFlag("troubled")}
-                tone="rose"
-                disabled={updater.isPending}
-              />
-              {updater.isError ? (
-                <span
-                  className="text-xs text-rose-700"
-                  title={(updater.error as Error).message}
-                >
-                  save failed
-                </span>
-              ) : null}
+        <div className="px-4 py-3">
+          {isLoading ? (
+            <div className="text-xs text-slate-500">loading…</div>
+          ) : error ? (
+            <div className="text-xs text-rose-700">
+              couldn't load curation details: {(error as Error).message}
             </div>
-
-            <div>
-              <label
-                className="block text-[11px] uppercase tracking-wide font-semibold text-slate-700 mb-1"
-                htmlFor="curation-note-textarea"
-              >
-                Curation note
-                {saved.last_note_update_at ? (
-                  <span className="ml-2 font-normal text-slate-500 normal-case">
-                    last edited {formatTimestamp(saved.last_note_update_at)}
-                    {saved.last_note_update_by ? ` by ${saved.last_note_update_by}` : ""}
+          ) : saved ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                <FlagToggle
+                  label="needs attention"
+                  description="A curator needs to look at this"
+                  set={saved.needs_attention}
+                  meta={lastEventMeta(
+                    saved.last_needs_attention_event_at,
+                    saved.last_needs_attention_event_by,
+                  )}
+                  onClick={() => toggleFlag("needs_attention")}
+                  tone="amber"
+                  disabled={updater.isPending}
+                />
+                <FlagToggle
+                  label="troubled"
+                  description="Known data issue with this experiment"
+                  set={saved.troubled}
+                  meta={lastEventMeta(
+                    saved.last_troubled_event_at,
+                    saved.last_troubled_event_by,
+                  )}
+                  onClick={() => toggleFlag("troubled")}
+                  tone="rose"
+                  disabled={updater.isPending}
+                />
+                {updater.isError ? (
+                  <span
+                    className="text-xs text-rose-700"
+                    title={(updater.error as Error).message}
+                  >
+                    save failed
                   </span>
                 ) : null}
-              </label>
-              <textarea
-                id="curation-note-textarea"
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                placeholder="curator scratchpad — paper status, edge cases, reminders…"
-                spellCheck
-                rows={6}
-                className="w-full text-sm font-mono border border-amber-300 rounded px-2 py-1.5 bg-white"
-              />
-              <div className="mt-1 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  className="btn ghost text-xs"
-                  onClick={() => setNoteDraft(saved.curation_note)}
-                  disabled={!noteDirty || updater.isPending}
+              </div>
+
+              <div>
+                <label
+                  className="block text-[11px] uppercase tracking-wide font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                  htmlFor="curation-note-textarea"
                 >
-                  revert
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={saveNote}
-                  disabled={!noteDirty || updater.isPending}
-                >
-                  {updater.isPending ? "saving…" : "save note"}
-                </button>
+                  Curation note
+                  {saved.last_note_update_at ? (
+                    <span className="ml-2 font-normal text-slate-500 dark:text-slate-400 normal-case">
+                      last edited {formatTimestamp(saved.last_note_update_at)}
+                      {saved.last_note_update_by ? ` by ${saved.last_note_update_by}` : ""}
+                    </span>
+                  ) : null}
+                </label>
+                <textarea
+                  id="curation-note-textarea"
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  placeholder="curator scratchpad — paper status, edge cases, reminders…"
+                  spellCheck
+                  rows={6}
+                  className="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 dark:bg-slate-900 rounded px-2 py-1.5"
+                />
+                <div className="mt-1 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    className="btn ghost text-xs"
+                    onClick={() => setNoteDraft(saved.curation_note)}
+                    disabled={!noteDirty || updater.isPending}
+                  >
+                    revert
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={saveNote}
+                    disabled={!noteDirty || updater.isPending}
+                  >
+                    {updater.isPending ? "saving…" : "save note"}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
 
       {resolving ? (
         <div
@@ -370,7 +389,8 @@ export function NotesDrawer({
           </div>
         </div>
       ) : null}
-    </section>
+      </div>
+    </div>
   );
 }
 

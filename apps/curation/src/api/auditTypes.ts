@@ -818,4 +818,10 @@ export interface AuditRequest {
   /** Default false. When true, ignores any cached proposer output
    *  and forces a fresh judge pass. */
   refresh_cache?: boolean;
+  /** Curator's free-text override from the redo-with-notes flow.
+   *  Threaded into the audit judges' prompt as a feedback block.
+   *  Mirrors `TriggerProposalBody.prior_feedback`. Landed
+   *  agents-side 2026-05-23 (gemma-curation-agents `b3392d2` /
+   *  `bd6112e`). */
+  prior_feedback?: string | null;
 }

@@ -11,6 +11,7 @@ import { experimentRoute, navigate, workflowRoute, type ExperimentTab } from "@/
 import { useState } from "react";
 import { useStickyState } from "@/lib/useStickyState";
 import { ModeChip } from "@/components/ui/ModeChip";
+import { HealthChip } from "@/components/ui/HealthChip";
 
 /**
  * Landing page: lists experiments imported into the mock. Click
@@ -161,6 +162,7 @@ export function ExperimentList({
               signed in as <span className="font-medium">{reviewer}</span>
             </span>
             <ModeChip />
+            <HealthChip />
             <button
               type="button"
               className="text-slate-500 hover:text-slate-900 underline"

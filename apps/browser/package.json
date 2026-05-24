@@ -12,6 +12,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@gemma/heatmap": "*",
+    "@gemma/ontology": "*",
     "@tanstack/react-query": "^5.59.0",
     "@tanstack/react-router": "^1.95.0",
     "clsx": "^2.1.1",

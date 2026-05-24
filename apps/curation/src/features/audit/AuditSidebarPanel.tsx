@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useDesign } from "@/api/design";
-import { useAuditStream } from "@/api/auditStream";
+import type { useAuditStream } from "@/api/auditStream";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import sampleReport from "./fixtures/sample_audit_report.json";
 import { useAudit, findingKey } from "./AuditContext";
@@ -51,14 +51,12 @@ import {
 } from "./defenderLean";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import type { AcceptReason, DismissReason, NotSureReason } from "@/api/auditTypes";
-import { AuditTriggerDialog } from "./AuditTriggerDialog";
 import { parsePrefixedNote, resolveEditInitial } from "./dispositionEdit";
 import type {
   AttachedDefenderVerdict,
   AuditFinding,
   AuditFindingDisposition,
   AuditReport,
-  AuditRequest,
   AuditTargetKind,
   DispositionStatus,
   Severity,
@@ -99,27 +97,22 @@ import {
  */
 export function AuditSidebarPanel({
   experimentId,
+  stream,
 }: {
   experimentId: number;
+  /** Audit SSE stream lifted to the App shell so the unified
+   *  AgentRunDialog can fire it from the sidebar header strip.
+   *  This panel just renders the progress / state. */
+  stream: ReturnType<typeof useAuditStream>;
 }) {
   const { report, setOverrideReport, hasOverride, loading, error } =
     useAudit();
   const { draft } = useDesignDraft();
-  const stream = useAuditStream(experimentId);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  // Auto-close the dialog once the SSE stream takes over.
-  useEffect(() => {
-    if (stream.status === "running") setDialogOpen(false);
-  }, [stream.status]);
 
   // Pick the accession the agent service expects. Numeric experiment_id
   // works (the resolver accepts numeric id, GSE accession, or shortName
   // interchangeably — same as /propose).
   const accession = draft?.experiment_short_name || String(experimentId);
-
-  function runAudit(req: AuditRequest) {
-    stream.start(accession, req);
-  }
 
   // Render order:
   //   1. Trigger dialog (if open) — modal, sits on top of everything
@@ -159,10 +152,7 @@ export function AuditSidebarPanel({
       )}>
         <SidebarTopBar
           accession={accession}
-          loading={loading}
-          running={stream.status === "running"}
           hasOpenAudit={!!(report && !report.finalized_at)}
-          onRunAudit={() => setDialogOpen(true)}
         />
         {report ? (
           <div className="border-t border-sky-200 dark:border-sky-700/60 pt-1">
@@ -217,46 +207,30 @@ export function AuditSidebarPanel({
           </>
         )
       ) : null}
-      <AuditTriggerDialog
-        experimentShortName={accession}
-        open={dialogOpen}
-        busy={stream.status === "running"}
-        onCancel={() => setDialogOpen(false)}
-        onSubmit={(req) => runAudit(req)}
-      />
     </div>
   );
 }
 
-/** Tiny header card that sits above the audit content and exposes
- *  the "Run audit" trigger. Always visible (independent of whether
- *  there's a report loaded) so the curator can re-audit anytime. */
+/** Tiny header card that sits above the audit content. Shows the
+ *  experiment accession and a small "open audit exists" indicator
+ *  when applicable. The Run-audit trigger lives in the unified
+ *  sidebar header strip (Request/Re-run button) which opens
+ *  AgentRunDialog at the App level, not here. */
 function SidebarTopBar({
   accession,
-  loading,
-  running,
   hasOpenAudit,
-  onRunAudit,
 }: {
   accession: string;
-  loading: boolean;
-  running: boolean;
   /** True when a non-finalized audit already exists for this experiment. */
   hasOpenAudit: boolean;
-  onRunAudit: () => void;
 }) {
-  const title = running
-    ? "an audit is already running — watch the progress panel below"
-    : hasOpenAudit
-      ? "an open audit already exists — running a new one will replace it"
-      : "configure scope + tier and run an audit against the existing curation";
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className="text-slate-500 truncate">
         Audit{" "}
         <span className="font-mono text-slate-700">{accession}</span>
       </span>
-      {hasOpenAudit && !running ? (
+      {hasOpenAudit ? (
         <span
           className="text-[10px] text-amber-600 dark:text-amber-400"
           title="this experiment already has an open (unfinished) audit"
@@ -264,22 +238,6 @@ function SidebarTopBar({
           open audit exists
         </span>
       ) : null}
-      <button
-        type="button"
-        onClick={onRunAudit}
-        disabled={running || loading}
-        title={title}
-        className={cn(
-          "ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium",
-          running || loading
-            ? "bg-slate-200 text-slate-500 cursor-progress"
-            : hasOpenAudit
-              ? "bg-amber-600 text-white hover:bg-amber-700"
-              : "bg-blue-700 text-white hover:bg-blue-800",
-        )}
-      >
-        {running ? "running…" : "+ audit"}
-      </button>
     </div>
   );
 }

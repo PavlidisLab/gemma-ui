@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { agentPalette } from "@/lib/agentPalette";
 import { useStickyState } from "@/lib/useStickyState";
-import { useEscape } from "@/lib/useEscape";
 import { Pill } from "@/components/ui/Pill";
 import { Term } from "@/components/ui/Term";
 import { StatementGlyph } from "@/components/ui/StatementGlyph";
@@ -18,8 +17,7 @@ import {
   MetadataBadge,
   summariseDataset,
 } from "@/features/proposal/MetadataBadge";
-import { useReviewProposal, useTriggerProposal } from "@/api/proposals";
-import { useProposeStream } from "@/api/proposeStream";
+import { useReviewProposal } from "@/api/proposals";
 import { ApiError } from "@/api/client";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -36,16 +34,9 @@ import {
 import { markPaperDismissed } from "@/features/proposal/paperDismissal";
 import { IssueTagInline } from "@/features/proposal/IssueTagInline";
 import { useToast } from "@/components/ui/Toast";
-import { Spinner } from "@/components/ui/Spinner";
 import { useProposalReview } from "@/features/proposal/ProposalReviewContext";
 import { navigate, experimentRoute } from "@/routes";
-import {
-  DEFAULT_MODEL_TIER,
-  MODEL_TIERS,
-  MODEL_TIER_ORDER,
-  tierForProviderModel,
-  type ModelTier,
-} from "@/lib/modelTiers";
+import { MODEL_TIERS, tierForProviderModel } from "@/lib/modelTiers";
 
 /**
  * v2 layout for the agent-proposal sidebar card.
@@ -562,32 +553,9 @@ export function TriageBadge({
 export function ProposalCardV2({
   proposal,
   reviewer,
-  triggerProposal,
-  proposeStream,
 }: {
   proposal: Proposal;
   reviewer: string;
-  /**
-   * Owned by the parent (App's MainGrid) so the propose mutation
-   * survives the card unmounting after the PATCH(needs_changes)
-   * succeeds. If the trigger lived inside this component, the
-   * card would unmount when the proposal leaves "pending" and
-   * mutate() would have nothing to dispatch to. Passing it down
-   * also means the sidebar's "+ propose" spinner reflects an
-   * in-flight redo and vice versa — one pending state per
-   * experiment.
-   *
-   * Kept around for the in-flight gating reads (``isPending``);
-   * the redo flow itself now drives the SSE-streaming endpoint
-   * via ``proposeStream`` below so the curator sees live progress
-   * instead of staring at the previous run's terminal events.
-   */
-  triggerProposal: ReturnType<typeof useTriggerProposal>;
-  /** Same SSE-driven hook the sidebar's ``+ propose`` button uses.
-   *  Redo with notes calls ``start`` here so the progress panel
-   *  resets and reflects the redo run. Owned by the parent for
-   *  the same lifecycle reason as ``triggerProposal``. */
-  proposeStream: ReturnType<typeof useProposeStream>;
 }) {
   const review = useReviewProposal(proposal.experiment_id);
   const { saved, draft, apply } = useDesignDraft();
@@ -647,21 +615,11 @@ export function ProposalCardV2({
   // expanders.)
 
   // Redo-with-notes confirmation. Opens a modal that shows the
-  // typed feedback (so the curator verifies what's about to be
-  // sent) and warns when the textarea is empty (re-running with no
-  // guidance just burns LLM credits and produces the same proposal).
-  const [redoConfirm, setRedoConfirm] = useState(false);
-  useEscape(redoConfirm, () => setRedoConfirm(false));
-  // True while either propose path is in flight: the legacy
-  // synchronous mutation (still on the prop for compat) or the
-  // SSE-driven stream the redo flow now uses.
-  const redoInFlight =
-    triggerProposal.isPending || proposeStream.status === "running";
-  // Model tier the retry runs on. Defaults to "standard" (matches
-  // the proposer service's design-proposer default); curator can
-  // bump to "strong" for a tougher experiment.
-  const [retryTier, setRetryTier] =
-    useState<ModelTier>(DEFAULT_MODEL_TIER);
+  // Redo-with-notes state retired 2026-05-23. Curator re-fires
+  // proposals via the unified sidebar dialog at the App level
+  // (AgentRunDialog). The feedback textarea on this card still
+  // logs notes for prompt-tuning on accept/reject — it just
+  // doesn't kick a re-run any more.
 
   // Curator-edited FV labels. Keyed by ``${factorIdx}:${fvIdx}``;
   // value is the new free_text_label. Clicking the pencil next to a
@@ -1055,101 +1013,6 @@ export function ProposalCardV2({
     if (isActiveReview) {
       proposalReview.setActiveProposal(null);
     }
-  }
-
-  /**
-   * Redo-with-notes: PATCH the current proposal as ``needs_changes``
-   * and chain a fresh proposer run on top.
-   *
-   * Until the proposer service grows a ``/retry`` endpoint that
-   * threads the curator's notes into the agent prompts, the notes
-   * still ride along on the ``needs_changes`` PATCH (the
-   * prompt-tuning pipeline reads them) — they just don't shape the
-   * new run yet. ``refresh_cache: true`` so the new propose doesn't
-   * replay the cached output of the proposal we just rejected.
-   */
-  async function redoWithNotes() {
-    if (!proposal.proposal_id) return;
-
-    const hasReassignments = isActiveReview && reassignments.size > 0;
-    const hasLabelEdits = labelEdits.size > 0;
-    const editsForLog: Proposal | null =
-      hasExclusions || hasReassignments || hasLabelEdits
-        ? {
-            ...proposal,
-            tags: acceptedTags,
-            factors: acceptedFactors,
-          }
-        : null;
-    const cf: CuratorFeedback = {
-      status: "needs_changes",
-      reviewer,
-      checkboxes: emptyCheckboxes,
-      reviewer_notes: feedback,
-      prompt_feedback: feedback,
-      edits: editsForLog,
-      issue_tags: issueTags.length > 0 ? issueTags : undefined,
-    };
-
-    // Close the review session before the awaits so the Samples tab
-    // doesn't keep showing reassignment dropdowns for a proposal
-    // we're already retiring.
-    if (isActiveReview) {
-      proposalReview.setActiveProposal(null);
-    }
-
-    try {
-      await review.mutateAsync({
-        proposalId: proposal.proposal_id,
-        feedback: cf,
-      });
-    } catch (err) {
-      toast.show(
-        `Failed to mark proposal needs_changes: ${(err as Error).message}`,
-        "danger",
-        8000,
-      );
-      return;
-    }
-
-    // Drive the SSE stream so the progress panel resets and reflects
-    // *this* run rather than the original propose's terminal events.
-    // Previously this fired the synchronous ``triggerProposal.mutate``;
-    // the curator stared at "agent done 100%" stamped with the
-    // just-rejected proposal_id for the 30-90s the redo took, which
-    // looked like a stale cache hit.
-    //
-    // Body fields:
-    //   - ``fresh_preboarding: true`` matches the sidebar "+ propose"
-    //     button — without it the proposer silently skips when the
-    //     experiment has any curated factors in its Design.
-    //   - ``refresh_cache: true`` so the new run doesn't replay the
-    //     cached output of the proposal we just retired.
-    //   - ``tier`` (not ``model``) — the proposer service resolves
-    //     tier → provider model id server-side.
-    //   - ``prior_feedback`` threads the curator's note into the
-    //     design-proposer prompt (``## Curator feedback from
-    //     previous attempt`` block ahead of the candidate-factors
-    //     hint). See ``REDO_WITH_NOTES_HANDOFF.md``. Trimmed empty
-    //     → null so the agent doesn't get an empty feedback block.
-    const trimmedFeedback = feedback.trim();
-    proposeStream.start(String(proposal.experiment_id), {
-      fresh_preboarding: true,
-      refresh_cache: true,
-      tier: retryTier,
-      prior_feedback: trimmedFeedback || null,
-    });
-    const tierBlurb =
-      retryTier === DEFAULT_MODEL_TIER
-        ? ""
-        : ` (${MODEL_TIERS[retryTier].label} model)`;
-    toast.show(
-      trimmedFeedback
-        ? `Redo started${tierBlurb}. Notes wired into the new run; fresh cache.`
-        : `Redo started${tierBlurb}. The new run uses a fresh cache.`,
-      "info",
-      6000,
-    );
   }
 
   const skipReason = proposal.evidence?.extra?.skip_reason || "";
@@ -1871,12 +1734,13 @@ export function ProposalCardV2({
           onChange={(e) => setFeedback(e.target.value)}
         />
         <p className="text-[10px] text-slate-500 italic">
-          <span title="Click 'redo with notes' to send these as instructions back to the agent for a retry. Click 'accept' or 'reject' to log them for prompt-tuning.">
-            Used as retry instructions on{" "}
-            <span className="not-italic font-medium">redo with notes</span>;
-            logged for prompt-tuning on{" "}
+          <span title="Logged for prompt-tuning on accept / reject. To request a fresh proposal with these notes attached, use the 'Re-run proposal' button above the sidebar.">
+            Logged for prompt-tuning on{" "}
             <span className="not-italic font-medium">accept</span> /{" "}
-            <span className="not-italic font-medium">reject</span>.
+            <span className="not-italic font-medium">reject</span>. To
+            request a re-run that uses these notes, use{" "}
+            <span className="not-italic font-medium">Re-run proposal</span>{" "}
+            above the sidebar.
           </span>
         </p>
         {moreOpen ? (
@@ -1899,46 +1763,21 @@ export function ProposalCardV2({
 
       {/* ---------------- Action row ---------------- */}
       {/*
-        Three verbs:
-          - redo with notes : send the feedback to the agent as retry
-              instructions and re-run the proposer. Today this still
-              hits the existing PATCH(needs_changes) path; once the
-              ``/retry`` endpoint lands the click will fire that
-              instead.
+        Two verbs:
           - reject          : discard, log feedback for prompt-tuning.
           - accept · apply  : apply the would-be-accepted proposal
               to the design draft and log feedback for prompt-tuning.
               No DB write yet — the CommitBar at the bottom of the
               design tab still gates commit / discard, so this verb
-              is itself the curator's "preview in design" step. (A
-              separate "preview" verb here used to short-circuit
-              into the draft without marking the proposal accepted;
-              that created a confusing pending-but-applied state and
-              also bypassed Samples-tab reassignments. Removed
-              2026-04-29.)
+              is itself the curator's "preview in design" step.
+
+        The "redo with notes" verb retired 2026-05-23 — the unified
+        sidebar Re-run dialog at the App level is the canonical
+        re-fire path, with a notes textarea + tier picker in one
+        place. Curator can still type into the feedback box here to
+        log notes on accept/reject for prompt-tuning.
       */}
       <div className="px-3 py-2 flex items-center gap-1 justify-end flex-nowrap">
-        <button
-          className="btn warn text-xs"
-          disabled={review.isPending || redoInFlight}
-          onClick={() => setRedoConfirm(true)}
-          title={
-            redoInFlight
-              ? "a redo is already in flight — wait for the new proposal to land"
-              : feedback.trim()
-                ? "Open redo confirmation. Marks this proposal needs_changes and starts a fresh agent run. Notes are logged on the retired proposal."
-                : "Open redo confirmation. With no notes the agent re-runs on the same prompts — the modal will warn before burning LLM credits."
-          }
-        >
-          {redoInFlight ? (
-            <span className="inline-flex items-center gap-1">
-              <Spinner size={10} />
-              redoing…
-            </span>
-          ) : (
-            "redo with notes"
-          )}
-        </button>
         <button
           className="btn danger text-xs"
           disabled={review.isPending}
@@ -1976,176 +1815,6 @@ export function ProposalCardV2({
         )
       ) : null}
 
-      {/* ---------------- Redo-with-notes confirmation ---------------- */}
-      {/*
-        Modal opens when the curator clicks the "redo with notes" verb.
-        Shows the typed feedback verbatim so the curator can verify
-        what's about to be sent. When the textarea is empty we warn —
-        re-running with no guidance still uses the same agent prompts
-        (the notes don't shape the new run today) and likely produces
-        a similar proposal, burning LLM credits. Curator can still
-        proceed if they really want to retry as-is. Cancel leaves the
-        proposal in pending, untouched.
-
-        Confirm chains: PATCH(needs_changes) for the current
-        proposal → POST /propose/{id} with refresh_cache=true to
-        kick off a fresh agent run. Notes are stored on the
-        retired proposal for prompt-tuning. When the proposer
-        service grows a /retry endpoint that threads notes into
-        prompts, redoWithNotes will call that instead.
-      */}
-      {redoConfirm ? (
-        <div
-          className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center px-4"
-          onClick={() => setRedoConfirm(false)}
-        >
-          <div
-            className="bg-white rounded shadow-lg max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-              <span className="font-semibold text-slate-800">
-                Redo with notes
-              </span>
-              <button
-                type="button"
-                className="text-slate-400 hover:text-slate-700"
-                onClick={() => setRedoConfirm(false)}
-                aria-label="cancel"
-              >
-                ×
-              </button>
-            </div>
-            <div className="px-3 py-3 space-y-2 text-sm">
-              {feedback.trim() ? (
-                <>
-                  <p className="text-slate-700">
-                    The agent will retry with these instructions:
-                  </p>
-                  <blockquote className="border-l-2 border-amber-400 bg-amber-50 px-2 py-1 text-slate-800 whitespace-pre-wrap break-words text-xs">
-                    {feedback}
-                  </blockquote>
-                  <p className="text-[11px] text-slate-500">
-                    The current proposal will be marked{" "}
-                    <span className="font-medium">needs changes</span>{" "}
-                    and a fresh proposer run will start. Your notes
-                    are threaded into the design-proposer prompt as
-                    a curator-feedback block, and also logged on the
-                    retired proposal for prompt-tuning. The new run
-                    uses a fresh cache.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="bg-rose-50 border border-rose-200 rounded px-2 py-1.5 text-xs text-rose-800">
-                    <span className="font-semibold">No notes attached.</span>{" "}
-                    The agent will re-run on the same preboarding state with
-                    the default prompt — without a curator-feedback
-                    block to nudge it, likely a similar proposal,
-                    just slower and pricier than reusing the cached
-                    one.
-                  </div>
-                  <p className="text-[11px] text-slate-500">
-                    Cancel and add a hint in the Feedback box, or
-                    proceed if you genuinely want to re-run as-is.
-                  </p>
-                </>
-              )}
-              <div className="pt-2 border-t border-slate-100">
-                <div className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 mb-1">
-                  Model
-                </div>
-                <div className="flex flex-col gap-1">
-                  {MODEL_TIER_ORDER.map((tier) => {
-                    const def = MODEL_TIERS[tier];
-                    const isDefault = tier === DEFAULT_MODEL_TIER;
-                    return (
-                      <label
-                        key={tier}
-                        className="flex items-start gap-2 text-xs cursor-pointer hover:bg-slate-50 rounded px-1 py-0.5"
-                      >
-                        <input
-                          type="radio"
-                          name="retry-model-tier"
-                          value={tier}
-                          checked={retryTier === tier}
-                          onChange={() => setRetryTier(tier)}
-                          className="mt-0.5"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-slate-800 flex items-baseline gap-1.5">
-                            <span className="font-medium">{def.label}</span>
-                            <span
-                              className="font-mono text-[10px] text-amber-700"
-                              title={`relative cost: ${def.costMarker}`}
-                            >
-                              {def.costMarker}
-                            </span>
-                            {isDefault ? (
-                              <span className="text-[10px] uppercase tracking-wide text-slate-400">
-                                default
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            {def.description}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-                {/*
-                  Cost-guard line. Triggers when the curator is about
-                  to redo on "strong" AND the previous run was already
-                  on strong — second strong run usually means the
-                  feedback could be sharpened first. Just a nudge, not
-                  a block.
-                 */}
-                {retryTier === "strong" &&
-                tierForProviderModel(proposal.model) === "strong" ? (
-                  <div className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                    The previous run was already on{" "}
-                    <span className="font-semibold">strong</span>. Consider
-                    sharpening the feedback before another strong run —
-                    they're the priciest and a similar proposal is likely
-                    without new instructions.
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="btn ghost text-xs"
-                onClick={() => setRedoConfirm(false)}
-              >
-                cancel
-              </button>
-              <button
-                type="button"
-                className={
-                  "text-xs " +
-                  (feedback.trim() ? "btn warn" : "btn danger")
-                }
-                onClick={() => {
-                  setRedoConfirm(false);
-                  void redoWithNotes();
-                }}
-                disabled={review.isPending || redoInFlight}
-              >
-                {review.isPending
-                  ? "saving…"
-                  : redoInFlight
-                    ? "starting redo…"
-                    : feedback.trim()
-                      ? "redo with these notes"
-                      : "redo as-is anyway"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
         </>
       )}
 

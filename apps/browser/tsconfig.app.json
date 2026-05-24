@@ -19,7 +19,11 @@
     "noFallthroughCasesInSwitch": true,
 
     "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] }
+    "paths": {
+      "@/*": ["src/*"],
+      "@gemma/heatmap": ["../../packages/heatmap/src/index.ts"],
+      "@gemma/ontology": ["../../packages/ontology/src/index.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../../packages/heatmap/src", "../../packages/ontology/src"]
 }
