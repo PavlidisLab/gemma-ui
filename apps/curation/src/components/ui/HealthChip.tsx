@@ -24,10 +24,20 @@ import { useServicesHealth, type ServiceStatus } from "@/api/health";
 
 type Severity = "ok" | "degraded" | "down" | "unknown";
 
-function rollup(gemma: ServiceStatus, agent: ServiceStatus): Severity {
-  if (gemma === "unknown" || agent === "unknown") return "unknown";
-  if (gemma === "up" && agent === "up") return "ok";
-  if (gemma === "down" && agent === "down") return "down";
+function rollup(
+  localApi: ServiceStatus,
+  gemma: ServiceStatus,
+  agent: ServiceStatus,
+): Severity {
+  const all = [localApi, gemma, agent];
+  if (all.some((s) => s === "unknown")) return "unknown";
+  // local_api is the default upstream — if it's down the UI is
+  // mostly broken. agent down ⇒ proposals/audits fail. gemma-rest
+  // down ⇒ diagnostics + live audit trail fall back to local_api,
+  // which is degraded but functional.
+  const upCount = all.filter((s) => s === "up").length;
+  if (upCount === 3) return "ok";
+  if (upCount === 0) return "down";
   return "degraded";
 }
 
@@ -54,9 +64,10 @@ export function HealthChip() {
     };
   }, [open]);
 
+  const localApi = data?.localApi ?? "unknown";
   const gemma = data?.gemma ?? "unknown";
   const agent = data?.agent ?? "unknown";
-  const severity = rollup(gemma, agent);
+  const severity = rollup(localApi, gemma, agent);
 
   const palette: Record<Severity, string> = {
     ok:
@@ -78,11 +89,11 @@ export function HealthChip() {
 
   const titleHint =
     severity === "ok"
-      ? "Both backends reachable — proposals and audits are runnable."
+      ? "All three backends reachable — proposals, audits, diagnostics all runnable."
       : severity === "degraded"
-        ? "One backend is reachable, one isn't — see details."
+        ? "Some backends are unreachable — click for details."
         : severity === "down"
-          ? "Neither backend is reachable — proposals and audits will fail."
+          ? "None of the backends are reachable — most features will fail."
           : "Checking backends…";
 
   return (
@@ -122,13 +133,19 @@ export function HealthChip() {
 
           <dl className="space-y-1.5">
             <ServiceRow
-              label="Gemma REST"
-              status={gemma}
-              path="/rest/v2"
-              hint="serves /rest/v2/* — datasets, design, dispositions, audits"
+              label="local_api"
+              status={localApi}
+              path="/rest/v2 (default)"
+              hint="curation DB / FastAPI mock — default upstream for /rest/v2/* (datasets, design, workflow, audit trail fallback)"
             />
             <ServiceRow
-              label="Agent service"
+              label="gemma-rest"
+              status={gemma}
+              path="/rest/v2 (fallback)"
+              hint="live Gemma 2.0 REST — diagnostics (SVD, sample-correlation, mean-variance) + canonical experiment audit trail"
+            />
+            <ServiceRow
+              label="agent"
               status={agent}
               path="/propose, /audit, /find-*"
               hint="proposer + auditor + find-publication/term"
@@ -151,9 +168,13 @@ export function HealthChip() {
                   : "text-amber-800 dark:text-amber-200 leading-snug"
               }
             >
-              {agent === "down"
-                ? "Agent down → Request proposal / Run audit will fail. Start the proposer service to enable them."
-                : "Gemma REST down → read-mostly mode. Most surfaces will fail to load."}
+              {localApi === "down"
+                ? "local_api down → most read paths fail (datasets, workflow, design). Start the curation backend."
+                : agent === "down"
+                  ? "Agent down → Request proposal / Run audit will fail. Start the proposer service."
+                  : gemma === "down"
+                    ? "gemma-rest down → diagnostics (SVD/sample-correlation/mean-variance) and the canonical live audit trail unavailable. Audit trail falls back to local_api."
+                    : ""}
             </p>
           ) : null}
         </div>

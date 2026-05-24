@@ -165,13 +165,22 @@ export default defineConfig(({ mode }) => {
           timeout: 0,
           proxyTimeout: 0,
         },
-        // Health probes — cheap liveness checks.
-        // Gemma's openapi is at `/rest/v2/openapi.json` (the spec
-        // is versioned, not root-level), so the curation upstream
-        // probe rewrites to that path. Proposer (FastAPI) auto-
-        // exposes `/openapi.json` at root.
-        "/__health/gemma": {
+        // Health probes — cheap liveness checks, one per upstream
+        // the UI talks to. Gemma's openapi is at
+        // `/rest/v2/openapi.json` (the spec is versioned, not
+        // root-level). local_api + proposer are FastAPI which
+        // auto-exposes `/openapi.json` at root.
+        //
+        //   /__health/local-api → local_api  (curation DB, default upstream)
+        //   /__health/gemma     → gemma-rest (live data fallback)
+        //   /__health/agent     → proposer   (FastAPI agent)
+        "/__health/local-api": {
           target: CURATION_URL,
+          changeOrigin: true,
+          rewrite: () => "/openapi.json",
+        },
+        "/__health/gemma": {
+          target: GEMMA_REST_URL,
           changeOrigin: true,
           rewrite: () => "/rest/v2/openapi.json",
         },
