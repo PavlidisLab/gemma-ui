@@ -27,7 +27,7 @@ services:
       context: .
       dockerfile: Dockerfile.agents
     image: gemma-local-mode/agents:dev
-    container_name: gemma-local-mode-local-api
+    container_name: curation-localstore-api
     working_dir: /agents
     environment:
       # local_api needs the curation API bearer to match what the
@@ -55,7 +55,7 @@ services:
   # ─── proposer — long-running FastAPI for /propose, /audit, /find-* ──
   proposer:
     image: gemma-local-mode/agents:dev
-    container_name: gemma-local-mode-proposer
+    container_name: curation-agent-api
     depends_on:
       - local-api
     working_dir: /agents
@@ -84,15 +84,27 @@ services:
       context: .
       dockerfile: Dockerfile.curation-ui
     image: gemma-local-mode/curation-ui:dev
-    container_name: gemma-local-mode-curation-ui
+    container_name: curation-ui
     depends_on:
       - local-api
       - proposer
     working_dir: /ui
     environment:
-      GEMMA_CURATION_URL: http://local-api:8000
+      # Curation UI talks to gemma-rest 2.0 on the host wherever
+      # possible (per feedback_curation_ui_prefers_gemma_rest memory).
+      # local_api remains the fallback for endpoints the Java REST
+      # hasn't shipped yet; that routing exception goes the OTHER way
+      # — narrow paths to local_api, default to gemma-rest — and
+      # lives in vite.config.ts when needed. Override at compose-up
+      # time via GEMMA_CURATION_URL env to flip back to the mock for
+      # fully-offline dev.
+      GEMMA_CURATION_URL: ${GEMMA_CURATION_URL:-http://host.docker.internal:8080}
       GEMMA_PROPOSER_URL: http://proposer:8000
       VITE_GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
+    extra_hosts:
+      # Docker Desktop auto-adds host.docker.internal; on Linux
+      # Docker the host-gateway alias is needed explicitly.
+      - "host.docker.internal:host-gateway"
     volumes:
       # Bind-mount the whole monorepo so workspace links resolve.
       - ${UI_REPO:-../..}:/ui
