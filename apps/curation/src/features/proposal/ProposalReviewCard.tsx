@@ -91,50 +91,53 @@ export function FactorReviewCard({
     }
     return set.size;
   })();
+  const titleArea = (
+    /* Header — matches the audit panel's renderProposeNewFactorEditor:
+       "Factor [chip] · proposed (not in current design)". The factor
+       name is dropped from the inline header (would duplicate the
+       category chip in the common case where they're the same). */
+    <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+      <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+        Factor
+      </span>
+      {factor.category?.label || factor.category?.uri ? (
+        <Term uri={factor.category?.uri ?? null} asLink={false}>
+          {factor.category?.label || ""}
+        </Term>
+      ) : (
+        <span className="italic text-stone-500">{label}</span>
+      )}
+      <span className="text-slate-400 dark:text-slate-500">·</span>
+      <span className="text-amber-700 dark:text-amber-300 font-semibold">
+        proposed (not in current design)
+      </span>
+      <MatchTypeChip matchType={factor.match_type} />
+      <BaselineRelevanceChip
+        relevance={factor.baseline_relevance}
+        reason={factor.baseline_relevance_reason}
+      />
+      {!isContinuous ? (
+        <SampleCoverageChip
+          assigned={assignedSamples}
+          total={totalSamples}
+        />
+      ) : null}
+      <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-auto">
+        {isContinuous ? "continuous" : `${fvCount} level${fvCount === 1 ? "" : "s"}`}
+      </span>
+    </div>
+  );
   return (
     <ReviewCardShell
       kind="factor"
       elementKey={elementKey}
       identityLabel={label}
+      titleArea={titleArea}
       disposition={disposition}
       onDispose={onDispose}
       note={note}
       onNoteChange={onNoteChange}
     >
-      {/* Header — matches the audit panel's renderProposeNewFactorEditor:
-          "Factor [chip] · proposed (not in current design)". The factor
-          name is dropped from the inline header (would duplicate the
-          category chip in the common case where they're the same). */}
-      <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
-        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-          Factor
-        </span>
-        {factor.category?.label || factor.category?.uri ? (
-          <Term uri={factor.category?.uri ?? null} asLink={false}>
-            {factor.category?.label || ""}
-          </Term>
-        ) : (
-          <span className="italic text-stone-500">{label}</span>
-        )}
-        <span className="text-slate-400 dark:text-slate-500">·</span>
-        <span className="text-amber-700 dark:text-amber-300 font-semibold">
-          proposed (not in current design)
-        </span>
-        <MatchTypeChip matchType={factor.match_type} />
-        <BaselineRelevanceChip
-          relevance={factor.baseline_relevance}
-          reason={factor.baseline_relevance_reason}
-        />
-        {!isContinuous ? (
-          <SampleCoverageChip
-            assigned={assignedSamples}
-            total={totalSamples}
-          />
-        ) : null}
-        <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-auto">
-          {isContinuous ? "continuous" : `${fvCount} level${fvCount === 1 ? "" : "s"}`}
-        </span>
-      </div>
       {!isContinuous && fvs.length > 0 ? (
         <div className="space-y-1">
           {[...fvs]
@@ -192,28 +195,30 @@ export function TagReviewCard({
       kind="tag"
       elementKey={elementKey}
       identityLabel={identityLabel}
+      titleArea={
+        <div className="flex items-baseline gap-1.5 flex-wrap">
+          <Term uri={tag.value?.uri ?? null} asLink={false}>
+            {tag.value?.label || ""}
+          </Term>
+          <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            in
+          </span>
+          <Term
+            uri={tag.category?.uri ?? null}
+            asLink={false}
+            className="italic opacity-80"
+          >
+            {tag.category?.label || ""}
+          </Term>
+          <MatchTypeChip matchType={tag.match_type} />
+          <DebateBadgeChip badge={tag.badge} />
+        </div>
+      }
       disposition={disposition}
       onDispose={onDispose}
       note={note}
       onNoteChange={onNoteChange}
     >
-      <div className="flex items-baseline gap-1.5 flex-wrap">
-        <Term uri={tag.value?.uri ?? null} asLink={false}>
-          {tag.value?.label || ""}
-        </Term>
-        <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          in
-        </span>
-        <Term
-          uri={tag.category?.uri ?? null}
-          asLink={false}
-          className="italic opacity-80"
-        >
-          {tag.category?.label || ""}
-        </Term>
-        <MatchTypeChip matchType={tag.match_type} />
-        <DebateBadgeChip badge={tag.badge} />
-      </div>
       <DefenderVerdictsCluster verdicts={tag.defender_verdicts} />
       <SubtaskDecisionsRow decisions={tag.subtask_decisions} />
       {tag.evidence_quote ? (
@@ -667,6 +672,7 @@ function ReviewCardShell({
   kind,
   elementKey,
   identityLabel,
+  titleArea,
   disposition,
   onDispose,
   children,
@@ -676,19 +682,25 @@ function ReviewCardShell({
 }: {
   kind: CardKind;
   elementKey: string;
-  /** Plain-text summary of what this element is — used as the
-   *  rationale-row text in the reject/park dialog so the curator
-   *  knows which element they're acting on, AND as the row-collapsed
-   *  one-line summary when the card is closed. */
+  /** Plain-text summary used as the rationale row in the reject /
+   *  park dialog so the curator knows which element they're acting
+   *  on. NOT used as a fallback title — `titleArea` is always
+   *  visible regardless of fold state. */
   identityLabel: string;
+  /** Always-visible header content. The whole title row is the
+   *  click target for the fold toggle so curators can collapse with
+   *  a click anywhere on the row (matches the audit panel). */
+  titleArea: React.ReactNode;
   disposition: ProposalDisposition;
   onDispose: (d: ProposalDisposition) => void;
+  /** Body content — collapses on fold. The action buttons remain
+   *  visible below regardless. */
   children: React.ReactNode;
   note?: string;
   onNoteChange?: (note: string) => void;
-  /** Initial collapsed state. Proposals default open (curator wants
-   *  to scan all the suggestions); audit-style consumers may pass
-   *  false for a "click to expand" review queue. */
+  /** Initial collapsed state. Proposals default open (curator
+   *  wants to scan all the suggestions); audit-style consumers may
+   *  pass false for a "click to expand" review queue. */
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -739,27 +751,39 @@ function ReviewCardShell({
         !isPending && "opacity-60 hover:opacity-100 transition-opacity",
       )}
     >
-      <div className="flex items-start gap-1.5">
+      {/* Title row — always visible, clickable in entirety to toggle
+          fold. Matches the audit panel's CompactFindingCard pattern:
+          chevron + status badge + summary content, with the row's
+          role=button driving the open state so curators can click
+          anywhere along it. */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((v) => !v);
+          }
+        }}
+        className="flex items-start gap-1.5 cursor-pointer"
+        title={open ? "collapse card" : "expand card"}
+      >
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }}
           aria-label={open ? "collapse card" : "expand card"}
-          title={open ? "collapse" : "expand"}
           className="text-base leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 px-1 -mt-0.5 font-bold"
         >
           {open ? "⌄" : "›"}
         </button>
         <DispositionBadge disposition={disposition} kind={kind} />
-        <div className="flex-1 min-w-0 space-y-1">
-          {open ? (
-            children
-          ) : (
-            <span className="text-[12px] text-slate-700 dark:text-slate-300 truncate">
-              {identityLabel}
-            </span>
-          )}
-        </div>
+        <div className="flex-1 min-w-0 space-y-1">{titleArea}</div>
       </div>
+      {open ? <div className="pl-7 space-y-1.5">{children}</div> : null}
       <ActionButtons
         disposition={disposition}
         onDispose={onDispose}

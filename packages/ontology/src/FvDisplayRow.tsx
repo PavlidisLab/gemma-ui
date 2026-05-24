@@ -118,10 +118,11 @@ export function FvDisplayRow({
           : null}
         {fv.is_baseline ? (
           <span
-            className="text-[9px] uppercase tracking-wide font-semibold text-amber-700 dark:text-amber-400 ml-0.5"
+            className="text-amber-600 dark:text-amber-400 leading-none ml-0.5"
             title="baseline (reference level)"
+            aria-label="baseline"
           >
-            ★ baseline
+            ▂
           </span>
         ) : null}
         {n > 0 ? (
