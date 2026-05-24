@@ -93,7 +93,7 @@ function AuthControls({
   onSignOut,
   signingOut,
 }: {
-  user: { userName?: string | null } | null | undefined;
+  user: { userName?: string | null; email?: string | null } | null | undefined;
   loading: boolean;
   onSignIn: () => void;
   onSignOut: () => void;
@@ -101,13 +101,18 @@ function AuthControls({
 }) {
   if (loading) return null;
   if (user) {
+    // Prefer userName; fall back to email; last-resort "(signed
+    // in)" so we never show a bare "—" when /me partially
+    // populates (e.g., basic-auth principal without a UserDetails
+    // backing the bearer).
+    const display = user.userName || user.email || "(signed in)";
     return (
       <div
         className="text-sm inline-flex items-baseline gap-2"
         style={{ color: "rgb(var(--skin-titlebar-text))" }}
       >
         <span style={{ opacity: 0.7 }}>Signed in as</span>
-        <span className="font-medium">{user.userName ?? "—"}</span>
+        <span className="font-medium">{display}</span>
         <button
           type="button"
           onClick={onSignOut}

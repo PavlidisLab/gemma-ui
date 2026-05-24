@@ -46,9 +46,23 @@ export interface LoginResponse {
 }
 
 export async function postLogin(req: LoginRequest): Promise<LoginResponse> {
-  // The /login endpoint isn't enveloped — it returns the bearer +
-  // user directly. apiPost handles JSON shape + auth headers.
-  return apiPost<LoginResponse>(`${BASE}/login`, req);
+  // Bro's /login returns `ResponseDataObject<LoginResponse>` =
+  // `{apiVersion, buildInfo, data: {token, user}}` per
+  // AuthWebService.java:124. Unwrap the envelope.
+  const body = await apiPost<{ data?: LoginResponse } | LoginResponse>(
+    `${BASE}/login`,
+    req,
+  );
+  if (body && typeof body === "object" && "data" in (body as Record<string, unknown>)) {
+    const inner = (body as { data?: LoginResponse }).data;
+    if (!inner || typeof inner.token !== "string") {
+      throw new Error("login response missing token");
+    }
+    return inner;
+  }
+  // Tolerate a future flat shape, just in case bro un-envelopes
+  // it later.
+  return body as LoginResponse;
 }
 
 export async function postLogout(): Promise<void> {
@@ -114,6 +128,20 @@ export function useLogout() {
       writeSessionToken(null);
       qc.invalidateQueries({ queryKey: ["auth"] });
       qc.invalidateQueries({ queryKey: ["admin"] });
+      // Bro's /rest/v2/logout only revokes the bearer token (per
+      // AuthWebService.java:140) — it does NOT invalidate the
+      // HTTP session that Spring sets during /login. Without a
+      // hard reload the JSESSIONID cookie keeps /me returning a
+      // user. Reload nukes every cached query + tears down the
+      // page so the new mount comes up anon (unless the cookie
+      // is still server-valid, in which case the user shouldn't
+      // see "signed out" — see the matching handoff for the bro
+      // /logout-invalidates-session fix).
+      try {
+        window.location.reload();
+      } catch {
+        /* SSR / sandbox */
+      }
     },
   });
 }

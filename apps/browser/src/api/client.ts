@@ -60,16 +60,37 @@ const SESSION_TOKEN_KEY = "gemma-browser-session";
 
 export function readSessionToken(): string | null {
   try {
-    return localStorage.getItem(SESSION_TOKEN_KEY);
+    const raw = localStorage.getItem(SESSION_TOKEN_KEY);
+    // Self-heal: a prior commit accidentally wrote the literal
+    // string "undefined" via localStorage.setItem(KEY, undefined)
+    // on a broken login response unwrap. Treat that as no token
+    // and purge it so the bad value doesn't keep being read.
+    if (!raw || raw === "undefined" || raw === "null") {
+      if (raw) {
+        try {
+          localStorage.removeItem(SESSION_TOKEN_KEY);
+        } catch {
+          /* ignore */
+        }
+      }
+      return null;
+    }
+    return raw;
   } catch {
     return null;
   }
 }
 
-export function writeSessionToken(token: string | null): void {
+export function writeSessionToken(token: string | null | undefined): void {
   try {
-    if (token) localStorage.setItem(SESSION_TOKEN_KEY, token);
-    else localStorage.removeItem(SESSION_TOKEN_KEY);
+    // Defensive: refuse to persist anything that isn't a real
+    // non-empty string. localStorage.setItem(KEY, undefined)
+    // silently stores the literal string "undefined" — bug magnet.
+    if (typeof token === "string" && token.length > 0) {
+      localStorage.setItem(SESSION_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(SESSION_TOKEN_KEY);
+    }
   } catch {
     /* sandboxed env — ignore */
   }
