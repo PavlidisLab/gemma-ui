@@ -668,15 +668,27 @@ function SampleTable({
     return out;
   }, [defaultMovableKeys, savedColOrder]);
 
-  /** Commit a drag drop: move `srcKey` to where `dstKey` currently sits. */
-  const moveColumn = (srcKey: string, dstKey: string) => {
+  /** Commit a drag drop: move `srcKey` to a position relative to
+   *  `dstKey`. `side` controls whether src lands immediately before
+   *  dst ("before") or immediately after dst ("after"). The side is
+   *  driven by which half of the target header the cursor was over
+   *  on the last dragOver — gives predictable drop placement instead
+   *  of the older "insert at dst index, asymmetric by direction"
+   *  behavior. */
+  const moveColumn = (
+    srcKey: string,
+    dstKey: string,
+    side: "before" | "after",
+  ) => {
     if (srcKey === dstKey) return;
     const next = [...orderedMovableKeys];
     const srcIdx = next.indexOf(srcKey);
-    const dstIdx = next.indexOf(dstKey);
+    let dstIdx = next.indexOf(dstKey);
     if (srcIdx < 0 || dstIdx < 0) return;
     next.splice(srcIdx, 1);
-    next.splice(dstIdx, 0, srcKey);
+    if (srcIdx < dstIdx) dstIdx -= 1; // dst shifted left by the removal
+    const insertAt = side === "before" ? dstIdx : dstIdx + 1;
+    next.splice(insertAt, 0, srcKey);
     setSavedColOrder(next);
   };
 
@@ -687,6 +699,15 @@ function SampleTable({
 
   // Drag state — only one key in flight at a time, transient.
   const [dragKey, setDragKey] = useState<string | null>(null);
+  // Live drop-target hint while dragging. `key` is the header the
+  // cursor is currently over; `side` is which half (← drop before /
+  // drop after →). Used to render a 2px indicator bar on the target
+  // edge so the curator sees where the column will land before
+  // releasing.
+  const [dropHint, setDropHint] = useState<{
+    key: string;
+    side: "before" | "after";
+  } | null>(null);
 
   // Row filter — searches every searchable field on the BM, regardless
   // of which columns the curator has hidden. The constancy / column-
@@ -1244,21 +1265,48 @@ function SampleTable({
                   draggable: true,
                   dragKey: key,
                   isDragging: dragKey === key,
+                  dropSide:
+                    dropHint && dropHint.key === key && dragKey !== key
+                      ? dropHint.side
+                      : null,
                   onDragStart: (k: string) => setDragKey(k),
                   onDragOver: (
-                    _k: string,
+                    k: string,
                     e: React.DragEvent<HTMLElement>,
                   ) => {
-                    if (dragKey && dragKey !== _k) {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
+                    if (!dragKey || dragKey === k) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    // Which half of the target is the cursor over?
+                    const rect = (
+                      e.currentTarget as HTMLElement
+                    ).getBoundingClientRect();
+                    const side =
+                      e.clientX < rect.left + rect.width / 2
+                        ? "before"
+                        : "after";
+                    if (
+                      !dropHint ||
+                      dropHint.key !== k ||
+                      dropHint.side !== side
+                    ) {
+                      setDropHint({ key: k, side });
                     }
                   },
                   onDrop: (k: string) => {
-                    if (dragKey && dragKey !== k) moveColumn(dragKey, k);
+                    if (dragKey && dragKey !== k) {
+                      const side = dropHint?.key === k
+                        ? dropHint.side
+                        : "after";
+                      moveColumn(dragKey, k, side);
+                    }
                     setDragKey(null);
+                    setDropHint(null);
                   },
-                  onDragEnd: () => setDragKey(null),
+                  onDragEnd: () => {
+                    setDragKey(null);
+                    setDropHint(null);
+                  },
                 };
                 if (key === "name") {
                   return (
@@ -1888,6 +1936,7 @@ function SortableTh({
   draggable,
   dragKey,
   isDragging,
+  dropSide,
   onDragStart,
   onDragOver,
   onDrop,
@@ -1931,6 +1980,11 @@ function SortableTh({
   draggable?: boolean;
   dragKey?: string;
   isDragging?: boolean;
+  /** While another header is being dragged over this one, indicates
+   *  which edge of the target the drop will land on — `"before"`
+   *  renders a 2px indigo bar on the left, `"after"` on the right.
+   *  `null` (or omitted) renders no indicator. */
+  dropSide?: "before" | "after" | null;
   onDragStart?: (key: string, e: React.DragEvent<HTMLElement>) => void;
   onDragOver?: (key: string, e: React.DragEvent<HTMLElement>) => void;
   onDrop?: (key: string, e: React.DragEvent<HTMLElement>) => void;
@@ -1967,6 +2021,21 @@ function SortableTh({
           : undefined
       }
     >
+      {/* Drop indicator — 2px indigo bar on the edge the column will
+          land on. Sits above the header content (z-10) so it shows
+          over any background tint. */}
+      {dropSide === "before" ? (
+        <span
+          aria-hidden
+          className="absolute left-0 top-0 bottom-0 w-[2px] bg-indigo-500 z-10 pointer-events-none"
+        />
+      ) : null}
+      {dropSide === "after" ? (
+        <span
+          aria-hidden
+          className="absolute right-0 top-0 bottom-0 w-[2px] bg-indigo-500 z-10 pointer-events-none"
+        />
+      ) : null}
       {draggable && dragKey ? (
         <span
           draggable
@@ -1977,7 +2046,7 @@ function SortableTh({
             onDragStart?.(dragKey, e);
           }}
           onDragEnd={() => onDragEnd?.()}
-          className="absolute left-1 top-2 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-600 select-none text-[10px] leading-none px-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute left-1 top-2 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700 select-none text-[10px] leading-none px-0.5 opacity-50 group-hover:opacity-100 transition-opacity"
           title="drag to reorder columns"
           aria-label="drag column"
         >
