@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { validateDesign } from "@/features/experiment/types";
 import { PrePublishChecklist } from "./PrePublishChecklist";
@@ -208,51 +208,217 @@ function Body({
         )}
       </div>
 
-      <div className="card">
-        <div className="px-3 py-2 border-b border-slate-200">
-          <span className="section-h">Characteristics across samples</span>
-        </div>
-        {charDist.length === 0 ? (
-          <div className="px-3 py-4 text-xs text-slate-500 italic">
-            No characteristics on any biomaterial.
-          </div>
-        ) : (
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="text-left font-medium px-3 py-1.5">key</th>
-                <th className="text-left font-medium px-3 py-1.5 w-20">distinct</th>
-                <th className="text-left font-medium px-3 py-1.5 w-24">missing</th>
-                <th className="text-left font-medium px-3 py-1.5">values (top)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {charDist.map((d) => (
-                <tr key={d.key} className="border-t border-slate-100">
-                  <td className="px-3 py-1.5 font-mono">{d.key}</td>
-                  <td className="px-3 py-1.5">{d.distinctValues}</td>
-                  <td className="px-3 py-1.5">
-                    {d.missing === 0 ? (
-                      <span className="text-emerald-800">none</span>
-                    ) : (
-                      <span className="text-amber-800">{d.missing}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-1.5 text-slate-700">
-                    {d.topValues.map((v) => (
-                      <span key={v.value} className="mr-3 whitespace-nowrap">
-                        <span className="text-slate-500">{v.value || "(blank)"}:</span>{" "}
-                        <span className="font-medium">{v.count}</span>
-                      </span>
-                    ))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <CharacteristicsCard
+        charDist={charDist}
+        totalSamples={design.biomaterials.length}
+      />
     </div>
+  );
+}
+
+/** Characteristics-across-samples surface. Two design pressures
+ *  fought the old horizontal-value layout:
+ *    - compound values (e.g. "homogenate, ventral hippocampus,
+ *      male, control") are 30-60 chars long, with whitespace-nowrap
+ *      they horizontally overflowed the panel.
+ *    - constant characteristics (distinct=1) are cohort metadata,
+ *      not interesting variation. The old table treated them with
+ *      the same visual weight as the genuinely-varying ones.
+ *
+ *  This rewrite:
+ *    - splits the rows into "Varies" (distinct>1) and "Constant
+ *      across all samples" — the constant cluster collapses by
+ *      default so the curator's eye lands on what could become a
+ *      factor.
+ *    - stacks each value on its own line within the cell with a
+ *      proportional bar showing share + the raw count, instead of
+ *      a horizontal whitespace-nowrap flow.
+ *    - quiets the all-rows-say-"none" missing column. */
+function CharacteristicsCard({
+  charDist,
+  totalSamples,
+}: {
+  charDist: ReturnType<typeof characteristicDistribution>;
+  totalSamples: number;
+}) {
+  const [showConstant, setShowConstant] = useState(false);
+  const varies = useMemo(
+    () =>
+      charDist
+        .filter((d) => d.distinctValues > 1)
+        .slice()
+        .sort((a, b) => b.distinctValues - a.distinctValues),
+    [charDist],
+  );
+  const constant = useMemo(
+    () =>
+      charDist.filter((d) => d.distinctValues === 1).slice().sort(
+        (a, b) => a.key.localeCompare(b.key),
+      ),
+    [charDist],
+  );
+
+  return (
+    <div className="card">
+      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between dark:border-slate-700">
+        <span className="section-h">Characteristics across samples</span>
+        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+          {varies.length} varies · {constant.length} constant
+        </span>
+      </div>
+      {charDist.length === 0 ? (
+        <div className="px-3 py-4 text-xs text-slate-500 italic">
+          No characteristics on any biomaterial.
+        </div>
+      ) : (
+        <>
+          {varies.length === 0 ? (
+            <div className="px-3 py-3 text-xs text-slate-500 italic">
+              Every characteristic is constant across this cohort.
+            </div>
+          ) : (
+            <CharRowTable
+              rows={varies}
+              totalSamples={totalSamples}
+              emphasis="varies"
+            />
+          )}
+          {constant.length > 0 ? (
+            <details
+              className="border-t border-slate-100 dark:border-slate-700"
+              open={showConstant}
+              onToggle={(e) =>
+                setShowConstant((e.target as HTMLDetailsElement).open)
+              }
+            >
+              <summary className="px-3 py-1.5 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer hover:text-slate-700 dark:hover:text-slate-200 select-none">
+                Constant across all samples ({constant.length})
+              </summary>
+              <CharRowTable
+                rows={constant}
+                totalSamples={totalSamples}
+                emphasis="constant"
+              />
+            </details>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CharRowTable({
+  rows,
+  totalSamples,
+  emphasis,
+}: {
+  rows: ReturnType<typeof characteristicDistribution>;
+  totalSamples: number;
+  emphasis: "varies" | "constant";
+}) {
+  return (
+    <table className="w-full text-xs">
+      <thead className="bg-slate-50 text-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
+        <tr>
+          <th className="text-left font-medium px-3 py-1.5 w-1/4">key</th>
+          <th className="text-left font-medium px-3 py-1.5 w-16">distinct</th>
+          <th className="text-left font-medium px-3 py-1.5 w-20">missing</th>
+          <th className="text-left font-medium px-3 py-1.5">values</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((d) => (
+          <tr
+            key={d.key}
+            className="border-t border-slate-100 dark:border-slate-700 align-top"
+          >
+            <td className="px-3 py-1.5 font-mono break-words">{d.key}</td>
+            <td className="px-3 py-1.5">
+              {emphasis === "varies" ? (
+                <span className="inline-flex items-baseline gap-1 text-blue-700 dark:text-blue-300 font-semibold">
+                  {d.distinctValues}
+                </span>
+              ) : (
+                <span className="text-slate-400 dark:text-slate-500">1</span>
+              )}
+            </td>
+            <td className="px-3 py-1.5">
+              {d.missing === 0 ? (
+                <span className="text-slate-400 dark:text-slate-500">—</span>
+              ) : (
+                <span
+                  className="text-amber-700 dark:text-amber-300 font-medium"
+                  title={`${d.missing} of ${totalSamples} samples are missing this characteristic`}
+                >
+                  {d.missing}
+                </span>
+              )}
+            </td>
+            <td className="px-3 py-1.5">
+              <ValueList
+                values={d.topValues}
+                distinctValues={d.distinctValues}
+                totalSamples={totalSamples}
+              />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Vertical-stacked value list with a per-value share bar.
+ *  Replaces the horizontal whitespace-nowrap flow that overflowed
+ *  the panel on compound values. */
+function ValueList({
+  values,
+  distinctValues,
+  totalSamples,
+}: {
+  values: { value: string; count: number }[];
+  distinctValues: number;
+  totalSamples: number;
+}) {
+  const populated = values.reduce((n, v) => n + v.count, 0);
+  const denom = Math.max(totalSamples, populated, 1);
+  const hidden = distinctValues - values.length;
+  return (
+    <ul className="space-y-0.5 max-w-3xl">
+      {values.map((v) => {
+        const pct = v.count / denom;
+        return (
+          <li
+            key={v.value}
+            className="grid grid-cols-[minmax(0,1fr)_3.5rem_2.5rem] gap-2 items-center"
+            title={`${v.value || "(blank)"} — ${v.count} of ${totalSamples}`}
+          >
+            <span className="truncate text-slate-700 dark:text-slate-200">
+              {v.value || (
+                <span className="italic text-slate-400">(blank)</span>
+              )}
+            </span>
+            <span
+              aria-hidden
+              className="h-1.5 rounded bg-slate-100 dark:bg-slate-700 overflow-hidden"
+            >
+              <span
+                className="block h-full bg-blue-500 dark:bg-blue-400"
+                style={{ width: `${Math.max(2, pct * 100)}%` }}
+              />
+            </span>
+            <span className="tabular-nums text-right text-slate-500 dark:text-slate-400">
+              {v.count}
+            </span>
+          </li>
+        );
+      })}
+      {hidden > 0 ? (
+        <li className="text-[11px] text-slate-500 dark:text-slate-400 italic pt-0.5">
+          + {hidden} more value{hidden === 1 ? "" : "s"} not shown
+        </li>
+      ) : null}
+    </ul>
   );
 }
 
