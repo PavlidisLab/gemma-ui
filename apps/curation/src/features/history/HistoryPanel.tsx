@@ -5,7 +5,7 @@ import {
   type AuditEvent,
 } from "@/api/history";
 import { experimentAuditTrailUrl } from "@/lib/gemmaUrls";
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 /**
@@ -26,6 +26,11 @@ import { cn } from "@/lib/cn";
 export function HistoryPanel({ experimentId }: { experimentId: number }) {
   const [compact, setCompact] = useState(false);
   const [excludeEmpty, setExcludeEmpty] = useState(true);
+  // Panel-level "expand all" — when true, every row renders with
+  // full note + detail. When false (default), rows are compact and
+  // expand individually on click. Distinct from `compact` above
+  // which is a server-side dedup filter.
+  const [expandAll, setExpandAll] = useState(false);
   const {
     data: events,
     isLoading,
@@ -104,6 +109,21 @@ export function HistoryPanel({ experimentId }: { experimentId: number }) {
             ⓘ
           </span>
         </label>
+        <label className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={expandAll}
+            onChange={(e) => setExpandAll(e.target.checked)}
+            className="cursor-pointer"
+          />
+          expand all
+          <span
+            className="text-slate-400"
+            title="Render every row with its full note and detail. Off = compact rows that expand individually on click."
+          >
+            ⓘ
+          </span>
+        </label>
         <button
           type="button"
           onClick={() => refetch()}
@@ -156,6 +176,7 @@ export function HistoryPanel({ experimentId }: { experimentId: number }) {
               key={e.id}
               event={e}
               shapeDeltas={deltaByIndex[i]}
+              forceExpanded={expandAll}
             />
           ))}
         </ol>
@@ -176,63 +197,148 @@ function findPrevDesignEvent(
   return null;
 }
 
+/** Notes from gemma-rest that are pure Java-introspection boilerplate
+ *  carrying no human-readable WHY ("C event on entity ubic.gemma…").
+ *  Hide in compact mode; show dimmed in expanded. */
+function isBoilerplateNote(note: string): boolean {
+  return /^[UCD] event on entity ubic\./.test(note.trim());
+}
+
+/** Trim the note to a one-liner for compact mode. Boilerplate
+ *  introspection notes return "" so the compact row shows just
+ *  the event-type badge. */
+function compactNote(note: string): string {
+  if (!note) return "";
+  if (isBoilerplateNote(note)) return "";
+  // Take the first line + cap at ~140 chars so the row stays a
+  // single line even on a 13" laptop.
+  const firstLine = note.split(/\r?\n/)[0].trim();
+  return firstLine.length > 140
+    ? firstLine.slice(0, 139) + "…"
+    : firstLine;
+}
+
 function AuditEventRow({
   event,
   shapeDeltas,
+  forceExpanded,
 }: {
   event: AuditEvent;
   shapeDeltas: { label: string; delta: number }[] | null;
+  /** When true, the row renders with full note + detail regardless
+   *  of the per-row click state. Driven by the panel's "expand all"
+   *  toggle. */
+  forceExpanded: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const expanded = forceExpanded || open;
+
+  // Compact summary — what shows on the single-line row even when
+  // collapsed. Empty for boilerplate U/C/D events (the badge alone
+  // carries the meaning).
+  const summary = compactNote(event.note);
+  // Does this row have anything worth expanding into? If both the
+  // note + detail are missing/boilerplate AND there are no shape
+  // deltas, the row is "fully shown" already and we hide the
+  // chevron to avoid an empty-expand confusion.
+  const hasMore =
+    (!!event.note && (event.note !== summary || isBoilerplateNote(event.note))) ||
+    !!event.detail ||
+    (shapeDeltas && shapeDeltas.length > 0);
+
   return (
-    <li className="px-3 py-2 flex items-start gap-3">
-      <div className="text-xs text-slate-500 tabular-nums w-44 shrink-0">
-        {formatTimestamp(event.date)}
-      </div>
-      <div className="text-xs text-slate-700 w-32 shrink-0 truncate">
-        {event.performer ? (
-          <span className="font-medium">{event.performer}</span>
-        ) : (
-          <span className="italic text-slate-400">(anonymous)</span>
+    <li>
+      <button
+        type="button"
+        onClick={() => (hasMore ? setOpen((v) => !v) : undefined)}
+        className={cn(
+          "w-full px-3 py-1.5 flex items-center gap-3 text-left",
+          hasMore
+            ? "hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
+            : "cursor-default",
         )}
-      </div>
-      <div className="text-xs flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <EventTypeBadge type={event.event_type} action={event.action} />
-          {event.note ? (
-            <span className="text-slate-700">{event.note}</span>
+        aria-expanded={expanded}
+      >
+        {/* Chevron — placeholder span when nothing to expand so the
+            grid stays aligned across rows. */}
+        <span className="w-3 text-slate-400 shrink-0">
+          {hasMore ? (
+            expanded ? (
+              <ChevronDown size={12} strokeWidth={2.25} />
+            ) : (
+              <ChevronRight size={12} strokeWidth={2.25} />
+            )
+          ) : null}
+        </span>
+        {/* WHEN */}
+        <div className="text-xs text-slate-500 tabular-nums w-40 shrink-0">
+          {formatTimestamp(event.date)}
+        </div>
+        {/* WHO */}
+        <div className="text-xs w-24 shrink-0 truncate">
+          {event.performer ? (
+            <span className="font-medium text-slate-700 dark:text-slate-200">
+              {event.performer}
+            </span>
           ) : (
-            <span className="italic text-slate-400">(no note)</span>
+            <span className="italic text-slate-400">—</span>
           )}
         </div>
-        {shapeDeltas && shapeDeltas.length > 0 ? (
-          <div className="mt-0.5 text-[11px]">
-            {shapeDeltas.map((d, i) => (
-              <span
-                key={d.label}
-                className={
-                  d.delta > 0
-                    ? "text-emerald-700"
-                    : d.delta < 0
-                      ? "text-rose-700"
-                      : "text-slate-500"
-                }
-              >
-                {i > 0 ? " · " : ""}
-                {d.delta > 0 ? "+" : ""}
-                {d.delta} {d.label}
-              </span>
-            ))}
+        {/* WHAT + WHY summary on one line */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <EventTypeBadge type={event.event_type} action={event.action} />
+          {summary ? (
+            <span className="text-xs text-slate-600 dark:text-slate-400 truncate">
+              {summary}
+            </span>
+          ) : null}
+        </div>
+      </button>
+      {/* Expanded panel — full note, detail, shape deltas. */}
+      {expanded ? (
+        <div className="px-3 pb-2 pl-[5.25rem] text-[11px] space-y-1">
+          {event.note ? (
+            <div
+              className={cn(
+                "whitespace-pre-wrap",
+                isBoilerplateNote(event.note)
+                  ? "text-slate-400 dark:text-slate-500 font-mono"
+                  : "text-slate-700 dark:text-slate-300",
+              )}
+            >
+              {event.note}
+            </div>
+          ) : null}
+          {shapeDeltas && shapeDeltas.length > 0 ? (
+            <div>
+              {shapeDeltas.map((d, i) => (
+                <span
+                  key={d.label}
+                  className={
+                    d.delta > 0
+                      ? "text-emerald-700"
+                      : d.delta < 0
+                        ? "text-rose-700"
+                        : "text-slate-500"
+                  }
+                >
+                  {i > 0 ? " · " : ""}
+                  {d.delta > 0 ? "+" : ""}
+                  {d.delta} {d.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {event.detail ? (
+            <div className="text-slate-500 dark:text-slate-400 whitespace-pre-wrap font-mono">
+              {event.detail}
+            </div>
+          ) : null}
+          <div className="text-[10px] text-slate-400 font-mono">
+            #{event.id}
           </div>
-        ) : null}
-        {event.detail ? (
-          <div className="mt-0.5 text-[11px] text-slate-500 whitespace-pre-wrap">
-            {event.detail}
-          </div>
-        ) : null}
-      </div>
-      <div className="text-[10px] text-slate-400 font-mono shrink-0">
-        #{event.id}
-      </div>
+        </div>
+      ) : null}
     </li>
   );
 }
