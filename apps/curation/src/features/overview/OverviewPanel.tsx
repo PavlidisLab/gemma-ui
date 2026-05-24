@@ -21,6 +21,7 @@ import { FindPublicationButton } from "./FindPublicationButton";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import { shortenUri } from "@/lib/curie";
 import { cn } from "@/lib/cn";
+import { ONTOLOGY_ANCHOR_CLS } from "@/lib/ontologyAnchor";
 import {
   addPublication,
   addTag,
@@ -2137,6 +2138,9 @@ function EditableDirectGroupChip({
         data-audit-target={tagTarget(tag.category.label, tag.value.label)}
         className={cn(
           "group/chip inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-100",
+          // Bookmark on the left when the value is ontology-anchored.
+          // Free-text tags share the chip frame but get no bookmark.
+          tag.value.uri && ONTOLOGY_ANCHOR_CLS,
           protectedCategory
             ? "cursor-default opacity-90"
             : "cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/50",
@@ -2207,6 +2211,10 @@ function EditableDirectGroupChip({
     <span
       className={cn(
         "inline-flex items-baseline text-[11px] rounded border bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-100",
+        // Bookmark on the left when any wrapped value is ontology-
+        // anchored. Mixed free-text + anchored groups still get the
+        // bookmark — the group as a whole is anchored.
+        tags.some((t) => !!t.value.uri) && ONTOLOGY_ANCHOR_CLS,
         // Highlight the whole multi-tag group when any member is new
         // (curator just added one of N values in this category).
         tags.some((t) => addedTagIds?.has(t.id)) &&
@@ -2256,6 +2264,7 @@ function EditableDirectGroupChip({
                 data-audit-target={tagTarget(tag.category.label, tag.value.label)}
                 className={cn(
                   "group inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 cursor-pointer hover:bg-emerald-100 dark:bg-emerald-900/40 dark:border-emerald-700/60 dark:hover:bg-emerald-800/50",
+                  tag.value.uri && ONTOLOGY_ANCHOR_CLS,
                   addedTagIds?.has(tag.id) &&
                     "ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-slate-900",
                 )}

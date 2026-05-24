@@ -23,6 +23,10 @@ import type {
   Statement,
 } from "@/features/experiment/types";
 import { cn } from "@/lib/cn";
+import {
+  ONTOLOGY_ANCHOR_CLS_PL2,
+  ONTOLOGY_ANCHOR_CLS_PL3,
+} from "@/lib/ontologyAnchor";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Fragment } from "react";
 import { BulkAssignPanel } from "@/features/samples/BulkAssignPanel";
@@ -1872,9 +1876,8 @@ function SampleTable({
                               ? "italic text-slate-500"
                               : isOntology
                                 // Same ontology-anchored cue as the
-                                // FvSelect: thick rounded emerald
-                                // bookmark on the left.
-                                ? "text-emerald-900 bg-emerald-50/60 border-l-[5px] border-l-emerald-500 rounded-l-xl pl-3"
+                                // FvSelect — see ONTOLOGY_ANCHOR_CLS.
+                                ? `text-emerald-900 bg-emerald-50/60 ${ONTOLOGY_ANCHOR_CLS_PL3}`
                                 : "text-slate-700",
                           )}
                           style={
@@ -2292,10 +2295,8 @@ function FvSelect({
     : currentFvId === null
       ? "border-rose-300 text-rose-700"
       : isOntologyBacked
-        // "Anchored in an ontology" cue — thick rounded emerald
-        // bookmark on the left so ontology-backed cells stand apart
-        // from per-value tints at a glance.
-        ? "border-emerald-300 text-emerald-900 bg-emerald-50 border-l-[5px] border-l-emerald-500 rounded-l-xl pl-2"
+        // "Anchored in an ontology" cue — see ONTOLOGY_ANCHOR_CLS.
+        ? `border-emerald-300 text-emerald-900 bg-emerald-50 ${ONTOLOGY_ANCHOR_CLS_PL2}`
         : "border-slate-300 text-slate-800";
   // The parent passes `valueTint` already gated on (not mixed, not
   // unassigned, not ontology-backed) — no extra check needed here.
