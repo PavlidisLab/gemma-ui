@@ -95,10 +95,16 @@ services:
       # local_api remains the fallback for endpoints the Java REST
       # hasn't shipped yet; that routing exception goes the OTHER way
       # — narrow paths to local_api, default to gemma-rest — and
-      # lives in vite.config.ts when needed. Override at compose-up
-      # time via GEMMA_CURATION_URL env to flip back to the mock for
-      # fully-offline dev.
-      GEMMA_CURATION_URL: ${GEMMA_CURATION_URL:-http://host.docker.internal:8080}
+      # lives in vite.config.ts when needed.
+      #
+      # Override key is GEMMA_CURATION_UI_BACKEND (not _URL) — the
+      # agent service exports GEMMA_CURATION_URL pointing at local_api
+      # for its OWN use; without a distinct name, that shell-exported
+      # value silently leaked in here and sent the UI's /rest proxy at
+      # the mock instead of Gemma. Set GEMMA_CURATION_UI_BACKEND=
+      # http://local-api:8000 at compose-up time to flip the UI back
+      # to the mock for fully-offline dev.
+      GEMMA_CURATION_URL: ${GEMMA_CURATION_UI_BACKEND:-http://host.docker.internal:8080}
       GEMMA_PROPOSER_URL: http://proposer:8000
       VITE_GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
     extra_hosts:
