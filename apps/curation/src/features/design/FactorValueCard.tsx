@@ -154,18 +154,38 @@ export function FactorValueCard({
               ``checked`` / ``onChange`` was wired in, leaving a stub
               control next to the FV label that looked actionable but
               wasn't. Compaction came as a bonus: each card is now
-              ~12px shorter, which adds up over a six-FV factor. */}
-          <span className={"font-medium text-sm " + tombstoneText}>
-            {isRemoved || compact ? (
-              <span>{fv.free_text_label || <em>(blank)</em>}</span>
-            ) : (
-              <InlineText
-                value={fv.free_text_label}
-                placeholder="free-text label"
-                onCommit={onLabelChange}
-              />
-            )}
-          </span>
+              ~12px shorter, which adds up over a six-FV factor.
+              The header free-text-label slot now also collapses when
+              the FV has exactly one ontology-anchored statement with
+              a matching subject label — see comment above. */}
+          {(() => {
+            const fvLabel = (fv.free_text_label || "").trim().toLowerCase();
+            const onlyStmt =
+              fv.statements.length === 1 ? fv.statements[0] : null;
+            const redundant =
+              !!onlyStmt &&
+              !!onlyStmt.subject?.uri &&
+              (onlyStmt.subject.label || "").trim().toLowerCase() === fvLabel &&
+              !!fvLabel;
+            if (redundant) {
+              // Render nothing — the statement chip below carries the
+              // label + CURIE. Keeps the FV card compact.
+              return null;
+            }
+            return (
+              <span className={"font-medium text-sm " + tombstoneText}>
+                {isRemoved || compact ? (
+                  <span>{fv.free_text_label || <em>(blank)</em>}</span>
+                ) : (
+                  <InlineText
+                    value={fv.free_text_label}
+                    placeholder="free-text label"
+                    onCommit={onLabelChange}
+                  />
+                )}
+              </span>
+            );
+          })()}
           {/* Inline audit indicator on the FV card title. Resolves
               against AuditContext via the (factor-category, FV-label)
               slug pair; renders nothing when no audit is loaded or
