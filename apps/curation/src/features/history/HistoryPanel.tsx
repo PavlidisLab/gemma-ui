@@ -245,19 +245,28 @@ function EventTypeBadge({ type, action }: { type: string; action: string }) {
   );
 }
 
+/** Words that should render uppercase in audit event labels even
+ *  though the source class name has them in mixed case. Pascal-
+ *  cased acronyms like `Geeq` aren't caught by the all-caps
+ *  preservation rule below, so they're listed here explicitly. */
+const ACRONYM_OVERRIDES = new Map<string, string>([
+  ["geeq", "GEEQ"],
+]);
+
 /** Class-name → readable label. Handles ALLCAPS acronym runs
  *  (PCA, GEO, etc.) so they don't get smushed into the lowercase
- *  pass.
+ *  pass; lifts mixed-case acronyms (GEEQ) via ACRONYM_OVERRIDES;
+ *  capitalizes the first character of the final label.
  *
  *  Examples (real names from gemma-rest):
- *    BatchCorrectionEvent                  → "batch correction"
- *    DifferentialExpressionAnalysisEvent   → "differential expression analysis"
+ *    BatchCorrectionEvent                  → "Batch correction"
+ *    DifferentialExpressionAnalysisEvent   → "Differential expression analysis"
  *    PCAAnalysisEvent                      → "PCA analysis"
- *    ExpressionExperimentUpdateFromGEOEvent → "expression experiment update from GEO"
- *    GeeqEvent                             → "geeq"
- *    SingleBatchDeterminationEvent         → "single batch determination"
+ *    ExpressionExperimentUpdateFromGEOEvent → "Expression experiment update from GEO"
+ *    GeeqEvent                             → "GEEQ"
+ *    SingleBatchDeterminationEvent         → "Single batch determination"
  *    FailedDifferentialExpressionAnalysisEvent
- *                                          → "failed differential expression analysis"
+ *                                          → "Failed differential expression analysis"
  */
 function prettifyClassName(s: string): string {
   if (!s) return "";
@@ -270,12 +279,24 @@ function prettifyClassName(s: string): string {
     .replace(/([a-z\d])([A-Z])/g, "$1 $2")
     // Drop the trailing " Event" — every audit class ends in it.
     .replace(/\s+Event$/, "");
-  // Lowercase each token EXCEPT acronyms (all-caps runs of ≥2).
-  // Single-letter tokens fall through to lowercase too (rare).
-  return spaced
-    .split(" ")
-    .map((w) => (/^[A-Z]{2,}$/.test(w) ? w : w.toLowerCase()))
-    .join(" ");
+  // Lowercase each token EXCEPT acronyms (all-caps runs of ≥2)
+  // and overrides; then capitalize the first character of the
+  // resulting label.
+  const tokens = spaced.split(" ").map((w) => {
+    if (/^[A-Z]{2,}$/.test(w)) return w; // ALLCAPS run (PCA, GEO)
+    const override = ACRONYM_OVERRIDES.get(w.toLowerCase());
+    if (override) return override;
+    return w.toLowerCase();
+  });
+  if (tokens.length === 0) return "";
+  // Capitalize the first letter of the first token UNLESS that
+  // token is already all-uppercase (an acronym shouldn't be
+  // re-cased).
+  const first = tokens[0];
+  if (first && !/^[A-Z]+$/.test(first)) {
+    tokens[0] = first.charAt(0).toUpperCase() + first.slice(1);
+  }
+  return tokens.join(" ");
 }
 
 function formatTimestamp(iso: string): string {
