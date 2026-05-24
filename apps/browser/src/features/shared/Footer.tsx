@@ -15,6 +15,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, ApiError } from "@/api/client";
 
+/** Compact relative-time formatter ("3m ago", "2h ago"). Pure;
+ *  caller renders the absolute ISO via title= for accuracy. */
+function formatRelative(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const dt = Date.now() - then;
+  const sec = Math.round(dt / 1000);
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  return `${day}d ago`;
+}
+
 interface ServerInfo {
   build?: {
     version?: string | null;
@@ -113,12 +130,15 @@ export function Footer() {
 
       <span className="opacity-60">·</span>
 
-      {/* UI build stamp — short SHA links to the GitHub commit. */}
+      {/* UI build stamp — short SHA links to the GitHub commit.
+          Also shows a relative-time chip so a stale dev server
+          (where Vite's `define` was baked at startup and the
+          checkout has moved on) is visible at a glance.  */}
       <span
         className="inline-flex items-baseline gap-1 font-mono"
         title={
           uiBuiltAt
-            ? `UI built ${uiBuiltAt}${uiShaFull ? " from " + uiShaFull : ""}`
+            ? `UI built ${uiBuiltAt}${uiShaFull ? " from " + uiShaFull : ""}\n\nVite bakes the build SHA at dev-server start. If this looks stale, restart the dev server (or rebuild for prod).`
             : uiShaFull
               ? `UI commit ${uiShaFull}`
               : "dev build"
@@ -137,6 +157,11 @@ export function Footer() {
             {uiSha}
           </a>
         )}
+        {uiBuiltAt ? (
+          <span className="opacity-50" title={uiBuiltAt}>
+            · {formatRelative(uiBuiltAt)}
+          </span>
+        ) : null}
       </span>
 
       {/* Server build stamp — gemma-rest version + commit. */}

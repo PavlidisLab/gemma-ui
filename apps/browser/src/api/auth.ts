@@ -66,42 +66,48 @@ export async function postLogin(req: LoginRequest): Promise<LoginResponse> {
 }
 
 /**
- * Two-step logout. /rest/v2/logout only revokes the bearer token
- * (per AuthWebService.java:140); the HTTP session set by Spring
- * during /login stays alive, so /me keeps returning the user. To
- * actually sign out we also have to hit the legacy Spring logout
- * URL `/j_spring_security_logout` (wired up in
- * `gemma-web/.../web.xml:139`, CORS pre-cleared for SPA use).
+ * Multi-target logout. The JSESSIONID cookie is HttpOnly (per
+ * `gemma-web/.../web.xml:282-288`) so JS can't delete it
+ * client-side; only the server can invalidate the session.
  *
- * Both are fire-and-forget; we use Promise.allSettled so a single
- * failure doesn't leave the user partially logged out.
+ * Three things stack up here, in priority order:
+ *   1. POST /rest/v2/logout — revokes the bearer token
+ *      (AuthWebService.java:140).
+ *   2. POST /logout — Spring Security 6.5.1's default
+ *      LogoutFilter URL. Gemma's <s:logout/> in
+ *      `applicationContext-security.xml:73` declares no
+ *      `logout-url`, so /logout is what's wired. THIS is what
+ *      invalidates the HttpSession and clears JSESSIONID.
+ *   3. POST /j_spring_security_logout — legacy Spring 3 URL.
+ *      Kept as a fallback for any deployment that still wires it
+ *      (Gemma's web.xml still references it for CORS).
+ *
+ * All three fire fire-and-forget via Promise.allSettled.
+ * Whichever path your deployment honors wins.
  *
  * When bro lands `session.invalidate()` inside /rest/v2/logout
- * (handoff: ~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_LOGOUT_INVALIDATE_SESSION.md)
- * the second call can be dropped.
+ * itself (handoff:
+ * ~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_LOGOUT_INVALIDATE_SESSION.md)
+ * paths 2 and 3 can be dropped.
  */
 export async function postLogout(): Promise<void> {
   const bearerCall = apiPost<void>(`${BASE}/logout`, {}).catch((e) => {
-    // 401 / 404 are survivable — token already gone or endpoint
-    // missing on this build.
     if (e instanceof ApiError && (e.status === 401 || e.status === 404)) {
       return;
     }
     throw e;
   });
-  // /j_spring_security_logout is NOT under /rest/v2 — hit it via a
-  // raw fetch so apiPost doesn't prepend any envelope expectations.
-  // POST + credentials so Spring sees the JSESSIONID cookie and
-  // invalidates the session.
-  const cookieCall = fetch("/j_spring_security_logout", {
+  const springLogout = fetch("/logout", {
     method: "POST",
     credentials: "include",
     headers: { Accept: "application/json,text/plain,*/*" },
-  }).catch(() => {
-    /* network failures here aren't fatal — the bearer call already
-       cleaned what it could. */
-  });
-  await Promise.allSettled([bearerCall, cookieCall]);
+  }).catch(() => undefined);
+  const legacyLogout = fetch("/j_spring_security_logout", {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json,text/plain,*/*" },
+  }).catch(() => undefined);
+  await Promise.allSettled([bearerCall, springLogout, legacyLogout]);
 }
 
 export async function getMe(signal?: AbortSignal): Promise<LoginUser | null> {
@@ -109,16 +115,33 @@ export async function getMe(signal?: AbortSignal): Promise<LoginUser | null> {
     const body = await apiGet<{ data?: LoginUser } | LoginUser>(`${BASE}/me`, {
       signal,
     });
-    if (body && typeof body === "object" && "data" in (body as Record<string, unknown>)) {
-      return (body as { data?: LoginUser }).data ?? null;
-    }
-    return body as LoginUser;
+    const user =
+      body && typeof body === "object" && "data" in (body as Record<string, unknown>)
+        ? ((body as { data?: LoginUser }).data ?? null)
+        : (body as LoginUser);
+    return treatEmptyAsAnonymous(user);
   } catch (e) {
     if (e instanceof ApiError && (e.status === 401 || e.status === 403 || e.status === 404)) {
       return null;
     }
     throw e;
   }
+}
+
+/** Defensive: some Gemma deployments / build versions return a
+ *  truthy-but-empty user object when /me is hit with stale auth
+ *  (cookie present, but the session-attached principal has no
+ *  populated fields). Treat anything without a userName or email
+ *  as "not really signed in" so the AppBar doesn't render
+ *  "Signed in as (signed in)" — which looks like a bug to the
+ *  curator even if technically /me did return data. */
+function treatEmptyAsAnonymous(u: LoginUser | null): LoginUser | null {
+  if (!u || typeof u !== "object") return null;
+  const userName =
+    typeof u.userName === "string" ? u.userName.trim() : "";
+  const email = typeof u.email === "string" ? u.email.trim() : "";
+  if (!userName && !email) return null;
+  return u;
 }
 
 // ─── Hooks ────────────────────────────────────────────────────────
