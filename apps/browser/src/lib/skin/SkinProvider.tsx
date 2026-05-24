@@ -29,7 +29,17 @@ export type SkinId =
   | "riso"
   | "swiss"
   | "vapor"
-  | "brutal";
+  | "brutal"
+  | "pebble"
+  | "mono"
+  | "aqua"
+  | "os9"
+  | "memphis"
+  | "liquid"
+  | "glass"
+  | "newsprint"
+  | "hologram"
+  | "carbon";
 
 interface SkinDef {
   id: SkinId;
@@ -77,6 +87,56 @@ export const SKINS: readonly SkinDef[] = [
     id: "brutal",
     label: "Brutalist",
     tagline: "concrete, heavy rules",
+  },
+  {
+    id: "pebble",
+    label: "Pebble",
+    tagline: "everything rounded, soft pills",
+  },
+  {
+    id: "mono",
+    label: "Mono",
+    tagline: "pure black on white, hairlines only",
+  },
+  {
+    id: "aqua",
+    label: "Aqua",
+    tagline: "glossy candy-blue, pinstripes",
+  },
+  {
+    id: "os9",
+    label: "Platinum",
+    tagline: "chiseled bevels, Mac OS 9 chrome",
+  },
+  {
+    id: "memphis",
+    label: "Memphis",
+    tagline: "squiggles, mint + pink + yellow",
+  },
+  {
+    id: "liquid",
+    label: "Liquid",
+    tagline: "blobby gradients, neon on pastel",
+  },
+  {
+    id: "glass",
+    label: "Glass",
+    tagline: "frosted glassmorphism",
+  },
+  {
+    id: "newsprint",
+    label: "Newsprint",
+    tagline: "broadsheet serifs, single red rule",
+  },
+  {
+    id: "hologram",
+    label: "Hologram",
+    tagline: "iridescent shifting surfaces",
+  },
+  {
+    id: "carbon",
+    label: "Carbon",
+    tagline: "carbon-fibre weave, machined metal",
   },
 ];
 
