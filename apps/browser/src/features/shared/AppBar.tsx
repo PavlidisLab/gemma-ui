@@ -57,14 +57,65 @@ export function AppBar() {
         Docs
       </a>
 
-      {user ? (
-        <div className="text-sm" style={{ color: "rgb(var(--skin-titlebar-text))" }}>
-          <span style={{ opacity: 0.7 }}>Signed in as </span>
-          <span className="font-medium">{user.userName}</span>
-        </div>
-      ) : null}
+      {/* Auth surface — sign-in / sign-out across every page. The
+          legacy Gemma webapp owns the actual login form; we just
+          link to it. After signing in there the session cookie
+          carries through (credentials: "include") and the /users/me
+          query re-fetches on focus / re-mount. */}
+      <AuthControls user={user} loading={me.isPending && !me.data} />
       <SkinSwitcher />
     </header>
+  );
+}
+
+/**
+ * Auth controls: "Sign in" link when anonymous, "Signed in as X ·
+ * Sign out" pair when authenticated. Both targets are the legacy
+ * Gemma webapp (login.jsp / j_spring_security_logout); we don't
+ * own a login form yet. After sign-in the curator returns to this
+ * tab and the session cookie carries through.
+ *
+ * While the /users/me probe is in flight the slot is blank — no
+ * placeholder shimmer so the AppBar doesn't jitter on every page
+ * mount.
+ */
+function AuthControls({
+  user,
+  loading,
+}: {
+  user: { userName?: string | null } | null | undefined;
+  loading: boolean;
+}) {
+  if (loading) return null;
+  if (user) {
+    return (
+      <div
+        className="text-sm inline-flex items-baseline gap-2"
+        style={{ color: "rgb(var(--skin-titlebar-text))" }}
+      >
+        <span style={{ opacity: 0.7 }}>Signed in as</span>
+        <span className="font-medium">{user.userName ?? "—"}</span>
+        <a
+          href={gemmaUrl("/j_spring_security_logout")}
+          className="text-sm hover:no-underline opacity-70 hover:opacity-100"
+          title="sign out — clears the Gemma session cookie"
+          style={{ color: "rgb(var(--skin-titlebar-text))" }}
+        >
+          Sign out
+        </a>
+      </div>
+    );
+  }
+  return (
+    <a
+      href={gemmaUrl("/login.jsp")}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-sm px-2.5 py-1 rounded border bg-gemma-accent text-white hover:bg-gemma-accent hover:no-underline border-transparent"
+      title="opens the legacy Gemma sign-in in a new tab"
+    >
+      Sign in
+    </a>
   );
 }
 
