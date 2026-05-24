@@ -3,6 +3,7 @@ import { Pill } from "@/components/ui/Pill";
 import { InlineText } from "@/components/ui/InlineText";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Term } from "@/components/ui/Term";
+import { shortenUri } from "@/lib/curie";
 import {
   StatementEditor,
   StatementGroupEditor,
@@ -331,15 +332,33 @@ export function FactorValueCard({
                 </li>
               ))
             : compact
-              ? groupStatementsBySubject(fv.statements).map((group, gi) => (
-                  <li key={`cgrp-${gi}`}>
-                    {group.statements.length === 1 ? (
-                      <CompactStatementRow statement={group.statements[0]} />
-                    ) : (
-                      <CompactStatementGroup statements={group.statements} />
-                    )}
-                  </li>
-                ))
+              ? (() => {
+                  const grouped = groupStatementsBySubject(fv.statements);
+                  // When there's exactly one statement whose subject
+                  // label matches the FV's own free-text label, the
+                  // Term chip below would duplicate the header.
+                  // Drop the redundant label and surface just the
+                  // CURIE so the curator still sees the ontology
+                  // resolution without the same string twice.
+                  const fvLabel = (fv.free_text_label || "").trim().toLowerCase();
+                  const hideRedundantSubject =
+                    fv.statements.length === 1 &&
+                    !!fvLabel &&
+                    (fv.statements[0].subject?.label || "").trim().toLowerCase() ===
+                      fvLabel;
+                  return grouped.map((group, gi) => (
+                    <li key={`cgrp-${gi}`}>
+                      {group.statements.length === 1 ? (
+                        <CompactStatementRow
+                          statement={group.statements[0]}
+                          hideSubjectLabel={hideRedundantSubject}
+                        />
+                      ) : (
+                        <CompactStatementGroup statements={group.statements} />
+                      )}
+                    </li>
+                  ));
+                })()
               : groupStatementsBySubject(fv.statements).map((group, gi) => (
                 <li key={`grp-${gi}`}>
                   {group.statements.length === 1 ? (
@@ -492,26 +511,52 @@ function ReadonlyStatement({
  *  on subject + object, muted predicate, and " - " separators
  *  collapsing out missing parts. Matches the audit editor's
  *  ComparatorLine convention so the design and audit surfaces
- *  read the same way. */
+ *  read the same way.
+ *
+ *  When `hideSubjectLabel` is true, the subject Term collapses to
+ *  just its CURIE (no label, no chip frame) — used when the parent
+ *  FV header already shows the same label and a full Term chip
+ *  would duplicate it. Ontology-backed cells still surface their
+ *  CURIE so the curator can see the resolution; free-text subjects
+ *  with no URI render nothing under the label (the label alone
+ *  suffices). */
 function CompactStatementRow({
   statement,
+  hideSubjectLabel = false,
 }: {
   statement: FactorValue["statements"][number];
+  hideSubjectLabel?: boolean;
 }) {
   const subj = statement.subject;
   const pred = statement.predicate;
   const obj = statement.object;
   const hasPred = !!pred?.label?.trim();
   const hasObj = !!obj?.label?.trim();
+  const subjUri = subj?.uri ?? null;
   return (
     <div className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]">
-      <Term
-        uri={subj?.uri ?? null}
-        asLink={false}
-        className="!whitespace-normal break-words"
-      >
-        {subj?.label || "(blank)"}
-      </Term>
+      {hideSubjectLabel ? (
+        subjUri ? (
+          <a
+            href={subjUri}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400 hover:underline"
+            title={subjUri}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {shortenUri(subjUri)}
+          </a>
+        ) : null
+      ) : (
+        <Term
+          uri={subjUri}
+          asLink={false}
+          className="!whitespace-normal break-words"
+        >
+          {subj?.label || "(blank)"}
+        </Term>
+      )}
       {hasPred ? (
         <>
           <span className="text-slate-400 dark:text-slate-500"> - </span>

@@ -185,8 +185,12 @@ export function TagReviewCard({
   note,
   onNoteChange,
 }: BaseProps & { tag: TagProposal }) {
+  // Value-first ordering (per Paul, 2026-05-24): the resolved term
+  // is the load-bearing identity; the category is qualifying context.
+  // Render value chip first, then a separator, then the category in
+  // a more muted (italic) wrapper so the eye lands on the term.
   const identityLabel =
-    [tag.category?.label, tag.value?.label].filter(Boolean).join(": ") ||
+    [tag.value?.label, tag.category?.label].filter(Boolean).join(" — ") ||
     "tag";
   return (
     <ReviewCardShell
@@ -199,12 +203,18 @@ export function TagReviewCard({
       onNoteChange={onNoteChange}
     >
       <div className="flex items-baseline gap-1.5 flex-wrap">
-        <Term uri={tag.category?.uri ?? null} asLink={false}>
-          {tag.category?.label || ""}
-        </Term>
-        <span className="text-slate-400 dark:text-slate-500">:</span>
         <Term uri={tag.value?.uri ?? null} asLink={false}>
           {tag.value?.label || ""}
+        </Term>
+        <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          in
+        </span>
+        <Term
+          uri={tag.category?.uri ?? null}
+          asLink={false}
+          className="italic opacity-80"
+        >
+          {tag.category?.label || ""}
         </Term>
         <MatchTypeChip matchType={tag.match_type} />
         <DebateBadgeChip badge={tag.badge} />
