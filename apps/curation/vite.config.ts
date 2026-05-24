@@ -9,16 +9,25 @@ import path from "node:path";
 //   2. shell-exported env var of the same name
 //   3. hardcoded default
 //
-// 2026-05-23: curation interface migrating to talk to local Gemma
-// 2.0 (`:8080`) directly. local_api stays available for offline /
-// portable-review-package workflows; default port for it shifted
-// to `:8082` to dodge the Gemma 2.0 collision, set
-// ``GEMMA_CURATION_URL=http://localhost:8082`` in
-// ``apps/curation/.env.local`` when flipping back.
+// 2026-05-24: routing rule (per Paul) — DEFAULT to local_api;
+// fall through to gemma-rest 2.0 only for endpoints local_api
+// doesn't carry. Dataset metadata, preboarding, curation state,
+// workflow management (groups / candidates / pipeline-status) all
+// live in local_api. gemma-rest is the fallback for the SVD-based
+// diagnostics (svd, sample-correlation, mean-variance,
+// svd/loadings) — and for the ontology typeahead via the
+// staging-gemma routing exception (separate upstream).
+//
+// Standalone-dev defaults: local_api listens on :8082, gemma-rest
+// on :8080. In Docker the host-mapped names come from compose env
+// (GEMMA_CURATION_URL → local-api:8000, GEMMA_REST_URL →
+// host.docker.internal:8080).
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const CURATION_URL =
-    env.GEMMA_CURATION_URL || "http://localhost:8080";
+    env.GEMMA_CURATION_URL || "http://localhost:8082";
+  const GEMMA_REST_URL =
+    env.GEMMA_REST_URL || "http://localhost:8080";
   const PROPOSER_URL =
     env.GEMMA_PROPOSER_URL || "http://localhost:8090";
   // Ontology-search routing exception (temporary, 2026-05-23).
@@ -34,7 +43,11 @@ export default defineConfig(({ mode }) => {
   const ONTOLOGY_URL =
     env.GEMMA_ONTOLOGY_URL || "https://staging-gemma.msl.ubc.ca";
   // eslint-disable-next-line no-console
-  console.log(`[curation] /rest → ${CURATION_URL}`);
+  console.log(`[curation] /rest → ${CURATION_URL} (local_api default)`);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[curation] /rest/v2/datasets/*/{svd,sample-correlation,mean-variance} → ${GEMMA_REST_URL} (diagnostics fallback)`,
+  );
   // eslint-disable-next-line no-console
   console.log(
     `[curation] /rest/v2/annotations/{search,term} → ${ONTOLOGY_URL} (ontology routing exception)`,
@@ -54,8 +67,8 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         // Order matters — Vite matches in declaration order, so the
-        // two ontology-specific routes must come BEFORE the generic
-        // ``/rest`` catch-all below.
+        // ontology + diagnostics routing exceptions must come BEFORE
+        // the generic ``/rest`` catch-all below.
         "/rest/v2/annotations/search": {
           target: ONTOLOGY_URL,
           changeOrigin: true,
@@ -63,6 +76,20 @@ export default defineConfig(({ mode }) => {
         "/rest/v2/annotations/term": {
           target: ONTOLOGY_URL,
           changeOrigin: true,
+        },
+        // Diagnostics fallback to gemma-rest — local_api doesn't
+        // compute SVD / sample-correlation / mean-variance.
+        // Regex matches /rest/v2/datasets/{id}/{svd,sample-
+        // correlation,mean-variance}[/loadings|?...].
+        "^/rest/v2/datasets/\\d+/(svd|sample-correlation|mean-variance).*": {
+          target: GEMMA_REST_URL,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
         },
         "/rest": {
           target: CURATION_URL,

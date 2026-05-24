@@ -90,21 +90,25 @@ services:
       - proposer
     working_dir: /ui
     environment:
-      # Curation UI talks to gemma-rest 2.0 on the host wherever
-      # possible (per feedback_curation_ui_prefers_gemma_rest memory).
-      # local_api remains the fallback for endpoints the Java REST
-      # hasn't shipped yet; that routing exception goes the OTHER way
-      # — narrow paths to local_api, default to gemma-rest — and
-      # lives in vite.config.ts when needed.
+      # Curation UI default upstream is local_api: workflow management,
+      # dataset metadata (preboarding / curation state), groups /
+      # candidates / pipeline-status all live there. gemma-rest 2.0 is
+      # the FALLBACK for endpoints local_api doesn't carry — currently
+      # the SVD-based diagnostics (svd / sample-correlation / mean-
+      # variance / svd/loadings). The narrow routing exception lives
+      # in vite.config.ts.
       #
       # Override key is GEMMA_CURATION_UI_BACKEND (not _URL) — the
       # agent service exports GEMMA_CURATION_URL pointing at local_api
       # for its OWN use; without a distinct name, that shell-exported
-      # value silently leaked in here and sent the UI's /rest proxy at
-      # the mock instead of Gemma. Set GEMMA_CURATION_UI_BACKEND=
-      # http://local-api:8000 at compose-up time to flip the UI back
-      # to the mock for fully-offline dev.
-      GEMMA_CURATION_URL: ${GEMMA_CURATION_UI_BACKEND:-http://host.docker.internal:8080}
+      # value silently leaked in here. Set GEMMA_CURATION_UI_BACKEND=
+      # http://host.docker.internal:8080 at compose-up time to flip the
+      # UI default at gemma-rest instead (e.g. for testing remote-mode
+      # behavior end-to-end against a Gemma stack).
+      GEMMA_CURATION_URL: ${GEMMA_CURATION_UI_BACKEND:-http://local-api:8000}
+      # Diagnostics-only upstream — used for the routing exceptions in
+      # vite.config.ts. Override via GEMMA_REST_URL.
+      GEMMA_REST_URL: ${GEMMA_REST_URL:-http://host.docker.internal:8080}
       GEMMA_PROPOSER_URL: http://proposer:8000
       VITE_GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
     extra_hosts:
