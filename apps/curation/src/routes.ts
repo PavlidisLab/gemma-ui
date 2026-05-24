@@ -52,17 +52,21 @@ export type Route =
 
 export function parseRoute(): Route {
   const h = (typeof window !== "undefined" && window.location.hash) || "";
-  // Accepts a bare numeric id OR a ``preboarding:N`` prefixed id. The
-  // prefix survives the URL → server round-trip; downstream consumers
-  // treat the id as an opaque string.
-  const m = h.match(/^#\/experiments\/(preboarding:\d+|\d+)(?:\?(.*))?$/);
+  // Accepts a bare numeric id OR a ``preboarding:N`` prefixed id —
+  // also tolerates percent-encoded colon (``preboarding%3AN``) since
+  // some encoders (incl. our older experimentRoute) escape it.
+  // Downstream consumers treat the id as an opaque string after
+  // decoding.
+  const m = h.match(
+    /^#\/experiments\/(preboarding(?::|%3A|%3a)\d+|\d+)(?:\?(.*))?$/,
+  );
   if (m) {
     const params = m[2] ? new URLSearchParams(m[2]) : null;
     const tab = params?.get("tab") ?? null;
     const groupContext = params?.get("group") ?? null;
     return {
       kind: "experiment",
-      id: m[1],
+      id: decodeURIComponent(m[1]),
       tab: tab ? (tab as ExperimentTab) : undefined,
       groupContext: groupContext || undefined,
     };
@@ -110,10 +114,13 @@ export function experimentRoute(
   if (tab) params.set("tab", tab);
   if (groupContext) params.set("group", groupContext);
   const qs = params.toString();
-  // ``encodeURIComponent`` preserves the ``preboarding:N`` colon and
-  // bare numeric form alike. Caller passes whatever the group's
-  // ``memberIds`` returned (lossless round-trip).
-  return `#/experiments/${encodeURIComponent(String(id))}${qs ? `?${qs}` : ""}`;
+  // Don't ``encodeURIComponent`` the id — the only non-alphanumeric
+  // char in the accepted forms is `:` from `preboarding:N`, which is
+  // URL-path-safe per RFC 3986 (path segments allow `:`). Encoding it
+  // to `%3A` works for the server but trips the hash-router into the
+  // landing page on a browser back / direct URL paste. Leave it
+  // literal; parseRoute also tolerates the escaped form for paste-in.
+  return `#/experiments/${String(id)}${qs ? `?${qs}` : ""}`;
 }
 
 export function workflowRoute(groupId?: string): string {
