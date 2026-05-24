@@ -1788,24 +1788,37 @@ function SampleTable({
                           className="px-3 py-0.5 border-l-2 border-blue-100"
                         >
                           <span className="inline-flex items-center gap-1">
-                            {cellConf ? (
-                              <span
-                                className={cn(
-                                  "text-[11px] leading-none shrink-0 cursor-help",
-                                  cellConf === "low"
-                                    ? "text-rose-600 dark:text-rose-400"
-                                    : "text-amber-600 dark:text-amber-400",
-                                )}
-                                title={
-                                  cellConf === "low"
-                                    ? "low-confidence agent assignment on this sample for this factor — verify before retaining"
-                                    : "medium-confidence agent assignment on this sample for this factor — spot-check before retaining"
-                                }
-                                aria-label={`${cellConf}-confidence assignment`}
-                              >
-                                ⚠
-                              </span>
-                            ) : null}
+                            {/* Confidence-warning slot — fixed width so
+                                rows with a warning don't push the
+                                FvSelect right vs rows without one.
+                                Renders the ⚠ when present, an empty
+                                placeholder of the same width
+                                otherwise. */}
+                            <span
+                              className={cn(
+                                "inline-flex justify-center w-3 text-[11px] leading-none shrink-0",
+                                cellConf === "low"
+                                  ? "text-rose-600 dark:text-rose-400 cursor-help"
+                                  : cellConf === "medium"
+                                    ? "text-amber-600 dark:text-amber-400 cursor-help"
+                                    : "",
+                              )}
+                              title={
+                                cellConf === "low"
+                                  ? "low-confidence agent assignment on this sample for this factor — verify before retaining"
+                                  : cellConf === "medium"
+                                    ? "medium-confidence agent assignment on this sample for this factor — spot-check before retaining"
+                                    : undefined
+                              }
+                              aria-label={
+                                cellConf
+                                  ? `${cellConf}-confidence assignment`
+                                  : undefined
+                              }
+                              aria-hidden={!cellConf}
+                            >
+                              {cellConf ? "⚠" : ""}
+                            </span>
                             <FvSelect
                               factor={factor}
                               currentFvId={agg.fvId}
