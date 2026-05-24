@@ -21,9 +21,26 @@ import { api, ApiError } from "./client";
 
 // ─── Shared swallow-404 helper ────────────────────────────────────
 
+/**
+ * Gemma 2.0 wraps every payload in `{data: <payload>}` — and on the
+ * success path it doesn't ship `apiVersion`, so the client's
+ * `unwrapGemmaEnvelope` (which requires both keys, conservatively)
+ * leaves the envelope intact. We unwrap manually here. snakeify
+ * still runs from the api wrapper, so the inner keys are
+ * already snake_case by the time we touch them.
+ */
 async function getOrNull<T>(path: string): Promise<T | null> {
   try {
-    return await api.get<T>(path);
+    const body = await api.get<{ data?: T } | T>(path);
+    if (
+      body &&
+      typeof body === "object" &&
+      !Array.isArray(body) &&
+      "data" in (body as Record<string, unknown>)
+    ) {
+      return ((body as { data?: T }).data ?? null);
+    }
+    return body as T;
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 204)) {
       return null;
@@ -72,6 +89,12 @@ export interface SampleCorrelationMatrix {
   bio_assay_short_names: (string | null)[];
   /** Symmetric N×N row-major; values in [-1, 1]. */
   values: number[][];
+  /** bioAssay ids the curator manually flagged as outliers. */
+  actual_outlier_bio_assay_ids?: number[] | null;
+  /** bioAssay ids the outlier detector suggested. Disjoint from /
+   *  overlap with actual depending on whether the curator
+   *  accepted the detector's call. */
+  predicted_outlier_bio_assay_ids?: number[] | null;
   /** Currently always null — placeholder for a probe-filter caption
    *  once `SampleCoexpressionAnalysisService` surfaces it. */
   filter_description?: string | null;

@@ -60,8 +60,13 @@ export function SampleCorrelationCard({
         data ? (
           <>
             <span>
-              {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
+              {data.bio_assay_ids.length} samples ·{" "}
+              {data.method ?? "pearson"}
             </span>
+            <OutlierCaption
+              actual={data.actual_outlier_bio_assay_ids ?? []}
+              predicted={data.predicted_outlier_bio_assay_ids ?? []}
+            />
             <span className="ml-auto">
               <a
                 href={`/rest/v2/datasets/${experimentId}/sample-correlation?format=tsv`}
@@ -81,7 +86,48 @@ export function SampleCorrelationCard({
   );
 }
 
-/** Reshape the {bioAssayIds, values[][]} wire payload into the
+/** Mirrors the legacy Gemma footer line ("No outliers removed nor
+ *  detected" / "N removed, M detected"). Quiet slate when none;
+ *  amber when the detector predicted something the curator
+ *  hasn't acted on yet (predicted ⊄ actual). */
+function OutlierCaption({
+  actual,
+  predicted,
+}: {
+  actual: number[];
+  predicted: number[];
+}) {
+  const nActual = actual.length;
+  const nPredicted = predicted.length;
+  const actualSet = new Set(actual);
+  const unactedPredicted = predicted.filter((id) => !actualSet.has(id)).length;
+  if (nActual === 0 && nPredicted === 0) {
+    return (
+      <span className="text-slate-500 dark:text-slate-400">
+        no outliers removed nor detected
+      </span>
+    );
+  }
+  return (
+    <span
+      className={
+        unactedPredicted > 0
+          ? "text-amber-700 dark:text-amber-300"
+          : "text-slate-600 dark:text-slate-300"
+      }
+      title={
+        unactedPredicted > 0
+          ? `${unactedPredicted} predicted outlier${unactedPredicted === 1 ? "" : "s"} not yet flagged by the curator`
+          : undefined
+      }
+    >
+      {nActual} removed · {nPredicted} detected
+      {unactedPredicted > 0 ? ` (${unactedPredicted} unflagged)` : ""}
+    </span>
+  );
+}
+
+/** Reshape the {bio_assay_ids, values[][]} wire payload into the
  *  HeatmapData shape the widget expects. Diagonal cells are
  *  NaN-masked so the palette doesn't saturate on r=1. */
 function buildHeatmapFromMatrix(
