@@ -108,13 +108,11 @@ export function AnalysisTrackStrip({ track }: { track: AnalysisTrack }) {
       <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide w-14 shrink-0">
         Analysis
       </span>
-      {ANALYSIS_STEPS.map((d) => (
-        <StepBadge
-          key={d.key}
-          descriptor={d}
-          step={track[d.key as keyof AnalysisTrack]}
-        />
-      ))}
+      {ANALYSIS_STEPS.map((d) => {
+        const step = track?.[d.key as keyof AnalysisTrack];
+        if (!step) return null;
+        return <StepBadge key={d.key} descriptor={d} step={step} />;
+      })}
     </div>
   );
 }
@@ -125,13 +123,11 @@ export function CurationTrackStrip({ track }: { track: CurationTrack }) {
       <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide w-14 shrink-0">
         Curation
       </span>
-      {CURATION_STEPS.map((d) => (
-        <StepBadge
-          key={d.key}
-          descriptor={d}
-          step={track[d.key as keyof CurationTrack]}
-        />
-      ))}
+      {CURATION_STEPS.map((d) => {
+        const step = track?.[d.key as keyof CurationTrack];
+        if (!step) return null;
+        return <StepBadge key={d.key} descriptor={d} step={step} />;
+      })}
     </div>
   );
 }

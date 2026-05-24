@@ -71,10 +71,12 @@ const KEY = {
 export function usePipelineStatus(experimentId: number) {
   return useQuery({
     queryKey: KEY.pipelineStatus(experimentId),
-    queryFn: () =>
-      api.get<ExperimentPipelineStatus>(
+    queryFn: async () => {
+      const raw = await api.get<unknown>(
         `/rest/v2/datasets/${experimentId}/pipeline-status`,
-      ),
+      );
+      return adaptPipelineStatus(raw, experimentId);
+    },
     enabled: experimentId > 0,
     refetchOnWindowFocus: true,
   });
@@ -86,14 +88,155 @@ export function usePipelineStatus(experimentId: number) {
 export function usePipelineStatusBulk(experimentIds: number[]) {
   return useQuery({
     queryKey: KEY.pipelineStatusBulk(experimentIds),
-    queryFn: () =>
-      api.post<Record<string, ExperimentPipelineStatus>>(
+    queryFn: async () => {
+      const raw = await api.post<Record<string, unknown>>(
         `/rest/v2/datasets/pipeline-status`,
         { dataset_ids: experimentIds },
-      ),
+      );
+      const out: Record<string, ExperimentPipelineStatus> = {};
+      for (const [k, v] of Object.entries(raw ?? {})) {
+        out[k] = adaptPipelineStatus(v, Number(k));
+      }
+      return out;
+    },
     enabled: experimentIds.length > 0,
     refetchOnWindowFocus: true,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Gemma-rest 2.0 → UI shape adapter for pipeline-status
+// ---------------------------------------------------------------------------
+//
+// gemma-rest ships a flat `{steps: [{step, status, last_run, ...}], geeq,
+// is_public, is_troubled, ...}` shape — analysis-only, no curation track,
+// and snake_cased status values that don't match `StepStatus`. local_api
+// ships the richer `{analysis: {...}, curation: {...}}` shape this UI
+// originally targeted. Adapt at the client boundary so the UI components
+// see one shape regardless of which backend answered.
+//
+// Curation-track steps (design / tags / audit / outlier_review /
+// batch_decision) aren't tracked by gemma-rest at all — they stub to
+// `not_run`. If we later route the workflow endpoint to local_api,
+// the adapter is a no-op pass-through (the UI shape arrives intact).
+
+const EMPTY_STEP = { status: "not_run" as const, last_run: null, details: null };
+const NA_STEP = { status: "na" as const, last_run: null, details: null };
+
+function mapGemmaStatus(s: unknown): import("./workflowTypes").StepStatus {
+  switch (s) {
+    case "ok": return "ok";
+    case "failed": return "failed";
+    case "inProgress":
+    case "in_progress": return "in_progress";
+    case "needsAttention":
+    case "needs_attention": return "needs_attention";
+    case "notApplicable":
+    case "not_applicable": return "na";
+    case "notRun":
+    case "not_run":
+    default: return "not_run";
+  }
+}
+
+function adaptPipelineStatus(raw: unknown, id: number): ExperimentPipelineStatus {
+  if (!raw || typeof raw !== "object") {
+    return blankPipelineStatus(id);
+  }
+  const obj = raw as Record<string, unknown>;
+  // If it already looks like the UI shape, pass through.
+  if (obj.analysis && obj.curation) return obj as unknown as ExperimentPipelineStatus;
+
+  // Gemma-rest shape: flat `steps[]`.
+  const stepsArr = Array.isArray(obj.steps) ? (obj.steps as Array<Record<string, unknown>>) : [];
+  const byName = new Map<string, Record<string, unknown>>();
+  for (const s of stepsArr) {
+    if (typeof s.step === "string") byName.set(s.step, s);
+  }
+  const pick = (name: string): import("./workflowTypes").PipelineStep => {
+    const s = byName.get(name);
+    if (!s) return { ...EMPTY_STEP };
+    return {
+      status: mapGemmaStatus(s.status),
+      last_run: (s.last_run as string | null) ?? null,
+      details: (s.details as string | null) ?? null,
+    };
+  };
+
+  // Combine the three diagnostics-bucket steps into one. Worst-wins
+  // (failed > needs_attention > in_progress > not_run > na > ok)
+  // so the strip flags trouble even when only one sub-step misbehaves.
+  const diagSubs = [pick("pca"), pick("sampleCorrelation"), pick("meanVariance")];
+  const diagnostics = combineSteps(diagSubs);
+
+  const geeqObj = (obj.geeq as Record<string, unknown> | null) ?? null;
+  const geeqQuality = geeqObj
+    ? (geeqObj.publicQualityScore as number | null) ?? (geeqObj.public_quality_score as number | null) ?? null
+    : null;
+  const geeqSuit = geeqObj
+    ? (geeqObj.publicSuitabilityScore as number | null) ?? (geeqObj.public_suitability_score as number | null) ?? null
+    : null;
+
+  return {
+    dataset_id: (obj.dataset_id as number | undefined) ?? id,
+    analysis: {
+      missing_value_analysis: pick("missingValue"),
+      batch_info: pick("batchInfo"),
+      preprocessing: pick("preprocess"),
+      dea: pick("dea"),
+      diagnostics,
+    },
+    curation: {
+      design: { ...NA_STEP },
+      tags: { ...NA_STEP },
+      outlier_review: { ...NA_STEP },
+      batch_decision: { ...NA_STEP },
+      audit: { ...NA_STEP },
+    },
+    is_public: (obj.is_public as boolean | undefined) ?? false,
+    is_troubled: (obj.is_troubled as boolean | undefined) ?? false,
+    needs_attention: (obj.needs_attention as boolean | undefined) ?? false,
+    curation_note: (obj.curation_note as string | null | undefined) ?? null,
+    geeq_quality: geeqQuality,
+    geeq_suitability: geeqSuit,
+    candidate_provenance: null,
+  };
+}
+
+function combineSteps(steps: import("./workflowTypes").PipelineStep[]): import("./workflowTypes").PipelineStep {
+  const rank: Record<import("./workflowTypes").StepStatus, number> = {
+    failed: 5, needs_attention: 4, in_progress: 3, not_run: 2, na: 1, ok: 0,
+  };
+  let worst = steps[0] ?? { ...EMPTY_STEP };
+  for (const s of steps) if (rank[s.status] > rank[worst.status]) worst = s;
+  return worst;
+}
+
+function blankPipelineStatus(id: number): ExperimentPipelineStatus {
+  return {
+    dataset_id: id,
+    analysis: {
+      missing_value_analysis: { ...EMPTY_STEP },
+      batch_info: { ...EMPTY_STEP },
+      preprocessing: { ...EMPTY_STEP },
+      dea: { ...EMPTY_STEP },
+      diagnostics: { ...EMPTY_STEP },
+    },
+    curation: {
+      design: { ...EMPTY_STEP },
+      tags: { ...EMPTY_STEP },
+      outlier_review: { ...EMPTY_STEP },
+      batch_decision: { ...EMPTY_STEP },
+      audit: { ...EMPTY_STEP },
+    },
+    is_public: false,
+    is_troubled: false,
+    needs_attention: false,
+    curation_note: null,
+    geeq_quality: null,
+    geeq_suitability: null,
+    candidate_provenance: null,
+  };
 }
 
 // ---------------------------------------------------------------------------

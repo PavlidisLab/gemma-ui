@@ -87,10 +87,14 @@ export function PipelineStatusRow({
       </div>
 
       {/* Pipeline tracks */}
-      {status ? (
+      {status && status.analysis && status.curation ? (
         <div className="flex flex-col gap-1 pl-0">
           <AnalysisTrackStrip track={status.analysis} />
           <CurationTrackStrip track={status.curation} />
+        </div>
+      ) : status ? (
+        <div className="text-[11px] text-slate-400 dark:text-slate-500 italic pl-0">
+          pipeline status unavailable
         </div>
       ) : (
         <div className="h-10 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
