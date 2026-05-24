@@ -67,22 +67,15 @@ export default defineConfig(({ mode }) => {
         "/rest": {
           target: CURATION_URL,
           changeOrigin: true,
-          // Rewrite Origin so Tomcat's CORS filter doesn't 403
-          // cross-origin POSTs from the Vite dev server. See
-          // matching block in apps/browser/vite.config.ts.
+          // Strip Origin + Referer so Tomcat's CORS filter doesn't
+          // 403 the request. Verified by curl: any Origin header
+          // (even the server's own host) triggers "Invalid CORS
+          // request"; no Origin → 401/200 normally. See
+          // ~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_CORS_DEV_ORIGIN.md.
           configure: (proxy) => {
             proxy.on("proxyReq", (proxyReq) => {
-              proxyReq.setHeader("origin", CURATION_URL);
-              if (proxyReq.getHeader("referer")) {
-                try {
-                  proxyReq.setHeader(
-                    "referer",
-                    new URL(CURATION_URL).origin + "/",
-                  );
-                } catch {
-                  /* ignore */
-                }
-              }
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
             });
           },
         },

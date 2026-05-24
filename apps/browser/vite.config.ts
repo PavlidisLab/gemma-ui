@@ -87,26 +87,19 @@ export default defineConfig(({ mode }) => {
             // dev server is fronting without grepping vite.config.
             // eslint-disable-next-line no-console
             console.log(`[browser] /rest → ${GEMMA_TARGET}`);
-            // Rewrite the `Origin` header to the upstream's origin
-            // so Tomcat's CORS filter sees same-origin and doesn't
-            // 403 with "Invalid CORS request". changeOrigin only
-            // rewrites Host; Origin is a separate header that
-            // browsers send on every cross-origin POST and the
-            // upstream's allow-list almost never includes the dev
-            // server's port. The Referer gets the same treatment
-            // for completeness.
+            // STRIP Origin + Referer entirely. Tomcat's CORS
+            // filter (web.xml /rest/v2/* mapping) 403s every Origin
+            // it sees — even the server's own host. Verified by
+            // probing with curl: Origin: http://localhost:8080 →
+            // "Invalid CORS request"; no Origin header → 401 clean.
+            // So the allow-list is empty / not honored, and the
+            // only way through is to make the request look
+            // non-CORS by removing the header. The browser sends
+            // Origin automatically on every cross-origin fetch;
+            // we strip it before forwarding upstream.
             proxy.on("proxyReq", (proxyReq) => {
-              proxyReq.setHeader("origin", GEMMA_TARGET);
-              const refererHost = (() => {
-                try {
-                  return new URL(GEMMA_TARGET).origin;
-                } catch {
-                  return GEMMA_TARGET;
-                }
-              })();
-              if (proxyReq.getHeader("referer")) {
-                proxyReq.setHeader("referer", refererHost + "/");
-              }
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
             });
             proxy.on("error", (err) => {
               // eslint-disable-next-line no-console
