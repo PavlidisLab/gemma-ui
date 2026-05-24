@@ -1821,10 +1821,17 @@ function SampleTable({
                             agg.isMixed
                               ? "italic text-slate-500"
                               : isOntology
-                                ? "text-emerald-900 bg-emerald-50/60"
+                                // Same ontology-anchored cue as the
+                                // FvSelect: thick rounded emerald
+                                // bookmark on the left.
+                                ? "text-emerald-900 bg-emerald-50/60 border-l-[5px] border-l-emerald-500 rounded-l-xl pl-3"
                                 : "text-slate-700",
                           )}
-                          style={valueTint ? { color: valueTint } : undefined}
+                          style={
+                            valueTint
+                              ? { backgroundColor: valueTint }
+                              : undefined
+                          }
                           title={
                             agg.isMixed
                               ? `${agg.distinct.length} distinct values across ${groupSize} cell-type buckets:\n${agg.distinct.join("\n")}`
@@ -2229,7 +2236,10 @@ function FvSelect({
     : currentFvId === null
       ? "border-rose-300 text-rose-700"
       : isOntologyBacked
-        ? "border-emerald-300 text-emerald-900 bg-emerald-50"
+        // "Anchored in an ontology" cue — thick rounded emerald
+        // bookmark on the left so ontology-backed cells stand apart
+        // from per-value tints at a glance.
+        ? "border-emerald-300 text-emerald-900 bg-emerald-50 border-l-[5px] border-l-emerald-500 rounded-l-xl pl-2"
         : "border-slate-300 text-slate-800";
   // Per-value text tint for non-ontology categorical FVs — helps the
   // curator spot which samples share an FV without reading every
@@ -2264,7 +2274,9 @@ function FvSelect({
         "text-xs border rounded px-1 py-0.5 bg-white max-w-[14rem] truncate",
         stateCls,
       )}
-      style={valueTint ? { color: valueTint } : undefined}
+      style={
+        valueTint ? { backgroundColor: valueTint } : undefined
+      }
       // Native ``title`` only on cells without statements to surface —
       // the rich tooltip below replaces it on populated cells.
       title={currentFv && currentFv.statements.length > 0 ? undefined : fallbackTitle}
@@ -2986,14 +2998,18 @@ function buildColumnGhost(th: HTMLElement): HTMLElement | null {
  * label.
  *
  * Hashes the string, maps to an HSL with golden-ratio-spaced hue,
- * medium saturation (55%), and a mid lightness (58%) so the text
- * reads clearly on BOTH the white light-theme cell background and
- * the slate-900 dark-theme one. Two values that happen to land
- * near each other in hue are tolerated — the goal is pattern-
- * spotting, not full disambiguation.
+ * high saturation (70%), mid lightness (50%), and low alpha (0.18).
+ * Returning a semi-transparent fill means the same color reads
+ * correctly on the light-mode white background AND the dark-mode
+ * slate-900 background — it just shifts whatever's underneath.
+ * Text stays default; the tint sits behind it.
+ *
+ * Two values that happen to land near each other in hue are
+ * tolerated — the goal is pattern-spotting, not full
+ * disambiguation.
  *
  * Returns `undefined` for empty strings so the cell falls back to
- * its default text color.
+ * the surrounding theme background.
  */
 function tintForValue(value: string): string | undefined {
   const s = value.trim();
@@ -3006,5 +3022,5 @@ function tintForValue(value: string): string | undefined {
   }
   // Mix with golden ratio for nicer hue spread across small value sets.
   const hue = (Math.abs(h) * 0.61803398875) % 360;
-  return `hsl(${hue.toFixed(0)}, 55%, 58%)`;
+  return `hsla(${hue.toFixed(0)}, 70%, 50%, 0.18)`;
 }
