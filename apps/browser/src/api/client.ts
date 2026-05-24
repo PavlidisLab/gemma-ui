@@ -53,6 +53,37 @@ export interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+/** Local-storage key for the opaque bearer minted by
+ *  `POST /rest/v2/login`. Read on every request so a sign-in in
+ *  one tab is picked up by the next request in another tab. */
+const SESSION_TOKEN_KEY = "gemma-browser-session";
+
+export function readSessionToken(): string | null {
+  try {
+    return localStorage.getItem(SESSION_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function writeSessionToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(SESSION_TOKEN_KEY, token);
+    else localStorage.removeItem(SESSION_TOKEN_KEY);
+  } catch {
+    /* sandboxed env — ignore */
+  }
+}
+
+/** Compose auth headers. Bearer wins when a session token is set
+ *  (REST login flow); otherwise we still ship the session cookie
+ *  via `credentials: "include"` so legacy JSP-form-login users
+ *  keep working. */
+function authHeaders(): Record<string, string> {
+  const t = readSessionToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
 export async function apiGet<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const q = opts.params
     ? "?" + qs.stringify(stripUndef(opts.params), { arrayFormat: "repeat" })
@@ -64,12 +95,39 @@ export async function apiGet<T>(path: string, opts: RequestOptions = {}): Promis
     headers: {
       Accept: "application/json",
       "X-Requested-With": "XMLHttpRequest",
+      ...authHeaders(),
       ...(opts.headers ?? {}),
     },
   });
   if (!r.ok) {
     throw new ApiError(`GET ${path} → ${r.status}`, r.status, r.statusText, await readErr(r));
   }
+  return r.json() as Promise<T>;
+}
+
+/** POST a JSON body. Same auth headers + cookie discipline as apiGet. */
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  opts: { signal?: AbortSignal; headers?: Record<string, string> } = {},
+): Promise<T> {
+  const r = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    signal: opts.signal,
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      ...authHeaders(),
+      ...(opts.headers ?? {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    throw new ApiError(`POST ${path} → ${r.status}`, r.status, r.statusText, await readErr(r));
+  }
+  if (r.status === 204) return undefined as T;
   return r.json() as Promise<T>;
 }
 

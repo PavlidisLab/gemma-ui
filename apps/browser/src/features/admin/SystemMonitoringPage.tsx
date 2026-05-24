@@ -24,9 +24,9 @@
  * `~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_SYSTEMS_MONITORING_UI.md`.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ApiError } from "@/api/client";
-import { gemmaUrl } from "@/lib/gemmaConfig";
+import { LoginModal } from "@/features/shared/LoginModal";
 import { useCacheList } from "./api";
 import { HeaderSection } from "./sections/HeaderSection";
 import { JvmSection } from "./sections/JvmSection";
@@ -89,38 +89,13 @@ function CenteredLoading() {
 
 /**
  * Full-page login challenge. Nothing else renders behind this gate
- * — not the build header, not the health pill. The legacy Gemma
- * sign-in form lives on the Gemma webapp at `/login.jsp`; opens in
- * a new tab so the curator can sign in and come back without
- * losing context.
- *
- * After clicking the button, polling the canary every 5s in the
- * background lets us auto-detect a successful sign-in (session
- * cookie now valid) and reveal the dashboard without a manual
- * page reload. Reasonable — the cookie is set on a same-origin
- * proxy so it lands on the next probe.
+ * — not the build header, not the health pill. Click the button
+ * → in-app LoginModal posts to /rest/v2/login; once the bearer
+ * lands the auth-keyed queries (including this page's canary)
+ * invalidate and the dashboard reveals itself.
  */
 function LoginChallenge({ status }: { status: number }) {
-  const loginUrl = gemmaUrl("/login.jsp");
-  const [opened, setOpened] = useState(false);
-
-  // Once the curator hits "sign in", start an accelerated re-poll
-  // so the page reveals itself the moment the cookie lands. The
-  // hook's normal interval still runs; this just shortens the
-  // window between the user signing in and the dashboard
-  // appearing.
-  useEffect(() => {
-    if (!opened) return;
-    const id = window.setInterval(() => {
-      // The canary query is stale-by-default at 60s; nudging it
-      // via refetchQueries would require pulling the qc here. The
-      // simplest reliable signal: just force a window event that
-      // react-query treats as focus, which retriggers the query.
-      window.dispatchEvent(new Event("focus"));
-    }, 5_000);
-    return () => window.clearInterval(id);
-  }, [opened]);
-
+  const [open, setOpen] = useState(false);
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-4">
       <div className="max-w-md w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-md p-6 space-y-4">
@@ -143,31 +118,24 @@ function LoginChallenge({ status }: { status: number }) {
         </div>
 
         <p className="text-sm text-slate-700 dark:text-slate-300">
-          Sign in on the Gemma webapp — the session cookie carries
-          through automatically once you're authenticated.
+          Sign in with your Gemma credentials — the bearer token
+          carries through, and the dashboard reveals itself the
+          moment the canary clears.
         </p>
 
-        <a
-          href={loginUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => setOpened(true)}
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
           className="block text-center w-full px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
         >
-          Sign in on Gemma →
-        </a>
-
-        {opened ? (
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center">
-            Waiting for your session to land… this page reveals
-            itself the moment the cookie shows up.
-          </p>
-        ) : null}
+          Sign in
+        </button>
 
         <div className="pt-2 border-t border-slate-100 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
           /admin/caches → HTTP {status}
         </div>
       </div>
+      <LoginModal open={open} onClose={() => setOpen(false)} />
     </div>
   );
 }
