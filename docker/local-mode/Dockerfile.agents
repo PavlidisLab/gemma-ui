@@ -1,10 +1,38 @@
 # Python image used by both the local_api server and the proposer
 # service. Source lives on a bind-mount at /agents so edits to the
 # Python code (in ~/Dev/gemma-curation-agents) take effect without a
-# rebuild — only the dep install + base layer cache.
+# rebuild.
 #
-# Single image, two services: compose runs different ``gca`` commands
-# against the same image to bring up local_api and the proposer.
+# Single image, two services: compose runs different commands against
+# the same image to bring up local_api and the proposer.
+#
+# Dependencies are installed at BUILD time (NOT at container start).
+# Earlier versions of this image ran ``pip install -e .`` from an
+# entrypoint script with a marker file to skip re-installs. That was
+# fragile in three different ways and caused a recurring
+# ``ModuleNotFoundError: No module named 'click'`` whenever the marker
+# was stale or the image hadn't been rebuilt after an entrypoint
+# tweak. Now: deps are baked into the image; the entrypoint runs the
+# CLI directly.
+#
+# How the bind-mount still works for live source edits:
+#  1. At BUILD time we COPY pyproject.toml + a stub package dir from
+#     the ``agents`` build context and run ``pip install -e .``. That
+#     installs all deps into the container's site-packages AND writes
+#     an editable-install pointer at /agents in site-packages.
+#  2. At RUNTIME, compose bind-mounts the host's gemma-curation-agents
+#     repo over /agents. The pip-installed pointer still says "look at
+#     /agents", which now contains the real source. Python finds the
+#     real package; deps are already importable.
+#
+# Build:
+#   docker build \
+#     --build-context agents=../../../gemma-curation-agents \
+#     -f Dockerfile.agents \
+#     -t gemma-local-mode/agents:dev .
+#
+# (compose does this for you via ``additional_contexts:`` on the
+# local-api service.)
 
 FROM python:3.11-slim
 
@@ -23,11 +51,18 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 
 WORKDIR /agents
 
-# The actual ``pip install -e .`` happens at container start, not at
-# build time — we bind-mount /agents from the host so we can't pre-
-# install. The entrypoint below installs (idempotent) then execs the
-# CLI command compose passes in.
-COPY entrypoint-agents.sh /usr/local/bin/entrypoint-agents.sh
-RUN chmod +x /usr/local/bin/entrypoint-agents.sh
+# Pull pyproject.toml + README from the agents build context and stub
+# out the package dir so ``pip install -e .`` resolves and writes the
+# site-packages pointer at /agents. The bind-mount replaces this stub
+# at runtime with the real source.
+COPY --from=agents pyproject.toml ./pyproject.toml
+COPY --from=agents README.md ./README.md
+RUN mkdir -p gemma_curation_agents \
+    && : > gemma_curation_agents/__init__.py \
+    && pip install --upgrade pip \
+    && pip install -e .
 
-ENTRYPOINT ["/usr/local/bin/entrypoint-agents.sh"]
+# No entrypoint script — deps are installed, package pointer is at
+# /agents, and the bind-mount at runtime provides the real source.
+# Compose passes the actual ``python -m gemma_curation_agents.cli ...``
+# command per-service.

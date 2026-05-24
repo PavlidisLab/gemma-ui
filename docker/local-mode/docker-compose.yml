@@ -26,6 +26,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.agents
+      # ``agents`` is referenced in Dockerfile.agents via
+      # ``COPY --from=agents pyproject.toml`` so deps install at build
+      # time. ``AGENTS_REPO`` lets ./up.sh / the host override the
+      # default sibling-checkout path; falls back to the conventional
+      # layout otherwise.
+      additional_contexts:
+        agents: ${AGENTS_REPO:-../../../gemma-curation-agents}
     image: gemma-local-mode/agents:dev
     container_name: curation-localstore-api
     working_dir: /agents
