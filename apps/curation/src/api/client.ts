@@ -132,6 +132,14 @@ async function request<T>(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
+    // Send cookies on every request. Gemma's REST is Spring-Security
+    // backed and authenticates via JSESSIONID — without `credentials`
+    // the session cookie set on /rest/v2/login never flows back, and
+    // private datasets 404 because the request is effectively
+    // anonymous (Gemma masks "no permission" as not-found). local_api
+    // doesn't care about cookies; the Bearer header still carries
+    // its dev-token auth.
+    credentials: "include",
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) {
