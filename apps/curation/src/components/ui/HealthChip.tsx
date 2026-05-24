@@ -203,7 +203,7 @@ function ServiceRow({
   return (
     <div className="grid grid-cols-[7rem_1fr_auto] gap-x-2 items-baseline" title={hint}>
       <dt className="text-slate-500 dark:text-slate-400">{label}</dt>
-      <dd className="font-mono text-[11px] break-all text-slate-700 dark:text-slate-300">
+      <dd className="font-mono text-[11px] break-words text-slate-700 dark:text-slate-300">
         {path}
       </dd>
       <dd>
