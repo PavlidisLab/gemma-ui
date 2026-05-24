@@ -92,13 +92,23 @@ export function useAuditEvents(
         );
         return adaptAuditEvents(raw);
       } catch (e) {
-        // 404 on the audit endpoint means gemma-rest doesn't have
-        // this experiment id (local_api / curation UI can carry ids
-        // that aren't loaded into Gemma yet). Surface a sentinel
-        // instead of throwing so the panel can render a soft
-        // empty state instead of a scary error banner.
+        // 404 from gemma-rest = id not loaded into Gemma yet (the
+        // curation DB / local_api can carry ids that haven't
+        // synced). Fall back to local_api via the /local-api
+        // passthrough proxy. If local_api also 404s, surface the
+        // sentinel so the panel renders a soft empty state.
         if (e instanceof ApiError && e.status === 404) {
-          return AUDIT_NOT_IN_GEMMA;
+          try {
+            const raw = await api.get<unknown>(
+              `/local-api/rest/v2/datasets/${experimentId}/auditEvents?${params}`,
+            );
+            return adaptAuditEvents(raw);
+          } catch (e2) {
+            if (e2 instanceof ApiError && e2.status === 404) {
+              return AUDIT_NOT_IN_GEMMA;
+            }
+            throw e2;
+          }
         }
         throw e;
       }

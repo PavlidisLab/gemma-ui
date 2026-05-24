@@ -109,6 +109,10 @@ services:
       # Diagnostics-only upstream — used for the routing exceptions in
       # vite.config.ts. Override via GEMMA_REST_URL.
       GEMMA_REST_URL: ${GEMMA_REST_URL:-http://host.docker.internal:8080}
+      # Explicit local_api passthrough for hooks that need to bypass
+      # a gemma-rest routing exception (e.g. audit-trail fallback).
+      # Defaults to the same target as GEMMA_CURATION_URL.
+      GEMMA_LOCAL_API_URL: ${GEMMA_LOCAL_API_URL:-http://local-api:8000}
       GEMMA_PROPOSER_URL: http://proposer:8000
       VITE_GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
     extra_hosts:

@@ -28,6 +28,15 @@ export default defineConfig(({ mode }) => {
     env.GEMMA_CURATION_URL || "http://localhost:8082";
   const GEMMA_REST_URL =
     env.GEMMA_REST_URL || "http://localhost:8080";
+  // Explicit local_api upstream — same target as CURATION_URL by
+  // default (local_api IS the curation default), but exposed at a
+  // distinct path prefix `/local-api` so hooks can hit it when a
+  // gemma-rest routing exception would otherwise win. Used today
+  // by the audit-trail fallback: gemma-rest first, local_api on
+  // 404 (for ids that exist in the curation DB but aren't loaded
+  // into Gemma yet).
+  const LOCAL_API_URL =
+    env.GEMMA_LOCAL_API_URL || CURATION_URL;
   const PROPOSER_URL =
     env.GEMMA_PROPOSER_URL || "http://localhost:8090";
   // Ontology-search routing exception (temporary, 2026-05-23).
@@ -52,6 +61,8 @@ export default defineConfig(({ mode }) => {
   console.log(
     `[curation] /rest/v2/annotations/{search,term} → ${ONTOLOGY_URL} (ontology routing exception)`,
   );
+  // eslint-disable-next-line no-console
+  console.log(`[curation] /local-api → ${LOCAL_API_URL} (explicit local_api passthrough)`);
   // eslint-disable-next-line no-console
   console.log(`[curation] /propose,/audit,/find-* → ${PROPOSER_URL}`);
   return {
@@ -94,8 +105,9 @@ export default defineConfig(({ mode }) => {
         // Audit trail (live Gemma history) — local_api has its own
         // mock trail for the curation-side events the UI itself
         // generates, but the long-term experiment history lives in
-        // gemma-rest. Route the GET here; the eventual merge of
-        // both sources lives in the hook (see useAuditEvents).
+        // gemma-rest. Route the GET here; the hook falls back to
+        // /local-api/... on 404 for ids that haven't been loaded
+        // into Gemma yet (see useAuditEvents).
         "^/rest/v2/datasets/\\d+/auditEvents.*": {
           target: GEMMA_REST_URL,
           changeOrigin: true,
@@ -105,6 +117,16 @@ export default defineConfig(({ mode }) => {
               proxyReq.removeHeader("referer");
             });
           },
+        },
+        // Explicit local_api passthrough — strips the `/local-api`
+        // prefix so the upstream sees the bare `/rest/v2/...` path.
+        // Used by hooks that need to bypass a gemma-rest routing
+        // exception (e.g. audit-trail fallback for ids only in the
+        // curation DB).
+        "/local-api": {
+          target: LOCAL_API_URL,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/local-api/, ""),
         },
         "/rest": {
           target: CURATION_URL,
