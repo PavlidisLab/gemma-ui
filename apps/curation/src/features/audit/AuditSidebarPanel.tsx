@@ -1852,8 +1852,7 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
               key={i}
               fv={fv}
               termRenderer={curationTermRenderer}
-              showLevelGlyph={false}
-              labelFont="mono"
+              indexLabel={i + 1}
               leading={
                 status ? <FvStatusGlyph status={status} /> : null
               }

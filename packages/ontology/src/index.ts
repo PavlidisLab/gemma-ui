@@ -6,7 +6,6 @@ export {
 
 export {
   FvDisplayRow,
-  isFvSubjectRedundant,
   type FvDisplayLike,
   type FvDisplayStatement,
   type FvDisplayTerm,

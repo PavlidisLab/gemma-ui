@@ -40,6 +40,21 @@ import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
+import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
+
+/** Local Term renderer for FvDisplayRow — delegates to the rich
+ *  `Term` chip so factor / FV rendering on this surface matches the
+ *  proposal-review surface exactly. */
+const renderEditorTerm: FvTermRenderer = ({ label, uri, variant }) => (
+  <Term
+    uri={uri}
+    asLink={false}
+    variant={variant === "predicate" ? "predicate" : "default"}
+    className="!whitespace-normal break-words"
+  >
+    {label}
+  </Term>
+);
 import type {
   AppliedEdit,
   AppliedFix,
@@ -1197,69 +1212,14 @@ export function FindingDetailsEditor({
 
         {fvs.length > 0 ? (
           <div className="space-y-1">
-            {fvs.map((fv, i) => {
-              const st = fv.statements?.[0];
-              const subj = st?.subject;
-              const pred = st?.predicate;
-              const obj = st?.object;
-              const subjLabel = subj?.label?.trim() || fv.free_text_label?.trim() || "";
-              const subjUri = subj?.uri ?? null;
-              const predLabel = pred?.label?.trim() ?? "";
-              const objLabel = obj?.label?.trim() ?? "";
-              const objUri = obj?.uri ?? null;
-              return (
-                <div
-                  key={i}
-                  className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]"
-                >
-                  <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 w-20 shrink-0">
-                    FV {i + 1}
-                  </span>
-                  {subjLabel ? (
-                    <Term
-                      uri={subjUri}
-                      asLink={false}
-                      className="!whitespace-normal break-words"
-                    >
-                      {subjLabel}
-                    </Term>
-                  ) : (
-                    <span className="italic text-slate-400">(blank)</span>
-                  )}
-                  {predLabel ? (
-                    <>
-                      <span className="text-slate-400 dark:text-slate-500">{" - "}</span>
-                      <span
-                        className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
-                        title={pred?.uri || undefined}
-                      >
-                        {predLabel}
-                      </span>
-                    </>
-                  ) : null}
-                  {objLabel ? (
-                    <>
-                      <span className="text-slate-400 dark:text-slate-500">{" - "}</span>
-                      <Term
-                        uri={objUri}
-                        asLink={false}
-                        className="!whitespace-normal break-words"
-                      >
-                        {objLabel}
-                      </Term>
-                    </>
-                  ) : null}
-                  {fv.is_baseline ? (
-                    <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 ml-0.5">
-                      ★ baseline
-                    </span>
-                  ) : null}
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 ml-0.5">
-                    ({fv.biomaterial_short_names?.length ?? 0})
-                  </span>
-                </div>
-              );
-            })}
+            {fvs.map((fv, i) => (
+              <FvDisplayRow
+                key={i}
+                fv={fv}
+                termRenderer={renderEditorTerm}
+                indexLabel={i + 1}
+              />
+            ))}
           </div>
         ) : null}
 

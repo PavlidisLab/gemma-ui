@@ -101,19 +101,25 @@ export function FactorReviewCard({
       note={note}
       onNoteChange={onNoteChange}
     >
-      <div className="flex items-baseline gap-1.5 flex-wrap">
-        <span className="font-semibold text-[12px] text-slate-800 dark:text-slate-100">
-          {label}
+      {/* Header — matches the audit panel's renderProposeNewFactorEditor:
+          "Factor [chip] · proposed (not in current design)". The factor
+          name is dropped from the inline header (would duplicate the
+          category chip in the common case where they're the same). */}
+      <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+          Factor
         </span>
-        {factor.category?.uri ? (
-          <Term uri={factor.category.uri} asLink={false}>
-            {factor.category.label || ""}
+        {factor.category?.label || factor.category?.uri ? (
+          <Term uri={factor.category?.uri ?? null} asLink={false}>
+            {factor.category?.label || ""}
           </Term>
         ) : (
-          <span className="italic text-stone-500 text-[11px]">
-            {factor.category?.label || "(no category)"}
-          </span>
+          <span className="italic text-stone-500">{label}</span>
         )}
+        <span className="text-slate-400 dark:text-slate-500">·</span>
+        <span className="text-amber-700 dark:text-amber-300 font-semibold">
+          proposed (not in current design)
+        </span>
         <MatchTypeChip matchType={factor.match_type} />
         <BaselineRelevanceChip
           relevance={factor.baseline_relevance}
@@ -129,36 +135,39 @@ export function FactorReviewCard({
           {isContinuous ? "continuous" : `${fvCount} level${fvCount === 1 ? "" : "s"}`}
         </span>
       </div>
-      <DefenderVerdictsCluster verdicts={factor.defender_verdicts} />
-      <SubtaskDecisionsRow decisions={factor.subtask_decisions} />
       {!isContinuous && fvs.length > 0 ? (
-        <ul className="space-y-1 pl-1">
+        <div className="space-y-1">
           {[...fvs]
             .sort((a, b) => (a.is_baseline ? 1 : 0) - (b.is_baseline ? 1 : 0))
             .map((fv, i) => {
               const showFvMatch =
                 fv.match_type && fv.match_type !== factor.match_type;
               return (
-                <li key={i}>
-                  <FvDisplayRow
-                    fv={fv}
-                    termRenderer={curationTermRenderer}
-                    trailing={
-                      <>
-                        {showFvMatch ? (
-                          <MatchTypeChip matchType={fv.match_type} />
-                        ) : null}
-                        <AssignmentConfidenceChip
-                          meta={fv.biomaterial_assignment_meta}
-                        />
-                      </>
-                    }
-                  />
-                </li>
+                <FvDisplayRow
+                  key={i}
+                  fv={fv}
+                  termRenderer={curationTermRenderer}
+                  indexLabel={i + 1}
+                  trailing={
+                    <>
+                      {showFvMatch ? (
+                        <MatchTypeChip matchType={fv.match_type} />
+                      ) : null}
+                      <AssignmentConfidenceChip
+                        meta={fv.biomaterial_assignment_meta}
+                      />
+                    </>
+                  }
+                />
               );
             })}
-        </ul>
+        </div>
       ) : null}
+      {/* PROPOSER DETAILS — parallel to the audit panel's
+          AUDITOR DETAILS expand. Holds the defender / subtask /
+          reasoning context the curator can dig into after the at-a-
+          glance row is digested. */}
+      <ProposerDetails factor={factor} />
     </ReviewCardShell>
   );
 }
@@ -221,6 +230,35 @@ export function TagReviewCard({
 // Per-statement subtask-decision chips that StatementLine used to
 // surface are not currently threaded through the shared row — if
 // they become load-bearing again, add a `statementExtras` prop.
+
+/** Collapsible "PROPOSER DETAILS ▸" expand at the bottom of a
+ *  factor review card. Mirrors the audit panel's AUDITOR DETAILS
+ *  affordance so the curator can dig into reasoning / debate /
+ *  subtask signals without those filling the at-a-glance row. */
+function ProposerDetails({ factor }: { factor: FactorProposal }) {
+  const [open, setOpen] = useState(false);
+  const hasContent =
+    (factor.defender_verdicts?.length ?? 0) > 0 ||
+    (factor.subtask_decisions?.length ?? 0) > 0;
+  if (!hasContent) return null;
+  return (
+    <div className="border-t border-slate-200 dark:border-slate-700 pt-1.5 mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[10px] uppercase tracking-wide font-semibold text-sky-700 dark:text-sky-300 hover:underline inline-flex items-baseline gap-1"
+      >
+        Proposer details {open ? "▾" : "▸"}
+      </button>
+      {open ? (
+        <div className="mt-2 space-y-2">
+          <DefenderVerdictsCluster verdicts={factor.defender_verdicts} />
+          <SubtaskDecisionsRow decisions={factor.subtask_decisions} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Signal chips — surface the judgment/extra-info signals the
@@ -634,19 +672,26 @@ function ReviewCardShell({
   children,
   note,
   onNoteChange,
+  defaultOpen = true,
 }: {
   kind: CardKind;
   elementKey: string;
   /** Plain-text summary of what this element is — used as the
    *  rationale-row text in the reject/park dialog so the curator
-   *  knows which element they're acting on. */
+   *  knows which element they're acting on, AND as the row-collapsed
+   *  one-line summary when the card is closed. */
   identityLabel: string;
   disposition: ProposalDisposition;
   onDispose: (d: ProposalDisposition) => void;
   children: React.ReactNode;
   note?: string;
   onNoteChange?: (note: string) => void;
+  /** Initial collapsed state. Proposals default open (curator wants
+   *  to scan all the suggestions); audit-style consumers may pass
+   *  false for a "click to expand" review queue. */
+  defaultOpen?: boolean;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
   const tint =
     kind === "factor"
       ? "border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/40"
@@ -695,8 +740,25 @@ function ReviewCardShell({
       )}
     >
       <div className="flex items-start gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label={open ? "collapse card" : "expand card"}
+          title={open ? "collapse" : "expand"}
+          className="text-base leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 px-1 -mt-0.5 font-bold"
+        >
+          {open ? "⌄" : "›"}
+        </button>
         <DispositionBadge disposition={disposition} kind={kind} />
-        <div className="flex-1 min-w-0 space-y-1">{children}</div>
+        <div className="flex-1 min-w-0 space-y-1">
+          {open ? (
+            children
+          ) : (
+            <span className="text-[12px] text-slate-700 dark:text-slate-300 truncate">
+              {identityLabel}
+            </span>
+          )}
+        </div>
       </div>
       <ActionButtons
         disposition={disposition}
