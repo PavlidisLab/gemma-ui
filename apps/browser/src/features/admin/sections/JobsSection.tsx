@@ -74,7 +74,7 @@ export function JobsSection() {
           {(error as Error).message}
         </div>
       ) : null}
-      {data?.tasks && data.tasks.length > 0 ? (
+      {(data?.tasks ?? []).length > 0 ? (
         <div className="max-h-56 overflow-auto border-t border-slate-100 dark:border-slate-700">
           <table className="w-full text-[11px]">
             <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 sticky top-0">
@@ -86,7 +86,7 @@ export function JobsSection() {
               </tr>
             </thead>
             <tbody>
-              {data.tasks.map((t) => (
+              {(data?.tasks ?? []).map((t) => (
                 <tr
                   key={t.taskId}
                   className="border-t border-slate-100 dark:border-slate-700"

@@ -25,15 +25,21 @@ export function CachesSection() {
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!list.data) return [];
-    if (!q) return list.data.names;
-    return list.data.names.filter((n) => n.toLowerCase().includes(q));
+    const names = list.data?.names ?? [];
+    if (!q) return names;
+    return names.filter((n) => n.toLowerCase().includes(q));
   }, [filter, list.data]);
 
   return (
     <SectionCard
       title="Caches"
-      summary={list.data ? `${list.data.count} cache${list.data.count === 1 ? "" : "s"}` : undefined}
+      summary={
+        list.data
+          ? `${list.data.count ?? list.data.names?.length ?? 0} cache${
+              (list.data.count ?? list.data.names?.length ?? 0) === 1 ? "" : "s"
+            }`
+          : undefined
+      }
       accessory={
         <ConfirmButton
           label="clear all"

@@ -10,13 +10,14 @@ import { fmtNumber, fmtRelative } from "../timeseries";
 
 export function IndicesSection() {
   const { data, isError, error } = useSearchIndices(60_000);
+  const indices = data?.indices ?? [];
   return (
     <SectionCard
       title="Search indices"
       summary={
         data
-          ? `${data.indices.length} indices · ${fmtNumber(data.totalDocumentCount)} docs${
-              data.totalDocumentCountExact ? "" : " (approx)"
+          ? `${indices.length} indices · ${fmtNumber(data.totalDocumentCount ?? 0)} docs${
+              data.totalDocumentCountExact === false ? " (approx)" : ""
             }`
           : undefined
       }
@@ -38,7 +39,7 @@ export function IndicesSection() {
               </tr>
             </thead>
             <tbody>
-              {data.indices.map((idx) => (
+              {indices.map((idx) => (
                 <tr
                   key={idx.indexName}
                   className="border-t border-slate-100 dark:border-slate-700"

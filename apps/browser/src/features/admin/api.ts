@@ -174,8 +174,8 @@ export function useResetHibernateStats() {
 // ─── /admin/caches ────────────────────────────────────────────────
 
 export interface CacheList {
-  count: number;
-  names: string[];
+  count?: number;
+  names?: string[];
 }
 
 export function useCacheList() {
@@ -234,8 +234,8 @@ export interface TaskStatus {
 }
 
 export interface JobsSnapshot {
-  counts: Partial<Record<JobStatus, number>>;
-  tasks: TaskStatus[];
+  counts?: Partial<Record<JobStatus, number>>;
+  tasks?: TaskStatus[];
 }
 
 export function useJobs(refetchMs = 10_000) {
@@ -259,9 +259,11 @@ export interface SessionsPrincipal {
 }
 
 export interface SessionsSnapshot {
-  authenticatedUserCount: number;
-  activeSessionCount: number;
-  principals: SessionsPrincipal[];
+  authenticatedUserCount?: number;
+  activeSessionCount?: number;
+  /** Optional in practice — older / partial builds omit the list
+   *  when empty. Render-side defaults to `[]`. */
+  principals?: SessionsPrincipal[];
 }
 
 export function useSessions(refetchMs = 30_000) {
@@ -289,9 +291,9 @@ export interface SearchIndex {
 
 export interface SearchIndices {
   indexBase?: string | null;
-  totalDocumentCount: number;
-  totalDocumentCountExact: boolean;
-  indices: SearchIndex[];
+  totalDocumentCount?: number;
+  totalDocumentCountExact?: boolean;
+  indices?: SearchIndex[];
 }
 
 export function useSearchIndices(refetchMs = 60_000) {
@@ -326,11 +328,11 @@ export interface OntologyRow {
 }
 
 export interface OntologiesSnapshot {
-  count: number;
-  enabledCount: number;
-  loadedCount: number;
-  initializingCount: number;
-  ontologies: OntologyRow[];
+  count?: number;
+  enabledCount?: number;
+  loadedCount?: number;
+  initializingCount?: number;
+  ontologies?: OntologyRow[];
 }
 
 export function useOntologies(

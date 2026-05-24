@@ -17,13 +17,18 @@ export function SessionsSection() {
     "sessions.active",
     data?.activeSessionCount ?? null,
   );
+  // Bro's contract has `principals` as required (List<Principal>),
+  // but in practice the deployed server can return an envelope
+  // without it (older builds, partial deploys, error fallthroughs).
+  // Coerce defensively so a missing list doesn't crash the page.
+  const principals = data?.principals ?? [];
 
   return (
     <SectionCard
       title="Sessions"
       summary={
         data
-          ? `${data.authenticatedUserCount} user${data.authenticatedUserCount === 1 ? "" : "s"} · ${data.activeSessionCount} active session${data.activeSessionCount === 1 ? "" : "s"}`
+          ? `${data.authenticatedUserCount ?? 0} user${(data.authenticatedUserCount ?? 0) === 1 ? "" : "s"} · ${data.activeSessionCount ?? 0} active session${(data.activeSessionCount ?? 0) === 1 ? "" : "s"}`
           : undefined
       }
     >
@@ -43,7 +48,7 @@ export function SessionsSection() {
           {(error as Error).message}
         </div>
       ) : null}
-      {data && data.principals.length > 0 ? (
+      {principals.length > 0 ? (
         <div className="max-h-56 overflow-auto border-t border-slate-100 dark:border-slate-700">
           <table className="w-full text-[11px]">
             <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 sticky top-0">
@@ -55,7 +60,7 @@ export function SessionsSection() {
               </tr>
             </thead>
             <tbody>
-              {data.principals.map((p) => (
+              {principals.map((p) => (
                 <tr
                   key={p.username}
                   className="border-t border-slate-100 dark:border-slate-700"

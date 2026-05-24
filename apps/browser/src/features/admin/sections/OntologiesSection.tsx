@@ -17,13 +17,14 @@ export function OntologiesSection() {
     includeTermCount: includeTerms,
     refetchMs: 30_000,
   });
+  const ontologies = data?.ontologies ?? [];
 
   return (
     <SectionCard
       title="Ontologies"
       summary={
         data
-          ? `${data.loadedCount} loaded · ${data.initializingCount} initializing · ${data.count - data.enabledCount} disabled`
+          ? `${data.loadedCount ?? 0} loaded · ${data.initializingCount ?? 0} initializing · ${Math.max(0, (data.count ?? 0) - (data.enabledCount ?? 0))} disabled`
           : undefined
       }
       accessory={
@@ -62,7 +63,7 @@ export function OntologiesSection() {
               </tr>
             </thead>
             <tbody>
-              {data.ontologies.map((o) => {
+              {ontologies.map((o) => {
                 const state = !o.enabled
                   ? "disabled"
                   : o.error
