@@ -32,7 +32,7 @@ export function SampleCorrelationCard({
     body = <PanelError message={(error as Error).message} />;
   } else if (!data || !built) {
     body = (
-      <PanelEmpty reason="Sample-correlation matrix not yet available. Bro: GET /datasets/{id}/sample-correlation — see diagnostics endpoint handoff." />
+      <PanelEmpty reason="No sample-correlation matrix returned (HTTP 404). Either this dataset hasn't been preprocessed, or /datasets/{id}/sample-correlation isn't deployed on the current Gemma build." />
     );
   } else {
     body = (

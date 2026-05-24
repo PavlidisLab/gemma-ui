@@ -27,7 +27,7 @@ export function MeanVarianceCard({ experimentId }: { experimentId: number }) {
     body = <PanelError message={(error as Error).message} />;
   } else if (!data || data.means.length === 0) {
     body = (
-      <PanelEmpty reason="Mean-variance data not yet available. Bro: GET /datasets/{id}/mean-variance — see diagnostics endpoint handoff." />
+      <PanelEmpty reason="No mean-variance data returned (HTTP 404). Either this dataset's MeanVarianceRelation hasn't been computed, or /datasets/{id}/mean-variance isn't deployed on the current Gemma build." />
     );
   } else {
     body = <MvScatter data={data} />;

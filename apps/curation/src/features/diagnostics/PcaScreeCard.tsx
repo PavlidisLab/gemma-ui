@@ -40,7 +40,7 @@ export function PcaScreeCard({ experimentId }: { experimentId: number }) {
     body = <PanelError message={(error as Error).message} />;
   } else if (!data || !data.variances || data.variances.length === 0) {
     body = (
-      <PanelEmpty reason="PCA not yet computed for this experiment. Once preprocessing runs, the scree appears here." />
+      <PanelEmpty reason="No PCA available (HTTP 404 or empty variances). Either this dataset's SVDResult hasn't been computed, or the dataset has too few samples." />
     );
   } else {
     body = (

@@ -45,7 +45,7 @@ export function PcFactorCard({ experimentId }: { experimentId: number }) {
     body = <PanelError message={(error as Error).message} />;
   } else if (!svd?.bioAssayScores || svd.bioAssayScores === null) {
     body = (
-      <PanelEmpty reason="PCA not yet computed — PC↔factor associations need /svd to land." />
+      <PanelEmpty reason="No PCA available — PC↔factor associations need /svd to return bioAssayScores. Check the scree panel for the root cause." />
     );
   } else if (!draft || draft.factors.length === 0) {
     body = (
