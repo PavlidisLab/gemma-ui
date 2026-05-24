@@ -221,16 +221,9 @@ export function CategoryPicker({
 
   const label = value?.label ?? "";
   const hasUri = !!value?.uri;
-  // Recognized nuisance categories the canonical EFO list deliberately
-  // omits (Gemma carries them as block / batch nuisance factors). Treat
-  // them as known so they don't render with the off-list amber outline.
-  const knownNuisanceCategory =
-    !!label &&
-    ["block", "batch"].includes(label.trim().toLowerCase());
   const isUnknown =
     !!label &&
     list.length > 0 &&
-    !knownNuisanceCategory &&
     !list.some(
       (c) => c.label.trim().toLowerCase() === label.trim().toLowerCase(),
     );
