@@ -92,17 +92,7 @@ services:
     environment:
       GEMMA_CURATION_URL: http://local-api:8000
       GEMMA_PROPOSER_URL: http://proposer:8000
-      # Diagnostics routing exception — see apps/curation/vite.config.ts.
-      # /sample-correlation, /mean-variance, /svd, /svd/loadings go to
-      # the real Gemma on the host (8080); the local_api mock doesn't
-      # implement them. Override at compose-up time via the env file.
-      GEMMA_DIAGNOSTICS_URL: ${GEMMA_DIAGNOSTICS_URL:-http://host.docker.internal:8080}
       VITE_GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
-    extra_hosts:
-      # Docker Desktop auto-adds host.docker.internal; on Linux
-      # Docker the host-gateway alias is needed explicitly. Safe
-      # to declare on Mac/Win too.
-      - "host.docker.internal:host-gateway"
     volumes:
       # Bind-mount the whole monorepo so workspace links resolve.
       - ${UI_REPO:-../..}:/ui

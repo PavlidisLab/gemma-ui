@@ -21,26 +21,13 @@ import { api, ApiError } from "./client";
 
 // ─── Shared swallow-404 helper ────────────────────────────────────
 
-/**
- * Gemma 2.0 wraps every payload in `{data: <payload>}` — and on the
- * success path it doesn't ship `apiVersion`, so the client's
- * `unwrapGemmaEnvelope` (which requires both keys, conservatively)
- * leaves the envelope intact. We unwrap manually here. snakeify
- * still runs from the api wrapper, so the inner keys are
- * already snake_case by the time we touch them.
- */
+/** Swallow 404 / 204 as "no data computed yet". Everything else
+ *  bubbles up to the panel's error renderer. `api.get` already
+ *  unwraps Gemma's `{apiVersion, data}` envelope and snakeifies
+ *  the keys before we see them. */
 async function getOrNull<T>(path: string): Promise<T | null> {
   try {
-    const body = await api.get<{ data?: T } | T>(path);
-    if (
-      body &&
-      typeof body === "object" &&
-      !Array.isArray(body) &&
-      "data" in (body as Record<string, unknown>)
-    ) {
-      return ((body as { data?: T }).data ?? null);
-    }
-    return body as T;
+    return await api.get<T>(path);
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 204)) {
       return null;
