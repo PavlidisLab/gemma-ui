@@ -1,6 +1,7 @@
 import { startTransition, useEffect, useState } from "react";
 import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
+import { PreboardingDetailPage } from "@/features/preboarding/PreboardingDetailPage";
 import { ExperimentList } from "@/features/landing/ExperimentList";
 import { ImportPrompt } from "@/features/landing/ImportPrompt";
 import { useStickyState } from "@/lib/useStickyState";
@@ -179,6 +180,22 @@ export default function App() {
 
   if (route.kind === "workflow") {
     return <WorkflowPage groupId={route.groupId} reviewer={fullName || reviewer} />;
+  }
+
+  // Preboarded candidates (id form ``preboarding:N``) don't have a
+  // design / samples / factors yet — they're pre-import metadata
+  // shells. Route them to a dedicated read-only landing page instead
+  // of mounting Shell, which would try to fetch /design and crash.
+  // Per cab handoff HANDOFF_2026-05-24_UI_PREBOARDING_DRILLDOWN.md.
+  if (typeof route.id === "string" && route.id.startsWith("preboarding:")) {
+    return (
+      <ToastProvider>
+        <PreboardingDetailPage
+          experimentId={route.id}
+          groupContext={route.groupContext}
+        />
+      </ToastProvider>
+    );
   }
 
   return (
