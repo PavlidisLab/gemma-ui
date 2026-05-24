@@ -33,11 +33,26 @@ export default defineConfig(({ mode }) => {
   // — see ``lib/gemmaMode.ts`` for the matching UI indicator.
   const ONTOLOGY_URL =
     env.GEMMA_ONTOLOGY_URL || "https://staging-gemma.msl.ubc.ca";
+  // Diagnostics routing exception. /sample-correlation,
+  // /mean-variance, /svd, /svd/loadings are read-only Gemma
+  // endpoints that the local_api mock doesn't implement (it
+  // targets the curator's write surface, not Gemma's preprocessing
+  // output). Route them to a real Gemma so the Diagnostics tab
+  // populates in dev. Default `host.docker.internal:8080` works in
+  // the Mac/Win Docker dev stack; native dev should set
+  // GEMMA_DIAGNOSTICS_URL=http://localhost:8080 in .env.local.
+  // Drop the exception when local_api grows the diagnostics surface.
+  const DIAGNOSTICS_URL =
+    env.GEMMA_DIAGNOSTICS_URL || "http://host.docker.internal:8080";
   // eslint-disable-next-line no-console
   console.log(`[curation] /rest → ${CURATION_URL}`);
   // eslint-disable-next-line no-console
   console.log(
     `[curation] /rest/v2/annotations/{search,term} → ${ONTOLOGY_URL} (ontology routing exception)`,
+  );
+  // eslint-disable-next-line no-console
+  console.log(
+    `[curation] /rest/v2/datasets/*/{sample-correlation,mean-variance,svd,svd/loadings} → ${DIAGNOSTICS_URL} (diagnostics routing exception)`,
   );
   // eslint-disable-next-line no-console
   console.log(`[curation] /propose,/audit,/find-* → ${PROPOSER_URL}`);
@@ -54,8 +69,26 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         // Order matters — Vite matches in declaration order, so the
-        // two ontology-specific routes must come BEFORE the generic
-        // ``/rest`` catch-all below.
+        // ontology + diagnostics overrides must come BEFORE the
+        // generic ``/rest`` catch-all below.
+
+        // Diagnostics routing exception — see DIAGNOSTICS_URL above.
+        // Uses Vite's regex-prefix match: any `/rest/v2/datasets/{any
+        // id}/{sample-correlation|mean-variance|svd|svd/loadings}`
+        // hits the real Gemma instead of the local_api mock.
+        "^/rest/v2/datasets/[^/]+/(sample-correlation|mean-variance|svd(/loadings)?)(\\?.*)?$":
+          {
+            target: DIAGNOSTICS_URL,
+            changeOrigin: true,
+            secure: !DIAGNOSTICS_URL.startsWith("http://"),
+            configure: (proxy) => {
+              proxy.on("proxyReq", (proxyReq) => {
+                proxyReq.removeHeader("origin");
+                proxyReq.removeHeader("referer");
+              });
+            },
+          },
+
         "/rest/v2/annotations/search": {
           target: ONTOLOGY_URL,
           changeOrigin: true,
