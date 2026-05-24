@@ -18,12 +18,44 @@
  * are deliberately NOT here — they belong on the Single-cell tab.
  */
 
+import { useState } from "react";
 import { SampleCorrelationCard } from "./SampleCorrelationCard";
 import { PcaScreeCard } from "./PcaScreeCard";
 import { PcFactorCard } from "./PcFactorCard";
 import { MeanVarianceCard } from "./MeanVarianceCard";
 
+// Temporary opt-in gate (Paul, 2026-05-24): the four panels each hit
+// a separate gemma-rest endpoint that can be heavy. While we're doing
+// unrelated work, default the tab to a "click to fetch" affordance so
+// switching tabs doesn't fire four diagnostics requests. Drop this
+// gate (render the cards unconditionally) when the bandwidth concern
+// goes away.
 export function DiagnosticsPanel({ experimentId }: { experimentId: number }) {
+  const [fetched, setFetched] = useState(false);
+  if (!fetched) {
+    return (
+      <div className="space-y-3">
+        <div className="card px-4 py-10 flex flex-col items-center justify-center gap-3 text-center">
+          <span className="text-sm text-slate-700 dark:text-slate-200">
+            Diagnostics are not loaded yet.
+          </span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 max-w-md">
+            Sample correlation · PCA scree · PC × factor · Mean-variance.
+            Each panel hits a separate gemma-rest endpoint; opt in here to
+            avoid running them on every tab switch.
+          </span>
+          <button
+            type="button"
+            onClick={() => setFetched(true)}
+            className="mt-1 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium"
+          >
+            Fetch diagnostics
+          </button>
+        </div>
+        <PreprocessingMetadataFooter experimentId={experimentId} />
+      </div>
+    );
+  }
   return (
     <div className="space-y-3">
       {/* 4-up on lg, 2×2 on md, stacked on sm. The legacy tab was
