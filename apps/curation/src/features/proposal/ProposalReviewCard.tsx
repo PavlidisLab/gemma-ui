@@ -128,6 +128,21 @@ export function FactorReviewCard({
               const statements = fv.statements ?? [];
               const showFvMatch =
                 fv.match_type && fv.match_type !== factor.match_type;
+              // Single ontology-anchored statement whose subject
+              // label matches the FV's free-text label is the common
+              // case (label == term name). Render the Term chip
+              // INLINE in place of the plain label so the row shows
+              // the label + CURIE in one slot, and skip the separate
+              // statement list below. Multi-statement and free-text
+              // FVs keep the split layout — the statement list
+              // legitimately differs from the label.
+              const onlyStmt = statements.length === 1 ? statements[0] : null;
+              const redundant =
+                !!onlyStmt &&
+                !!onlyStmt.subject?.uri &&
+                (onlyStmt.subject.label || "").trim().toLowerCase() ===
+                  (fv.free_text_label || "").trim().toLowerCase() &&
+                !!(fv.free_text_label || "").trim();
               return (
                 <li key={i} className="text-[11px]">
                   <div className="flex items-baseline gap-1.5 flex-wrap">
@@ -146,9 +161,19 @@ export function FactorReviewCard({
                     >
                       {fv.is_baseline ? "▂" : "○"}
                     </span>
-                    <span className="flex-1 min-w-0 break-words text-slate-700 dark:text-slate-200">
-                      {lab}
-                    </span>
+                    {redundant && onlyStmt ? (
+                      <Term
+                        uri={onlyStmt.subject.uri ?? null}
+                        asLink={false}
+                        className="!whitespace-normal break-words"
+                      >
+                        {lab}
+                      </Term>
+                    ) : (
+                      <span className="flex-1 min-w-0 break-words text-slate-700 dark:text-slate-200">
+                        {lab}
+                      </span>
+                    )}
                     {showFvMatch ? (
                       <MatchTypeChip matchType={fv.match_type} />
                     ) : null}
@@ -161,7 +186,10 @@ export function FactorReviewCard({
                       </span>
                     ) : null}
                   </div>
-                  {statements.length > 0 ? (
+                  {/* Skip the statement list when redundant — the
+                      inline Term chip above already carries the
+                      single statement's subject + URI. */}
+                  {!redundant && statements.length > 0 ? (
                     <ul className="pl-3.5 mt-0.5 space-y-0.5">
                       {statements.map((s, si) => (
                         <StatementLine key={si} statement={s} />

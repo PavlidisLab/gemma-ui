@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSessionState } from "@/lib/useStickyState";
 import { ContinuousFactorView } from "./ContinuousFactorView";
 import { FactorList } from "./FactorList";
 import { FactorValueList } from "./FactorValueList";
@@ -43,7 +44,14 @@ import type { Statement } from "@/features/experiment/types";
 export function DesignEditor({ experimentId }: { experimentId: number | string }) {
   const { draft, saved, diff, apply, isLoading, loadError } = useDesignDraft();
 
-  const [selectedFactorId, setSelectedFactorId] = useState<number | null>(null);
+  // Persist the selected factor per-experiment-per-tab-session so
+  // switching to another tab and back doesn't reset the selection to
+  // the default first factor. sessionStorage is per-tab so a fresh
+  // tab gets the default cleanly; a "stuck on the wrong factor across
+  // sessions" worst-case is bounded to the current tab's lifetime.
+  const [selectedFactorId, setSelectedFactorId] = useSessionState<
+    number | null
+  >(`design.selectedFactor.${experimentId}`, null);
 
   // Compact view — global toggle that hides editing chrome on each
   // FV card (delete / revert buttons, statement-template menu,
