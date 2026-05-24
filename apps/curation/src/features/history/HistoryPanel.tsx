@@ -5,6 +5,8 @@ import {
   type AuditEvent,
 } from "@/api/history";
 import { experimentAuditTrailUrl } from "@/lib/gemmaUrls";
+import { RefreshCw } from "lucide-react";
+import { cn } from "@/lib/cn";
 
 /**
  * Audit-trail timeline for the experiment. Reads the live
@@ -24,10 +26,13 @@ import { experimentAuditTrailUrl } from "@/lib/gemmaUrls";
 export function HistoryPanel({ experimentId }: { experimentId: number }) {
   const [compact, setCompact] = useState(false);
   const [excludeEmpty, setExcludeEmpty] = useState(true);
-  const { data: events, isLoading, error } = useAuditEvents(experimentId, {
-    compact,
-    excludeEmpty,
-  });
+  const {
+    data: events,
+    isLoading,
+    isFetching,
+    error,
+    refetch,
+  } = useAuditEvents(experimentId, { compact, excludeEmpty });
   // Real Gemma's audit trail (full DWR-only view) lives at the
   // canonical web URL — link out for context the REST surface
   // can't provide. Documented in TODO-gemma-api §13.
@@ -99,11 +104,26 @@ export function HistoryPanel({ experimentId }: { experimentId: number }) {
             ⓘ
           </span>
         </label>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="ml-auto inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Re-fetch the audit trail from the server"
+          aria-label="refresh audit trail"
+        >
+          <RefreshCw
+            size={12}
+            className={cn(isFetching && "animate-spin")}
+            strokeWidth={2.25}
+          />
+          refresh
+        </button>
         <a
           href={fullHistoryUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-blue-700 hover:underline ml-auto"
+          className="text-xs text-blue-700 hover:underline"
           title="See the complete audit trail on Gemma — REST exposes only the most-recent events of each type"
         >
           full trail on Gemma ↗
