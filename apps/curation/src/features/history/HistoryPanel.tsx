@@ -270,11 +270,18 @@ const ACRONYM_OVERRIDES = new Map<string, string>([
  */
 function prettifyClassName(s: string): string {
   if (!s) return "";
+  // Drop redundant subject prefixes — the curator is already
+  // looking at an ExpressionExperiment, so a class name like
+  // ``ExpressionExperimentUpdateFromGEOEvent`` should read as
+  // just "Update from GEO." If new subject types ever enter the
+  // trail (e.g. ArrayDesign-scoped events), add their prefixes
+  // here too.
+  const trimmed = s.replace(/^ExpressionExperiment/, "");
   // Step 1: insert a space BEFORE the start of a Pascal word that
   //         follows an ALLCAPS run — "PCAAnalysis" → "PCA Analysis".
   // Step 2: insert a space between a lowercase/digit and the next
   //         uppercase — "BatchCorrection" → "Batch Correction".
-  const spaced = s
+  const spaced = trimmed
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .replace(/([a-z\d])([A-Z])/g, "$1 $2")
     // Drop the trailing " Event" — every audit class ends in it.
