@@ -1832,14 +1832,49 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
           const pairing = showCorrespondence ? fvPairings[i] : null;
           const status = pairing?.status ?? null;
           const gemmaLabel = pairing?.gemmaLabel ?? "";
+          // Harmonized with proposal-review's FactorReviewCard (2026-
+          // 05-24): single-statement FVs whose subject label matches
+          // the free-text label render only the label + CURIE in the
+          // top row and skip the per-statement subrow below.
+          const fvLab = (fv.free_text_label || "").trim().toLowerCase();
+          const onlyStmt =
+            (fv.statements?.length ?? 0) === 1 ? fv.statements[0] : null;
+          const subjectRedundant =
+            !!onlyStmt &&
+            !!onlyStmt.subject?.uri &&
+            (onlyStmt.subject.label || "").trim().toLowerCase() === fvLab &&
+            !!fvLab &&
+            !onlyStmt.predicate?.label &&
+            !onlyStmt.object?.label;
           return (
             <div key={i} className="text-[11px] space-y-0.5">
               <div className="flex items-center gap-1 flex-wrap">
+                {/* Baseline glyph (▂) when this FV is the reference
+                    level — harmonized with proposal-review's "▂ /
+                    ○" convention so baseline reads the same across
+                    audit and proposal surfaces. */}
+                {fv.is_baseline ? (
+                  <span
+                    className="text-amber-500 dark:text-amber-400 leading-none"
+                    title="baseline (reference level)"
+                    aria-label="baseline"
+                  >
+                    ▂
+                  </span>
+                ) : null}
                 {status ? <FvStatusGlyph status={status} /> : null}
                 <span className="font-mono text-slate-900 dark:text-slate-100 truncate">
                   {fv.free_text_label || <em className="text-slate-400">(unnamed)</em>}
                 </span>
-                {(fv.statements?.length ?? 0) > 0 ? (
+                {/* When the single statement's subject is redundant
+                    with the FV label, surface just the CURIE inline.
+                    Multi-statement / has-predicate FVs keep the
+                    statement subrow below. */}
+                {subjectRedundant && onlyStmt?.subject?.uri ? (
+                  <span className="font-mono text-[9px] text-emerald-700 dark:text-emerald-300">
+                    {onlyStmt.subject.uri.split(/[#/]/).filter(Boolean).pop()}
+                  </span>
+                ) : (fv.statements?.length ?? 0) > 0 ? (
                   <StatementGlyph statements={fv.statements} />
                 ) : null}
                 <span className="text-[10px] text-slate-400 dark:text-slate-500">
@@ -1867,7 +1902,10 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
                   </span>
                 ) : null}
               </div>
-              {(fv.statements?.length ?? 0) > 0 ? (
+              {/* Skip the statement subrow when the only statement
+                  was redundant with the FV label (handled inline
+                  above). Otherwise render S · P · O per statement. */}
+              {!subjectRedundant && (fv.statements?.length ?? 0) > 0 ? (
                 <div className="text-[10px] text-slate-500 dark:text-slate-400 pl-1.5 leading-snug">
                   {fv.statements.map((s, j) => (
                     <div key={j} className="flex items-center gap-1 flex-wrap">
@@ -2617,20 +2655,15 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   const catUri = matched?.category?.uri ?? null;
                   const valUri =
                     matched?.value?.uri ?? finding.proposer_term?.uri ?? null;
+                  // Value-first ordering (harmonized with ProposalReview-
+                  // Card's TagReviewCard, 2026-05-24): the resolved term
+                  // is the load-bearing identity; the category is
+                  // qualifying context. Render value chip first, then
+                  // "in", then the category in italic-muted.
                   return (
                     <span className="inline-flex items-baseline gap-x-1 mr-1 min-w-0">
                       <span className="text-slate-500 dark:text-slate-400">
                         —
-                      </span>
-                      <Term
-                        uri={catUri}
-                        asLink={false}
-                        className="!whitespace-normal break-words"
-                      >
-                        {catLabel}
-                      </Term>
-                      <span className="text-slate-400 dark:text-slate-500">
-                        :
                       </span>
                       <Term
                         uri={valUri}
@@ -2638,6 +2671,16 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                         className="!whitespace-normal break-words"
                       >
                         {valLabel}
+                      </Term>
+                      <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        in
+                      </span>
+                      <Term
+                        uri={catUri}
+                        asLink={false}
+                        className="italic opacity-80 !whitespace-normal break-words"
+                      >
+                        {catLabel}
                       </Term>
                     </span>
                   );
