@@ -29,7 +29,7 @@ const GRID = "#e5e7eb";
 
 const N_PCS = 3;
 
-export function PcFactorCard({ experimentId }: { experimentId: number }) {
+export function PcFactorCard({ experimentId }: { experimentId: number | string }) {
   const { data: svd, isLoading, error } = useDatasetSvd(experimentId);
   const { draft } = useDesignDraft();
 

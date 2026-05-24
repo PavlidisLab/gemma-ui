@@ -65,7 +65,7 @@ function hashDesign(d: Design | null | undefined): string {
   return h.toString(16);
 }
 
-function readCachedDraft(experimentId: number): CachedDraft | null {
+function readCachedDraft(experimentId: number | string): CachedDraft | null {
   try {
     const raw = window.localStorage.getItem(DRAFT_KEY_PREFIX + experimentId);
     if (!raw) return null;
@@ -91,7 +91,7 @@ function readCachedDraft(experimentId: number): CachedDraft | null {
 }
 
 function writeCachedDraft(
-  experimentId: number,
+  experimentId: number | string,
   baselineHash: string,
   draft: Design,
 ): void {
@@ -111,7 +111,7 @@ function writeCachedDraft(
   }
 }
 
-function clearCachedDraft(experimentId: number): void {
+function clearCachedDraft(experimentId: number | string): void {
   try {
     window.localStorage.removeItem(DRAFT_KEY_PREFIX + experimentId);
   } catch {
@@ -190,7 +190,7 @@ export function DesignDraftProvider({
   reviewer = "",
   children,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   reviewer?: string;
   children: ReactNode;
 }) {

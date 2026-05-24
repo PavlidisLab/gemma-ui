@@ -19,7 +19,7 @@ import { useSampleCorrelation } from "@/api/diagnostics";
 export function SampleCorrelationCard({
   experimentId,
 }: {
-  experimentId: number;
+  experimentId: number | string;
 }) {
   const { data, isLoading, error } = useSampleCorrelation(experimentId);
 

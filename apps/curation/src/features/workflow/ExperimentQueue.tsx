@@ -182,6 +182,21 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
 
   const { data: statusMap = {} } = usePipelineStatusBulk(rows.map((r) => r.id));
 
+  // For group-scoped views, the member_ids carry the prefix form
+  // (`preboarding:1` vs bare `91188`). The /datasets rows ship the
+  // numeric tail only. Build a numeric-id → original-member-id map
+  // so PipelineStatusRow can navigate with the prefix preserved
+  // (handoff: HANDOFF_2026-05-24_UI_PREBOARDING_DRILLDOWN.md).
+  const memberIdByNumericId = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const mid of group?.member_ids ?? []) {
+      const tail = mid.includes(":") ? mid.split(":")[1] : mid;
+      const numeric = Number(tail);
+      if (Number.isFinite(numeric)) map.set(numeric, mid);
+    }
+    return map;
+  }, [group]);
+
   // Reset to page 0 when filters change.
   function changeFilter(f: QuickFilter) {
     setActiveFilter(f);
@@ -244,6 +259,10 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
             dataset={d}
             status={statusMap[String(d.id)]}
             groupContext={groupId}
+            // Lossless identifier from the group's member_ids when
+            // available; falls back to the dataset's numeric id (the
+            // non-group / global queue view).
+            navId={memberIdByNumericId.get(d.id) ?? String(d.id)}
           />
         ))}
       </div>

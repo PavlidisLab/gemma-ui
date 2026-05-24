@@ -18,14 +18,14 @@
 const PREFIX = "gca:auto-applied-paper:";
 
 export function paperDismissalKey(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
 ): string {
   return `${PREFIX}${experimentId}:${proposalId}`;
 }
 
 export function isPaperDismissed(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
 ): boolean {
   try {
@@ -39,7 +39,7 @@ export function isPaperDismissed(
 }
 
 export function markPaperDismissed(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
 ): void {
   try {
@@ -55,7 +55,7 @@ export function markPaperDismissed(
 /** Clear every dismissal flag for an experiment — called by the
  *  reset-experiment flow so a fresh preboarding state gets fresh auto-apply
  *  behaviour for any pending proposals. */
-export function clearPaperDismissalsForExperiment(experimentId: number): void {
+export function clearPaperDismissalsForExperiment(experimentId: number | string): void {
   try {
     const scopedPrefix = `${PREFIX}${experimentId}:`;
     const toRemove: string[] = [];

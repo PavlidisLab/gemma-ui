@@ -11,7 +11,7 @@ import { useQuantitationTypes } from "@/api/quantitation";
 export function QuantitationTypesPanel({
   experimentId,
 }: {
-  experimentId: number;
+  experimentId: number | string;
 }) {
   const { data: qts, isLoading, error } = useQuantitationTypes(experimentId);
 

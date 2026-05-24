@@ -43,7 +43,7 @@ interface StoredChecklist {
   signal: string;
 }
 
-function readStorage(experimentId: number): StoredChecklist | null {
+function readStorage(experimentId: number | string): StoredChecklist | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(STORAGE_PREFIX + experimentId);
@@ -62,7 +62,7 @@ function readStorage(experimentId: number): StoredChecklist | null {
   }
 }
 
-function writeStorage(experimentId: number, value: StoredChecklist): void {
+function writeStorage(experimentId: number | string, value: StoredChecklist): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
@@ -74,7 +74,7 @@ function writeStorage(experimentId: number, value: StoredChecklist): void {
   }
 }
 
-function loadStoredTicks(experimentId: number): Set<string> {
+function loadStoredTicks(experimentId: number | string): Set<string> {
   const stored = readStorage(experimentId);
   return new Set(stored?.ticks ?? []);
 }
@@ -109,7 +109,7 @@ type ChecklistItem =
       reason: string;
     };
 
-export function PrePublishChecklist({ experimentId }: { experimentId: number }) {
+export function PrePublishChecklist({ experimentId }: { experimentId: number | string }) {
   // Read from the draft (not the committed server state) so an edit
   // on another tab — e.g. linking a publication via the Overview's
   // FindPublicationButton — shows up in the checklist without

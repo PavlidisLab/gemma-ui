@@ -99,7 +99,7 @@ export function AuditSidebarPanel({
   experimentId,
   stream,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   /** Audit SSE stream lifted to the App shell so the unified
    *  AgentRunDialog can fire it from the sidebar header strip.
    *  This panel just renders the progress / state. */
@@ -5143,7 +5143,7 @@ function deriveVerdict(c: {
  *  hardcoded ids; that's expected for fixture mode. The brother's
  *  next regen will use the slug format and dots will light up
  *  automatically. */
-function adaptFixture(experimentId: number): AuditReport {
+function adaptFixture(experimentId: number | string): AuditReport {
   const raw = sampleReport as unknown as AuditReport;
   return {
     ...raw,

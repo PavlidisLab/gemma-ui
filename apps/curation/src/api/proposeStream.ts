@@ -55,7 +55,7 @@ const INITIAL_STATE: ProposeStreamState = {
   proposal: null,
 };
 
-export function useProposeStream(experimentId: number) {
+export function useProposeStream(experimentId: number | string) {
   const qc = useQueryClient();
   const [state, setState] = useState<ProposeStreamState>(INITIAL_STATE);
   const ctlRef = useRef<AbortController | null>(null);

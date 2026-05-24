@@ -735,7 +735,7 @@ export interface AuditReport {
   /** Server-assigned. Null on a freshly-built report that hasn't been
    *  persisted yet (e.g. mid-stream). */
   audit_id: string | null;
-  experiment_id: number;
+  experiment_id: number | string;
   experiment_short_name: string;
   /** ISO 8601 UTC. */
   audited_at: string;

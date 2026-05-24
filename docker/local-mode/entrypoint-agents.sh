@@ -8,11 +8,18 @@ set -eu
 
 cd /agents
 
-if [ ! -f /agents/.installed-marker ] || [ "${FORCE_REINSTALL:-0}" = "1" ]; then
+# Marker lives in /var (container layer), NOT under /agents (host
+# bind-mount). Bind-mounted markers survive container recreate, which
+# means the pip install -e step gets skipped and Python can't find
+# the package — observed as ``ModuleNotFoundError: click`` after a
+# fresh image rebuild (CAB smoke 2026-05-24).
+MARKER=/var/lib/curation-agents-installed
+if [ ! -f "$MARKER" ] || [ "${FORCE_REINSTALL:-0}" = "1" ]; then
     echo "[entrypoint] installing gemma-curation-agents (editable)"
     pip install --quiet --upgrade pip
     pip install --quiet -e .
-    touch /agents/.installed-marker
+    mkdir -p "$(dirname "$MARKER")"
+    touch "$MARKER"
 fi
 
 exec "$@"

@@ -71,7 +71,7 @@ export function bioAssayScoresFromSvd(
   return out;
 }
 
-export function useDatasetSvd(experimentId: number) {
+export function useDatasetSvd(experimentId: number | string) {
   return useQuery({
     queryKey: ["diagnostics", "svd", experimentId],
     queryFn: async () => {
@@ -82,7 +82,7 @@ export function useDatasetSvd(experimentId: number) {
         `/rest/v2/datasets/${experimentId}/svd`,
       );
     },
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
   });
 }
 
@@ -108,14 +108,14 @@ export interface SampleCorrelationMatrix {
   method?: string | null;
 }
 
-export function useSampleCorrelation(experimentId: number) {
+export function useSampleCorrelation(experimentId: number | string) {
   return useQuery({
     queryKey: ["diagnostics", "sample-correlation", experimentId],
     queryFn: () =>
       getOrNull<SampleCorrelationMatrix>(
         `/rest/v2/datasets/${experimentId}/sample-correlation`,
       ),
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
   });
 }
 
@@ -143,14 +143,14 @@ export interface MeanVarianceData {
   source?: string | null;
 }
 
-export function useMeanVariance(experimentId: number) {
+export function useMeanVariance(experimentId: number | string) {
   return useQuery({
     queryKey: ["diagnostics", "mean-variance", experimentId],
     queryFn: () =>
       getOrNull<MeanVarianceData>(
         `/rest/v2/datasets/${experimentId}/mean-variance`,
       ),
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
   });
 }
 
@@ -185,7 +185,7 @@ export interface PcLoadings {
 }
 
 export function usePcLoadings(
-  experimentId: number,
+  experimentId: number | string,
   pc: number | null,
   top = 50,
   direction: PcLoadingsDirection = "both",
@@ -203,6 +203,6 @@ export function usePcLoadings(
       getOrNull<PcLoadings>(
         `/rest/v2/datasets/${experimentId}/svd/loadings?pc=${pc}&top=${top}&direction=${direction}`,
       ),
-    enabled: experimentId > 0 && pc !== null,
+    enabled: Boolean(experimentId) && pc !== null,
   });
 }

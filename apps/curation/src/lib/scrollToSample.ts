@@ -30,7 +30,7 @@ const REQUEST_EVENT = "gemma:request-sample-scroll";
 const ROW_EVENT = "gemma:samples-scroll-row";
 
 export interface RequestSampleScrollDetail {
-  experimentId: number;
+  experimentId: number | string;
   shortName: string;
 }
 
@@ -42,7 +42,7 @@ export interface SamplesScrollRowDetail {
  *  in the samples table. No-op when no Shell is mounted (e.g. the
  *  audit detail page outside an experiment). */
 export function requestSampleScroll(
-  experimentId: number,
+  experimentId: number | string,
   shortName: string,
 ): void {
   window.dispatchEvent(

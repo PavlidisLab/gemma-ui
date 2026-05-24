@@ -35,6 +35,18 @@ services:
       # (``./up.sh``) injects this from keychain or falls back to
       # ``dev-token-123``.
       GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
+      # Credentials local_api uses when it calls gemma-rest's admin
+      # endpoints (e.g. POST /admin/tasks/geo-scrape via
+      # /rest/v2/scrape/dry-run). Defaults to the local-mode seeded
+      # ``groupadmin`` user; override for staging / prod targets.
+      GEMMA_USERNAME: ${GEMMA_USERNAME:-groupadmin}
+      GEMMA_PASSWORD: ${GEMMA_PASSWORD:-groupadmin}
+      # Upstream gemma-rest base. Matches the proposer service so
+      # local_api's `_gemma_base()` lookup resolves to the same target
+      # — needed for ``fetch_geo_scrape_dry_run`` and any other
+      # local_api → gemma-rest passthroughs. Default points at the
+      # local-mode compose container; override for staging / prod.
+      GEMMA_BASE_URL: ${GEMMA_BASE_URL:-http://gemma-rest:8080}
     volumes:
       - ${AGENTS_REPO:-../../../gemma-curation-agents}:/agents
     ports:
@@ -67,6 +79,11 @@ services:
       # Read-side Gemma — override for self-contained Linux setup
       # (set GEMMA_BASE_URL=http://gemma-rest:8080 + use --profile gemma).
       GEMMA_BASE_URL: ${GEMMA_BASE_URL:-https://staging-gemma.msl.ubc.ca}
+      # Match local_api: gemma-rest admin credentials. Same defaults so
+      # both services authenticate as the seeded ``groupadmin`` against
+      # local-mode gemma-rest; both flip together for staging / prod.
+      GEMMA_USERNAME: ${GEMMA_USERNAME:-groupadmin}
+      GEMMA_PASSWORD: ${GEMMA_PASSWORD:-groupadmin}
       # Optional Zotero credentials for biolit fetcher.
       GEMMA_AGENTS_USE_ZOTERO: ${GEMMA_AGENTS_USE_ZOTERO:-}
       ZOTERO_API_KEY: ${ZOTERO_API_KEY:-}
@@ -144,6 +161,17 @@ services:
       GEMMA_DB_NAME: ${GEMMA_DB_NAME:-gemd}
       GEMMA_DB_USER: ${GEMMA_DB_USER:-gemmaadmin}
       GEMMA_DB_PASSWORD: ${GEMMA_DB_PASSWORD:-gemmatoast}
+      # MySQL 8 uses caching_sha2_password by default; without TLS, the
+      # connector needs allowPublicKeyRetrieval=true to fetch the RSA
+      # public key for the auth handshake. Safe in local-mode (no real
+      # secrets on the wire). Default keeps useSSL=false from
+      # default.properties intact.
+      GEMMA_DB_URLQUERY: ${GEMMA_DB_URLQUERY:-useSSL=false&allowPublicKeyRetrieval=true}
+      # MySQL 8.0.13 removed NO_AUTO_CREATE_USER from valid sql_mode
+      # flags; default.properties line 90 still lists it for prod
+      # (which runs MySQL 5.7). Drop the flag for local-mode's
+      # MySQL 8.0 image so the connection-init SET sql_mode succeeds.
+      GEMMA_DB_HIKARI_SESSIONVARIABLES: ${GEMMA_DB_HIKARI_SESSIONVARIABLES:-sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'}
       GEMMA_SENTINELS_IGNORE: "true"
       CATALINA_OPTS: "-Dspring.profiles.active=production"
     volumes:
@@ -165,13 +193,29 @@ services:
       MYSQL_ROOT_PASSWORD: ${GEMMA_DB_ROOT_PASSWORD:-gemmatoast}
     volumes:
       - gemma-db-data:/var/lib/mysql
-      # Drop a seed .sql.gz here for a one-shot bootstrap on first
-      # ``docker compose up``. Bro can publish a periodic dump under
-      # a known path; until then the DB starts empty and you load
-      # via the existing import tooling.
-      - ${GEMMA_DB_SEED_DIR:-./seed-empty}:/docker-entrypoint-initdb.d:ro
+      # /docker-entrypoint-initdb.d runs once on first start (empty
+      # data volume) BEFORE the real MySQL server accepts external
+      # connections — no race with downstream consumers.
+      #
+      # Bootstrap order:
+      #   1. 01-apply-migrations.sh — sources every gemma-core
+      #      V*__*.sql in numeric version order (sort -V) so V2
+      #      lands before V10. Replaces the manual Flyway step prod
+      #      relies on (gemma's DatabaseSchemaUpdatePopulator is a
+      #      no-op stub).
+      #   2. 99-groupadmin-seed.sql — local-mode admin user.
+      #
+      # Set ``GEMMA_REPO`` if the gemma checkout isn't at
+      # ``$HOME/Dev/eclipseworkspace/Gemma``.
+      - ${GEMMA_REPO:-${HOME}/Dev/eclipseworkspace/Gemma}/gemma-core/src/main/resources/db/migration/mysql:/gemma-migrations:ro
+      - ./apply-gemma-migrations.sh:/docker-entrypoint-initdb.d/01-apply-migrations.sh:ro
+      - ./groupadmin-seed.sql:/docker-entrypoint-initdb.d/99-groupadmin-seed.sql:ro
+    # Host port 3307 (not 3306) — Paul's host MySQL holds 3306 for
+    # gemdtest. The gemma-rest container reaches gemma-db over the
+    # compose network on the internal 3306, so this mapping is purely
+    # for host-side debugging (``mysql -h 127.0.0.1 -P 3307 -u root``).
     ports:
-      - "3306:3306"
+      - "${GEMMA_DB_HOST_PORT:-3307}:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${GEMMA_DB_ROOT_PASSWORD:-gemmatoast}"]
       interval: 10s

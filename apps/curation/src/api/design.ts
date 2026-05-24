@@ -8,7 +8,7 @@ import {
 } from "./composeDesign";
 
 const KEY = {
-  byExperiment: (experimentId: number) => ["design", experimentId] as const,
+  byExperiment: (experimentId: number | string) => ["design", experimentId] as const,
 };
 
 /** Per bro's `STATUS_CURATION_TO_GEMMA_2_0.md` §2 reply: compose the
@@ -16,10 +16,10 @@ const KEY = {
  *  `/datasets/{id}/design` + the latest curation-proposal overlay,
  *  rather than expecting a single composite endpoint. Either
  *  endpoint missing → graceful fallback to the other. */
-export function useDesign(experimentId: number) {
+export function useDesign(experimentId: number | string) {
   return useQuery({
     queryKey: KEY.byExperiment(experimentId),
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
     queryFn: async (): Promise<Design> => {
       const [g2, overlay, datasetMeta] = await Promise.all([
         api.get<G2Design>(`/rest/v2/datasets/${experimentId}/design`),
@@ -77,7 +77,7 @@ export interface DatasetMeta {
   original_platform_id?: number | null;
 }
 
-async function fetchDatasetMeta(experimentId: number): Promise<DatasetMeta> {
+async function fetchDatasetMeta(experimentId: number | string): Promise<DatasetMeta> {
   try {
     // Gemma 2.0 returns the dataset envelope as a single-element
     // array. The short-name + title we need for the banner live on
@@ -93,7 +93,7 @@ async function fetchDatasetMeta(experimentId: number): Promise<DatasetMeta> {
 }
 
 async function fetchLatestProposalOverlay(
-  experimentId: number,
+  experimentId: number | string,
 ): Promise<CurationProposalOverlay | null> {
   // Pulls the latest PROPOSAL-kind curation proposal so we can lift
   // its payload overlay (is_baseline / biomaterial_short_names /
@@ -151,7 +151,7 @@ function extractOverlayFromProposalsResponse(
  * server can stamp it into the history log. Mock auth — the real
  * Gemma side will pull from the bearer/session.
  */
-export function useUpdateDesign(experimentId: number, reviewer = "") {
+export function useUpdateDesign(experimentId: number | string, reviewer = "") {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (design: Design) => {

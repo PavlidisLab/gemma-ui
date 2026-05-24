@@ -29,7 +29,7 @@ const TEXT = "#1f2937";
 
 const MAX_BARS = 10;
 
-export function PcaScreeCard({ experimentId }: { experimentId: number }) {
+export function PcaScreeCard({ experimentId }: { experimentId: number | string }) {
   const { data, isLoading, error } = useDatasetSvd(experimentId);
   const [openPc, setOpenPc] = useState<number | null>(null);
 
@@ -229,7 +229,7 @@ function PcLoadingsPopup({
   pc,
   onClose,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   pc: number;
   onClose: () => void;
 }) {

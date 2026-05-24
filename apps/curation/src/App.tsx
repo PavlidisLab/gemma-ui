@@ -244,7 +244,7 @@ function ComparisonModeBanner({
   experimentId,
   groupId,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   groupId: string | undefined;
 }) {
   const { data: group } = useGroup(groupId);
@@ -290,7 +290,7 @@ function Shell({
   initialTab,
   groupContext,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   reviewer: string;
   fullName: string;
   initialTab?: string;
@@ -604,7 +604,7 @@ function MainGrid({
   proposalsFetching: _proposalsFetching,
 }: {
   activeTab: TabId;
-  experimentId: number;
+  experimentId: number | string;
   reviewer: string;
   proposalsLoading: boolean;
   proposalsError: string | null;
@@ -1174,7 +1174,7 @@ function SharedCommitBar({
   experimentId,
   reviewer,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   reviewer: string;
 }) {
   const { diff, draft, commit, discard, saving, saveError } = useDesignDraft();
@@ -1225,7 +1225,7 @@ function SharedCommitBar({
 function ExperimentShellLoading({
   experimentId,
 }: {
-  experimentId: number;
+  experimentId: number | string;
 }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 gap-3 px-4">

@@ -181,13 +181,13 @@ function VerdictTab({
 }
 
 interface Group {
-  experimentId: number;
+  experimentId: number | string;
   experimentShortName: string;
   items: AuditReport[];
 }
 
 function groupByExperiment(items: AuditReport[]): Group[] {
-  const m = new Map<number, Group>();
+  const m = new Map<number | string, Group>();
   for (const a of items) {
     const g = m.get(a.experiment_id) ?? {
       experimentId: a.experiment_id,

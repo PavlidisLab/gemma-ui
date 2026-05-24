@@ -26,10 +26,10 @@ export interface QuantitationType {
   vector_type: string;
 }
 
-const KEY = (experimentId: number) =>
+const KEY = (experimentId: number | string) =>
   ["quantitation-types", experimentId] as const;
 
-export function useQuantitationTypes(experimentId: number) {
+export function useQuantitationTypes(experimentId: number | string) {
   return useQuery({
     queryKey: KEY(experimentId),
     queryFn: () =>

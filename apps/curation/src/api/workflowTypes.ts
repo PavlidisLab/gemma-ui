@@ -75,7 +75,7 @@ export interface GeeqScores {
 }
 
 export interface ExperimentPipelineStatus {
-  dataset_id: number;
+  dataset_id: number | string;
   analysis: AnalysisTrack;
   curation: CurationTrack;
   is_public: boolean;

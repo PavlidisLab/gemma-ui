@@ -14,11 +14,11 @@
 export const GEMMA_WEB_URL: string =
   import.meta.env.VITE_GEMMA_WEB_URL ?? "https://gemma.msl.ubc.ca";
 
-export function experimentPageUrl(experimentId: number): string {
+export function experimentPageUrl(experimentId: number | string): string {
   return `${GEMMA_WEB_URL}/expressionExperiment/showExpressionExperiment.html?id=${experimentId}`;
 }
 
-export function experimentAuditTrailUrl(experimentId: number): string {
+export function experimentAuditTrailUrl(experimentId: number | string): string {
   return `${GEMMA_WEB_URL}/expressionExperiment/showExpressionExperimentAuditTrail.html?id=${experimentId}`;
 }
 

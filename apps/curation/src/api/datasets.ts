@@ -168,7 +168,7 @@ export function useImportFromGemma() {
  * Wraps ``useImportFromGemma`` so the caller doesn't have to pass
  * the experiment id at the mutation site.
  */
-export function useResetExperiment(experimentId: number) {
+export function useResetExperiment(experimentId: number | string) {
   const importer = useImportFromGemma();
   return {
     ...importer,
@@ -214,7 +214,7 @@ export interface RenameDatasetResponse {
   short_name: string;
 }
 
-export function useRenameExperiment(experimentId: number) {
+export function useRenameExperiment(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (shortName: string) =>
@@ -255,7 +255,7 @@ export interface DatasetVisibility {
   published_by: string;
 }
 
-const VISIBILITY_KEY = (experimentId: number) =>
+const VISIBILITY_KEY = (experimentId: number | string) =>
   ["dataset-visibility", experimentId] as const;
 
 /**
@@ -263,7 +263,7 @@ const VISIBILITY_KEY = (experimentId: number) =>
  * `GET /visibility` endpoint so the UI works against both old
  * evaluation packages and bro's current mock.
  */
-export function useDatasetVisibility(experimentId: number) {
+export function useDatasetVisibility(experimentId: number | string) {
   return useQuery({
     queryKey: VISIBILITY_KEY(experimentId),
     queryFn: () =>
@@ -280,7 +280,7 @@ export function useDatasetVisibility(experimentId: number) {
  * everyone with Gemma access; the UI gates it behind a
  * `ConfirmModal`.
  */
-export function usePublishExperiment(experimentId: number, reviewer: string) {
+export function usePublishExperiment(experimentId: number | string, reviewer: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>

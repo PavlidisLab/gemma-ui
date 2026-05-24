@@ -63,7 +63,7 @@ interface AuditContextValue {
   /** The experiment this audit belongs to. Surfaced so consumers
    *  (e.g. finding cards needing to address the samples table)
    *  don't have to thread it through props from the Shell. */
-  experimentId: number;
+  experimentId: number | string;
   /** All audits on this experiment (ordered most-recent-first per the
    *  server contract). Used by the dual-agent review header to render
    *  a prev/next switcher when the curator has run multiple audits
@@ -210,7 +210,7 @@ export function AuditProvider({
   showAuditSidebar,
   children,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   /** Stamped onto PATCH requests as the disposition's `reviewer`.
    *  Pulled from the session in App.tsx. Empty string is acceptable
    *  for dev (server still records the disposition). */

@@ -163,7 +163,7 @@ function StatusTab({
 }
 
 interface Group {
-  experimentId: number;
+  experimentId: number | string;
   experimentShortName: string;
   items: Proposal[];
 }

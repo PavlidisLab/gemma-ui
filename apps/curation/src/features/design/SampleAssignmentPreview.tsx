@@ -37,7 +37,7 @@ export function SampleAssignmentPreview({
   /** Used to build the "open Samples tab" route for the bulk-assign
    *  shortcut. The bulk affordance lives on the Samples tab; we
    *  just deep-link there. */
-  experimentId: number;
+  experimentId: number | string;
   /** Move many biomaterials to one target FV in a single design
    *  pass. Drag/drop on a single tile in a single-cell experiment
    *  fans out to all sibling cell-type buckets — without this bulk

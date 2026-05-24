@@ -57,7 +57,7 @@ const INITIAL_STATE: AuditStreamState = {
   report: null,
 };
 
-export function useAuditStream(experimentId: number) {
+export function useAuditStream(experimentId: number | string) {
   const qc = useQueryClient();
   const [state, setState] = useState<AuditStreamState>(INITIAL_STATE);
   const ctlRef = useRef<AbortController | null>(null);

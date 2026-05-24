@@ -165,7 +165,7 @@ export interface DatasetMetaSlim {
 
 export function composeCurationDesign(
   g2: G2Design,
-  experimentId: number,
+  experimentId: number | string,
   experimentShortName: string,
   overlay?: CurationProposalOverlay | null,
   externalSource?: ExternalSource | null,

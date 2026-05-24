@@ -23,7 +23,7 @@ import { cn } from "@/lib/cn";
  *   - "exclude empty" — drop the boilerplate U events that have
  *     empty event_type + null detail
  */
-export function HistoryPanel({ experimentId }: { experimentId: number }) {
+export function HistoryPanel({ experimentId }: { experimentId: number | string }) {
   const [compact, setCompact] = useState(false);
   const [excludeEmpty, setExcludeEmpty] = useState(true);
   // Panel-level "expand all" — when true, every row renders with

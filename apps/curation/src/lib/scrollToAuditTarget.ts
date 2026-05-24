@@ -31,7 +31,7 @@ const REQUEST_EVENT = "gemma:request-audit-focus";
 const FOCUS_EVENT = "gemma:audit-focus-target";
 
 export interface RequestAuditFocusDetail {
-  experimentId: number;
+  experimentId: number | string;
   targetId: string;
   /** Optional CSS selector to prefer over the generic
    *  `[data-audit-target="<targetId>"]` lookup. Used by issue-code-
@@ -58,7 +58,7 @@ export interface AuditFocusTargetDetail {
  *  experiment shell but whose curator-meaningful affordance lives
  *  in a specific section (tags / factors / etc). */
 export function requestAuditFocus(
-  experimentId: number,
+  experimentId: number | string,
   targetId: string,
   focusSelector?: string,
 ): void {

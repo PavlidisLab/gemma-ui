@@ -30,7 +30,7 @@ interface AuditListResponse {
 
 
 const KEY = {
-  byExperiment: (experimentId: number) =>
+  byExperiment: (experimentId: number | string) =>
     ["audits", "by-experiment", experimentId] as const,
   inbox: () => ["audits", "inbox"] as const,
   detail: (auditId: string) => ["audits", "detail", auditId] as const,
@@ -40,7 +40,7 @@ const KEY = {
  *  the most recent item as "the current audit for this experiment".
  *  Disabled when `experimentId` is missing / negative — keeps the
  *  query off until the shell knows which experiment is loaded. */
-export function useAuditsForExperiment(experimentId: number) {
+export function useAuditsForExperiment(experimentId: number | string) {
   return useQuery({
     queryKey: KEY.byExperiment(experimentId),
     queryFn: async () => {
@@ -65,7 +65,7 @@ export function useAuditsForExperiment(experimentId: number) {
         throw e;
       }
     },
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
     refetchOnWindowFocus: true,
   });
 }
@@ -99,7 +99,7 @@ export function useAuditDetail(auditId: string | null | undefined) {
  *  there) and the detail query for this audit_id. We don't try to
  *  patch the cache surgically — refetch is cheap and the server is
  *  authoritative for which disposition wins per `target_id`. */
-export function usePatchDisposition(experimentId: number) {
+export function usePatchDisposition(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -139,7 +139,7 @@ export function usePatchDisposition(experimentId: number) {
  *  `finalized_at` + `finalized_by`; subsequent PATCH attempts on
  *  this audit return 409 until a `useReopenAudit` flips the gate
  *  back off. The agent side aggregates only finalized audits. */
-export function useFinalizeAudit(experimentId: number) {
+export function useFinalizeAudit(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -167,7 +167,7 @@ export function useFinalizeAudit(experimentId: number) {
 
 /** Reopen a finalized audit so the curator can keep dispositioning
  *  without losing the prior triage state. */
-export function useReopenAudit(experimentId: number) {
+export function useReopenAudit(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -194,7 +194,7 @@ export function useReopenAudit(experimentId: number) {
  *  dialog when we go end-to-end (the SSE stream variant lands in a
  *  later iteration). Server assigns `audit_id` and any inbound
  *  `dispositions` are dropped per the contract. */
-export function useSubmitAudit(experimentId: number) {
+export function useSubmitAudit(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (report: AuditReport) =>

@@ -53,13 +53,13 @@ export interface AuditEvent {
 }
 
 const KEY = (
-  experimentId: number,
+  experimentId: number | string,
   compact: boolean,
   excludeEmpty: boolean,
 ) => ["audit-events", experimentId, compact, excludeEmpty] as const;
 
 export function useAuditEvents(
-  experimentId: number,
+  experimentId: number | string,
   options: {
     limit?: number;
     /** gemma-rest `compact=true` — server-side dedup of

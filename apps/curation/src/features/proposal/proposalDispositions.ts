@@ -48,15 +48,15 @@ const LS_PREFIX = "gemma-proposal-dispositions";
 const LS_NOTES_PREFIX = "gemma-proposal-disposition-notes";
 const LS_FEEDBACK_PREFIX = "gemma-proposal-feedback";
 
-function storageKey(experimentId: number, proposalId: string): string {
+function storageKey(experimentId: number | string, proposalId: string): string {
   return `${LS_PREFIX}:${experimentId}:${proposalId}`;
 }
 
-function notesStorageKey(experimentId: number, proposalId: string): string {
+function notesStorageKey(experimentId: number | string, proposalId: string): string {
   return `${LS_NOTES_PREFIX}:${experimentId}:${proposalId}`;
 }
 
-function feedbackStorageKey(experimentId: number, proposalId: string): string {
+function feedbackStorageKey(experimentId: number | string, proposalId: string): string {
   return `${LS_FEEDBACK_PREFIX}:${experimentId}:${proposalId}`;
 }
 
@@ -64,7 +64,7 @@ export type DispositionMap = Map<ProposalElementKey, ProposalDisposition>;
 export type NoteMap = Map<ProposalElementKey, string>;
 
 export function loadDispositions(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
 ): DispositionMap {
   try {
@@ -78,7 +78,7 @@ export function loadDispositions(
 }
 
 export function saveDispositions(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
   map: DispositionMap,
 ): void {
@@ -96,7 +96,7 @@ export function saveDispositions(
 }
 
 export function loadNotes(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
 ): NoteMap {
   try {
@@ -112,7 +112,7 @@ export function loadNotes(
 }
 
 export function saveNotes(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
   map: NoteMap,
 ): void {
@@ -137,7 +137,7 @@ export function saveNotes(
  * (redo with notes / accept / reject) lives one layer up.
  */
 export function loadFeedback(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
 ): string {
   try {
@@ -152,7 +152,7 @@ export function loadFeedback(
 }
 
 export function saveFeedback(
-  experimentId: number,
+  experimentId: number | string,
   proposalId: string,
   value: string,
 ): void {
@@ -168,7 +168,7 @@ export function saveFeedback(
   }
 }
 
-export function clearDispositionsForExperiment(experimentId: number): void {
+export function clearDispositionsForExperiment(experimentId: number | string): void {
   try {
     const prefix = `${LS_PREFIX}:${experimentId}:`;
     const toRemove: string[] = [];

@@ -13,7 +13,7 @@ import { useEscape } from "@/lib/useEscape";
  *  the design-draft cache pattern (see DesignDraftContext). */
 const NOTE_DRAFT_KEY_PREFIX = "gca:note-draft:";
 
-function readCachedNote(experimentId: number): string | null {
+function readCachedNote(experimentId: number | string): string | null {
   try {
     return window.localStorage.getItem(NOTE_DRAFT_KEY_PREFIX + experimentId);
   } catch {
@@ -21,7 +21,7 @@ function readCachedNote(experimentId: number): string | null {
   }
 }
 
-function writeCachedNote(experimentId: number, text: string): void {
+function writeCachedNote(experimentId: number | string, text: string): void {
   try {
     if (text) {
       window.localStorage.setItem(NOTE_DRAFT_KEY_PREFIX + experimentId, text);
@@ -34,7 +34,7 @@ function writeCachedNote(experimentId: number, text: string): void {
   }
 }
 
-function clearCachedNote(experimentId: number): void {
+function clearCachedNote(experimentId: number | string): void {
   try {
     window.localStorage.removeItem(NOTE_DRAFT_KEY_PREFIX + experimentId);
   } catch {
@@ -75,7 +75,7 @@ export function NotesDrawer({
   reviewer,
   onClose,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   reviewer: string;
   onClose: () => void;
 }) {

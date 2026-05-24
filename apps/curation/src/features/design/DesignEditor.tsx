@@ -40,7 +40,7 @@ import type { Statement } from "@/features/experiment/types";
  * the same uncommitted draft, and the `<CommitBar/>` is rendered
  * once at App level.
  */
-export function DesignEditor({ experimentId }: { experimentId: number }) {
+export function DesignEditor({ experimentId }: { experimentId: number | string }) {
   const { draft, saved, diff, apply, isLoading, loadError } = useDesignDraft();
 
   const [selectedFactorId, setSelectedFactorId] = useState<number | null>(null);

@@ -15,7 +15,7 @@ import type { Design, Factor } from "@/features/experiment/types";
  * live in `DiagnosticsPanel`. The two surfaces are siblings in the
  * tab bar — this one is "Quality control".
  */
-export function QualityControlPanel({ experimentId }: { experimentId: number }) {
+export function QualityControlPanel({ experimentId }: { experimentId: number | string }) {
   // Read the in-memory draft, not the saved server design — otherwise
   // uncommitted factor adds / FV reassignments don't show up in
   // diagnostics ("factors: 0" while samples are visibly assigned).
@@ -46,7 +46,7 @@ function Body({
   experimentId,
 }: {
   design: Design;
-  experimentId: number;
+  experimentId: number | string;
 }) {
   const validation = useMemo(() => validateDesign(design), [design]);
 

@@ -9,7 +9,7 @@ import { navigate } from "@/routes";
  * the URL — usually that's enough to find it. Curator can edit
  * (e.g. type the GSE accession instead) before submitting.
  */
-export function ImportPrompt({ experimentId }: { experimentId: number }) {
+export function ImportPrompt({ experimentId }: { experimentId: number | string }) {
   const importer = useImportFromGemma();
   const [ref, setRef] = useState(String(experimentId));
 

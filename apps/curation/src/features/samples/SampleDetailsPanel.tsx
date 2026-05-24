@@ -75,7 +75,7 @@ interface SortState {
  * uncommitted edits made elsewhere (e.g. drag-drop in the design
  * tab).
  */
-export function SampleDetailsPanel({ experimentId }: { experimentId: number }) {
+export function SampleDetailsPanel({ experimentId }: { experimentId: number | string }) {
   const { draft, saved, apply, isLoading, loadError } = useDesignDraft();
   const toast = useToast();
   // After a "+ promote to factor" click, the new factor appears as

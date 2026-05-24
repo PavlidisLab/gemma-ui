@@ -31,7 +31,14 @@ export type Route =
   | { kind: "audit-detail"; auditId: string }
   | {
       kind: "experiment";
-      id: number;
+      /** Opaque dataset identifier. Bare numeric form (e.g. ``"91654"``)
+       *  resolves to the `designs` table on local_api / a real Gemma
+       *  EE; the ``preboarding:N`` prefixed form resolves to the
+       *  per-preboarding row in local_api's preboarding table. Both
+       *  forms are accepted by the server's `/rest/v2/datasets/{id}`
+       *  endpoints; the UI keeps the identifier opaque end-to-end so
+       *  the round-trip is lossless. */
+      id: string;
       tab?: ExperimentTab;
       /** Active workflow Group context. When present, the experiment
        *  banner renders an inline prev/next nav cluster anchored to
@@ -45,14 +52,17 @@ export type Route =
 
 export function parseRoute(): Route {
   const h = (typeof window !== "undefined" && window.location.hash) || "";
-  const m = h.match(/^#\/experiments\/(\d+)(?:\?(.*))?$/);
+  // Accepts a bare numeric id OR a ``preboarding:N`` prefixed id. The
+  // prefix survives the URL → server round-trip; downstream consumers
+  // treat the id as an opaque string.
+  const m = h.match(/^#\/experiments\/(preboarding:\d+|\d+)(?:\?(.*))?$/);
   if (m) {
     const params = m[2] ? new URLSearchParams(m[2]) : null;
     const tab = params?.get("tab") ?? null;
     const groupContext = params?.get("group") ?? null;
     return {
       kind: "experiment",
-      id: Number(m[1]),
+      id: m[1],
       tab: tab ? (tab as ExperimentTab) : undefined,
       groupContext: groupContext || undefined,
     };
@@ -92,7 +102,7 @@ export function navigate(target: string): void {
 }
 
 export function experimentRoute(
-  id: number,
+  id: number | string,
   tab?: ExperimentTab,
   groupContext?: string,
 ): string {
@@ -100,7 +110,10 @@ export function experimentRoute(
   if (tab) params.set("tab", tab);
   if (groupContext) params.set("group", groupContext);
   const qs = params.toString();
-  return `#/experiments/${id}${qs ? `?${qs}` : ""}`;
+  // ``encodeURIComponent`` preserves the ``preboarding:N`` colon and
+  // bare numeric form alike. Caller passes whatever the group's
+  // ``memberIds`` returned (lossless round-trip).
+  return `#/experiments/${encodeURIComponent(String(id))}${qs ? `?${qs}` : ""}`;
 }
 
 export function workflowRoute(groupId?: string): string {

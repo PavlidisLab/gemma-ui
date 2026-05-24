@@ -38,11 +38,11 @@ import type {
 // ---------------------------------------------------------------------------
 
 const KEY = {
-  pipelineStatus: (id: number) =>
+  pipelineStatus: (id: number | string) =>
     ["workflow", "pipeline-status", id] as const,
-  pipelineStatusBulk: (ids: number[]) =>
+  pipelineStatusBulk: (ids: (number | string)[]) =>
     ["workflow", "pipeline-status-bulk", [...ids].sort()] as const,
-  geeq: (id: number) =>
+  geeq: (id: number | string) =>
     ["workflow", "geeq", id] as const,
   task: (taskId: string) =>
     ["workflow", "task", taskId] as const,
@@ -68,7 +68,7 @@ const KEY = {
 // Pipeline status — reads
 // ---------------------------------------------------------------------------
 
-export function usePipelineStatus(experimentId: number) {
+export function usePipelineStatus(experimentId: number | string) {
   return useQuery({
     queryKey: KEY.pipelineStatus(experimentId),
     queryFn: async () => {
@@ -77,7 +77,7 @@ export function usePipelineStatus(experimentId: number) {
       );
       return adaptPipelineStatus(raw, experimentId);
     },
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
     refetchOnWindowFocus: true,
   });
 }
@@ -139,7 +139,7 @@ function mapGemmaStatus(s: unknown): import("./workflowTypes").StepStatus {
   }
 }
 
-function adaptPipelineStatus(raw: unknown, id: number): ExperimentPipelineStatus {
+function adaptPipelineStatus(raw: unknown, id: number | string): ExperimentPipelineStatus {
   if (!raw || typeof raw !== "object") {
     return blankPipelineStatus(id);
   }
@@ -212,7 +212,7 @@ function combineSteps(steps: import("./workflowTypes").PipelineStep[]): import("
   return worst;
 }
 
-function blankPipelineStatus(id: number): ExperimentPipelineStatus {
+function blankPipelineStatus(id: number | string): ExperimentPipelineStatus {
   return {
     dataset_id: id,
     analysis: {
@@ -322,7 +322,7 @@ function adaptDatasetListResponse(
 // Pipeline dispatch mutations
 // ---------------------------------------------------------------------------
 
-function useDispatch(experimentId: number, path: string, _step: string) {
+function useDispatch(experimentId: number | string, path: string, _step: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body?: unknown) =>
@@ -333,19 +333,19 @@ function useDispatch(experimentId: number, path: string, _step: string) {
   });
 }
 
-export function useRunPreprocess(experimentId: number) {
+export function useRunPreprocess(experimentId: number | string) {
   return useDispatch(experimentId, "preprocess", "preprocess");
 }
 
-export function useRunDiagnostics(experimentId: number) {
+export function useRunDiagnostics(experimentId: number | string) {
   return useDispatch(experimentId, "preprocess/diagnostics", "pca");
 }
 
-export function useFetchBatchInfo(experimentId: number) {
+export function useFetchBatchInfo(experimentId: number | string) {
   return useDispatch(experimentId, "batchInformation/fetch", "batch_info");
 }
 
-export function useRecalculateGeeq(experimentId: number) {
+export function useRecalculateGeeq(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
@@ -357,7 +357,7 @@ export function useRecalculateGeeq(experimentId: number) {
   });
 }
 
-export function useRunDea(experimentId: number) {
+export function useRunDea(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body?: DifferentialAnalysisRunRequest) =>
@@ -371,7 +371,7 @@ export function useRunDea(experimentId: number) {
   });
 }
 
-export function useRedoDea(experimentId: number) {
+export function useRedoDea(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (analysisId: number) =>
@@ -385,7 +385,7 @@ export function useRedoDea(experimentId: number) {
   });
 }
 
-export function useDeleteDea(experimentId: number) {
+export function useDeleteDea(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (analysisId: number) =>
@@ -402,12 +402,12 @@ export function useDeleteDea(experimentId: number) {
 // GEEQ
 // ---------------------------------------------------------------------------
 
-export function useGeeq(experimentId: number) {
+export function useGeeq(experimentId: number | string) {
   return useQuery({
     queryKey: KEY.geeq(experimentId),
     queryFn: () =>
       api.get<GeeqScores>(`/rest/v2/datasets/${experimentId}/geeq`),
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
   });
 }
 
@@ -431,7 +431,7 @@ export function useTask(taskId: string | null | undefined) {
 // Outlier + QT write surfaces
 // ---------------------------------------------------------------------------
 
-export function useSetOutlier(experimentId: number) {
+export function useSetOutlier(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ sampleId, outlier }: { sampleId: string; outlier: boolean }) =>
@@ -445,7 +445,7 @@ export function useSetOutlier(experimentId: number) {
   });
 }
 
-export function useSetQtPreferred(experimentId: number) {
+export function useSetQtPreferred(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ qtId, isPreferred }: { qtId: number; isPreferred: boolean }) =>
@@ -463,7 +463,7 @@ export function useSetQtPreferred(experimentId: number) {
 // Visibility (public / private)
 // ---------------------------------------------------------------------------
 
-export function useSetVisibility(experimentId: number) {
+export function useSetVisibility(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (makePublic: boolean) =>
@@ -517,7 +517,7 @@ export function useGroup(
  *  list (short_name + title + status flags) the set-navigator popover
  *  needs. Off by default so the chip-render path stays light. */
 export function useExperimentGroups(
-  experimentId: number,
+  experimentId: number | string,
   options: { includeSummaries?: boolean } = {},
 ) {
   const { includeSummaries = false } = options;

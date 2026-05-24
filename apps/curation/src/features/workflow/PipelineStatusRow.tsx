@@ -30,6 +30,7 @@ export function PipelineStatusRow({
   dataset,
   status,
   groupContext,
+  navId,
 }: {
   dataset: WorkflowDatasetRow;
   status: ExperimentPipelineStatus | undefined;
@@ -39,11 +40,15 @@ export function PipelineStatusRow({
    *  on the experiment banner anchors to the same set the curator
    *  was browsing. Undefined for the global queue (no anchor). */
   groupContext?: string;
+  /** Opaque identifier to navigate to — the original member_id from
+   *  the group when in a group context (preserves ``preboarding:N``
+   *  prefix). Falls back to the dataset's numeric id otherwise. */
+  navId?: string;
 }) {
   const accession = dataset.short_name || String(dataset.id);
   const title = dataset.name;
   const goTo = () =>
-    navigate(experimentRoute(dataset.id, undefined, groupContext));
+    navigate(experimentRoute(navId ?? String(dataset.id), undefined, groupContext));
 
   return (
     <div

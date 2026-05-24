@@ -186,9 +186,9 @@ function isAgentProposalArray(data: unknown): data is AgentProposal[] {
  * are proposal-kind anyway); server-side filtering kicks in once the
  * Java migration adds the discriminator column.
  */
-export function useProposalsAutoShape(experimentId: number) {
+export function useProposalsAutoShape(experimentId: number | string) {
   return useQuery({
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
     queryKey: ["proposals-auto", "experiment", experimentId] as const,
     queryFn: async (): Promise<ProposalsResponse> => {
       let raw: unknown;

@@ -1,0 +1,14 @@
+# Temporary override for the smoke test 2026-05-24.
+# Wires local-api's GEMMA_BASE_URL at the local-mode gemma-rest
+# service so the dry-run scrape doesn't fall through to staging.
+#
+# Gap on bro's side: local-api's `environment:` block in
+# docker-compose.yml declares GEMMA_USERNAME / GEMMA_PASSWORD but
+# not GEMMA_BASE_URL, so the container falls through to
+# shared.gemma._GEMMA_BASE_DEFAULT (staging). Proposer's block
+# does declare GEMMA_BASE_URL. Fix-on-bro's-side: add the same
+# line to local-api.
+services:
+  local-api:
+    environment:
+      GEMMA_BASE_URL: ${GEMMA_BASE_URL:-http://gemma-rest:8080}

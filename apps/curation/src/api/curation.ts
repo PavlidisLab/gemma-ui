@@ -28,10 +28,10 @@ export interface CurationDetails {
   last_needs_attention_event_by: string;
 }
 
-const KEY = (experimentId: number) =>
+const KEY = (experimentId: number | string) =>
   ["curation-details", experimentId] as const;
 
-export function useCurationDetails(experimentId: number) {
+export function useCurationDetails(experimentId: number | string) {
   return useQuery({
     queryKey: KEY(experimentId),
     queryFn: () =>
@@ -50,7 +50,7 @@ export function useCurationDetails(experimentId: number) {
  * `NeedsAttentionEvent`, …) — same taxonomy as production Gemma.
  */
 export function useUpdateCurationDetails(
-  experimentId: number,
+  experimentId: number | string,
   reviewer: string,
 ) {
   const qc = useQueryClient();

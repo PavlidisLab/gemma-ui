@@ -223,7 +223,7 @@ function GeeqSection({
   onDispatch,
   anyRunning,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   onDispatch: (task: AsyncTask) => void;
   anyRunning: boolean;
 }) {
@@ -279,7 +279,7 @@ function VisibilitySection({
   isPublic,
   anyRunning,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   isPublic: boolean;
   anyRunning: boolean;
 }) {
@@ -349,7 +349,7 @@ function VisibilitySection({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function PipelinePanel({ experimentId }: { experimentId: number }) {
+export function PipelinePanel({ experimentId }: { experimentId: number | string }) {
   const { data: pipelineStatus, isLoading } = usePipelineStatus(experimentId);
   const [activeTask, setActiveTask] = useState<AsyncTask | null>(null);
 

@@ -103,7 +103,7 @@ export function ExperimentBanner({
   groupContext,
   commitBar,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   shortName: string;
   title: string;
   taxon: string;
@@ -383,7 +383,7 @@ function ShortNameEditor({
   experimentId,
   shortName,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   shortName: string;
 }) {
   const [editing, setEditing] = useState(false);
@@ -709,7 +709,7 @@ function ExperimentGroupChips({
   experimentId,
   groupContext,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   groupContext?: string;
 }) {
   const { data: groups } = useExperimentGroups(experimentId);
@@ -805,7 +805,7 @@ function SetSwitchDropdown({
   groups,
   onClose,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   activeGroupId: string;
   groups: Group[];
   onClose: () => void;
@@ -883,7 +883,7 @@ function SetChip({
   onClose,
 }: {
   group: Group;
-  currentExperimentId: number;
+  currentExperimentId: number | string;
   /** True when this group matches the URL's ``?group=<id>`` context.
    *  Surfaces as a small active-context indicator on the chip so the
    *  curator can tell which set the inline prev/next is anchored to. */
@@ -972,7 +972,7 @@ function SetNavigatorPopover({
   onClose,
 }: {
   groupId: string;
-  currentExperimentId: number;
+  currentExperimentId: number | string;
   /** Ref to the chip's outer wrapper. Used to measure the trigger
    *  position so the popover can flip above when below would
    *  overflow the viewport bottom. (The popover itself is
@@ -1413,7 +1413,7 @@ function BannerStatusChips({
   experimentId,
   onOpenStatus,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   /** Called when a chip is clicked — opens the curation-status
    *  modal where the flag can be cleared / the note edited. */
   onOpenStatus: () => void;
@@ -1523,7 +1523,7 @@ function NotesButton({
   open,
   onToggle,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   open: boolean;
   onToggle: () => void;
 }) {
@@ -1755,7 +1755,7 @@ function PlatformLine({
  *   - there are uncommitted draft changes (commit first),
  *   - the experiment is already public.
  */
-function PublishButton({ experimentId }: { experimentId: number }) {
+function PublishButton({ experimentId }: { experimentId: number | string }) {
   const { diff } = useDesignDraft();
   const me = useMe();
   const reviewer = me.data?.username ?? "";
@@ -1835,7 +1835,7 @@ export function TopBar({
   experimentShortName,
   reviewer,
 }: {
-  experimentId: number;
+  experimentId: number | string;
   experimentShortName: string;
   reviewer: string;
 }) {

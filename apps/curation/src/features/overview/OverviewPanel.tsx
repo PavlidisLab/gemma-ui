@@ -1037,7 +1037,7 @@ function FactorsRow({
   experimentId,
 }: {
   factors: Factor[];
-  experimentId: number;
+  experimentId: number | string;
 }) {
   if (factors.length === 0) return null;
   return (
@@ -1149,7 +1149,7 @@ function FactorChip({
   experimentId,
 }: {
   factor: Factor;
-  experimentId: number;
+  experimentId: number | string;
 }) {
   const label = factor.category?.label || factor.name || "factor";
   const fvCount = factor.factor_values?.length ?? 0;
@@ -1190,7 +1190,7 @@ function TagBar({
   /** Experiment id, threaded down to FV-synth chips so their ``ƒ``
    *  glyph can dispatch a Shell focus request to jump to the Design
    *  tab with that factor highlighted. */
-  experimentId: number;
+  experimentId: number | string;
 }) {
   const { draft, apply, diff } = useDesignDraft();
   const [adding, setAdding] = useState(false);
@@ -2002,7 +2002,7 @@ function TagGroups({
   charUriLookup: Map<string, string>;
   fvUriLookup: Map<string, string>;
   baselineLookup: Set<string>;
-  experimentId: number;
+  experimentId: number | string;
 }) {
   if (tags.length === 0) return null;
   const groups = groupTagsByCategoryLabel(tags);
@@ -2434,7 +2434,7 @@ function TagGroupChip({
   charUriLookup: Map<string, string>;
   fvUriLookup: Map<string, string>;
   baselineLookup: Set<string>;
-  experimentId: number;
+  experimentId: number | string;
 }) {
   const values = splitTagValues(tags, category, charUriLookup, fvUriLookup, baselineLookup);
 

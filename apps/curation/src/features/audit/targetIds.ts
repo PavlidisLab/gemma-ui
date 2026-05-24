@@ -36,7 +36,7 @@ function slugOr(s: string | null | undefined): string {
   return slug(s) || "?";
 }
 
-export function experimentTarget(experimentId: number): string {
+export function experimentTarget(experimentId: number | string): string {
   return `experiment:${experimentId}`;
 }
 

@@ -25,7 +25,7 @@ export function ExperimentList({
   onSelect,
   reviewer,
 }: {
-  onSelect: (experimentId: number) => void;
+  onSelect: (experimentId: number | string) => void;
   reviewer: string;
 }) {
   const { data, isLoading, error, refetch, isFetching } = useDatasets();
@@ -399,7 +399,7 @@ function Row({
   onSelect,
 }: {
   r: DatasetSummary;
-  onSelect: (experimentId: number) => void;
+  onSelect: (experimentId: number | string) => void;
 }) {
   const updated = formatTimestamp(r.updated_at);
   return (

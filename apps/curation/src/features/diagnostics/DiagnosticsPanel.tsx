@@ -30,7 +30,7 @@ import { MeanVarianceCard } from "./MeanVarianceCard";
 // switching tabs doesn't fire four diagnostics requests. Drop this
 // gate (render the cards unconditionally) when the bandwidth concern
 // goes away.
-export function DiagnosticsPanel({ experimentId }: { experimentId: number }) {
+export function DiagnosticsPanel({ experimentId }: { experimentId: number | string }) {
   const [fetched, setFetched] = useState(false);
   if (!fetched) {
     return (
@@ -81,7 +81,7 @@ export function DiagnosticsPanel({ experimentId }: { experimentId: number }) {
 function PreprocessingMetadataFooter({
   experimentId: _experimentId,
 }: {
-  experimentId: number;
+  experimentId: number | string;
 }) {
   return (
     <div className="card px-3 py-2 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-3">

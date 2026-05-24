@@ -9,20 +9,20 @@ import type {
 
 const KEY = {
   all: ["proposals"] as const,
-  byExperiment: (experimentId: number, status?: ProposalStatus) =>
+  byExperiment: (experimentId: number | string, status?: ProposalStatus) =>
     ["proposals", "experiment", experimentId, status ?? null] as const,
   one: (proposalId: string) => ["proposals", "one", proposalId] as const,
 };
 
 export function useProposalsForExperiment(
-  experimentId: number,
+  experimentId: number | string,
   status?: ProposalStatus,
 ) {
   return useQuery({
     // ``-1`` is the "no experiment selected" sentinel used by inbox
     // landing screens; skip the fetch entirely (parallels the
     // ``audits.ts`` guard) so we don't 404 the sentinel id.
-    enabled: experimentId > 0,
+    enabled: Boolean(experimentId),
     queryKey: KEY.byExperiment(experimentId, status),
     queryFn: async () => {
       const q = status ? `?status_filter=${status}` : "";
@@ -119,7 +119,7 @@ export interface TriggerProposalBody {
  * way the UI hits a relative path so neither dev nor prod needs a
  * build-time URL.
  */
-export function useTriggerProposal(experimentId: number) {
+export function useTriggerProposal(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -188,7 +188,7 @@ export function useFindPublication() {
   });
 }
 
-export function useReviewProposal(experimentId: number) {
+export function useReviewProposal(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({

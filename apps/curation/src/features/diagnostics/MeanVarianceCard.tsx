@@ -17,7 +17,7 @@ const SUBTLE = "#6b7280";
 const GRID = "#e5e7eb";
 const FIT = "#ef4444";
 
-export function MeanVarianceCard({ experimentId }: { experimentId: number }) {
+export function MeanVarianceCard({ experimentId }: { experimentId: number | string }) {
   const { data, isLoading, error } = useMeanVariance(experimentId);
 
   let body;
