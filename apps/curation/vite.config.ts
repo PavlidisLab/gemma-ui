@@ -37,6 +37,14 @@ export default defineConfig(({ mode }) => {
   // into Gemma yet).
   const LOCAL_API_URL =
     env.GEMMA_LOCAL_API_URL || CURATION_URL;
+  // Static bearer that local_api accepts. The browser sends the
+  // user's gemma-rest token from localStorage (set on /rest/v2/login,
+  // which we route to gemma-rest like the browser app does). That
+  // gemma token doesn't authenticate against local_api, so we inject
+  // local_api's dev bearer in the proxy for any route that targets
+  // local_api. Override via GEMMA_CURATION_API_KEY at compose time.
+  const LOCAL_API_BEARER =
+    env.GEMMA_CURATION_API_KEY || "dev-token-123";
   const PROPOSER_URL =
     env.GEMMA_PROPOSER_URL || "http://localhost:8090";
   // Ontology-search routing exception (temporary, 2026-05-23).
@@ -88,6 +96,23 @@ export default defineConfig(({ mode }) => {
           target: ONTOLOGY_URL,
           changeOrigin: true,
         },
+        // Auth endpoints → gemma-rest. Match the browser app's
+        // convention so a single sign-in works across both apps and
+        // private datasets (e.g. permissioned audit trails)
+        // authenticate against the real Gemma session. The bearer
+        // token returned by /login is stored in localStorage by the
+        // curation client and rides on every subsequent request.
+        "^/rest/v2/(login|logout|me)$": {
+          target: GEMMA_REST_URL,
+          changeOrigin: true,
+          cookieDomainRewrite: "",
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
+        },
         // Diagnostics fallback to gemma-rest — local_api doesn't
         // compute SVD / sample-correlation / mean-variance.
         // Regex matches /rest/v2/datasets/{id}/{svd,sample-
@@ -128,11 +153,20 @@ export default defineConfig(({ mode }) => {
         // prefix so the upstream sees the bare `/rest/v2/...` path.
         // Used by hooks that need to bypass a gemma-rest routing
         // exception (e.g. audit-trail fallback for ids only in the
-        // curation DB).
+        // curation DB). Same Authorization override as the catch-all
+        // /rest route since this also targets local_api.
         "/local-api": {
           target: LOCAL_API_URL,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/local-api/, ""),
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.setHeader(
+                "Authorization",
+                `Bearer ${LOCAL_API_BEARER}`,
+              );
+            });
+          },
         },
         "/rest": {
           target: CURATION_URL,
@@ -142,10 +176,18 @@ export default defineConfig(({ mode }) => {
           // (even the server's own host) triggers "Invalid CORS
           // request"; no Origin → 401/200 normally. See
           // ~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_CORS_DEV_ORIGIN.md.
+          //
+          // Override the Authorization header with local_api's dev
+          // bearer — the browser sends the user's gemma-rest token
+          // from localStorage, which local_api doesn't recognize.
           configure: (proxy) => {
             proxy.on("proxyReq", (proxyReq) => {
               proxyReq.removeHeader("origin");
               proxyReq.removeHeader("referer");
+              proxyReq.setHeader(
+                "Authorization",
+                `Bearer ${LOCAL_API_BEARER}`,
+              );
             });
           },
         },
