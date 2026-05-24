@@ -46,41 +46,38 @@ export interface AuditEvent {
 
 const KEY = (
   experimentId: number,
-  compressed: boolean,
-  hidePlainUpdates: boolean,
-) => ["audit-events", experimentId, compressed, hidePlainUpdates] as const;
+  compact: boolean,
+  excludeEmpty: boolean,
+) => ["audit-events", experimentId, compact, excludeEmpty] as const;
 
 export function useAuditEvents(
   experimentId: number,
   options: {
     limit?: number;
-    /** Server-side dedup of consecutive same-event-type rows. */
-    compressed?: boolean;
-    /** Server-side filter that drops "plain" U events — i.e.
-     *  Update events with no distinguishing event type / detail
-     *  ("U event on entity ExpressionExperiment:N by user…" with
-     *  empty event_type_name + null detail). These are the
-     *  boilerplate save-without-meaningful-change rows that swamp
-     *  the trail. */
-    hidePlainUpdates?: boolean;
+    /** gemma-rest `compact=true` — server-side dedup of
+     *  consecutive same-event-type rows. */
+    compact?: boolean;
+    /** gemma-rest `excludeEmpty=true` — drops "plain" U events
+     *  (the boilerplate "U event on entity ExpressionExperiment:N
+     *  by user…" rows with empty event_type_name + null detail). */
+    excludeEmpty?: boolean;
   } = {},
 ) {
   const {
     limit = 50,
-    compressed = false,
-    hidePlainUpdates = false,
+    compact = false,
+    excludeEmpty = false,
   } = options;
   return useQuery({
-    queryKey: KEY(experimentId, compressed, hidePlainUpdates),
+    queryKey: KEY(experimentId, compact, excludeEmpty),
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", String(limit));
-      // Both flags below are reserved for upcoming gemma-rest
-      // features; the server ignores unknown params today, so
-      // passing them preflight is safe. Bro will land them; the
-      // UI is wired and ready.
-      if (compressed) params.set("compressed", "true");
-      if (hidePlainUpdates) params.set("hide_plain_updates", "true");
+      // gemma-rest supports both flags. Server ignores unknown
+      // params, so passing them when the server hasn't landed
+      // them yet is a safe preflight.
+      if (compact) params.set("compact", "true");
+      if (excludeEmpty) params.set("excludeEmpty", "true");
       const raw = await api.get<unknown>(
         `/rest/v2/datasets/${experimentId}/auditEvents?${params}`,
       );

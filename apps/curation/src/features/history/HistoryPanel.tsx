@@ -1,63 +1,44 @@
+import { useState } from "react";
 import { useAuditEvents, type AuditEvent } from "@/api/history";
 import { experimentAuditTrailUrl } from "@/lib/gemmaUrls";
 
 /**
- * Audit-trail timeline for the experiment. Renders Gemma's
+ * Audit-trail timeline for the experiment. Reads the live
+ * gemma-rest audit trail (proxied via the vite routing exception
+ * for `/rest/v2/datasets/{id}/auditEvents`). Renders the
  * `AuditEventValueObject` shape directly: performer, date, action,
- * event type, note, detail. Where the mock supplies a shape
+ * event type, note, detail. Where the source supplies a shape
  * summary, we additionally render shape deltas vs the previous
  * `ExperimentalDesignUpdatedEvent` to give "did factors / FVs /
  * tags change?" at a glance.
+ *
+ * Two toggles drive server-side filtering:
+ *   - "compact" — dedup consecutive same-type rows
+ *   - "exclude empty" — drop the boilerplate U events that have
+ *     empty event_type + null detail
  */
 export function HistoryPanel({ experimentId }: { experimentId: number }) {
-  const { data: events, isLoading, error } = useAuditEvents(experimentId);
+  const [compact, setCompact] = useState(false);
+  const [excludeEmpty, setExcludeEmpty] = useState(true);
+  const { data: events, isLoading, error } = useAuditEvents(experimentId, {
+    compact,
+    excludeEmpty,
+  });
   // Real Gemma's audit trail (full DWR-only view) lives at the
   // canonical web URL — link out for context the REST surface
   // can't provide. Documented in TODO-gemma-api §13.
   const fullHistoryUrl = experimentAuditTrailUrl(experimentId);
 
-  if (isLoading) {
-    return (
-      <div className="card p-4 text-sm text-slate-500">loading audit trail…</div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="card p-4 text-sm text-rose-700">
-        couldn't load audit trail: {(error as Error).message}
-      </div>
-    );
-  }
-  if (!events || events.length === 0) {
-    return (
-      <div className="card p-6 text-sm text-slate-500">
-        No audit events recorded for this experiment yet.
-        <p className="mt-1 text-[11px] text-slate-400">
-          Design commits and curator notes append events here.
-        </p>
-        <p className="mt-2 text-[11px]">
-          <a
-            href={fullHistoryUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-700 hover:underline"
-          >
-            Full audit trail on Gemma ↗
-          </a>
-        </p>
-      </div>
-    );
-  }
-
   // Build a per-row delta against the next-older
   // ExperimentalDesignUpdatedEvent. Notes events ("CommentedEvent"
   // etc.) don't carry a body, so we just render their note line.
-  const deltaByIndex: ({ label: string; delta: number }[] | null)[] = events.map(
+  const rows = events ?? [];
+  const deltaByIndex: ({ label: string; delta: number }[] | null)[] = rows.map(
     (e, i) => {
       if (e.event_type !== "ExperimentalDesignUpdatedEvent" || !e.shape) {
         return null;
       }
-      const prev = findPrevDesignEvent(events, i);
+      const prev = findPrevDesignEvent(rows, i);
       if (!prev || !prev.shape) return null;
       const out: { label: string; delta: number }[] = [];
       if (e.shape.n_factors !== prev.shape.n_factors)
@@ -75,15 +56,40 @@ export function HistoryPanel({ experimentId }: { experimentId: number }) {
       <div className="px-3 py-2 border-b border-slate-200 flex items-center gap-3 flex-wrap">
         <span className="section-h">Audit trail</span>
         <span className="text-xs text-slate-400">
-          {events.length} event{events.length === 1 ? "" : "s"} · newest first
+          {isLoading
+            ? "loading…"
+            : `${rows.length} event${rows.length === 1 ? "" : "s"} · newest first`}
         </span>
-        {/*
-          We surface only the events Gemma's REST API exposes (the
-          three "last X" pointers from CurationDetails plus what
-          the curator does in this UI). The full per-experiment
-          history lives behind DWR — link out so the curator can
-          see the complete trail when they need to.
-        */}
+        <label className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1 cursor-pointer select-none ml-2">
+          <input
+            type="checkbox"
+            checked={compact}
+            onChange={(e) => setCompact(e.target.checked)}
+            className="cursor-pointer"
+          />
+          compact
+          <span
+            className="text-slate-400"
+            title="Server-side dedup of consecutive same-event-type rows."
+          >
+            ⓘ
+          </span>
+        </label>
+        <label className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={excludeEmpty}
+            onChange={(e) => setExcludeEmpty(e.target.checked)}
+            className="cursor-pointer"
+          />
+          hide plain updates
+          <span
+            className="text-slate-400"
+            title="Drop boilerplate U events with no event_type or detail."
+          >
+            ⓘ
+          </span>
+        </label>
         <a
           href={fullHistoryUrl}
           target="_blank"
@@ -94,15 +100,29 @@ export function HistoryPanel({ experimentId }: { experimentId: number }) {
           full trail on Gemma ↗
         </a>
       </div>
-      <ol className="divide-y divide-slate-100">
-        {events.map((e, i) => (
-          <AuditEventRow
-            key={e.id}
-            event={e}
-            shapeDeltas={deltaByIndex[i]}
-          />
-        ))}
-      </ol>
+      {error ? (
+        <div className="px-3 py-4 text-sm text-rose-700">
+          couldn't load audit trail: {(error as Error).message}
+        </div>
+      ) : isLoading ? (
+        <div className="px-3 py-6 text-sm text-slate-500">loading audit trail…</div>
+      ) : rows.length === 0 ? (
+        <div className="px-3 py-6 text-sm text-slate-500">
+          {excludeEmpty || compact
+            ? "No events match the active filters."
+            : "No audit events recorded for this experiment yet."}
+        </div>
+      ) : (
+        <ol className="divide-y divide-slate-100">
+          {rows.map((e, i) => (
+            <AuditEventRow
+              key={e.id}
+              event={e}
+              shapeDeltas={deltaByIndex[i]}
+            />
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -225,12 +245,37 @@ function EventTypeBadge({ type, action }: { type: string; action: string }) {
   );
 }
 
+/** Class-name → readable label. Handles ALLCAPS acronym runs
+ *  (PCA, GEO, etc.) so they don't get smushed into the lowercase
+ *  pass.
+ *
+ *  Examples (real names from gemma-rest):
+ *    BatchCorrectionEvent                  → "batch correction"
+ *    DifferentialExpressionAnalysisEvent   → "differential expression analysis"
+ *    PCAAnalysisEvent                      → "PCA analysis"
+ *    ExpressionExperimentUpdateFromGEOEvent → "expression experiment update from GEO"
+ *    GeeqEvent                             → "geeq"
+ *    SingleBatchDeterminationEvent         → "single batch determination"
+ *    FailedDifferentialExpressionAnalysisEvent
+ *                                          → "failed differential expression analysis"
+ */
 function prettifyClassName(s: string): string {
-  // "BatchCorrectionEvent" → "batch correction"
-  return s
-    .replace(/Event$/, "")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .toLowerCase();
+  if (!s) return "";
+  // Step 1: insert a space BEFORE the start of a Pascal word that
+  //         follows an ALLCAPS run — "PCAAnalysis" → "PCA Analysis".
+  // Step 2: insert a space between a lowercase/digit and the next
+  //         uppercase — "BatchCorrection" → "Batch Correction".
+  const spaced = s
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    // Drop the trailing " Event" — every audit class ends in it.
+    .replace(/\s+Event$/, "");
+  // Lowercase each token EXCEPT acronyms (all-caps runs of ≥2).
+  // Single-letter tokens fall through to lowercase too (rare).
+  return spaced
+    .split(" ")
+    .map((w) => (/^[A-Z]{2,}$/.test(w) ? w : w.toLowerCase()))
+    .join(" ");
 }
 
 function formatTimestamp(iso: string): string {
