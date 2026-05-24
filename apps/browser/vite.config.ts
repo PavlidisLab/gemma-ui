@@ -1,6 +1,41 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { execSync } from "node:child_process";
+
+/** Resolve the current git commit SHA at build time. Stamped into
+ *  the page via `__GEMMA_BUILD_SHA__` so a curator can tell at a
+ *  glance which commit they're running. Falls back to "dev" on a
+ *  non-git checkout. */
+function buildSha(): string {
+  try {
+    return execSync("git rev-parse --short HEAD", {
+      cwd: __dirname,
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1500,
+    })
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+}
+
+/** Same source as buildSha, but the full 40-char form for deep
+ *  links to GitHub commits. */
+function buildShaFull(): string {
+  try {
+    return execSync("git rev-parse HEAD", {
+      cwd: __dirname,
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1500,
+    })
+      .toString()
+      .trim();
+  } catch {
+    return "";
+  }
+}
 
 // Resolution order for the upstream Gemma server:
 //   1. ``GEMMA_BASE_URL`` env (set in `apps/browser/.env.local` or
@@ -33,6 +68,9 @@ export default defineConfig(({ mode }) => {
     // proxy hides this from the runtime client otherwise.
     define: {
       __GEMMA_TARGET__: JSON.stringify(GEMMA_TARGET),
+      __GEMMA_BUILD_SHA__: JSON.stringify(buildSha()),
+      __GEMMA_BUILD_SHA_FULL__: JSON.stringify(buildShaFull()),
+      __GEMMA_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
     },
     server: {
       // 5183 to leave 5173 to the curation app (default Vite port) so

@@ -65,17 +65,43 @@ export async function postLogin(req: LoginRequest): Promise<LoginResponse> {
   return body as LoginResponse;
 }
 
+/**
+ * Two-step logout. /rest/v2/logout only revokes the bearer token
+ * (per AuthWebService.java:140); the HTTP session set by Spring
+ * during /login stays alive, so /me keeps returning the user. To
+ * actually sign out we also have to hit the legacy Spring logout
+ * URL `/j_spring_security_logout` (wired up in
+ * `gemma-web/.../web.xml:139`, CORS pre-cleared for SPA use).
+ *
+ * Both are fire-and-forget; we use Promise.allSettled so a single
+ * failure doesn't leave the user partially logged out.
+ *
+ * When bro lands `session.invalidate()` inside /rest/v2/logout
+ * (handoff: ~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_LOGOUT_INVALIDATE_SESSION.md)
+ * the second call can be dropped.
+ */
 export async function postLogout(): Promise<void> {
-  try {
-    await apiPost<void>(`${BASE}/logout`, {});
-  } catch (e) {
-    // 401 / 404 on logout are survivable — the server has already
-    // forgotten this token (or the endpoint isn't deployed on this
-    // build). Clear the local copy regardless.
-    if (!(e instanceof ApiError) || (e.status !== 401 && e.status !== 404)) {
-      throw e;
+  const bearerCall = apiPost<void>(`${BASE}/logout`, {}).catch((e) => {
+    // 401 / 404 are survivable — token already gone or endpoint
+    // missing on this build.
+    if (e instanceof ApiError && (e.status === 401 || e.status === 404)) {
+      return;
     }
-  }
+    throw e;
+  });
+  // /j_spring_security_logout is NOT under /rest/v2 — hit it via a
+  // raw fetch so apiPost doesn't prepend any envelope expectations.
+  // POST + credentials so Spring sees the JSESSIONID cookie and
+  // invalidates the session.
+  const cookieCall = fetch("/j_spring_security_logout", {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json,text/plain,*/*" },
+  }).catch(() => {
+    /* network failures here aren't fatal — the bearer call already
+       cleaned what it could. */
+  });
+  await Promise.allSettled([bearerCall, cookieCall]);
 }
 
 export async function getMe(signal?: AbortSignal): Promise<LoginUser | null> {
