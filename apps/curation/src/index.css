@@ -19,10 +19,16 @@
   .term {
     @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs leading-4
            whitespace-nowrap max-w-full overflow-hidden
-           bg-emerald-50 text-emerald-800 border border-emerald-200;
+           bg-emerald-50 text-emerald-800 border border-emerald-200
+           border-l-[3px] border-l-emerald-500 rounded-l-md pl-2;
   }
-  .term.free      { @apply bg-stone-50 text-stone-600 border-stone-200 italic; }
-  .term.predicate { @apply bg-slate-100 text-slate-600 border-slate-300; }
+  /* Free + predicate Terms share the chip frame but aren't ontology-
+     anchored — strip the emerald bookmark so the visual cue stays
+     specific to "resolved to a URI". */
+  .term.free      { @apply bg-stone-50 text-stone-600 border-stone-200 italic
+                           border-l border-l-stone-200 rounded-l pl-1.5; }
+  .term.predicate { @apply bg-slate-100 text-slate-600 border-slate-300
+                           border-l border-l-slate-300 rounded-l pl-1.5; }
   /*
     ``.term.baseline`` used to apply an emerald wash, but green is
     the house-standard cue for "ontology-resolved" — overloading
@@ -161,6 +167,11 @@ html.dark .term {
   background-color: rgb(6 78 59 / 0.35);     /* emerald-900 / 35% */
   color: rgb(167 243 208);                   /* emerald-200 */
   border-color: rgb(6 78 59);                /* emerald-900 */
+  /* Keep the bookmark visible against the dark emerald wash — a
+     slightly brighter emerald-400 reads on both light- and dark-
+     theme surfaces. The shorthand border-color above clobbers the
+     border-left-color set in the @layer rule, so re-pin it here. */
+  border-left-color: rgb(52 211 153);        /* emerald-400 */
 }
 html.dark .term.free {
   background-color: rgb(30 41 59);           /* slate-800 */
