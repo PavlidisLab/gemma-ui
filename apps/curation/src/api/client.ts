@@ -163,28 +163,19 @@ async function request<T>(
 function unwrapGemmaEnvelope(json: unknown): unknown {
   if (!json || typeof json !== "object" || Array.isArray(json)) return json;
   const obj = json as Record<string, unknown>;
-  // Liberal detection: gemma-rest 2.0 returns `{apiVersion?, buildInfo?,
-  // data}` — and on many endpoints (sample-correlation, groups, etc)
-  // the success path omits `apiVersion`, leaving us with bare
-  // `{data: ...}`. Treat ANY object whose only "non-envelope" key is
-  // `data` (with the rest being known envelope metadata) as
-  // unwrappable. The curation domain doesn't ship any payload that
-  // legitimately exposes `data` alongside `apiVersion` / `buildInfo`,
-  // so this is safe in practice.
+  // gemma-rest 2.0 returns `{apiVersion?, buildInfo?, data}` for
+  // single-object endpoints (svd, sample-correlation, mean-variance,
+  // groups, etc) — `apiVersion` is often omitted on the success path.
+  // List endpoints add pagination siblings (`totalElements`, `offset`,
+  // `limit`, `sort`, `filter`, `query`, `groupBy`, `inferredTerms`) that
+  // the caller needs to keep — paginated views can't render without
+  // `totalElements`. So unwrap only when `data` is accompanied by NOTHING
+  // but pure-envelope metadata (`apiVersion`, `buildInfo`); otherwise
+  // return the wrapped object intact and let the caller pick `.data`
+  // explicitly alongside the pagination fields.
   if (!("data" in obj)) return json;
-  const ENVELOPE_KEYS = new Set([
-    "apiVersion",
-    "buildInfo",
-    "data",
-    "totalElements",
-    "offset",
-    "limit",
-    "groupBy",
-    "sort",
-    "filter",
-    "query",
-  ]);
-  const extra = Object.keys(obj).filter((k) => !ENVELOPE_KEYS.has(k));
+  const PURE_ENVELOPE_KEYS = new Set(["apiVersion", "buildInfo", "data"]);
+  const extra = Object.keys(obj).filter((k) => !PURE_ENVELOPE_KEYS.has(k));
   if (extra.length === 0) return obj.data;
   return json;
 }
