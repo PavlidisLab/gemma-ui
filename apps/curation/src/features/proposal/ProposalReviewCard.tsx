@@ -1,14 +1,27 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { Term } from "@/components/ui/Term";
+import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
+
+/** Curation-side FvDisplayRow term renderer — delegates to the local
+ *  `Term` chip component so factor / FV / tag visuals stay aligned
+ *  with the design editor + Overview tag bar. The `variant` arg
+ *  threads through so predicates render with the muted slate
+ *  styling baked into Term. */
+const curationTermRenderer: FvTermRenderer = ({ label, uri, variant }) => (
+  <Term
+    uri={uri}
+    asLink={false}
+    variant={variant === "predicate" ? "predicate" : "default"}
+    className="!whitespace-normal break-words"
+  >
+    {label}
+  </Term>
+);
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DismissDialog } from "@/features/audit/DismissDialog";
 import { normalizeWikiUrl } from "@/lib/guidelines";
-import type {
-  FactorProposal,
-  StatementProposal,
-  TagProposal,
-} from "@/api/types";
+import type { FactorProposal, TagProposal } from "@/api/types";
 import type {
   AttachedDefenderVerdict,
   SubtaskDecision,
@@ -123,79 +136,24 @@ export function FactorReviewCard({
           {[...fvs]
             .sort((a, b) => (a.is_baseline ? 1 : 0) - (b.is_baseline ? 1 : 0))
             .map((fv, i) => {
-              const lab = (fv.free_text_label || "").trim() || "(unlabeled)";
-              const n = fv.biomaterial_short_names?.length ?? 0;
-              const statements = fv.statements ?? [];
               const showFvMatch =
                 fv.match_type && fv.match_type !== factor.match_type;
-              // Single ontology-anchored statement whose subject
-              // label matches the FV's free-text label is the common
-              // case (label == term name). Render the Term chip
-              // INLINE in place of the plain label so the row shows
-              // the label + CURIE in one slot, and skip the separate
-              // statement list below. Multi-statement and free-text
-              // FVs keep the split layout — the statement list
-              // legitimately differs from the label.
-              const onlyStmt = statements.length === 1 ? statements[0] : null;
-              const redundant =
-                !!onlyStmt &&
-                !!onlyStmt.subject?.uri &&
-                (onlyStmt.subject.label || "").trim().toLowerCase() ===
-                  (fv.free_text_label || "").trim().toLowerCase() &&
-                !!(fv.free_text_label || "").trim();
               return (
-                <li key={i} className="text-[11px]">
-                  <div className="flex items-baseline gap-1.5 flex-wrap">
-                    <span
-                      className={cn(
-                        "w-2.5 inline-block text-center shrink-0 leading-none",
-                        fv.is_baseline
-                          ? "text-amber-500 dark:text-amber-400"
-                          : "text-sky-500/80 dark:text-sky-400/80",
-                      )}
-                      title={
-                        fv.is_baseline
-                          ? "baseline (reference level)"
-                          : "factor level"
-                      }
-                    >
-                      {fv.is_baseline ? "▂" : "○"}
-                    </span>
-                    {redundant && onlyStmt ? (
-                      <Term
-                        uri={onlyStmt.subject.uri ?? null}
-                        asLink={false}
-                        className="!whitespace-normal break-words"
-                      >
-                        {lab}
-                      </Term>
-                    ) : (
-                      <span className="flex-1 min-w-0 break-words text-slate-700 dark:text-slate-200">
-                        {lab}
-                      </span>
-                    )}
-                    {showFvMatch ? (
-                      <MatchTypeChip matchType={fv.match_type} />
-                    ) : null}
-                    <AssignmentConfidenceChip
-                      meta={fv.biomaterial_assignment_meta}
-                    />
-                    {n > 0 ? (
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono shrink-0">
-                        ({n})
-                      </span>
-                    ) : null}
-                  </div>
-                  {/* Skip the statement list when redundant — the
-                      inline Term chip above already carries the
-                      single statement's subject + URI. */}
-                  {!redundant && statements.length > 0 ? (
-                    <ul className="pl-3.5 mt-0.5 space-y-0.5">
-                      {statements.map((s, si) => (
-                        <StatementLine key={si} statement={s} />
-                      ))}
-                    </ul>
-                  ) : null}
+                <li key={i}>
+                  <FvDisplayRow
+                    fv={fv}
+                    termRenderer={curationTermRenderer}
+                    trailing={
+                      <>
+                        {showFvMatch ? (
+                          <MatchTypeChip matchType={fv.match_type} />
+                        ) : null}
+                        <AssignmentConfidenceChip
+                          meta={fv.biomaterial_assignment_meta}
+                        />
+                      </>
+                    }
+                  />
                 </li>
               );
             })}
@@ -258,55 +216,11 @@ export function TagReviewCard({
   );
 }
 
-/**
- * One statement under an FV — subject [predicate] object. Mirrors the
- * audit S-P-O comparator render: small predicate (no chip, muted),
- * Term chips with CURIEs on subject / object when URI-resolved,
- * italic free-text otherwise. Missing parts are omitted so a
- * subject-only statement reads as just the subject. Per Paul
- * 2026-05-22: the per-factor card needs to surface the actual
- * structured statement so the curator sees the ontology terms
- * directly, not just the FV label.
- */
-function StatementLine({ statement }: { statement: StatementProposal }) {
-  const subj = statement.subject;
-  const pred = statement.predicate;
-  const obj = statement.object;
-  const hasSubject = !!(subj?.label || subj?.uri);
-  const hasPredicate = !!(pred?.label || pred?.uri);
-  const hasObject = !!(obj?.label || obj?.uri);
-  const decisions = statement.subtask_decisions;
-  return (
-    <li className="text-[10.5px]">
-      <div className="flex items-baseline gap-1 flex-wrap">
-        {hasSubject ? (
-          <Term uri={subj.uri ?? null} asLink={false}>
-            {subj.label ?? ""}
-          </Term>
-        ) : null}
-        {hasPredicate ? (
-          <Term
-            uri={pred?.uri ?? null}
-            variant="predicate"
-            asLink={false}
-          >
-            {pred?.label ?? ""}
-          </Term>
-        ) : null}
-        {hasObject ? (
-          <Term uri={obj?.uri ?? null} asLink={false}>
-            {obj?.label ?? ""}
-          </Term>
-        ) : null}
-        {decisions && decisions.length > 0
-          ? decisions.map((d, i) => (
-              <SubtaskDecisionChip key={i} decision={d} />
-            ))
-          : null}
-      </div>
-    </li>
-  );
-}
+// `StatementLine` was the prior per-statement subrow renderer.
+// Replaced by the shared `<FvDisplayRow>` from `@gemma/ontology`.
+// Per-statement subtask-decision chips that StatementLine used to
+// surface are not currently threaded through the shared row — if
+// they become load-bearing again, add a `statementExtras` prop.
 
 // ---------------------------------------------------------------------------
 // Signal chips — surface the judgment/extra-info signals the

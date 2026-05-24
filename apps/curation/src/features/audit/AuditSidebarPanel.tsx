@@ -3,7 +3,22 @@ import { cn } from "@/lib/cn";
 import { agentPalette, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
-import { StatementGlyph } from "@/components/ui/StatementGlyph";
+import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
+
+/** Curation-side FvDisplayRow term renderer — same one the proposal-
+ *  review surface uses. Pulling it into a local const keeps the
+ *  audit + proposal-review surfaces visually identical when they
+ *  consume the shared row. */
+const curationTermRenderer: FvTermRenderer = ({ label, uri, variant }) => (
+  <Term
+    uri={uri}
+    asLink={false}
+    variant={variant === "predicate" ? "predicate" : "default"}
+    className="!whitespace-normal break-words"
+  >
+    {label}
+  </Term>
+);
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -1832,93 +1847,40 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
           const pairing = showCorrespondence ? fvPairings[i] : null;
           const status = pairing?.status ?? null;
           const gemmaLabel = pairing?.gemmaLabel ?? "";
-          // Harmonized with proposal-review's FactorReviewCard (2026-
-          // 05-24): single-statement FVs whose subject label matches
-          // the free-text label render only the label + CURIE in the
-          // top row and skip the per-statement subrow below.
-          const fvLab = (fv.free_text_label || "").trim().toLowerCase();
-          const onlyStmt =
-            (fv.statements?.length ?? 0) === 1 ? fv.statements[0] : null;
-          const subjectRedundant =
-            !!onlyStmt &&
-            !!onlyStmt.subject?.uri &&
-            (onlyStmt.subject.label || "").trim().toLowerCase() === fvLab &&
-            !!fvLab &&
-            !onlyStmt.predicate?.label &&
-            !onlyStmt.object?.label;
           return (
-            <div key={i} className="text-[11px] space-y-0.5">
-              <div className="flex items-center gap-1 flex-wrap">
-                {/* Baseline glyph (▂) when this FV is the reference
-                    level — harmonized with proposal-review's "▂ /
-                    ○" convention so baseline reads the same across
-                    audit and proposal surfaces. */}
-                {fv.is_baseline ? (
-                  <span
-                    className="text-amber-500 dark:text-amber-400 leading-none"
-                    title="baseline (reference level)"
-                    aria-label="baseline"
-                  >
-                    ▂
-                  </span>
-                ) : null}
-                {status ? <FvStatusGlyph status={status} /> : null}
-                <span className="font-mono text-slate-900 dark:text-slate-100 truncate">
-                  {fv.free_text_label || <em className="text-slate-400">(unnamed)</em>}
-                </span>
-                {/* When the single statement's subject is redundant
-                    with the FV label, surface just the CURIE inline.
-                    Multi-statement / has-predicate FVs keep the
-                    statement subrow below. */}
-                {subjectRedundant && onlyStmt?.subject?.uri ? (
-                  <span className="font-mono text-[9px] text-emerald-700 dark:text-emerald-300">
-                    {onlyStmt.subject.uri.split(/[#/]/).filter(Boolean).pop()}
-                  </span>
-                ) : (fv.statements?.length ?? 0) > 0 ? (
-                  <StatementGlyph statements={fv.statements} />
-                ) : null}
-                <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                  ({fv.biomaterial_short_names.length})
-                </span>
-                {/* Inline drift annotation — when the agent and Gemma
-                    labels disagree (but point at the same biomaterial
-                    partition, either via gemma_ref or biomaterial-
-                    overlap fallback), surface Gemma's label so the
-                    curator sees how the bin is named on each side. */}
-                {status === "near" && gemmaLabel ? (
-                  <span
-                    className="text-[10px] text-amber-700 dark:text-amber-300 italic"
-                    title="Gemma's label for the paired FV"
-                  >
-                    ↔ Gemma: <span className="font-mono not-italic">{gemmaLabel}</span>
-                  </span>
-                ) : null}
-                {status === "agent_only" ? (
-                  <span
-                    className="text-[10px] text-amber-700 dark:text-amber-300 italic"
-                    title="no Gemma counterpart — neither by proposer alignment nor biomaterial overlap"
-                  >
-                    not in Gemma
-                  </span>
-                ) : null}
-              </div>
-              {/* Skip the statement subrow when the only statement
-                  was redundant with the FV label (handled inline
-                  above). Otherwise render S · P · O per statement. */}
-              {!subjectRedundant && (fv.statements?.length ?? 0) > 0 ? (
-                <div className="text-[10px] text-slate-500 dark:text-slate-400 pl-1.5 leading-snug">
-                  {fv.statements.map((s, j) => (
-                    <div key={j} className="flex items-center gap-1 flex-wrap">
-                      <StatementChip term={s.subject} />
-                      <span className="text-slate-400 dark:text-slate-500">·</span>
-                      <StatementChip term={s.predicate} />
-                      <span className="text-slate-400 dark:text-slate-500">·</span>
-                      <StatementChip term={s.object} />
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            <FvDisplayRow
+              key={i}
+              fv={fv}
+              termRenderer={curationTermRenderer}
+              showLevelGlyph={false}
+              labelFont="mono"
+              leading={
+                status ? <FvStatusGlyph status={status} /> : null
+              }
+              trailing={
+                <>
+                  {status === "near" && gemmaLabel ? (
+                    <span
+                      className="text-[10px] text-amber-700 dark:text-amber-300 italic"
+                      title="Gemma's label for the paired FV"
+                    >
+                      ↔ Gemma:{" "}
+                      <span className="font-mono not-italic">
+                        {gemmaLabel}
+                      </span>
+                    </span>
+                  ) : null}
+                  {status === "agent_only" ? (
+                    <span
+                      className="text-[10px] text-amber-700 dark:text-amber-300 italic"
+                      title="no Gemma counterpart — neither by proposer alignment nor biomaterial overlap"
+                    >
+                      not in Gemma
+                    </span>
+                  ) : null}
+                </>
+              }
+            />
           );
         })}
         {/* Gemma-only FVs — the agent didn't propose these. Renders
@@ -1962,35 +1924,9 @@ function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   );
 }
 
-/** Inline chip for a single subject/predicate/object slot in an
- *  embedded factor-detail view. Renders label + tiny URI hint when
- *  grounded, italic grey "(free text)" when not. Keeps the chip
- *  light — full URI is in the title tooltip. */
-function StatementChip({
-  term,
-}: {
-  term: { label?: string; uri?: string | null } | null | undefined;
-}) {
-  if (!term?.label && !term?.uri) {
-    return <span className="text-slate-400 italic">—</span>;
-  }
-  return (
-    <span
-      className={cn(
-        "inline-flex items-baseline gap-1",
-        term.uri ? "text-emerald-800 dark:text-emerald-200" : "text-slate-600 dark:text-slate-300",
-      )}
-      title={term.uri || "free text"}
-    >
-      <span>{term.label || term.uri}</span>
-      {term.uri ? (
-        <span className="font-mono text-[9px] text-slate-400 dark:text-slate-500">
-          {term.uri.split(/[#/]/).filter(Boolean).pop()}
-        </span>
-      ) : null}
-    </span>
-  );
-}
+// `StatementChip` was the prior inline term chip for the S · P · O
+// subrow. Replaced by the shared `<FvDisplayRow>`'s per-statement
+// renderer (driven by curationTermRenderer = the rich Term chip).
 
 /** Gold-side factor embed for ``calibration_factor_gold_only_miss``
  *  findings — the agent didn't propose this factor, so the gold side
