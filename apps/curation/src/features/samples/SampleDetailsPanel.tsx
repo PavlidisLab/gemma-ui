@@ -757,6 +757,41 @@ function SampleTable({
     [filtered, sort, fvByBmPerFactor],
   );
 
+  // Per-column "first-seen-value index" map. For each column,
+  // walks the sorted rows in display order and assigns 0 to the
+  // first value seen, 1 to the next distinct one, etc. The tint
+  // palette is keyed off this index — which means columns that
+  // share a row pattern (e.g. two factors that partition samples
+  // the same way) end up with matching color stripes, so the
+  // curator can eyeball "these two columns agree."
+  const valueIdxByColumn = useMemo(() => {
+    const out = new Map<string, Map<string, number>>();
+    // Char columns.
+    for (const k of charKeys) {
+      const seen = new Map<string, number>();
+      for (const bm of sorted) {
+        const v = (bm.characteristics?.[k] ?? "").trim();
+        if (!v) continue;
+        if (!seen.has(v)) seen.set(v, seen.size);
+      }
+      out.set(`char:${k}`, seen);
+    }
+    // Factor columns. Key the per-factor map by FV id (stringified)
+    // so the cell-side lookup can use the FV id directly without
+    // re-resolving the label.
+    for (const { factor, index } of fvByBmPerFactor) {
+      const seen = new Map<string, number>();
+      for (const bm of sorted) {
+        const fvId = index.get(bm.short_name)?.fv_id;
+        if (fvId == null) continue;
+        const key = String(fvId);
+        if (!seen.has(key)) seen.set(key, seen.size);
+      }
+      out.set(`factor:${factor.id}`, seen);
+    }
+    return out;
+  }, [sorted, charKeys, fvByBmPerFactor]);
+
   // ---------------------------------------------------------------------
   // Group BioMaterials by source-sample so single-cell datasets render
   // one row per biological sample rather than one per cell-type bucket.
@@ -1771,6 +1806,13 @@ function SampleTable({
                               factor={factor}
                               currentFvId={agg.fvId}
                               isMixed={agg.isMixed}
+                              valueTint={(() => {
+                                if (agg.isMixed || agg.fvId == null) return undefined;
+                                const idx = valueIdxByColumn
+                                  .get(`factor:${factor.id}`)
+                                  ?.get(String(agg.fvId));
+                                return idx != null ? tintForIndex(idx) : undefined;
+                              })()}
                               onChange={(fvId) => {
                                 for (const sn of allShortNames) {
                                   onReassign(sn, factor.id, fvId);
@@ -1787,19 +1829,27 @@ function SampleTable({
                       const agg = aggregateCharValue(siblings, k);
                       const isOntology = !!agg.valueUri && !agg.isMixed;
                       const isContinuous = continuousCharKeys.has(k);
-                      // Per-value text tint — helps the curator spot
-                      // patterns ("all the controls are the same blue,
-                      // all the treated are the same green") at a
-                      // glance. Skip ontology (already emerald),
-                      // mixed (italic slate), continuous (numeric —
-                      // would just be noise), and empty cells.
-                      const valueTint =
+                      // Per-value background tint, indexed by first-
+                      // appearance order in this column's sorted rows
+                      // (not by value-string hash). That way the
+                      // first set of values in column A and the first
+                      // set in column B share the same starting hue —
+                      // columns that partition samples the same way
+                      // end up with matching color stripes, making
+                      // agreement easy to eyeball. Skip ontology
+                      // (already emerald-bookmarked), mixed (italic
+                      // slate), continuous (numeric — would just be
+                      // noise), and empty cells.
+                      const colIdxMap = valueIdxByColumn.get(`char:${k}`);
+                      const valueIdx =
                         !isOntology &&
                         !agg.isMixed &&
                         !isContinuous &&
                         agg.display
-                          ? tintForValue(agg.display)
+                          ? colIdxMap?.get(agg.display.trim())
                           : undefined;
+                      const valueTint =
+                        valueIdx != null ? tintForIndex(valueIdx) : undefined;
                       const isDirty =
                         !agg.isMixed &&
                         siblings.some((b) => {
@@ -2206,6 +2256,7 @@ function FvSelect({
   factor,
   currentFvId,
   isMixed,
+  valueTint,
   onChange,
 }: {
   factor: Factor;
@@ -2215,6 +2266,11 @@ function FvSelect({
    *  cell as a curation smell — design factors should apply at the
    *  source-sample level. Picking a value commits to all siblings. */
   isMixed?: boolean;
+  /** CSS color for the cell background — assigned by the parent
+   *  panel from the per-column first-seen-value index. Parent skips
+   *  ontology / mixed / unassigned / empty so the four state
+   *  classes below stay load-bearing. */
+  valueTint?: string;
   onChange: (fvId: number) => void;
 }) {
   // Four visual states: ontology-backed (emerald — matches the
@@ -2241,14 +2297,11 @@ function FvSelect({
         // from per-value tints at a glance.
         ? "border-emerald-300 text-emerald-900 bg-emerald-50 border-l-[5px] border-l-emerald-500 rounded-l-xl pl-2"
         : "border-slate-300 text-slate-800";
-  // Per-value text tint for non-ontology categorical FVs — helps the
-  // curator spot which samples share an FV without reading every
-  // label. Skip the four "stateful" cases above (ontology, mixed,
-  // unassigned) so their state colors aren't clobbered.
-  const valueTint =
-    !isMixed && currentFvId !== null && !isOntologyBacked && currentFv
-      ? tintForValue(currentFv.free_text_label || `FV ${currentFv.id}`)
-      : undefined;
+  // The parent passes `valueTint` already gated on (not mixed, not
+  // unassigned, not ontology-backed) — no extra check needed here.
+  // We only clear it on ontology-backed cells so the emerald
+  // bookmark + bg stays untinted.
+  const tint = isOntologyBacked ? undefined : valueTint;
   // For unassigned / mixed cells there's no FV with statements to
   // unpack; a plain native ``title`` is fine. For populated cells
   // (ontology-backed OR free-text-assigned) we render a rich
@@ -2274,9 +2327,7 @@ function FvSelect({
         "text-xs border rounded px-1 py-0.5 bg-white max-w-[14rem] truncate",
         stateCls,
       )}
-      style={
-        valueTint ? { backgroundColor: valueTint } : undefined
-      }
+      style={tint ? { backgroundColor: tint } : undefined}
       // Native ``title`` only on cells without statements to surface —
       // the rich tooltip below replaces it on populated cells.
       title={currentFv && currentFv.statements.length > 0 ? undefined : fallbackTitle}
@@ -2997,30 +3048,25 @@ function buildColumnGhost(th: HTMLElement): HTMLElement | null {
  * are this blue, all treated this green") without reading every
  * label.
  *
- * Hashes the string, maps to an HSL with golden-ratio-spaced hue,
- * high saturation (70%), mid lightness (50%), and low alpha (0.18).
- * Returning a semi-transparent fill means the same color reads
- * correctly on the light-mode white background AND the dark-mode
- * slate-900 background — it just shifts whatever's underneath.
- * Text stays default; the tint sits behind it.
+ * Maps a per-column first-seen-value index to an HSL color. Index 0
+ * is the same starting hue across every column, index 1 is the same
+ * second hue, etc. — so columns that partition samples the same way
+ * end up with matching color stripes regardless of label text. The
+ * curator can scan two factor columns side-by-side and spot
+ * agreement at a glance.
  *
- * Two values that happen to land near each other in hue are
- * tolerated — the goal is pattern-spotting, not full
- * disambiguation.
+ * Saturation 70%, lightness 50%, alpha 0.18 — semi-transparent so
+ * the same color reads correctly on the light-mode white background
+ * AND the dark-mode slate-900 background. Hue advances by the
+ * golden angle (≈137.5°) so neighboring indices stay visually
+ * distinct.
  *
- * Returns `undefined` for empty strings so the cell falls back to
- * the surrounding theme background.
+ * Returns `undefined` for negative / non-finite indices so the cell
+ * falls back to the surrounding theme background.
  */
-function tintForValue(value: string): string | undefined {
-  const s = value.trim();
-  if (!s) return undefined;
-  // FNV-1a-ish 32-bit hash — cheap and stable across reloads.
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  // Mix with golden ratio for nicer hue spread across small value sets.
-  const hue = (Math.abs(h) * 0.61803398875) % 360;
+function tintForIndex(idx: number): string | undefined {
+  if (!Number.isFinite(idx) || idx < 0) return undefined;
+  // Start at a calm blue (220°) and walk by the golden angle.
+  const hue = (220 + idx * 137.508) % 360;
   return `hsla(${hue.toFixed(0)}, 70%, 50%, 0.18)`;
 }
