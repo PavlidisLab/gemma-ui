@@ -22,22 +22,12 @@ import { api, ApiError } from "./client";
 // ─── Shared swallow-404 helper ────────────────────────────────────
 
 /** Swallow 404 / 204 as "no data computed yet"; bubble everything
- *  else. Manually unwraps a `{data: T}` envelope when present —
- *  gemma-rest's diagnostics endpoints return `{data: {...}}` WITHOUT
- *  the `apiVersion` sentinel that `api.client.unwrapGemmaEnvelope`
- *  conservatively requires, so they reach us still wrapped. */
+ *  else. `api.client.unwrapGemmaEnvelope` now unwraps `{data: ...}`
+ *  envelopes whether or not `apiVersion` is set, so no per-endpoint
+ *  manual unwrap needed. */
 async function getOrNull<T>(path: string): Promise<T | null> {
   try {
-    const body = await api.get<{ data?: T } | T>(path);
-    if (
-      body &&
-      typeof body === "object" &&
-      !Array.isArray(body) &&
-      "data" in (body as Record<string, unknown>)
-    ) {
-      return ((body as { data?: T }).data ?? null);
-    }
-    return body as T;
+    return await api.get<T>(path);
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 204)) {
       return null;
