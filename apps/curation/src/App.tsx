@@ -316,7 +316,7 @@ function Shell({
     setNotesOpen(next.notesOpen);
   }, [initialTab]);
 
-  const { draft, loadError, staleCacheDiscarded, diff } = useDesignDraft();
+  const { draft, isLoading: draftLoading, loadError, staleCacheDiscarded, diff } = useDesignDraft();
 
   // Guard against accidental navigation away with uncommitted edits.
   // Drafts are persisted to localStorage so a refresh recovers them,
@@ -420,6 +420,25 @@ function Shell({
   // generic error.
   if (loadError && /\b404\b/.test(loadError)) {
     return <ImportPrompt experimentId={experimentId} />;
+  }
+
+  // While the design draft is still loading, mask the experiment
+  // shell. Without this, the banner + tabs mount against fallback
+  // values (``experiment {id}``, taxon "", n=0, …) — disconcerting
+  // empty fields that read like a stuck render rather than an
+  // in-flight fetch. TopBar still renders because the persistent
+  // session / mode / health chrome is independent of the draft.
+  if (draftLoading && !draft) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <TopBar
+          experimentId={experimentId}
+          experimentShortName={`experiment ${experimentId}`}
+          reviewer={fullName || reviewer}
+        />
+        <ExperimentShellLoading experimentId={experimentId} />
+      </div>
+    );
   }
 
   const externalSource = draft?.external_source ?? null;
@@ -1191,6 +1210,33 @@ function SharedCommitBar({
       }}
       onDiscard={discard}
     />
+  );
+}
+
+/** Full-area loading mask shown while the design draft is still
+ *  in its initial fetch. Keeps the chrome that matters (TopBar,
+ *  HealthChip) while replacing the banner + content with a single
+ *  centered "loading…" state so the curator doesn't see the
+ *  experiment-shell mount against fallback values for a frame. */
+function ExperimentShellLoading({
+  experimentId,
+}: {
+  experimentId: number;
+}) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 gap-3 px-4">
+      <div
+        className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-blue-600 dark:border-slate-700 dark:border-t-blue-400 animate-spin"
+        aria-label="loading"
+      />
+      <div className="text-sm">
+        Loading experiment{" "}
+        <span className="font-mono text-slate-700 dark:text-slate-300">
+          {experimentId}
+        </span>
+        …
+      </div>
+    </div>
   );
 }
 
