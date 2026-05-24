@@ -253,13 +253,69 @@ export function useDatasetsPaginated(params: DatasetListParams) {
   p.set("offset", String(params.offset ?? 0));
   return useQuery({
     queryKey: KEY.datasetsPaginated(params),
-    queryFn: () =>
-      api.get<WorkflowDatasetListResponse>(
+    queryFn: async () => {
+      const raw = await api.get<Record<string, unknown>>(
         `/rest/v2/datasets?${p.toString()}`,
-      ),
+      );
+      return adaptDatasetListResponse(raw);
+    },
     refetchOnWindowFocus: true,
     placeholderData: (prev) => prev,
   });
+}
+
+// gemma-rest 2.0 ships dataset rows with the GEEQ scores in a nested
+// `geeq: { public_quality_score, public_suitability_score, ... }` object,
+// not the flat `geeq_public_quality_score` / `geeq_public_suitability_score`
+// fields the workflow UI's WorkflowDatasetRow expects. Lift them at the
+// boundary so the queue rows render Q/S pills correctly.
+//
+// `is_public` likewise isn't on the gemma-rest row — derive `true` if the
+// row appears in this list (gemma-rest's `/datasets` only returns public
+// data unless an admin filter is specified). Fields the UI shows but
+// gemma-rest doesn't carry (n_pending_proposals, latest_audit_verdict,
+// taxon_common_name, technology_type) default to safe values.
+function adaptDatasetListResponse(
+  raw: Record<string, unknown>,
+): WorkflowDatasetListResponse {
+  const rows = Array.isArray(raw.data) ? (raw.data as Record<string, unknown>[]) : [];
+  const out = rows.map((r): import("./workflowTypes").WorkflowDatasetRow => {
+    const geeq = (r.geeq as Record<string, unknown> | null | undefined) ?? null;
+    const num = (k: string): number | null => {
+      if (!geeq) return null;
+      const v = geeq[k];
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    };
+    return {
+      id: Number(r.id ?? 0),
+      short_name: (r.short_name as string) ?? (r.accession as string) ?? String(r.id ?? ""),
+      name: (r.name as string) ?? "",
+      taxon_common_name: (r.taxon_common_name as string) ?? "",
+      technology_type: (r.technology_type as string) ?? "",
+      number_of_bio_assays: Number(r.number_of_bio_assays ?? 0),
+      last_updated: (r.last_updated as string) ?? "",
+      troubled: Boolean(r.troubled),
+      needs_attention: Boolean(r.needs_attention),
+      is_public: r.is_public === undefined ? true : Boolean(r.is_public),
+      curation_note: (r.curation_note as string | null | undefined) ?? null,
+      geeq_public_quality_score:
+        (r.geeq_public_quality_score as number | null | undefined) ??
+        num("public_quality_score"),
+      geeq_public_suitability_score:
+        (r.geeq_public_suitability_score as number | null | undefined) ??
+        num("public_suitability_score"),
+      n_pending_proposals: Number(r.n_pending_proposals ?? 0),
+      n_unactioned_blocker: Number(r.n_unactioned_blocker ?? 0),
+      n_unactioned_major: Number(r.n_unactioned_major ?? 0),
+      latest_audit_verdict: (r.latest_audit_verdict as string | null | undefined) ?? null,
+    };
+  });
+  return {
+    data: out,
+    total_elements: Number(raw.total_elements ?? out.length),
+    offset: Number(raw.offset ?? 0),
+    limit: Number(raw.limit ?? out.length),
+  };
 }
 
 // ---------------------------------------------------------------------------

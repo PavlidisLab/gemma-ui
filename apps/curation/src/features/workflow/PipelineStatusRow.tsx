@@ -11,7 +11,7 @@ import { experimentRoute, navigate } from "@/routes";
 import { AnalysisTrackStrip, CurationTrackStrip } from "./PipelineTrackStrip";
 
 function GeeqPill({ score, label }: { score: number | null; label: string }) {
-  if (score === null) return null;
+  if (score === null || typeof score !== "number" || !Number.isFinite(score)) return null;
   const pct = Math.round(((score + 1) / 2) * 100);
   const color =
     pct >= 70
