@@ -1786,6 +1786,20 @@ function SampleTable({
                       if (!visibleCharKeys.includes(k)) return null;
                       const agg = aggregateCharValue(siblings, k);
                       const isOntology = !!agg.valueUri && !agg.isMixed;
+                      const isContinuous = continuousCharKeys.has(k);
+                      // Per-value text tint — helps the curator spot
+                      // patterns ("all the controls are the same blue,
+                      // all the treated are the same green") at a
+                      // glance. Skip ontology (already emerald),
+                      // mixed (italic slate), continuous (numeric —
+                      // would just be noise), and empty cells.
+                      const valueTint =
+                        !isOntology &&
+                        !agg.isMixed &&
+                        !isContinuous &&
+                        agg.display
+                          ? tintForValue(agg.display)
+                          : undefined;
                       const isDirty =
                         !agg.isMixed &&
                         siblings.some((b) => {
@@ -1810,6 +1824,7 @@ function SampleTable({
                                 ? "text-emerald-900 bg-emerald-50/60"
                                 : "text-slate-700",
                           )}
+                          style={valueTint ? { color: valueTint } : undefined}
                           title={
                             agg.isMixed
                               ? `${agg.distinct.length} distinct values across ${groupSize} cell-type buckets:\n${agg.distinct.join("\n")}`
@@ -2216,6 +2231,14 @@ function FvSelect({
       : isOntologyBacked
         ? "border-emerald-300 text-emerald-900 bg-emerald-50"
         : "border-slate-300 text-slate-800";
+  // Per-value text tint for non-ontology categorical FVs — helps the
+  // curator spot which samples share an FV without reading every
+  // label. Skip the four "stateful" cases above (ontology, mixed,
+  // unassigned) so their state colors aren't clobbered.
+  const valueTint =
+    !isMixed && currentFvId !== null && !isOntologyBacked && currentFv
+      ? tintForValue(currentFv.free_text_label || `FV ${currentFv.id}`)
+      : undefined;
   // For unassigned / mixed cells there's no FV with statements to
   // unpack; a plain native ``title`` is fine. For populated cells
   // (ontology-backed OR free-text-assigned) we render a rich
@@ -2241,6 +2264,7 @@ function FvSelect({
         "text-xs border rounded px-1 py-0.5 bg-white max-w-[14rem] truncate",
         stateCls,
       )}
+      style={valueTint ? { color: valueTint } : undefined}
       // Native ``title`` only on cells without statements to surface —
       // the rich tooltip below replaces it on populated cells.
       title={currentFv && currentFv.statements.length > 0 ? undefined : fallbackTitle}
@@ -2953,4 +2977,34 @@ function buildColumnGhost(th: HTMLElement): HTMLElement | null {
   }
 
   return wrapper;
+}
+
+/**
+ * Deterministic per-value text tint for categorical samples-table
+ * cells. Helps the curator visually spot patterns ("all controls
+ * are this blue, all treated this green") without reading every
+ * label.
+ *
+ * Hashes the string, maps to an HSL with golden-ratio-spaced hue,
+ * medium saturation (55%), and a mid lightness (58%) so the text
+ * reads clearly on BOTH the white light-theme cell background and
+ * the slate-900 dark-theme one. Two values that happen to land
+ * near each other in hue are tolerated — the goal is pattern-
+ * spotting, not full disambiguation.
+ *
+ * Returns `undefined` for empty strings so the cell falls back to
+ * its default text color.
+ */
+function tintForValue(value: string): string | undefined {
+  const s = value.trim();
+  if (!s) return undefined;
+  // FNV-1a-ish 32-bit hash — cheap and stable across reloads.
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // Mix with golden ratio for nicer hue spread across small value sets.
+  const hue = (Math.abs(h) * 0.61803398875) % 360;
+  return `hsl(${hue.toFixed(0)}, 55%, 58%)`;
 }
