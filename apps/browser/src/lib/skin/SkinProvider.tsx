@@ -21,7 +21,15 @@ import { createContext, useContext, useEffect, useState } from "react";
  * is restored on next mount. Defaults to ``default``.
  */
 
-export type SkinId = "default" | "extjs" | "ink";
+export type SkinId =
+  | "default"
+  | "extjs"
+  | "ink"
+  | "crt"
+  | "riso"
+  | "swiss"
+  | "vapor"
+  | "brutal";
 
 interface SkinDef {
   id: SkinId;
@@ -44,6 +52,31 @@ export const SKINS: readonly SkinDef[] = [
     id: "ink",
     label: "Ink",
     tagline: "paper + warm type",
+  },
+  {
+    id: "crt",
+    label: "CRT",
+    tagline: "phosphor terminal, scanlines",
+  },
+  {
+    id: "riso",
+    label: "Riso",
+    tagline: "two-ink duotone print",
+  },
+  {
+    id: "swiss",
+    label: "Swiss",
+    tagline: "International style, hairlines",
+  },
+  {
+    id: "vapor",
+    label: "Vapor",
+    tagline: "neon synthwave, midnight",
+  },
+  {
+    id: "brutal",
+    label: "Brutalist",
+    tagline: "concrete, heavy rules",
   },
 ];
 

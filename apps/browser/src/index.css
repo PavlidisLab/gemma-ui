@@ -469,3 +469,443 @@ html.skin-extjs button[class*="border-b"][class*="text-slate-"] {
 html.skin-ink .bg-white {
   background-color: rgb(var(--skin-surface));
 }
+
+/* ─── CRT skin (phosphor terminal) ─────────────────────────────────────
+ * Dark phosphor green on near-black, monospaced. Borrows the VT220
+ * aesthetic: glowing text, faint scanlines via repeating gradient,
+ * sharp corners, all-caps headers. Lots of chrome overrides because
+ * the token swap alone can't carry the scanlines or the glow.
+ */
+html.skin-crt {
+  --skin-ink:        140 255 170;        /* phosphor green-1 */
+  --skin-subtle:     90 170 110;          /* dim green */
+  --skin-grid:       40 80 50;            /* faint scaffolding */
+  --skin-accent:     180 255 200;         /* hot phosphor */
+  --skin-accent2:    120 220 255;         /* secondary cyan trace */
+  --skin-accent3:    255 200 90;          /* amber trace */
+  --skin-accent4:    255 110 110;         /* error red */
+
+  --skin-surface:      8 18 12;           /* card body */
+  --skin-surface-sunk: 4 10 6;             /* input bg */
+  --skin-surface-alt:  18 36 24;           /* row hover */
+
+  --skin-bg:                 2 8 4;
+  --skin-panel-border:       60 130 80;
+  --skin-panel-header-from:  10 22 14;
+  --skin-panel-header-to:    18 36 24;
+  --skin-panel-header-text:  180 255 200;
+  --skin-grid-header-from:   12 24 16;
+  --skin-grid-header-to:     18 36 24;
+  --skin-grid-stripe:        6 14 9;
+  --skin-btn-from:           18 36 24;
+  --skin-btn-to:             10 22 14;
+  --skin-btn-border:         90 170 110;
+  --skin-btn-primary-from:   30 80 45;
+  --skin-btn-primary-to:     14 50 24;
+  --skin-input-border:       60 130 80;
+  --skin-titlebar-from:      14 50 24;
+  --skin-titlebar-to:        4 16 8;
+  --skin-titlebar-text:      180 255 200;
+
+  --skin-font-sans: "JetBrains Mono", "Menlo", "Consolas", monospace;
+  --skin-radius:    0;
+  --skin-font-size: 13px;
+}
+
+/* CRT scanline overlay + page glow. ::before on <body> draws horizontal
+ * lines via repeating gradient; pointer-events off so it never eats
+ * clicks. Subtle text shadow on body gives the phosphor bloom. */
+html.skin-crt body {
+  text-shadow: 0 0 1px rgba(180, 255, 200, 0.35);
+  position: relative;
+}
+html.skin-crt body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.18) 3px,
+    rgba(0, 0, 0, 0) 4px
+  );
+  mix-blend-mode: multiply;
+}
+html.skin-crt .rounded,
+html.skin-crt .rounded-md,
+html.skin-crt .rounded-lg,
+html.skin-crt .rounded-xl,
+html.skin-crt .rounded-2xl,
+html.skin-crt .rounded-full {
+  border-radius: 0;
+}
+/* Force any white/light-tinted surface to become a dark CRT panel */
+html.skin-crt .bg-white,
+html.skin-crt .bg-slate-50,
+html.skin-crt .bg-slate-50\/60,
+html.skin-crt .bg-gray-50,
+html.skin-crt .bg-gray-100 {
+  background-color: rgb(var(--skin-surface)) !important;
+  color: rgb(var(--skin-ink));
+}
+html.skin-crt .border,
+html.skin-crt .border-slate-200,
+html.skin-crt .border-slate-300,
+html.skin-crt .border-gray-200,
+html.skin-crt .border-gray-300 {
+  border-color: rgb(var(--skin-panel-border));
+}
+html.skin-crt h1,
+html.skin-crt h2,
+html.skin-crt h3,
+html.skin-crt thead th,
+html.skin-crt .uppercase {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+html.skin-crt input,
+html.skin-crt select,
+html.skin-crt textarea {
+  background: rgb(var(--skin-surface-sunk));
+  color: rgb(var(--skin-ink));
+  border: 1px solid rgb(var(--skin-input-border));
+  border-radius: 0;
+}
+html.skin-crt input::placeholder { color: rgba(140, 255, 170, 0.4); }
+html.skin-crt a { color: rgb(var(--skin-accent2)); }
+html.skin-crt main { background-color: rgb(var(--skin-bg)); }
+
+/* ─── Riso skin (two-ink duotone print) ────────────────────────────────
+ * Riso duplicator aesthetic: limited palette of fluorescent pink and
+ * federal blue printed on warm cream, deliberate slight grain. No
+ * gradients — riso can't print them. Slight off-register feel via
+ * shifted box-shadow.
+ */
+html.skin-riso {
+  --skin-ink:        21 25 90;            /* federal blue ink */
+  --skin-subtle:     90 95 140;
+  --skin-grid:       210 200 180;         /* paper texture line */
+  --skin-accent:     255 78 140;          /* fluorescent pink */
+  --skin-accent2:    21 25 90;            /* federal blue */
+  --skin-accent3:    255 178 80;          /* sunshine yellow ink */
+  --skin-accent4:    255 78 140;
+
+  --skin-surface:      250 244 226;       /* cream paper */
+  --skin-surface-sunk: 244 236 212;
+  --skin-surface-alt:  254 220 232;       /* pink wash */
+
+  --skin-bg:                 246 238 218;
+  --skin-panel-border:       21 25 90;
+  --skin-panel-header-from:  254 220 232;
+  --skin-panel-header-to:    254 220 232;
+  --skin-panel-header-text:  21 25 90;
+  --skin-grid-header-from:   244 236 212;
+  --skin-grid-header-to:     244 236 212;
+  --skin-grid-stripe:        254 233 240;
+  --skin-btn-from:           250 244 226;
+  --skin-btn-to:             250 244 226;
+  --skin-btn-border:         21 25 90;
+  --skin-btn-primary-from:   255 78 140;
+  --skin-btn-primary-to:     255 78 140;
+  --skin-input-border:       21 25 90;
+  --skin-titlebar-from:      255 78 140;
+  --skin-titlebar-to:        255 78 140;
+  --skin-titlebar-text:      250 244 226;
+
+  --skin-font-sans: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --skin-radius:    0;
+  --skin-font-size: 14px;
+}
+/* Paper grain via SVG noise pattern, slight off-register card shadow */
+html.skin-riso body {
+  background-color: rgb(var(--skin-bg));
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.08  0 0 0 0 0.1  0 0 0 0 0.35  0 0 0 0.12 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+html.skin-riso .rounded,
+html.skin-riso .rounded-md,
+html.skin-riso .rounded-lg,
+html.skin-riso .rounded-xl,
+html.skin-riso .rounded-2xl {
+  border-radius: 0;
+}
+html.skin-riso .bg-white {
+  background-color: rgb(var(--skin-surface));
+}
+html.skin-riso .shadow,
+html.skin-riso .shadow-sm,
+html.skin-riso .shadow-md,
+html.skin-riso .shadow-lg,
+html.skin-riso .shadow-xl {
+  box-shadow: 4px 4px 0 rgba(255, 78, 140, 0.45);
+}
+html.skin-riso .border,
+html.skin-riso .border-slate-200,
+html.skin-riso .border-slate-300,
+html.skin-riso .border-gray-200,
+html.skin-riso .border-gray-300 {
+  border-color: rgb(var(--skin-panel-border));
+}
+html.skin-riso h1,
+html.skin-riso h2 {
+  color: rgb(var(--skin-accent));
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+html.skin-riso a { color: rgb(var(--skin-accent)); text-decoration: underline; }
+
+/* ─── Swiss skin (International style) ─────────────────────────────────
+ * Helvetica, generous whitespace, hairline rules, single hot-red accent
+ * on near-black ink and cool grey paper. Mirrors Müller-Brockmann /
+ * Hoffmann / Lohse-grid posters — restraint as a virtue.
+ */
+html.skin-swiss {
+  --skin-ink:        17 17 17;            /* near-black */
+  --skin-subtle:     115 115 115;
+  --skin-grid:       220 220 220;         /* hairline */
+  --skin-accent:     227 30 36;           /* signal red */
+  --skin-accent2:    17 17 17;
+  --skin-accent3:    227 30 36;
+  --skin-accent4:    227 30 36;
+
+  --skin-surface:      255 255 255;
+  --skin-surface-sunk: 246 246 246;
+  --skin-surface-alt:  238 238 238;
+
+  --skin-bg:                 250 250 250;
+  --skin-panel-border:       220 220 220;
+  --skin-panel-header-from:  255 255 255;
+  --skin-panel-header-to:    255 255 255;
+  --skin-panel-header-text:  17 17 17;
+  --skin-grid-header-from:   255 255 255;
+  --skin-grid-header-to:     255 255 255;
+  --skin-grid-stripe:        252 252 252;
+  --skin-btn-from:           255 255 255;
+  --skin-btn-to:             255 255 255;
+  --skin-btn-border:         17 17 17;
+  --skin-btn-primary-from:   227 30 36;
+  --skin-btn-primary-to:     227 30 36;
+  --skin-input-border:       17 17 17;
+  --skin-titlebar-from:      255 255 255;
+  --skin-titlebar-to:        255 255 255;
+  --skin-titlebar-text:      17 17 17;
+
+  --skin-font-sans: "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  --skin-radius:    0;
+  --skin-font-size: 14px;
+}
+
+/* ─── Vapor skin (synthwave neon) ─────────────────────────────────────
+ * Deep navy-violet field, hot magenta + cyan neon accents, gradient
+ * titlebars and primary buttons that recall arcade marquees. Type
+ * stays clean — the colour does the heavy lifting. Pushes the limits.
+ */
+html.skin-vapor {
+  --skin-ink:        236 232 255;         /* pale lavender body text */
+  --skin-subtle:     156 144 200;
+  --skin-grid:       60 50 100;
+  --skin-accent:     255 99 230;          /* hot magenta */
+  --skin-accent2:    109 224 255;         /* cyan */
+  --skin-accent3:    255 196 90;          /* sun gold */
+  --skin-accent4:    255 86 142;
+
+  --skin-surface:      28 24 60;          /* card */
+  --skin-surface-sunk: 18 14 44;          /* input bg */
+  --skin-surface-alt:  44 36 88;          /* hover */
+
+  --skin-bg:                 12 8 32;
+  --skin-panel-border:       90 72 160;
+  --skin-panel-header-from:  60 30 120;
+  --skin-panel-header-to:    28 24 80;
+  --skin-panel-header-text:  236 232 255;
+  --skin-grid-header-from:   40 28 90;
+  --skin-grid-header-to:     22 16 56;
+  --skin-grid-stripe:        22 18 56;
+  --skin-btn-from:           60 40 130;
+  --skin-btn-to:             32 22 80;
+  --skin-btn-border:         140 100 220;
+  --skin-btn-primary-from:   255 99 230;
+  --skin-btn-primary-to:     109 224 255;
+  --skin-input-border:       90 72 160;
+  --skin-titlebar-from:      255 99 230;
+  --skin-titlebar-to:        109 224 255;
+  --skin-titlebar-text:      18 14 44;
+
+  --skin-font-sans: "Outfit", "Inter", system-ui, sans-serif;
+  --skin-radius:    0.5rem;
+  --skin-font-size: 14px;
+}
+/* Sunset-grid backdrop — diagonal magenta→cyan wash with a subtle
+ * horizon line. Stays on <body> behind everything, so cards float. */
+html.skin-vapor body {
+  background:
+    radial-gradient(ellipse at 50% 110%, rgba(255, 99, 230, 0.28) 0%, rgba(255, 99, 230, 0) 55%),
+    radial-gradient(ellipse at 50% 0%, rgba(109, 224, 255, 0.18) 0%, rgba(109, 224, 255, 0) 50%),
+    linear-gradient(180deg, rgb(12, 8, 32) 0%, rgb(28, 12, 60) 100%);
+  background-attachment: fixed;
+  color: rgb(var(--skin-ink));
+}
+html.skin-vapor .bg-white,
+html.skin-vapor .bg-slate-50,
+html.skin-vapor .bg-slate-50\/60,
+html.skin-vapor .bg-gray-50 {
+  background-color: rgb(var(--skin-surface)) !important;
+  color: rgb(var(--skin-ink));
+}
+html.skin-vapor .border,
+html.skin-vapor .border-slate-200,
+html.skin-vapor .border-slate-300,
+html.skin-vapor .border-gray-200,
+html.skin-vapor .border-gray-300 {
+  border-color: rgb(var(--skin-panel-border));
+}
+/* Neon underline on links + magenta glow on focused inputs */
+html.skin-vapor a {
+  color: rgb(var(--skin-accent2));
+  text-shadow: 0 0 8px rgba(109, 224, 255, 0.5);
+}
+html.skin-vapor input,
+html.skin-vapor select,
+html.skin-vapor textarea {
+  background: rgb(var(--skin-surface-sunk));
+  color: rgb(var(--skin-ink));
+  border: 1px solid rgb(var(--skin-input-border));
+}
+html.skin-vapor input:focus,
+html.skin-vapor select:focus,
+html.skin-vapor textarea:focus {
+  border-color: rgb(var(--skin-accent));
+  box-shadow: 0 0 0 3px rgba(255, 99, 230, 0.22);
+  outline: 0;
+}
+html.skin-vapor h1,
+html.skin-vapor h2 {
+  background: linear-gradient(90deg, rgb(var(--skin-accent)), rgb(var(--skin-accent2)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* Card neon glow */
+html.skin-vapor .shadow,
+html.skin-vapor .shadow-sm,
+html.skin-vapor .shadow-md,
+html.skin-vapor .shadow-lg,
+html.skin-vapor .shadow-xl {
+  box-shadow: 0 0 0 1px rgba(140, 100, 220, 0.35), 0 8px 32px rgba(109, 224, 255, 0.12);
+}
+html.skin-vapor main { background-color: transparent; }
+
+/* ─── Brutalist skin (concrete) ───────────────────────────────────────
+ * Raw off-white card on cement-grey ground, heavy 2px black rules,
+ * oversized type, no rounding, hard offset shadows that don't blur.
+ * Bold experiment — leans into "this is a document, not a UI".
+ */
+html.skin-brutal {
+  --skin-ink:        0 0 0;
+  --skin-subtle:     80 80 80;
+  --skin-grid:       0 0 0;
+  --skin-accent:     255 80 30;           /* construction orange */
+  --skin-accent2:    20 80 220;           /* signage blue */
+  --skin-accent3:    240 210 0;           /* caution yellow */
+  --skin-accent4:    220 0 40;
+
+  --skin-surface:      252 250 244;       /* off-white paper */
+  --skin-surface-sunk: 240 238 232;
+  --skin-surface-alt:  232 228 218;
+
+  --skin-bg:                 198 196 188; /* cement */
+  --skin-panel-border:       0 0 0;
+  --skin-panel-header-from:  240 210 0;
+  --skin-panel-header-to:    240 210 0;
+  --skin-panel-header-text:  0 0 0;
+  --skin-grid-header-from:   0 0 0;
+  --skin-grid-header-to:     0 0 0;
+  --skin-grid-stripe:        240 238 232;
+  --skin-btn-from:           252 250 244;
+  --skin-btn-to:             252 250 244;
+  --skin-btn-border:         0 0 0;
+  --skin-btn-primary-from:   255 80 30;
+  --skin-btn-primary-to:     255 80 30;
+  --skin-input-border:       0 0 0;
+  --skin-titlebar-from:      0 0 0;
+  --skin-titlebar-to:        0 0 0;
+  --skin-titlebar-text:      252 250 244;
+
+  --skin-font-sans: "IBM Plex Sans", "Inter", system-ui, sans-serif;
+  --skin-radius:    0;
+  --skin-font-size: 15px;
+}
+/* Kill all rounding, force black rules at 2px, hard-offset shadows */
+html.skin-brutal .rounded,
+html.skin-brutal .rounded-md,
+html.skin-brutal .rounded-lg,
+html.skin-brutal .rounded-xl,
+html.skin-brutal .rounded-2xl,
+html.skin-brutal .rounded-full {
+  border-radius: 0;
+}
+html.skin-brutal .border,
+html.skin-brutal .border-slate-200,
+html.skin-brutal .border-slate-300,
+html.skin-brutal .border-gray-200,
+html.skin-brutal .border-gray-300 {
+  border-color: #000;
+  border-width: 2px;
+}
+html.skin-brutal .shadow,
+html.skin-brutal .shadow-sm,
+html.skin-brutal .shadow-md,
+html.skin-brutal .shadow-lg,
+html.skin-brutal .shadow-xl {
+  box-shadow: 6px 6px 0 0 #000;
+}
+html.skin-brutal .bg-white {
+  background-color: rgb(var(--skin-surface));
+}
+html.skin-brutal input,
+html.skin-brutal select,
+html.skin-brutal textarea {
+  background: #fff;
+  border: 2px solid #000;
+  border-radius: 0;
+}
+html.skin-brutal input:focus,
+html.skin-brutal select:focus,
+html.skin-brutal textarea:focus {
+  outline: 0;
+  box-shadow: 4px 4px 0 0 rgb(var(--skin-accent));
+}
+html.skin-brutal h1,
+html.skin-brutal h2 {
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+html.skin-brutal h1 { font-size: 2.25rem; line-height: 1.05; }
+html.skin-brutal button.btn,
+html.skin-brutal button[class*="bg-"]:not([class*="bg-transparent"]):not(.bg-clip-text) {
+  background: rgb(var(--skin-surface));
+  color: #000;
+  border: 2px solid #000;
+  box-shadow: 3px 3px 0 0 #000;
+  border-radius: 0;
+}
+html.skin-brutal button.btn:hover,
+html.skin-brutal button[class*="bg-"]:not([class*="bg-transparent"]):not(.bg-clip-text):hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 0 #000;
+}
+html.skin-brutal button.btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 0 #000;
+}
+html.skin-brutal button[class*="bg-blue-"]:not(.bg-clip-text),
+html.skin-brutal button[class*="bg-sky-"]:not(.bg-clip-text) {
+  background: rgb(var(--skin-accent));
+  color: #000;
+  font-weight: 700;
+}
+html.skin-brutal main { background-color: rgb(var(--skin-bg)); }
+html.skin-brutal a { color: rgb(var(--skin-accent2)); text-decoration: underline; text-underline-offset: 2px; }
