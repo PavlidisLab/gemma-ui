@@ -55,12 +55,13 @@ export function LoginModal({
       ? login.error.status === 401
         ? "Wrong username or password."
         : login.error.status === 403
-          ? // Server-side bug: /rest/v2/login is hitting the legacy
-            // XML chain instead of the REST chain that disables
-            // CSRF. Server fix is one @Order annotation
-            // (handoffs/HANDOFF_REST_CHAIN_ORDER_CSRF.md); meanwhile
-            // clearing cookies usually works around it.
-            "Sign-in blocked (HTTP 403). The server is rejecting the POST due to a Spring CSRF check that should be disabled on /rest/v2 (filter-chain ordering bug). Workaround: clear cookies for this host and reload. Fix tracked in HANDOFF_REST_CHAIN_ORDER_CSRF.md."
+          ? // Tomcat's CORS filter rejects POSTs from the Vite dev
+            // server's host with "Invalid CORS request". Vite's
+            // proxy now rewrites the Origin header to match the
+            // upstream — but the running dev server has to pick
+            // that change up, which means a Vite *server* restart
+            // (not just a browser reload).
+            "Sign-in blocked by CORS (HTTP 403 — Tomcat 'Invalid CORS request'). The Vite dev server's proxy needs to rewrite the Origin header. After restarting the dev server (not just refreshing the browser) this should clear."
           : `Sign-in failed (HTTP ${login.error.status}).`
       : (login.error as Error).message
     : null;

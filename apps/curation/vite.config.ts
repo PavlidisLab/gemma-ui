@@ -67,6 +67,24 @@ export default defineConfig(({ mode }) => {
         "/rest": {
           target: CURATION_URL,
           changeOrigin: true,
+          // Rewrite Origin so Tomcat's CORS filter doesn't 403
+          // cross-origin POSTs from the Vite dev server. See
+          // matching block in apps/browser/vite.config.ts.
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.setHeader("origin", CURATION_URL);
+              if (proxyReq.getHeader("referer")) {
+                try {
+                  proxyReq.setHeader(
+                    "referer",
+                    new URL(CURATION_URL).origin + "/",
+                  );
+                } catch {
+                  /* ignore */
+                }
+              }
+            });
+          },
         },
         // Proposer service (FastAPI) — long-running, so timeouts
         // are disabled.

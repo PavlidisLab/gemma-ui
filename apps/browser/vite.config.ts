@@ -87,6 +87,27 @@ export default defineConfig(({ mode }) => {
             // dev server is fronting without grepping vite.config.
             // eslint-disable-next-line no-console
             console.log(`[browser] /rest → ${GEMMA_TARGET}`);
+            // Rewrite the `Origin` header to the upstream's origin
+            // so Tomcat's CORS filter sees same-origin and doesn't
+            // 403 with "Invalid CORS request". changeOrigin only
+            // rewrites Host; Origin is a separate header that
+            // browsers send on every cross-origin POST and the
+            // upstream's allow-list almost never includes the dev
+            // server's port. The Referer gets the same treatment
+            // for completeness.
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.setHeader("origin", GEMMA_TARGET);
+              const refererHost = (() => {
+                try {
+                  return new URL(GEMMA_TARGET).origin;
+                } catch {
+                  return GEMMA_TARGET;
+                }
+              })();
+              if (proxyReq.getHeader("referer")) {
+                proxyReq.setHeader("referer", refererHost + "/");
+              }
+            });
             proxy.on("error", (err) => {
               // eslint-disable-next-line no-console
               console.error(`[browser] proxy error: ${err.message}`);
