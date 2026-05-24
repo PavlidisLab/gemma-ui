@@ -32,6 +32,31 @@ interface RestEnvelope<T> {
   data?: T;
 }
 
+/** Normalize a user object from either backend to the UI's User shape.
+ *  gemma-rest ships `{userName, email, enabled, group}` (→ user_name
+ *  after snakeify); the local_api mock ships `{username, full_name,
+ *  email}` directly. The UI consumes `{username, full_name, email}`.
+ *  Returns null if the input is missing the minimum identity (no
+ *  username under either name). */
+function normalizeUser(u: unknown): User | null {
+  if (!u || typeof u !== "object") return null;
+  const r = u as Record<string, unknown>;
+  const username =
+    (typeof r.username === "string" && r.username) ||
+    (typeof r.user_name === "string" && r.user_name) ||
+    "";
+  if (!username) return null;
+  const fullName =
+    (typeof r.full_name === "string" && r.full_name) ||
+    (typeof r.first_name === "string" || typeof r.last_name === "string"
+      ? [r.first_name, r.last_name].filter(Boolean).join(" ")
+      : "") ||
+    "";
+  const email =
+    (typeof r.email === "string" && r.email) || "";
+  return { username, full_name: fullName, email };
+}
+
 const STORAGE_KEY = "gemma-curation-session";
 
 interface StoredSession {
@@ -67,13 +92,16 @@ export function useMe() {
   return useQuery({
     queryKey: ["me"],
     queryFn: async () => {
-      const resp = await api.get<User | RestEnvelope<User> | null>(
-        "/rest/v2/me",
-      );
-      if (resp && typeof resp === "object" && "data" in resp) {
-        return (resp as RestEnvelope<User>).data ?? null;
-      }
-      return resp as User | null;
+      const resp = await api.get<unknown>("/rest/v2/me");
+      // Both envelopes (gemma-rest's `{data: user}` and the mock's
+      // bare user) reduce to a single user-shaped object via the
+      // unwrap in client.ts. Normalize key names so downstream
+      // consumers always see `{username, full_name, email}`.
+      const raw =
+        resp && typeof resp === "object" && "data" in (resp as Record<string, unknown>)
+          ? (resp as { data: unknown }).data
+          : resp;
+      return normalizeUser(raw);
     },
     staleTime: 1000 * 60 * 5,
     retry: false,
@@ -96,8 +124,13 @@ export function useLogin() {
         resp && typeof resp === "object" && "data" in resp && resp.data
           ? (resp as RestEnvelope<LoginResponse>).data!
           : (resp as LoginResponse);
-      saveStoredSession({ token: payload.token, user: payload.user });
-      qc.setQueryData(["me"], payload.user);
+      // Normalize the user shape (gemma-rest's `userName` → `username`,
+      // etc.) before storing — downstream consumers read username off
+      // the stored session and would otherwise get undefined.
+      const user = normalizeUser(payload.user);
+      if (!user || typeof payload.token !== "string") return;
+      saveStoredSession({ token: payload.token, user });
+      qc.setQueryData(["me"], user);
     },
   });
 }
