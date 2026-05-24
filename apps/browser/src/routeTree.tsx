@@ -27,6 +27,7 @@ import { GenesPage } from "@/features/gene/GenesPage";
 import { AboutPage } from "@/features/about/AboutPage";
 import { McpPage } from "@/features/mcp/McpPage";
 import { ExtjsMockup } from "@/features/mockup-extjs/ExtjsMockup";
+import { SystemMonitoringPage } from "@/features/admin/SystemMonitoringPage";
 import { NotFound } from "@/features/shared/NotFound";
 import { AppShell } from "@/features/shared/AppShell";
 
@@ -156,6 +157,16 @@ const extjsMockupRoute = createRoute({
   component: () => <ExtjsMockup />,
 });
 
+// Systems Monitoring — admin-only diagnostics dashboard (replaces
+// the legacy systemStats.jsp + activeUsers.jsp). Gates client-side
+// on the first 401/403 from /admin/system; auth comes via the
+// Spring session cookie set by the legacy Gemma admin login.
+const adminSystemRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/system",
+  component: () => <SystemMonitoringPage />,
+});
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   browserRoute,
@@ -174,4 +185,5 @@ export const routeTree = rootRoute.addChildren([
   aboutRoute,
   mcpRoute,
   extjsMockupRoute,
+  adminSystemRoute,
 ]);
