@@ -127,11 +127,28 @@ export function FactorReviewCard({
       </span>
     </div>
   );
+  // Compact one-liner shown when the card is collapsed — matches the
+  // audit panel's "Add factor — <category>: <fv1> / <fv2> / …" pattern.
+  // Limits to the first three FV labels so a 30-level cell-type factor
+  // doesn't spill across the row.
+  const summaryLine = (() => {
+    const cat = factor.category?.label || factor.name_in_design || "factor";
+    const sample = fvs.slice(0, 3).map((fv) => fv.free_text_label || "—");
+    const more = fvs.length > sample.length ? " / …" : "";
+    return (
+      <span className="text-[12px] text-slate-700 dark:text-slate-200 truncate font-mono">
+        Add factor — {cat}
+        {sample.length > 0 ? `: ${sample.join(" / ")}${more}` : ""}{" "}
+        <span className="text-slate-400 dark:text-slate-500">+/-</span>
+      </span>
+    );
+  })();
   return (
     <ReviewCardShell
       kind="factor"
       elementKey={elementKey}
       identityLabel={label}
+      summaryLine={summaryLine}
       titleArea={titleArea}
       disposition={disposition}
       onDispose={onDispose}
@@ -195,6 +212,16 @@ export function TagReviewCard({
       kind="tag"
       elementKey={elementKey}
       identityLabel={identityLabel}
+      summaryLine={
+        <span className="text-[12px] text-slate-700 dark:text-slate-200 truncate">
+          Add tag — {tag.value?.label || "(blank)"}
+          {tag.category?.label ? (
+            <span className="text-slate-400 dark:text-slate-500">
+              {" "}in {tag.category.label}
+            </span>
+          ) : null}
+        </span>
+      }
       titleArea={
         <div className="flex items-baseline gap-1.5 flex-wrap">
           <Term uri={tag.value?.uri ?? null} asLink={false}>
@@ -672,6 +699,7 @@ function ReviewCardShell({
   kind,
   elementKey,
   identityLabel,
+  summaryLine,
   titleArea,
   disposition,
   onDispose,
@@ -683,18 +711,18 @@ function ReviewCardShell({
   kind: CardKind;
   elementKey: string;
   /** Plain-text summary used as the rationale row in the reject /
-   *  park dialog so the curator knows which element they're acting
-   *  on. NOT used as a fallback title — `titleArea` is always
-   *  visible regardless of fold state. */
+   *  park dialog. NOT visually rendered on the card itself. */
   identityLabel: string;
-  /** Always-visible header content. The whole title row is the
-   *  click target for the fold toggle so curators can collapse with
-   *  a click anywhere on the row (matches the audit panel). */
+  /** One-line condensed summary shown when the card is COLLAPSED
+   *  (matches the audit panel's "Add factor — <summary>" pattern).
+   *  Falls back to `identityLabel` if not supplied. */
+  summaryLine?: React.ReactNode;
+  /** Full header content shown when the card is OPEN. */
   titleArea: React.ReactNode;
   disposition: ProposalDisposition;
   onDispose: (d: ProposalDisposition) => void;
-  /** Body content — collapses on fold. The action buttons remain
-   *  visible below regardless. */
+  /** Body content — also shown only when open. ActionButtons stay
+   *  visible regardless. */
   children: React.ReactNode;
   note?: string;
   onNoteChange?: (note: string) => void;
@@ -781,7 +809,15 @@ function ReviewCardShell({
           {open ? "⌄" : "›"}
         </button>
         <DispositionBadge disposition={disposition} kind={kind} />
-        <div className="flex-1 min-w-0 space-y-1">{titleArea}</div>
+        <div className="flex-1 min-w-0 space-y-1">
+          {open
+            ? titleArea
+            : (
+              <span className="text-[12px] text-slate-700 dark:text-slate-200 truncate">
+                {summaryLine ?? identityLabel}
+              </span>
+            )}
+        </div>
       </div>
       {open ? <div className="pl-7 space-y-1.5">{children}</div> : null}
       <ActionButtons
