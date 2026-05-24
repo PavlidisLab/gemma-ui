@@ -22,13 +22,13 @@ export function PanelCard({
   footer?: ReactNode;
 }) {
   return (
-    <div className="card flex flex-col">
-      <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700">
+    <div className="flex flex-col rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+      <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
         <span className="section-h text-sm font-semibold text-slate-700 dark:text-slate-200">
           {title}
         </span>
       </div>
-      <div className="flex-1 min-h-[260px] p-2 flex items-stretch justify-stretch">
+      <div className="flex-1 min-h-[300px] p-2 flex items-stretch justify-stretch bg-white dark:bg-slate-900">
         {children}
       </div>
       {footer ? (

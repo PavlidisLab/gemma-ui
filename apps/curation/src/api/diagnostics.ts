@@ -38,18 +38,37 @@ async function getOrNull<T>(path: string): Promise<T | null> {
 
 // ─── /svd ─────────────────────────────────────────────────────────
 
-/** Mirrors the Java VO shape, but with snake_case keys: the
- *  curation app's `api.client.snakeify` rewrites every camelCase
- *  wire field on the way in (see the GEMMA_WIRE_ALIGNMENT_HANDOFF
- *  notes in client.ts), so what the JSON has as `bioAssayScores`
- *  reaches the UI as `bio_assay_scores`. Types live in snake_case
- *  to match. */
+/** SVD response shape (after snakeify). Gemma 2.0's
+ *  `SimpleSVDValueObject` ships `bioAssayIds`+`vmatrix` as parallel
+ *  arrays — `vmatrix[i]` is the right-singular-vector row for the
+ *  i'th bioAssay, where `vmatrix[i][pc]` is the assay's score on
+ *  PC (pc+1). Use `bioAssayScoresFromSvd` below to flatten into
+ *  the per-id score map most consumers want. */
 export interface SvdResult {
   /** Fraction-of-variance per PC, 0-indexed. */
   variances?: number[] | null;
-  /** bioAssayId (as string) → component scores. */
-  bio_assay_scores?: Record<string, number[]> | null;
+  /** Parallel to `vmatrix` rows. */
+  bio_assay_ids?: number[] | null;
+  bio_material_ids?: number[] | null;
+  /** Right-singular-vector matrix. Rows = bioAssays (parallel to
+   *  bio_assay_ids), cols = PCs. */
+  vmatrix?: number[][] | null;
   eigen_values?: number[] | null;
+}
+
+/** Flatten the SVD's parallel `bioAssayIds`+`vmatrix` arrays into
+ *  a per-id score record (`{[bioAssayId]: scores[]}`) — the shape
+ *  PC×factor's association math wants. */
+export function bioAssayScoresFromSvd(
+  svd: SvdResult | null | undefined,
+): Record<string, number[]> | null {
+  if (!svd?.bio_assay_ids || !svd?.vmatrix) return null;
+  const out: Record<string, number[]> = {};
+  const n = Math.min(svd.bio_assay_ids.length, svd.vmatrix.length);
+  for (let i = 0; i < n; i++) {
+    out[String(svd.bio_assay_ids[i])] = svd.vmatrix[i];
+  }
+  return out;
 }
 
 export function useDatasetSvd(experimentId: number) {

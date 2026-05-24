@@ -37,6 +37,11 @@ export interface HeatmapWidgetProps {
    *  ±2 z-score by default, which makes typical row-scaled expression
    *  heatmaps read at the right contrast for our DE pop-out. */
   defaultClip?: number;
+  /** Sequential-palette domain override. When set, used directly
+   *  instead of `[-clip, clip]`. Use this when the data range is
+   *  not centered on zero — e.g. sample-correlation values that
+   *  cluster in [0.85, 1.0]. */
+  defaultDomain?: [number, number];
   /** Initial row-standardize state. Default `true` — the lab-standard
    *  default for expression heatmaps. */
   defaultRowScale?: boolean;
@@ -138,6 +143,7 @@ export function HeatmapWidget({
   caption,
   defaultPalette = 'ambsky',
   defaultClip = 2,
+  defaultDomain,
   defaultRowScale = true,
   defaultMaxHeight = 12,
   defaultMaxWidth = 13,
@@ -215,18 +221,23 @@ export function HeatmapWidget({
 
   const palette: Palette = PALETTES[paletteKey];
 
+  const seqDomain: [number, number] | null =
+    palette.kind === 'sequential'
+      ? defaultDomain ?? [-clip, clip]
+      : null;
+
   const config = useMemo<HeatmapConfig>(
     () => ({
       palette,
       clip,
-      ...(palette.kind === 'sequential' ? { domain: [-clip, clip] as [number, number] } : {}),
+      ...(seqDomain ? { domain: seqDomain } : {}),
       cell: { maxHeight: maxH, maxWidth: maxW },
       fit: fitMode === 'expand' ? 'expand' : 'fit',
     }),
-    [palette, clip, maxH, maxW, fitMode],
+    [palette, clip, maxH, maxW, fitMode, seqDomain?.[0], seqDomain?.[1]],
   );
 
-  const legendDomain: [number, number] = [-clip, clip];
+  const legendDomain: [number, number] = seqDomain ?? [-clip, clip];
   const fmt =
     formatValue ??
     ((v: number) =>
@@ -445,7 +456,11 @@ export function HeatmapWidget({
           <Legend
             palette={palette}
             domain={legendDomain}
-            label={`${rowScale ? 'Z-score' : 'Value'}  ·  clip ±${fmt(clip)}`}
+            label={
+              defaultDomain && palette.kind === 'sequential'
+                ? `${rowScale ? 'Z-score' : 'Value'}  ·  ${fmt(legendDomain[0])} – ${fmt(legendDomain[1])}`
+                : `${rowScale ? 'Z-score' : 'Value'}  ·  clip ±${fmt(clip)}`
+            }
           />
         )}
         {/* v2 — heatmap + docked side panel sit side-by-side. In v1

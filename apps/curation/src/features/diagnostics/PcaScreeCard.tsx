@@ -116,6 +116,7 @@ function ScreeChart({
       className="w-full h-full"
       preserveAspectRatio="xMidYMid meet"
     >
+      <rect x={0} y={0} width={W} height={H} fill="#ffffff" />
       {/* Y gridlines + tick labels */}
       {yTicks.map((t) => {
         const y = padT + innerH * (1 - t / max);

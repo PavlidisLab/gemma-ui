@@ -18,7 +18,7 @@
 
 import { useMemo } from "react";
 import { PanelCard, PanelEmpty, PanelLoading, PanelError } from "./PanelCard";
-import { useDatasetSvd } from "@/api/diagnostics";
+import { useDatasetSvd, bioAssayScoresFromSvd } from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import type { Design, Factor } from "@/features/experiment/types";
 
@@ -34,8 +34,9 @@ export function PcFactorCard({ experimentId }: { experimentId: number }) {
   const { draft } = useDesignDraft();
 
   const rows = useMemo(() => {
-    if (!svd?.bio_assay_scores || !draft) return null;
-    return computePcFactorAssociations(svd.bio_assay_scores, draft, N_PCS);
+    const scores = bioAssayScoresFromSvd(svd);
+    if (!scores || !draft) return null;
+    return computePcFactorAssociations(scores, draft, N_PCS);
   }, [svd, draft]);
 
   let body;
@@ -43,7 +44,7 @@ export function PcFactorCard({ experimentId }: { experimentId: number }) {
     body = <PanelLoading />;
   } else if (error) {
     body = <PanelError message={(error as Error).message} />;
-  } else if (!svd?.bio_assay_scores) {
+  } else if (!svd?.vmatrix || !svd?.bio_assay_ids) {
     body = (
       <PanelEmpty reason="No PCA available — PC↔factor associations need /svd to return bioAssayScores. Check the scree panel for the root cause." />
     );
@@ -91,6 +92,7 @@ function PcFactorBars({ rows }: { rows: PcFactorRow[] }) {
       className="w-full h-full"
       preserveAspectRatio="xMidYMid meet"
     >
+      <rect x={0} y={0} width={W} height={H} fill="#ffffff" />
       {yTicks.map((t) => (
         <g key={t}>
           <line

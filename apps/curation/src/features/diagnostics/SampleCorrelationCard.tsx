@@ -25,6 +25,25 @@ export function SampleCorrelationCard({
 
   const built = useMemo(() => buildHeatmapFromMatrix(data), [data]);
 
+  // Auto-range the sequential-palette domain. Sample correlations
+  // typically sit in [0.85, 1.0]; mapping the full [-1,1] would
+  // collapse contrast. Floor observed min to the next 0.1 below
+  // (with a 0.05 cushion) and always pin max at 1.0.
+  const seqDomain = useMemo<[number, number] | undefined>(() => {
+    if (!data?.values?.length) return undefined;
+    let lo = 1;
+    for (let i = 0; i < data.values.length; i++) {
+      const row = data.values[i];
+      for (let j = 0; j < row.length; j++) {
+        if (i === j) continue;
+        const v = row[j];
+        if (typeof v === "number" && !Number.isNaN(v) && v < lo) lo = v;
+      }
+    }
+    const floored = Math.floor((lo - 0.05) * 10) / 10;
+    return [Math.max(-1, floored), 1.0];
+  }, [data]);
+
   let body;
   if (isLoading) {
     body = <PanelLoading />;
@@ -43,8 +62,9 @@ export function SampleCorrelationCard({
         showLegend={true}
         showTooltip={true}
         showDownload={false}
-        defaultPalette="ambsky"
+        defaultPalette="blackbody"
         defaultClip={1}
+        defaultDomain={seqDomain}
         defaultRowScale={false}
         defaultMaxHeight={16}
         defaultMaxWidth={16}

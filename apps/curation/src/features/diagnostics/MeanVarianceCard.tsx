@@ -75,6 +75,7 @@ function MvScatter({
       className="w-full h-full"
       preserveAspectRatio="xMidYMid meet"
     >
+      <rect x={0} y={0} width={W} height={H} fill="#ffffff" />
       {/* Gridlines + ticks */}
       {yTicks.map((t) => (
         <g key={`y${t}`}>
