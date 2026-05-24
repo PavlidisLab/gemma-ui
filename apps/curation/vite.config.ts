@@ -91,6 +91,21 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // Audit trail (live Gemma history) — local_api has its own
+        // mock trail for the curation-side events the UI itself
+        // generates, but the long-term experiment history lives in
+        // gemma-rest. Route the GET here; the eventual merge of
+        // both sources lives in the hook (see useAuditEvents).
+        "^/rest/v2/datasets/\\d+/auditEvents.*": {
+          target: GEMMA_REST_URL,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
+        },
         "/rest": {
           target: CURATION_URL,
           changeOrigin: true,
