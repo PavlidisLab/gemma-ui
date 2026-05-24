@@ -132,8 +132,12 @@ export default function App() {
 
   if (meLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-slate-500 bg-white dark:bg-slate-950 dark:text-slate-400">
-        loading session…
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-sm text-slate-500 bg-white dark:bg-slate-950 dark:text-slate-400">
+        <div
+          className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-blue-600 dark:border-slate-700 dark:border-t-blue-400 animate-spin"
+          aria-label="loading"
+        />
+        <div>loading session…</div>
       </div>
     );
   }

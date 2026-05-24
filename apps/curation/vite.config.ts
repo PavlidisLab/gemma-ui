@@ -101,14 +101,15 @@ export default defineConfig(({ mode }) => {
           timeout: 0,
           proxyTimeout: 0,
         },
-        // Health probes — rewrite to /openapi.json on each upstream
-        // so we don't need bro to ship a /health route. FastAPI
-        // auto-exposes /openapi.json; the local_api mock-gemma's
-        // docker healthcheck already pings it.
+        // Health probes — cheap liveness checks.
+        // Gemma's openapi is at `/rest/v2/openapi.json` (the spec
+        // is versioned, not root-level), so the curation upstream
+        // probe rewrites to that path. Proposer (FastAPI) auto-
+        // exposes `/openapi.json` at root.
         "/__health/gemma": {
           target: CURATION_URL,
           changeOrigin: true,
-          rewrite: () => "/openapi.json",
+          rewrite: () => "/rest/v2/openapi.json",
         },
         "/__health/agent": {
           target: PROPOSER_URL,
