@@ -21,9 +21,13 @@ const curationTermRenderer: FvTermRenderer = ({ label, uri, variant }) => (
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DismissDialog } from "@/features/audit/DismissDialog";
 import { normalizeWikiUrl } from "@/lib/guidelines";
-import type { FactorProposal, TagProposal } from "@/api/types";
+import type {
+  FactorProposal,
+  TagProposal,
+} from "@/api/types";
 import type {
   AttachedDefenderVerdict,
+  FindingEvidence,
   SubtaskDecision,
 } from "@/api/justification";
 import type { ProposalDisposition } from "./proposalDispositions";
@@ -187,7 +191,14 @@ export function FactorReviewCard({
           AUDITOR DETAILS expand. Holds the defender / subtask /
           reasoning context the curator can dig into after the at-a-
           glance row is digested. */}
-      <ProposerDetails factor={factor} />
+      <ProposerDetails
+        rationale={factor.rationale}
+        citation={factor.citation}
+        citationUrl={factor.citation_url}
+        defenderVerdicts={factor.defender_verdicts}
+        subtaskDecisions={factor.subtask_decisions}
+        supportingEvidence={factor.supporting_evidence}
+      />
     </ReviewCardShell>
   );
 }
@@ -246,13 +257,19 @@ export function TagReviewCard({
       note={note}
       onNoteChange={onNoteChange}
     >
-      <DefenderVerdictsCluster verdicts={tag.defender_verdicts} />
-      <SubtaskDecisionsRow decisions={tag.subtask_decisions} />
       {tag.evidence_quote ? (
         <div className="text-[10px] italic text-slate-500 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-600 pl-2 line-clamp-2">
           “{tag.evidence_quote}”
         </div>
       ) : null}
+      <ProposerDetails
+        rationale={tag.rationale}
+        citation={tag.citation}
+        citationUrl={tag.citation_url}
+        defenderVerdicts={tag.defender_verdicts}
+        subtaskDecisions={tag.subtask_decisions}
+        supportingEvidence={tag.supporting_evidence}
+      />
     </ReviewCardShell>
   );
 }
@@ -264,15 +281,74 @@ export function TagReviewCard({
 // they become load-bearing again, add a `statementExtras` prop.
 
 /** Collapsible "PROPOSER DETAILS ▸" expand at the bottom of a
- *  factor review card. Mirrors the audit panel's AUDITOR DETAILS
- *  affordance so the curator can dig into reasoning / debate /
- *  subtask signals without those filling the at-a-glance row. */
-function ProposerDetails({ factor }: { factor: FactorProposal }) {
+ *  factor / tag review card. Mirrors the audit panel's AUDITOR
+ *  DETAILS layout (strength-tinted box, "STRONG / WEAK / NOT
+ *  SUGGESTED" header label, "Judge: <rationale>" row, defender +
+ *  subtask chip clusters, supporting evidence quotes).
+ *
+ *  Same shape regardless of factor vs tag — the only data
+ *  difference is the proposal-element type. */
+function ProposerDetails({
+  rationale,
+  citation,
+  citationUrl,
+  defenderVerdicts,
+  subtaskDecisions,
+  supportingEvidence,
+}: {
+  rationale?: string;
+  citation?: string;
+  citationUrl?: string;
+  defenderVerdicts?: AttachedDefenderVerdict[];
+  subtaskDecisions?: SubtaskDecision[];
+  supportingEvidence?: FindingEvidence[];
+}) {
   const [open, setOpen] = useState(false);
   const hasContent =
-    (factor.defender_verdicts?.length ?? 0) > 0 ||
-    (factor.subtask_decisions?.length ?? 0) > 0;
+    !!rationale?.trim() ||
+    (defenderVerdicts?.length ?? 0) > 0 ||
+    (subtaskDecisions?.length ?? 0) > 0 ||
+    (supportingEvidence?.length ?? 0) > 0;
   if (!hasContent) return null;
+
+  // Pick the boss verdict's strength first (it's authoritative),
+  // then fall through to whichever defender / arbiter ships one.
+  const bossVerdict = defenderVerdicts?.find((v) => v.side === "boss");
+  const strength: "strong" | "weak" | "moderate" | undefined =
+    bossVerdict?.strength ??
+    defenderVerdicts?.find((v) => v.strength)?.strength ??
+    undefined;
+  const headerLabel =
+    strength === "strong"
+      ? "Strong suggestion"
+      : strength === "weak"
+        ? "Weak suggestion"
+        : "Suggestion";
+  // Strength-tinted box, matching the audit panel's
+  // AgentSuggestionPanel — emerald for strong, amber for weak,
+  // slate for ungraded.
+  const strengthBox =
+    strength === "weak"
+      ? "border-amber-300 bg-amber-50/60 dark:border-amber-700/60 dark:bg-amber-900/15"
+      : strength === "strong"
+        ? "border-emerald-300 bg-emerald-50/60 dark:border-emerald-700/60 dark:bg-emerald-900/15"
+        : "border-slate-200 bg-slate-50/60 dark:border-slate-600 dark:bg-slate-800/30";
+  const strengthLabel =
+    strength === "weak"
+      ? "text-amber-700 dark:text-amber-400"
+      : strength === "strong"
+        ? "text-emerald-700 dark:text-emerald-400"
+        : "text-slate-500 dark:text-slate-400";
+
+  // Prefer the per-element rationale; fall through to the boss /
+  // first-defender rationale when the proposer didn't ship a
+  // top-level one.
+  const judgeText =
+    rationale?.trim() ||
+    bossVerdict?.rationale ||
+    defenderVerdicts?.find((v) => v.rationale)?.rationale ||
+    "";
+
   return (
     <div className="border-t border-slate-200 dark:border-slate-700 pt-1.5 mt-1.5">
       <button
@@ -280,12 +356,98 @@ function ProposerDetails({ factor }: { factor: FactorProposal }) {
         onClick={() => setOpen((v) => !v)}
         className="text-[10px] uppercase tracking-wide font-semibold text-sky-700 dark:text-sky-300 hover:underline inline-flex items-baseline gap-1"
       >
-        Proposer details {open ? "▾" : "▸"}
+        {open ? "Hide" : "Show"} proposer details {open ? "▾" : "▸"}
       </button>
       {open ? (
-        <div className="mt-2 space-y-2">
-          <DefenderVerdictsCluster verdicts={factor.defender_verdicts} />
-          <SubtaskDecisionsRow decisions={factor.subtask_decisions} />
+        <div
+          className={cn(
+            "mt-2 rounded border px-2 py-1.5 text-[11px] space-y-1.5",
+            strengthBox,
+          )}
+        >
+          <div
+            className={cn(
+              "text-[9px] uppercase tracking-wide font-semibold",
+              strengthLabel,
+            )}
+          >
+            {headerLabel}
+          </div>
+          {judgeText ? (
+            <div className="text-slate-700 dark:text-slate-300 leading-snug">
+              <span className="font-semibold">Judge: </span>
+              <span className="italic">{judgeText}</span>
+            </div>
+          ) : null}
+          {/* def / arb / boss chip cluster — same disc indicators
+              the audit side could pick up. */}
+          {defenderVerdicts && defenderVerdicts.length > 0 ? (
+            <div className="flex items-center gap-1 flex-wrap">
+              {defenderVerdicts.map((v, i) => (
+                <DefenderVerdictPill key={i} verdict={v} />
+              ))}
+            </div>
+          ) : null}
+          {/* Supporting evidence quotes — characteristic / paper /
+              data excerpts the proposer attached to back the call. */}
+          {supportingEvidence && supportingEvidence.length > 0 ? (
+            <div className="space-y-1.5">
+              {supportingEvidence.map((ev, i) => (
+                <EvidenceQuote key={i} evidence={ev} />
+              ))}
+            </div>
+          ) : null}
+          {/* Subtask analysis — per-subagent decisions with their
+              own rationale + citation. */}
+          {subtaskDecisions && subtaskDecisions.length > 0 ? (
+            <div className="space-y-1">
+              <div className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+                Subtask analysis
+              </div>
+              <SubtaskDecisionsRow decisions={subtaskDecisions} />
+            </div>
+          ) : null}
+          {citation ? (
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 italic pt-1 border-t border-slate-200 dark:border-slate-700">
+              Citation:{" "}
+              {citationUrl ? (
+                <a
+                  href={normalizeWikiUrl(citationUrl)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-700 dark:text-blue-300 hover:underline"
+                >
+                  {citation}
+                </a>
+              ) : (
+                citation
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Render one piece of supporting evidence — kind label + quoted
+ *  excerpt. Mirrors the CHARACTERISTIC sub-cards in the audit
+ *  panel's AUDITOR DETAILS expand. */
+function EvidenceQuote({ evidence }: { evidence: FindingEvidence }) {
+  const source = evidence.source ?? "evidence";
+  const quote = evidence.quote ?? "";
+  if (!quote.trim()) return null;
+  return (
+    <div className="border-l-2 border-indigo-300 dark:border-indigo-700 pl-2 py-0.5">
+      <div className="text-[9px] uppercase tracking-wide font-semibold text-indigo-700 dark:text-indigo-300">
+        {source.replace(/_/g, " ")}
+      </div>
+      <div className="italic text-slate-600 dark:text-slate-400 text-[11px] leading-snug">
+        “{quote}”
+      </div>
+      {evidence.location ? (
+        <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">
+          {evidence.location}
         </div>
       ) : null}
     </div>
@@ -532,20 +694,9 @@ function AssignmentConfidenceChip({
  * `citationUrl` (camelCase) on this type alone — all other compound
  * names in the payload are snake. Handle both.
  */
-function DefenderVerdictsCluster({
-  verdicts,
-}: {
-  verdicts: AttachedDefenderVerdict[] | undefined;
-}) {
-  if (!verdicts || verdicts.length === 0) return null;
-  return (
-    <div className="flex items-center gap-1 flex-wrap">
-      {verdicts.map((v, i) => (
-        <DefenderVerdictPill key={i} verdict={v} />
-      ))}
-    </div>
-  );
-}
+// `DefenderVerdictsCluster` removed — ProposerDetails now renders the
+// verdict pills directly so the strength header + judge rationale +
+// pills stay tightly grouped inside the strength-tinted box.
 
 function DefenderVerdictPill({ verdict }: { verdict: AttachedDefenderVerdict }) {
   const sideConfig: Record<
