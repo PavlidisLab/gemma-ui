@@ -11,9 +11,15 @@
  *     diagnostics endpoint handoff.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { HeatmapWidget } from "@gemma/heatmap";
+import type { HeatmapData } from "@gemma/heatmap";
 import { PanelCard, PanelEmpty, PanelLoading, PanelError } from "./PanelCard";
-import { useDatasetSvd, usePcLoadings } from "@/api/diagnostics";
+import {
+  useDatasetSvd,
+  usePcLoadings,
+  type PcLoadings,
+} from "@/api/diagnostics";
 
 const ACCENT = "#2563eb";
 const ACCENT_HOVER = "#1d4ed8";
@@ -203,6 +209,20 @@ function ScreeChart({
   );
 }
 
+/**
+ * PC-loadings popup. The wire ships `rows[]` (top-N probe loadings)
+ * + `bioAssayScores` (per-sample PC score). We reconstruct a
+ * meaningful per-(probe, sample) heatmap as the **rank-1 PC
+ * projection**: `cell = loading[probe] × score[sample]`. This is
+ * the contribution of each (probe, sample) pair to PC-N — sign and
+ * magnitude both matter, hence a diverging palette.
+ *
+ * Why not pull the actual expression values for the top-loaded
+ * probes from `/datasets/{id}/expressions/...` and render those?
+ * The rank-1 projection IS the load-bearing signal — it's exactly
+ * what PC-N "sees" — without a second endpoint roundtrip. Future
+ * version could overlay real expression alongside.
+ */
 function PcLoadingsPopup({
   experimentId,
   pc,
@@ -213,6 +233,7 @@ function PcLoadingsPopup({
   onClose: () => void;
 }) {
   const { data, isLoading, error } = usePcLoadings(experimentId, pc, 50);
+  const heatmap = useMemo(() => (data ? buildProjectionHeatmap(data) : null), [data]);
   return (
     <div
       className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-6"
@@ -224,7 +245,12 @@ function PcLoadingsPopup({
       >
         <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
           <span className="font-semibold text-slate-800 dark:text-slate-100">
-            Top-loaded genes on PC{pc}
+            Top-loaded probes on PC{pc}
+            {data ? (
+              <span className="ml-2 text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                · cell = loading × sample score (rank-1 PC{pc} projection)
+              </span>
+            ) : null}
           </span>
           <button
             type="button"
@@ -242,25 +268,49 @@ function PcLoadingsPopup({
             <div className="text-xs text-rose-700">
               {(error as Error).message}
             </div>
-          ) : !data ? (
+          ) : !data || !heatmap ? (
             <div className="text-xs text-slate-500 italic">
-              PC-loadings endpoint not available yet. When bro lands{" "}
-              <code>/svd/loadings?pc={pc}</code>, the heatmap renders
-              here via the shared @gemma/heatmap widget.
+              No SVD loadings available for this experiment yet.
             </div>
           ) : (
-            // Once the endpoint returns a HeatmapPayload-shaped
-            // response, hand it straight to <HeatmapWidget payload={data}/>.
-            // For now the shape is unconfirmed; render JSON keys so
-            // we can sanity-check what bro ships.
-            <pre className="text-[10px] font-mono text-slate-700 dark:text-slate-200">
-              {JSON.stringify(Object.keys(data), null, 2)}
-            </pre>
+            <HeatmapWidget
+              data={heatmap}
+              chrome={false}
+              showControls={true}
+              showLegend={true}
+              showTooltip={true}
+              showDownload={true}
+              defaultPalette="ambsky"
+              defaultClip={Math.max(...heatmap.values.flat().map((v) => Math.abs(v ?? 0))) || 1}
+              defaultRowScale={false}
+              defaultMaxHeight={14}
+              defaultMaxWidth={14}
+              defaultFitMode="squeeze"
+              downloadFilenameStem={`pc${pc}-loadings`}
+            />
           )}
         </div>
       </div>
     </div>
   );
+}
+
+/** Build the rank-1 projection matrix from PC loadings + sample
+ *  scores. Cell[r][c] = rows[r].loading × bioAssayScores[c]. */
+function buildProjectionHeatmap(d: PcLoadings): HeatmapData {
+  const sampleEntries = Object.entries(d.bioAssayScores);
+  const colLabels = sampleEntries.map(([id]) => id);
+  const sampleScores = sampleEntries.map(([, score]) => score);
+  const rowLabels = d.rows.map(
+    (r, i) =>
+      r.geneSymbol ||
+      r.designElementName ||
+      (r.designElementId != null ? `probe ${r.designElementId}` : `row ${i + 1}`),
+  );
+  const values: (number | null)[][] = d.rows.map((r) =>
+    sampleScores.map((s) => r.loading * s),
+  );
+  return { rowLabels, colLabels, values };
 }
 
 function niceTicks(min: number, max: number, count: number): number[] {

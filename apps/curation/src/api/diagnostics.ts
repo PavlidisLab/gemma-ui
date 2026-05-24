@@ -1,19 +1,19 @@
 /**
- * Diagnostic-data fetches for the Diagnostics tab. Four endpoints:
+ * Diagnostic-data fetches for the Diagnostics tab. All four
+ * endpoints live as of 2026-05-23 (gemma-rest
+ * `DatasetsWebService.java:4348-4483`):
  *
- *   - /svd                         → PCA variance + PC scores (exists)
- *   - /sample-correlation          → N×N sample corr matrix     (TBD bro)
- *   - /mean-variance               → per-probe MV scatter        (TBD bro)
- *   - /svd/loadings?pc=N&top=M     → top-loaded genes per PC     (TBD bro)
+ *   - GET /datasets/{id}/svd
+ *   - GET /datasets/{id}/sample-correlation
+ *   - GET /datasets/{id}/mean-variance
+ *   - GET /datasets/{id}/svd/loadings?pc=N&top=M&direction=both|positive|negative
  *
- * Endpoints that don't exist yet are wired with a 404-tolerant
- * fallback that resolves to `null`; the panel cards render a "not
- * yet computed" empty state until they land. See
- * `~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_DIAGNOSTICS_REST_ENDPOINTS.md`
- * for the shapes the UI is wired to consume.
+ * All four return `{data: T}` envelopes; 404 is "not yet computed"
+ * (handled by `getOrNull` → `null` so the panel cards render an
+ * empty state without a toast).
  *
  * PC↔factor correlations are computed client-side from `/svd` +
- * the in-memory design draft — no endpoint needed.
+ * the in-memory design draft — no separate endpoint.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -66,15 +66,20 @@ export function useDatasetSvd(experimentId: number) {
   });
 }
 
-// ─── /sample-correlation (TBD bro) ─────────────────────────────────
+// ─── /sample-correlation ───────────────────────────────────────────
 
 export interface SampleCorrelationMatrix {
   bioAssayIds: number[];
-  bioAssayShortNames: string[];
+  /** Parallel to `bioAssayIds`. Entries may be `null` for assays
+   *  whose name has not been set on the Gemma side. */
+  bioAssayShortNames: (string | null)[];
   /** Symmetric N×N row-major; values in [-1, 1]. */
   values: number[][];
+  /** Currently always null — placeholder for a probe-filter caption
+   *  once `SampleCoexpressionAnalysisService` surfaces it. */
   filterDescription?: string | null;
-  method?: string;
+  /** Currently always "pearson" — Gemma's only supported method. */
+  method?: string | null;
 }
 
 export function useSampleCorrelation(experimentId: number) {
@@ -92,18 +97,28 @@ export function useSampleCorrelation(experimentId: number) {
   });
 }
 
-// ─── /mean-variance (TBD bro) ──────────────────────────────────────
+// ─── /mean-variance ────────────────────────────────────────────────
 
 export interface MeanVarianceData {
-  designElementIds: number[];
-  designElementNames?: (string | null)[];
+  /** Reserved — Gemma's `MeanVarianceRelation` does not currently
+   *  carry design-element ids. UI indexes by position. */
+  designElementIds?: (number | null)[] | null;
+  /** Reserved — see `designElementIds`. */
+  designElementNames?: (string | null)[] | null;
+  /** Per-probe means (typically log-CPM or normalized intensity). */
   means: number[];
+  /** Per-probe variances, parallel to `means`. */
   variances: number[];
+  /** Reserved — `MeanVarianceRelation` does not currently expose a
+   *  fit curve. */
   fit?: {
     sortedMeans: number[];
     fittedVariances: number[];
   } | null;
-  source?: string;
+  /** Reserved — placeholder for the producing method (e.g.
+   *  `"limma_voom"`, `"edger_glmqlf"`, `"naive"`). Currently always
+   *  `null`. */
+  source?: string | null;
 }
 
 export function useMeanVariance(experimentId: number) {
@@ -121,38 +136,60 @@ export function useMeanVariance(experimentId: number) {
   });
 }
 
-// ─── /svd/loadings (TBD bro) — used by the PC-scree popup ──────────
+// ─── /svd/loadings — used by the PC-scree popup ────────────────────
 
-/** Reuses the heatmap-payload shape so the popup can hand the
- *  result straight to <HeatmapWidget payload={…}> without
- *  reshaping. Bro: this is the same wire shape as
- *  /datasets/{id}/heatmap-data, just filtered to the top-N gene
- *  loadings on the requested PC. */
-export interface PcLoadingsHeatmap {
-  // Lightweight passthrough; the heatmap widget knows the full
-  // schema. We don't re-type it here.
-  [k: string]: unknown;
+export type PcLoadingsDirection = "both" | "positive" | "negative";
+
+export interface PcLoadingsRow {
+  /** Reserved — Gemma may emit null when the probe row no longer
+   *  resolves to a `CompositeSequence`. */
+  designElementId?: number | null;
+  /** Probe / design-element name. */
+  designElementName?: string | null;
+  /** Reserved — gene-symbol enrichment via CompositeSequence → Gene
+   *  is deferred. Currently always null. */
+  geneSymbol?: string | null;
+  /** Loading on this PC. Sign is meaningful — `direction=both` sorts
+   *  by `|loading|` desc; `positive` / `negative` filter and sort
+   *  signed. */
+  loading: number;
+}
+
+export interface PcLoadings {
+  /** 1-indexed PC the payload is for. Mirrors the query. */
+  pc: number;
+  /** Top-N rows (capped server-side at 500). */
+  rows: PcLoadingsRow[];
+  /** bioAssayId (as string for JSON object key) → score on this PC.
+   *  Pulled from the SVDResult's v-matrix column for the requested
+   *  PC. */
+  bioAssayScores: Record<string, number>;
 }
 
 export function usePcLoadings(
   experimentId: number,
   pc: number | null,
   top = 50,
+  direction: PcLoadingsDirection = "both",
 ) {
   return useQuery({
-    queryKey: ["diagnostics", "pc-loadings", experimentId, pc, top],
+    queryKey: [
+      "diagnostics",
+      "pc-loadings",
+      experimentId,
+      pc,
+      top,
+      direction,
+    ],
     queryFn: () =>
-      getOrNull<{ data?: PcLoadingsHeatmap } | PcLoadingsHeatmap>(
-        `/rest/v2/datasets/${experimentId}/svd/loadings?pc=${pc}&top=${top}`,
+      getOrNull<{ data?: PcLoadings } | PcLoadings>(
+        `/rest/v2/datasets/${experimentId}/svd/loadings?pc=${pc}&top=${top}&direction=${direction}`,
       ).then((raw) => {
         if (!raw) return null;
-        if (
-          "rows" in (raw as Record<string, unknown>) ||
-          "bioAssayIds" in (raw as Record<string, unknown>)
-        ) {
-          return raw as PcLoadingsHeatmap;
+        if ("rows" in (raw as Record<string, unknown>)) {
+          return raw as PcLoadings;
         }
-        return (raw as { data?: PcLoadingsHeatmap }).data ?? null;
+        return (raw as { data?: PcLoadings }).data ?? null;
       }),
     enabled: experimentId > 0 && pc !== null,
   });
