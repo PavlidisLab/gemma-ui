@@ -2043,6 +2043,25 @@ function SortableTh({
             // Firefox needs dataTransfer set or the drag aborts.
             e.dataTransfer.setData("text/plain", dragKey);
             e.dataTransfer.effectAllowed = "move";
+            // Custom drag image: a stacked clone of this column —
+            // the <th> on top, then the first ~8 visible cells below.
+            // Default HTML5 drag preview is just the tiny ⋮⋮ handle,
+            // which gives no sense of "I'm lifting a column."
+            const th = (e.currentTarget as HTMLElement).closest("th");
+            if (th) {
+              const ghost = buildColumnGhost(th);
+              if (ghost) {
+                document.body.appendChild(ghost);
+                // Anchor the ghost so the cursor sits a bit inside
+                // the top-left, not on the corner.
+                e.dataTransfer.setDragImage(ghost, 16, 12);
+                // Browsers snapshot the drag image synchronously,
+                // so we can clean up on the next tick.
+                setTimeout(() => {
+                  ghost.parentNode?.removeChild(ghost);
+                }, 0);
+              }
+            }
             onDragStart?.(dragKey, e);
           }}
           onDragEnd={() => onDragEnd?.()}
@@ -2848,4 +2867,90 @@ function BulkAssignModal({
       </div>
     </div>
   );
+}
+
+/**
+ * Build a DOM "ghost" of a samples-table column for use as the
+ * HTML5-drag-and-drop drag image. The default browser preview is the
+ * tiny ⋮⋮ handle, which doesn't communicate "I'm lifting a column."
+ *
+ * We walk the th's parent <table>, snapshot the header + the first
+ * few visible <td>s in the same column position, stack them
+ * vertically inside an off-screen wrapper, and return it. The
+ * caller appends it to <body>, calls setDragImage, and removes it
+ * on the next tick (browsers snapshot synchronously).
+ *
+ * The ghost is tilted a couple of degrees and given a soft drop
+ * shadow so it reads as "in motion" against the underlying table.
+ */
+function buildColumnGhost(th: HTMLElement): HTMLElement | null {
+  const tr = th.parentElement;
+  if (!tr) return null;
+  const colIdx = Array.from(tr.children).indexOf(th);
+  if (colIdx < 0) return null;
+  const table = th.closest("table");
+  if (!table) return null;
+
+  const width = th.offsetWidth;
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "absolute";
+  wrapper.style.top = "-10000px";
+  wrapper.style.left = "-10000px";
+  wrapper.style.width = `${width}px`;
+  wrapper.style.background = "white";
+  wrapper.style.border = "1px solid #6366f1"; // indigo-500
+  wrapper.style.borderRadius = "4px";
+  wrapper.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.18)";
+  wrapper.style.transform = "rotate(-1.5deg)";
+  wrapper.style.overflow = "hidden";
+  wrapper.style.fontFamily = getComputedStyle(th).fontFamily;
+  wrapper.style.fontSize = getComputedStyle(th).fontSize;
+
+  const headerClone = th.cloneNode(true) as HTMLElement;
+  // Strip the drag-handle span and any sticky positioning that
+  // would confuse layout outside a real <tr>.
+  headerClone
+    .querySelectorAll('[aria-label="drag column"]')
+    .forEach((n) => n.remove());
+  headerClone.style.position = "static";
+  headerClone.style.display = "block";
+  headerClone.style.width = `${width}px`;
+  headerClone.style.padding = "8px 12px";
+  headerClone.style.background = "#f1f5f9"; // slate-100
+  headerClone.style.borderBottom = "1px solid #e2e8f0";
+  wrapper.appendChild(headerClone);
+
+  // Pull the first ~8 visible body cells from the same column.
+  const tbody = table.querySelector("tbody");
+  if (tbody) {
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    let added = 0;
+    for (const row of rows) {
+      if (added >= 8) break;
+      const cells = row.children;
+      const cell = cells[colIdx];
+      if (!cell) continue;
+      // Skip spacer rows (single colSpan'd td used by the virtualizer).
+      if (
+        cell instanceof HTMLElement &&
+        cell.getAttribute("colspan") &&
+        Number(cell.getAttribute("colspan")) > 1
+      ) {
+        continue;
+      }
+      const clone = cell.cloneNode(true) as HTMLElement;
+      clone.style.display = "block";
+      clone.style.width = `${width}px`;
+      clone.style.padding = "4px 12px";
+      clone.style.borderBottom = "1px solid #f1f5f9";
+      clone.style.whiteSpace = "nowrap";
+      clone.style.overflow = "hidden";
+      clone.style.textOverflow = "ellipsis";
+      clone.style.background = added % 2 === 0 ? "white" : "#fafbfc";
+      wrapper.appendChild(clone);
+      added += 1;
+    }
+  }
+
+  return wrapper;
 }
