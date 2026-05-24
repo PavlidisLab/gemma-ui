@@ -296,16 +296,18 @@ function PcLoadingsPopup({
 }
 
 /** Build the rank-1 projection matrix from PC loadings + sample
- *  scores. Cell[r][c] = rows[r].loading × bioAssayScores[c]. */
+ *  scores. Cell[r][c] = rows[r].loading × bio_assay_scores[c]. */
 function buildProjectionHeatmap(d: PcLoadings): HeatmapData {
-  const sampleEntries = Object.entries(d.bioAssayScores);
+  const sampleEntries = Object.entries(d.bio_assay_scores);
   const colLabels = sampleEntries.map(([id]) => id);
   const sampleScores = sampleEntries.map(([, score]) => score);
   const rowLabels = d.rows.map(
     (r, i) =>
-      r.geneSymbol ||
-      r.designElementName ||
-      (r.designElementId != null ? `probe ${r.designElementId}` : `row ${i + 1}`),
+      r.gene_symbol ||
+      r.design_element_name ||
+      (r.design_element_id != null
+        ? `probe ${r.design_element_id}`
+        : `row ${i + 1}`),
   );
   const values: (number | null)[][] = d.rows.map((r) =>
     sampleScores.map((s) => r.loading * s),

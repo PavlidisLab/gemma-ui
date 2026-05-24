@@ -60,7 +60,7 @@ export function SampleCorrelationCard({
         data ? (
           <>
             <span>
-              {data.bioAssayIds.length} samples · {data.method ?? "pearson"}
+              {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
             </span>
             <span className="ml-auto">
               <a
@@ -88,8 +88,8 @@ function buildHeatmapFromMatrix(
   data: ReturnType<typeof useSampleCorrelation>["data"],
 ): HeatmapData | null {
   if (!data || data.values.length === 0) return null;
-  const labels = data.bioAssayShortNames.map((s, i) =>
-    s || String(data.bioAssayIds[i] ?? i),
+  const labels = data.bio_assay_short_names.map((s, i) =>
+    s || String(data.bio_assay_ids[i] ?? i),
   );
   const values: (number | null)[][] = data.values.map((row, i) =>
     row.map((v, j) => (i === j ? null : v)),

@@ -34,8 +34,8 @@ export function PcFactorCard({ experimentId }: { experimentId: number }) {
   const { draft } = useDesignDraft();
 
   const rows = useMemo(() => {
-    if (!svd?.bioAssayScores || !draft) return null;
-    return computePcFactorAssociations(svd.bioAssayScores, draft, N_PCS);
+    if (!svd?.bio_assay_scores || !draft) return null;
+    return computePcFactorAssociations(svd.bio_assay_scores, draft, N_PCS);
   }, [svd, draft]);
 
   let body;
@@ -43,7 +43,7 @@ export function PcFactorCard({ experimentId }: { experimentId: number }) {
     body = <PanelLoading />;
   } else if (error) {
     body = <PanelError message={(error as Error).message} />;
-  } else if (!svd?.bioAssayScores || svd.bioAssayScores === null) {
+  } else if (!svd?.bio_assay_scores) {
     body = (
       <PanelEmpty reason="No PCA available — PC↔factor associations need /svd to return bioAssayScores. Check the scree panel for the root cause." />
     );
@@ -199,7 +199,7 @@ function PcFactorBars({ rows }: { rows: PcFactorRow[] }) {
  * subset).
  */
 function computePcFactorAssociations(
-  bioAssayScores: Record<string, number[]>,
+  bio_assay_scores: Record<string, number[]>,
   design: Design,
   nPcs: number,
 ): PcFactorRow[] {
@@ -215,7 +215,7 @@ function computePcFactorAssociations(
         (ba as { id?: number | string }).id ??
         (ba as { bio_assay_id?: number | string }).bio_assay_id;
       if (baId == null) continue;
-      const scores = bioAssayScores[String(baId)];
+      const scores = bio_assay_scores[String(baId)];
       if (scores) {
         shortNameToScores.set(bm.short_name, scores);
         break;

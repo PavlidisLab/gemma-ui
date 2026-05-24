@@ -137,8 +137,8 @@ function MvScatter({
             fill="none"
             stroke={FIT}
             strokeWidth={1}
-            points={fit.sortedMeans
-              .map((m, i) => `${xs(m)},${ys(fit.fittedVariances[i])}`)
+            points={fit.sorted_means
+              .map((m, i) => `${xs(m)},${ys(fit.fitted_variances[i])}`)
               .join(" ")}
           />
         ) : null}

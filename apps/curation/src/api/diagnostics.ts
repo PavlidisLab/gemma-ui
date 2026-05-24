@@ -34,33 +34,30 @@ async function getOrNull<T>(path: string): Promise<T | null> {
 
 // ─── /svd ─────────────────────────────────────────────────────────
 
-/** Mirrors the Java VO shape (also typed in browser app's
- *  `lib/types.ts`). Duplicated here so the curation app doesn't
- *  cross-app import. */
+/** Mirrors the Java VO shape, but with snake_case keys: the
+ *  curation app's `api.client.snakeify` rewrites every camelCase
+ *  wire field on the way in (see the GEMMA_WIRE_ALIGNMENT_HANDOFF
+ *  notes in client.ts), so what the JSON has as `bioAssayScores`
+ *  reaches the UI as `bio_assay_scores`. Types live in snake_case
+ *  to match. */
 export interface SvdResult {
   /** Fraction-of-variance per PC, 0-indexed. */
   variances?: number[] | null;
   /** bioAssayId (as string) → component scores. */
-  bioAssayScores?: Record<string, number[]> | null;
-  eigenValues?: number[] | null;
+  bio_assay_scores?: Record<string, number[]> | null;
+  eigen_values?: number[] | null;
 }
 
 export function useDatasetSvd(experimentId: number) {
   return useQuery({
     queryKey: ["diagnostics", "svd", experimentId],
     queryFn: async () => {
-      // Real Gemma returns `{data: SvdResult}`; local_api may
-      // mirror that envelope or not, depending on which endpoints
-      // bro has folded in. Try the enveloped shape first and fall
-      // through to bare. Either way, normalize to `SvdResult | null`.
-      const raw = await getOrNull<{ data?: SvdResult } | SvdResult>(
+      // api.get already unwraps Gemma's `{apiVersion, data}`
+      // envelope and snakeifies the result, so what we receive
+      // is the snake_case SvdResult directly.
+      return await getOrNull<SvdResult>(
         `/rest/v2/datasets/${experimentId}/svd`,
       );
-      if (!raw) return null;
-      if ("variances" in raw || "bioAssayScores" in raw) {
-        return raw as SvdResult;
-      }
-      return (raw as { data?: SvdResult }).data ?? null;
     },
     enabled: experimentId > 0,
   });
@@ -69,15 +66,15 @@ export function useDatasetSvd(experimentId: number) {
 // ─── /sample-correlation ───────────────────────────────────────────
 
 export interface SampleCorrelationMatrix {
-  bioAssayIds: number[];
-  /** Parallel to `bioAssayIds`. Entries may be `null` for assays
+  bio_assay_ids: number[];
+  /** Parallel to `bio_assay_ids`. Entries may be `null` for assays
    *  whose name has not been set on the Gemma side. */
-  bioAssayShortNames: (string | null)[];
+  bio_assay_short_names: (string | null)[];
   /** Symmetric N×N row-major; values in [-1, 1]. */
   values: number[][];
   /** Currently always null — placeholder for a probe-filter caption
    *  once `SampleCoexpressionAnalysisService` surfaces it. */
-  filterDescription?: string | null;
+  filter_description?: string | null;
   /** Currently always "pearson" — Gemma's only supported method. */
   method?: string | null;
 }
@@ -86,13 +83,9 @@ export function useSampleCorrelation(experimentId: number) {
   return useQuery({
     queryKey: ["diagnostics", "sample-correlation", experimentId],
     queryFn: () =>
-      getOrNull<{ data?: SampleCorrelationMatrix } | SampleCorrelationMatrix>(
+      getOrNull<SampleCorrelationMatrix>(
         `/rest/v2/datasets/${experimentId}/sample-correlation`,
-      ).then((raw) => {
-        if (!raw) return null;
-        if ("values" in raw) return raw as SampleCorrelationMatrix;
-        return (raw as { data?: SampleCorrelationMatrix }).data ?? null;
-      }),
+      ),
     enabled: experimentId > 0,
   });
 }
@@ -102,9 +95,9 @@ export function useSampleCorrelation(experimentId: number) {
 export interface MeanVarianceData {
   /** Reserved — Gemma's `MeanVarianceRelation` does not currently
    *  carry design-element ids. UI indexes by position. */
-  designElementIds?: (number | null)[] | null;
-  /** Reserved — see `designElementIds`. */
-  designElementNames?: (string | null)[] | null;
+  design_element_ids?: (number | null)[] | null;
+  /** Reserved — see `design_element_ids`. */
+  design_element_names?: (string | null)[] | null;
   /** Per-probe means (typically log-CPM or normalized intensity). */
   means: number[];
   /** Per-probe variances, parallel to `means`. */
@@ -112,8 +105,8 @@ export interface MeanVarianceData {
   /** Reserved — `MeanVarianceRelation` does not currently expose a
    *  fit curve. */
   fit?: {
-    sortedMeans: number[];
-    fittedVariances: number[];
+    sorted_means: number[];
+    fitted_variances: number[];
   } | null;
   /** Reserved — placeholder for the producing method (e.g.
    *  `"limma_voom"`, `"edger_glmqlf"`, `"naive"`). Currently always
@@ -125,13 +118,9 @@ export function useMeanVariance(experimentId: number) {
   return useQuery({
     queryKey: ["diagnostics", "mean-variance", experimentId],
     queryFn: () =>
-      getOrNull<{ data?: MeanVarianceData } | MeanVarianceData>(
+      getOrNull<MeanVarianceData>(
         `/rest/v2/datasets/${experimentId}/mean-variance`,
-      ).then((raw) => {
-        if (!raw) return null;
-        if ("means" in raw) return raw as MeanVarianceData;
-        return (raw as { data?: MeanVarianceData }).data ?? null;
-      }),
+      ),
     enabled: experimentId > 0,
   });
 }
@@ -143,12 +132,12 @@ export type PcLoadingsDirection = "both" | "positive" | "negative";
 export interface PcLoadingsRow {
   /** Reserved — Gemma may emit null when the probe row no longer
    *  resolves to a `CompositeSequence`. */
-  designElementId?: number | null;
+  design_element_id?: number | null;
   /** Probe / design-element name. */
-  designElementName?: string | null;
+  design_element_name?: string | null;
   /** Reserved — gene-symbol enrichment via CompositeSequence → Gene
    *  is deferred. Currently always null. */
-  geneSymbol?: string | null;
+  gene_symbol?: string | null;
   /** Loading on this PC. Sign is meaningful — `direction=both` sorts
    *  by `|loading|` desc; `positive` / `negative` filter and sort
    *  signed. */
@@ -163,7 +152,7 @@ export interface PcLoadings {
   /** bioAssayId (as string for JSON object key) → score on this PC.
    *  Pulled from the SVDResult's v-matrix column for the requested
    *  PC. */
-  bioAssayScores: Record<string, number>;
+  bio_assay_scores: Record<string, number>;
 }
 
 export function usePcLoadings(
@@ -182,15 +171,9 @@ export function usePcLoadings(
       direction,
     ],
     queryFn: () =>
-      getOrNull<{ data?: PcLoadings } | PcLoadings>(
+      getOrNull<PcLoadings>(
         `/rest/v2/datasets/${experimentId}/svd/loadings?pc=${pc}&top=${top}&direction=${direction}`,
-      ).then((raw) => {
-        if (!raw) return null;
-        if ("rows" in (raw as Record<string, unknown>)) {
-          return raw as PcLoadings;
-        }
-        return (raw as { data?: PcLoadings }).data ?? null;
-      }),
+      ),
     enabled: experimentId > 0 && pc !== null,
   });
 }
