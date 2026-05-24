@@ -118,7 +118,14 @@ export function PrePublishChecklist({ experimentId }: { experimentId: number }) 
   const { draft: design } = useDesignDraft();
   const { data: curation } = useCurationDetails(experimentId);
   const { data: qts } = useQuantitationTypes(experimentId);
-  const { data: events } = useAuditEvents(experimentId);
+  const { data: rawEvents } = useAuditEvents(experimentId);
+  // Hook may return a "not_in_gemma" sentinel for ids that exist in
+  // local_api but not gemma-rest yet. Treat that as "no events" for
+  // the checklist's purposes — freshness + failure signals just
+  // can't be derived in that case.
+  const events: AuditEvent[] | undefined = Array.isArray(rawEvents)
+    ? rawEvents
+    : undefined;
 
   // Freshness signal: newest ExperimentalDesignUpdatedEvent date. We
   // intentionally ignore comments / note / attention events — those

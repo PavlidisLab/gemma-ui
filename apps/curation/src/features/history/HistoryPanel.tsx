@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { useAuditEvents, type AuditEvent } from "@/api/history";
+import {
+  AUDIT_NOT_IN_GEMMA,
+  useAuditEvents,
+  type AuditEvent,
+} from "@/api/history";
 import { experimentAuditTrailUrl } from "@/lib/gemmaUrls";
 
 /**
@@ -29,10 +33,15 @@ export function HistoryPanel({ experimentId }: { experimentId: number }) {
   // can't provide. Documented in TODO-gemma-api §13.
   const fullHistoryUrl = experimentAuditTrailUrl(experimentId);
 
+  // Soft-fail sentinel from the hook: this experiment id isn't in
+  // gemma-rest. Show a distinct empty state rather than throwing
+  // an error banner — the experiment may live in local_api but
+  // not yet be loaded into Gemma.
+  const notInGemma = events === AUDIT_NOT_IN_GEMMA;
   // Build a per-row delta against the next-older
   // ExperimentalDesignUpdatedEvent. Notes events ("CommentedEvent"
   // etc.) don't carry a body, so we just render their note line.
-  const rows = events ?? [];
+  const rows: AuditEvent[] = Array.isArray(events) ? events : [];
   const deltaByIndex: ({ label: string; delta: number }[] | null)[] = rows.map(
     (e, i) => {
       if (e.event_type !== "ExperimentalDesignUpdatedEvent" || !e.shape) {
@@ -106,6 +115,14 @@ export function HistoryPanel({ experimentId }: { experimentId: number }) {
         </div>
       ) : isLoading ? (
         <div className="px-3 py-6 text-sm text-slate-500">loading audit trail…</div>
+      ) : notInGemma ? (
+        <div className="px-3 py-6 text-sm text-slate-500">
+          This experiment isn't in Gemma's audit log.
+          <p className="mt-1 text-[11px] text-slate-400">
+            The id is in the curation database but hasn't been loaded
+            into Gemma yet — once it lands, events will appear here.
+          </p>
+        </div>
       ) : rows.length === 0 ? (
         <div className="px-3 py-6 text-sm text-slate-500">
           {excludeEmpty || compact

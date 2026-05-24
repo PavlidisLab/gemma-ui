@@ -1,5 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { api } from "./client";
+import { api, ApiError } from "./client";
+
+/** Sentinel returned in place of `AuditEvent[]` when gemma-rest
+ *  reports the experiment id isn't accessible. The curation UI
+ *  may be looking at an id that exists in local_api / the mock
+ *  but hasn't been loaded into Gemma yet — in that case the
+ *  HistoryPanel renders a softer empty state instead of an error. */
+export const AUDIT_NOT_IN_GEMMA = "not_in_gemma" as const;
+export type AuditEventsResult = AuditEvent[] | typeof AUDIT_NOT_IN_GEMMA;
 
 /**
  * Mirrors Gemma's `AuditEventValueObject`. The curation UI routes
@@ -68,7 +76,7 @@ export function useAuditEvents(
     compact = false,
     excludeEmpty = false,
   } = options;
-  return useQuery({
+  return useQuery<AuditEventsResult>({
     queryKey: KEY(experimentId, compact, excludeEmpty),
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -78,10 +86,22 @@ export function useAuditEvents(
       // them yet is a safe preflight.
       if (compact) params.set("compact", "true");
       if (excludeEmpty) params.set("excludeEmpty", "true");
-      const raw = await api.get<unknown>(
-        `/rest/v2/datasets/${experimentId}/auditEvents?${params}`,
-      );
-      return adaptAuditEvents(raw);
+      try {
+        const raw = await api.get<unknown>(
+          `/rest/v2/datasets/${experimentId}/auditEvents?${params}`,
+        );
+        return adaptAuditEvents(raw);
+      } catch (e) {
+        // 404 on the audit endpoint means gemma-rest doesn't have
+        // this experiment id (local_api / curation UI can carry ids
+        // that aren't loaded into Gemma yet). Surface a sentinel
+        // instead of throwing so the panel can render a soft
+        // empty state instead of a scary error banner.
+        if (e instanceof ApiError && e.status === 404) {
+          return AUDIT_NOT_IN_GEMMA;
+        }
+        throw e;
+      }
     },
   });
 }
