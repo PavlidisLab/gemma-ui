@@ -95,6 +95,11 @@ export default defineConfig(({ mode }) => {
         "^/rest/v2/datasets/\\d+/(svd|sample-correlation|mean-variance).*": {
           target: GEMMA_REST_URL,
           changeOrigin: true,
+          // Strip the Domain attribute on any Set-Cookie reply so
+          // gemma-rest's session cookies survive the proxy — they're
+          // otherwise scoped to host.docker.internal and the browser
+          // refuses to store them under localhost:5175.
+          cookieDomainRewrite: "",
           configure: (proxy) => {
             proxy.on("proxyReq", (proxyReq) => {
               proxyReq.removeHeader("origin");
@@ -111,6 +116,7 @@ export default defineConfig(({ mode }) => {
         "^/rest/v2/datasets/\\d+/auditEvents.*": {
           target: GEMMA_REST_URL,
           changeOrigin: true,
+          cookieDomainRewrite: "",
           configure: (proxy) => {
             proxy.on("proxyReq", (proxyReq) => {
               proxyReq.removeHeader("origin");
