@@ -39,10 +39,6 @@ import {
   TopBar,
   type TabId,
 } from "@/features/experiment/ExperimentBanner";
-import { ProposalCardV2 } from "@/features/proposal/ProposalCardV2";
-import { ProposalSidebarPanel } from "@/features/proposal/ProposalSidebarPanel";
-import { ProposalSummaryCard } from "@/features/proposal/ProposalSummaryCard";
-import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import { useProposeStream } from "@/api/proposeStream";
 import { useAuditStream } from "@/api/auditStream";
 import { useServicesHealth } from "@/api/health";
@@ -74,26 +70,11 @@ import {
   useDesignDraft,
 } from "@/features/design/DesignDraftContext";
 import { NotesDrawer } from "@/features/notes/NotesDrawer";
-import {
-  useProposalsAutoShape,
-  type AgentProposal,
-} from "@/api/agentProposals";
-import { parseAgentProposalPayload } from "@/api/agentProposals";
-import {
-  agentProposalToApplyArgs,
-  agentProposalToLegacyProposal,
-} from "@/features/proposal/agentProposalAdapter";
-import {
-  applyProposalToDesign,
-  removeAppliedProposalFromDesign,
-} from "@/features/design/mutations";
-import { useToast } from "@/components/ui/Toast";
 import { Spinner } from "@/components/ui/Spinner";
 import {
   useCurationDetails,
   useUpdateCurationDetails,
 } from "@/api/curation";
-import type { Proposal } from "@/api/types";
 
 /**
  * v0 single-page shell. Hard-coded to GSE277245 for now; routing
@@ -425,17 +406,6 @@ function Shell({
 
   // ALL hooks must run on every render in the same order. Run the
   // proposals query unconditionally, then branch — putting the
-  // 404-redirect AFTER the hook means flipping ``loadError`` between
-  // 404 and non-404 across renders doesn't change the hook order.
-  // (Earlier this hook was below the conditional return, which
-  // would Rules-of-Hooks-violate when loadError flipped.)
-  const {
-    data,
-    isLoading,
-    isFetching: proposalsFetching,
-    error,
-  } = useProposalsAutoShape(experimentId);
-
   // If the experiment id resolves to nothing in storage, the
   // /design GET 404s. Show the import prompt instead of the
   // generic error.
@@ -464,33 +434,6 @@ function Shell({
 
   const externalSource = draft?.external_source ?? null;
   const shortName = draft?.experiment_short_name ?? `experiment ${experimentId}`;
-  // Endpoint returns one of two shapes (see useProposalsAutoShape):
-  // new agent_proposal rows for the 50 eval-pkg experiments, legacy
-  // {items, total} for the 47 backup-restored ones. Derive both
-  // arms regardless of shape — MainGrid renders whichever is
-  // populated.
-  const legacyItems = data?.kind === "legacy" ? data.items : [];
-  const agentProposals = data?.kind === "new" ? data.items : [];
-  const pending = legacyItems.filter((p) => p.status === "pending");
-  // Most recent non-pending proposal — surfaces as a slim
-  // ProposalSummaryCard above the pending list so the sidebar
-  // doesn't go from full v2 card straight to "no proposals" the
-  // moment the curator accepts. Mirrors the closed-audit summary
-  // treatment. Server's list endpoint orders ``submitted_at`` ASC
-  // (storage.py ``list_for_experiment``), so we walk from the end
-  // to pick the most recent non-pending. ``findLast`` is the
-  // semantic fit; previous code used ``find`` and surfaced the
-  // *oldest* rejected proposal once a curator had rejected more
-  // than one (the original would persist on top forever). New-shape
-  // agent_proposal rows have no status — they're append-only — so
-  // recentClosed only applies to the legacy arm.
-  let recentClosed: Proposal | null = null;
-  for (let i = legacyItems.length - 1; i >= 0; i--) {
-    if (legacyItems[i].status !== "pending") {
-      recentClosed = legacyItems[i];
-      break;
-    }
-  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -585,12 +528,6 @@ function Shell({
         activeTab={activeTab}
         experimentId={experimentId}
         reviewer={reviewer}
-        proposalsLoading={isLoading}
-        proposalsFetching={proposalsFetching}
-        proposalsError={error ? (error as Error).message : null}
-        pendingProposals={pending}
-        recentClosedProposal={recentClosed}
-        agentProposals={agentProposals}
       />
 
       {/* "connected to /rest (proxied)" footer retired 2026-05-23 —
@@ -613,33 +550,11 @@ function MainGrid({
   activeTab,
   experimentId,
   reviewer,
-  proposalsLoading,
-  proposalsError,
-  pendingProposals,
-  recentClosedProposal,
-  agentProposals,
-  proposalsFetching: _proposalsFetching,
 }: {
   activeTab: TabId;
   experimentId: number | string;
   reviewer: string;
-  proposalsLoading: boolean;
-  proposalsError: string | null;
-  pendingProposals: Proposal[];
-  /** Most recently triaged proposal (status !== "pending"), or
-   *  null. Renders as a slim ProposalSummaryCard above the pending
-   *  list so the sidebar doesn't snap from full card to empty when
-   *  the curator accepts. */
-  recentClosedProposal: Proposal | null;
-  /** New-shape `agent_proposal` rows from the auto-shape endpoint.
-   *  Populated for experiments that have a row in the
-   *  `agent_proposal` table (eval-pkg seeded experiments); empty for
-   *  legacy experiments — those go through `pendingProposals`
-   *  instead. */
-  agentProposals: AgentProposal[];
-  proposalsFetching: boolean;
 }) {
-  const toast = useToast();
   // SSE-driven hooks for the two agent runs. Both fire from the
   // unified AgentRunDialog opened by the sidebar header strip;
   // their progress panels render below the strip on whichever tab
@@ -664,11 +579,7 @@ function MainGrid({
       warnOnSchemaDrift("audit", auditSchema.data, UI_AUDIT_FIELDS);
     }
   }, [auditSchema.data]);
-  const { draft, saved, apply } = useDesignDraft();
-  // Either legacy pending OR a new-shape agent_proposal counts as
-  // "the sidebar has work to show". Both arms render below.
-  const proposalCount = pendingProposals.length + agentProposals.length;
-  const hasProposals = proposalCount > 0;
+  const { draft } = useDesignDraft();
   // Unified agent-run dialog state. Replaces the inline "+ propose"
   // sidebar button, the in-panel "+ audit" button, and the
   // proposal-card "redo with notes" affordance. All three routes
@@ -683,37 +594,41 @@ function MainGrid({
   >(null);
   // Sidebar view toggle: Proposals (existing) or Audit (new — see
   // AUDIT_FEATURE.md §UI integration shape, surface B). Sticky so the
-  // curator's last choice survives experiment switches. Defaults to
-  // proposals — that's the established affordance and most curators
-  // will land on a fresh proposal first.
-  // Three-way sidebar view:
-  //  - ``proposals`` — legacy thin panel; reads ``/curation-proposals``
-  //    (the live preboarding proposer service's output).
+  // curator's last choice survives experiment switches.
+  //
+  // Two-way sidebar view (2026-05-25, Paul):
   //  - ``audit`` — rich AuditSidebarPanel over kind=audit reviews
   //    (already-curated experiments where the agent flagged deltas).
   //  - ``proposalReview`` — rich AuditSidebarPanel re-used over
   //    kind=proposal reviews (calibration packages on uncurated /
   //    preboarded GSEs; same component, branched on kind). See
   //    AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md.
-  const [sidebarView, setSidebarView] = useStickyState<
-    "proposals" | "audit" | "proposalReview"
-  >("sidebar.view", "proposals");
+  //
+  // The legacy ``proposals`` view (thin panel reading
+  // ``/curation-proposals``) was hidden in favour of the
+  // unified kind=proposal CurationReview surface. Sticky state from
+  // before the cutover is normalised to ``proposalReview`` so
+  // curators don't land on a now-invalid view.
+  const [sidebarViewRaw, setSidebarViewRaw] = useStickyState<
+    "audit" | "proposalReview" | "proposals"
+  >("sidebar.view", "proposalReview");
+  const sidebarView: "audit" | "proposalReview" =
+    sidebarViewRaw === "audit" ? "audit" : "proposalReview";
+  const setSidebarView = setSidebarViewRaw as (
+    v: "audit" | "proposalReview",
+  ) => void;
   // Open the unified dialog. The strip's single button calls this;
   // the dialog gathers tier / scope / notes / etc and calls back into
   // ``submitAgentRun``.
   function openAgentRunDialog(kind: "proposal" | "audit") {
-    const mode: "fresh" | "redo" =
-      kind === "proposal"
-        ? proposalCount > 0
-          ? "redo"
-          : "fresh"
-        : "fresh";
-    // For audit "redo" mode we'd want to detect a standing open
-    // audit; AuditSidebarPanel knows that, the strip doesn't. For
-    // now treat audit re-runs as fresh (the dialog still works the
-    // same — notes are just hidden). Audit-side redo affordance is
-    // a follow-up.
-    setAgentRunDialog({ kind, mode });
+    // Standing-proposal detection was wired through the legacy
+    // pendingProposals count; with that surface hidden, we default
+    // every run to ``fresh``. The dialog still allows the curator
+    // to attach prior_feedback / refresh_cache manually; the
+    // proposer service decides whether to redo internally. A
+    // follow-up can re-derive ``redo`` from kind=proposal
+    // CurationReview presence.
+    setAgentRunDialog({ kind, mode: "fresh" });
   }
 
   function submitAgentRun(req: AgentRunRequest) {
@@ -872,32 +787,20 @@ function MainGrid({
         ) : null}
         {sidebarOpen ? (
           <div className="card text-xs text-slate-600 px-2 py-1.5 flex flex-col gap-1">
-            {/* View toggle — Proposals vs Audit. The two surfaces
-                share this real estate; only one is visible at a time.
-                Sticky preference (sidebarView) so the curator lands
-                back on whichever they last chose. */}
+            {/* View toggle — Audit vs Proposal review. Both surfaces
+                run the same AuditSidebarPanel against different
+                CurationReview kinds (audit vs proposal). Sticky
+                preference (sidebarView) survives experiment switches.
+                The legacy "Proposals" toggle (thin live-proposer
+                panel) was hidden on 2026-05-25 in favour of the
+                unified kind=proposal CurationReview flow. */}
             <div className="flex items-center gap-1">
-              <ViewToggleButton
-                active={sidebarView === "proposals"}
-                onClick={() => setSidebarView("proposals")}
-                badge={hasProposals ? proposalCount : undefined}
-                badgeCls="text-amber-700"
-              >
-                Proposals
-              </ViewToggleButton>
               <ViewToggleButton
                 active={sidebarView === "audit"}
                 onClick={() => setSidebarView("audit")}
               >
                 Audit
               </ViewToggleButton>
-              {/* Proposal review — rich per-finding chip flow over
-                  kind=proposal CurationReviews. Sources from
-                  /datasets/{id}/proposals (calibration packages /
-                  fresh-GSE preboarding output). Lives next to the
-                  legacy "Proposals" toggle during transition; the
-                  two read different backends and surface different
-                  framing. See AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md. */}
               <ViewToggleButton
                 active={sidebarView === "proposalReview"}
                 onClick={() => setSidebarView("proposalReview")}
@@ -924,7 +827,6 @@ function MainGrid({
                 inputs and gates on agent health. */}
             <AgentRunButton
               sidebarView={sidebarView}
-              proposalCount={proposalCount}
               proposeRunning={proposeStream.status === "running"}
               auditRunning={auditStream.status === "running"}
               agentDown={servicesHealth.data?.agent === "down"}
@@ -945,9 +847,7 @@ function MainGrid({
             title={
               sidebarView === "audit"
                 ? "Open audit findings"
-                : sidebarView === "proposalReview"
-                  ? "Open proposal review"
-                  : `Open proposals${hasProposals ? ` (${proposalCount} pending)` : ""}`
+                : "Open proposal review"
             }
             className="card lg:flex-1 lg:min-h-[12rem] hover:bg-slate-50 flex flex-col items-center gap-3 py-3 text-slate-600 hover:text-slate-900 transition-colors"
           >
@@ -958,30 +858,22 @@ function MainGrid({
               className="text-[11px] font-semibold tracking-widest uppercase"
               style={{ writingMode: "vertical-rl" }}
             >
-              {sidebarView === "audit"
-                ? "Audit"
-                : sidebarView === "proposalReview"
-                  ? "Proposal"
-                  : "Proposals"}
+              {sidebarView === "audit" ? "Audit" : "Proposal"}
             </span>
-            {sidebarView === "proposals" && hasProposals ? (
-              <span className="text-[10px] uppercase tracking-wide font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-auto">
-                {proposalCount}
-              </span>
-            ) : null}
           </button>
         )}
 
         {sidebarOpen ? (
           sidebarView === "audit" ? (
             <AuditSidebarPanel experimentId={experimentId} stream={auditStream} />
-          ) : sidebarView === "proposalReview" ? (
-            // Nested AuditProvider keyed to kind="proposal" so this
-            // panel reads from /datasets/{id}/proposals; the outer
-            // AuditProvider (kind="audit") keeps feeding the inline
-            // dots in the design + samples surfaces. The two
-            // providers don't share state — only the closest one
-            // wins for ``useAudit()`` inside the panel.
+          ) : (
+            // Proposal review. Nested AuditProvider keyed to
+            // kind="proposal" so this panel reads from
+            // /datasets/{id}/proposals; the outer AuditProvider
+            // (kind="audit") keeps feeding inline dots in the
+            // design + samples surfaces. The two providers don't
+            // share state — only the closest one wins for
+            // ``useAudit()`` inside the panel.
             <AuditProvider
               experimentId={experimentId}
               kind="proposal"
@@ -996,137 +888,6 @@ function MainGrid({
                 stream={auditStream}
               />
             </AuditProvider>
-          ) : proposalsLoading ? (
-            <div className="card p-3 text-xs text-slate-500">
-              loading proposals…
-            </div>
-          ) : proposalsError ? (
-            <div className="card p-3 text-xs text-rose-700">
-              {proposalsError}
-              <p className="mt-1 text-slate-500 text-[11px]">
-                Is the local server running?{" "}
-                <code>./run_mock.sh</code>
-              </p>
-            </div>
-          ) : !hasProposals ? (
-            // No pending proposals. Show the most recently triaged
-            // one as a slim summary card if there is one (so the
-            // sidebar doesn't snap from full v2 card to "agent
-            // idle" the moment the curator accepts), then fall
-            // through to the progress panel for the next + propose
-            // run.
-            <>
-              {recentClosedProposal ? (
-                <ProposalSummaryCard
-                  proposal={recentClosedProposal}
-                  onRequestRedo={() => openAgentRunDialog("proposal")}
-                />
-              ) : null}
-              <ProposeProgressPanel
-                state={proposeStream}
-                onDismiss={proposeStream.reset}
-              />
-            </>
-          ) : (
-            <>
-              {recentClosedProposal ? (
-                <ProposalSummaryCard proposal={recentClosedProposal} />
-              ) : null}
-              {/* New-shape agent_proposal rows (eval-pkg seeded
-                  experiments). One surface: the per-element
-                  ProposalSidebarPanel rendering the synthesized legacy
-                  Proposal, with the explicit "Apply to design"
-                  button in its header (per Paul 2026-05-22). */}
-              {agentProposals.map((p) => {
-                const payload = parseAgentProposalPayload(p.payload_json);
-                if (!payload) return null;
-                const synth = agentProposalToLegacyProposal(p, payload);
-                const handleApply = () => {
-                  if (!draft) {
-                    toast.show(
-                      "Design draft not loaded yet.",
-                      "danger",
-                      4000,
-                    );
-                    return;
-                  }
-                  const { tags, factors } = agentProposalToApplyArgs(payload);
-                  const next = applyProposalToDesign(draft, tags, factors);
-                  apply(next);
-                  toast.show(
-                    `Applied proposal to draft: ${factors.length} factor${
-                      factors.length === 1 ? "" : "s"
-                    }, ${tags.length} tag${tags.length === 1 ? "" : "s"}.`,
-                    "success",
-                  );
-                };
-                // Inverse of handleApply — drop every factor/tag the
-                // proposal added, regardless of whether it's already
-                // committed to saved. The mutator's normal contract
-                // protects saved items so a curator's reject-after-
-                // apply doesn't kill pre-existing same-name factors;
-                // we deliberately bypass that here by passing
-                // ``null`` for saved, so the curator can revert even
-                // after they've committed the application — the
-                // post-revert draft will show the proposal items as
-                // ``removed`` tombstones, and the next Commit pushes
-                // the deletion to the server. If they want to back
-                // out of the revert itself, the CommitBar's Discard
-                // button still rolls back to saved.
-                //
-                // Edge case: a pre-existing factor with the same
-                // (name, category) as a proposal item gets dropped
-                // too. Discard recovers it. Rare enough that it's
-                // not worth a confirmation modal.
-                const handleRevertApplication = () => {
-                  if (!draft) return;
-                  const { tags, factors } = agentProposalToApplyArgs(payload);
-                  const next = removeAppliedProposalFromDesign(
-                    draft,
-                    null,
-                    tags,
-                    factors,
-                  );
-                  apply(next);
-                  const wasCommitted =
-                    (saved?.factors?.length ?? 0) > 0 ||
-                    (saved?.tags?.length ?? 0) > 0;
-                  toast.show(
-                    wasCommitted
-                      ? `Reverted: ${factors.length} factor${
-                          factors.length === 1 ? "" : "s"
-                        } and ${tags.length} tag${
-                          tags.length === 1 ? "" : "s"
-                        } marked for deletion. Commit to push the removal to the server, or Discard to undo the revert.`
-                      : `Reverted proposal application: dropped ${factors.length} factor${
-                          factors.length === 1 ? "" : "s"
-                        } and ${tags.length} tag${
-                          tags.length === 1 ? "" : "s"
-                        } from the draft.`,
-                    "success",
-                  );
-                };
-                return (
-                  <ProposalSidebarPanel
-                    key={`ap-${p.proposal_id}`}
-                    proposal={synth}
-                    onApplyToDesign={handleApply}
-                    onRevertApplication={handleRevertApplication}
-                  />
-                );
-              })}
-              {pendingProposals.map((p) => (
-                <div key={p.proposal_id ?? Math.random()} className="space-y-2">
-                  {/* New per-element review panel — Paul 2026-05-21.
-                      Sits ABOVE the legacy ProposalCardV2 during
-                      Phase 1 so the curator can compare layouts.
-                      Once the new surface proves out + Phase 2's
-                      draft-seeding lands, ProposalCardV2 retires. */}
-                  <ProposalSidebarPanel proposal={p} />
-                  <ProposalCardV2 proposal={p} reviewer={reviewer} />
-                </div>
-              ))}
-            </>
           )
         ) : null}
       </aside>
@@ -1176,14 +937,12 @@ function MainGrid({
  *  follow-up wires the redo mode through here too. */
 function AgentRunButton({
   sidebarView,
-  proposalCount,
   proposeRunning,
   auditRunning,
   agentDown,
   onRequest,
 }: {
-  sidebarView: "proposals" | "audit" | "proposalReview";
-  proposalCount: number;
+  sidebarView: "audit" | "proposalReview";
   proposeRunning: boolean;
   auditRunning: boolean;
   agentDown: boolean;
@@ -1192,27 +951,24 @@ function AgentRunButton({
   const kind: "proposal" | "audit" =
     sidebarView === "audit" ? "audit" : "proposal";
   const running = kind === "audit" ? auditRunning : proposeRunning;
-  // `hasStanding` is only meaningful for proposals at this layer —
-  // audit redo detection needs the AuditProvider state. Audit side
-  // always renders "Run audit…" until that wires through.
-  const hasStanding = kind === "proposal" && proposalCount > 0;
+  // Standing-proposal detection used to gate "Re-run …" vs
+  // "Request …" labels via the legacy pendingProposals count;
+  // with that surface hidden, this button is always "Request …"
+  // until we re-derive the signal off kind=proposal
+  // CurationReview presence.
   const label = running
     ? kind === "audit"
       ? "auditing…"
       : "proposing…"
     : kind === "audit"
       ? "Run audit…"
-      : hasStanding
-        ? "Re-run proposal…"
-        : "Request proposal…";
+      : "Request proposal…";
   const disabled = running || agentDown;
   const title = agentDown
     ? "Agent service is unreachable — start it to enable runs"
     : running
       ? "A run is already in flight — watch the progress panel below"
-      : hasStanding
-        ? `Opens the re-run dialog. The standing ${kind} is retired when you submit.`
-        : `Opens the run dialog. Fires a fresh ${kind} request on submit.`;
+      : `Opens the run dialog. Fires a fresh ${kind} request on submit.`;
   return (
     <button
       type="button"

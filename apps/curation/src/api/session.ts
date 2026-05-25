@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { resolveGemmaMode } from "@/lib/gemmaMode";
 
 // SECURITY-TODO (review 2026-04-27, deferred): the bearer token is
 // stored in ``localStorage``, which is readable by any JavaScript
@@ -85,13 +86,30 @@ export function saveStoredSession(s: StoredSession | null): void {
   }
 }
 
+/** Synthetic curator identity used in local mode so the UI skips
+ *  the login flow entirely. local_api accepts the static dev bearer
+ *  for all writes; there is no real user / session concept to
+ *  authenticate against. The dispositions table just records this
+ *  string as the reviewer. */
+const LOCAL_MODE_USER: User = {
+  username: "local-curator",
+  full_name: "Local Curator",
+  email: "",
+};
+
 /** Hook for the current user. ``data`` is the user when logged
  *  in, ``null`` when running with the static API key, undefined
- *  while the request is in flight. */
+ *  while the request is in flight. In local mode the network call
+ *  is skipped and a synthetic dev user returned directly — no
+ *  login screen, no auth round-trip. */
 export function useMe() {
+  const { mode } = resolveGemmaMode();
   return useQuery({
     queryKey: ["me"],
     queryFn: async () => {
+      if (mode === "local") {
+        return LOCAL_MODE_USER;
+      }
       const resp = await api.get<unknown>("/rest/v2/me");
       // Both envelopes (gemma-rest's `{data: user}` and the mock's
       // bare user) reduce to a single user-shaped object via the
@@ -136,10 +154,20 @@ export function useLogin() {
 }
 
 export function useLogout() {
+  const { mode } = resolveGemmaMode();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<null>("/rest/v2/logout", {}),
+    // Local mode has no real session — useMe returns a synthetic
+    // dev curator unconditionally — so logout would just clear
+    // localStorage (nothing there) and then useMe would resurrect
+    // the same user on the next read. Skip the round-trip and
+    // resolve immediately so the UI doesn't flicker.
+    mutationFn: async () => {
+      if (mode === "local") return null;
+      return api.post<null>("/rest/v2/logout", {});
+    },
     onSettled: () => {
+      if (mode === "local") return;
       saveStoredSession(null);
       qc.setQueryData(["me"], null);
       // Drop everything tied to the previous session.
