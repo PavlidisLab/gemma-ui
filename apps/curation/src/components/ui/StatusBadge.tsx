@@ -33,7 +33,12 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-5 h-5 text-[12px] leading-none",
+        // Bumped from w-5 h-5 / text-[12px] to w-6 h-6 / text-[14px]
+        // (Paul 2026-05-25: "that ttteeeeeny thing in the box ... lets
+        // do better"). The minor-severity variant additionally got a
+        // filled bg in its caller config so the glyph reads at the new
+        // size — see ``SeverityBadge``.
+        "inline-flex items-center justify-center font-bold rounded mt-0.5 shrink-0 w-6 h-6 text-[14px] leading-none",
         cls,
       )}
       title={label}

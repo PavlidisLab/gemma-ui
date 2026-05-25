@@ -133,9 +133,14 @@ const KIND_COPY: Record<
     nounPlural: "proposals",
     headerLabel: "Proposal",
     emptyBody: "No proposals on this experiment yet.",
-    closeButtonLabel: "Close review",
-    closeConfirmHeader: "Close this proposal review?",
-    closedToast: "Proposal review closed.",
+    // Reframed per Paul 2026-05-25: the workflow is apply → edit →
+    // submit (sends accepted/rejected/edited summary + final curated
+    // EE state back to the curation agent). "Close review" hid the
+    // submission step inside a generic verb.
+    closeButtonLabel: "Submit review",
+    closeConfirmHeader:
+      "Submit this proposal review back to the curation agent?",
+    closedToast: "Review submitted to the curation agent.",
     reopenedToast:
       "Proposal review reopened — dispositions editable again.",
     idleStreamLabel: "no proposal review running",
@@ -2872,12 +2877,16 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   open ? "" : "line-clamp-2",
                 )}
               >
-                {rewriteCalibrationRationale(
-                  finding.issue_code,
-                  splitRationaleTrail(
-                    trimRationaleBoilerplate(finding.rationale),
-                  ).summary,
-                )}
+                <RationaleWithTagChips
+                  text={rewriteCalibrationRationale(
+                    finding.issue_code,
+                    splitRationaleTrail(
+                      trimRationaleBoilerplate(finding.rationale),
+                    ).summary,
+                  )}
+                  draftTags={draft?.tags ?? []}
+                  proposerTerm={finding.proposer_term}
+                />
                 <ReasoningTrailButton rationale={finding.rationale} />
               </span>
               <FactorReplacementHint finding={finding} report={report} />
@@ -3487,7 +3496,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           report={report}
           design={draft}
           currentDisposition={current}
-          onSave={async (appliedFix, structureOk, detailsOk) => {
+          onSave={async (appliedFix, structureOk, detailsOk, notes) => {
             // Conventional mapping lives in ``dispositionSave.ts``
             // (unit-tested in ``dispositionSave.test.ts``). Editor
             // computes structure_ok / details_ok per
@@ -3498,6 +3507,52 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             // Dismiss… button when the curator wants to pick a
             // reason explicitly).
             const status = deriveStatus(structureOk, detailsOk);
+            // Structural-apply route: findings whose canonical fix is
+            // adding or removing a factor (``calibration_factor_extra``
+            // = add agent's factor; ``calibration_factor_gold_only_miss``
+            // = remove gold's factor) can't go through the editor's
+            // per-row ``applyDetailsEditsToDesign`` path — that helper
+            // only edits within an existing factor. When the curator
+            // accepts one of those structural-only findings, route
+            // through the ``ApplyAction`` mutator the legacy
+            // ``handleApply`` uses, with the same snapshot + focus +
+            // toast + ``action.appliedFix`` payload it would have
+            // produced. Editor's empty per-row appliedFix is dropped on
+            // the floor since the structural payload supersedes it.
+            const isStructuralOnly =
+              finding.issue_code === "calibration_factor_extra" ||
+              finding.issue_code === "calibration_factor_gold_only_miss" ||
+              finding.issue_code === "calibration_agent_extra" ||
+              finding.issue_code === "calibration_gold_only_miss";
+            if (
+              isStructuralOnly &&
+              status === "accepted" &&
+              action?.mutates &&
+              action.mutate &&
+              draft
+            ) {
+              setPreApplyDraftSnapshot(draft);
+              applyDraft(action.mutate);
+              requestAuditFocus(experimentId, finding.target_id);
+              if (action.successMessage) {
+                toast.show(action.successMessage, "success");
+              }
+              const actionStatus = action.dispositionStatus ?? "accepted";
+              if (actionStatus === "dismissed") {
+                await patch("dismissed", {
+                  appliedFix: action.appliedFix,
+                  dismissReason: action.dismissReason,
+                  notes,
+                });
+              } else {
+                await patch("accepted", {
+                  appliedFix: action.appliedFix,
+                  resolvedAt: new Date().toISOString(),
+                  notes,
+                });
+              }
+              return;
+            }
             const resolvedAt =
               status === "accepted" ? new Date().toISOString() : undefined;
             const derivedDismissReason = deriveDismissReason(
@@ -3535,6 +3590,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               resolvedAt,
               dismissReason: derivedDismissReason,
               acceptReason: derivedAcceptReason,
+              notes,
             });
           }}
           onAgree={() => {
@@ -4058,6 +4114,112 @@ function rewriteCalibrationRationale(
  *  trail. Renders nothing when the rationale carries no trail
  *  marker. Popover aligns right + sized small so it sits next to
  *  the trigger instead of swallowing the suggestion block beneath. */
+/** Inline rationale renderer that rewrites backticked
+ *  ``category: value`` tokens as compact Term chips so the curator
+ *  reads ontology-resolved identities, not raw mono text.
+ *
+ *  URI resolution order (per Paul 2026-05-25 — "tag proposals are
+ *  never free text"):
+ *    1. ``finding.proposer_term`` — the agent's structured proposed
+ *       term; always carries a URI for tag proposals. Matched to
+ *       the rationale's backtick value when the labels agree.
+ *    2. ``draft.tags`` lookup — picks up a URI when the tag already
+ *       lives on the experiment's design.
+ *    3. Free-text styling — last-ditch when neither hit. Should be
+ *       rare on real audit data; flag the finding to bro if it
+ *       fires often.
+ *
+ *  Backticked tokens without a "category: value" colon fall through
+ *  to monospace text — same as the unchanged fallback for
+ *  identifiers / single-word values. */
+function RationaleWithTagChips({
+  text,
+  draftTags,
+  proposerTerm,
+}: {
+  text: string;
+  draftTags: ReadonlyArray<import("@/features/experiment/types").Tag>;
+  proposerTerm?: import("@/api/auditTypes").AuditFinding["proposer_term"];
+}) {
+  if (!text) return null;
+  // Split on backticked tokens; preserve the surrounding plain text.
+  const parts: Array<{ kind: "text"; value: string } | { kind: "tok"; value: string }> = [];
+  const re = /`([^`]+)`/g;
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > lastIdx) {
+      parts.push({ kind: "text", value: text.slice(lastIdx, m.index) });
+    }
+    parts.push({ kind: "tok", value: m[1] });
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) {
+    parts.push({ kind: "text", value: text.slice(lastIdx) });
+  }
+  const norm = (s: string | null | undefined) =>
+    (s || "").toLowerCase().trim();
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (p.kind === "text") return <span key={i}>{p.value}</span>;
+        const colon = p.value.indexOf(":");
+        if (colon === -1) {
+          return (
+            <span key={i} className="font-mono">
+              {p.value}
+            </span>
+          );
+        }
+        const catLabel = p.value.slice(0, colon).trim();
+        const valLabel = p.value.slice(colon + 1).trim();
+        const matched = draftTags.find(
+          (t) =>
+            norm(t.category?.label) === norm(catLabel) &&
+            norm(t.value?.label) === norm(valLabel),
+        );
+        const catUri = matched?.category?.uri ?? null;
+        // proposer_term carries the agent's structured pick — use
+        // its URI when the rationale value matches its label and the
+        // draft-tags lookup didn't find one (the common
+        // ``missing_tag`` case: the tag IS the agent's proposal and
+        // therefore won't be in the draft yet).
+        const proposerMatches =
+          !!proposerTerm &&
+          !!proposerTerm.uri &&
+          norm(proposerTerm.label) === norm(valLabel);
+        const valUri =
+          matched?.value?.uri ??
+          (proposerMatches ? proposerTerm!.uri : null);
+        return (
+          <span
+            key={i}
+            className="inline-flex items-baseline gap-x-1 mx-0.5 align-baseline"
+          >
+            <Term
+              uri={valUri}
+              asLink={false}
+              className="!whitespace-normal break-words"
+            >
+              {valLabel}
+            </Term>
+            <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              in
+            </span>
+            <Term
+              uri={catUri}
+              asLink={false}
+              className="italic opacity-80 !whitespace-normal break-words"
+            >
+              {catLabel}
+            </Term>
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 function ReasoningTrailButton({ rationale }: { rationale: string }) {
   const { trail } = splitRationaleTrail(trimRationaleBoilerplate(rationale));
   if (!trail) return null;
@@ -5012,8 +5174,13 @@ function SeverityBadge({
       label: "major",
     },
     minor: {
-      icon: "·",
-      cls: "bg-transparent text-slate-500 border border-slate-300 dark:text-slate-400 dark:border-slate-600",
+      // The thin "·" (U+00B7) was illegible even at 14px (Paul
+      // 2026-05-25 round 2). U+2022 "•" (bullet) is a fatter glyph
+      // that reads at the badge's size; paired with a filled slate
+      // background it signals "low-severity flag" clearly without
+      // mimicking blocker/major chrome.
+      icon: "•",
+      cls: "bg-slate-200 text-slate-700 border border-slate-400 dark:bg-slate-700 dark:text-slate-100 dark:border-slate-500",
       label: "minor",
     },
     ok: {

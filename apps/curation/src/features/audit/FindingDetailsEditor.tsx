@@ -42,19 +42,10 @@ import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
 
-/** Local Term renderer for FvDisplayRow — delegates to the rich
- *  `Term` chip so factor / FV rendering on this surface matches the
- *  proposal-review surface exactly. */
-const renderEditorTerm: FvTermRenderer = ({ label, uri, variant }) => (
-  <Term
-    uri={uri}
-    asLink={false}
-    variant={variant === "predicate" ? "predicate" : "default"}
-    className="!whitespace-normal break-words"
-  >
-    {label}
-  </Term>
-);
+// The editor-scoped term renderer lives inside FindingDetailsEditor
+// — it closes over local state so "find ▸" lookups can mount an
+// inline OntologyTermPicker. The module-level constant was retired
+// when free-text lookup landed (2026-05-25).
 import type {
   AppliedEdit,
   AppliedFix,
@@ -756,6 +747,11 @@ export function FindingDetailsEditor({
     appliedFix: AppliedFix,
     structureOk: boolean | null,
     detailsOk: boolean | null,
+    /** Optional free-text explanation from the curator. Surfaced
+     *  on the "Apply with optional explanation" prompt; rides on
+     *  the disposition PATCH so the close-review summary carries
+     *  the WHY back to the curation agent. */
+    notes?: string,
   ) => Promise<void>;
   /** Plain "agree" — patch the disposition to accepted without any
    *  draft mutation. Used by the no-actionable-delta + actionable-
@@ -792,6 +788,55 @@ export function FindingDetailsEditor({
   );
   const [rowState, setRowState] = useState<Map<string, RowState>>(new Map());
   const [saving, setSaving] = useState(false);
+  // Inline "Apply with optional explanation" prompt — replaces the
+  // immediate apply on factor-extra / tag-extra cards so the curator
+  // can attach a note before the disposition (and the draft mutation)
+  // lands. The note rides on the PATCH and goes back to the curation
+  // agent at close-review time. Per Paul 2026-05-25.
+  const [applyPromptOpen, setApplyPromptOpen] = useState(false);
+  // Free-text term lookup — when the curator clicks "find ▸" next
+  // to an unresolved term in the comparison surface, this captures
+  // the label so we can mount an inline ``OntologyTermPicker``
+  // pre-filled with it. Result handling is browse-only for now
+  // (commit just dismisses); a follow-up will route resolved terms
+  // back into the agent's proposed FV so they ride the Apply.
+  // Per Paul 2026-05-25 ("a little search icon to do an ontology
+  // search for the term would be handy"). Non-magnifying-glass
+  // affordance — Paul's hate-list.
+  const [findTermLabel, setFindTermLabel] = useState<string | null>(null);
+  // Editor-scoped term renderer — same as the module-level
+  // ``renderEditorTerm`` but adds a small ``find ▸`` button next
+  // to free-text (URI-less) subject / object terms. Predicates and
+  // resolved terms get the bare chip.
+  const editorTermRenderer: FvTermRenderer = ({ label, uri, variant }) => {
+    const isPredicate = variant === "predicate";
+    const isFree = !uri && !isPredicate;
+    return (
+      <span className="inline-flex items-baseline gap-1">
+        <Term
+          uri={uri}
+          asLink={false}
+          variant={isPredicate ? "predicate" : "default"}
+          className="!whitespace-normal break-words"
+        >
+          {label}
+        </Term>
+        {isFree ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setFindTermLabel(label);
+            }}
+            className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 dark:text-blue-300 dark:hover:text-blue-100"
+            title={`Look up "${label}" in the ontologies`}
+          >
+            find ▸
+          </button>
+        ) : null}
+      </span>
+    );
+  };
 
   const disagreementRows = rows.filter((r) => !r.allAgree);
   const agreementRows = rows.filter((r) => r.allAgree);
@@ -847,6 +892,18 @@ export function FindingDetailsEditor({
   const isFactorExtraFinding =
     finding.issue_code === "calibration_factor_extra";
 
+  // Tag-add finding (``calibration_agent_extra``) — agent proposes a
+  // NEW tag the gold doesn't have. Same workflow shape as
+  // factor-add: Apply-only action with an optional-notes prompt;
+  // Park stays; Dismiss + "don't add" are gone. The actual
+  // mutation runs through the ApplyAction registry in
+  // ``applyHandlers.ts`` (``resolveCalibrationApply`` → adds the
+  // tag); the editor's per-row details-edit path is a no-op for
+  // tag findings (``applyDetailsEditsToDesign`` is factor-only).
+  const isTagAddFinding =
+    finding.target_kind === "tag" &&
+    finding.issue_code === "calibration_agent_extra";
+
   const isPartitionMismatch =
     finding.issue_code === "calibration_factor_partition_mismatch" &&
     finding.partition_mismatch != null;
@@ -875,7 +932,10 @@ export function FindingDetailsEditor({
     });
   }
 
-  async function dispatchSave(verdict: "proposal" | "currently" | "reference") {
+  async function dispatchSave(
+    verdict: "proposal" | "currently" | "reference",
+    notes?: string,
+  ) {
     setSaving(true);
     try {
       // Default-fill any un-picked disagreement rows with the
@@ -897,7 +957,7 @@ export function FindingDetailsEditor({
       // The sidebar's onSave handler derives ``status`` from
       // structure_ok / details_ok per the conventional mapping
       // (see AuditSidebarPanel.onSave); editor stays pure.
-      await onSave(fix, structureOk, detailsOk);
+      await onSave(fix, structureOk, detailsOk, notes);
     } catch (err) {
       toast.show(
         `Save failed: ${(err as Error).message}`,
@@ -1195,12 +1255,21 @@ export function FindingDetailsEditor({
   }
 
   // Factor-extra findings — agent proposes a NEW factor that
-  // gold doesn't have. The whole card is one decision (accept
-  // the proposed factor or not), so the per-row "Current: no
-  // entry / keep / adopt / edit" repetition is just noise. Show
-  // the proposed factor's FVs as a structured read-only list,
-  // then one set of accept / keep / dismiss / park buttons at
-  // the bottom. Per Paul 2026-05-21.
+  // gold doesn't have. The whole card is one decision (apply or
+  // not), so the per-row "Current: no entry / keep / adopt /
+  // edit" repetition is just noise.
+  //
+  // Action shape (per Paul 2026-05-25):
+  //   - "Add Auditor's factor" — applies the mutation; opens a
+  //     small optional-explanation prompt first so the curator
+  //     can record WHY (the explanation rides on the disposition
+  //     PATCH and goes back to the curation agent at close-
+  //     review time).
+  //   - "Park…" — defer; same dialog as elsewhere.
+  //   - Dismiss + "don't add" are gone — both meant "I don't
+  //     want this", which is what the close-review summary
+  //     records implicitly for any finding the curator didn't
+  //     apply. Keeping them was redundant + confusing.
   if (isFactorExtraFinding) {
     const cp = report?.evidence?.comparison_proposal ?? null;
     const labelHint = firstBacktick(finding.rationale);
@@ -1209,6 +1278,47 @@ export function FindingDetailsEditor({
       agentFactor?.category?.label || labelHint || "";
     const categoryUri = agentFactor?.category?.uri ?? null;
     const fvs = agentFactor?.factor_values ?? [];
+    const runApply = (notes: string) => {
+      if (agentFactor) {
+        applyDraft((current) =>
+          applyProposalToDesign(current, [], [
+            {
+              category: agentFactor.category,
+              name_in_design:
+                agentFactor.name_in_design ||
+                agentFactor.category?.label ||
+                "new factor",
+              factor_type:
+                (agentFactor.factor_type as
+                  | "categorical"
+                  | "continuous"
+                  | undefined) ?? "categorical",
+              baseline_relevance:
+                agentFactor.baseline_relevance ?? undefined,
+              baseline_relevance_reason:
+                agentFactor.baseline_relevance_reason ?? undefined,
+              factor_values: (agentFactor.factor_values ?? []).map(
+                (fv) => ({
+                  free_text_label: fv.free_text_label ?? "",
+                  is_baseline: !!fv.is_baseline,
+                  numeric_value: fv.numeric_value ?? null,
+                  statements: (fv.statements ?? []).map((s) => ({
+                    category: s.category ?? null,
+                    subject: s.subject ?? { label: "" },
+                    predicate: s.predicate ?? null,
+                    object: s.object ?? null,
+                  })),
+                  biomaterial_short_names: [
+                    ...(fv.biomaterial_short_names ?? []),
+                  ],
+                }),
+              ),
+            },
+          ]),
+        );
+      }
+      dispatchSave("proposal", notes.trim() || undefined);
+    };
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
         {/* FACTOR <category> · proposed */}
@@ -1241,84 +1351,51 @@ export function FindingDetailsEditor({
               <FvDisplayRow
                 key={i}
                 fv={fv}
-                termRenderer={renderEditorTerm}
+                termRenderer={editorTermRenderer}
                 indexLabel={i + 1}
               />
             ))}
           </div>
         ) : null}
 
-        <ActionRow
-          saving={saving}
-          disabled={currentDisposition !== "pending"}
-          buttons={[
-            {
-              key: "keep",
-              kind: leanKinds.keep,
-              label: actionLbls.keep,
-              onClick: () => dispatchSave("currently"),
-              title: `Don't add this factor — keep the design as-is.`,
-            },
-            {
-              key: "accept",
-              kind: leanKinds.accept,
-              label: `${actionLbls.adopt} ${identities.proposer}'s factor`,
-              onClick: () => {
-                // Dual-write: mutate the design draft to ADD the
-                // agent's proposed factor (so it shows up in the
-                // Design tab + rides commit), then PATCH the
-                // disposition. Uses applyProposalToDesign — the
-                // same path the proposal-accept flow uses, called
-                // with a single-factor proposal here.
-                if (agentFactor) {
-                  applyDraft((current) =>
-                    applyProposalToDesign(current, [], [
-                      {
-                        category: agentFactor.category,
-                        name_in_design:
-                          agentFactor.name_in_design ||
-                          agentFactor.category?.label ||
-                          "new factor",
-                        factor_type:
-                          (agentFactor.factor_type as
-                            | "categorical"
-                            | "continuous"
-                            | undefined) ?? "categorical",
-                        baseline_relevance:
-                          agentFactor.baseline_relevance ?? undefined,
-                        baseline_relevance_reason:
-                          agentFactor.baseline_relevance_reason ?? undefined,
-                        factor_values: (agentFactor.factor_values ?? []).map(
-                          (fv) => ({
-                            free_text_label: fv.free_text_label ?? "",
-                            is_baseline: !!fv.is_baseline,
-                            numeric_value: fv.numeric_value ?? null,
-                            statements: (fv.statements ?? []).map((s) => ({
-                              category: s.category ?? null,
-                              subject: s.subject ?? { label: "" },
-                              predicate: s.predicate ?? null,
-                              object: s.object ?? null,
-                            })),
-                            biomaterial_short_names: [
-                              ...(fv.biomaterial_short_names ?? []),
-                            ],
-                          }),
-                        ),
-                      },
-                    ]),
-                  );
-                }
-                dispatchSave("proposal");
+        {findTermLabel ? (
+          <FreeTextLookup
+            label={findTermLabel}
+            onClose={() => setFindTermLabel(null)}
+          />
+        ) : null}
+
+        {applyPromptOpen ? (
+          <ApplyWithOptionalNotes
+            primaryLabel={`Add ${identities.proposer}'s factor`}
+            saving={saving}
+            onCancel={() => setApplyPromptOpen(false)}
+            onConfirm={async (notes) => {
+              setApplyPromptOpen(false);
+              await runApply(notes);
+            }}
+          />
+        ) : (
+          <ActionRow
+            saving={saving}
+            disabled={currentDisposition !== "pending"}
+            buttons={[
+              {
+                key: "accept",
+                kind: leanKinds.accept,
+                label: `${actionLbls.adopt} ${identities.proposer}'s factor`,
+                onClick: () => setApplyPromptOpen(true),
+                title: `Accept ${identities.proposer}'s proposed factor and add it to the design (optional explanation).`,
               },
-              title: `Accept ${identities.proposer}'s proposed factor and add it to the design.`,
-            },
-          ]}
-          onDismiss={onDismiss}
-          onPark={onPark}
-          onUndo={
-            currentDisposition !== "pending" ? onUndo : undefined
-          }
-        />
+            ]}
+            onDismiss={onDismiss}
+            onPark={onPark}
+            onUndo={
+              currentDisposition !== "pending" ? onUndo : undefined
+            }
+            hideDismiss
+          />
+        )}
       </div>
     );
   }
@@ -1814,7 +1891,23 @@ export function FindingDetailsEditor({
           accept or reject, so the only available actions are
           Dismiss (delete if wrong) and Park (defer). Otherwise
           the three header-level verdict buttons + per-row-save +
-          Dismiss/Park. Per Paul 2026-05-21. */}
+          Dismiss/Park. Per Paul 2026-05-21.
+          Tag-add findings use the same Apply-only treatment as
+          factor-add: an inline optional-notes prompt replaces the
+          action row while the curator decides; Dismiss + "keep"
+          are dropped (non-application records itself via the
+          close-review summary). Per Paul 2026-05-25. */}
+      {isTagAddFinding && applyPromptOpen ? (
+        <ApplyWithOptionalNotes
+          primaryLabel={`Add ${identities.proposer}'s tag`}
+          saving={saving}
+          onCancel={() => setApplyPromptOpen(false)}
+          onConfirm={async (notes) => {
+            setApplyPromptOpen(false);
+            await dispatchSave("proposal", notes);
+          }}
+        />
+      ) : (
       <ActionRow
         saving={saving}
         disabled={currentDisposition !== "pending"}
@@ -1824,6 +1917,16 @@ export function FindingDetailsEditor({
               // ``showEscapeHatches`` below also flips off so the
               // whole row collapses.
               []
+            : isTagAddFinding
+              ? [
+                  {
+                    key: "accept",
+                    kind: "primary-accept" as const,
+                    label: `${actionLbls.adopt} ${identities.proposer}'s tag`,
+                    onClick: () => setApplyPromptOpen(true),
+                    title: `Accept ${identities.proposer}'s proposed tag and add it to the design (optional explanation).`,
+                  } satisfies ActionButton,
+                ]
             : noActionableDelta
             ? // No per-row delta to act on, but the finding may still
               // be actionable (e.g. wrong_fv_partition, conflated).
@@ -1903,7 +2006,9 @@ export function FindingDetailsEditor({
         // so the curator can flag the finding as wrong. Per Paul
         // 2026-05-21.
         showEscapeHatches={!auditorSaysExactlyRight}
+        hideDismiss={isTagAddFinding}
       />
+      )}
     </div>
   );
 }
@@ -3772,6 +3877,107 @@ function ConsequentHintBanner({
   );
 }
 
+/** Mounts the OntologyTermPicker pre-filled with a free-text label
+ *  the curator clicked "find ▸" on. Browse-only for v1: commit just
+ *  closes; a follow-up will route the resolved term back into the
+ *  agent's proposed FV so it rides the Apply. Per Paul 2026-05-25. */
+function FreeTextLookup({
+  label,
+  onClose,
+}: {
+  label: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="rounded border border-blue-300 dark:border-blue-700 bg-blue-50/60 dark:bg-blue-900/15 p-2 space-y-1.5">
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-blue-900 dark:text-blue-100">
+          Ontology lookup for{" "}
+          <span className="font-mono italic">"{label}"</span>
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[10px] text-blue-700 hover:text-blue-900 underline-offset-2 hover:underline dark:text-blue-300 dark:hover:text-blue-100"
+        >
+          close
+        </button>
+      </div>
+      <OntologyTermPicker
+        value={{ label, uri: null }}
+        category={null}
+        autoOpen
+        onCommit={() => {
+          // Browse-only — v1 doesn't apply the resolved term back
+          // to the agent's proposed FV. Just dismiss; the curator
+          // saw what they came to see.
+          onClose();
+        }}
+      />
+    </div>
+  );
+}
+
+/** Inline "Apply this with an optional explanation" prompt that
+ *  takes the place of the action row on factor-extra / tag-extra
+ *  cards (per Paul 2026-05-25). Textarea accepts free text; empty
+ *  is fine — the explanation is optional. Confirm runs the
+ *  upstream apply. Cancel re-renders the action row. */
+function ApplyWithOptionalNotes({
+  primaryLabel,
+  saving,
+  onCancel,
+  onConfirm,
+}: {
+  primaryLabel: string;
+  saving: boolean;
+  onCancel: () => void;
+  onConfirm: (notes: string) => void | Promise<void>;
+}) {
+  const [notes, setNotes] = useState("");
+  return (
+    <div className="border border-slate-300 dark:border-slate-600 rounded p-2 space-y-2 bg-slate-50 dark:bg-slate-900/60">
+      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+        Optional explanation
+        <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
+          — rides to the curation agent at close-review time
+        </span>
+      </label>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={2}
+        placeholder="(optional) why you're applying this — leave blank if no comment"
+        autoFocus
+        className="w-full text-[11px] border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 resize-y bg-white dark:bg-slate-900"
+      />
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-700"
+        >
+          cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onConfirm(notes)}
+          disabled={saving}
+          className={cn(
+            "text-[11px] px-2 py-0.5 rounded font-semibold",
+            saving
+              ? "bg-blue-200 text-blue-700 cursor-progress"
+              : "bg-blue-700 text-white hover:bg-blue-800",
+          )}
+        >
+          {saving ? "applying…" : primaryLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ActionRow({
   saving,
   disabled,
@@ -3780,6 +3986,7 @@ function ActionRow({
   onPark,
   onUndo,
   showEscapeHatches = true,
+  hideDismiss = false,
 }: {
   saving: boolean;
   disabled: boolean;
@@ -3800,6 +4007,11 @@ function ActionRow({
    *  buttons." Defaults to true so every existing call site keeps
    *  showing the escape hatches. */
   showEscapeHatches?: boolean;
+  /** When true, suppress JUST the Dismiss button — Park stays.
+   *  Used on "Apply or park" surfaces (factor-add, tag-add) where
+   *  Dismiss is redundant with the implicit "didn't apply" verdict
+   *  the close-review step will record. Per Paul 2026-05-25. */
+  hideDismiss?: boolean;
 }) {
   // If there's nothing for the curator to act on AND we've hidden
   // the escape hatches, the whole row collapses to either the undo
@@ -3837,14 +4049,16 @@ function ActionRow({
       ) : null}
       {showEscapeHatches ? (
         <>
-          <button
-            type="button"
-            onClick={onDismiss}
-            disabled={saving}
-            className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-          >
-            Dismiss…
-          </button>
+          {!hideDismiss ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={saving}
+              className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              Dismiss…
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onPark}
