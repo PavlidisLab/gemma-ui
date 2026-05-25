@@ -231,7 +231,6 @@ export function DismissDialog({
         </button>
       </div>
       <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">
-        <span className="font-mono mr-1">{finding.issue_code}</span>
         {finding.rationale}
       </div>
       {chips.length > 0 ? (

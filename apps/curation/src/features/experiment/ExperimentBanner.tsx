@@ -1446,6 +1446,13 @@ function BannerStatusChips({
           onClick={onOpenStatus}
         />
       ) : null}
+      {/* Visibility chip is informational only — clicking it used
+          to open the status modal, but visibility lives in Gemma
+          (toggled via Publish / admin unpublish), not in the
+          curator's status-notes surface. Paul 2026-05-25: "for
+          now, that badge should just be informational". Drop
+          ``onClick`` so StatusChip renders as a <span>; reinstate
+          when a real visibility-editor flow lands. */}
       <StatusChip
         tone={
           visibilityState === "public"
@@ -1461,12 +1468,11 @@ function BannerStatusChips({
         }
         title={
           visibilityState === "public"
-            ? "Public — visible to all Gemma users. Edit with care; consider making private first."
+            ? "Public — visible to all Gemma users."
             : visibilityState === "private"
               ? "Private — only visible to curators."
               : "Public/private state is not yet retrievable from Gemma's REST API."
         }
-        onClick={onOpenStatus}
       />
     </div>
   );
@@ -1765,22 +1771,31 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const isPublic = visibility.data?.is_public ?? false;
+  // Force-disabled until the end-to-end publish pipeline is wired
+  // up — the local POST works but the real Gemma side isn't ready
+  // and shipping an active button that no-ops misleads curators
+  // (Paul 2026-05-25). Once the backend lands, drop the
+  // ``notWiredUp`` override and restore the gated logic below.
+  const notWiredUp = true;
   const dirty = diff.isDirty;
-  const disabled = isPublic || dirty || publish.isPending;
+  const disabled =
+    notWiredUp || isPublic || dirty || publish.isPending;
 
-  const title = isPublic
-    ? "already public"
-    : dirty
-      ? "save your draft changes before publishing"
-      : publish.isPending
-        ? "publishing…"
-        : "make this experiment visible to all Gemma users";
+  const title = notWiredUp
+    ? "publish pipeline isn't wired up yet — coming soon"
+    : isPublic
+      ? "already public"
+      : dirty
+        ? "save your draft changes before publishing"
+        : publish.isPending
+          ? "publishing…"
+          : "make this experiment visible to all Gemma users";
 
   return (
     <>
       <button
         type="button"
-        className="btn primary"
+        className="btn text-xs !px-2 !py-1"
         disabled={disabled}
         onClick={() => setConfirming(true)}
         title={title}

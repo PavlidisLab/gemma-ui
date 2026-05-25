@@ -262,7 +262,39 @@ export interface AuditFinding {
    *  `direction='agent_finer'`; agent_coarser is symmetric
    *  follow-up agent-side. */
   consequents?: string[];
+  /** Structured "what would Agree mutate" payload from the agent.
+   *  Mirrors agents-side ``ApplyAction`` (see
+   *  ``gemma_curation_agents/agents/audit/judges/*_judge.py``) so the
+   *  UI can build a draft mutator without re-parsing rationale text.
+   *
+   *  Currently populated for ``missing_tag`` (kind=``add_tag``).
+   *  Other proposer judges will follow. ``null`` / ``undefined`` on
+   *  older audits and on calibration-only paths (which the legacy
+   *  ``resolveCalibrationApply`` branch in ``applyHandlers.ts``
+   *  already covers via target_id parsing). */
+  apply_action?: ApplyActionPayload | null;
 }
+
+/** Structured agent-side "Agree mutates X" descriptor. Discriminated
+ *  by ``kind`` so the UI can grow new shapes without unsafely casting.
+ *  Mirror of agents-side Pydantic ``ApplyAction``. */
+export type ApplyActionPayload =
+  | {
+      kind: "add_tag";
+      /** Category label, free-text — Tag's ``category.label``. */
+      new_category: string;
+      /** Value label, free-text — Tag's ``value.label``. */
+      new_value: string;
+      /** Optional URI for the value when the agent grounded it.
+       *  Falls back to ``proposer_term.uri`` at apply time. */
+      new_value_uri?: string | null;
+    }
+  | {
+      /** Forward-compat placeholder so non-add_tag shapes type-narrow
+       *  cleanly when they ship. */
+      kind: string;
+      [key: string]: unknown;
+    };
 
 /** One statement decomposed into (subject, predicate, object). Each
  *  part is an ``OntologyTerm`` (label + uri) or ``null`` when that
@@ -637,6 +669,26 @@ export type DismissReason =
   | "redundant_with_bm_source"
   | "not_sample_applicable"
   | (string & {});
+
+/** Issue-code shapes that gate the server's ``accept_reason``
+ *  requirement. Mirror of agents-side
+ *  ``_AGENT_EXTRA_ISSUE_CODE_PREFIXES`` in
+ *  ``gemma_curation_agents/agents/audit/schemas.py`` — both
+ *  families count as "agent emitted something gold doesn't have"
+ *  so accepts must record a why. */
+const AGENT_EXTRA_ISSUE_PREFIXES = [
+  "calibration_agent_extra",
+  "agent_extra_",
+] as const;
+
+/** ``true`` iff accepting this issue_code requires an
+ *  ``accept_reason`` on the PATCH body. UI callers default to a
+ *  sensible chip key (typically ``well_evidenced``) when running
+ *  bulk paths that don't go through the per-card chip dialog. */
+export function isAgentExtraIssue(issueCode: string | null | undefined): boolean {
+  if (!issueCode) return false;
+  return AGENT_EXTRA_ISSUE_PREFIXES.some((p) => issueCode.startsWith(p));
+}
 
 /** Closed enum of structured "why I accepted this" reasons. Required
  *  by the server when ``status === "accepted"`` AND the finding is

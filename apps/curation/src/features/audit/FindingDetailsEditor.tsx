@@ -3105,6 +3105,7 @@ function factorFindingSummary(
  *  one), etc. Without this the curator reads "Everyone agrees" next
  *  to a major-severity glyph and has nothing to act on. */
 function ActionableNoDeltaExplainer({ finding }: { finding: AuditFinding }) {
+  const { kind } = useAudit();
   const rationale = trimRationaleBoilerplate(finding.rationale ?? "").trim();
   const sevPalette =
     finding.severity === "blocker"
@@ -3112,6 +3113,16 @@ function ActionableNoDeltaExplainer({ finding }: { finding: AuditFinding }) {
       : finding.severity === "major"
         ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/15 dark:text-amber-100"
         : "border-slate-300 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200";
+  // Severity-axis labels ("major" / "minor" / "blocker") are an
+  // audit framing — they signal "how broken is this gold curation".
+  // Proposals don't have a "broken-ness" axis; collapse the label
+  // strip when ``kind="proposal"``. The colored palette still
+  // encodes urgency for readability without making the curator
+  // parse a vocabulary that doesn't apply. The ``issue_code``
+  // chip is behind-the-scenes plumbing — hide it everywhere (per
+  // Paul 2026-05-25); the rationale below carries the human
+  // signal.
+  const showSeverityLabel = kind === "audit";
   return (
     <div
       className={cn(
@@ -3119,14 +3130,13 @@ function ActionableNoDeltaExplainer({ finding }: { finding: AuditFinding }) {
         sevPalette,
       )}
     >
-      <div className="flex items-baseline gap-1.5 mb-1">
-        <span className="font-semibold uppercase tracking-wide text-[10px]">
-          {finding.severity}
-        </span>
-        <span className="font-mono text-[10px] opacity-75">
-          {finding.issue_code}
-        </span>
-      </div>
+      {showSeverityLabel ? (
+        <div className="flex items-baseline gap-1.5 mb-1">
+          <span className="font-semibold uppercase tracking-wide text-[10px]">
+            {finding.severity}
+          </span>
+        </div>
+      ) : null}
       {rationale ? (
         <div className="italic opacity-90">{rationale}</div>
       ) : (

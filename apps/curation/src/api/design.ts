@@ -16,38 +16,42 @@ const KEY = {
  *  `/datasets/{id}/design` + the latest curation-proposal overlay,
  *  rather than expecting a single composite endpoint. Either
  *  endpoint missing → graceful fallback to the other. */
+/** Fetch + compose the canonical curation Design for one
+ *  experiment. Same composition as ``useDesign``, exposed as a
+ *  plain async so non-hook callers (bulk export, etc.) can reuse
+ *  it without spinning up a query.
+ *
+ *  Errors propagate — callers handle retry / skip semantics for
+ *  bulk operations. */
+export async function fetchDesignSnapshot(
+  experimentId: number | string,
+): Promise<Design> {
+  const [g2, overlay, datasetMeta] = await Promise.all([
+    api.get<G2Design>(`/rest/v2/datasets/${experimentId}/design`),
+    fetchLatestProposalOverlay(experimentId),
+    fetchDatasetMeta(experimentId),
+  ]);
+  return composeCurationDesign(
+    g2,
+    experimentId,
+    datasetMeta.short_name ?? "",
+    overlay,
+    datasetMeta.external_database || datasetMeta.accession
+      ? {
+          database: datasetMeta.external_database ?? "",
+          accession: datasetMeta.accession ?? "",
+          uri: datasetMeta.external_uri ?? null,
+        }
+      : null,
+    datasetMeta,
+  );
+}
+
 export function useDesign(experimentId: number | string) {
   return useQuery({
     queryKey: KEY.byExperiment(experimentId),
     enabled: Boolean(experimentId),
-    queryFn: async (): Promise<Design> => {
-      const [g2, overlay, datasetMeta] = await Promise.all([
-        api.get<G2Design>(`/rest/v2/datasets/${experimentId}/design`),
-        fetchLatestProposalOverlay(experimentId),
-        fetchDatasetMeta(experimentId),
-      ]);
-      return composeCurationDesign(
-        g2,
-        experimentId,
-        datasetMeta.short_name ?? "",
-        overlay,
-        // External-source metadata for the banner — Gemma 2.0
-        // returns ``accession`` / ``externalDatabase`` /
-        // ``externalUri`` at the top of the dataset envelope. When
-        // any of them are populated we synthesise the curation
-        // ``ExternalSource`` shape so the banner shows
-        // ``GEO: GSE2018`` instead of falling through to "direct
-        // upload" (which it does when ``external_source === null``).
-        datasetMeta.external_database || datasetMeta.accession
-          ? {
-              database: datasetMeta.external_database ?? "",
-              accession: datasetMeta.accession ?? "",
-              uri: datasetMeta.external_uri ?? null,
-            }
-          : null,
-        datasetMeta,
-      );
-    },
+    queryFn: () => fetchDesignSnapshot(experimentId),
   });
 }
 

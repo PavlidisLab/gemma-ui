@@ -12,6 +12,7 @@ import type {
   Severity,
 } from "@/api/auditTypes";
 import type { SubtaskDecision } from "@/api/types";
+import { dedupeSubtaskDecisions } from "./subtaskDecisions";
 
 /**
  * Pure-presentation view of an `AuditReport`. Takes a fully-loaded
@@ -355,14 +356,12 @@ function FindingCard({
         currentDisposition === "dismissed" && "opacity-60",
       )}
     >
+      {/* issue_code + target_id were behind-the-scenes identifiers
+          that leaked into the user-facing card — hidden 2026-05-25.
+          The tooltip on the severity badge + the rationale text
+          below carry the human signal. */}
       <div className="flex items-start gap-2 flex-wrap">
         <SeverityBadge severity={finding.severity} />
-        <code className="text-[11px] font-mono text-slate-600 px-1 py-0.5 bg-slate-100 rounded">
-          {finding.issue_code}
-        </code>
-        <span className="text-[11px] font-mono text-slate-500" title="target id">
-          {finding.target_id}
-        </span>
       </div>
 
       <p className="text-sm text-slate-800">{finding.rationale}</p>
@@ -631,44 +630,10 @@ export function DesignComparisonPanel({
   );
 }
 
-/** Collapse entries that share both `subtask` and `verdict` — they are
- *  identical copies produced once per factor (e.g. S7 coverage pass).
- *  Keeps the first occurrence; discards exact duplicates silently.
- *
- *  Also collapses near-identical S2i_confounding_check "skip rule
- *  does NOT apply" entries — one per factor pair — into a single
- *  summary row. With 3+ factors the per-pair prose was identical
- *  modulo factor names + tiny crosstab numbers, blowing out the
- *  panel with N(N-1)/2 paragraphs that say "nothing's wrong." */
-export function dedupeSubtaskDecisions(decisions: SubtaskDecision[]): SubtaskDecision[] {
-  const seen = new Set<string>();
-  const dedupedExact = decisions.filter((d) => {
-    const key = `${d.subtask}||${d.verdict}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  const cleanS2i = dedupedExact.filter(
-    (d) =>
-      d.subtask === "S2i_confounding_check" &&
-      /skip rule does not apply/i.test(d.verdict),
-  );
-  if (cleanS2i.length < 2) return dedupedExact;
-  // Replace all clean S2i entries with a single summary line.
-  const summary: SubtaskDecision = {
-    ...cleanS2i[0],
-    verdict: `${cleanS2i.length} factor-pair confounding checks all clean — every pair is fully crossed; the S2i skip rule does not apply for any.`,
-  };
-  return dedupedExact
-    .filter(
-      (d) =>
-        !(
-          d.subtask === "S2i_confounding_check" &&
-          /skip rule does not apply/i.test(d.verdict)
-        ),
-    )
-    .concat([summary]);
-}
+// ``dedupeSubtaskDecisions`` moved to ``./subtaskDecisions.ts`` so
+// this module exports React components only — keeps Vite Fast
+// Refresh able to hot-swap component edits without a full page
+// reload. Re-imported above + below for the existing call sites.
 
 /** Subtask analysis as a collapsed-by-default disclosure. The
  *  agent's introspection ("S1_design_verdict", "S3_factor_candidate",

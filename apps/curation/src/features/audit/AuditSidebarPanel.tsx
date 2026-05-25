@@ -45,7 +45,11 @@ import {
   slug,
 } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
-import { resolveApplyAction } from "./applyHandlers";
+import { resolveApplyAction, type ApplyAction } from "./applyHandlers";
+import {
+  registerAppliedBatch,
+  undoBatched,
+} from "./appliedBatches";
 import {
   FindingDetailsEditor,
   countFindingDisagreements,
@@ -86,6 +90,49 @@ import type {
   DispositionStatus,
   Severity,
 } from "@/api/auditTypes";
+import { isAgentExtraIssue } from "@/api/auditTypes";
+
+/** Translate a server / network error from the disposition PATCH
+ *  path into a curator-readable toast string. Strips URL paths,
+ *  JSON payloads, FastAPI validation noise, and behind-the-scenes
+ *  issue-code identifiers — leaves a one-sentence "what went
+ *  wrong + what to do" message. Keeps the raw text in the toast
+ *  ``title`` attribute (via the toast hook) so support / debug
+ *  paths can still recover the detail. */
+function friendlyDispositionError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  // FastAPI 422 with structured body — extract the ``msg`` field
+  // and route on intent rather than echoing the raw JSON.
+  if (/accept_reason is required/i.test(raw)) {
+    return "Couldn't save Agree — this finding needs a reason. Try Park to record one.";
+  }
+  if (/dismiss_reason is required/i.test(raw)) {
+    return "Couldn't save Reject — pick a reason and try again.";
+  }
+  if (/not_sure_reason is required/i.test(raw)) {
+    return "Couldn't save Park — pick a reason and try again.";
+  }
+  if (/notes is required/i.test(raw)) {
+    return "Couldn't save — add a short note explaining why and try again.";
+  }
+  if (/^.*\b500\b/i.test(raw)) {
+    return "Server error while saving — try again in a moment.";
+  }
+  if (/^.*\b401|forbidden|unauthor/i.test(raw)) {
+    return "Couldn't save — your session may have expired. Sign in again.";
+  }
+  // Generic fallback — keep the human-readable bit (the first
+  // sentence after any URL / status header) without leaking
+  // behind-the-scenes strings.
+  const tail = raw
+    .replace(/^.*?(\d{3}\s+[A-Za-z ]+\s*[—-]\s*)/u, "")
+    .replace(/\bissue_code='[^']*'/gu, "")
+    .replace(/\[\{.*?\}\]/gus, "")
+    .trim();
+  return tail
+    ? `Disposition save failed — ${tail.slice(0, 160)}`
+    : "Disposition save failed.";
+}
 
 /** Per-kind framing copy. Centralised here so every user-facing
  *  string the sidebar emits flows through one switch — adding a
@@ -151,8 +198,8 @@ import type { FactorProposal, FactorValueProposal, SubtaskDecision } from "@/api
 import {
   DesignComparisonPanel,
   SubtaskDecisionRow,
-  dedupeSubtaskDecisions,
 } from "./AuditReportView";
+import { dedupeSubtaskDecisions } from "./subtaskDecisions";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import {
@@ -462,16 +509,128 @@ function SidebarHeader({
   const copy = KIND_COPY[kind];
   const toast = useToast();
   const [confirmClose, setConfirmClose] = useState(false);
+  const [applyAllRunning, setApplyAllRunning] = useState(false);
+  const { apply: applyDraft, draft } = useDesignDraft();
 
   // Pending findings warning gating: not a hard gate. Curators may
   // close even with pending non-ok findings, but we surface the
   // count so they can pause if the close was accidental. Server
-  // accepts either way.
+  // accepts either way. Uses ``dispositionByTarget`` (the
+  // newest-wins lookup) rather than ``report.dispositions.find``
+  // so multiple-rows-per-target append-only logs read correctly.
   const pendingActionable = report.findings.filter((f) => {
     if (f.severity === "ok") return false;
-    const d = report.dispositions.find((x) => x.target_id === f.target_id);
+    const d = dispositionByTarget.get(f.target_id);
     return !d || d.status === "pending";
   }).length;
+
+  // Apply-All set (proposal kind only). Every pending non-ok
+  // finding shows up — the button surfaces whenever there's
+  // anything to bulk-accept. Two flavors in the handler below:
+  //   • finding has a mutating ``ApplyAction`` → chain the
+  //     mutator into the shared draft transition
+  //   • no clean mutator (most proposal-side codes route through
+  //     per-row editor edits) → PATCH the disposition to accepted
+  //     but leave the draft alone; the curator can mutate from
+  //     the per-row card if needed
+  // Either way the disposition log records the bulk-accept.
+  const applyAllItems =
+    kind === "proposal"
+      ? report.findings.filter((f) => {
+          if (f.severity === "ok") return false;
+          const d = dispositionByTarget.get(f.target_id);
+          return !d || d.status === "pending";
+        })
+      : [];
+  const pendingApplyableCount = applyAllItems.length;
+
+  /** Bulk-Agree on every pending finding.
+   *
+   *  Two paths per finding:
+   *    • mutating ``ApplyAction`` available (calibration codes that
+   *      resolve to a clean add/remove mutator) → chain the mutator
+   *      into one shared applyDraft call and register it in the
+   *      appliedBatches tracker so per-finding undo can replay-
+   *      others and surgically revert one row;
+   *    • no clean mutator (most proposal-side codes route the
+   *      curator's "Agree" through per-row editor edits the bulk
+   *      path can't faithfully replicate without the editor's
+   *      state machine) → PATCH the disposition to accepted but
+   *      leave the draft alone.
+   *
+   *  Disposition PATCH runs for every finding either way — the
+   *  disposition log records the bulk-accept across the whole
+   *  batch. The curator can fix up non-mutated rows individually
+   *  from each card if they want the design to reflect them too. */
+  async function handleApplyAll() {
+    if (applyAllItems.length === 0) return;
+    setApplyAllRunning(true);
+    try {
+      const annotated = applyAllItems.map((f) => ({
+        finding: f,
+        action: resolveApplyAction(f, { report, design: draft ?? null }),
+      }));
+      const mutating = annotated.filter(
+        (x): x is { finding: AuditFinding; action: ApplyAction } =>
+          !!x.action && x.action.mutates && !!x.action.mutate,
+      );
+      // If any rows have a clean mutator and the draft is loaded,
+      // chain those mutations into one draft transition and
+      // register the batch for surgical per-finding undo.
+      if (mutating.length > 0 && draft) {
+        const snapshot = draft;
+        const mutations = mutating.map(({ finding, action }) => ({
+          targetId: finding.target_id,
+          mutate: action.mutate!,
+        }));
+        registerAppliedBatch(snapshot, mutations);
+        applyDraft((d) => {
+          let acc = d;
+          for (const m of mutations) acc = m.mutate(acc);
+          return acc;
+        });
+      }
+      const resolvedAt = new Date().toISOString();
+      let mutated = 0;
+      let accepted = 0;
+      let failed = 0;
+      for (const { finding, action } of annotated) {
+        const isMutating =
+          !!action && action.mutates && !!action.mutate && !!draft;
+        // Server requires accept_reason on agent-extra accepts
+        // (calibration_agent_extra, agent_extra_*) — see
+        // agents-repo schemas.py:_is_agent_extra_issue. Default to
+        // ``well_evidenced`` on the bulk path: Apply All says
+        // "I trust the agent's batch", and well_evidenced is the
+        // canonical "agent's evidence holds up" reason. The
+        // per-finding accept dialog stays available for curators
+        // who want to record a different reason after the fact
+        // (Park → re-Agree with the chip dialog).
+        const acceptReason = isAgentExtraIssue(finding.issue_code)
+          ? ("well_evidenced" as const)
+          : undefined;
+        try {
+          await setDisposition(finding.target_id, "accepted", {
+            appliedFix: action?.appliedFix,
+            resolvedAt,
+            acceptReason,
+          });
+          if (isMutating) mutated++;
+          else accepted++;
+        } catch {
+          failed++;
+        }
+      }
+      const parts: string[] = [];
+      if (mutated > 0) parts.push(`${mutated} applied`);
+      if (accepted > 0) parts.push(`${accepted} accepted`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      const tone = failed > 0 ? "warn" : "success";
+      toast.show(`Apply All — ${parts.join(", ")}.`, tone, 5000);
+    } finally {
+      setApplyAllRunning(false);
+    }
+  }
 
   // Override (synth / fixture) reports have no audit_id on the
   // server, so the close button is a no-op there. Hide it instead
@@ -509,6 +668,36 @@ function SidebarHeader({
           // failure. The audit still closes; one glyph might miss.
         }
       }
+      // Proposal-kind only: sweep PENDING NON-OK findings to
+      // "dismissed" before finalize. Submitting a review without
+      // explicitly accepting / rejecting a proposal implies the
+      // curator declined to act on it — record that as an explicit
+      // reject so the agent's read-back doesn't have to guess. The
+      // confirm dialog calls this out by name before the curator
+      // confirms (Paul 2026-05-25: "submit review should say 'the
+      // following proposals will be considered rejected'"). For
+      // audits we keep the existing behavior (pending stays
+      // pending, no implicit fault).
+      if (kind === "proposal") {
+        const pendingActionableNow = report.findings.filter((f) => {
+          if (f.severity === "ok") return false;
+          const d = dispositionByTarget.get(f.target_id);
+          return (d?.status ?? "pending") === "pending";
+        });
+        for (const f of pendingActionableNow) {
+          try {
+            await setDisposition(f.target_id, "dismissed", {
+              dismissReason: "wont_fix",
+              notes:
+                "Implicit reject — curator submitted the review without acting on this proposal.",
+            });
+          } catch {
+            // Best-effort — surface the failure in the toast at
+            // the end via the per-finding error path, but don't
+            // block finalize on a single sweep failure.
+          }
+        }
+      }
       await finalize(notes || undefined);
       toast.show(copy.closedToast, "success");
       setConfirmClose(false);
@@ -535,14 +724,49 @@ function SidebarHeader({
   }
 
   // Only show non-zero severity counts — all-zero rows add no signal.
-  const nonZeroCounts: { label: string; count: number; severity: Severity }[] = [
-    { label: "blocker", count: summary.n_blocker, severity: "blocker" as Severity },
-    { label: "major",   count: summary.n_major,   severity: "major"   as Severity },
-    { label: "minor",   count: summary.n_minor,   severity: "minor"   as Severity },
-    { label: "ok",      count: summary.n_ok,       severity: "ok"      as Severity },
-  ].filter((x) => x.count > 0);
+  // For ``kind="proposal"`` the severity axis collapses entirely:
+  // proposals aren't broken-ness flags so "6 minor" reads wrong, and
+  // the per-finding badges already use the confidence framing
+  // (see SeverityBadge's ``confidenceLabel``). Skip the inline counts
+  // there; the pending-count chip on the right still carries the
+  // load-bearing "how much work is left" signal.
+  const nonZeroCounts: { label: string; count: number; severity: Severity }[] =
+    kind === "proposal"
+      ? []
+      : [
+          { label: "blocker", count: summary.n_blocker, severity: "blocker" as Severity },
+          { label: "major",   count: summary.n_major,   severity: "major"   as Severity },
+          { label: "minor",   count: summary.n_minor,   severity: "minor"   as Severity },
+          { label: "ok",      count: summary.n_ok,      severity: "ok"      as Severity },
+        ].filter((x) => x.count > 0);
 
-  const scopeText = scope.include.join(" / ") || "all";
+  // Scope text. For audits, the report's ``scope.include`` is the
+  // curator's deliberate subset (tags-only audit, design-only, etc.)
+  // and is the authoritative thing to show. For proposals the wire
+  // field can read narrow ("tags") even when the proposer touched
+  // factors / FVs / tags / assignments — the proposer always works
+  // across the whole surface, the field just isn't load-bearing.
+  // Derive from the actual finding ``target_kind`` set so the header
+  // tells the truth about what the proposal actually changes.
+  const scopeText = (() => {
+    if (kind === "proposal") {
+      const present = new Set<string>();
+      for (const f of report.findings) {
+        switch (f.target_kind) {
+          case "factor": present.add("factors"); break;
+          case "fv": present.add("fvs"); break;
+          case "tag": present.add("tags"); break;
+          case "assignment": present.add("assignments"); break;
+          case "statement": present.add("statements"); break;
+          case "experiment": break;
+        }
+      }
+      const ordered = ["factors", "fvs", "tags", "assignments", "statements"]
+        .filter((k) => present.has(k));
+      return ordered.length ? ordered.join(" / ") : "all";
+    }
+    return scope.include.join(" / ") || "all";
+  })();
 
   return (
     <div className="text-[11px]">
@@ -700,6 +924,31 @@ function SidebarHeader({
               {pendingActionable} pending
             </span>
           ) : null}
+          {/* Apply All — proposal-only bulk affordance. Chains every
+              pending mutating apply into one draft transition and
+              stamps each finding's disposition as accepted+resolved.
+              Findings without a clean mutator (wrong_fv_partition
+              etc.) are skipped — the curator still triages those
+              from the per-finding rows. */}
+          {kind === "proposal" && !isFinalized && lifecycleAvailable
+            && pendingApplyableCount > 0 ? (
+            <button
+              type="button"
+              onClick={handleApplyAll}
+              disabled={applyAllRunning}
+              title={`agree on the ${pendingApplyableCount} pending finding${pendingApplyableCount === 1 ? "" : "s"} with a clean fix — chained into one draft change you can review + commit`}
+              className={cn(
+                "text-[11px] px-2 py-0.5 rounded font-medium border",
+                applyAllRunning
+                  ? "bg-violet-100 text-violet-600 border-violet-200 cursor-progress dark:bg-violet-900/30 dark:text-violet-400 dark:border-violet-800"
+                  : "bg-violet-600 text-white border-violet-700 hover:bg-violet-700 dark:bg-violet-700 dark:hover:bg-violet-600 dark:border-violet-800",
+              )}
+            >
+              {applyAllRunning
+                ? "Applying…"
+                : `Apply All (${pendingApplyableCount})`}
+            </button>
+          ) : null}
           {isFinalized && finalizedBy ? (
             <span className="text-[10px] text-slate-500 dark:text-slate-400">
               by <span className="font-mono">{finalizedBy}</span>
@@ -783,6 +1032,11 @@ function SidebarHeader({
           <CloseAuditConfirm
             kind={kind}
             pendingActionable={pendingActionable}
+            pendingFindings={report.findings.filter((f) => {
+              if (f.severity === "ok") return false;
+              const d = dispositionByTarget.get(f.target_id);
+              return !d || d.status === "pending";
+            })}
             saving={finalizeSaving}
             initialNotes={report.finalized_notes ?? ""}
             onCancel={() => setConfirmClose(false)}
@@ -794,6 +1048,38 @@ function SidebarHeader({
   );
 }
 
+/** One-line label for a pending finding in the submit-confirm
+ *  preview. Always prefers a structured ``category: value`` form so
+ *  the curator sees "biological sex: male" instead of bare "male"
+ *  (the proposer_term.label-only fallback was confusing — Paul
+ *  2026-05-25). Source priority:
+ *
+ *    1. structured ``apply_action`` (kind=add_tag) — has both
+ *       ``new_category`` and ``new_value`` cleanly separated
+ *    2. ``suggested_fix`` backtick — "Add tag `cat: val`."
+ *    3. ``proposer_suggestion`` — usually already "cat: val"
+ *    4. ``proposer_term.label`` — bare value, last-resort
+ *    5. opaque ``target_id`` — last resort
+ */
+function pendingFindingLabel(f: AuditFinding): string {
+  const aa = f.apply_action;
+  if (aa && aa.kind === "add_tag") {
+    const cat = (aa as Extract<typeof aa, { kind: "add_tag" }>).new_category;
+    const val = (aa as Extract<typeof aa, { kind: "add_tag" }>).new_value;
+    if (cat && val) return `${cat}: ${val}`;
+    if (val) return val;
+  }
+  if (f.suggested_fix) {
+    // "Add tag `category: value`." → "category: value"
+    const m = f.suggested_fix.match(/`([^`]+)`/u);
+    if (m) return m[1];
+  }
+  if (f.proposer_suggestion) return f.proposer_suggestion;
+  if (f.proposer_term?.label) return f.proposer_term.label;
+  if (f.suggested_fix) return f.suggested_fix;
+  return f.target_id;
+}
+
 /** Inline confirm popover for "Close audit". Optional notes go to
  *  the audit_events row server-side. Keeps the affordance compact —
  *  the audit lifecycle isn't destructive (Reopen restores it), so a
@@ -801,6 +1087,7 @@ function SidebarHeader({
 function CloseAuditConfirm({
   kind,
   pendingActionable,
+  pendingFindings,
   saving,
   initialNotes = "",
   onCancel,
@@ -808,6 +1095,11 @@ function CloseAuditConfirm({
 }: {
   kind: CurationReviewKind;
   pendingActionable: number;
+  /** Full findings list for the pending-actionable bucket — used to
+   *  enumerate the "will be considered rejected" preview on
+   *  proposal-kind submits. The audit path treats them as
+   *  undecided + doesn't enumerate. */
+  pendingFindings: AuditFinding[];
   saving: boolean;
   /** Pre-fill the textarea with the prior close note when the
    *  curator reopens an already-closed audit to re-close it.
@@ -835,6 +1127,7 @@ function CloseAuditConfirm({
       document.removeEventListener("keydown", onKey);
     };
   }, [onCancel, saving]);
+  const isProposal = kind === "proposal";
   return (
     <div
       ref={ref}
@@ -844,17 +1137,43 @@ function CloseAuditConfirm({
       <div className="text-[11px] text-slate-700">
         {copy.closeConfirmHeader}{" "}
         {pendingActionable > 0 ? (
-          <span className="text-amber-800">
-            {pendingActionable} actionable finding
-            {pendingActionable === 1 ? "" : "s"} still pending — they'll
-            be recorded as undecided in the disposition log.
-          </span>
+          isProposal ? (
+            <span className="text-amber-800">
+              {pendingActionable} proposal
+              {pendingActionable === 1 ? "" : "s"} still pending — they'll
+              be recorded as <strong>rejected</strong> on submit.
+            </span>
+          ) : (
+            <span className="text-amber-800">
+              {pendingActionable} actionable finding
+              {pendingActionable === 1 ? "" : "s"} still pending — they'll
+              be recorded as undecided in the disposition log.
+            </span>
+          )
         ) : (
           <span className="text-slate-500">
             All actionable findings have a disposition.
           </span>
         )}
       </div>
+      {isProposal && pendingFindings.length > 0 ? (
+        <div className="rounded border border-amber-200 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/15 px-2 py-1.5 text-[11px] text-amber-900 dark:text-amber-100 space-y-1">
+          <div className="font-semibold">
+            Will be considered rejected:
+          </div>
+          <ul className="space-y-0.5 max-h-40 overflow-y-auto list-disc list-inside">
+            {pendingFindings.map((f) => (
+              <li
+                key={f.target_id}
+                className="leading-snug truncate"
+                title={f.rationale || f.suggested_fix || ""}
+              >
+                {pendingFindingLabel(f)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
@@ -1209,6 +1528,172 @@ function reorderConsequentPairs(items: AuditFinding[]): AuditFinding[] {
   return out;
 }
 
+/** Top-of-list summary the FindingList always renders, even when no
+ *  finding cards would otherwise surface (everything triaged, only
+ *  ok-severity notes, or nothing actionable to propose). Two
+ *  framings:
+ *
+ *    • ``kind="audit"`` keeps the severity vocabulary the curator
+ *      already triages against: ``N findings — X applied, Y open,
+ *      Z noted``. Severity counts continue to show on individual
+ *      cards.
+ *    • ``kind="proposal"`` collapses to disposition framing only.
+ *      Severity isn't a proposal axis (per Paul 2026-05-25 —
+ *      "there is no major in proposals"); the curator's mental
+ *      model here is "did the curator action this proposal yet"
+ *      not "how broken is this gold".
+ *
+ *  When ``nothingBelow`` is true (every section would have
+ *  rendered empty), the summary expands into a short empty-state
+ *  block so the panel never feels blank. Paul 2026-05-25: "start
+ *  with a summary and go from there." */
+function ReviewSummaryHeader({
+  kind,
+  totalFindings,
+  nApplied,
+  nOpenActionable,
+  nNoted,
+  modelName,
+  evidence,
+  nothingBelow,
+}: {
+  kind: CurationReviewKind;
+  totalFindings: number;
+  nApplied: number;
+  nOpenActionable: number;
+  nNoted: number;
+  modelName: string | null;
+  evidence: AuditReport["evidence"] | null;
+  nothingBelow: boolean;
+}) {
+  const noun = kind === "proposal" ? "proposal" : "finding";
+  const nounPlural = kind === "proposal" ? "proposals" : "findings";
+  const parts: { count: number; label: string; tone: string }[] = [];
+  if (nOpenActionable > 0) {
+    parts.push({
+      count: nOpenActionable,
+      label: "open",
+      tone: "text-amber-700 dark:text-amber-300",
+    });
+  }
+  if (nApplied > 0) {
+    parts.push({
+      count: nApplied,
+      label: kind === "proposal" ? "actioned" : "triaged",
+      tone: "text-emerald-700 dark:text-emerald-300",
+    });
+  }
+  if (nNoted > 0) {
+    parts.push({
+      count: nNoted,
+      label: "noted",
+      tone: "text-slate-500 dark:text-slate-400",
+    });
+  }
+  return (
+    <div className="rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-2 py-1.5 text-[11px]">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-slate-700 dark:text-slate-200">
+          <span className="font-semibold">{totalFindings}</span>{" "}
+          {totalFindings === 1 ? noun : nounPlural}
+        </span>
+        {parts.length > 0 ? (
+          <span className="text-slate-400 dark:text-slate-500">·</span>
+        ) : null}
+        {parts.map((p, i) => (
+          <span key={p.label} className={p.tone}>
+            {p.count} {p.label}
+            {i < parts.length - 1 ? "," : ""}
+          </span>
+        ))}
+      </div>
+      {nothingBelow ? (
+        <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+          {nOpenActionable === 0 && nApplied > 0 ? (
+            <span>
+              Every actionable {noun} has been triaged. Submit the
+              review when you're ready, or expand triaged cards
+              above to revisit them.
+            </span>
+          ) : nOpenActionable === 0 && nApplied === 0 && nNoted > 0 ? (
+            <span>
+              {modelName ? <code className="font-mono">{modelName}</code> : "The agent"}{" "}
+              ran but had nothing actionable to {kind === "proposal" ? "propose" : "flag"} —
+              every check passed. Expand below to see the agent's
+              notes.
+            </span>
+          ) : (
+            <span>
+              {modelName ? <code className="font-mono">{modelName}</code> : "The agent"}{" "}
+              ran but didn't return anything to review.
+            </span>
+          )}
+          {/* Light evidence breadcrumb so the curator can see WHAT
+              the agent considered, even when there are no cards to
+              act on. Paul: judgements/justifications should still
+              show up in the empty state. */}
+          {evidence ? <EmptyStateEvidenceCrumb evidence={evidence} /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Short breadcrumb chip-list of what the agent looked at when the
+ *  finding body is otherwise empty. Surfaces whether the agent had
+ *  preboarding text, paper text, and / or a comparison_proposal —
+ *  enough for the curator to gauge "did the agent actually look at
+ *  the right material?" without us inlining the full text. Each chip
+ *  carries the excerpt as a hover title for spot-checks. */
+function EmptyStateEvidenceCrumb({
+  evidence,
+}: {
+  evidence: AuditReport["evidence"];
+}) {
+  const chips: { label: string; title: string }[] = [];
+  if (evidence.preboarding_excerpt) {
+    chips.push({
+      label: "preboarding",
+      title: evidence.preboarding_excerpt.slice(0, 800),
+    });
+  }
+  if (evidence.paper_excerpt) {
+    const src = evidence.paper_source ? ` (${evidence.paper_source})` : "";
+    chips.push({
+      label: `paper${src}`,
+      title: evidence.paper_excerpt.slice(0, 800),
+    });
+  }
+  if (evidence.comparison_proposal) {
+    const cp = evidence.comparison_proposal;
+    const nFactors = cp.factors?.length ?? 0;
+    const nTags = cp.tags?.length ?? 0;
+    chips.push({
+      label: `comparison: ${nFactors} factor${nFactors === 1 ? "" : "s"}, ${nTags} tag${nTags === 1 ? "" : "s"}`,
+      title:
+        "Silent comparison the agent ran against the current curation. " +
+        "When the proposer + current curation already agree, no findings get emitted.",
+    });
+  }
+  if (chips.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+      <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        agent considered
+      </span>
+      {chips.map((c) => (
+        <span
+          key={c.label}
+          title={c.title}
+          className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+        >
+          {c.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** Compact one-line summary of a closed audit's findings. Default
  *  collapsed; click to expand into the full FindingList (read-only,
  *  since FindingActionRow already detects isFinalized).
@@ -1221,6 +1706,7 @@ function ClosedFindingsSummary({
 }: {
   findings: AuditFinding[];
 }) {
+  const { kind } = useAudit();
   const [open, setOpen] = useState(false);
   let nBlocker = 0;
   let nMajor = 0;
@@ -1250,12 +1736,25 @@ function ClosedFindingsSummary({
         <span className="flex-1">
           {findings.length} finding{findings.length === 1 ? "" : "s"}
           {actionable > 0 ? (
-            <>
-              {" "}— {nBlocker > 0 ? `${nBlocker} blocker, ` : ""}
-              {nMajor > 0 ? `${nMajor} major, ` : ""}
-              {nMinor > 0 ? `${nMinor} minor, ` : ""}
-              <span className="text-emerald-700">{nOk} ok</span>
-            </>
+            kind === "proposal" ? (
+              <>
+                {" "}— {actionable} proposal
+                {actionable === 1 ? "" : "s"}
+                {nOk > 0 ? (
+                  <>
+                    {", "}
+                    <span className="text-emerald-700">{nOk} noted</span>
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <>
+                {" "}— {nBlocker > 0 ? `${nBlocker} blocker, ` : ""}
+                {nMajor > 0 ? `${nMajor} major, ` : ""}
+                {nMinor > 0 ? `${nMinor} minor, ` : ""}
+                <span className="text-emerald-700">{nOk} ok</span>
+              </>
+            )
           ) : (
             <> · all <span className="text-emerald-700">ok</span></>
           )}
@@ -1301,6 +1800,7 @@ function subsumedFvChildren(
 
 
 function FindingList({ findings }: { findings: AuditFinding[] }) {
+  const { kind, dispositionByTarget, report } = useAudit();
   // Single flat list, sorted by severity then target_kind. The full
   // report view groups by target_kind (it has the room); in the
   // narrow sidebar a single severity-sorted list scans faster — most
@@ -1444,8 +1944,67 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
     (f) => !suppression.isSubsumedByParentFactor(f),
   );
 
+  // Section-visibility precompute — used both by the renderers
+  // below and by the empty-state detector at the foot of this view.
+  // ``hasAnyVisible`` covers every section that would normally
+  // surface a finding card (renames, per-kind actionable + matches,
+  // orphan matches, ok-toggle), so when it's false the body would
+  // otherwise be silent.
+  const hasGroupContent = GROUPS.some(({ kind: k }) => {
+    const items = groupedActionable.get(k) ?? [];
+    const matchesForKind = visibleMatches.filter((m) => m.target_kind === k);
+    return items.length + matchesForKind.length > 0;
+  });
+  const knownKindsForOrphan = new Set(GROUPS.map((g) => g.kind));
+  const orphanMatches = visibleMatches.filter(
+    (m) => !knownKindsForOrphan.has(m.target_kind),
+  );
+  const hasAnyVisible =
+    visibleRenames.length > 0 ||
+    hasGroupContent ||
+    orphanMatches.length > 0 ||
+    visibleOk.length > 0;
+
+  // Per-disposition rollup for the summary line — proposal kind
+  // frames the counts as "applied / open / noted" instead of
+  // severity (which isn't a proposal axis). The audit summary line
+  // remains the severity tally rendered inline below.
+  let nApplied = 0;
+  let nOpenActionable = 0;
+  let nNoted = 0;
+  for (const f of sorted) {
+    const d = dispositionByTarget.get(f.target_id);
+    const isActionableFinding =
+      f.severity !== "ok" ||
+      (!!resolveApplyAction(f) && resolveApplyAction(f)!.mutates);
+    if (d && (d.status === "accepted" || d.status === "dismissed")) {
+      nApplied++;
+    } else if (isActionableFinding) {
+      nOpenActionable++;
+    } else {
+      nNoted++;
+    }
+  }
+
   return (
     <div className="space-y-3">
+      {/* Summary header — always visible. Frames the body content
+          ("N findings — X open, Y already triaged, Z noted") so a
+          fully-triaged or judge-only-noted review reads as
+          "everything's accounted for" rather than a blank panel.
+          Paul 2026-05-25: "when nothing to propose / triage,
+          there must be a message; start with a summary and go from
+          there." */}
+      <ReviewSummaryHeader
+        kind={kind}
+        totalFindings={findings.length}
+        nApplied={nApplied}
+        nOpenActionable={nOpenActionable}
+        nNoted={nNoted}
+        modelName={report?.model ?? null}
+        evidence={report?.evidence ?? null}
+        nothingBelow={!hasAnyVisible}
+      />
       {visibleRenames.length > 0 ? (
         <div className="space-y-1.5">
           <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
@@ -3257,11 +3816,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
         );
         return;
       }
-      toast.show(
-        `Disposition save failed: ${(err as Error).message}`,
-        "danger",
-        6000,
-      );
+      toast.show(friendlyDispositionError(err), "danger", 6000);
       return;
     }
 
@@ -3514,9 +4069,20 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
                   notes,
                 });
               } else {
+                // Server gates accepts on agent-extra findings with
+                // ``accept_reason`` (see schemas.py:_is_agent_extra_issue).
+                // The structural-only branch fires immediately on
+                // Agree — no chip dialog — so default to
+                // ``well_evidenced`` ("agent's evidence holds up").
+                // Curators who want a different reason can Park +
+                // re-Agree through the chip dialog.
+                const acceptReason = isAgentExtraIssue(finding.issue_code)
+                  ? ("well_evidenced" as const)
+                  : undefined;
                 await patch("accepted", {
                   appliedFix: action.appliedFix,
                   resolvedAt: new Date().toISOString(),
+                  acceptReason,
                   notes,
                 });
               }
@@ -3573,11 +4139,19 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           onDismiss={() => setDismissOpen(true)}
           onPark={() => setNotSureOpen(true)}
           onUndo={() => {
-            // Mirror the legacy action-row undo: restore the
-            // pre-apply draft snapshot (if one was taken when the
-            // curator clicked Apply) and PATCH back to pending so
-            // the server disposition reverts in lockstep.
-            if (preApplyDraftSnapshot) {
+            // Two undo paths share this button:
+            //   1. Per-finding apply: the local ``preApplyDraftSnapshot``
+            //      captures the pre-apply draft. Restore it.
+            //   2. Apply-All batch: the snapshot lives in the shared
+            //      ``appliedBatches`` tracker keyed by target_id.
+            //      ``undoBatched`` returns a mutator that rebuilds
+            //      the draft = snapshot + all OTHER batch mutations,
+            //      so undoing this one finding leaves siblings'
+            //      contributions intact.
+            const batched = undoBatched(finding.target_id);
+            if (batched) {
+              applyDraft(batched);
+            } else if (preApplyDraftSnapshot) {
               const snap = preApplyDraftSnapshot;
               setPreApplyDraftSnapshot(null);
               applyDraft(() => snap);
@@ -3811,7 +4385,12 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           <button
             type="button"
             onClick={() => {
-              if (preApplyDraftSnapshot) {
+              // See the editor-card onUndo above for the two-path
+              // rationale (per-finding snapshot vs Apply-All batch).
+              const batched = undoBatched(finding.target_id);
+              if (batched) {
+                applyDraft(batched);
+              } else if (preApplyDraftSnapshot) {
                 const snap = preApplyDraftSnapshot;
                 setPreApplyDraftSnapshot(null);
                 applyDraft(() => snap);

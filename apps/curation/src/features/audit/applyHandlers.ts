@@ -103,6 +103,15 @@ export function resolveApplyAction(
   finding: AuditFinding,
   ctx?: { report?: AuditReport | null; design?: Design | null },
 ): ApplyAction | null {
+  // Proposer-mode "add_tag" findings ship a structured
+  // ``apply_action`` from the agent (tag_llm_judge.py emits
+  // ``ApplyAction(kind="add_tag", new_category, new_value)``).
+  // Resolve straight from that — avoids hand-parsing target_id
+  // and works for the ``missing_tag`` code path that doesn't go
+  // through the calibration target_id shape.
+  const proposalApply = resolveProposalApply(finding, ctx?.design ?? null);
+  if (proposalApply) return proposalApply;
+
   // Calibration findings carry a custom target_id shape
   // (``calibration:<status>:<category>/<value>``) the standard
   // parser doesn't recognise, so we handle them ahead of the
@@ -163,6 +172,66 @@ function parseCalibrationTargetId(
  *  "c57bl/6j" — Gemma's import sometimes case-shifts.   */
 function labelEq(a: string | null | undefined, b: string): boolean {
   return (a || "").trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** Apply-action for proposer-mode findings that carry a structured
+ *  ``apply_action`` payload from the agent.
+ *
+ *  Today's coverage: ``kind="add_tag"`` (proposer says "add this
+ *  tag", emitted by ``missing_tag`` from the tag judge). Mirrors the
+ *  calibration_agent_extra path's idempotency + tooltip + appliedFix
+ *  shape so the per-card Agree button reads consistently across
+ *  audit and proposal modes.
+ *
+ *  Other ``apply_action.kind`` values (add_factor, add_fv, …) fall
+ *  through to null — calibration branch + focusOnly handle them, and
+ *  the proposer judges that ship them aren't wired up to a clean
+ *  mutator yet. */
+function resolveProposalApply(
+  finding: AuditFinding,
+  design: Design | null,
+): ApplyAction | null {
+  const aa = finding.apply_action;
+  if (!aa || aa.kind !== "add_tag") return null;
+  const action = aa as Extract<typeof aa, { kind: "add_tag" }>;
+  const categoryLabel = (action.new_category || "").trim();
+  const valueLabel = (action.new_value || "").trim();
+  if (!categoryLabel || !valueLabel) return null;
+  // Prefer the agent's URI when present; fall back to the proposer
+  // term's URI (older agents emit only the ontology term).
+  const valueUri =
+    action.new_value_uri ?? finding.proposer_term?.uri ?? null;
+
+  const alreadyApplied = (design?.tags ?? []).some((tag) => {
+    if (!labelEq(tag.category?.label, categoryLabel)) return false;
+    if (!labelEq(tag.value?.label, valueLabel)) return false;
+    if (valueUri && tag.value?.uri) {
+      return tag.value.uri === valueUri;
+    }
+    return true;
+  });
+  if (alreadyApplied) {
+    return {
+      mutates: false,
+      label: "✓ Already in draft",
+      tooltip:
+        `Tag "${categoryLabel}: ${valueLabel}" is already on the design. ` +
+        `Agree to disposition without re-applying.`,
+      successMessage: "",
+    };
+  }
+  const tooltip = valueUri
+    ? `Agree → add tag "${categoryLabel}: ${valueLabel}" (${valueUri}) to the design.`
+    : `Agree → add tag "${categoryLabel}: ${valueLabel}" (free-text — resolve later) to the design.`;
+  return {
+    mutates: true,
+    label: "Agree (add) →",
+    tooltip,
+    successMessage: `Added tag "${categoryLabel}: ${valueLabel}". Commit the draft to save.`,
+    mutate: (draft) =>
+      addPopulatedTag(draft, categoryLabel, valueLabel, valueUri),
+    appliedFix: `add ${categoryLabel}: ${valueLabel}`,
+  };
 }
 
 /** Apply-action for the three calibration issue codes. Returns null

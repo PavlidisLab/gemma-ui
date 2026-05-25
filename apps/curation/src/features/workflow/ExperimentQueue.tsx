@@ -9,6 +9,10 @@
 import { useGroup, usePipelineStatusBulk, useDatasetsPaginated } from "@/api/workflow";
 import { useMemo, useState } from "react";
 import { PipelineStatusRow } from "./PipelineStatusRow";
+import { useMe } from "@/api/session";
+import { useToast } from "@/components/ui/Toast";
+import { exportSetAsGzip } from "./exportSet";
+import type { Group } from "@/api/workflowTypes";
 
 const PAGE_SIZE = 50;
 
@@ -149,6 +153,67 @@ function PaginationBar({
 }
 
 // ---------------------------------------------------------------------------
+// Export-Set button
+// ---------------------------------------------------------------------------
+
+/** Big, prominent action: bundle every experiment in this Set into
+ *  a gzipped JSON file and download it. The stand-in for the
+ *  yet-to-land direct POST to the curation agent — same payload
+ *  shape will eventually be the request body. */
+function ExportSetButton({ group }: { group: Group }) {
+  const { data: me } = useMe();
+  const toast = useToast();
+  const [running, setRunning] = useState(false);
+
+  async function handleExport() {
+    setRunning(true);
+    try {
+      const curator = me?.username || me?.full_name || "unknown";
+      const bundle = await exportSetAsGzip(group, curator);
+      const ok = bundle.experiments.filter((e) => !e.error).length;
+      const failed = bundle.experiments.length - ok;
+      const skipped = bundle.skipped.length;
+      const parts = [`${ok} experiment${ok === 1 ? "" : "s"}`];
+      if (failed > 0) parts.push(`${failed} failed`);
+      if (skipped > 0) parts.push(`${skipped} skipped`);
+      toast.show(
+        `Exported ${parts.join(", ")}.`,
+        failed > 0 ? "warn" : "success",
+        5000,
+      );
+    } catch (err) {
+      toast.show(
+        `Export failed: ${(err as Error).message || String(err)}`,
+        "danger",
+        6000,
+      );
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleExport}
+      disabled={running || group.member_count === 0}
+      title={
+        group.member_count === 0
+          ? "this set has no members"
+          : `Download a gzipped JSON snapshot of the final curation for all ${group.member_count} experiment${group.member_count === 1 ? "" : "s"} in this set`
+      }
+      className={
+        running
+          ? "shrink-0 text-sm font-semibold px-4 py-2 rounded-md bg-blue-200 text-blue-700 cursor-progress"
+          : "shrink-0 text-sm font-semibold px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 shadow-sm disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed"
+      }
+    >
+      {running ? "Exporting…" : "Export Set"}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -216,20 +281,23 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0">
-        <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-          {heading}
-          {isFetching && (
-            <span className="text-[10px] text-slate-400 dark:text-slate-600 font-normal">
-              refreshing…
-            </span>
+      <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            {heading}
+            {isFetching && (
+              <span className="text-[10px] text-slate-400 dark:text-slate-600 font-normal">
+                refreshing…
+              </span>
+            )}
+          </h1>
+          {group && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {group.type} · {group.member_count} experiment{group.member_count !== 1 ? "s" : ""}
+            </p>
           )}
-        </h1>
-        {group && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {group.type} · {group.member_count} experiment{group.member_count !== 1 ? "s" : ""}
-          </p>
-        )}
+        </div>
+        {group ? <ExportSetButton group={group} /> : null}
       </div>
 
       <FilterBar

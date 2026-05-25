@@ -297,8 +297,23 @@ export function AuditProvider({
   const dispositionByTarget = useMemo(() => {
     const m = new Map<string, AuditFindingDisposition>();
     if (!report) return m;
-    for (const d of report.dispositions ?? []) {
-      m.set(d.target_id, d);
+    // Append-only disposition log: multiple rows per target_id can
+    // exist (e.g. accept → undo → re-accept). The latest one wins.
+    // Iterate sorted newest-first by ``reviewed_at`` and set only if
+    // the key isn't already in the map — guarantees the latest wins
+    // regardless of how the server orders the list. Bug caught
+    // 2026-05-25: previous version used iteration-order ``set``,
+    // which produced wrong answers when the server returned newest-
+    // first (Apply All would PATCH 3 dispositions, but the local
+    // map kept reading the older "pending" row, so the button
+    // never disabled).
+    const sorted = [...(report.dispositions ?? [])].sort((a, b) => {
+      const ta = a.reviewed_at ? Date.parse(a.reviewed_at) : 0;
+      const tb = b.reviewed_at ? Date.parse(b.reviewed_at) : 0;
+      return tb - ta;
+    });
+    for (const d of sorted) {
+      if (!m.has(d.target_id)) m.set(d.target_id, d);
     }
     return m;
   }, [report]);
