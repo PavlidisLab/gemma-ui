@@ -53,7 +53,7 @@ export interface GemmaModeInfo {
   ontologySplit: boolean;
 }
 
-const DEFAULT_LOCAL_BASE = "http://localhost:8080";
+const DEFAULT_LOCAL_BASE = "http://localhost:8095";
 /** Default ontology host for the routing-split exception. Mirrors
  *  the Vite proxy's ``GEMMA_ONTOLOGY_URL`` default. Temporary —
  *  drops when local Gemma 2.0 ontology coverage matches staging. */

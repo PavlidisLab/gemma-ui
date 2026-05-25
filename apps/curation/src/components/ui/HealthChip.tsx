@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useServicesHealth, type ServiceStatus } from "@/api/health";
+import { useGemmaMode } from "@/lib/gemmaMode";
 
 type Severity = "ok" | "degraded" | "down" | "unknown";
 
@@ -28,20 +29,27 @@ function rollup(
   localApi: ServiceStatus,
   gemma: ServiceStatus,
   agent: ServiceStatus,
+  countGemma: boolean,
 ): Severity {
-  const all = [localApi, gemma, agent];
-  if (all.some((s) => s === "unknown")) return "unknown";
+  const required: ServiceStatus[] = countGemma
+    ? [localApi, gemma, agent]
+    : [localApi, agent];
+  if (required.some((s) => s === "unknown")) return "unknown";
   // local_api is the default upstream — if it's down the UI is
   // mostly broken. agent down ⇒ proposals/audits fail. gemma-rest
-  // down ⇒ diagnostics + live audit trail fall back to local_api,
-  // which is degraded but functional.
-  const upCount = all.filter((s) => s === "up").length;
-  if (upCount === 3) return "ok";
+  // matters only when ``countGemma`` (remote/mixed mode) — in local
+  // mode the surfaces that would have fallen back to it (SVD
+  // diagnostics, real audit trail) are client-side hidden, so a
+  // dead gemma-rest doesn't degrade anything the curator can
+  // reach.
+  const upCount = required.filter((s) => s === "up").length;
+  if (upCount === required.length) return "ok";
   if (upCount === 0) return "down";
   return "degraded";
 }
 
 export function HealthChip() {
+  const { mode } = useGemmaMode();
   const { data } = useServicesHealth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -67,7 +75,7 @@ export function HealthChip() {
   const localApi = data?.localApi ?? "unknown";
   const gemma = data?.gemma ?? "unknown";
   const agent = data?.agent ?? "unknown";
-  const severity = rollup(localApi, gemma, agent);
+  const severity = rollup(localApi, gemma, agent, mode !== "local");
 
   const palette: Record<Severity, string> = {
     ok:
@@ -89,7 +97,9 @@ export function HealthChip() {
 
   const titleHint =
     severity === "ok"
-      ? "All three backends reachable — proposals, audits, diagnostics all runnable."
+      ? mode === "local"
+        ? "local_api + agent reachable — curation, proposals, audits all runnable. gemma-rest is unused in local mode."
+        : "All three backends reachable — proposals, audits, diagnostics all runnable."
       : severity === "degraded"
         ? "Some backends are unreachable — click for details."
         : severity === "down"
@@ -136,13 +146,22 @@ export function HealthChip() {
               label="local_api"
               status={localApi}
               path="/rest/v2 (default)"
-              hint="curation DB / FastAPI mock — default upstream for /rest/v2/* (datasets, design, workflow, audit trail fallback)"
+              hint="curation DB / FastAPI mock — default upstream for /rest/v2/* (datasets, design, workflow, audits, proposals, curation events)"
             />
             <ServiceRow
               label="gemma-rest"
               status={gemma}
-              path="/rest/v2 (fallback)"
-              hint="live Gemma 2.0 REST — diagnostics (SVD, sample-correlation, mean-variance) + canonical experiment audit trail"
+              path={
+                mode === "local"
+                  ? "/rest/v2 (unused in local mode)"
+                  : "/rest/v2 (fallback)"
+              }
+              hint={
+                mode === "local"
+                  ? "live Gemma 2.0 REST — would serve SVD diagnostics + the canonical experiment audit trail, but those surfaces are hidden in local mode. The probe stays so the chip turns green when you flip to remote mode."
+                  : "live Gemma 2.0 REST — diagnostics (SVD, sample-correlation, mean-variance) + canonical experiment audit trail"
+              }
+              muted={mode === "local"}
             />
             <ServiceRow
               label="agent"
@@ -172,7 +191,7 @@ export function HealthChip() {
                 ? "local_api down → most read paths fail (datasets, workflow, design). Start the curation backend."
                 : agent === "down"
                   ? "Agent down → Request proposal / Run audit will fail. Start the proposer service."
-                  : gemma === "down"
+                  : mode !== "local" && gemma === "down"
                     ? "gemma-rest down → diagnostics (SVD/sample-correlation/mean-variance) and the canonical live audit trail unavailable. Audit trail falls back to local_api."
                     : ""}
             </p>
@@ -188,20 +207,34 @@ function ServiceRow({
   status,
   path,
   hint,
+  muted = false,
 }: {
   label: string;
   status: ServiceStatus;
   path: string;
   hint: string;
+  /** Render the row at lower visual weight — used for services
+   *  that are reachable but unused in the current mode (e.g.
+   *  gemma-rest in local mode). The probe still runs; the pill
+   *  stays accurate; the curator just sees that nothing depends
+   *  on it right now. */
+  muted?: boolean;
 }) {
-  const pill =
-    status === "up"
+  const pill = muted
+    ? "bg-slate-100 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600"
+    : status === "up"
       ? "bg-emerald-100 text-emerald-900 border-emerald-400 dark:bg-emerald-900/40 dark:text-emerald-100 dark:border-emerald-600"
       : status === "down"
         ? "bg-rose-200 text-rose-900 border-rose-500 dark:bg-rose-900/60 dark:text-rose-100 dark:border-rose-500"
         : "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600";
   return (
-    <div className="grid grid-cols-[7rem_1fr_auto] gap-x-2 items-baseline" title={hint}>
+    <div
+      className={cn(
+        "grid grid-cols-[7rem_1fr_auto] gap-x-2 items-baseline",
+        muted && "opacity-60",
+      )}
+      title={hint}
+    >
       <dt className="text-slate-500 dark:text-slate-400">{label}</dt>
       <dd className="font-mono text-[11px] break-words text-slate-700 dark:text-slate-300">
         {path}
@@ -213,7 +246,7 @@ function ServiceRow({
             pill,
           )}
         >
-          {status}
+          {muted ? "idle" : status}
         </span>
       </dd>
     </div>
