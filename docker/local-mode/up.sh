@@ -13,6 +13,7 @@
 #   local_api      http://localhost:8095
 #   proposer       http://localhost:8082
 #   curation UI    http://localhost:5175
+#   browser UI     http://localhost:5183
 #   gemma-rest     http://localhost:8080  (only with --gemma)
 #   gemma-db       mysql://localhost:3306 (only with --gemma)
 
@@ -85,6 +86,7 @@ docker compose "${PROFILES[@]+"${PROFILES[@]}"}" up -d "${BUILD_FLAG[@]+"${BUILD
 echo
 echo "Services:"
 echo "  curation UI    http://localhost:5175/"
+echo "  browser UI     http://localhost:5183/"
 echo "  local_api      http://localhost:8095/rest/v2/"
 echo "  proposer       http://localhost:8082/health"
 if printf '%s\n' "${PROFILES[@]+"${PROFILES[@]}"}" | grep -q "gemma"; then
@@ -94,5 +96,6 @@ fi
 echo
 echo "Tail logs:"
 echo "  docker compose logs -f curation-ui"
+echo "  docker compose logs -f browser-ui"
 echo "  docker compose logs -f local-api"
 echo "  docker compose logs -f proposer"

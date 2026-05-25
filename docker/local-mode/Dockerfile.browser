@@ -1,0 +1,19 @@
+# Node image for the browser (GemBrow React port) Vite dev server.
+#
+# Mirrors Dockerfile.curation-ui in shape — source on bind-mount, deps
+# on a named volume so host (macOS) and container (Linux) compiled
+# node_modules don't clash. Vite binds 0.0.0.0:5183 inside the
+# container; compose maps that out to a host port. The /rest proxy
+# target is set via ``GEMMA_BASE_URL`` (vite.config consumes it).
+
+FROM node:20-slim
+
+ENV NODE_ENV=development
+
+WORKDIR /ui
+
+COPY entrypoint-browser.sh /usr/local/bin/entrypoint-browser.sh
+RUN chmod +x /usr/local/bin/entrypoint-browser.sh
+
+EXPOSE 5183
+ENTRYPOINT ["/usr/local/bin/entrypoint-browser.sh"]

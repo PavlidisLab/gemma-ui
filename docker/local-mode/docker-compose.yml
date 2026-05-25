@@ -152,6 +152,41 @@ services:
     ports:
       - "5175:5173"
 
+  # ─── browser UI — Vite dev server (apps/browser, the GemBrow port) ──
+  # Public-facing browse/search frontend. Talks to Gemma 2.0 REST
+  # (NOT local_api). Default upstream is the host's local Gemma 2.0
+  # on :8080 via host.docker.internal; override with GEMMA_BASE_URL
+  # to point at staging / prod or the in-stack ``gemma-rest`` service
+  # when ``--profile gemma`` is on.
+  browser-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.browser
+    image: gemma-local-mode/browser-ui:dev
+    container_name: browser-ui
+    working_dir: /ui
+    environment:
+      # Resolution order in apps/browser/vite.config.ts:
+      #   1. GEMMA_BASE_URL env (this)
+      #   2. fallback: staging Gemma 1.x
+      # Default points at local Gemma 2.0 on the host (:8080); flip
+      # via the env var when standing up against the in-stack
+      # gemma-rest container or a remote target.
+      GEMMA_BASE_URL: ${GEMMA_BROWSER_BACKEND:-http://host.docker.internal:8080}
+    extra_hosts:
+      # Docker Desktop auto-adds host.docker.internal; on Linux
+      # Docker the host-gateway alias is needed explicitly so the
+      # browser can reach the host's :8080 Gemma 2.0.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Bind-mount the whole monorepo so workspace links resolve;
+      # named volume on node_modules keeps host/container compiled
+      # deps from clashing.
+      - ${UI_REPO:-../..}:/ui
+      - browser-node-modules:/ui/node_modules
+    ports:
+      - "5183:5183"
+
   # ─── optional Gemma 2.0 (Tomcat + WAR) ──────────────────────────
   # Bring up with ``./up.sh --gemma`` or
   # ``docker compose --profile gemma up``.
@@ -231,4 +266,5 @@ services:
 
 volumes:
   ui-node-modules:
+  browser-node-modules:
   gemma-db-data:

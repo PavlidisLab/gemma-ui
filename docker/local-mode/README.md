@@ -9,6 +9,7 @@ One-command containerized "local mode" for the curation flow.
 | `local-api` | `gemma-local-mode/agents:dev` (built from `Dockerfile.agents`) | `:8095` | Curation backend (FastAPI, `gca mock-gemma serve`). Hosts the SQLite that calibration packages load into. |
 | `proposer` | same image, different command | `:8082` | Long-running FastAPI for `/propose`, `/audit`, `/find-*`. |
 | `curation-ui` | `gemma-local-mode/curation-ui:dev` (built from `Dockerfile.curation-ui`) | `:5175` | Vite dev server for `apps/curation/`. Talks to the two services over the compose network. |
+| `browser-ui` | `gemma-local-mode/browser-ui:dev` (built from `Dockerfile.browser`) | `:5183` | Vite dev server for `apps/browser/` (GemBrow React port). Talks to Gemma 2.0 REST on the host (`host.docker.internal:8080` by default; override via `GEMMA_BROWSER_BACKEND`). |
 | `gemma-rest` (optional) | `tomcat:10.1-jdk25-temurin` | `:8080` | Gemma 2.0 REST. Bind-mounts the WAR from the host. Brought up with `--gemma`. |
 | `gemma-db` (optional) | `mysql:8.0` | `:3306` | MySQL backing Gemma 2.0. Brought up with `--gemma`. |
 
@@ -25,7 +26,9 @@ clash.
 ./up.sh --gemma --build  # rebuild images before up
 ```
 
-Then visit **http://localhost:5175/**.
+Then visit:
+- **http://localhost:5175/** — curation UI
+- **http://localhost:5183/** — browser UI (GemBrow React port)
 
 `up.sh` resolves `ANTHROPIC_API_KEY`, `GEMMA_CURATION_API_KEY`, and
 optional Zotero creds from the macOS Keychain (same pattern as
@@ -49,6 +52,7 @@ override the keychain lookup.
 | `GEMMA_DB_NAME` / `GEMMA_DB_USER` / `GEMMA_DB_PASSWORD` / `GEMMA_DB_ROOT_PASSWORD` | `gemd` / `gemmaadmin` / `gemmatoast` / `gemmatoast` | MySQL creds — match what the WAR expects |
 | `GEMMA_DB_SEED_DIR` | `./seed-empty` (empty) | drop `.sql.gz` files here for first-boot DB import |
 | `GEMMA_BASE_URL` | `https://staging-gemma.msl.ubc.ca` | read-side Gemma for the proposer. Set to `http://gemma-rest:8080` when running `--gemma` |
+| `GEMMA_BROWSER_BACKEND` | `http://host.docker.internal:8080` | upstream the browser UI proxies `/rest` to. Default reaches local Gemma 2.0 on the host. Flip to `http://gemma-rest:8080` when running `--gemma`, or to staging / prod URLs. |
 | `GEMMA_AGENTS_USE_ZOTERO` | unset | `1` to enable Zotero biolit fetcher |
 
 ## Linux self-contained setup
@@ -66,7 +70,8 @@ To make this run on a fresh Linux box without the host bind-mounts:
 ## Talking to the running stack
 
 ```sh
-docker compose logs -f curation-ui      # vite output
+docker compose logs -f curation-ui      # vite output (apps/curation)
+docker compose logs -f browser-ui       # vite output (apps/browser)
 docker compose logs -f local-api        # FastAPI for /rest/v2/*
 docker compose logs -f proposer         # FastAPI for /propose, /audit, /find-*
 docker compose exec local-api gca mock-gemma reset-curation
