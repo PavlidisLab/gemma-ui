@@ -3,6 +3,7 @@ import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { PreboardingDetailPage } from "@/features/preboarding/PreboardingDetailPage";
 import { ExperimentList } from "@/features/landing/ExperimentList";
+import { CuratorDashboard } from "@/features/landing/CuratorDashboard";
 import { ImportPrompt } from "@/features/landing/ImportPrompt";
 import { useStickyState } from "@/lib/useStickyState";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
@@ -14,6 +15,7 @@ import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { PipelinePanel } from "@/features/workflow/PipelinePanel";
 import { useGroup } from "@/api/workflow";
 import { useAuditsForExperiment } from "@/api/audits";
+import { useProposalReviewsForExperiment } from "@/api/reviewProposals";
 import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
 import { decideComparisonBanner } from "@/features/audit/comparisonBanner";
@@ -131,6 +133,15 @@ export default function App() {
   const fullName = me.full_name;
 
   if (route.kind === "landing") {
+    return (
+      <CuratorDashboard
+        reviewer={fullName || reviewer}
+        onSelect={(id) => navigate(`#/experiments/${id}`)}
+      />
+    );
+  }
+
+  if (route.kind === "all-experiments") {
     return (
       <ExperimentList
         reviewer={fullName || reviewer}
@@ -580,6 +591,17 @@ function MainGrid({
     }
   }, [auditSchema.data]);
   const { draft } = useDesignDraft();
+  // Per-experiment data presence: drives sidebar toggle visibility.
+  // Hide the Audit toggle when no kind=audit reviews exist on the
+  // experiment; hide Proposal review when no kind=proposal reviews
+  // exist. Both fetches run unconditionally so the sidebar can
+  // refresh as data lands (e.g. a freshly-completed audit stream
+  // populates the audit toggle without a page reload).
+  const auditsForExp = useAuditsForExperiment(experimentId);
+  const proposalReviewsForExp = useProposalReviewsForExperiment(experimentId);
+  const hasAudits = (auditsForExp.data?.items?.length ?? 0) > 0;
+  const hasProposalReviews =
+    (proposalReviewsForExp.data?.items?.length ?? 0) > 0;
   // Unified agent-run dialog state. Replaces the inline "+ propose"
   // sidebar button, the in-panel "+ audit" button, and the
   // proposal-card "redo with notes" affordance. All three routes
@@ -612,8 +634,27 @@ function MainGrid({
   const [sidebarViewRaw, setSidebarViewRaw] = useStickyState<
     "audit" | "proposalReview" | "proposals"
   >("sidebar.view", "proposalReview");
-  const sidebarView: "audit" | "proposalReview" =
+  const sidebarViewNormalised: "audit" | "proposalReview" =
     sidebarViewRaw === "audit" ? "audit" : "proposalReview";
+  // Auto-flip the view when the curator's sticky preference points
+  // at an empty surface but the other one has data. Only fires when
+  // both queries have resolved so we don't bounce the view mid-
+  // fetch.
+  const dataResolved =
+    !auditsForExp.isLoading && !proposalReviewsForExp.isLoading;
+  const sidebarView: "audit" | "proposalReview" = dataResolved
+    ? sidebarViewNormalised === "audit"
+      ? hasAudits
+        ? "audit"
+        : hasProposalReviews
+          ? "proposalReview"
+          : "audit"
+      : hasProposalReviews
+        ? "proposalReview"
+        : hasAudits
+          ? "audit"
+          : "proposalReview"
+    : sidebarViewNormalised;
   const setSidebarView = setSidebarViewRaw as (
     v: "audit" | "proposalReview",
   ) => void;
@@ -795,18 +836,28 @@ function MainGrid({
                 panel) was hidden on 2026-05-25 in favour of the
                 unified kind=proposal CurationReview flow. */}
             <div className="flex items-center gap-1">
-              <ViewToggleButton
-                active={sidebarView === "audit"}
-                onClick={() => setSidebarView("audit")}
-              >
-                Audit
-              </ViewToggleButton>
-              <ViewToggleButton
-                active={sidebarView === "proposalReview"}
-                onClick={() => setSidebarView("proposalReview")}
-              >
-                Proposal review
-              </ViewToggleButton>
+              {/* Each toggle hides when its source has no rows for
+                  this experiment — keeps the sidebar header focused
+                  on actionable work. When the experiment has
+                  neither (the import-fresh case), we still render
+                  Audit + Proposal review as a stub so the chrome
+                  doesn't collapse to "(no work here)". */}
+              {hasAudits || (!hasAudits && !hasProposalReviews) ? (
+                <ViewToggleButton
+                  active={sidebarView === "audit"}
+                  onClick={() => setSidebarView("audit")}
+                >
+                  Audit
+                </ViewToggleButton>
+              ) : null}
+              {hasProposalReviews || (!hasAudits && !hasProposalReviews) ? (
+                <ViewToggleButton
+                  active={sidebarView === "proposalReview"}
+                  onClick={() => setSidebarView("proposalReview")}
+                >
+                  Proposal review
+                </ViewToggleButton>
+              ) : null}
               <button
                 type="button"
                 className="ml-auto px-2 py-1 rounded border border-slate-200 text-[10px] uppercase tracking-wide font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 inline-flex items-center gap-1"

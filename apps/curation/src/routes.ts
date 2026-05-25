@@ -26,6 +26,7 @@ export type ExperimentTab =
 
 export type Route =
   | { kind: "landing" }
+  | { kind: "all-experiments" }
   | { kind: "inbox" }
   | { kind: "audits-inbox" }
   | { kind: "audit-detail"; auditId: string }
@@ -71,6 +72,7 @@ export function parseRoute(): Route {
       groupContext: groupContext || undefined,
     };
   }
+  if (/^#\/all-experiments\b/.test(h)) return { kind: "all-experiments" };
   if (/^#\/inbox\b/.test(h)) return { kind: "inbox" };
   // Standalone single-audit detail page; matched BEFORE the
   // ``#/audits`` inbox prefix because the inbox would otherwise
