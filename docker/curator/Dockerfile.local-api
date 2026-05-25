@@ -30,15 +30,27 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 
 WORKDIR /agents
 
-# Copy from the ``agents`` build context — this is the
-# gemma-curation-agents repo. Two-step COPY for layer caching:
-# pyproject + lockfile first so deps don't reinstall on every source
-# change; then the rest of the source.
+# Three-step COPY for layer caching AND a correctly-populated
+# editable install. ``pip install -e .`` walks the package dir at
+# install time to build its editable-finder mapping; if the dir
+# doesn't exist yet, the mapping is empty and ``import
+# gemma_curation_agents`` fails at runtime even when the source is
+# COPYed in later (caught 2026-05-25 — the original two-step
+# pattern produced "ModuleNotFoundError: No module named
+# 'gemma_curation_agents'" because pip wrote an empty mapping
+# against the missing package dir). Mirror the local-mode
+# Dockerfile.agents pattern: stub the package before install, then
+# overlay the real source.
 COPY --from=agents pyproject.toml ./pyproject.toml
-RUN pip install --upgrade pip && \
-    pip install -e .
+COPY --from=agents README.md ./README.md
+RUN mkdir -p gemma_curation_agents \
+    && : > gemma_curation_agents/__init__.py \
+    && pip install --upgrade pip \
+    && pip install -e .
 
-# The full source replaces the egg-link target installed above.
+# The full source replaces the stub so the editable-install pointer
+# (set during the install above) now resolves to the real module
+# tree.
 COPY --from=agents . .
 
 # A writable spot for the SQLite + any imported calibration packages.

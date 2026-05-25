@@ -32,8 +32,30 @@ services:
   local-api:
     image: ${LOCAL_API_IMAGE:-gemma-curator/local-api:latest}
     container_name: gemma-curator-local-api
+    working_dir: /data
     environment:
       GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
+      # Forwards /rest/v2/annotations/search + /annotations/term to
+      # this URL. During transition: staging-gemma. Once the new
+      # gemma-rest 2.0 host is reachable, point it there. Unset
+      # falls back to local-api's small built-in catalog.
+      GEMMA_ONTOLOGY_URL: ${GEMMA_ONTOLOGY_URL:-}
+    command:
+      # SQLite path is relative to ``working_dir`` (/data) so the
+      # DB persists in the volume below — ``docker compose down``
+      # keeps the curator's dispositions + imported batches +
+      # snapshot cache; ``down -v`` wipes.
+      - "python"
+      - "-m"
+      - "gemma_curation_agents.cli"
+      - "mock-gemma"
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+      - "--db"
+      - "/data/local_curation.sqlite"
     volumes:
       # SQLite + any imported calibration packages persist here so
       # ``docker compose down`` doesn't lose the curator's work.

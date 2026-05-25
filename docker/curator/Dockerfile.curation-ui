@@ -28,6 +28,18 @@ RUN npm ci --no-audit --no-fund
 # Now the source.
 COPY . .
 
+# Build-time env: lock the SPA to local mode + bake the dev bearer
+# so the curator's first page-load doesn't prompt for HTTP Basic
+# credentials. The SPA's ``resolveGemmaMode()`` checks
+# VITE_GEMMA_MODE at build time; without it set, the auth chip
+# defaults to "your Gemma login (HTTP Basic)" and every /rest
+# call 401s through nginx because no bearer is attached.
+# Override via --build-arg when shipping with a different bearer.
+ARG VITE_GEMMA_MODE=local
+ARG VITE_GEMMA_CURATION_API_KEY=dev-token-123
+ENV VITE_GEMMA_MODE=$VITE_GEMMA_MODE
+ENV VITE_GEMMA_CURATION_API_KEY=$VITE_GEMMA_CURATION_API_KEY
+
 # Build only the curation app for this image.
 WORKDIR /src/apps/curation
 RUN npm run build
