@@ -22,6 +22,7 @@ import type {
   AuditFindingDispositionPatch,
   AuditReport,
 } from "./auditTypes";
+import { REVIEW_PROPOSAL_KEYS } from "./reviewProposals";
 
 interface AuditListResponse {
   items: AuditReport[];
@@ -114,22 +115,34 @@ export function usePatchDisposition(experimentId: number | string) {
       patch: AuditFindingDispositionPatch;
     }) => api.patch<AuditReport>(`/rest/v2/audits/${auditId}`, patch),
     onSuccess: (refreshed) => {
-      // Write the updated report into the byExperiment list immediately
-      // so inline dots reflect the new disposition without waiting for
-      // the background refetch to complete.
+      // Per-experiment list lives in TWO caches keyed by kind: the
+      // audit list at ``["audits", "by-experiment", X]`` and the
+      // proposal-review list at ``["curation-reviews", "proposal",
+      // "by-experiment", X]`` (see reviewProposals.ts). The PATCH
+      // doesn't know which kind it landed for, so refresh both —
+      // the wrong-kind cache won't contain the audit_id and the map
+      // becomes a no-op there. Caught 2026-05-25: proposal-kind
+      // patches were succeeding server-side but the proposal cache
+      // never refreshed, so Apply All kept showing pending findings
+      // even after dispositions landed.
+      const folder = (old: AuditListResponse | undefined) => {
+        if (!old) return old;
+        return {
+          ...old,
+          items: old.items.map((a) =>
+            a.audit_id === refreshed.audit_id ? refreshed : a,
+          ),
+        };
+      };
+      qc.setQueryData(KEY.byExperiment(experimentId), folder);
       qc.setQueryData(
-        KEY.byExperiment(experimentId),
-        (old: AuditListResponse | undefined) => {
-          if (!old) return old;
-          return {
-            ...old,
-            items: old.items.map((a) =>
-              a.audit_id === refreshed.audit_id ? refreshed : a,
-            ),
-          };
-        },
+        REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
+        folder,
       );
       qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+      qc.invalidateQueries({
+        queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
+      });
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
@@ -160,7 +173,16 @@ export function useFinalizeAudit(experimentId: number | string) {
         ...(notes ? { notes } : {}),
       }),
     onSuccess: (refreshed) => {
+      // Refresh BOTH per-experiment caches — same kind-mismatch
+      // bug as usePatchDisposition: finalizing a proposal-kind
+      // review needs to invalidate the proposal cache, not just
+      // the audit one. Otherwise the UI keeps reading the
+      // pre-finalize state ("Close" stays clickable, looks like
+      // the click did nothing).
       qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+      qc.invalidateQueries({
+        queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
+      });
       qc.invalidateQueries({ queryKey: KEY.inbox() });
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
@@ -186,6 +208,9 @@ export function useReopenAudit(experimentId: number | string) {
       }),
     onSuccess: (refreshed) => {
       qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+      qc.invalidateQueries({
+        queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
+      });
       qc.invalidateQueries({ queryKey: KEY.inbox() });
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);

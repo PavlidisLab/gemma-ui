@@ -180,14 +180,17 @@ const KIND_COPY: Record<
     nounPlural: "proposals",
     headerLabel: "Proposal",
     emptyBody: "No proposals on this experiment yet.",
-    // Reframed per Paul 2026-05-25: the workflow is apply → edit →
-    // submit (sends accepted/rejected/edited summary + final curated
-    // EE state back to the curation agent). "Close review" hid the
-    // submission step inside a generic verb.
-    closeButtonLabel: "Submit review",
-    closeConfirmHeader:
-      "Submit this proposal review back to the curation agent?",
-    closedToast: "Review submitted to the curation agent.",
+    // Reframed per Paul 2026-05-25 round 2: "Submit review"
+    // confused two ideas — the per-finding verdicts (which already
+    // stream to the curator's state continuously) and the curator's
+    // "I'm done with this proposal as a curation aid" milestone.
+    // The button is only the milestone; the agent reads the
+    // dispositions from local_api when it next runs, so there's
+    // nothing being "submitted to" anyone at click time. Matches
+    // the audit-kind "Close audit" lifecycle pair.
+    closeButtonLabel: "Close",
+    closeConfirmHeader: "Close this proposal review?",
+    closedToast: "Proposal review closed.",
     reopenedToast:
       "Proposal review reopened — dispositions editable again.",
     idleStreamLabel: "no proposal review running",
@@ -637,24 +640,34 @@ function SidebarHeader({
   // of rendering a button that does nothing.
   const lifecycleAvailable = !hasOverride && !!report.audit_id;
 
-  async function handleClose(notes: string) {
+  async function handleClose(
+    notes: string,
+    pendingResolution: "accept" | "reject" = "reject",
+  ) {
+    // 409 guard: if the audit is already finalized (refetch lag,
+    // double-click, or a stale tab), skip the whole sweep + close
+    // and surface a friendly toast instead of letting the sweep
+    // PATCHes 409 against the finalized state. Paul 2026-05-25:
+    // observed a 409 cascade on a re-close attempt.
+    if (report.finalized_at) {
+      toast.show(
+        `${copy.Noun} is already closed — reopen it to keep editing.`,
+        "info",
+        4000,
+      );
+      setConfirmClose(false);
+      return;
+    }
     try {
       // Sweep pending severity=ok findings to "accepted" before
-      // finalize.
-      //
-      // The agent's storage layer dropped the `all_dispositioned`
-      // clause from the `audit_status` rule on 2026-05-13 (see
-      // AUDIT_STATUS_CLOSED_RULE_HANDOFF.md), so on a current agent
-      // service this sweep is unnecessary — finalize alone flips the
-      // member-list glyph to "closed". Older agent services (pre-
-      // 2026-05-13) still require every finding dispositioned for
-      // the glyph to read closed, and curators reviewing archived
-      // calibration packages may be talking to one. The sweep is
-      // harmless on the new agent (a few accepted rows on match
-      // findings, which IS the right disposition — curator silence
-      // on a "no action needed" row is implicit agreement) and
-      // load-bearing on the old one. Drop once the v0.6.0-era agent
-      // service is no longer in any deployed corner.
+      // finalize. The agent's storage layer dropped the
+      // `all_dispositioned` clause from the audit_status rule on
+      // 2026-05-13 (see AUDIT_STATUS_CLOSED_RULE_HANDOFF.md), so on
+      // current agent services this sweep is just defensive
+      // hygiene; older services still require it. Harmless either
+      // way (a few accepted rows on match findings, which IS the
+      // right disposition — curator silence on a "no action needed"
+      // row is implicit agreement).
       const pendingOk = report.findings.filter((f) => {
         if (f.severity !== "ok") return false;
         const d = dispositionByTarget.get(f.target_id);
@@ -664,37 +677,78 @@ function SidebarHeader({
         try {
           await setDisposition(f.target_id, "accepted");
         } catch {
-          // Best-effort — don't block the close on a single sweep
-          // failure. The audit still closes; one glyph might miss.
+          // Best-effort — don't block close on a single sweep
+          // failure. Swallows 409 too if the audit got finalized
+          // between this PATCH and the loop start.
         }
       }
-      // Proposal-kind only: sweep PENDING NON-OK findings to
-      // "dismissed" before finalize. Submitting a review without
-      // explicitly accepting / rejecting a proposal implies the
-      // curator declined to act on it — record that as an explicit
-      // reject so the agent's read-back doesn't have to guess. The
-      // confirm dialog calls this out by name before the curator
-      // confirms (Paul 2026-05-25: "submit review should say 'the
-      // following proposals will be considered rejected'"). For
-      // audits we keep the existing behavior (pending stays
-      // pending, no implicit fault).
+      // Proposal-kind only: resolve the pending NON-OK findings
+      // per the curator's pick before finalize. ``pendingResolution``
+      // is set in the confirm dialog:
+      //   - "reject" (default) → dismiss with wont_fix; the
+      //     agent reads the silence as "curator declined to act"
+      //   - "accept" → apply mutations for the ones with a clean
+      //     mutator + PATCH disposition=accepted; for the rest,
+      //     PATCH disposition=accepted alone (no draft mutation,
+      //     consistent with Apply All's non-mutating branch)
       if (kind === "proposal") {
         const pendingActionableNow = report.findings.filter((f) => {
           if (f.severity === "ok") return false;
           const d = dispositionByTarget.get(f.target_id);
           return (d?.status ?? "pending") === "pending";
         });
-        for (const f of pendingActionableNow) {
-          try {
-            await setDisposition(f.target_id, "dismissed", {
-              dismissReason: "wont_fix",
-              notes:
-                "Implicit reject — curator submitted the review without acting on this proposal.",
+        if (pendingResolution === "accept" && pendingActionableNow.length > 0) {
+          // Mirror the Apply All path: chain mutating actions into
+          // one draft transition + PATCH dispositions to accepted.
+          const annotated = pendingActionableNow.map((f) => ({
+            finding: f,
+            action: resolveApplyAction(f, { report, design: draft ?? null }),
+          }));
+          const mutating = annotated.filter(
+            (x): x is { finding: AuditFinding; action: ApplyAction } =>
+              !!x.action && x.action.mutates && !!x.action.mutate,
+          );
+          if (mutating.length > 0 && draft) {
+            const snapshot = draft;
+            const mutations = mutating.map(({ finding, action }) => ({
+              targetId: finding.target_id,
+              mutate: action.mutate!,
+            }));
+            registerAppliedBatch(snapshot, mutations);
+            applyDraft((d) => {
+              let acc = d;
+              for (const m of mutations) acc = m.mutate(acc);
+              return acc;
             });
-          } catch {
-            // Best-effort — surface the failure in the toast at
-            // the end via the per-finding error path, but don't
-            // block finalize on a single sweep failure.
+          }
+          const resolvedAt = new Date().toISOString();
+          for (const { finding, action } of annotated) {
+            const acceptReason = isAgentExtraIssue(finding.issue_code)
+              ? ("well_evidenced" as const)
+              : undefined;
+            try {
+              await setDisposition(finding.target_id, "accepted", {
+                appliedFix: action?.appliedFix,
+                resolvedAt,
+                acceptReason,
+                notes:
+                  "Implicit accept — curator closed the review without explicitly rejecting this proposal.",
+              });
+            } catch {
+              // Best-effort — same swallow rationale as above.
+            }
+          }
+        } else {
+          for (const f of pendingActionableNow) {
+            try {
+              await setDisposition(f.target_id, "dismissed", {
+                dismissReason: "wont_fix",
+                notes:
+                  "Implicit reject — curator closed the review without acting on this proposal.",
+              });
+            } catch {
+              // Best-effort — same swallow rationale as above.
+            }
           }
         }
       }
@@ -702,6 +756,18 @@ function SidebarHeader({
       toast.show(copy.closedToast, "success");
       setConfirmClose(false);
     } catch (err) {
+      // 409 here means a parallel finalize landed first — same
+      // friendly path as the pre-flight guard above.
+      const apiErr = err as { status?: number };
+      if (apiErr && apiErr.status === 409) {
+        toast.show(
+          `${copy.Noun} is already closed — reopen it to keep editing.`,
+          "info",
+          4000,
+        );
+        setConfirmClose(false);
+        return;
+      }
       toast.show(
         `Couldn't close ${copy.noun}: ${(err as Error).message}`,
         "danger",
@@ -1106,10 +1172,20 @@ function CloseAuditConfirm({
    *  Empty for a brand-new close. */
   initialNotes?: string;
   onCancel: () => void;
-  onConfirm: (notes: string) => Promise<void> | void;
+  onConfirm: (
+    notes: string,
+    pendingResolution: "accept" | "reject",
+  ) => Promise<void> | void;
 }) {
   const copy = KIND_COPY[kind];
   const [notes, setNotes] = useState(initialNotes);
+  // Default to "reject" — matches the prior auto-sweep behaviour
+  // and is the safer assumption (silence isn't agreement; an
+  // accidental accept costs more to undo than an accidental
+  // reject). Only relevant for proposal kind with pending items.
+  const [pendingResolution, setPendingResolution] = useState<
+    "accept" | "reject"
+  >("reject");
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -1134,44 +1210,84 @@ function CloseAuditConfirm({
       className="border border-slate-300 rounded bg-white p-2 space-y-2 mt-1"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="text-[11px] text-slate-700">
+      <div className="text-[11px] text-slate-700 dark:text-slate-200">
         {copy.closeConfirmHeader}{" "}
         {pendingActionable > 0 ? (
           isProposal ? (
-            <span className="text-amber-800">
+            <span className="text-amber-800 dark:text-amber-300">
               {pendingActionable} proposal
-              {pendingActionable === 1 ? "" : "s"} still pending — they'll
-              be recorded as <strong>rejected</strong> on submit.
+              {pendingActionable === 1 ? "" : "s"} still pending — pick
+              what to do with them below.
             </span>
           ) : (
-            <span className="text-amber-800">
+            <span className="text-amber-800 dark:text-amber-300">
               {pendingActionable} actionable finding
               {pendingActionable === 1 ? "" : "s"} still pending — they'll
               be recorded as undecided in the disposition log.
             </span>
           )
         ) : (
-          <span className="text-slate-500">
+          <span className="text-slate-500 dark:text-slate-400">
             All actionable findings have a disposition.
           </span>
         )}
       </div>
       {isProposal && pendingFindings.length > 0 ? (
-        <div className="rounded border border-amber-200 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/15 px-2 py-1.5 text-[11px] text-amber-900 dark:text-amber-100 space-y-1">
+        <div className="rounded border border-amber-200 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/15 px-2 py-1.5 text-[11px] text-amber-900 dark:text-amber-100 space-y-1.5">
           <div className="font-semibold">
-            Will be considered rejected:
+            What should happen to the {pendingFindings.length} remaining
+            proposal{pendingFindings.length === 1 ? "" : "s"}?
           </div>
-          <ul className="space-y-0.5 max-h-40 overflow-y-auto list-disc list-inside">
-            {pendingFindings.map((f) => (
-              <li
-                key={f.target_id}
-                className="leading-snug truncate"
-                title={f.rationale || f.suggested_fix || ""}
-              >
-                {pendingFindingLabel(f)}
-              </li>
-            ))}
-          </ul>
+          <div className="space-y-1">
+            <label className="flex items-start gap-1.5 cursor-pointer hover:text-amber-950 dark:hover:text-amber-50">
+              <input
+                type="radio"
+                name="pending-resolution"
+                value="reject"
+                checked={pendingResolution === "reject"}
+                onChange={() => setPendingResolution("reject")}
+                disabled={saving}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-semibold">Reject</span> — record
+                them as declined. Safer default; the agent reads silence
+                as "curator didn't act."
+              </span>
+            </label>
+            <label className="flex items-start gap-1.5 cursor-pointer hover:text-amber-950 dark:hover:text-amber-50">
+              <input
+                type="radio"
+                name="pending-resolution"
+                value="accept"
+                checked={pendingResolution === "accept"}
+                onChange={() => setPendingResolution("accept")}
+                disabled={saving}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-semibold">Accept</span> — record
+                them as agreed and apply any clean mutations to the
+                draft (commit separately to save).
+              </span>
+            </label>
+          </div>
+          <div className="pt-1 border-t border-amber-200 dark:border-amber-700/40">
+            <div className="text-[10px] uppercase tracking-wide opacity-70 mb-0.5">
+              The {pendingFindings.length} pending:
+            </div>
+            <ul className="space-y-0.5 max-h-32 overflow-y-auto list-disc list-inside">
+              {pendingFindings.map((f) => (
+                <li
+                  key={f.target_id}
+                  className="leading-snug truncate"
+                  title={f.rationale || f.suggested_fix || ""}
+                >
+                  {pendingFindingLabel(f)}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       ) : null}
       <textarea
@@ -1192,7 +1308,7 @@ function CloseAuditConfirm({
         </button>
         <button
           type="button"
-          onClick={() => onConfirm(notes.trim())}
+          onClick={() => onConfirm(notes.trim(), pendingResolution)}
           disabled={saving}
           className={cn(
             "text-[11px] px-2 py-0.5 rounded font-medium",
@@ -1201,7 +1317,13 @@ function CloseAuditConfirm({
               : "bg-blue-700 text-white hover:bg-blue-800",
           )}
         >
-          {saving ? "closing…" : copy.closeButtonLabel}
+          {saving
+            ? "closing…"
+            : isProposal && pendingFindings.length > 0
+              ? pendingResolution === "accept"
+                ? `Close + accept remaining ${pendingFindings.length}`
+                : `Close + reject remaining ${pendingFindings.length}`
+              : copy.closeButtonLabel}
         </button>
       </div>
     </div>
