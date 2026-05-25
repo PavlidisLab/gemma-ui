@@ -731,12 +731,27 @@ export interface AuditFindingDispositionPatch {
   details_ok?: boolean | null;
 }
 
+/** Discriminator for the shared CurationReview record. ``audit`` =
+ *  agent reviewed existing curation (finding shape: "agent says X,
+ *  curator has Y"). ``proposal`` = agent proposed curation from
+ *  scratch on a preboarded / uncurated GSE (finding shape: "agent
+ *  proposes X"; no curator side to compare against). The two kinds
+ *  share the wire schema and the per-finding disposition machinery;
+ *  only the framing differs. See
+ *  ``eclipseworkspace/Gemma/handoffs/AUDIT_TO_REVIEW_RENAME_HANDOFF.md``
+ *  for the full rename / split design. */
+export type CurationReviewKind = "audit" | "proposal";
+
 export interface AuditReport {
   /** Server-assigned. Null on a freshly-built report that hasn't been
    *  persisted yet (e.g. mid-stream). */
   audit_id: string | null;
   experiment_id: number | string;
   experiment_short_name: string;
+  /** Discriminator. Optional/back-compat: payloads from agents
+   *  predating the split don't carry it — treat absent as ``"audit"``.
+   *  Backend defaults to ``"audit"`` on insert when unset. */
+  kind?: CurationReviewKind;
   /** ISO 8601 UTC. */
   audited_at: string;
   model: string | null;

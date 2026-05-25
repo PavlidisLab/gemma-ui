@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { cn } from "@/lib/cn";
 import { agentPalette, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
@@ -73,9 +81,65 @@ import type {
   AuditFindingDisposition,
   AuditReport,
   AuditTargetKind,
+  CurationReviewKind,
   DispositionStatus,
   Severity,
 } from "@/api/auditTypes";
+
+/** Per-kind framing copy. Centralised here so every user-facing
+ *  string the sidebar emits flows through one switch — adding a
+ *  third kind (e.g. ``"evaluation"``) is one entry, not a
+ *  panel-wide grep. ``noun`` is the bare singular ("audit"),
+ *  ``Noun`` the capitalised form for sentence starts, ``verbed``
+ *  the past-tense verb the close-toast uses. */
+const KIND_COPY: Record<
+  CurationReviewKind,
+  {
+    noun: string;
+    Noun: string;
+    nounPlural: string;
+    /** Sidebar header label — "Audit" / "Proposal". */
+    headerLabel: string;
+    /** Empty-state body line. */
+    emptyBody: string;
+    /** Close-button label when pending findings exist. */
+    closeButtonLabel: string;
+    /** Dialog header on the close-confirm popover. */
+    closeConfirmHeader: string;
+    /** Toast on successful close. */
+    closedToast: string;
+    /** Toast on successful reopen. */
+    reopenedToast: string;
+    /** Idle label on the progress panel while no stream is running. */
+    idleStreamLabel: string;
+  }
+> = {
+  audit: {
+    noun: "audit",
+    Noun: "Audit",
+    nounPlural: "audits",
+    headerLabel: "Audit",
+    emptyBody: "No audits on this experiment yet.",
+    closeButtonLabel: "Close audit",
+    closeConfirmHeader: "Close this audit?",
+    closedToast: "Audit closed.",
+    reopenedToast: "Audit reopened — dispositions editable again.",
+    idleStreamLabel: "no audit running",
+  },
+  proposal: {
+    noun: "proposal",
+    Noun: "Proposal",
+    nounPlural: "proposals",
+    headerLabel: "Proposal",
+    emptyBody: "No proposals on this experiment yet.",
+    closeButtonLabel: "Close review",
+    closeConfirmHeader: "Close this proposal review?",
+    closedToast: "Proposal review closed.",
+    reopenedToast:
+      "Proposal review reopened — dispositions editable again.",
+    idleStreamLabel: "no proposal review running",
+  },
+};
 import type { Design } from "@/features/experiment/types";
 import type { FactorProposal, FactorValueProposal, SubtaskDecision } from "@/api/types";
 import {
@@ -120,9 +184,27 @@ export function AuditSidebarPanel({
    *  This panel just renders the progress / state. */
   stream: ReturnType<typeof useAuditStream>;
 }) {
-  const { report, setOverrideReport, hasOverride, loading, error } =
+  const { kind, report, setOverrideReport, hasOverride, loading, error } =
     useAudit();
+  const copy = KIND_COPY[kind];
   const { draft } = useDesignDraft();
+  // Panel-level card-expansion baseline. Proposals default to
+  // ``"expanded"`` (curator reads agent's proposal as primary
+  // content); audits default to ``"collapsed"`` (1-line headers, opt
+  // into bodies). Curator can cycle through three states from the
+  // header button below.
+  const [panelExpansion, setPanelExpansion] = useState<PanelExpansion>(
+    kind === "proposal" ? "expanded" : "collapsed",
+  );
+  function cyclePanelExpansion(): void {
+    setPanelExpansion((prev) =>
+      prev === "collapsed"
+        ? "expanded"
+        : prev === "expanded"
+          ? "fully"
+          : "collapsed",
+    );
+  }
 
   // Pick the accession the agent service expects. Numeric experiment_id
   // works (the resolver accepts numeric id, GSE accession, or shortName
@@ -148,6 +230,7 @@ export function AuditSidebarPanel({
   const blockBodyForProgress = stream.status === "running";
 
   return (
+    <PanelExpansionContext.Provider value={panelExpansion}>
     <div className="space-y-1.5">
       {/* Single unified control card — trigger button + audit run info
           in one unit. Sky chrome matches the FactorChip + the audit
@@ -165,10 +248,26 @@ export function AuditSidebarPanel({
         "border-sky-300 bg-sky-50",
         "dark:border-sky-700 dark:bg-sky-900/40",
       )}>
-        <SidebarTopBar
-          accession={accession}
-          hasOpenAudit={!!(report && !report.finalized_at)}
-        />
+        <div className="flex items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <SidebarTopBar
+              accession={accession}
+              hasOpenAudit={!!(report && !report.finalized_at)}
+              kind={kind}
+            />
+          </div>
+          {/* Panel-level "expand all" 3-way cycle. Lives in the
+              top strip so the curator can flip the whole list
+              from one place instead of opening each card
+              individually. Only meaningful when there's a report
+              with findings to expand. */}
+          {report && report.findings.length > 0 ? (
+            <PanelExpansionCycleButton
+              state={panelExpansion}
+              onCycle={cyclePanelExpansion}
+            />
+          ) : null}
+        </div>
         {report ? (
           <div className="border-t border-sky-200 dark:border-sky-700/60 pt-1">
             <SidebarHeader
@@ -184,21 +283,22 @@ export function AuditSidebarPanel({
       {showProgress ? (
         <ProposeProgressPanel
           state={stream}
-          idleLabel="no audit running"
+          idleLabel={copy.idleStreamLabel}
           onDismiss={stream.reset}
         />
       ) : null}
       {!blockBodyForProgress ? (
         loading && !report ? (
           <div className="card p-3 text-xs text-slate-500 italic">
-            loading audits…
+            loading {copy.nounPlural}…
           </div>
         ) : error && !report ? (
           <div className="card p-3 text-xs text-rose-700">
-            couldn't load audits: {error}
+            couldn't load {copy.nounPlural}: {error}
           </div>
         ) : !report ? (
           <EmptyState
+            kind={kind}
             onLoadFixture={() => setOverrideReport(adaptFixture(experimentId))}
             onSynthesize={
               draft
@@ -218,11 +318,20 @@ export function AuditSidebarPanel({
             ) : (
               <FindingList findings={report.findings} />
             )}
-            <DesignComparisonPanel report={report} />
+            {/* Side-by-side "agent proposal vs current design" panel
+                only makes sense when there's existing curation to
+                compare against. For ``kind="proposal"`` (uncurated /
+                preboarded GSE), the agent's proposal IS the content
+                — there's no curator side, so the panel is omitted.
+                See AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md §2. */}
+            {kind === "audit" ? (
+              <DesignComparisonPanel report={report} />
+            ) : null}
           </>
         )
       ) : null}
     </div>
+    </PanelExpansionContext.Provider>
   );
 }
 
@@ -234,23 +343,26 @@ export function AuditSidebarPanel({
 function SidebarTopBar({
   accession,
   hasOpenAudit,
+  kind,
 }: {
   accession: string;
   /** True when a non-finalized audit already exists for this experiment. */
   hasOpenAudit: boolean;
+  kind: CurationReviewKind;
 }) {
+  const copy = KIND_COPY[kind];
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className="text-slate-500 truncate">
-        Audit{" "}
+        {copy.headerLabel}{" "}
         <span className="font-mono text-slate-700">{accession}</span>
       </span>
       {hasOpenAudit ? (
         <span
           className="text-[10px] text-amber-600 dark:text-amber-400"
-          title="this experiment already has an open (unfinished) audit"
+          title={`this experiment already has an open (unfinished) ${copy.noun}`}
         >
-          open audit exists
+          open {copy.noun} exists
         </span>
       ) : null}
     </div>
@@ -262,9 +374,11 @@ function SidebarTopBar({
 // ---------------------------------------------------------------------------
 
 function EmptyState({
+  kind,
   onLoadFixture,
   onSynthesize,
 }: {
+  kind: CurationReviewKind;
   onLoadFixture: () => void;
   /** Optional — only available when a design draft is loaded.
    *  Builds a synthetic report whose target_ids slug-match real
@@ -273,12 +387,13 @@ function EmptyState({
    *  fixture's hardcoded numeric ids don't resolve. */
   onSynthesize?: () => void;
 }) {
+  const copy = KIND_COPY[kind];
   return (
     <div className="card p-3 text-xs text-slate-500 space-y-2">
       <p className="italic">
-        No audits on this experiment yet. The local server's GET / PATCH
+        {copy.emptyBody} The local server's GET / PATCH
         endpoints are live; the in-UI trigger button (which would
-        POST to the agent's <code>/audit/{"{accession}"}</code>)
+        POST to the agent's <code>/{copy.noun}/{"{accession}"}</code>)
         lands once that service ships.
       </p>
       <div className="flex flex-wrap gap-2">
@@ -286,16 +401,16 @@ function EmptyState({
           type="button"
           onClick={onLoadFixture}
           className="px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 text-[11px] font-medium"
-          title="Load the bundled sample audit so the sidebar layout is testable in-context. Inline dots won't appear — the fixture's target_ids don't match this experiment."
+          title={`Load the bundled sample ${copy.noun} so the sidebar layout is testable in-context. Inline dots won't appear — the fixture's target_ids don't match this experiment.`}
         >
-          Load fixture audit (dev)
+          Load fixture {copy.noun} (dev)
         </button>
         {onSynthesize ? (
           <button
             type="button"
             onClick={onSynthesize}
             className="px-2 py-1 rounded bg-violet-100 text-violet-800 hover:bg-violet-200 text-[11px] font-medium"
-            title="Build a synthetic audit whose target_ids match this experiment's actual factors / FVs / tags / first sample, so inline severity dots appear in the design + samples views."
+            title={`Build a synthetic ${copy.noun} whose target_ids match this experiment's actual factors / FVs / tags / first sample, so inline severity dots appear in the design + samples views.`}
           >
             Synthesize from draft (dev)
           </button>
@@ -324,6 +439,7 @@ function SidebarHeader({
 }) {
   const { summary, scope } = report;
   const {
+    kind,
     isFinalized,
     finalizedAt,
     finalizedBy,
@@ -337,6 +453,7 @@ function SidebarHeader({
     activeAuditIndex,
     setActiveAuditIndex,
   } = useAudit();
+  const copy = KIND_COPY[kind];
   const toast = useToast();
   const [confirmClose, setConfirmClose] = useState(false);
 
@@ -387,11 +504,11 @@ function SidebarHeader({
         }
       }
       await finalize(notes || undefined);
-      toast.show("Audit closed.", "success");
+      toast.show(copy.closedToast, "success");
       setConfirmClose(false);
     } catch (err) {
       toast.show(
-        `Couldn't close audit: ${(err as Error).message}`,
+        `Couldn't close ${copy.noun}: ${(err as Error).message}`,
         "danger",
         6000,
       );
@@ -401,10 +518,10 @@ function SidebarHeader({
   async function handleReopen() {
     try {
       await reopen();
-      toast.show("Audit reopened — dispositions editable again.", "success");
+      toast.show(copy.reopenedToast, "success");
     } catch (err) {
       toast.show(
-        `Couldn't reopen audit: ${(err as Error).message}`,
+        `Couldn't reopen ${copy.noun}: ${(err as Error).message}`,
         "danger",
         6000,
       );
@@ -598,8 +715,8 @@ function SidebarHeader({
                 disabled={finalizeSaving}
                 title={
                   pendingActionable > 0
-                    ? "close audit (pending findings recorded as undecided)"
-                    : "every actionable finding has a disposition — clear this audit"
+                    ? `close ${copy.noun} (pending findings recorded as undecided)`
+                    : `every actionable finding has a disposition — clear this ${copy.noun}`
                 }
                 className={cn(
                   "text-[11px] px-2 py-0.5 rounded font-medium",
@@ -618,7 +735,7 @@ function SidebarHeader({
                     : "closing…"
                   : pendingActionable === 0
                     ? "✓ Clear"
-                    : "Close audit"}
+                    : copy.closeButtonLabel}
               </button>
             )
           ) : null}
@@ -652,6 +769,7 @@ function SidebarHeader({
       {confirmClose ? (
         <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-700">
           <CloseAuditConfirm
+            kind={kind}
             pendingActionable={pendingActionable}
             saving={finalizeSaving}
             initialNotes={report.finalized_notes ?? ""}
@@ -669,12 +787,14 @@ function SidebarHeader({
  *  the audit lifecycle isn't destructive (Reopen restores it), so a
  *  full ConfirmModal would over-weight the action. */
 function CloseAuditConfirm({
+  kind,
   pendingActionable,
   saving,
   initialNotes = "",
   onCancel,
   onConfirm,
 }: {
+  kind: CurationReviewKind;
   pendingActionable: number;
   saving: boolean;
   /** Pre-fill the textarea with the prior close note when the
@@ -684,6 +804,7 @@ function CloseAuditConfirm({
   onCancel: () => void;
   onConfirm: (notes: string) => Promise<void> | void;
 }) {
+  const copy = KIND_COPY[kind];
   const [notes, setNotes] = useState(initialNotes);
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -709,7 +830,7 @@ function CloseAuditConfirm({
       onClick={(e) => e.stopPropagation()}
     >
       <div className="text-[11px] text-slate-700">
-        Close this audit?{" "}
+        {copy.closeConfirmHeader}{" "}
         {pendingActionable > 0 ? (
           <span className="text-amber-800">
             {pendingActionable} actionable finding
@@ -749,7 +870,7 @@ function CloseAuditConfirm({
               : "bg-blue-700 text-white hover:bg-blue-800",
           )}
         >
-          {saving ? "closing…" : "Close audit"}
+          {saving ? "closing…" : copy.closeButtonLabel}
         </button>
       </div>
     </div>
@@ -2230,9 +2351,65 @@ function FactorReplacementHint({
   );
 }
 
-function CompactFindingCard({ finding }: { finding: AuditFinding }) {
-  const [open, setOpen] = useState(false);
+/** Panel-level expansion baseline for the finding cards. One control
+ *  at the top of the sidebar drives every card's body/judgements
+ *  visibility at once — cleaner for proposal review (large list,
+ *  curator triages by reading bodies linearly) than per-card
+ *  chevrons that have to be clicked individually.
+ *
+ *  Cards still hold their own ``cardOpen`` / ``open`` state so the
+ *  legacy per-card chevron + the dot-focus "expand THIS finding"
+ *  behaviour still work; an effect re-seeds the card state whenever
+ *  the panel-level baseline changes. */
+type PanelExpansion = "collapsed" | "expanded" | "fully";
+const PanelExpansionContext = createContext<PanelExpansion>("collapsed");
 
+/** Big, obvious 3-way cycle. Glyph reflects the current state;
+ *  tooltip names the next state so a click is predictable. Sized
+ *  generously — Paul has called out tiny carets twice; the icons
+ *  here are deliberately ``text-2xl`` so they stay readable in the
+ *  sidebar's busy header strip. */
+function PanelExpansionCycleButton({
+  state,
+  onCycle,
+}: {
+  state: PanelExpansion;
+  onCycle: () => void;
+}) {
+  const next: PanelExpansion =
+    state === "collapsed"
+      ? "expanded"
+      : state === "expanded"
+        ? "fully"
+        : "collapsed";
+  const nextLabel =
+    next === "collapsed"
+      ? "collapse all"
+      : next === "expanded"
+        ? "expand all (bodies)"
+        : "expand all + judgements";
+  const glyph =
+    state === "collapsed" ? "▸" : state === "expanded" ? "▾" : "▾▾";
+  const label =
+    state === "collapsed"
+      ? "all cards collapsed"
+      : state === "expanded"
+        ? "all cards expanded (bodies)"
+        : "all cards fully expanded (bodies + judgements)";
+  return (
+    <button
+      type="button"
+      onClick={onCycle}
+      aria-label={`${label} — click to ${nextLabel}`}
+      title={`${label}\n→ click to ${nextLabel}`}
+      className="inline-flex items-center justify-center min-w-[2.25rem] text-2xl leading-none font-bold tracking-tighter px-2 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+    >
+      {glyph}
+    </button>
+  );
+}
+
+function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // Disposition state comes from context (server-authoritative for
   // live reports; in-memory for dev override). The card reads to
   // tint dismissed findings; the action row inside it does the
@@ -2247,21 +2424,23 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   const disposition = dispositionByTarget.get(finding.target_id);
   const currentDisposition = disposition?.status ?? "pending";
 
-  // Card-level collapse, separate from `open` (the agent-details
-  // axis). Pending findings start expanded so the curator's
-  // primary surface is one click away; anything dispositioned
-  // starts collapsed since the verdict's already in. Curator
-  // clicks the fat chevron on the left to toggle either way.
-  // Modelled on MatchFindingRow's `▸/▾` collapse — Paul 2026-05-20:
-  // "make it so proposals can be collapsed, like the ones that are
-  // precollapsed".
-  // Start every card collapsed — pending or dispositioned. Per
-  // Paul 2026-05-21: the audit panel reads cleaner when the
-  // curator opens the audit to a stack of one-line headers and
-  // chooses what to dig into, instead of a wall of pre-opened
-  // editor bodies. Match-row pattern (CONFIRMED MATCHES) has
-  // always defaulted closed; proposal cards now match.
-  const [cardOpen, setCardOpen] = useState(false);
+  // Two boolean axes encode the 3-state card expansion:
+  //   collapsed → cardOpen=false, open=false (title row only)
+  //   expanded  → cardOpen=true,  open=false (body shown, judgements hidden)
+  //   fully     → cardOpen=true,  open=true  (body + judgements)
+  //
+  // Seeded from the panel-level baseline (top-of-sidebar "expand
+  // all" button) and re-seeded whenever the curator cycles that
+  // control. Cards still hold their own state so the legacy fat
+  // chevron + the dot-focus "expand THIS finding" pathway still
+  // work for fine-grained overrides on top of the baseline.
+  const panelExpansion = useContext(PanelExpansionContext);
+  const [cardOpen, setCardOpen] = useState(panelExpansion !== "collapsed");
+  const [open, setOpen] = useState(panelExpansion === "fully");
+  useEffect(() => {
+    setCardOpen(panelExpansion !== "collapsed");
+    setOpen(panelExpansion === "fully");
+  }, [panelExpansion]);
 
   // The auditor's identity ("Agent" / "Gemma" / "amanda" / "cyan")
   // — used to label the agent-details pill so it reads as

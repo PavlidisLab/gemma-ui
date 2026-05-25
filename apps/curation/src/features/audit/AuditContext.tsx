@@ -13,10 +13,12 @@ import {
   usePatchDisposition,
   useReopenAudit,
 } from "@/api/audits";
+import { useProposalReviewsForExperiment } from "@/api/reviewProposals";
 import type {
   AuditFinding,
   AuditFindingDisposition,
   AuditReport,
+  CurationReviewKind,
   DismissReason,
   DispositionStatus,
   Severity,
@@ -60,6 +62,14 @@ const SEVERITY_RANK: Record<Severity, number> = {
 };
 
 interface AuditContextValue {
+  /** Discriminator for the review-kind this provider is wrapping —
+   *  ``"audit"`` (review of existing curation, agent-vs-curator
+   *  framing) or ``"proposal"`` (agent proposes curation from
+   *  scratch, no curator side). Sub-components branch on this for
+   *  framing copy + to hide the side-by-side comparison surface.
+   *  Defaults to ``"audit"`` for back-compat with existing call
+   *  sites. See AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md. */
+  kind: CurationReviewKind;
   /** The experiment this audit belongs to. Surfaced so consumers
    *  (e.g. finding cards needing to address the samples table)
    *  don't have to thread it through props from the Shell. */
@@ -206,11 +216,18 @@ function isOverrideReport(r: AuditReport | null): boolean {
 
 export function AuditProvider({
   experimentId,
+  kind = "audit",
   reviewer = "",
   showAuditSidebar,
   children,
 }: {
   experimentId: number | string;
+  /** Which review kind this provider wraps. ``"audit"`` (default)
+   *  fetches from ``/datasets/{id}/audits``; ``"proposal"`` fetches
+   *  from ``/datasets/{id}/proposals``. The underlying wire shape +
+   *  disposition / finalize machinery is shared — only the source
+   *  endpoint and downstream framing differ. */
+  kind?: CurationReviewKind;
   /** Stamped onto PATCH requests as the disposition's `reviewer`.
    *  Pulled from the session in App.tsx. Empty string is acceptable
    *  for dev (server still records the disposition). */
@@ -220,11 +237,21 @@ export function AuditProvider({
   showAuditSidebar: () => void;
   children: ReactNode;
 }) {
+  // Call both hooks unconditionally to keep hook order stable across
+  // ``kind`` flips; the unused one is gated off via ``enabled`` so
+  // only one HTTP request fires. Same query-key namespace as the
+  // direct callers, so cache + invalidations stay consistent.
+  const audits = useAuditsForExperiment(experimentId, {
+    enabled: kind === "audit",
+  });
+  const proposals = useProposalReviewsForExperiment(experimentId, {
+    enabled: kind === "proposal",
+  });
   const {
     data: liveReports,
     isLoading: liveLoading,
     error: liveError,
-  } = useAuditsForExperiment(experimentId);
+  } = kind === "audit" ? audits : proposals;
   const patchDisposition = usePatchDisposition(experimentId);
   const finalizeAudit = useFinalizeAudit(experimentId);
   const reopenAudit = useReopenAudit(experimentId);
@@ -404,6 +431,7 @@ export function AuditProvider({
   }, [report, reviewer, reopenAudit]);
 
   const value: AuditContextValue = {
+    kind,
     experimentId,
     auditList,
     activeAuditIndex: safeIndex,

@@ -40,7 +40,11 @@ const KEY = {
  *  the most recent item as "the current audit for this experiment".
  *  Disabled when `experimentId` is missing / negative — keeps the
  *  query off until the shell knows which experiment is loaded. */
-export function useAuditsForExperiment(experimentId: number | string) {
+export function useAuditsForExperiment(
+  experimentId: number | string,
+  options: { enabled?: boolean } = {},
+) {
+  const enabled = (options.enabled ?? true) && Boolean(experimentId);
   return useQuery({
     queryKey: KEY.byExperiment(experimentId),
     queryFn: async () => {
@@ -65,7 +69,7 @@ export function useAuditsForExperiment(experimentId: number | string) {
         throw e;
       }
     },
-    enabled: Boolean(experimentId),
+    enabled,
     refetchOnWindowFocus: true,
   });
 }

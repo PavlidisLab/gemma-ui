@@ -686,10 +686,18 @@ function MainGrid({
   // curator's last choice survives experiment switches. Defaults to
   // proposals — that's the established affordance and most curators
   // will land on a fresh proposal first.
-  const [sidebarView, setSidebarView] = useStickyState<"proposals" | "audit">(
-    "sidebar.view",
-    "proposals",
-  );
+  // Three-way sidebar view:
+  //  - ``proposals`` — legacy thin panel; reads ``/curation-proposals``
+  //    (the live preboarding proposer service's output).
+  //  - ``audit`` — rich AuditSidebarPanel over kind=audit reviews
+  //    (already-curated experiments where the agent flagged deltas).
+  //  - ``proposalReview`` — rich AuditSidebarPanel re-used over
+  //    kind=proposal reviews (calibration packages on uncurated /
+  //    preboarded GSEs; same component, branched on kind). See
+  //    AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md.
+  const [sidebarView, setSidebarView] = useStickyState<
+    "proposals" | "audit" | "proposalReview"
+  >("sidebar.view", "proposals");
   // Open the unified dialog. The strip's single button calls this;
   // the dialog gathers tier / scope / notes / etc and calls back into
   // ``submitAgentRun``.
@@ -883,6 +891,19 @@ function MainGrid({
               >
                 Audit
               </ViewToggleButton>
+              {/* Proposal review — rich per-finding chip flow over
+                  kind=proposal CurationReviews. Sources from
+                  /datasets/{id}/proposals (calibration packages /
+                  fresh-GSE preboarding output). Lives next to the
+                  legacy "Proposals" toggle during transition; the
+                  two read different backends and surface different
+                  framing. See AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md. */}
+              <ViewToggleButton
+                active={sidebarView === "proposalReview"}
+                onClick={() => setSidebarView("proposalReview")}
+              >
+                Proposal review
+              </ViewToggleButton>
               <button
                 type="button"
                 className="ml-auto px-2 py-1 rounded border border-slate-200 text-[10px] uppercase tracking-wide font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 inline-flex items-center gap-1"
@@ -924,7 +945,9 @@ function MainGrid({
             title={
               sidebarView === "audit"
                 ? "Open audit findings"
-                : `Open proposals${hasProposals ? ` (${proposalCount} pending)` : ""}`
+                : sidebarView === "proposalReview"
+                  ? "Open proposal review"
+                  : `Open proposals${hasProposals ? ` (${proposalCount} pending)` : ""}`
             }
             className="card lg:flex-1 lg:min-h-[12rem] hover:bg-slate-50 flex flex-col items-center gap-3 py-3 text-slate-600 hover:text-slate-900 transition-colors"
           >
@@ -935,7 +958,11 @@ function MainGrid({
               className="text-[11px] font-semibold tracking-widest uppercase"
               style={{ writingMode: "vertical-rl" }}
             >
-              {sidebarView === "audit" ? "Audit" : "Proposals"}
+              {sidebarView === "audit"
+                ? "Audit"
+                : sidebarView === "proposalReview"
+                  ? "Proposal"
+                  : "Proposals"}
             </span>
             {sidebarView === "proposals" && hasProposals ? (
               <span className="text-[10px] uppercase tracking-wide font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-auto">
@@ -948,6 +975,27 @@ function MainGrid({
         {sidebarOpen ? (
           sidebarView === "audit" ? (
             <AuditSidebarPanel experimentId={experimentId} stream={auditStream} />
+          ) : sidebarView === "proposalReview" ? (
+            // Nested AuditProvider keyed to kind="proposal" so this
+            // panel reads from /datasets/{id}/proposals; the outer
+            // AuditProvider (kind="audit") keeps feeding the inline
+            // dots in the design + samples surfaces. The two
+            // providers don't share state — only the closest one
+            // wins for ``useAudit()`` inside the panel.
+            <AuditProvider
+              experimentId={experimentId}
+              kind="proposal"
+              reviewer={reviewer}
+              showAuditSidebar={() => {
+                setSidebarOpen(true);
+                setSidebarView("proposalReview");
+              }}
+            >
+              <AuditSidebarPanel
+                experimentId={experimentId}
+                stream={auditStream}
+              />
+            </AuditProvider>
           ) : proposalsLoading ? (
             <div className="card p-3 text-xs text-slate-500">
               loading proposals…
@@ -1134,7 +1182,7 @@ function AgentRunButton({
   agentDown,
   onRequest,
 }: {
-  sidebarView: "proposals" | "audit";
+  sidebarView: "proposals" | "audit" | "proposalReview";
   proposalCount: number;
   proposeRunning: boolean;
   auditRunning: boolean;
