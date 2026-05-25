@@ -788,12 +788,16 @@ export function FindingDetailsEditor({
   );
   const [rowState, setRowState] = useState<Map<string, RowState>>(new Map());
   const [saving, setSaving] = useState(false);
-  // Inline "Apply with optional explanation" prompt — replaces the
-  // immediate apply on factor-extra / tag-extra cards so the curator
-  // can attach a note before the disposition (and the draft mutation)
-  // lands. The note rides on the PATCH and goes back to the curation
-  // agent at close-review time. Per Paul 2026-05-25.
+  // Inline "Apply / Reject with optional explanation" prompts —
+  // replace the action row on factor-extra / tag-extra cards so
+  // both verdicts share visual shape, and the curator can attach
+  // a note before the disposition (and any draft mutation) lands.
+  // The note rides on the PATCH and goes back to the curation
+  // agent at close-review time. Per Paul 2026-05-25 (harmonization
+  // pass — proposals now have an explicit Reject affordance
+  // matching Apply).
   const [applyPromptOpen, setApplyPromptOpen] = useState(false);
+  const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
   // Free-text term lookup — when the curator clicks "find ▸" next
   // to an unresolved term in the comparison surface, this captures
   // the label so we can mount an inline ``OntologyTermPicker``
@@ -1366,13 +1370,27 @@ export function FindingDetailsEditor({
         ) : null}
 
         {applyPromptOpen ? (
-          <ApplyWithOptionalNotes
-            primaryLabel={`Add ${identities.proposer}'s factor`}
+          <InlineNotesPrompt
+            primaryLabel="Agree"
             saving={saving}
             onCancel={() => setApplyPromptOpen(false)}
             onConfirm={async (notes) => {
               setApplyPromptOpen(false);
               await runApply(notes);
+            }}
+          />
+        ) : rejectPromptOpen ? (
+          <InlineNotesPrompt
+            primaryLabel="Reject"
+            primaryTone="reject"
+            saving={saving}
+            onCancel={() => setRejectPromptOpen(false)}
+            onConfirm={async (notes) => {
+              setRejectPromptOpen(false);
+              // "currently" verdict on a factor-extra collapses to
+              // status=dismissed via verdictToStructureDetails —
+              // same wire shape the legacy Disagree path used.
+              await dispatchSave("currently", notes);
             }}
           />
         ) : (
@@ -1382,11 +1400,19 @@ export function FindingDetailsEditor({
             buttons={[
               {
                 key: "accept",
-                kind: leanKinds.accept,
-                label: `${actionLbls.adopt} ${identities.proposer}'s factor`,
+                kind: "primary-accept" as const,
+                label: "Agree",
                 onClick: () => setApplyPromptOpen(true),
-                title: `Accept ${identities.proposer}'s proposed factor and add it to the design (optional explanation).`,
-              },
+                title: `Agree with ${identities.proposer}: add the proposed factor to the design (optional explanation).`,
+              } satisfies ActionButton,
+              {
+                key: "reject",
+                kind: "secondary" as const,
+                label: "Reject…",
+                onClick: () => setRejectPromptOpen(true),
+                title:
+                  "Record an explicit rejection (optional explanation). Goes back to the curation agent at close-review time.",
+              } satisfies ActionButton,
             ]}
             onDismiss={onDismiss}
             onPark={onPark}
@@ -1898,13 +1924,24 @@ export function FindingDetailsEditor({
           are dropped (non-application records itself via the
           close-review summary). Per Paul 2026-05-25. */}
       {isTagAddFinding && applyPromptOpen ? (
-        <ApplyWithOptionalNotes
-          primaryLabel={`Add ${identities.proposer}'s tag`}
+        <InlineNotesPrompt
+          primaryLabel="Agree"
           saving={saving}
           onCancel={() => setApplyPromptOpen(false)}
           onConfirm={async (notes) => {
             setApplyPromptOpen(false);
             await dispatchSave("proposal", notes);
+          }}
+        />
+      ) : isTagAddFinding && rejectPromptOpen ? (
+        <InlineNotesPrompt
+          primaryLabel="Reject"
+          primaryTone="reject"
+          saving={saving}
+          onCancel={() => setRejectPromptOpen(false)}
+          onConfirm={async (notes) => {
+            setRejectPromptOpen(false);
+            await dispatchSave("currently", notes);
           }}
         />
       ) : (
@@ -1922,9 +1959,17 @@ export function FindingDetailsEditor({
                   {
                     key: "accept",
                     kind: "primary-accept" as const,
-                    label: `${actionLbls.adopt} ${identities.proposer}'s tag`,
+                    label: "Agree",
                     onClick: () => setApplyPromptOpen(true),
-                    title: `Accept ${identities.proposer}'s proposed tag and add it to the design (optional explanation).`,
+                    title: `Agree with ${identities.proposer}: add the proposed tag to the design (optional explanation).`,
+                  } satisfies ActionButton,
+                  {
+                    key: "reject",
+                    kind: "secondary" as const,
+                    label: "Reject…",
+                    onClick: () => setRejectPromptOpen(true),
+                    title:
+                      "Record an explicit rejection (optional explanation). Goes back to the curation agent at close-review time.",
                   } satisfies ActionButton,
                 ]
             : noActionableDelta
@@ -3918,23 +3963,45 @@ function FreeTextLookup({
   );
 }
 
-/** Inline "Apply this with an optional explanation" prompt that
- *  takes the place of the action row on factor-extra / tag-extra
- *  cards (per Paul 2026-05-25). Textarea accepts free text; empty
- *  is fine — the explanation is optional. Confirm runs the
- *  upstream apply. Cancel re-renders the action row. */
-function ApplyWithOptionalNotes({
+/** Inline optional-explanation prompt — replaces the action row on
+ *  factor-extra / tag-extra cards for both Apply and Reject so the
+ *  two verdicts share visual shape (Paul 2026-05-25 harmonization).
+ *  Textarea accepts free text; empty is fine — the explanation is
+ *  optional. The note rides on the disposition PATCH and goes back
+ *  to the curation agent at close-review time. */
+function InlineNotesPrompt({
   primaryLabel,
+  primaryTone = "accept",
+  placeholder,
   saving,
   onCancel,
   onConfirm,
+  savingLabel,
 }: {
   primaryLabel: string;
+  /** ``"accept"`` = blue (default; Apply path). ``"reject"`` = rose
+   *  (Reject path) so the curator sees the verdict colour-coded
+   *  before they confirm. */
+  primaryTone?: "accept" | "reject";
+  placeholder?: string;
   saving: boolean;
+  /** Optional override for the in-flight button label — defaults
+   *  to "applying…" / "rejecting…" based on tone. */
+  savingLabel?: string;
   onCancel: () => void;
   onConfirm: (notes: string) => void | Promise<void>;
 }) {
   const [notes, setNotes] = useState("");
+  const tonedClass =
+    primaryTone === "reject"
+      ? saving
+        ? "bg-rose-200 text-rose-700 cursor-progress"
+        : "bg-rose-700 text-white hover:bg-rose-800"
+      : saving
+        ? "bg-blue-200 text-blue-700 cursor-progress"
+        : "bg-blue-700 text-white hover:bg-blue-800";
+  const defaultSavingLabel =
+    primaryTone === "reject" ? "rejecting…" : "applying…";
   return (
     <div className="border border-slate-300 dark:border-slate-600 rounded p-2 space-y-2 bg-slate-50 dark:bg-slate-900/60">
       <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-200">
@@ -3947,7 +4014,12 @@ function ApplyWithOptionalNotes({
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         rows={2}
-        placeholder="(optional) why you're applying this — leave blank if no comment"
+        placeholder={
+          placeholder ??
+          (primaryTone === "reject"
+            ? "(optional) why you're rejecting this — leave blank if no comment"
+            : "(optional) why you're applying this — leave blank if no comment")
+        }
         autoFocus
         className="w-full text-[11px] border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 resize-y bg-white dark:bg-slate-900"
       />
@@ -3964,19 +4036,15 @@ function ApplyWithOptionalNotes({
           type="button"
           onClick={() => onConfirm(notes)}
           disabled={saving}
-          className={cn(
-            "text-[11px] px-2 py-0.5 rounded font-semibold",
-            saving
-              ? "bg-blue-200 text-blue-700 cursor-progress"
-              : "bg-blue-700 text-white hover:bg-blue-800",
-          )}
+          className={cn("text-[11px] px-2 py-0.5 rounded font-semibold", tonedClass)}
         >
-          {saving ? "applying…" : primaryLabel}
+          {saving ? (savingLabel ?? defaultSavingLabel) : primaryLabel}
         </button>
       </div>
     </div>
   );
 }
+
 
 function ActionRow({
   saving,
@@ -4056,7 +4124,7 @@ function ActionRow({
               disabled={saving}
               className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
             >
-              Dismiss…
+              Reject…
             </button>
           ) : null}
           <button

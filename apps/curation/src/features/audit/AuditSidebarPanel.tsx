@@ -1398,21 +1398,13 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
   const visibleActionable = actionable.filter(
     (f) => !suppression.isSubsumedByParentFactor(f),
   );
-  const suppressedActionable = actionable.filter((f) =>
-    suppression.isSubsumedByParentFactor(f),
-  );
   const visibleOk = okOnes.filter(
     (f) => !suppression.isSubsumedByParentFactor(f),
-  );
-  const suppressedOk = okOnes.filter((f) =>
-    suppression.isSubsumedByParentFactor(f),
   );
   const visibleMatches = matches.filter(
     (f) => !suppression.isSubsumedByParentFactor(f),
   );
-  const suppressedTotal = suppressedActionable.length + suppressedOk.length;
   const [showOk, setShowOk] = useState(false);
-  const [showSuppressed, setShowSuppressed] = useState(false);
 
   if (findings.length === 0) {
     return null;
@@ -1522,28 +1514,11 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
           </div>
         );
       })()}
-      {suppressedTotal > 0 ? (
-        <>
-          <button
-            type="button"
-            className="w-full text-left text-[11px] px-2 py-1 text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
-            onClick={() => setShowSuppressed((v) => !v)}
-            title="hidden because the parent factor already has a non-ok finding — those typically subsume per-FV concerns"
-          >
-            {showSuppressed
-              ? `▾ hide ${suppressedTotal} FV-level finding${suppressedTotal === 1 ? "" : "s"} under flagged factors`
-              : `▸ show ${suppressedTotal} FV-level finding${suppressedTotal === 1 ? "" : "s"} under flagged factors`}
-          </button>
-          {showSuppressed
-            ? suppressedActionable.map((f) => (
-                <CompactFindingCard
-                  key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
-                  finding={f}
-                />
-              ))
-            : null}
-        </>
-      ) : null}
+      {/* The "show N FV-level findings under flagged factors" toggle
+          retired 2026-05-25 — OK FV confirmations are now nested
+          inside their parent factor card (NestedOkFvConfirmations)
+          and any actionable FV finding rides up to the parent's
+          severity, so the standalone toggle was redundant noise. */}
       {visibleOk.length > 0 ? (
         <button
           type="button"
@@ -1557,14 +1532,6 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
       ) : null}
       {showOk
         ? visibleOk.map((f) => (
-            <CompactFindingCard
-              key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
-              finding={f}
-            />
-          ))
-        : null}
-      {showSuppressed && suppressedOk.length > 0
-        ? suppressedOk.map((f) => (
             <CompactFindingCard
               key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
               finding={f}
@@ -2427,6 +2394,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // tint dismissed findings; the action row inside it does the
   // writes.
   const {
+    kind,
     activeFindingKey,
     setActiveFindingKey,
     dispositionByTarget,
@@ -2692,6 +2660,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           <SeverityBadge
             severity={displaySeverity(finding)}
             glyph={findingActionGlyph(finding)}
+            kind={kind}
           />
         )}
         <span className="flex-1 min-w-0">
@@ -3791,8 +3760,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           disabled={dispositionSaving}
           title={
             judgeWeak
-              ? "judge says close (pick a reason)"
-              : "disagree (pick a reason)"
+              ? "judge says reject (pick a reason)"
+              : "reject this finding (pick a reason)"
           }
           className={cn(
             "rounded font-medium disabled:opacity-50",
@@ -3810,12 +3779,8 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
           )}
         >
           {current === "dismissed"
-            ? judgeWeak
-              ? "✓ dismissed"
-              : "✓ disagreed"
-            : judgeWeak
-              ? "Dismiss…"
-              : "Disagree…"}
+            ? "✓ rejected"
+            : "Reject…"}
         </button>
         <button
           ref={notSureBtnRef}
@@ -5153,6 +5118,7 @@ function displaySeverity(finding: AuditFinding): Severity {
 function SeverityBadge({
   severity,
   glyph,
+  kind,
 }: {
   severity: Severity;
   /** When supplied, the badge renders THIS glyph (e.g. +/−/Δ for
@@ -5161,17 +5127,28 @@ function SeverityBadge({
    *  encodes the action. Per Paul 2026-05-21: "the orange square
    *  should have the +/−/Δ". */
   glyph?: string | null;
+  /** Review kind drives the badge's verbal axis. For ``audit`` the
+   *  finding signals "how broken is this" (severity: blocker /
+   *  major / minor / ok). For ``proposal`` the same axis reads as
+   *  "how confident is the agent in this suggestion" — the data
+   *  doesn't change but the framing does, since a proposal isn't
+   *  flagging an existing problem. Per Paul 2026-05-25
+   *  ("proposals aren't severe; they should be confident, medium
+   *  confident"). */
+  kind?: CurationReviewKind;
 }) {
   const config = {
     blocker: {
       icon: "⛔",
       cls: "bg-rose-600 text-white border border-rose-700",
-      label: "blocker",
+      severityLabel: "blocker",
+      confidenceLabel: "high confidence",
     },
     major: {
       icon: "⚠",
       cls: "bg-amber-500 text-amber-950 border border-amber-600",
-      label: "major",
+      severityLabel: "major",
+      confidenceLabel: "confident",
     },
     minor: {
       // The thin "·" (U+00B7) was illegible even at 14px (Paul
@@ -5181,19 +5158,23 @@ function SeverityBadge({
       // mimicking blocker/major chrome.
       icon: "•",
       cls: "bg-slate-200 text-slate-700 border border-slate-400 dark:bg-slate-700 dark:text-slate-100 dark:border-slate-500",
-      label: "minor",
+      severityLabel: "minor",
+      confidenceLabel: "medium confidence",
     },
     ok: {
       icon: "✓",
       cls: "bg-emerald-600 text-white border border-emerald-700",
-      label: "ok",
+      severityLabel: "ok",
+      confidenceLabel: "noted",
     },
   }[severity];
+  const label =
+    kind === "proposal" ? config.confidenceLabel : config.severityLabel;
   return (
     <StatusBadge
       glyph={glyph || config.icon}
       cls={config.cls}
-      label={`severity: ${config.label}`}
+      label={label}
     />
   );
 }

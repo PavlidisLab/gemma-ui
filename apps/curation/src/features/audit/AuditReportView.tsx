@@ -619,14 +619,10 @@ export function DesignComparisonPanel({
           return true;
         });
         if (globalDecisions.length === 0) return null;
+        const deduped = dedupeSubtaskDecisions(globalDecisions);
         return (
-          <div className="border-t border-slate-100 dark:border-slate-700 px-3 py-2 space-y-1">
-            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 mb-1.5">
-              Subtask analysis
-            </div>
-            {dedupeSubtaskDecisions(globalDecisions).map((d, i) => (
-              <SubtaskDecisionRow key={i} decision={d} />
-            ))}
+          <div className="border-t border-slate-100 dark:border-slate-700">
+            <CollapsibleSubtaskAnalysis decisions={deduped} />
           </div>
         );
       })() : null}
@@ -672,6 +668,48 @@ export function dedupeSubtaskDecisions(decisions: SubtaskDecision[]): SubtaskDec
         ),
     )
     .concat([summary]);
+}
+
+/** Subtask analysis as a collapsed-by-default disclosure. The
+ *  agent's introspection ("S1_design_verdict", "S3_factor_candidate",
+ *  …) is interesting context but a wall of prose when laid out
+ *  inline — Paul 2026-05-25 ("the block of text — help!"). Gate
+ *  behind a small toggle so the curator opts in. */
+function CollapsibleSubtaskAnalysis({
+  decisions,
+}: {
+  decisions: SubtaskDecision[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="px-3 py-2 space-y-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1"
+        title={
+          open
+            ? "hide the agent's per-subtask reasoning"
+            : "show the agent's per-subtask reasoning (S1 / S3 / S11 / etc)"
+        }
+      >
+        <span aria-hidden>{open ? "▾" : "▸"}</span>
+        <span>
+          Subtask analysis
+          <span className="ml-1 normal-case font-normal text-slate-400">
+            ({decisions.length} {decisions.length === 1 ? "row" : "rows"})
+          </span>
+        </span>
+      </button>
+      {open ? (
+        <div className="space-y-1 pt-0.5">
+          {decisions.map((d, i) => (
+            <SubtaskDecisionRow key={i} decision={d} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function SubtaskDecisionRow({ decision }: { decision: SubtaskDecision }) {
