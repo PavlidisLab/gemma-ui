@@ -216,14 +216,19 @@ export function composeCurationDesign(
         name: legacy?.name ?? bma.bio_material_name ?? "",
         characteristics: legacy?.characteristics ?? {},
         characteristic_uris: legacy?.characteristic_uris,
-        bio_assays: legacy?.bio_assays,
+        bio_assays: legacy?.bio_assays
+          ?.filter((a): a is { short_name: string; name?: string | null } =>
+            typeof a.short_name === "string" && a.short_name.length > 0,
+          )
+          .map((a) => ({ short_name: a.short_name, name: a.name ?? "" })),
         source_biomaterial_id: legacy?.source_biomaterial_id ?? null,
       };
     },
   );
 
   return {
-    experiment_id: experimentId,
+    experiment_id:
+      typeof experimentId === "number" ? experimentId : Number(experimentId),
     experiment_short_name: experimentShortName,
     factors,
     biomaterials,

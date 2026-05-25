@@ -1626,6 +1626,9 @@ function SampleTable({
                       // for iffy assignments without expanding each
                       // factor cell's tooltip. For grouped (single-
                       // cell) rows we take the worst across siblings.
+                      // The slot is always rendered (invisible when
+                      // no warning) so the (i) chip lines up across
+                      // rows regardless of which rows are flagged.
                       let worst: "low" | "medium" | undefined;
                       for (const sn of allShortNames) {
                         const c = worstConfBySample.get(sn);
@@ -1635,15 +1638,16 @@ function SampleTable({
                         }
                         if (c === "medium") worst = "medium";
                       }
-                      if (!worst) return null;
-                      const dotCls =
-                        worst === "low"
+                      const dotCls = worst
+                        ? worst === "low"
                           ? "bg-rose-500"
-                          : "bg-amber-500";
-                      const tip =
-                        worst === "low"
+                          : "bg-amber-500"
+                        : "invisible";
+                      const tip = worst
+                        ? worst === "low"
                           ? "low-confidence assignment on this sample — verify before retaining"
-                          : "medium-confidence assignment on this sample — spot-check before retaining";
+                          : "medium-confidence assignment on this sample — spot-check before retaining"
+                        : undefined;
                       return (
                         <span
                           className={cn(
@@ -1659,8 +1663,10 @@ function SampleTable({
                         For grouped (single-cell) rows, the dot
                         anchors to the representative's short_name —
                         consistent with how the dropdown / per-row
-                        edits already fan out across the bucket. */}
-                    <span className="ml-1 align-baseline">
+                        edits already fan out across the bucket.
+                        Fixed-width slot keeps the (i) chip aligned
+                        across rows whether or not a finding exists. */}
+                    <span className="ml-1 inline-block w-2 text-center align-middle">
                       <AuditDot
                         targetId={assignmentTarget(repr.short_name)}
                       />
