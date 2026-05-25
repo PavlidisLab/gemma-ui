@@ -94,13 +94,36 @@ export default defineConfig(({ mode }) => {
         // Order matters — Vite matches in declaration order, so the
         // ontology + diagnostics routing exceptions must come BEFORE
         // the generic ``/rest`` catch-all below.
+        // The ontology routing exceptions go to a real Gemma host
+        // (staging-gemma or gemma-rest 2.0), whose Tomcat CORS
+        // filter 403s any request that carries a non-allowlisted
+        // Origin header — including ``http://localhost:5175`` from
+        // the curator-package browser. Strip Origin + Referer like
+        // every other gemma-rest proxy entry does (see
+        // HANDOFF_CORS_DEV_ORIGIN.md). Caught 2026-05-25: curators
+        // reported the ontology picker broken on both frink and
+        // staging; staging worked fine via curl but 403'd through
+        // the proxy because these two entries were missing the
+        // header-strip configure block.
         "/rest/v2/annotations/search": {
           target: ONTOLOGY_URL,
           changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
         },
         "/rest/v2/annotations/term": {
           target: ONTOLOGY_URL,
           changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
         },
         // Auth endpoints → gemma-rest. Match the browser app's
         // convention so a single sign-in works across both apps and
