@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
+import { useGemmaMode } from "@/lib/gemmaMode";
 
 /** Sentinel returned in place of `AuditEvent[]` when gemma-rest
  *  reports the experiment id isn't accessible. The curation UI
@@ -56,7 +57,9 @@ const KEY = (
   experimentId: number | string,
   compact: boolean,
   excludeEmpty: boolean,
-) => ["audit-events", experimentId, compact, excludeEmpty] as const;
+  mode: string = "remote",
+) =>
+  ["audit-events", experimentId, compact, excludeEmpty, mode] as const;
 
 export function useAuditEvents(
   experimentId: number | string,
@@ -76,8 +79,9 @@ export function useAuditEvents(
     compact = false,
     excludeEmpty = false,
   } = options;
+  const { mode } = useGemmaMode();
   return useQuery<AuditEventsResult>({
-    queryKey: KEY(experimentId, compact, excludeEmpty),
+    queryKey: KEY(experimentId, compact, excludeEmpty, mode),
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("limit", String(limit));
@@ -86,6 +90,26 @@ export function useAuditEvents(
       // them yet is a safe preflight.
       if (compact) params.set("compact", "true");
       if (excludeEmpty) params.set("excludeEmpty", "true");
+      // Local mode: skip the gemma-rest fetch entirely (it will
+      // 404 every time — local_api isn't a Gemma instance) and
+      // read curation-side events from local_api directly. The
+      // "real Gemma audit trail" surface isn't available in local
+      // mode; the panel header annotates that. When the UI flips
+      // to remote / mixed, this branch falls through to the
+      // gemma-rest path below unchanged.
+      if (mode === "local") {
+        try {
+          const raw = await api.get<unknown>(
+            `/local-api/rest/v2/datasets/${experimentId}/auditEvents?${params}`,
+          );
+          return adaptAuditEvents(raw);
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 404) {
+            return AUDIT_NOT_IN_GEMMA;
+          }
+          throw e;
+        }
+      }
       try {
         const raw = await api.get<unknown>(
           `/rest/v2/datasets/${experimentId}/auditEvents?${params}`,

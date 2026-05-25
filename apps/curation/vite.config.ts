@@ -18,6 +18,12 @@ import path from "node:path";
 // svd/loadings) — and for the ontology typeahead via the
 // staging-gemma routing exception (separate upstream).
 //
+// Local-mode UI rule (2026-05-25): in local mode the SVD
+// diagnostics + real Gemma audit-event history surfaces are
+// hidden client-side (useGemmaMode() gate) so the gemma-rest
+// fallback never gets exercised — proxy entries below stay
+// intact for remote / mixed modes.
+//
 // Standalone-dev defaults: local_api listens on :8082, gemma-rest
 // on :8080. In Docker the host-mapped names come from compose env
 // (GEMMA_CURATION_URL → local-api:8000, GEMMA_REST_URL →

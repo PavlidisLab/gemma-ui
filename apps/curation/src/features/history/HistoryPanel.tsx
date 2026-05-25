@@ -5,6 +5,7 @@ import {
   type AuditEvent,
 } from "@/api/history";
 import { experimentAuditTrailUrl } from "@/lib/gemmaUrls";
+import { useGemmaMode } from "@/lib/gemmaMode";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -24,6 +25,7 @@ import { cn } from "@/lib/cn";
  *     empty event_type + null detail
  */
 export function HistoryPanel({ experimentId }: { experimentId: number | string }) {
+  const { mode } = useGemmaMode();
   const [compact, setCompact] = useState(false);
   const [excludeEmpty, setExcludeEmpty] = useState(true);
   // Panel-level "expand all" — when true, every row renders with
@@ -79,6 +81,14 @@ export function HistoryPanel({ experimentId }: { experimentId: number | string }
             ? "loading…"
             : `${rows.length} event${rows.length === 1 ? "" : "s"} · newest first`}
         </span>
+        {mode === "local" ? (
+          <span
+            className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            title="Local mode: only curation-side events (proposals, audit dispositions, design commits) are shown. The full Gemma audit history requires a real Gemma backend."
+          >
+            local · curation events only
+          </span>
+        ) : null}
         <label className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-1 cursor-pointer select-none ml-2">
           <input
             type="checkbox"

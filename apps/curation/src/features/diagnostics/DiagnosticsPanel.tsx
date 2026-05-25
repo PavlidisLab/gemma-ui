@@ -23,6 +23,7 @@ import { SampleCorrelationCard } from "./SampleCorrelationCard";
 import { PcaScreeCard } from "./PcaScreeCard";
 import { PcFactorCard } from "./PcFactorCard";
 import { MeanVarianceCard } from "./MeanVarianceCard";
+import { useGemmaMode } from "@/lib/gemmaMode";
 
 // Temporary opt-in gate (Paul, 2026-05-24): the four panels each hit
 // a separate gemma-rest endpoint that can be heavy. While we're doing
@@ -31,7 +32,32 @@ import { MeanVarianceCard } from "./MeanVarianceCard";
 // gate (render the cards unconditionally) when the bandwidth concern
 // goes away.
 export function DiagnosticsPanel({ experimentId }: { experimentId: number | string }) {
+  const { mode } = useGemmaMode();
   const [fetched, setFetched] = useState(false);
+  // Local mode runs against local_api which doesn't compute SVD /
+  // sample-correlation / mean-variance — those are gemma-rest only.
+  // Render an explicit unavailable state instead of letting the
+  // cards 404 individually. Re-enabled automatically when the UI
+  // points at a real Gemma backend (remote / mixed mode).
+  if (mode === "local") {
+    return (
+      <div className="space-y-3">
+        <div className="card px-4 py-10 flex flex-col items-center justify-center gap-3 text-center">
+          <span className="text-sm text-slate-700 dark:text-slate-200">
+            Diagnostics are not available in local mode.
+          </span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 max-w-md">
+            Sample correlation, PCA scree, PC × factor, and mean-variance
+            are computed by Gemma's preprocessor — they need expression
+            data the local server doesn't carry. Switch to remote mode
+            (or open the experiment in a real Gemma instance) to see
+            these.
+          </span>
+        </div>
+        <PreprocessingMetadataFooter experimentId={experimentId} />
+      </div>
+    );
+  }
   if (!fetched) {
     return (
       <div className="space-y-3">
