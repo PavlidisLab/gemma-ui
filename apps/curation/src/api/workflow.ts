@@ -570,6 +570,40 @@ export function useDeleteGroup() {
   });
 }
 
+/** Finalize a set — stamps ``finalized_at`` server-side. Mirrors
+ *  the per-experiment review finalize lifecycle. Idempotent-refresh:
+ *  re-POST overwrites reviewer + notes + timestamp rather than 409
+ *  (per cab's reply 2026-05-25). */
+export function useFinalizeGroup(groupId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ reviewer, notes }: { reviewer: string; notes?: string }) =>
+      api.post<Group>(`/rest/v2/groups/${groupId}/finalize`, {
+        reviewer,
+        ...(notes ? { notes } : {}),
+      }),
+    onSuccess: (updated) => {
+      qc.setQueryData(KEY.group(groupId), updated);
+      qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
+    },
+  });
+}
+
+/** Reopen a finalized set so it's editable again. Clears
+ *  ``finalized_at`` + ``finalized_by``; preserves ``finalized_notes``
+ *  so a re-finalize dialog can prefill from the prior close. */
+export function useReopenGroup(groupId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ reviewer }: { reviewer: string }) =>
+      api.post<Group>(`/rest/v2/groups/${groupId}/reopen`, { reviewer }),
+    onSuccess: (updated) => {
+      qc.setQueryData(KEY.group(groupId), updated);
+      qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
+    },
+  });
+}
+
 export function useAddGroupMembers(groupId: string) {
   const qc = useQueryClient();
   return useMutation({

@@ -6,6 +6,7 @@
  * Used inside PipelineStatusRow to render both tracks side-by-side.
  */
 import type { AnalysisTrack, CurationTrack, PipelineStep, StepStatus } from "@/api/workflowTypes";
+import { cn } from "@/lib/cn";
 
 // ---------------------------------------------------------------------------
 // Step descriptors
@@ -30,7 +31,11 @@ const CURATION_STEPS: StepDescriptor[] = [
   { key: "tags",           label: "Tags",     title: "Experiment tags" },
   { key: "outlier_review", label: "Outliers", title: "Outlier review" },
   { key: "batch_decision", label: "Batch ✓",  title: "Batch decision" },
-  { key: "audit",          label: "Audit",    title: "Audit" },
+  // Step covers both proposal- and audit-kind reviews on the same
+  // curation_review table. "Review" is the kind-agnostic verb; the
+  // next-task chip on PipelineStatusRow narrows it to "Review
+  // proposal" / "Review audit" using group type. Per Paul 2026-05-25.
+  { key: "audit",          label: "Review",   title: "Curation review (proposal or audit)" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -74,9 +79,16 @@ function formatTs(iso: string | null): string {
 function StepBadge({
   descriptor,
   step,
+  compact = false,
 }: {
   descriptor: StepDescriptor;
   step: PipelineStep;
+  /** Tighter padding + smaller text for list-view rows that pack
+   *  many badges in a single horizontal lane. Per Paul 2026-05-25
+   *  ("the workflow badges are good overall, it can just be more
+   *  compact per-row"). Default off so the legacy callers that
+   *  expected the chunkier render keep working unchanged. */
+  compact?: boolean;
 }) {
   const tooltip = [
     descriptor.title,
@@ -90,7 +102,7 @@ function StepBadge({
   return (
     <span
       title={tooltip}
-      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ring-1 ring-inset cursor-default select-none whitespace-nowrap ${badgeClass(step.status)}`}
+      className={`inline-flex items-center gap-0.5 ${compact ? "px-1 py-0 text-[9px]" : "px-1.5 py-0.5 text-[10px]"} rounded font-medium ring-1 ring-inset cursor-default select-none whitespace-nowrap ${badgeClass(step.status)}`}
     >
       <span className="opacity-70">{statusSymbol(step.status)}</span>
       {descriptor.label}
@@ -102,31 +114,53 @@ function StepBadge({
 // Public component
 // ---------------------------------------------------------------------------
 
-export function AnalysisTrackStrip({ track }: { track: AnalysisTrack }) {
+export function AnalysisTrackStrip({
+  track,
+  compact = false,
+}: {
+  track: AnalysisTrack;
+  compact?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-1 flex-wrap">
-      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide w-14 shrink-0">
+    <div className={cn("flex items-center flex-wrap", compact ? "gap-0.5" : "gap-1")}>
+      <span
+        className={cn(
+          "font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide shrink-0",
+          compact ? "text-[9px] w-12" : "text-[10px] w-14",
+        )}
+      >
         Analysis
       </span>
       {ANALYSIS_STEPS.map((d) => {
         const step = track?.[d.key as keyof AnalysisTrack];
         if (!step) return null;
-        return <StepBadge key={d.key} descriptor={d} step={step} />;
+        return <StepBadge key={d.key} descriptor={d} step={step} compact={compact} />;
       })}
     </div>
   );
 }
 
-export function CurationTrackStrip({ track }: { track: CurationTrack }) {
+export function CurationTrackStrip({
+  track,
+  compact = false,
+}: {
+  track: CurationTrack;
+  compact?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-1 flex-wrap">
-      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide w-14 shrink-0">
+    <div className={cn("flex items-center flex-wrap", compact ? "gap-0.5" : "gap-1")}>
+      <span
+        className={cn(
+          "font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide shrink-0",
+          compact ? "text-[9px] w-12" : "text-[10px] w-14",
+        )}
+      >
         Curation
       </span>
       {CURATION_STEPS.map((d) => {
         const step = track?.[d.key as keyof CurationTrack];
         if (!step) return null;
-        return <StepBadge key={d.key} descriptor={d} step={step} />;
+        return <StepBadge key={d.key} descriptor={d} step={step} compact={compact} />;
       })}
     </div>
   );

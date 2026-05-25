@@ -1,29 +1,27 @@
 /**
  * Curator dashboard — the curation app's landing surface.
  *
- * Replaces the legacy nav strip ``proposals · audits · workflow`` +
- * raw experiment table. Surfaces **tickets** (Gemma 2.0's curator
- * work-item concept; see ``ubic.gemma.model.common.auditAndSecurity.
- * curation.Ticket``) as the primary content — each ticket is a
- * scoped piece of work the curator can pick up (a calibration batch,
- * a GEO scrape batch, a batch-info-needed flag, …).
+ * Reordered 2026-05-25 (Paul: "needs a brushup since some of that
+ * is mock"). The dashboard now surfaces real work first, mock /
+ * preview surfaces last, with each section clearly labeled when
+ * the backend underneath is aspirational.
  *
  * Sections (top → bottom):
- *  1. Your active tickets — ``useMyTickets()``; cards click through
- *     to the targeted experiment(s).
+ *  1. Your sets — ``useGroups()``; each card surfaces the set's
+ *     ``task_kind`` ("Review proposals" / "Audit existing
+ *     curation" / etc) prominently so the curator sees what the
+ *     set is FOR before opening it. Real backend (local-api).
  *  2. Find / import — the existing "Import from Gemma" search.
- *  3. All experiments — a link out to ``#/all-experiments`` (the
- *     legacy table is still accessible there for the
- *     browse-everything case).
- *
- * Ticket backend is mocked (see ``api/tickets.ts``). When local-api
- * exposes /rest/v2/tickets, swap the hook implementation and this
- * surface keeps working unchanged.
+ *  3. Tickets (preview) — ``useMyTickets()`` is still mocked
+ *     (``api/tickets.ts:MOCK_TICKETS``). Surface kept as a
+ *     visual model preview, clearly labeled mock; will switch to
+ *     real data when local-api exposes /rest/v2/tickets.
+ *  4. All data — link out to all-experiments table + cross-
+ *     experiment inboxes.
  */
 import { useState } from "react";
 import { useImportFromGemma, useGemmaSearch, type GemmaDatasetHit } from "@/api/datasets";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
-import { useLogout } from "@/api/session";
 import {
   useMyTickets,
   ticketTypeLabel,
@@ -36,9 +34,13 @@ import {
 import { useGroups } from "@/api/workflow";
 import type { Group, GroupType } from "@/api/workflowTypes";
 import { navigate, workflowRoute } from "@/routes";
-import { ModeChip } from "@/components/ui/ModeChip";
-import { HealthChip } from "@/components/ui/HealthChip";
+import { SetProgressBar } from "@/components/ui/SetProgressBar";
+import { progressFromGroup } from "@/features/workflow/setProgress";
+import { readDirtyExperimentIds } from "@/features/design/draftCache";
+import { useMemo } from "react";
 import { cn } from "@/lib/cn";
+import { taskKindHeaderLabel } from "@/features/workflow/nextTask";
+import { AppHeader } from "@/components/ui/AppHeader";
 
 export function CuratorDashboard({
   reviewer,
@@ -47,7 +49,6 @@ export function CuratorDashboard({
   reviewer: string;
   onSelect: (experimentId: number | string) => void;
 }) {
-  const logout = useLogout();
   const { data: tickets, isLoading: ticketsLoading } = useMyTickets();
   const sortedTickets = (tickets ?? []).slice().sort((a, b) => {
     const pa = ticketPriorityRank(a.priority);
@@ -58,44 +59,38 @@ export function CuratorDashboard({
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="mx-auto w-full max-w-[1800px] px-4 py-2 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold">Gemma</span>
-            <span className="text-xs text-slate-400">/</span>
-            <span className="text-sm text-slate-600 dark:text-slate-300">
-              Curation
-            </span>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
-            <span>
-              signed in as <span className="font-medium">{reviewer}</span>
-            </span>
-            <ModeChip />
-            <HealthChip />
-            <button
-              type="button"
-              className="text-slate-500 hover:text-slate-900 underline dark:text-slate-400 dark:hover:text-slate-100"
-              onClick={() => logout.mutate()}
-            >
-              sign out
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppHeader reviewer={reviewer} />
 
       <main className="mx-auto w-full max-w-[1400px] px-4 py-6 flex-1 space-y-6">
+        {/* Sets first — this is the real workflow surface. Sets carry
+            the curator's actual job (review proposals, audit, curate
+            from scratch); tickets below are still mocked. */}
+        <SetsSection onOpenWorkflow={() => navigate(workflowRoute())} />
+
+        <ImportFromGemmaBar onImported={onSelect} />
+
+        {/* Tickets — still mock data (api/tickets.ts:MOCK_TICKETS). Kept
+            visible so the visual model is reviewable, but clearly
+            labeled so the curator doesn't expect the tickets to be
+            real work yet. Will switch to live data when local-api
+            exposes /rest/v2/tickets. */}
         <section>
-          <header className="flex items-baseline justify-between gap-2 mb-2">
-            <h1 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-              Your active tickets
-            </h1>
+          <header className="flex items-baseline justify-between gap-2 mb-2 flex-wrap">
+            <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              Tickets
+              <span
+                className="text-[9px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200 border border-violet-300 dark:border-violet-700"
+                title="ticket data shown here is from a placeholder fixture; the real /rest/v2/tickets endpoint isn't wired yet"
+              >
+                preview · mock data
+              </span>
+            </h2>
             <span className="text-xs text-slate-500 dark:text-slate-400">
               {ticketsLoading
                 ? "loading…"
                 : sortedTickets.length === 0
-                  ? "no open work assigned"
-                  : `${sortedTickets.length} open`}
+                  ? "—"
+                  : `${sortedTickets.length} in fixture`}
             </span>
           </header>
           {ticketsLoading ? (
@@ -104,16 +99,7 @@ export function CuratorDashboard({
             </div>
           ) : sortedTickets.length === 0 ? (
             <div className="card p-6 text-sm text-slate-500">
-              No active tickets. Import an experiment below to begin, or
-              browse the full catalog in{" "}
-              <button
-                type="button"
-                className="text-blue-700 hover:underline"
-                onClick={() => navigate("#/all-experiments")}
-              >
-                all experiments
-              </button>
-              .
+              No tickets in the fixture.
             </div>
           ) : (
             <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -125,10 +111,6 @@ export function CuratorDashboard({
             </ul>
           )}
         </section>
-
-        <SetsSection onOpenWorkflow={() => navigate(workflowRoute())} />
-
-        <ImportFromGemmaBar onImported={onSelect} />
 
         <section>
           <header className="flex items-baseline justify-between gap-2 mb-2">
@@ -180,33 +162,74 @@ export function CuratorDashboard({
 
 /** Workflow-group "sets" the curator can work through. Each set
  *  groups experiments by some shared concern — screening batch, a
- *  pipeline stage, a review queue. Reads ``useGroups()`` (Gemma
- *  2.0's groups REST) and surfaces them as click-through cards.
+ *  pipeline stage, a review queue.
  *
- *  ``screening`` / ``pipeline`` / ``review`` group types live
- *  side by side; the curator picks. Empty state links straight
- *  to the workflow manager so a new set can be created. */
+ *  Scale: defaults to top ``VISIBLE_LIMIT`` sets sorted by
+ *  recency. The rest are reachable via "Show all" → workflow
+ *  manager. Doesn't scale past O(thousands) on the client — the
+ *  workflow page is the right surface for browse-all. Per Paul
+ *  2026-05-25 ("1000 will not scale, not even 5 will scale").
+ *
+ *  Sort: ``created_at`` desc (newest first) — proxy for "new
+ *  + in-progress" until the group list endpoint grows aggregate
+ *  status counts (handoff filed, see GROUP_LIST_STATUS_COUNTS).
+ *  Once that lands, sort flips to "open work first, done last." */
+const VISIBLE_LIMIT = 9;
+
 function SetsSection({
   onOpenWorkflow,
 }: {
   onOpenWorkflow: () => void;
 }) {
-  // ``useGroups`` falls back gracefully when the backend doesn't
-  // expose ``/rest/v2/groups`` (older agents) — the hook returns
-  // undefined data + an error, which we surface as a "not
-  // available" hint rather than a broken section.
   const { data: groups, isLoading, error } = useGroups();
+  const sorted = useMemo(() => {
+    if (!groups) return [] as Group[];
+    // Three-key sort, applied top→bottom:
+    //   1. NOT-finalized sets first (finalized_at == null wins).
+    //      Done work bubbles to the bottom of the dashboard.
+    //   2. Within each finalize bucket, open-work-first:
+    //      (in_progress + untouched) DESC, so sets with the most
+    //      actionable work surface earliest.
+    //   3. Tie-break by created_at DESC (newest first) — keeps
+    //      sets without status counts (older backends) sorted
+    //      sensibly.
+    return [...groups].sort((a, b) => {
+      const aFin = a.finalized_at ? 1 : 0;
+      const bFin = b.finalized_at ? 1 : 0;
+      if (aFin !== bFin) return aFin - bFin;
+      const aOpen =
+        (a.member_status_counts?.in_progress ?? 0) +
+        (a.member_status_counts?.untouched ?? 0);
+      const bOpen =
+        (b.member_status_counts?.in_progress ?? 0) +
+        (b.member_status_counts?.untouched ?? 0);
+      if (aOpen !== bOpen) return bOpen - aOpen;
+      const ta = a.created_at ? Date.parse(a.created_at) : 0;
+      const tb = b.created_at ? Date.parse(b.created_at) : 0;
+      return tb - ta;
+    });
+  }, [groups]);
+  const visible = sorted.slice(0, VISIBLE_LIMIT);
+  const overflow = sorted.length - visible.length;
+
   return (
     <section>
       <header className="flex items-baseline justify-between gap-2 mb-2">
         <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
           Sets
+          {sorted.length > 0 ? (
+            <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">
+              {visible.length === sorted.length
+                ? `${sorted.length}`
+                : `showing ${visible.length} of ${sorted.length}`}
+            </span>
+          ) : null}
         </h2>
         <button
           type="button"
           className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 underline-offset-2 hover:underline"
           onClick={onOpenWorkflow}
-          title="Open the workflow manager"
+          title="Open the workflow manager — browse all sets, sort, filter"
         >
           manage →
         </button>
@@ -232,19 +255,45 @@ function SetsSection({
           </button>
         </div>
       ) : (
-        <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {groups.map((g) => (
-            <li key={g.id}>
-              <SetCard group={g} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {visible.map((g) => (
+              <li key={g.id}>
+                <SetCard group={g} />
+              </li>
+            ))}
+          </ul>
+          {overflow > 0 ? (
+            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {overflow} more set{overflow === 1 ? "" : "s"} not shown.{" "}
+              <button
+                type="button"
+                className="text-blue-700 hover:underline"
+                onClick={onOpenWorkflow}
+              >
+                Browse all in workflow →
+              </button>
+            </div>
+          ) : null}
+        </>
       )}
     </section>
   );
 }
 
 function SetCard({ group }: { group: Group }) {
+  // Task-kind is the headline — answers "what's the curator's job
+  // on this set?" before they have to click in. Falls back to
+  // group.type-derived label when task_kind isn't populated
+  // (backend pre-dating SET_TASK_KIND_HANDOFF; current state).
+  const taskLabel = taskKindHeaderLabel(group.task_kind, group.type);
+  // Server-aggregated ``member_status_counts`` lands directly on
+  // the group payload (bro 2026-05-25, GROUP_FINALIZE_AND_LIST_
+  // STATUS_REPLY). No per-card fetch needed; the dashboard now
+  // scales to thousands of sets in one round-trip.
+  const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), []);
+  const counts = progressFromGroup(group, dirtyDraftIds);
+  const isFinalized = !!group.finalized_at;
   return (
     <button
       type="button"
@@ -252,12 +301,23 @@ function SetCard({ group }: { group: Group }) {
       className="card text-left w-full p-3 space-y-1.5 hover:shadow-md transition-shadow"
       title={group.description || `Open set "${group.name}"`}
     >
-      <div className="flex items-center gap-2">
-        <SetTypePill type={group.type} />
+      {/* Headline: task-kind chip (prominent), member count secondary. */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span
+          className="text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-100"
+          title={
+            group.task_kind
+              ? `Set task: ${group.task_kind}`
+              : "Set task derived from group type (no explicit task_kind set)"
+          }
+        >
+          {taskLabel}
+        </span>
         <span className="text-[10px] text-slate-400 dark:text-slate-500">
-          {group.member_count} member{group.member_count === 1 ? "" : "s"}
+          {group.member_count} experiment{group.member_count === 1 ? "" : "s"}
         </span>
       </div>
+      {/* Set name — what the curator opens. */}
       <div className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
         {group.name}
       </div>
@@ -266,8 +326,25 @@ function SetCard({ group }: { group: Group }) {
           {group.description}
         </div>
       ) : null}
-      <div className="text-[10px] text-slate-400 dark:text-slate-500">
-        by {group.created_by || "—"}
+      {/* Progress bar — compact + caption-less; tooltip carries the
+          full breakdown. Reads server-aggregated counts directly
+          off the group payload, no extra fetch. */}
+      <SetProgressBar counts={counts} size="compact" />
+      {isFinalized ? (
+        <div className="text-[10px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+          <span aria-hidden>✓</span>
+          finalized
+          {group.finalized_by ? (
+            <span className="text-slate-400 dark:text-slate-500">
+              · by {group.finalized_by}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {/* Coarse type + creator — backup metadata, smaller font. */}
+      <div className="flex items-center gap-2 text-[10px] text-slate-400 dark:text-slate-500">
+        <SetTypePill type={group.type} />
+        <span>by {group.created_by || "—"}</span>
       </div>
     </button>
   );

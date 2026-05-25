@@ -6,13 +6,25 @@
  * search, filter, sort, and pagination. 50 rows per page. Pipeline
  * status is loaded in one bulk request per page.
  */
-import { useGroup, usePipelineStatusBulk, useDatasetsPaginated } from "@/api/workflow";
+import {
+  useGroup,
+  usePipelineStatusBulk,
+  useDatasetsPaginated,
+  useFinalizeGroup,
+  useReopenGroup,
+} from "@/api/workflow";
 import { useMemo, useState } from "react";
 import { PipelineStatusRow } from "./PipelineStatusRow";
 import { useMe } from "@/api/session";
 import { useToast } from "@/components/ui/Toast";
 import { exportSetAsGzip } from "./exportSet";
 import type { Group } from "@/api/workflowTypes";
+import { readDirtyExperimentIds } from "@/features/design/draftCache";
+import { useMyTickets } from "@/api/tickets";
+import { taskKindHeaderLabel } from "./nextTask";
+import { SetProgressBar } from "@/components/ui/SetProgressBar";
+import { progressFromGroup } from "./setProgress";
+import { cn } from "@/lib/cn";
 
 const PAGE_SIZE = 50;
 
@@ -214,6 +226,174 @@ function ExportSetButton({ group }: { group: Group }) {
 }
 
 // ---------------------------------------------------------------------------
+// Finalize / Reopen set
+// ---------------------------------------------------------------------------
+
+/** Set-level lifecycle button — flips ``Group.finalized_at`` via
+ *  POST /groups/{id}/finalize. Reads the current state from the
+ *  Group payload: if not finalized, shows "Finalize set" (slate);
+ *  if finalized, shows "Reopen" (slate) + a small "finalized
+ *  YYYY-MM-DD" inline indicator next to it. Idempotent-refresh on
+ *  re-finalize per the server contract — clicking Finalize on a
+ *  finalized set isn't possible from this UI (button toggles to
+ *  Reopen instead). */
+function FinalizeSetButton({ group }: { group: Group }) {
+  const { data: me } = useMe();
+  const reviewer = me?.username || me?.full_name || "unknown";
+  const toast = useToast();
+  const finalize = useFinalizeGroup(group.id);
+  const reopen = useReopenGroup(group.id);
+  const [confirming, setConfirming] = useState<"finalize" | null>(null);
+  const [notes, setNotes] = useState("");
+  const isFinalized = !!group.finalized_at;
+  const saving = finalize.isPending || reopen.isPending;
+
+  function doFinalize() {
+    finalize.mutate(
+      { reviewer, notes: notes.trim() || undefined },
+      {
+        onSuccess: () => {
+          setConfirming(null);
+          setNotes("");
+          toast.show("Set finalized.", "success");
+        },
+        onError: (err) => {
+          toast.show(
+            `Couldn't finalize set: ${(err as Error).message}`,
+            "danger",
+            6000,
+          );
+        },
+      },
+    );
+  }
+
+  function doReopen() {
+    reopen.mutate(
+      { reviewer },
+      {
+        onSuccess: () => {
+          toast.show("Set reopened.", "success");
+        },
+        onError: (err) => {
+          toast.show(
+            `Couldn't reopen set: ${(err as Error).message}`,
+            "danger",
+            6000,
+          );
+        },
+      },
+    );
+  }
+
+  if (isFinalized) {
+    return (
+      <div className="flex items-center gap-2">
+        <span
+          className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1"
+          title={
+            group.finalized_at
+              ? `finalized ${group.finalized_at}${group.finalized_by ? ` by ${group.finalized_by}` : ""}${group.finalized_notes ? ` — ${group.finalized_notes}` : ""}`
+              : "finalized"
+          }
+        >
+          <span aria-hidden>✓</span> finalized
+        </span>
+        <button
+          type="button"
+          onClick={doReopen}
+          disabled={saving}
+          title="Reopen this set so members can be re-edited. Per-experiment reviews stay as they are."
+          className={cn(
+            "shrink-0 text-xs font-medium px-3 py-1 rounded-md border",
+            saving
+              ? "border-slate-300 bg-slate-100 text-slate-500 cursor-progress dark:border-slate-600 dark:bg-slate-800"
+              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
+          )}
+        >
+          {saving ? "reopening…" : "Reopen"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirming("finalize")}
+        disabled={saving || group.member_count === 0}
+        title={
+          group.member_count === 0
+            ? "this set has no members"
+            : "Mark this set as done. Members stay editable individually; the set just marks 'I'm done with this grouping.'"
+        }
+        className={cn(
+          "shrink-0 text-sm font-medium px-3 py-2 rounded-md border",
+          saving
+            ? "border-emerald-300 bg-emerald-100 text-emerald-700 cursor-progress dark:border-emerald-700 dark:bg-emerald-900/40"
+            : "border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:bg-slate-800 dark:text-emerald-300 dark:hover:bg-emerald-900/30 disabled:opacity-50 disabled:cursor-not-allowed",
+        )}
+      >
+        Finalize set
+      </button>
+      {confirming === "finalize" ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !saving) setConfirming(null);
+          }}
+        >
+          <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-4 space-y-3">
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Finalize set "{group.name}"?
+            </h2>
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              Marks this set as done. Members stay editable
+              individually — finalize is curator intent on the
+              grouping, not a lock on the per-experiment reviews.
+              Reopen any time.
+            </p>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="optional finalize note (handoff context, what's left, etc.)"
+              className="w-full text-xs border border-slate-300 dark:border-slate-600 dark:bg-slate-800 rounded px-2 py-1.5 resize-y"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirming(null)}
+                disabled={saving}
+                className="text-xs px-3 py-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50"
+              >
+                cancel
+              </button>
+              <button
+                type="button"
+                onClick={doFinalize}
+                disabled={saving}
+                className={cn(
+                  "text-xs px-3 py-1 rounded font-semibold",
+                  saving
+                    ? "bg-emerald-200 text-emerald-700 cursor-progress dark:bg-emerald-900/40 dark:text-emerald-200"
+                    : "bg-emerald-600 text-white hover:bg-emerald-700",
+                )}
+              >
+                {saving ? "finalizing…" : "Finalize"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -223,7 +403,11 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
   const [sort, setSort] = useState<SortKey>("-lastUpdated");
   const [offset, setOffset] = useState(0);
 
-  const { data: group } = useGroup(groupId ?? null);
+  // ``includeSummaries`` so the header progress bar can roll up
+  // per-member audit_status without an extra round trip.
+  const { data: group } = useGroup(groupId ?? null, {
+    includeSummaries: true,
+  });
 
   // Group-scoped view: pass member IDs as comma-separated ids param.
   const groupIds = useMemo(() => {
@@ -246,6 +430,18 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
   const total = page?.total_elements ?? 0;
 
   const { data: statusMap = {} } = usePipelineStatusBulk(rows.map((r) => r.id));
+
+  // Curator-side signals layered onto each row. Both are cheap:
+  // - ``dirtyDraftIds``: one localStorage scan (no network). Keyed
+  //   on the page's row list so it recomputes when the page
+  //   changes; the popover-style "open + close" doesn't apply
+  //   here (we're a persistent panel), so consider refining if
+  //   curator commits a draft and expects the dot to flip without
+  //   a route change.
+  // - ``tickets``: cached by useMyTickets's query, shared with the
+  //   curator dashboard.
+  const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), [rows]);
+  const { data: tickets } = useMyTickets();
 
   // For group-scoped views, the member_ids carry the prefix form
   // (`preboarding:1` vs bare `91188`). The /datasets rows ship the
@@ -283,8 +479,20 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
       {/* Header */}
       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+          <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2 flex-wrap">
             {heading}
+            {group ? (
+              <span
+                className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200"
+                title={
+                  group.task_kind
+                    ? `Set task: ${group.task_kind}`
+                    : "Set task derived from group type (no explicit task_kind set)"
+                }
+              >
+                {taskKindHeaderLabel(group.task_kind, group.type)}
+              </span>
+            ) : null}
             {isFetching && (
               <span className="text-[10px] text-slate-400 dark:text-slate-600 font-normal">
                 refreshing…
@@ -296,8 +504,22 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
               {group.type} · {group.member_count} experiment{group.member_count !== 1 ? "s" : ""}
             </p>
           )}
+          {group ? (
+            <div className="mt-2 max-w-md">
+              <SetProgressBar
+                counts={progressFromGroup(group, dirtyDraftIds)}
+                size="regular"
+                showCaption
+              />
+            </div>
+          ) : null}
         </div>
-        {group ? <ExportSetButton group={group} /> : null}
+        {group ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <FinalizeSetButton group={group} />
+            <ExportSetButton group={group} />
+          </div>
+        ) : null}
       </div>
 
       <FilterBar
@@ -331,6 +553,10 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
             // available; falls back to the dataset's numeric id (the
             // non-group / global queue view).
             navId={memberIdByNumericId.get(d.id) ?? String(d.id)}
+            hasLocalDraft={dirtyDraftIds.has(String(d.id))}
+            tickets={tickets ?? null}
+            groupType={group?.type}
+            groupTaskKind={group?.task_kind ?? null}
           />
         ))}
       </div>

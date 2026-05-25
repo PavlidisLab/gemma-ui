@@ -1,14 +1,39 @@
 /**
- * One experiment row in the workflow queue. Shows accession + title,
- * both pipeline tracks (analysis + curation), and key flags (troubled,
- * needs attention, public, GEEQ scores).
+ * One experiment row in the workflow queue.
  *
- * Clicking the row navigates to the experiment. Clicking a specific
- * track badge could navigate to the relevant tab (future enhancement).
+ * Compact two-row layout:
+ *
+ *   ●  GSE271616.1  STAT5B-driven mouse model of hepatosplenic γδ T...    [private] [troubled?] [Q 80%]
+ *      ▶ Review proposal   |   a: ✓MV ✓Batch ✓Proc ✓DEA ✓Diag   c: ✓Design ✓Tags ○Outliers ✓Batch ✓Audit
+ *
+ * - **StatusDisc** mirrors the set-navigator dot (untouched / draft /
+ *   uncommitted / done), composed from `audit_status` + the
+ *   curator's localStorage draft cache.
+ * - **Next-task chip** (left of pipeline strips) surfaces the
+ *   immediate work — an assigned ticket wins, otherwise the first
+ *   not-OK pipeline step (curation before analysis). Tone-coded:
+ *   rose = failed/urgent, amber = needs attention, blue = active,
+ *   slate = todo. See ``nextTask.ts``.
+ * - **Workflow strips** keep the badge text Paul liked but tighter
+ *   (compact prop on PipelineTrackStrip).
+ * - **Right-side flags** — troubled / needs-attention / public-or-
+ *   private / GEEQ pills — surface per-row signals without
+ *   competing with the next-task chip for the eye.
+ *
+ * Clicking the row navigates to the experiment.
  */
-import type { ExperimentPipelineStatus, WorkflowDatasetRow } from "@/api/workflowTypes";
+import type {
+  ExperimentPipelineStatus,
+  GroupTaskKind,
+  GroupType,
+  WorkflowDatasetRow,
+} from "@/api/workflowTypes";
+import type { Ticket } from "@/api/tickets";
 import { experimentRoute, navigate } from "@/routes";
+import { cn } from "@/lib/cn";
 import { AnalysisTrackStrip, CurationTrackStrip } from "./PipelineTrackStrip";
+import { StatusDisc, type StatusDiscTone } from "@/components/ui/StatusDisc";
+import { deriveNextTask, nextTaskToneCls } from "./nextTask";
 
 function GeeqPill({ score, label }: { score: number | null; label: string }) {
   if (score === null || typeof score !== "number" || !Number.isFinite(score)) return null;
@@ -26,29 +51,95 @@ function GeeqPill({ score, label }: { score: number | null; label: string }) {
   );
 }
 
+/** Compose the row-level StatusDisc tone.
+ *
+ *  Same semantics as the progress bar (per Paul 2026-05-25):
+ *  - done       = review closed AND no uncommitted local draft
+ *  - uncommitted = curator has touched but not finished —
+ *                  local draft is the only client-side signal
+ *                  for "started" until bro lands has_curator_
+ *                  activity on the server
+ *  - draft      = unused at the row level for now; the
+ *                 "draft" tone is reserved for "started but no
+ *                 local edits yet" which we can't detect today
+ *  - untouched  = no curator activity, regardless of whether
+ *                 the agent has created a proposal row */
+function rowDiscTone(
+  status: ExperimentPipelineStatus | undefined,
+  hasLocalDraft: boolean,
+): StatusDiscTone {
+  const auditStatus = status?.curation?.audit?.status;
+  // Closed + draft = uncommitted leftover work (yellow).
+  if (auditStatus === "ok" && !hasLocalDraft) return "done";
+  if (hasLocalDraft) return "uncommitted";
+  // No local draft, not closed → curator hasn't touched yet.
+  return "untouched";
+}
+
+function rowDiscTitle(
+  status: ExperimentPipelineStatus | undefined,
+  hasLocalDraft: boolean,
+): string {
+  const auditStatus = status?.curation?.audit?.status;
+  if (auditStatus === "ok" && !hasLocalDraft) return "review closed";
+  if (auditStatus === "ok" && hasLocalDraft) {
+    return "review closed but uncommitted local changes remain";
+  }
+  if (hasLocalDraft) return "uncommitted local changes";
+  if (auditStatus === "in_progress") {
+    return "proposal exists but not yet touched";
+  }
+  if (auditStatus === "needs_attention" || auditStatus === "failed") {
+    return "review needs attention";
+  }
+  return "untouched — no review yet";
+}
+
 export function PipelineStatusRow({
   dataset,
   status,
   groupContext,
   navId,
+  hasLocalDraft = false,
+  tickets,
+  groupType,
+  groupTaskKind,
 }: {
   dataset: WorkflowDatasetRow;
   status: ExperimentPipelineStatus | undefined;
-  /** When the queue is rendered inside a specific Group (workflow
-   *  page anchored on a group id), forward that as ``?group=<id>``
-   *  on the experiment-page link so the inline prev/next nav cluster
-   *  on the experiment banner anchors to the same set the curator
-   *  was browsing. Undefined for the global queue (no anchor). */
   groupContext?: string;
-  /** Opaque identifier to navigate to — the original member_id from
-   *  the group when in a group context (preserves ``preboarding:N``
-   *  prefix). Falls back to the dataset's numeric id otherwise. */
   navId?: string;
+  /** Curator-side "uncommitted draft in localStorage" signal —
+   *  passed in from the parent so we don't re-scan localStorage
+   *  per row. See ``readDirtyExperimentIds`` in
+   *  ``features/design/draftCache.ts``. */
+  hasLocalDraft?: boolean;
+  /** Curator's open / in-progress tickets. Used to derive the
+   *  next-task chip when a ticket targets this experiment. */
+  tickets?: Ticket[] | null;
+  /** The set's group type. Coarse fallback for next-task chip
+   *  labeling when ``groupTaskKind`` isn't set. */
+  groupType?: GroupType;
+  /** The set's fine-grained task classifier (per
+   *  ``SET_TASK_KIND_HANDOFF.md``). Preferred over ``groupType``
+   *  when present — ``review_proposal`` → "Review proposal",
+   *  ``audit_existing`` → "Review audit", etc. */
+  groupTaskKind?: GroupTaskKind | null;
 }) {
   const accession = dataset.short_name || String(dataset.id);
   const title = dataset.name;
   const goTo = () =>
     navigate(experimentRoute(navId ?? String(dataset.id), undefined, groupContext));
+
+  const discTone = rowDiscTone(status, hasLocalDraft);
+  const discTitle = rowDiscTitle(status, hasLocalDraft);
+  const nextTask = deriveNextTask(
+    dataset.id,
+    status,
+    tickets,
+    groupType,
+    groupTaskKind,
+  );
 
   return (
     <div
@@ -58,56 +149,98 @@ export function PipelineStatusRow({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") goTo();
       }}
-      className="group flex flex-col gap-1.5 px-4 py-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 transition-colors"
+      className="group px-4 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 transition-colors"
     >
-      {/* Header row: accession + title + flags */}
-      <div className="flex items-start justify-between gap-3 min-w-0">
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-300 shrink-0">
-            {accession}
-          </span>
-          <span className="text-sm text-slate-700 dark:text-slate-200 truncate">
-            {title}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+      {/* Header row: disc + accession + title + flag badges */}
+      <div className="flex items-baseline gap-2 min-w-0">
+        <span className="self-center">
+          <StatusDisc tone={discTone} title={discTitle} />
+        </span>
+        <span className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-300 shrink-0">
+          {accession}
+        </span>
+        <span className="text-sm text-slate-700 dark:text-slate-200 truncate flex-1">
+          {title}
+        </span>
+        <span className="flex items-center gap-1 shrink-0">
           {dataset.troubled && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 ring-1 ring-inset ring-red-200 dark:ring-red-800">
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 ring-1 ring-inset ring-red-200 dark:ring-red-800"
+              title="known data issue with this experiment"
+            >
               troubled
             </span>
           )}
           {dataset.needs_attention && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 ring-1 ring-inset ring-amber-200 dark:ring-amber-800">
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 ring-1 ring-inset ring-amber-200 dark:ring-amber-800"
+              title="a curator should look at this"
+            >
               attention
             </span>
           )}
-          {dataset.is_public && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 ring-1 ring-inset ring-sky-200 dark:ring-sky-800">
+          {/* Visibility chip — always show, whether public or
+              private, so curators can spot the public ones in a
+              private-mostly list at a glance. Per Paul
+              2026-05-25 ("the public/private status should be
+              shown as a badge for each experiment"). */}
+          {dataset.is_public ? (
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 ring-1 ring-inset ring-sky-200 dark:ring-sky-800"
+              title="public — visible to all Gemma users"
+            >
               public
+            </span>
+          ) : (
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 ring-1 ring-inset ring-slate-200 dark:ring-slate-700"
+              title="private — only visible to curators"
+            >
+              private
             </span>
           )}
           <GeeqPill score={dataset.geeq_public_quality_score} label="Q" />
           <GeeqPill score={dataset.geeq_public_suitability_score} label="S" />
-        </div>
+        </span>
       </div>
 
-      {/* Pipeline tracks */}
+      {/* Detail row: next-task chip + pipeline strips */}
       {status && status.analysis && status.curation ? (
-        <div className="flex flex-col gap-1 pl-0">
-          <AnalysisTrackStrip track={status.analysis} />
-          <CurationTrackStrip track={status.curation} />
+        <div className="flex items-center gap-2 flex-wrap mt-1 pl-5">
+          {nextTask ? (
+            <span
+              title={nextTask.tooltip}
+              className={cn(
+                "inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ring-1 ring-inset whitespace-nowrap",
+                nextTaskToneCls(nextTask.tone),
+              )}
+            >
+              <span aria-hidden>▶</span>
+              {nextTask.label}
+              {nextTask.source === "ticket" ? (
+                <span className="opacity-70 font-normal">· ticket</span>
+              ) : null}
+            </span>
+          ) : null}
+          {nextTask ? (
+            <span className="text-slate-300 dark:text-slate-700" aria-hidden>
+              |
+            </span>
+          ) : null}
+          <AnalysisTrackStrip track={status.analysis} compact />
+          <CurationTrackStrip track={status.curation} compact />
         </div>
       ) : status ? (
-        <div className="text-[11px] text-slate-400 dark:text-slate-500 italic pl-0">
+        <div className="text-[10px] text-slate-400 dark:text-slate-500 italic pl-5 mt-0.5">
           pipeline status unavailable
         </div>
       ) : (
-        <div className="h-10 rounded bg-slate-100 dark:bg-slate-800 animate-pulse" />
+        <div className="h-6 rounded bg-slate-100 dark:bg-slate-800 animate-pulse mt-1 ml-5" />
       )}
 
       {/* Curation note if present */}
       {status?.curation_note && (
-        <p className="text-xs text-slate-500 dark:text-slate-400 italic truncate pl-16">
+        <p className="text-[10px] text-slate-500 dark:text-slate-400 italic truncate pl-5 mt-0.5">
           {status.curation_note}
         </p>
       )}

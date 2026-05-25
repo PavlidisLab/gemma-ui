@@ -35,6 +35,8 @@ import { cn } from "@/lib/cn";
 import type { ExternalSource } from "@/features/experiment/types";
 import { useExperimentGroups, useGroup } from "@/api/workflow";
 import { experimentRoute, navigate, workflowRoute } from "@/routes";
+import { StatusDisc, type StatusDiscTone } from "@/components/ui/StatusDisc";
+import { readDirtyExperimentIds } from "@/features/design/draftCache";
 import type {
   ExperimentAuditStatus,
   ExperimentSummary,
@@ -986,6 +988,12 @@ function SetNavigatorPopover({
   });
   const [query, setQuery] = useState("");
   const summaries = group?.member_summaries ?? null;
+  // Local-draft signal for the per-row "uncommitted" disc. Read on
+  // every render — cheap (one localStorage scan, no JSON parse) and
+  // the popover only mounts when the curator opens it, so the cost
+  // is bounded. Recomputes on each open so a draft committed in
+  // another tab between opens reflects accurately.
+  const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), [group]);
   // Vertical-flip decision. Measured against an estimate (the popover
   // is ~360-400px tall depending on member count + search hits);
   // close enough for the keep-on-screen heuristic, and the popover's
@@ -1144,6 +1152,7 @@ function SetNavigatorPopover({
               key={`${m.experiment_id}-${m.short_name}`}
               summary={m}
               isCurrent={m.experiment_id === currentExperimentId}
+              hasLocalDraft={dirtyDraftIds.has(String(m.experiment_id))}
               onClick={() => {
                 if (m.experiment_id <= 0) return;
                 navigate(
@@ -1166,10 +1175,17 @@ function SetNavigatorPopover({
 function SetMemberRow({
   summary,
   isCurrent,
+  hasLocalDraft,
   onClick,
 }: {
   summary: ExperimentSummary;
   isCurrent: boolean;
+  /** This curator has an uncommitted local draft for this
+   *  experiment (presence of a ``gca:draft:<id>`` key in
+   *  localStorage). Takes precedence over the server-side
+   *  in_progress audit signal when present — uncommitted local
+   *  work is the more urgent state. */
+  hasLocalDraft: boolean;
   onClick: () => void;
 }) {
   const isPlaceholder = summary.experiment_id <= 0;
@@ -1202,8 +1218,11 @@ function SetMemberRow({
           {summary.title || (isPlaceholder ? "" : "(no title)")}
         </span>
         <span className="inline-flex items-center gap-1 shrink-0">
-          {summary.audit_status ? (
-            <AuditStatusGlyph status={summary.audit_status} />
+          {summary.audit_status || hasLocalDraft ? (
+            <StatusDisc
+              tone={memberRowDiscTone(summary.audit_status, hasLocalDraft)}
+              title={memberRowDiscTitle(summary.audit_status, hasLocalDraft)}
+            />
           ) : null}
           {summary.troubled ? (
             <span
@@ -1231,72 +1250,43 @@ function SetMemberRow({
   );
 }
 
-/** Compact audit-status glyph for set-navigator member rows.
- *  Three states: outlined ring (no audit yet), half-fill (audit
- *  started but not closed), filled disc (closed). Slate-on-light /
- *  slate-on-dark for the muted states; emerald for closed so the
- *  curator can spot finished members at a glance while walking a
- *  calibration set. */
-function AuditStatusGlyph({ status }: { status: ExperimentAuditStatus }) {
-  const config = (() => {
-    switch (status) {
-      case "none":
-        return {
-          title: "no audit yet",
-          // outlined ring
-          fill: "transparent",
-          stroke: "currentColor",
-          tone: "text-slate-400 dark:text-slate-500",
-        };
-      case "in_progress":
-        return {
-          title: "audit in progress",
-          // half-filled (left half stroke, full circle outlined)
-          fill: "url(#audit-half)",
-          stroke: "currentColor",
-          tone: "text-amber-600 dark:text-amber-400",
-        };
-      case "closed":
-        return {
-          title: "audit closed",
-          fill: "currentColor",
-          stroke: "currentColor",
-          tone: "text-emerald-600 dark:text-emerald-400",
-        };
-    }
-  })();
-  return (
-    <span title={config.title} className={cn("inline-flex", config.tone)}>
-      <svg width="9" height="9" viewBox="0 0 10 10" aria-label={config.title}>
-        <defs>
-          {/* Half-fill pattern for ``in_progress`` — a clip path
-              shading the left semicircle. SVG-only; no JS. */}
-          <clipPath id="audit-half-clip">
-            <rect x="0" y="0" width="5" height="10" />
-          </clipPath>
-        </defs>
-        <circle
-          cx="5"
-          cy="5"
-          r="4"
-          fill="none"
-          stroke={config.stroke}
-          strokeWidth="1"
-        />
-        {status === "in_progress" ? (
-          <circle
-            cx="5"
-            cy="5"
-            r="4"
-            fill="currentColor"
-            clipPath="url(#audit-half-clip)"
-          />
-        ) : status === "closed" ? (
-          <circle cx="5" cy="5" r="3" fill="currentColor" />
-        ) : null}
-      </svg>
-    </span>
-  );
+/** Compose the per-member StatusDisc tone.
+ *
+ *  Semantics aligned with the progress bar + workflow row disc
+ *  (Paul 2026-05-25 refinement):
+ *    done        = review closed AND no uncommitted local draft
+ *    uncommitted = local draft present (curator has touched but
+ *                  not finished)
+ *    untouched   = no curator activity — INCLUDES the server's
+ *                  ``audit_status="in_progress"`` rows that exist
+ *                  from calibration import but haven't seen any
+ *                  curator action. Until bro lands
+ *                  ``has_curator_activity``, the local-draft
+ *                  cache is the only signal we trust for
+ *                  "curator started." */
+function memberRowDiscTone(
+  auditStatus: ExperimentAuditStatus | undefined,
+  hasLocalDraft: boolean,
+): StatusDiscTone {
+  if (auditStatus === "closed" && !hasLocalDraft) return "done";
+  if (hasLocalDraft) return "uncommitted";
+  return "untouched";
+}
+
+/** Tooltip copy that pairs with ``memberRowDiscTone``. */
+function memberRowDiscTitle(
+  auditStatus: ExperimentAuditStatus | undefined,
+  hasLocalDraft: boolean,
+): string {
+  if (auditStatus === "closed" && hasLocalDraft) {
+    return "review closed but uncommitted local changes remain";
+  }
+  if (auditStatus === "closed") return "review closed";
+  if (hasLocalDraft) return "uncommitted local changes";
+  if (auditStatus === "in_progress") {
+    return "proposal exists but not yet touched";
+  }
+  return "untouched — no review yet";
 }
 
 /** Tone the group chip by its workflow type. Mirrors the funnel

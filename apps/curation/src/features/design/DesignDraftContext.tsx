@@ -43,8 +43,11 @@ function normalizeForCommit(design: Design): Design {
 // if the server's saved Design has moved on (someone else committed, or
 // the curator re-imported), we treat the cache as stale and ignore it
 // rather than diff against a baseline that no longer matches.
-
-const DRAFT_KEY_PREFIX = "gca:draft:";
+//
+// ``DRAFT_KEY_PREFIX`` lives in ``./draftCache.ts`` so list-view
+// components (set navigator dots, etc.) can scan dirty drafts
+// without mounting the full provider.
+import { DRAFT_KEY_PREFIX } from "./draftCache";
 
 interface CachedDraft {
   baselineHash: string;

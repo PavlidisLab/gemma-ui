@@ -3,11 +3,13 @@
  * bucketed by type (screening / pipeline / review) with an "All
  * experiments" entry at the top. Includes a "+ New group" creator.
  */
-import { useCreateGroup, useDeleteGroup, useGroups } from "@/api/workflow";
+import { useCreateGroup, useDeleteGroup, useGroup, useGroups } from "@/api/workflow";
 import type { Group, GroupType } from "@/api/workflowTypes";
 import { workflowRoute, navigate } from "@/routes";
-import { useState } from "react";
-import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { useMemo, useState } from "react";
+import { progressFromGroup, hasOpenTasks } from "./setProgress";
+import { readDirtyExperimentIds } from "@/features/design/draftCache";
+import { cn } from "@/lib/cn";
 
 const TYPE_ORDER: GroupType[] = ["screening", "pipeline", "review"];
 
@@ -231,22 +233,143 @@ export function GroupsSidebar({ selectedGroupId }: { selectedGroupId?: string })
         </div>
       )}
 
-      <ConfirmModal
-        open={!!pendingDelete}
-        title="Delete group?"
-        body={
-          pendingDelete
-            ? `Removes "${pendingDelete.name}" (${pendingDelete.type}, ` +
-              `${pendingDelete.member_count} member` +
-              `${pendingDelete.member_count === 1 ? "" : "s"}). The ` +
-              `experiments themselves stay; only the membership is dropped.`
-            : ""
-        }
-        confirmLabel={deleteGroup.isPending ? "deleting…" : "delete"}
-        destructive
-        onConfirm={confirmDelete}
-        onCancel={() => setPendingDelete(null)}
-      />
+      {pendingDelete ? (
+        <DeleteSetDialog
+          group={pendingDelete}
+          saving={deleteGroup.isPending}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      ) : null}
     </aside>
+  );
+}
+
+/** Delete-confirmation dialog with an open-tasks safety gate.
+ *
+ *  Per Paul 2026-05-25: "sets representing tasks/tickets should
+ *  not be deletable until the tasks are closed, or the user
+ *  overrides. The entire set can be finalized and then exported."
+ *
+ *  Today we don't have a set-level ``finalized_at`` field
+ *  (handoff filed); the gate is open-tasks based instead. When
+ *  every member is done, the dialog is a plain confirm. When any
+ *  member is in_progress or untouched, the curator must tick an
+ *  explicit override checkbox before "delete" enables. */
+function DeleteSetDialog({
+  group,
+  saving,
+  onCancel,
+  onConfirm,
+}: {
+  group: Group;
+  saving: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  // Fetch the full Group payload so we get the server-aggregated
+  // ``member_status_counts`` + ``finalized_at`` flag. One round-
+  // trip on delete click; no per-member iteration on the client.
+  const { data: hydrated, isLoading } = useGroup(group.id, {
+    includeSummaries: true,
+  });
+  const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), []);
+  const counts = useMemo(
+    () => progressFromGroup(hydrated ?? group, dirtyDraftIds),
+    [hydrated, group, dirtyDraftIds],
+  );
+  const isFinalized = !!(hydrated?.finalized_at ?? group.finalized_at);
+  const openTasks = counts.in_progress + counts.untouched;
+  // Override only required when the set isn't finalized AND has
+  // open work. Finalizing the set IS the explicit "I'm done with
+  // this grouping" gate — once that's stamped, delete is safe to
+  // run without a second checkbox. Per Paul 2026-05-25.
+  const needsOverride = !isLoading && !isFinalized && hasOpenTasks(counts);
+  const [override, setOverride] = useState(false);
+  const canConfirm = !needsOverride || override;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !saving) onCancel();
+      }}
+    >
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 w-full max-w-md p-4 space-y-3">
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+          Delete set?
+        </h2>
+        <p className="text-sm text-slate-700 dark:text-slate-300">
+          Removes <span className="font-medium">"{group.name}"</span>{" "}
+          ({group.type}, {group.member_count} member
+          {group.member_count === 1 ? "" : "s"}). The experiments
+          themselves stay; only the set membership is dropped.
+        </p>
+        {isLoading ? (
+          <p className="text-xs text-slate-500 italic">
+            checking set state…
+          </p>
+        ) : isFinalized ? (
+          <p className="text-xs text-emerald-700 dark:text-emerald-400">
+            ✓ Set is finalized — safe to delete.
+          </p>
+        ) : needsOverride ? (
+          <div className="rounded border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-900/20 p-2.5 space-y-2 text-xs text-amber-900 dark:text-amber-100">
+            <p>
+              <span className="font-semibold">
+                {openTasks} of {group.member_count} task
+                {openTasks === 1 ? "" : "s"} not yet done.
+              </span>{" "}
+              Finalize the set first to record "I'm done with this
+              grouping" — or check the box below to delete anyway.
+            </p>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={override}
+                onChange={(e) => setOverride(e.target.checked)}
+                disabled={saving}
+                className="mt-0.5"
+              />
+              <span>
+                Delete without finalizing — I'll lose the set
+                membership but not the per-experiment work.
+              </span>
+            </label>
+          </div>
+        ) : (
+          <p className="text-xs text-emerald-700 dark:text-emerald-400">
+            ✓ All tasks done — safe to delete.
+          </p>
+        )}
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="text-xs px-3 py-1 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50"
+          >
+            cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={saving || !canConfirm}
+            className={cn(
+              "text-xs px-3 py-1 rounded font-semibold",
+              !canConfirm
+                ? "bg-slate-200 text-slate-500 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500"
+                : saving
+                  ? "bg-rose-200 text-rose-700 cursor-progress dark:bg-rose-900/40 dark:text-rose-200"
+                  : "bg-rose-600 text-white hover:bg-rose-700",
+            )}
+          >
+            {saving ? "deleting…" : "delete"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

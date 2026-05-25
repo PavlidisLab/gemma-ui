@@ -177,13 +177,81 @@ export interface ExperimentSummary {
   audit_status?: ExperimentAuditStatus;
 }
 
+/** Fine-grained "what's the curator's job on this set" classifier,
+ *  parallel to ``Ticket.kind``. ``Group.type`` is the coarse
+ *  surface (screening / pipeline / review queues); ``task_kind``
+ *  narrows it to the specific job. Free string by design — new
+ *  task kinds can be added without a schema migration; the UI's
+ *  label lookup table degrades gracefully on unknown values
+ *  (renders the raw slug).
+ *
+ *  Known values (mirror of agents-side
+ *  ``SET_TASK_KIND_HANDOFF.md``):
+ *  - ``review_proposal``    — calibration packages
+ *  - ``audit_existing``     — re-audit batches
+ *  - ``curate_from_scratch``— preboarded GSEs (no prior curation)
+ *  - ``screening``          — screening-type groups
+ *
+ *  Optional / undefined on older Groups predating the field; UI
+ *  callers fall back to deriving from ``type``. */
+export type GroupTaskKind =
+  | "review_proposal"
+  | "audit_existing"
+  | "curate_from_scratch"
+  | "screening"
+  | (string & {});
+
+/** Aggregate of per-member ``audit_status`` across a group's
+ *  members, pre-computed server-side so the dashboard doesn't have
+ *  to issue N per-card fetches. Keys are snake_case on the wire
+ *  (verified by cab's reply 2026-05-25). Always populated — never
+ *  null — so consumers can read the counts without a None-guard.
+ *
+ *  Bucket semantics (mirror of agents-side
+ *  ``GROUP_FINALIZE_AND_LIST_STATUS_HANDOFF.md``):
+ *  - ``done``        — finalized review on the latest audit
+ *  - ``in_progress`` — curation_review exists, latest not
+ *                      finalized (today still includes the
+ *                      "agent ran, curator hasn't acted" case;
+ *                      §3 of the handoff asks for a refinement)
+ *  - ``untouched``   — no curation_review row at all */
+export interface MemberStatusCounts {
+  done: number;
+  in_progress: number;
+  untouched: number;
+}
+
 export interface Group {
   id: string;
   name: string;
   type: GroupType;
+  /** See ``GroupTaskKind``. Optional on older backends + groups
+   *  that pre-date the column; consumers default per ``type``
+   *  when absent. */
+  task_kind?: GroupTaskKind | null;
   description: string;
   created_by: string;
   created_at: string;
+  /** ISO 8601 of the curator's set-level "I'm done with this
+   *  grouping" press. Null on open sets. Idempotent-refresh on
+   *  re-POST (matches per-experiment finalize). Set-level only —
+   *  does NOT cascade to per-member ``curation_review.finalized_at``.
+   *  Per ``GROUP_FINALIZE_AND_LIST_STATUS_HANDOFF.md`` §1. */
+  finalized_at?: string | null;
+  /** Reviewer who finalized, when finalized. Pairs with
+   *  ``finalized_at``. */
+  finalized_by?: string | null;
+  /** Free-text note the curator attached at finalize time. Survives
+   *  reopen — only ``finalized_at`` + ``finalized_by`` clear on
+   *  reopen, so a refinalize prefills the dialog. */
+  finalized_notes?: string | null;
+  /** Server-aggregated counts of per-member audit_status. Drops
+   *  the per-card ``useGroup({includeSummaries: true})`` pattern
+   *  for the dashboard's progress bar — one fetch, all the
+   *  counts. Optional / undefined on older agents pre-dating the
+   *  field; consumers fall back to deriving from member_summaries
+   *  in that case. */
+  member_status_counts?: MemberStatusCounts | null;
   /** Ordered by ``added_at`` (insertion time) — predictable + stable
    *  across reads, so the navigator's prev/next can index by
    *  position. */
