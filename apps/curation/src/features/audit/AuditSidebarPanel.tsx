@@ -42,6 +42,7 @@ import {
   tagTarget,
   assignmentTarget,
   parseTargetId,
+  slug,
 } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { resolveApplyAction } from "./applyHandlers";
@@ -579,6 +580,12 @@ function SidebarHeader({
         {report.model ? (() => {
           const palette = agentPalette(report.model);
           const isProse = isProseModel(report.model);
+          // Tooltip noun mirrors the panel's kind so a proposal-
+          // review row reads "proposal context" / "agent that
+          // produced this proposal", not "audit …".
+          const contextNoun = isProse
+            ? `${copy.noun} context`
+            : `AI agent that produced this ${copy.noun}`;
           return (
             <span
               className={cn(
@@ -586,7 +593,7 @@ function SidebarHeader({
                 isProse ? null : "font-mono",
                 palette,
               )}
-              title={`${isProse ? "audit context" : "AI agent that produced this audit"}: ${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`}
+              title={`${contextNoun}: ${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`}
             >
               <span className="text-[9px] uppercase tracking-wide opacity-70">
                 {isProse ? "review" : "agent"}
@@ -2747,28 +2754,62 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 // FV fingerprint + +/- shorthand) still reads
                 // best.
                 if (finding.target_kind === "tag") {
-                  const tok = firstBacktick(finding.rationale);
-                  if (!tok) return null;
-                  const colon = tok.indexOf(":");
-                  if (colon === -1) {
-                    return (
-                      <span className="text-[11px] text-slate-600 dark:text-slate-300 mr-1 truncate">
-                        — <span className="font-mono">{tok}</span>
-                      </span>
+                  // Tag identity comes from the target_id (authoritative,
+                  // always present) — we then look up the live tag in
+                  // ``draft.tags`` by matching slugs to recover proper-
+                  // case labels + URIs. Backticked rationale tokens were
+                  // the old heuristic but ~half the audit-side rationales
+                  // are prose ("Strain is correctly identified as …"
+                  // with no backticks), which used to leave the card
+                  // showing just "Tag" with no chips. The backtick path
+                  // is a last-ditch fallback.
+                  let catLabel: string | null = null;
+                  let valLabel: string | null = null;
+                  let catUri: string | null = null;
+                  let valUri: string | null = null;
+                  const parsed = parseTargetId(finding.target_id);
+                  if (parsed?.kind === "tag") {
+                    const matchedBySlug = draft?.tags?.find(
+                      (t) =>
+                        slug(t.category?.label) === parsed.categorySlug &&
+                        slug(t.value?.label) === parsed.valueSlug,
                     );
+                    if (matchedBySlug) {
+                      catLabel = matchedBySlug.category?.label ?? null;
+                      valLabel = matchedBySlug.value?.label ?? null;
+                      catUri = matchedBySlug.category?.uri ?? null;
+                      valUri = matchedBySlug.value?.uri ?? null;
+                    } else {
+                      // Slug-only fallback: cosmetic (dashes-for-spaces)
+                      // but at least the curator sees what the finding
+                      // is about. Better than a bare "Tag" placeholder.
+                      catLabel = parsed.categorySlug.replace(/-/g, " ");
+                      valLabel = parsed.valueSlug.replace(/-/g, " ");
+                    }
                   }
-                  const catLabel = tok.slice(0, colon).trim();
-                  const valLabel = tok.slice(colon + 1).trim();
-                  const matched = draft?.tags?.find(
-                    (t) =>
-                      (t.category?.label || "").toLowerCase().trim() ===
-                        catLabel.toLowerCase() &&
-                      (t.value?.label || "").toLowerCase().trim() ===
-                        valLabel.toLowerCase(),
-                  );
-                  const catUri = matched?.category?.uri ?? null;
-                  const valUri =
-                    matched?.value?.uri ?? finding.proposer_term?.uri ?? null;
+                  if (!catLabel || !valLabel) {
+                    // Last-resort: backticked rationale token.
+                    const tok = firstBacktick(finding.rationale);
+                    if (tok) {
+                      const colon = tok.indexOf(":");
+                      if (colon !== -1) {
+                        catLabel = tok.slice(0, colon).trim();
+                        valLabel = tok.slice(colon + 1).trim();
+                      } else {
+                        return (
+                          <span className="text-[11px] text-slate-600 dark:text-slate-300 mr-1 truncate">
+                            — <span className="font-mono">{tok}</span>
+                          </span>
+                        );
+                      }
+                    } else {
+                      return null;
+                    }
+                  }
+                  // Last preference for valUri: proposer_term (when the
+                  // tag isn't in the current draft, the agent's
+                  // suggested term carries the ontology binding).
+                  valUri = valUri ?? finding.proposer_term?.uri ?? null;
                   // Value-first ordering (harmonized with ProposalReview-
                   // Card's TagReviewCard, 2026-05-24): the resolved term
                   // is the load-bearing identity; the category is
@@ -3495,6 +3536,14 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               dismissReason: derivedDismissReason,
               acceptReason: derivedAcceptReason,
             });
+          }}
+          onAgree={() => {
+            // Plain agree — no draft mutation. Opens the accept
+            // dialog so the curator can attach a reason chip + note
+            // when the finding has no per-row apply path
+            // (wrong_fv_partition etc.). Mirrors the legacy
+            // action-row's standalone Agree handler.
+            setAcceptOpen(true);
           }}
           onDismiss={() => setDismissOpen(true)}
           onPark={() => setNotSureOpen(true)}

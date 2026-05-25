@@ -35,7 +35,7 @@
  * null and the "match Gemma" button is suppressed.
  */
 
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { useToast } from "@/components/ui/Toast";
@@ -82,6 +82,8 @@ import { consequentHint, type ConsequentHintState } from "./consequentHint";
 import { firstBacktick, trimRationaleBoilerplate } from "./rationaleText";
 import { findingLean, type DefenderLean } from "./defenderLean";
 import { actionLabels, findingActionShape } from "./actionLabels";
+import { parseTargetId, slug } from "./targetIds";
+import type { FactorProposal } from "@/api/types";
 import { useAudit } from "./AuditContext";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { applyProposalToDesign } from "@/features/design/mutations";
@@ -741,6 +743,7 @@ export function FindingDetailsEditor({
   design,
   currentDisposition,
   onSave,
+  onAgree,
   onDismiss,
   onPark,
   onUndo,
@@ -754,6 +757,13 @@ export function FindingDetailsEditor({
     structureOk: boolean | null,
     detailsOk: boolean | null,
   ) => Promise<void>;
+  /** Plain "agree" — patch the disposition to accepted without any
+   *  draft mutation. Used by the no-actionable-delta + actionable-
+   *  severity case where the auditor flagged something the per-row
+   *  comparator can't surface (e.g. ``wrong_fv_partition``): the
+   *  curator can't pick a row to take, but they can acknowledge the
+   *  finding. Optional — undefined hides the Agree button. */
+  onAgree?: () => void;
   onDismiss: () => void;
   onPark: () => void;
   /** Revert the disposition to ``pending``. Rendered as an "undo"
@@ -973,6 +983,21 @@ export function FindingDetailsEditor({
     (finding.issue_code === "calibration_factor_match_exact" &&
       disagreementRows.length === 0);
   const allAgreeAtCard = rows.length > 0 && disagreementRows.length === 0;
+  // "Auditor says everything is exactly right" — hide ALL action
+  // affordances (no Keep, no Adopt, no Agree, no Dismiss, no Park).
+  // Per Paul 2026-05-25: "if the auditor says something is exactly
+  // right then there should be no Dismiss or Accept; it's the stuff
+  // the auditor doesn't like that we need to look at." Note this
+  // is NARROWER than ``isCloseFactorMatch`` — close / near matches
+  // still need the curator's eyes (URI variant, FV-count drift),
+  // so they keep their buttons even when the per-row diff is empty.
+  const auditorSaysExactlyRight =
+    finding.severity === "ok" ||
+    isExactFactorMatch(finding) ||
+    finding.issue_code === "calibration_factor_match_exact" ||
+    (finding.target_kind === "tag" &&
+      finding.issue_code === "calibration_match" &&
+      disagreementRows.length === 0);
 
   // Partition-mismatch findings — agent and gold disagree on the
   // partition shape of a same-label factor along a clean
@@ -1613,6 +1638,34 @@ export function FindingDetailsEditor({
         </div>
       ) : null}
 
+      {/* One-line summary of the auditor's take — what's agreed,
+          what's contested — so the curator reads the headline
+          before diving into the side-by-side. Generated from
+          issue_code; renders only when we have a confident framing
+          for the code. */}
+      <FactorFindingSummaryLine finding={finding} />
+
+      {/* Side-by-side "Current vs Auditor" mini-table for factor
+          findings. Restores the at-a-glance comparison that used to
+          live in the retired EXPERIMENTAL DESIGN block (per Paul
+          2026-05-25). FV chips on each side show sample counts; an
+          inline amber disc marks FVs the OTHER side doesn't have so
+          partition / label drift is visible without expanding the
+          comparator rows below. */}
+      <CurrentVsAuditorFactor
+        finding={finding}
+        report={report}
+        design={design}
+      />
+
+      {/* OK FV checks on this same factor render here as compact
+          green chips — visual confirmation that the auditor walked
+          each FV — instead of as detached sibling cards in the
+          finding list. The list already suppresses them under
+          flagged factors; nesting here gives them a home so the
+          curator sees the "FVs all OK" signal in context. */}
+      <NestedOkFvConfirmations finding={finding} report={report} />
+
       {/* Tag-detail block — for tag findings, render the
           category + value chips for both Auditor and Current so
           the curator sees the full tag identity (including URIs)
@@ -1671,6 +1724,20 @@ export function FindingDetailsEditor({
           case). */}
       {isCloseFactorMatch(finding) && allAgreeAtCard ? (
         <NearMatchExplainer finding={finding} />
+      ) : null}
+
+      {/* Catch-all explainer: any actionable severity that landed
+          with no per-row delta the comparator could surface. Common
+          for axes the row model can't capture — ``wrong_fv_partition``
+          (FV count vs BM variety), ``conflated``, etc. Without this,
+          the curator sees "Everyone agrees" next to a major-severity
+          glyph and has no clue what the finding is about. */}
+      {noActionableDelta &&
+      finding.severity !== "ok" &&
+      !isCloseFactorMatch(finding) &&
+      !isExactFactorMatch(finding) &&
+      finding.issue_code !== "calibration_match" ? (
+        <ActionableNoDeltaExplainer finding={finding} />
       ) : null}
 
       {/* One block per *statement* — Subject/Predicate/Object rows
@@ -1752,8 +1819,28 @@ export function FindingDetailsEditor({
         saving={saving}
         disabled={currentDisposition !== "pending"}
         buttons={
-          noActionableDelta
-            ? []
+          auditorSaysExactlyRight
+            ? // Auditor says exactly right — nothing to act on.
+              // ``showEscapeHatches`` below also flips off so the
+              // whole row collapses.
+              []
+            : noActionableDelta
+            ? // No per-row delta to act on, but the finding may still
+              // be actionable (e.g. wrong_fv_partition, conflated).
+              // Surface an Agree button so the curator can accept
+              // the finding without mutating the draft.
+              onAgree
+                ? [
+                    {
+                      key: "agree",
+                      kind: "primary-accept" as const,
+                      label: "Agree",
+                      onClick: onAgree,
+                      title:
+                        "Accept the finding without modifying the draft — the auditor flagged something the per-row comparator can't surface.",
+                    } satisfies ActionButton,
+                  ]
+                : []
             : [
                 {
                   key: "keep",
@@ -1815,13 +1902,7 @@ export function FindingDetailsEditor({
         // subtle, calibration_match tags) keep the escape hatches
         // so the curator can flag the finding as wrong. Per Paul
         // 2026-05-21.
-        showEscapeHatches={
-          !(
-            noActionableDelta &&
-            (finding.issue_code === "calibration_factor_match_exact" ||
-              isExactFactorMatch(finding))
-          )
-        }
+        showEscapeHatches={!auditorSaysExactlyRight}
       />
     </div>
   );
@@ -1870,6 +1951,1055 @@ function AgreementSummary({
         ✓
       </span>
       Everyone agrees: {items.join(" · ")}
+    </div>
+  );
+}
+
+/** Compact "Current vs Auditor" comparison for factor findings.
+ *
+ *  Restores the at-a-glance comparison that used to live in the
+ *  retired EXPERIMENTAL DESIGN block (Paul 2026-05-25). Aligns rows
+ *  by normalised FV label so the curator's eye scans horizontally
+ *  to spot drift; FV statements render via the shared
+ *  ``<FvDisplayRow>`` so the familiar Subj · Pred · Obj layout +
+ *  baseline glyph + sample-count appears in the same shape as the
+ *  proposal-review and design surfaces.
+ *
+ *  Returns null for non-factor findings or when neither side has a
+ *  match (e.g. an ``experiment``-scope finding). */
+function CurrentVsAuditorFactor({
+  finding,
+  report,
+  design,
+}: {
+  finding: AuditFinding;
+  report: AuditReport | null;
+  design: Design | null;
+}) {
+  if (finding.target_kind !== "factor") return null;
+  const parsed = parseTargetId(finding.target_id);
+  if (parsed?.kind !== "factor") return null;
+  const allAuditorFactors =
+    report?.evidence?.comparison_proposal?.factors ?? [];
+  const currentFactors = (design?.factors ?? []).filter(
+    (f) => slug(f.category?.label ?? "") === parsed.factorSlug,
+  );
+  // Auditor side: first try slug match (the common case). If empty,
+  // fall back to sample-set Jaccard across ALL of comparison_proposal.
+  // That's what handles ``wrong_category`` — the auditor's renamed
+  // factor sits under the NEW category label, so slug-match fails
+  // but the FVs still cover the same samples.
+  const auditorSlugMatches = allAuditorFactors.filter(
+    (f) => slug(f.category?.label ?? "") === parsed.factorSlug,
+  );
+  const auditorFactors =
+    auditorSlugMatches.length > 0
+      ? auditorSlugMatches
+      : pairAuditorFactorsByContent(currentFactors, allAuditorFactors);
+  if (currentFactors.length === 0 && auditorFactors.length === 0) {
+    return null;
+  }
+  // 1:1 case → aligned mini-table inside a single pair of blocks.
+  // N:M case (typically ``wrong_fv_partition``) → render each side
+  // as a stack of distinct factor blocks; cross-block alignment is
+  // intentionally OFF since merging FVs from two different factors
+  // would lose the partition identity that's the whole point of
+  // the disagreement. A Sankey overlay (drawn between the two
+  // columns) traces sample-flow between sides so the curator can
+  // see exactly which curator FVs the auditor's FVs would "merge".
+  const isSimpleOneToOne =
+    currentFactors.length === 1 && auditorFactors.length === 1;
+  // Compute the high-level change pattern so the panel can lead
+  // with a "Category change" / "Label change" / "Structural change"
+  // banner. Multiple flags can fire simultaneously (e.g. the
+  // partition-merge case is category + structural).
+  const pattern = detectChangePattern(currentFactors, auditorFactors);
+  return (
+    <SankeyComparison
+      currentFactors={currentFactors}
+      auditorFactors={auditorFactors}
+      aligned={isSimpleOneToOne}
+      pattern={pattern}
+    />
+  );
+}
+
+interface ChangePattern {
+  /** Curator and auditor factor names (categories) differ. Includes
+   *  the case where the partition matches but the label was
+   *  changed (``wrong_category``) AND the case where the merge
+   *  ends up under a different name. */
+  categoryChanged: boolean;
+  /** FVs cover the same sample partition but at least one FV's
+   *  label / URI differs between sides. */
+  labelsChanged: boolean;
+  /** Sample partition differs — the FV sample-sets don't align.
+   *  ``wrong_fv_partition`` and partition-merge cases fire this. */
+  structureChanged: boolean;
+  /** Old categoryLabel → new categoryLabel for the category-change
+   *  banner. Populated only on 1:1 pairings. */
+  fromCategory: string | null;
+  toCategory: string | null;
+}
+
+function detectChangePattern(
+  currentFactors: ReadonlyArray<Factor>,
+  auditorFactors: ReadonlyArray<FactorProposal>,
+): ChangePattern {
+  const pattern: ChangePattern = {
+    categoryChanged: false,
+    labelsChanged: false,
+    structureChanged: false,
+    fromCategory: null,
+    toCategory: null,
+  };
+  if (currentFactors.length === 0 || auditorFactors.length === 0) {
+    // Mid-fetch / pure-add / pure-drop case — no pairing to classify.
+    return pattern;
+  }
+  // Category comparison — on 1:1, single-pair labels. On N:M,
+  // compare label sets.
+  const curCats = new Set(
+    currentFactors.map((f) =>
+      (f.category?.label ?? "").toLowerCase().trim(),
+    ),
+  );
+  const audCats = new Set(
+    auditorFactors.map((f) =>
+      (f.category?.label ?? "").toLowerCase().trim(),
+    ),
+  );
+  const allCats = new Set([...curCats, ...audCats]);
+  pattern.categoryChanged = allCats.size > Math.max(curCats.size, audCats.size);
+  if (
+    currentFactors.length === 1 &&
+    auditorFactors.length === 1 &&
+    pattern.categoryChanged
+  ) {
+    pattern.fromCategory = currentFactors[0].category?.label ?? null;
+    pattern.toCategory = auditorFactors[0].category?.label ?? null;
+  }
+  // Structure: compare sample-set partitions. Build the sorted-FV
+  // signature on each side and compare.
+  const fvSig = (fvs: ReadonlyArray<{ biomaterial_short_names?: string[] }>) =>
+    fvs
+      .map((fv) => [...(fv.biomaterial_short_names ?? [])].sort().join(","))
+      .sort()
+      .join(";");
+  const curSig = fvSig(currentFactors.flatMap((f) => f.factor_values));
+  const audSig = fvSig(auditorFactors.flatMap((f) => f.factor_values));
+  pattern.structureChanged = curSig !== audSig;
+  // Labels-only: if structure matches, look for any FV-label
+  // disagreement. Sample → FV-label map on each side; mismatch
+  // anywhere fires the flag.
+  if (!pattern.structureChanged) {
+    const labelFor = (
+      factors: ReadonlyArray<Factor | FactorProposal>,
+    ): Map<string, string> => {
+      // Key: sorted-samples string; Value: FV label (lowercased).
+      const m = new Map<string, string>();
+      for (const f of factors) {
+        for (const fv of f.factor_values) {
+          const k = [...(fv.biomaterial_short_names ?? [])].sort().join(",");
+          m.set(k, (fv.free_text_label ?? "").toLowerCase().trim());
+        }
+      }
+      return m;
+    };
+    const curLabels = labelFor(currentFactors);
+    const audLabels = labelFor(auditorFactors);
+    for (const [k, l] of curLabels) {
+      const r = audLabels.get(k);
+      if (r != null && r !== l) {
+        pattern.labelsChanged = true;
+        break;
+      }
+    }
+  }
+  return pattern;
+}
+
+/** Find auditor factors that best pair with the given current
+ *  factors by sample-set Jaccard. Used when slug-matching fails
+ *  (e.g. wrong_category — auditor's renamed factor sits under a
+ *  different category label). Returns auditor factors that pair
+ *  with at least one current factor at Jaccard ≥ 0.5; each
+ *  auditor factor appears at most once. */
+function pairAuditorFactorsByContent(
+  currentFactors: ReadonlyArray<Factor>,
+  allAuditorFactors: ReadonlyArray<FactorProposal>,
+): FactorProposal[] {
+  if (currentFactors.length === 0 || allAuditorFactors.length === 0) {
+    return [];
+  }
+  const samplesOf = (f: Factor | FactorProposal): Set<string> => {
+    const s = new Set<string>();
+    for (const fv of f.factor_values) {
+      for (const sn of fv.biomaterial_short_names ?? []) s.add(sn);
+    }
+    return s;
+  };
+  const matched = new Set<number>();
+  const picks: FactorProposal[] = [];
+  for (const cur of currentFactors) {
+    const curSet = samplesOf(cur);
+    if (curSet.size === 0) continue;
+    let bestIdx = -1;
+    let bestJ = 0;
+    for (let i = 0; i < allAuditorFactors.length; i++) {
+      if (matched.has(i)) continue;
+      const audSet = samplesOf(allAuditorFactors[i]);
+      if (audSet.size === 0) continue;
+      let inter = 0;
+      for (const s of audSet) if (curSet.has(s)) inter++;
+      const union = curSet.size + audSet.size - inter;
+      const j = union > 0 ? inter / union : 0;
+      if (j > bestJ) {
+        bestJ = j;
+        bestIdx = i;
+      }
+    }
+    if (bestJ >= 0.5 && bestIdx >= 0) {
+      matched.add(bestIdx);
+      picks.push(allAuditorFactors[bestIdx]);
+    }
+  }
+  return picks;
+}
+
+/** Outer shell of the comparison view. Owns the relative container
+ *  the SVG overlay anchors to, the row-position registry that
+ *  measures the rendered FV rows after layout, and the SVG that
+ *  draws sample-flow lines between left and right rows.
+ *
+ *  Why the indirection: the row rendering happens deep inside
+ *  FactorBlock → MiniFvLine, and we want the Sankey to anchor on
+ *  the actual rendered DOM (so it survives content changes / dark-
+ *  mode resize / etc.). Rather than thread refs through every
+ *  child, rows ship with ``data-row-key`` + ``data-samples`` attrs;
+ *  a useLayoutEffect walks the container after each render and
+ *  rebuilds the position map. */
+function SankeyComparison({
+  currentFactors,
+  auditorFactors,
+  aligned,
+  pattern,
+}: {
+  currentFactors: ReadonlyArray<Factor>;
+  auditorFactors: ReadonlyArray<FactorProposal>;
+  aligned: boolean;
+  pattern: ChangePattern;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState<SankeyEdge[]>([]);
+  // Stable input signature for the layout effect — re-running on
+  // every render would loop because measurements trigger a state
+  // update.
+  const sig = useMemo(() => {
+    const sideSig = (
+      list: ReadonlyArray<Factor | FactorProposal>,
+    ) =>
+      list
+        .map(
+          (f) =>
+            `${f.category?.label ?? ""}|` +
+            f.factor_values
+              .map(
+                (fv) =>
+                  `${fv.free_text_label ?? ""}#${(fv.biomaterial_short_names ?? []).length}`,
+              )
+              .join(","),
+        )
+        .join(";");
+    return `${sideSig(currentFactors)}::${sideSig(auditorFactors)}`;
+  }, [currentFactors, auditorFactors]);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const recompute = () => {
+      setEdges(measureEdges(container));
+    };
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [sig]);
+
+  return (
+    <div className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+      {/* Category-change banner — leads the comparison surface when
+          the auditor's pair has a different category label, even
+          when everything else (FVs / structure) matches. Lives
+          ABOVE the column headers so it's the first thing the
+          curator reads. */}
+      {pattern.categoryChanged && pattern.fromCategory && pattern.toCategory ? (
+        <div className="px-2 py-1 text-[11px] flex items-center gap-1.5 border-b border-slate-200 dark:border-slate-700 bg-amber-50 dark:bg-amber-900/15 text-amber-900 dark:text-amber-100">
+          <span className="text-[10px] uppercase tracking-wide font-semibold">
+            Category
+          </span>
+          <span className="font-mono">{pattern.fromCategory}</span>
+          <span aria-hidden>→</span>
+          <span className="font-mono font-semibold">
+            {pattern.toCategory}
+          </span>
+          {!pattern.labelsChanged && !pattern.structureChanged ? (
+            <span className="ml-auto text-[10px] italic text-amber-700 dark:text-amber-300">
+              FVs unchanged
+            </span>
+          ) : null}
+        </div>
+      ) : pattern.categoryChanged ? (
+        // Multi-factor / partition-merge case: we can't show a
+        // single old→new arrow, but we still surface that the
+        // categories diverge so the curator doesn't miss it.
+        <div className="px-2 py-1 text-[11px] border-b border-slate-200 dark:border-slate-700 bg-amber-50 dark:bg-amber-900/15 text-amber-900 dark:text-amber-100">
+          <span className="text-[10px] uppercase tracking-wide font-semibold mr-1.5">
+            Category change
+          </span>
+          <span className="italic">
+            current and auditor disagree on what the factor(s) should
+            be called.
+          </span>
+        </div>
+      ) : null}
+      <div className="grid grid-cols-2 text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+        <div className="px-2 py-1 border-r border-slate-200 dark:border-slate-700">
+          Current{currentFactors.length > 1 ? ` · ${currentFactors.length} factors` : ""}
+        </div>
+        <div className="px-2 py-1">
+          Auditor proposes
+          {auditorFactors.length > 1 ? ` · ${auditorFactors.length} factors` : ""}
+        </div>
+      </div>
+      <div ref={containerRef} className="relative">
+        {aligned ? (
+          <AlignedFactorBlock
+            current={currentFactors[0]}
+            auditor={auditorFactors[0]}
+          />
+        ) : (
+          <PartitionMismatchBlocks
+            currentFactors={currentFactors}
+            auditorFactors={auditorFactors}
+          />
+        )}
+        <SankeyOverlay edges={edges} />
+      </div>
+    </div>
+  );
+}
+
+interface SankeyEdge {
+  /** y-coordinate at the right edge of the left cell (relative to
+   *  the container's top-left). */
+  leftY: number;
+  /** y-coordinate at the left edge of the right cell. */
+  rightY: number;
+  /** x-coordinate where the curve starts (right edge of the left
+   *  column / left of the dividing border). */
+  startX: number;
+  /** x-coordinate where the curve ends (left edge of the right
+   *  column / right of the dividing border). */
+  endX: number;
+  /** Number of shared samples — drives stroke width. */
+  overlap: number;
+  /** Fraction of the LEFT side's samples this overlap represents.
+   *  Used for opacity grading — a tiny overlap on a big curator FV
+   *  is visually softer than a complete-overlap edge. */
+  leftFrac: number;
+  /** Stable key for React. */
+  key: string;
+}
+
+/** Walk the rendered DOM, find all rows tagged with
+ *  ``data-row-key`` + ``data-samples``, compute sample-set
+ *  intersections between every left/right pair, and build SVG
+ *  paths for non-zero overlaps. */
+function measureEdges(container: HTMLDivElement): SankeyEdge[] {
+  const containerRect = container.getBoundingClientRect();
+  type Row = {
+    side: "current" | "auditor";
+    samples: Set<string>;
+    centerY: number;
+    rightEdge: number;
+    leftEdge: number;
+    key: string;
+  };
+  const rows: Row[] = [];
+  const els = container.querySelectorAll<HTMLElement>("[data-row-key]");
+  els.forEach((el) => {
+    const key = el.dataset.rowKey ?? "";
+    if (!key) return;
+    const [side, ..._rest] = key.split(":");
+    if (side !== "current" && side !== "auditor") return;
+    const samplesAttr = el.dataset.samples ?? "";
+    const samples = new Set(
+      samplesAttr ? samplesAttr.split(",").filter(Boolean) : [],
+    );
+    const rect = el.getBoundingClientRect();
+    rows.push({
+      side: side as "current" | "auditor",
+      samples,
+      centerY: rect.top - containerRect.top + rect.height / 2,
+      rightEdge: rect.right - containerRect.left,
+      leftEdge: rect.left - containerRect.left,
+      key,
+    });
+  });
+  const left = rows.filter((r) => r.side === "current");
+  const right = rows.filter((r) => r.side === "auditor");
+  if (left.length === 0 || right.length === 0) return [];
+  // The "rail" between the two columns runs from the max right-
+  // edge of the left rows to the min left-edge of the right rows.
+  // We use those as the x-anchors for curve endpoints.
+  const startX = Math.max(...left.map((r) => r.rightEdge));
+  const endX = Math.min(...right.map((r) => r.leftEdge));
+  const edges: SankeyEdge[] = [];
+  for (const l of left) {
+    if (l.samples.size === 0) continue;
+    for (const r of right) {
+      if (r.samples.size === 0) continue;
+      let inter = 0;
+      for (const s of l.samples) if (r.samples.has(s)) inter++;
+      if (inter === 0) continue;
+      edges.push({
+        leftY: l.centerY,
+        rightY: r.centerY,
+        startX,
+        endX,
+        overlap: inter,
+        leftFrac: inter / l.samples.size,
+        key: `${l.key}->${r.key}`,
+      });
+    }
+  }
+  return edges;
+}
+
+function SankeyOverlay({ edges }: { edges: SankeyEdge[] }) {
+  if (edges.length === 0) return null;
+  // Stroke width grows with sample count; clamp so a 50-sample
+  // overlap doesn't paint over the labels.
+  const widthFor = (n: number) => Math.max(1, Math.min(6, 0.6 + n * 0.4));
+  return (
+    <svg
+      className="absolute inset-0 w-full h-full pointer-events-none"
+      aria-hidden
+    >
+      {edges.map((e) => {
+        const dx = (e.endX - e.startX) * 0.5;
+        const d = `M ${e.startX} ${e.leftY} C ${e.startX + dx} ${e.leftY}, ${e.endX - dx} ${e.rightY}, ${e.endX} ${e.rightY}`;
+        return (
+          <path
+            key={e.key}
+            d={d}
+            fill="none"
+            stroke="currentColor"
+            className="text-sky-500/40 dark:text-sky-400/40"
+            strokeWidth={widthFor(e.overlap)}
+            strokeLinecap="round"
+          >
+            <title>{`${e.overlap} shared sample${e.overlap === 1 ? "" : "s"}`}</title>
+          </path>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** Single-pair aligned view. Both sides have exactly one factor;
+ *  rows align by gemma_ref → sample-Jaccard → label. */
+function AlignedFactorBlock({
+  current,
+  auditor,
+}: {
+  current: Factor | undefined;
+  auditor: FactorProposal | undefined;
+}) {
+  const norm = (s: string) => s.toLowerCase().trim();
+  const currentFvs = (current?.factor_values ?? []).map((fv) => ({ fv }));
+  const auditorFvs = (auditor?.factor_values ?? []).map((fv) => ({ fv }));
+  const pairs: Array<{ left?: number; right?: number }> = [];
+  const leftPaired = new Set<number>();
+  const rightPaired = new Set<number>();
+  // Pass 1: gemma_ref label (audit's pre-computed link).
+  for (let ri = 0; ri < auditorFvs.length; ri++) {
+    const fv = auditorFvs[ri].fv as FactorProposal["factor_values"][number];
+    const refLabel = norm(fv.gemma_ref?.label || "");
+    if (!refLabel) continue;
+    const li = currentFvs.findIndex(
+      (e, i) =>
+        !leftPaired.has(i) && norm(e.fv.free_text_label || "") === refLabel,
+    );
+    if (li >= 0) {
+      pairs.push({ left: li, right: ri });
+      leftPaired.add(li);
+      rightPaired.add(ri);
+    }
+  }
+  // Pass 2: sample-set Jaccard ≥ 0.5.
+  const sampleSet = (e: { fv: { biomaterial_short_names?: string[] } }) =>
+    new Set(e.fv.biomaterial_short_names ?? []);
+  for (let ri = 0; ri < auditorFvs.length; ri++) {
+    if (rightPaired.has(ri)) continue;
+    const rSet = sampleSet(auditorFvs[ri]);
+    if (rSet.size === 0) continue;
+    let bestLi = -1;
+    let bestJaccard = 0;
+    for (let li = 0; li < currentFvs.length; li++) {
+      if (leftPaired.has(li)) continue;
+      const lSet = sampleSet(currentFvs[li]);
+      if (lSet.size === 0) continue;
+      let inter = 0;
+      for (const s of rSet) if (lSet.has(s)) inter++;
+      const union = lSet.size + rSet.size - inter;
+      const j = union > 0 ? inter / union : 0;
+      if (j > bestJaccard) {
+        bestJaccard = j;
+        bestLi = li;
+      }
+    }
+    if (bestJaccard >= 0.5 && bestLi >= 0) {
+      pairs.push({ left: bestLi, right: ri });
+      leftPaired.add(bestLi);
+      rightPaired.add(ri);
+    }
+  }
+  // Pass 3: label match.
+  for (let ri = 0; ri < auditorFvs.length; ri++) {
+    if (rightPaired.has(ri)) continue;
+    const rLabel = norm(auditorFvs[ri].fv.free_text_label || "");
+    if (!rLabel) continue;
+    const li = currentFvs.findIndex(
+      (e, i) =>
+        !leftPaired.has(i) && norm(e.fv.free_text_label || "") === rLabel,
+    );
+    if (li >= 0) {
+      pairs.push({ left: li, right: ri });
+      leftPaired.add(li);
+      rightPaired.add(ri);
+    }
+  }
+  for (let ri = 0; ri < auditorFvs.length; ri++) {
+    if (!rightPaired.has(ri)) pairs.push({ right: ri });
+  }
+  for (let li = 0; li < currentFvs.length; li++) {
+    if (!leftPaired.has(li)) pairs.push({ left: li });
+  }
+  return (
+    <ul>
+      {pairs.map((p, i) => {
+        const left = p.left != null ? currentFvs[p.left] : undefined;
+        const right = p.right != null ? auditorFvs[p.right] : undefined;
+        return (
+          <li
+            key={i}
+            className="grid grid-cols-2 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
+          >
+            <FactorSideCell
+              slot={left ? { fv: left.fv, parent: null } : undefined}
+              muted={!left}
+              onlyHere={!!left && !right}
+            />
+            <FactorSideCell
+              slot={right ? { fv: right.fv, parent: null } : undefined}
+              muted={!right}
+              onlyHere={!!right && !left}
+              leftBorder
+            />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Per-side palette so each factor in the stack reads as a distinct
+ *  identity. Picked for high contrast against both light and dark
+ *  card backgrounds while staying clearly secondary to the term-
+ *  chip emerald (which carries "ontology-resolved" meaning). The
+ *  palette is applied independently per side — same colour on
+ *  Current and Auditor does NOT mean "same factor across sides";
+ *  the sample-overlap Sankey (forthcoming) carries cross-side
+ *  identity. */
+const FACTOR_PALETTE: ReadonlyArray<{
+  border: string;
+  dot: string;
+  text: string;
+}> = [
+  {
+    border: "border-l-sky-500",
+    dot: "bg-sky-500",
+    text: "text-sky-700 dark:text-sky-300",
+  },
+  {
+    border: "border-l-violet-500",
+    dot: "bg-violet-500",
+    text: "text-violet-700 dark:text-violet-300",
+  },
+  {
+    border: "border-l-amber-500",
+    dot: "bg-amber-500",
+    text: "text-amber-700 dark:text-amber-300",
+  },
+  {
+    border: "border-l-rose-500",
+    dot: "bg-rose-500",
+    text: "text-rose-700 dark:text-rose-300",
+  },
+];
+
+function paletteFor(idx: number): (typeof FACTOR_PALETTE)[number] {
+  return FACTOR_PALETTE[idx % FACTOR_PALETTE.length];
+}
+
+/** Partition-disagreement view: each side stacks its factors as
+ *  distinct blocks. No cross-side row alignment — the partitions
+ *  literally don't match, so pretending the rows line up would
+ *  hide the disagreement. Each block gets a left-border accent
+ *  colour from the per-side palette so multi-factor stacks read
+ *  as distinct identities at a glance. */
+function PartitionMismatchBlocks({
+  currentFactors,
+  auditorFactors,
+}: {
+  currentFactors: ReadonlyArray<Factor>;
+  auditorFactors: ReadonlyArray<FactorProposal>;
+}) {
+  return (
+    <div className="grid grid-cols-2">
+      <div className="border-r border-slate-200 dark:border-slate-700">
+        {currentFactors.length === 0 ? (
+          <div className="px-2 py-1 italic text-slate-400 text-[10px]">
+            — none —
+          </div>
+        ) : (
+          currentFactors.map((f, i) => (
+            <FactorBlock
+              key={i}
+              header={
+                currentFactors.length > 1
+                  ? `Factor ${i + 1} · ${f.category?.label ?? "?"}`
+                  : null
+              }
+              factor={f}
+              isLast={i === currentFactors.length - 1}
+              palette={
+                currentFactors.length > 1 ? paletteFor(i) : null
+              }
+            />
+          ))
+        )}
+      </div>
+      <div>
+        {auditorFactors.length === 0 ? (
+          <div className="px-2 py-1 italic text-slate-400 text-[10px]">
+            — none —
+          </div>
+        ) : (
+          auditorFactors.map((f, i) => (
+            <FactorBlock
+              key={i}
+              header={
+                auditorFactors.length > 1
+                  ? `Factor ${i + 1} · ${f.category?.label ?? "?"}`
+                  : null
+              }
+              factor={f}
+              isLast={i === auditorFactors.length - 1}
+              palette={
+                auditorFactors.length > 1 ? paletteFor(i) : null
+              }
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FactorBlock({
+  header,
+  factor,
+  isLast,
+  palette,
+}: {
+  header: string | null;
+  factor: Factor | FactorProposal;
+  isLast: boolean;
+  /** Per-side accent colour. When null the block renders
+   *  borderless / unaccented (the single-factor case). */
+  palette: (typeof FACTOR_PALETTE)[number] | null;
+}) {
+  return (
+    <div
+      className={cn(
+        "py-1",
+        !isLast && "border-b border-slate-200 dark:border-slate-700",
+        palette ? cn("border-l-4 pl-2 pr-2", palette.border) : "px-2",
+      )}
+    >
+      {header ? (
+        <div
+          className={cn(
+            "text-[10px] uppercase tracking-wide font-semibold flex items-center gap-1 mb-0.5",
+            palette
+              ? palette.text
+              : "text-slate-500 dark:text-slate-400",
+          )}
+        >
+          {palette ? (
+            <span
+              aria-hidden
+              className={cn("inline-block w-1.5 h-1.5 rounded-full", palette.dot)}
+            />
+          ) : null}
+          {header}
+        </div>
+      ) : null}
+      <ul className="space-y-0.5">
+        {factor.factor_values.map((fv, j) => (
+          <li key={j}>
+            <MiniFvLine fv={fv} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function FactorSideCell({
+  slot,
+  muted,
+  onlyHere,
+  leftBorder,
+  rowKey,
+}: {
+  slot:
+    | { fv: Factor["factor_values"][number] | FactorProposal["factor_values"][number]; parent: string | null }
+    | undefined;
+  /** Render the cell as an absent-on-this-side placeholder. */
+  muted: boolean;
+  /** Show an amber disc indicating the matching FV isn't on the
+   *  other side. */
+  onlyHere: boolean;
+  leftBorder?: boolean;
+  /** ``side:factorIdx:fvIdx`` — Sankey overlay reads this off the
+   *  rendered DOM via ``data-row-key`` + ``data-samples``. */
+  rowKey?: string;
+}) {
+  const samples = (slot?.fv.biomaterial_short_names ?? []).join(",");
+  return (
+    <div
+      className={cn(
+        "px-2 py-0.5",
+        leftBorder && "border-l border-slate-200 dark:border-slate-700",
+      )}
+      data-row-key={rowKey && !muted ? rowKey : undefined}
+      data-samples={rowKey && !muted ? samples : undefined}
+    >
+      {muted ? (
+        <span className="italic text-slate-400 dark:text-slate-500 text-[10px]">
+          — absent —
+        </span>
+      ) : (
+        <div className="flex items-start gap-1">
+          <span
+            aria-hidden
+            className={cn(
+              "inline-block w-1.5 h-1.5 rounded-full shrink-0 mt-1",
+              onlyHere ? "bg-amber-500" : "invisible",
+            )}
+            title={
+              onlyHere ? "this FV isn't on the other side" : undefined
+            }
+          />
+          <div className="min-w-0 flex-1">
+            {slot!.parent ? (
+              <div className="text-[9px] uppercase tracking-wide text-slate-400 dark:text-slate-500 truncate leading-tight">
+                {slot!.parent}
+              </div>
+            ) : null}
+            <MiniFvLine fv={slot!.fv} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Dainty single-line render of a factor-value — same Subj·Pred·Obj
+ *  shape as the full-blown FvDisplayRow / design surface but at
+ *  half the visual weight (10px chips, no baseline glyph slot, no
+ *  FV-index slot, no editing affordance). Multi-statement FVs
+ *  collapse extra statements onto compact sublines. */
+function MiniFvLine({
+  fv,
+}: {
+  fv:
+    | Factor["factor_values"][number]
+    | FactorProposal["factor_values"][number];
+}) {
+  const statements = fv.statements ?? [];
+  const head = statements[0];
+  const rest = statements.slice(1);
+  const subjLabel =
+    head?.subject?.label?.trim() || fv.free_text_label?.trim() || "";
+  const subjUri = head?.subject?.uri ?? null;
+  const predLabel = head?.predicate?.label?.trim() ?? "";
+  const predUri = head?.predicate?.uri ?? null;
+  const objLabel = head?.object?.label?.trim() ?? "";
+  const objUri = head?.object?.uri ?? null;
+  const n = fv.biomaterial_short_names?.length ?? 0;
+  return (
+    <div className="text-[10px] leading-tight">
+      <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+        {subjLabel ? (
+          <MiniTerm label={subjLabel} uri={subjUri} />
+        ) : (
+          <span className="italic text-slate-400">(blank)</span>
+        )}
+        {predLabel ? (
+          <>
+            <span className="text-slate-400 dark:text-slate-500">·</span>
+            <span
+              className="text-slate-500 dark:text-slate-300 font-mono"
+              title={predUri || undefined}
+            >
+              {predLabel}
+            </span>
+          </>
+        ) : null}
+        {objLabel ? (
+          <>
+            <span className="text-slate-400 dark:text-slate-500">·</span>
+            <MiniTerm label={objLabel} uri={objUri} />
+          </>
+        ) : null}
+        {fv.is_baseline ? (
+          <span
+            className="text-amber-600 dark:text-amber-400 leading-none"
+            title="baseline"
+            aria-label="baseline"
+          >
+            ▂
+          </span>
+        ) : null}
+        {n > 0 ? (
+          <span className="text-slate-400 dark:text-slate-500">
+            ({n})
+          </span>
+        ) : null}
+      </div>
+      {rest.length > 0 ? (
+        <div className="pl-2 mt-0.5 space-y-0.5">
+          {rest.map((s, i) => (
+            <div
+              key={i}
+              className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5"
+            >
+              {s.subject?.label ? (
+                <MiniTerm
+                  label={s.subject.label}
+                  uri={s.subject.uri ?? null}
+                />
+              ) : null}
+              {s.predicate?.label ? (
+                <>
+                  <span className="text-slate-400 dark:text-slate-500">·</span>
+                  <span className="text-slate-500 dark:text-slate-300 font-mono">
+                    {s.predicate.label}
+                  </span>
+                </>
+              ) : null}
+              {s.object?.label ? (
+                <>
+                  <span className="text-slate-400 dark:text-slate-500">·</span>
+                  <MiniTerm
+                    label={s.object.label}
+                    uri={s.object.uri ?? null}
+                  />
+                </>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Mini chip: same visual cues as the full Term chip (emerald wash
+ *  + URI suffix when resolved; grey italic when free-text) at
+ *  half the size. Not interactive — these rows aren't editable. */
+function MiniTerm({
+  label,
+  uri,
+}: {
+  label: string;
+  uri: string | null;
+}) {
+  const resolved = !!uri;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline gap-1 px-1 rounded-sm border leading-tight",
+        resolved
+          ? "bg-emerald-50 text-emerald-800 border-emerald-200 border-l-[2px] border-l-emerald-500 dark:bg-emerald-900/30 dark:text-emerald-100 dark:border-emerald-700"
+          : "bg-stone-50 text-stone-600 border-stone-200 italic dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600",
+      )}
+      title={uri || undefined}
+    >
+      <span className="break-words">{label}</span>
+      {uri ? (
+        <span className="text-slate-400 dark:text-slate-500 font-mono text-[9px] whitespace-nowrap">
+          {shortenUri(uri)}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Per-FV confirmation chips, nested inside the parent factor
+ *  card body. Renders only when the factor finding has OK-severity
+ *  FV findings on the same parent slug — those carry the auditor's
+ *  per-FV statement-correctness check, which is valuable context
+ *  but doesn't deserve a standalone card. */
+function NestedOkFvConfirmations({
+  finding,
+  report,
+}: {
+  finding: AuditFinding;
+  report: AuditReport | null;
+}) {
+  if (finding.target_kind !== "factor") return null;
+  const parsed = parseTargetId(finding.target_id);
+  if (parsed?.kind !== "factor") return null;
+  const parentSlug = parsed.factorSlug;
+  const okFvs = (report?.findings ?? []).filter((f) => {
+    if (f.target_kind !== "fv" || f.severity !== "ok") return false;
+    const p = parseTargetId(f.target_id);
+    return p?.kind === "fv" && p.factorSlug === parentSlug;
+  });
+  if (okFvs.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-baseline gap-1.5 text-[10px]">
+      <span className="uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+        Auditor confirms FV{okFvs.length === 1 ? "" : "s"}:
+      </span>
+      {okFvs.map((f, i) => {
+        const p = parseTargetId(f.target_id);
+        const fvLabel =
+          p?.kind === "fv" ? p.fvSlug.replace(/-/g, " ") : f.target_id;
+        return (
+          <span
+            key={i}
+            className="inline-flex items-baseline gap-0.5 px-1.5 py-0.5 rounded-sm border border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-100"
+            title={f.rationale || undefined}
+          >
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+              ✓
+            </span>
+            <span>{fvLabel}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Human-friendly one-liner over the auditor's take, derived from
+ *  ``issue_code``. Returns null for codes we don't have confident
+ *  framing for — the rest of the card (rationale block + side-by-
+ *  side) still carries the message. */
+function FactorFindingSummaryLine({ finding }: { finding: AuditFinding }) {
+  if (finding.target_kind !== "factor") return null;
+  const category = firstBacktick(finding.rationale ?? "") || null;
+  const cat = category && /^[^`]+$/.test(category) ? category : null;
+  const summary = factorFindingSummary(finding, cat);
+  if (!summary) return null;
+  return (
+    <div className="text-[11px] text-slate-700 dark:text-slate-200 leading-snug italic">
+      {summary}
+    </div>
+  );
+}
+
+function factorFindingSummary(
+  finding: AuditFinding,
+  category: string | null,
+): string | null {
+  const code = finding.issue_code;
+  const catLabel = category || "this category";
+  switch (code) {
+    case "wrong_fv_partition":
+      return `Auditor agrees ${catLabel} is a factor but proposes a different partitioning.`;
+    case "wrong_category":
+      return `Auditor agrees on the FVs but proposes a different category label.`;
+    case "calibration_factor_extra":
+      return `Auditor proposes a new ${catLabel} factor not in the current design.`;
+    case "calibration_factor_gold_only_miss":
+      return `Auditor says the current ${catLabel} factor shouldn't be in the design.`;
+    case "calibration_factor_match":
+      return `Auditor confirms the ${catLabel} factor matches.`;
+    case "calibration_factor_match_exact":
+      return `Auditor confirms the ${catLabel} factor matches exactly.`;
+    case "calibration_factor_match_near":
+      return `Auditor agrees on ${catLabel} but proposes refinements to label or terms.`;
+    case "calibration_factor_partition_mismatch":
+      return `Auditor agrees ${catLabel} is a factor but proposes a finer/coarser partition.`;
+    case "calibration_factor_rename":
+      return `Auditor agrees on the ${catLabel} factor's structure but proposes a different name.`;
+    case "forbidden_efc":
+      return `Auditor flags ${catLabel} as an EFC the curation guide forbids.`;
+    case "vague_fv_labels":
+      return `Auditor flags vague factor-value labels on ${catLabel}.`;
+    case "conflated":
+      return `Auditor says ${catLabel} conflates two different concepts.`;
+    case "missing_factor":
+      return `Auditor proposes ${catLabel} as a factor missing from the current design.`;
+    default:
+      return null;
+  }
+}
+
+/** Generic counterpart to ``NearMatchExplainer`` for any actionable
+ *  finding whose disagreement axis the per-row comparator can't
+ *  surface — ``wrong_fv_partition`` (BM has more distinct values
+ *  than the factor declares), ``conflated`` (two factors should be
+ *  one), etc. Without this the curator reads "Everyone agrees" next
+ *  to a major-severity glyph and has nothing to act on. */
+function ActionableNoDeltaExplainer({ finding }: { finding: AuditFinding }) {
+  const rationale = trimRationaleBoilerplate(finding.rationale ?? "").trim();
+  const sevPalette =
+    finding.severity === "blocker"
+      ? "border-rose-300 bg-rose-50 text-rose-900 dark:border-rose-700/60 dark:bg-rose-900/20 dark:text-rose-100"
+      : finding.severity === "major"
+        ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/15 dark:text-amber-100"
+        : "border-slate-300 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-200";
+  return (
+    <div
+      className={cn(
+        "rounded border px-2.5 py-2 text-[11px] leading-snug",
+        sevPalette,
+      )}
+    >
+      <div className="flex items-baseline gap-1.5 mb-1">
+        <span className="font-semibold uppercase tracking-wide text-[10px]">
+          {finding.severity}
+        </span>
+        <span className="font-mono text-[10px] opacity-75">
+          {finding.issue_code}
+        </span>
+      </div>
+      {rationale ? (
+        <div className="italic opacity-90">{rationale}</div>
+      ) : (
+        <div className="italic opacity-70">
+          (no rationale on the wire — see Auditor details below)
+        </div>
+      )}
     </div>
   );
 }
