@@ -85,7 +85,7 @@ export default defineConfig(({ mode }) => {
           configure: (proxy) => {
             // One-shot log so a curator can confirm which upstream the
             // dev server is fronting without grepping vite.config.
-            // eslint-disable-next-line no-console
+             
             console.log(`[browser] /rest → ${GEMMA_TARGET}`);
             // STRIP Origin + Referer entirely. Tomcat's CORS
             // filter (web.xml /rest/v2/* mapping) 403s every Origin
@@ -102,7 +102,7 @@ export default defineConfig(({ mode }) => {
               proxyReq.removeHeader("referer");
             });
             proxy.on("error", (err) => {
-              // eslint-disable-next-line no-console
+               
               console.error(`[browser] proxy error: ${err.message}`);
             });
           },

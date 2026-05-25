@@ -207,7 +207,7 @@ export function generateFilterDescription(
   function processGroups(annots: AnnotationTerm[]): Record<string, string[]> {
     const groups: Record<string, string[]> = {};
     for (const a of annots) {
-      let { classUri, className } = a;
+      const { classUri, className } = a;
       let key: string;
       if (className) key = capitalizeFirstLetter(pluralize(className));
       else if (classUri) key = formatTerm(classUri);
@@ -227,7 +227,7 @@ export function generateFilterDescription(
     for (const classUri in inferredTermLabelsByCategory) {
       const inferred = Object.values(inferredTermLabelsByCategory[classUri]);
       if (!inferred.length) continue;
-      let className = annots.find((a) => a.classUri === classUri)?.className ?? null;
+      const className = annots.find((a) => a.classUri === classUri)?.className ?? null;
       let key: string;
       if (className) key = capitalizeFirstLetter(pluralize(className));
       else if (classUri) key = formatTerm(classUri);

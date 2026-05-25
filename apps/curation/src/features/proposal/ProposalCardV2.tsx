@@ -1898,7 +1898,6 @@ function PrettyJson({
   parentKey?: string;
   indent?: number;
 }) {
-  const pad = "  ".repeat(indent);
   const isQuoteContext =
     !!parentKey && QUOTE_KEYS.has(parentKey.toLowerCase());
 
@@ -1950,8 +1949,6 @@ function PrettyJson({
     );
   }
   return <span>{String(value)}</span>;
-  // ``pad`` is unused at the leaf level — kept above for clarity.
-  void pad;
 }
 
 function RawBlock({ label, body }: { label: string; body: string }) {

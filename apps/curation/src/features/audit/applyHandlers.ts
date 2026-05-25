@@ -744,7 +744,7 @@ function addFactorFromProposal(
   design: Design,
   proposal: FactorProposal,
 ): Design {
-  let nextFactorId =
+  const nextFactorId =
     (design.factors ?? []).reduce((m, f) => Math.max(m, f.id), 0) + 1;
   let nextFvId =
     (design.factors ?? [])

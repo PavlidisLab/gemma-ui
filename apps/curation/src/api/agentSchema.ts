@@ -108,7 +108,7 @@ export function warnOnSchemaDrift(
   if (missing === null) return; // schema not loaded yet
   warnedKinds.add(kind);
   if (missing.length === 0) return;
-  // eslint-disable-next-line no-console
+   
   console.warn(
     `[AgentRunDialog] schema drift on ${kind}: UI sends ${missing.join(", ")} but ` +
       `the agent's /${kind}/schema doesn't advertise it. The agent will silently ignore ` +

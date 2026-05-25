@@ -1,6 +1,7 @@
 {
   "name": "gemma-ui",
   "private": true,
+  "type": "module",
   "version": "0.11.0",
   "description": "Gemma user-facing frontends — apps/curation (curator workflow) + apps/browser (public browse/search).",
   "workspaces": [
@@ -16,9 +17,18 @@
     "typecheck:curation": "npm --workspace gemma-curation-ui run typecheck",
     "typecheck:browser": "npm --workspace gembrow run typecheck",
     "typecheck": "npm run typecheck:curation && npm run typecheck:browser",
+    "lint": "eslint apps packages",
+    "lint:fix": "eslint apps packages --fix",
     "test:curation": "npm --workspace gemma-curation-ui run test"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.25"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "typescript-eslint": "^8.59.4"
   }
 }

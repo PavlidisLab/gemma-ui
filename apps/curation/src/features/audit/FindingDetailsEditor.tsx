@@ -788,15 +788,13 @@ export function FindingDetailsEditor({
   );
   const [rowState, setRowState] = useState<Map<string, RowState>>(new Map());
   const [saving, setSaving] = useState(false);
-  // Inline "Apply / Reject with optional explanation" prompts —
-  // replace the action row on factor-extra / tag-extra cards so
-  // both verdicts share visual shape, and the curator can attach
-  // a note before the disposition (and any draft mutation) lands.
-  // The note rides on the PATCH and goes back to the curation
-  // agent at close-review time. Per Paul 2026-05-25 (harmonization
-  // pass — proposals now have an explicit Reject affordance
-  // matching Apply).
-  const [applyPromptOpen, setApplyPromptOpen] = useState(false);
+  // Inline Reject-with-reason prompt — Reject requires a reason
+  // (Paul 2026-05-25: "reject and park should have a reason"),
+  // Agree is fire-and-forget without a notes prompt, Park already
+  // routes through ``onPark`` → NotSureDialog which gates on a
+  // structured reason chip. The note rides on the disposition
+  // PATCH and goes back to the curation agent at close-review
+  // time.
   const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
   // Free-text term lookup — when the curator clicks "find ▸" next
   // to an unresolved term in the comparison surface, this captures
@@ -1369,17 +1367,7 @@ export function FindingDetailsEditor({
           />
         ) : null}
 
-        {applyPromptOpen ? (
-          <InlineNotesPrompt
-            primaryLabel="Agree"
-            saving={saving}
-            onCancel={() => setApplyPromptOpen(false)}
-            onConfirm={async (notes) => {
-              setApplyPromptOpen(false);
-              await runApply(notes);
-            }}
-          />
-        ) : rejectPromptOpen ? (
+        {rejectPromptOpen ? (
           <InlineNotesPrompt
             primaryLabel="Reject"
             primaryTone="reject"
@@ -1402,8 +1390,11 @@ export function FindingDetailsEditor({
                 key: "accept",
                 kind: "primary-accept" as const,
                 label: "Agree",
-                onClick: () => setApplyPromptOpen(true),
-                title: `Agree with ${identities.proposer}: add the proposed factor to the design (optional explanation).`,
+                // Agree is fire-and-forget — no notes prompt. Per
+                // Paul 2026-05-25: "just agree". Reject + Park
+                // still require a reason.
+                onClick: () => runApply(""),
+                title: `Agree with ${identities.proposer}: add the proposed factor to the design.`,
               } satisfies ActionButton,
               {
                 key: "reject",
@@ -1923,17 +1914,7 @@ export function FindingDetailsEditor({
           action row while the curator decides; Dismiss + "keep"
           are dropped (non-application records itself via the
           close-review summary). Per Paul 2026-05-25. */}
-      {isTagAddFinding && applyPromptOpen ? (
-        <InlineNotesPrompt
-          primaryLabel="Agree"
-          saving={saving}
-          onCancel={() => setApplyPromptOpen(false)}
-          onConfirm={async (notes) => {
-            setApplyPromptOpen(false);
-            await dispatchSave("proposal", notes);
-          }}
-        />
-      ) : isTagAddFinding && rejectPromptOpen ? (
+      {isTagAddFinding && rejectPromptOpen ? (
         <InlineNotesPrompt
           primaryLabel="Reject"
           primaryTone="reject"
@@ -1960,8 +1941,11 @@ export function FindingDetailsEditor({
                     key: "accept",
                     kind: "primary-accept" as const,
                     label: "Agree",
-                    onClick: () => setApplyPromptOpen(true),
-                    title: `Agree with ${identities.proposer}: add the proposed tag to the design (optional explanation).`,
+                    // Agree fires immediately — no notes prompt
+                    // (Paul 2026-05-25: "just agree"). Reject
+                    // requires a reason via the prompt below.
+                    onClick: () => dispatchSave("proposal"),
+                    title: `Agree with ${identities.proposer}: add the proposed tag to the design.`,
                   } satisfies ActionButton,
                   {
                     key: "reject",
@@ -3267,6 +3251,13 @@ function DisagreementBlock({
    *  no citation or no judge text. */
   judgeCitation?: string | null;
 }) {
+  // Hook order: useState MUST run before the empty-rows early
+  // return below — Rules-of-Hooks. ``rows[0]`` is undefined when
+  // rows is empty, but ``?.pick`` short-circuits cleanly so this
+  // is safe.
+  const subjectRow = rows.find((r) => r.rowLabel === "Subject") ?? rows[0];
+  const subjectState = subjectRow ? rowState.get(subjectRow.path) : undefined;
+  const [editOpen, setEditOpen] = useState(subjectState?.pick === "edit");
   if (rows.length === 0) return null;
   const first = rows[0];
   const meta = first.fvIndex !== null ? fvMeta.get(first.fvIndex) : undefined;
@@ -3319,11 +3310,9 @@ function DisagreementBlock({
       ? (Array.from(groupPicks)[0] as Pick)
       : "mixed";
 
-  // Pre-existing edit value — pull from the subject row when
-  // it has one (most common edit anchor).
-  const subjectRow = rows.find((r) => r.rowLabel === "Subject") ?? rows[0];
-  const subjectState = rowState.get(subjectRow.path);
-  const [editOpen, setEditOpen] = useState(subjectState?.pick === "edit");
+  // ``subjectRow`` / ``subjectState`` / ``editOpen`` are lifted to
+  // the top of the function (above the empty-rows guard) to keep
+  // hook order stable across renders — see the useState above.
 
   // Action-aware button labels — `don't add` / `don't remove` /
   // `don't change` / `confirm` per the finding's action shape (Paul
@@ -3977,6 +3966,7 @@ function InlineNotesPrompt({
   onCancel,
   onConfirm,
   savingLabel,
+  notesRequired = false,
 }: {
   primaryLabel: string;
   /** ``"accept"`` = blue (default; Apply path). ``"reject"`` = rose
@@ -3988,6 +3978,11 @@ function InlineNotesPrompt({
   /** Optional override for the in-flight button label — defaults
    *  to "applying…" / "rejecting…" based on tone. */
   savingLabel?: string;
+  /** When true, the confirm button stays disabled until the
+   *  textarea has at least one non-whitespace character. Use for
+   *  Reject — curator should record WHY they declined. Apply is
+   *  optional-notes. */
+  notesRequired?: boolean;
   onCancel: () => void;
   onConfirm: (notes: string) => void | Promise<void>;
 }) {
@@ -4002,10 +3997,16 @@ function InlineNotesPrompt({
         : "bg-blue-700 text-white hover:bg-blue-800";
   const defaultSavingLabel =
     primaryTone === "reject" ? "rejecting…" : "applying…";
+  const trimmed = notes.trim();
+  const blockedByEmpty = notesRequired && trimmed.length === 0;
   return (
-    <div className="border border-slate-300 dark:border-slate-600 rounded p-2 space-y-2 bg-slate-50 dark:bg-slate-900/60">
+    // ``max-w-sm`` (24rem ~ 384px) keeps the textarea + buttons in a
+    // single readable cluster instead of stretching across the full
+    // card width (Paul 2026-05-25: "this box is so wide, the Reject
+    // confirm button is waaaay over there").
+    <div className="border border-slate-300 dark:border-slate-600 rounded p-2 space-y-2 bg-slate-50 dark:bg-slate-900/60 max-w-sm">
       <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-200">
-        Optional explanation
+        {notesRequired ? "Explain" : "Optional explanation"}
         <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
           — rides to the curation agent at close-review time
         </span>
@@ -4017,8 +4018,12 @@ function InlineNotesPrompt({
         placeholder={
           placeholder ??
           (primaryTone === "reject"
-            ? "(optional) why you're rejecting this — leave blank if no comment"
-            : "(optional) why you're applying this — leave blank if no comment")
+            ? notesRequired
+              ? "why you're rejecting this"
+              : "(optional) why you're rejecting this — leave blank if no comment"
+            : notesRequired
+              ? "why you're applying this"
+              : "(optional) why you're applying this — leave blank if no comment")
         }
         autoFocus
         className="w-full text-[11px] border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 resize-y bg-white dark:bg-slate-900"
@@ -4035,8 +4040,16 @@ function InlineNotesPrompt({
         <button
           type="button"
           onClick={() => onConfirm(notes)}
-          disabled={saving}
-          className={cn("text-[11px] px-2 py-0.5 rounded font-semibold", tonedClass)}
+          disabled={saving || blockedByEmpty}
+          title={
+            blockedByEmpty
+              ? "enter a reason first"
+              : undefined
+          }
+          className={cn(
+            "text-[11px] px-2 py-0.5 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed",
+            tonedClass,
+          )}
         >
           {saving ? (savingLabel ?? defaultSavingLabel) : primaryLabel}
         </button>

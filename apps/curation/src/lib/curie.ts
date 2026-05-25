@@ -64,11 +64,11 @@ export function shortenUri(uri: string | null | undefined): string {
   //    swallows the gene id as if "gene" were the local identifier,
   //    losing the actual species-distinguishing ID. Carve out the
   //    NCBI gene shape explicitly so the ID always shows.
-  const mNcbi = uri.match(/ncbi_gene\/(\d+)(?:[\/?#].*)?$/i);
+  const mNcbi = uri.match(/ncbi_gene\/(\d+)(?:[/?#].*)?$/i);
   if (mNcbi) return `NCBI:gene:${mNcbi[1]}`;
   // 2. underscore-separated CURIE in the path:
   //    .../OBO/MONDO_0004975, .../efo/EFO_0000513, .../ont/TGEMO_00184
-  const m1 = uri.match(/[\/#]([A-Za-z][A-Za-z0-9]+)_(\w+)(?:[\/?#].*)?$/);
+  const m1 = uri.match(/[/#]([A-Za-z][A-Za-z0-9]+)_(\w+)(?:[/?#].*)?$/);
   if (m1) {
     const prefix = m1[1].toUpperCase();
     return `${prefix}:${m1[2]}`;
@@ -83,6 +83,6 @@ export function shortenUri(uri: string | null | undefined): string {
     return `${prefix}:${m2[2]}`;
   }
   // 4. fallback: last path segment, capped, prefixed with "…"
-  const tail = uri.split(/[\/#]/).filter(Boolean).pop() ?? uri;
+  const tail = uri.split(/[/#]/).filter(Boolean).pop() ?? uri;
   return tail.length > 24 ? `…${tail.slice(-22)}` : tail;
 }

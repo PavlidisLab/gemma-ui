@@ -61,7 +61,7 @@ const DISALLOWED_CATEGORY_FILTER_PREFIXES = [
 export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) {
   // Strip annotation-style sub-clauses from the filter — we don't want
   // selecting a value to hide the category it belongs to.
-  let mFilter = args.filter
+  const mFilter = args.filter
     .map((c) => c.filter((sc) => !DISALLOWED_CATEGORY_FILTER_PREFIXES.some((p) => sc.startsWith(p))))
     .filter((c) => c.length > 0);
   const compressed = await compressFilter(mFilter);
@@ -353,7 +353,7 @@ export async function getAllPlatforms(
 }
 
 export async function getPlatforms(args: PlatformsArgs, signal?: AbortSignal) {
-  let mFilter = args.filter
+  const mFilter = args.filter
     .map((c) => c.filter((sc) => !sc.startsWith("bioAssays.arrayDesignUsed.") && !sc.startsWith("bioAssays.originalPlatform.")))
     .filter((c) => c.length > 0);
   const compressed = await compressFilter(mFilter);
@@ -373,7 +373,7 @@ export interface TaxaArgs {
 }
 
 export async function getTaxa(args: TaxaArgs, signal?: AbortSignal) {
-  let mFilter = args.filter
+  const mFilter = args.filter
     .map((c) => c.filter((sc) => !sc.startsWith("taxon.")))
     .filter((c) => c.length > 0);
   const compressed = await compressFilter(mFilter);

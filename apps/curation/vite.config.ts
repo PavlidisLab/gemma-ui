@@ -65,19 +65,19 @@ export default defineConfig(({ mode }) => {
   // — see ``lib/gemmaMode.ts`` for the matching UI indicator.
   const ONTOLOGY_URL =
     env.GEMMA_ONTOLOGY_URL || "https://staging-gemma.msl.ubc.ca";
-  // eslint-disable-next-line no-console
+   
   console.log(`[curation] /rest → ${CURATION_URL} (local_api default)`);
-  // eslint-disable-next-line no-console
+   
   console.log(
     `[curation] /rest/v2/datasets/*/{svd,sample-correlation,mean-variance} → ${GEMMA_REST_URL} (diagnostics fallback)`,
   );
-  // eslint-disable-next-line no-console
+   
   console.log(
     `[curation] /rest/v2/annotations/{search,term} → ${ONTOLOGY_URL} (ontology routing exception)`,
   );
-  // eslint-disable-next-line no-console
+   
   console.log(`[curation] /local-api → ${LOCAL_API_URL} (explicit local_api passthrough)`);
-  // eslint-disable-next-line no-console
+   
   console.log(`[curation] /propose,/audit,/find-* → ${PROPOSER_URL}`);
   return {
     plugins: [react()],
