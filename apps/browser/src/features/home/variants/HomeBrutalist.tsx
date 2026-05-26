@@ -19,6 +19,9 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { COPY, GENERAL_INFO, SURFACES } from "../copy";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useMe, useLogout } from "@/api/auth";
+import { SkinSwitcher } from "@/lib/skin/SkinSwitcher";
+import { LoginModal } from "@/features/shared/LoginModal";
 import {
   useGemmaSummary,
   fmtCount,
@@ -68,16 +71,7 @@ export function HomeBrutalist() {
     >
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-px">
         {/* Wordmark + tagline — single block, no inversion */}
-        <div className="border border-stone-950 bg-stone-100">
-          <div className="px-6 py-6 flex items-baseline gap-3">
-            <span className="text-4xl leading-none font-bold tracking-tight">
-              GEMMA
-            </span>
-            <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600">
-              Curated · re-analyzed
-            </span>
-          </div>
-        </div>
+        <Masthead />
 
         {/* Hero stats — 5 metrics + about column */}
         <StatsRow s={s} />
@@ -690,6 +684,132 @@ function Marquee({ items }: { items: RecentDataset[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Page-level masthead — replaces the standard AppBar on the home
+ * route + the old wordmark block (Paul: those two duplicated the
+ * brand mark on the home view). Layout:
+ *
+ *   ┌──────────────────────────────────────────────────────────┐
+ *   │ GEMMA               [visual]            [auth][skin]      │
+ *   │ Curated · re-analyzed                                     │
+ *   └──────────────────────────────────────────────────────────┘
+ *
+ * Visual area is a placeholder slot — a small decorative grid
+ * standing in until design ships the real element.
+ */
+function Masthead() {
+  const me = useMe();
+  const user = me.data;
+  const logout = useLogout();
+  const [loginOpen, setLoginOpen] = useState(false);
+
+  return (
+    <div className="border border-stone-950 bg-stone-100">
+      <div className="px-6 py-5 flex items-center gap-6 flex-wrap">
+        {/* Brand mark — left */}
+        <div className="flex items-baseline gap-3">
+          <span className="text-5xl leading-none font-bold tracking-tight">
+            GEMMA
+          </span>
+          <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600">
+            Curated · re-analyzed
+          </span>
+        </div>
+
+        {/* Visual element placeholder — middle. Stays unobtrusive
+            until design swaps in something deliberate. */}
+        <div className="flex-1 flex justify-center min-w-0">
+          <VisualPlaceholder />
+        </div>
+
+        {/* Auth + skin — right */}
+        <div className="flex items-center gap-3">
+          {me.isPending && !me.data ? null : user ? (
+            <span className="text-xs text-stone-600 inline-flex items-baseline gap-2">
+              <span className="opacity-70">Signed in as</span>
+              <span className="font-medium text-stone-900">
+                {user.userName || user.email || "(signed in)"}
+              </span>
+              <button
+                type="button"
+                onClick={() => logout.mutate()}
+                disabled={logout.isPending}
+                className="opacity-70 hover:opacity-100 bg-transparent border-none cursor-pointer disabled:cursor-progress p-0"
+              >
+                {logout.isPending ? "Signing out…" : "Sign out"}
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setLoginOpen(true)}
+              className="text-xs px-2.5 py-1 rounded bg-stone-900 text-stone-50 hover:bg-stone-800"
+            >
+              Sign in
+            </button>
+          )}
+          <SkinSwitcher />
+        </div>
+      </div>
+      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
+    </div>
+  );
+}
+
+/** Decorative grid placeholder for the masthead's middle slot.
+ *  Six-by-three dots in the accent palette (orange / blue /
+ *  emerald — the same three the GENERAL_INFO columns use). A
+ *  faint hint of "annotation grid" without being a real chart.
+ *  Swap in the real visual element when design ships it. */
+function VisualPlaceholder() {
+  const cols = 12;
+  const rows = 3;
+  // Stable deterministic pattern so the dots don't reshuffle on
+  // re-render. Cycle through three colours by index.
+  const COLOURS = ["#f97316", "#2563eb", "#10b981"]; // orange-500 / blue-700 / emerald-600
+  const cells: { x: number; y: number; c: string; opacity: number }[] = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      // Pseudo-random hash: skip ~40% of cells to break the grid
+      // into a sparse, lacelike pattern.
+      const h = (x * 31 + y * 17) % 100;
+      if (h < 40) continue;
+      cells.push({
+        x,
+        y,
+        c: COLOURS[(x + y) % COLOURS.length]!,
+        opacity: 0.45 + ((h - 40) / 60) * 0.55,
+      });
+    }
+  }
+  const cellW = 10;
+  const cellH = 10;
+  const dotR = 2.2;
+  const w = cols * cellW;
+  const h = rows * cellH;
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      width={w * 1.8}
+      height={h * 1.8}
+      aria-hidden="true"
+      className="shrink-0 select-none"
+      style={{ maxWidth: "100%" }}
+    >
+      {cells.map((cell) => (
+        <circle
+          key={`${cell.x}-${cell.y}`}
+          cx={cell.x * cellW + cellW / 2}
+          cy={cell.y * cellH + cellH / 2}
+          r={dotR}
+          fill={cell.c}
+          opacity={cell.opacity}
+        />
+      ))}
+    </svg>
   );
 }
 
