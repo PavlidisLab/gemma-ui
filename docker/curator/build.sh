@@ -42,8 +42,15 @@ docker build \
 # ─── curation-ui image ───────────────────────────────────────────
 # Context is the monorepo root so the multi-stage build can copy
 # the workspace manifests + apps/curation source.
+#
+# Pass GEMMA_ONTOLOGY_URL through to the SPA bundle so the
+# OntologyTermPicker footer displays the correct routing-exception
+# host (same value the curator-stack's vite/nginx proxy forwards
+# /annotations/{search,term} to). Reads from the environment so
+# `GEMMA_ONTOLOGY_URL=http://frink:8080 ./build.sh` works.
 docker build \
     -f Dockerfile.curation-ui \
+    --build-arg "VITE_GEMMA_ONTOLOGY_URL=${GEMMA_ONTOLOGY_URL:-}" \
     -t "gemma-curator/curation-ui:$TAG" \
     "$REPO_ROOT"
 
