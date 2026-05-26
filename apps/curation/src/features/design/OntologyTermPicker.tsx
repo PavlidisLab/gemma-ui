@@ -103,7 +103,7 @@ export function OntologyTermPicker({
   const { data: candidates = [], isFetching } = useAnnotationSearch(
     debounced,
     category,
-    { enabled: editing, limit: 10 },
+    { enabled: editing, limit: 25 },
   );
 
   // Agent-side ontology search. Fires only when the curator clicks

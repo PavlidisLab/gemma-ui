@@ -30,7 +30,7 @@ export function useAnnotationSearch(
   category: string | null,
   options: { limit?: number; enabled?: boolean } = {},
 ) {
-  const { limit = 10, enabled = true } = options;
+  const { limit = 25, enabled = true } = options;
   return useQuery({
     queryKey: KEY(query, category, limit),
     queryFn: async () => {
@@ -38,6 +38,15 @@ export function useAnnotationSearch(
       if (query) params.set("query", query);
       if (category) params.set("category", category);
       params.set("limit", String(limit));
+      // Bias by how often each term has actually been used in
+      // Gemma curations rather than the default Lucene tf-idf
+      // ranking. Without this, common multi-word labels like
+      // "wild type genotype" get tokenised and the matching term
+      // sinks past the visible window — curators have to type
+      // quoted phrases to find them. ``rank=usage`` lands in
+      // Gemma 2.0 (phase2-acl-migrate); older servers ignore
+      // unknown params, so this degrades to lucene ordering.
+      params.set("rank", "usage");
       // Two response shapes live on the wire today (2026-05-23):
       //   - local_api returns the bare list ``[{label, uri,
       //     category_label, category_uri, usage_count}, …]``.
