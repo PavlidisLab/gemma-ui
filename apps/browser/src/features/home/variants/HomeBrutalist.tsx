@@ -94,11 +94,12 @@ export function HomeBrutalist() {
         {/* Concept stats — distinct ontology terms per slot */}
         <ConceptRow s={s} />
 
-        {/* Factor values per category — left-third; remaining 2/3
-            reserved for future widgets per Paul (2026-05-25). */}
+        {/* Three-pane data row: factor values · perturbed genes ·
+            reserve. Same 3-col rhythm as the breakdown row above. */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-950">
           <CategoryBars s={s} />
-          <div className="md:col-span-2 bg-stone-100" aria-hidden="true" />
+          <PerturbedGenesBars s={s} />
+          <div className="bg-stone-100" aria-hidden="true" />
         </div>
 
         {/* Surface buttons */}
@@ -420,6 +421,68 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
       ) : (
         <div className="px-4 py-3 text-stone-500 text-xs">
           {s.isLoading ? "loading…" : "no factor-value categories"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PerturbedGenesBars({ s }: { s: GemmaSummary }) {
+  // Middle-third bar chart: top perturbed genes by number of
+  // experiments. Source: /stats/home.topPerturbedGenes (filed in
+  // HOME_PAGE_PERTURBED_GENES_2026_05_25.md — not yet shipped).
+  // Until the field lands the panel renders a placeholder so the
+  // 3-col layout has visual mass and the page communicates the
+  // intent. Empty-state header line keeps the slot honest.
+  const rows = s.topPerturbedGenes.slice(0, 12);
+  const ready = rows.length > 0;
+  const max = Math.max(1, ...rows.map((r) => r.numberOfExpressionExperiments));
+  return (
+    <div className="bg-stone-100">
+      <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between gap-2">
+        <span className="text-stone-900 font-semibold">Genes perturbed</span>
+        <span
+          className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
+          title="Top perturbed genes by number of experiments they're annotated in as a perturbation target (knockouts, knockdowns, overexpression)."
+        >
+          most-studied
+        </span>
+      </div>
+      {ready ? (
+        <ul>
+          {rows.map((r) => {
+            const pct = Math.max(
+              0.5,
+              (r.numberOfExpressionExperiments / max) * 100,
+            );
+            return (
+              <li
+                key={`${r.geneSymbol}-${r.taxon ?? ""}`}
+                className="px-4 py-0.5 grid grid-cols-[6.5rem_minmax(0,1fr)_max-content] items-center gap-2 text-xs"
+              >
+                <span
+                  className="text-stone-800 truncate font-medium italic"
+                  title={r.taxon ? `${r.geneSymbol} (${r.taxon})` : r.geneSymbol}
+                >
+                  {r.geneSymbol}
+                </span>
+                <div className="h-1.5 bg-stone-200 relative overflow-hidden">
+                  <div
+                    className="absolute inset-y-0 left-0 bg-blue-700"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="text-right tabular-nums text-stone-900 font-medium whitespace-nowrap">
+                  {r.numberOfExpressionExperiments.toLocaleString()}
+                  <span className="ml-1 text-stone-500 font-normal">EEs</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="px-4 py-3 text-stone-500 text-xs">
+          pending /stats/home field
         </div>
       )}
     </div>

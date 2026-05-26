@@ -90,6 +90,13 @@ interface HomeStatsWire {
     label: string;
     count: number;
   }>;
+  /** Top perturbed genes by number of experiments. Not yet shipped
+   *  — see HOME_PAGE_PERTURBED_GENES_2026_05_25.md. */
+  topPerturbedGenes?: Array<{
+    geneSymbol: string;
+    taxon: string | null;
+    numberOfExpressionExperiments: number;
+  }>;
   recentExperiments: Array<{
     id: number;
     shortName: string;
@@ -202,6 +209,15 @@ export interface GemmaSummary {
     key: string;
     label: string;
     count: number;
+  }>;
+  /** Top perturbed genes by number of experiments referencing them
+   *  as perturbation targets. Drives the middle-third bar chart on
+   *  the home page. Empty until bro ships the field — filed in
+   *  HOME_PAGE_PERTURBED_GENES_…. */
+  topPerturbedGenes: Array<{
+    geneSymbol: string;
+    taxon: string | null;
+    numberOfExpressionExperiments: number;
   }>;
   recentDatasets: RecentDataset[];
   snapshotAt: string | null;
@@ -471,6 +487,7 @@ export function useGemmaSummary(): GemmaSummary {
     datasetsByAccessionSource: wire?.datasetsByAccessionSource ?? [],
     distinctAccessionCount: wire?.distinctAccessionCount ?? null,
     treatmentSubcategories: wire?.treatmentSubcategories ?? [],
+    topPerturbedGenes: wire?.topPerturbedGenes ?? [],
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,
     updatedThisWeek,
