@@ -161,7 +161,7 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         label="Datasets"
         value={fmtCount(s.datasets, "full", homeLoading)}
         cols="md:col-span-2"
-        hint="Public expression experiments in Gemma. Each dataset is one re-analysed study (typically a GEO / ArrayExpress / CELLxGENE submission, some without an external accession)."
+        hint="Public expression experiments in Gemma. A single external accession (e.g. one GSE) sometimes maps to multiple Gemma datasets — Gemma splits a GEO submission when it actually contains two or more distinct experiments. So the dataset count is slightly larger than the count of distinct source accessions (footnote, once the wire field lands)."
       />
       <StatBlock
         label="Platforms"
