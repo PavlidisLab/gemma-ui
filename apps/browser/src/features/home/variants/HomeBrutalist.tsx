@@ -227,8 +227,14 @@ function TechnologyBreakdown({ rows }: { rows: TechnologyRow[] }) {
 function Marquee({ items }: { items: RecentDataset[] }) {
   // CSS-only marquee: a single track that scrolls horizontally,
   // duplicated to make the loop seamless. ``prefers-reduced-motion``
-  // pauses it so a reader can scan. Click any short name to jump to
-  // the dataset detail page.
+  // pauses it so a reader can scan. Hover anywhere on the strip also
+  // pauses the loop.
+  //
+  // Per Paul (2026-05-25): the experiment **title** is the lede;
+  // the short name (GSE accession) is curator/API shorthand and
+  // close to noise for a public-site visitor — keep it as a small
+  // muted trailing chip. The earlier "scroll the short names"
+  // shape is saved at the bottom of this file for reference.
   const ready = items.length > 0;
   return (
     <div className="border border-stone-950 bg-stone-950 text-stone-100 overflow-hidden">
@@ -248,12 +254,17 @@ function Marquee({ items }: { items: RecentDataset[] }) {
                 className="marquee-item text-stone-100 hover:text-blue-300 hover:no-underline"
                 title={`${d.shortName} — ${d.name}`}
               >
-                <span className="font-mono text-sm">{d.shortName}</span>
+                <span className="text-sm max-w-[42ch] truncate inline-block align-middle">
+                  {d.name}
+                </span>
                 {d.taxonName ? (
-                  <span className="text-stone-500 text-xs ml-1.5">
+                  <span className="text-stone-500 text-xs ml-2">
                     {d.taxonName}
                   </span>
                 ) : null}
+                <span className="font-mono text-[10px] text-stone-500 ml-2">
+                  {d.shortName}
+                </span>
                 <span className="text-stone-700 mx-3">·</span>
               </Link>
             ))}
@@ -320,3 +331,18 @@ function SurfaceBlock({
     </Link>
   );
 }
+
+/* ─── Saved alternative: short-name-led marquee ──────────────────
+ * Initial shape (2026-05-25) led with the GSE short name in mono,
+ * with the taxon as a small muted tail. Paul rejected because the
+ * accession is curator/API shorthand — meaningless to a public-site
+ * visitor. Kept here so we can swap back behind a curator-mode
+ * toggle later if a dedicated audience surfaces.
+ *
+ *   <span className="font-mono text-sm">{d.shortName}</span>
+ *   {d.taxonName ? (
+ *     <span className="text-stone-500 text-xs ml-1.5">
+ *       {d.taxonName}
+ *     </span>
+ *   ) : null}
+ */
