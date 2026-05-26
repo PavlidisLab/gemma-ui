@@ -719,48 +719,83 @@ function GeneralInfo({
           id="general-info-body"
           className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-300"
         >
-          <InfoColumn title={GENERAL_INFO.idea.title}>
-            <p className="text-sm text-stone-700 leading-relaxed">
+          {/* Column 1 — identity / mission. */}
+          <InfoColumn
+            title={GENERAL_INFO.idea.title}
+            accent={GENERAL_INFO.idea.accent}
+          >
+            <p className="text-[15px] font-semibold text-stone-900 leading-snug mb-3">
+              {GENERAL_INFO.idea.lead}
+            </p>
+            <p className="text-sm text-stone-600 leading-relaxed">
               {GENERAL_INFO.idea.body}
             </p>
           </InfoColumn>
-          <InfoColumn title={GENERAL_INFO.provide.title}>
-            <ul className="space-y-1.5 text-sm text-stone-700 leading-snug">
-              {GENERAL_INFO.provide.body.map((item) => (
-                <li key={item} className="flex gap-2">
-                  <span aria-hidden="true" className="text-stone-400 shrink-0">
-                    —
+
+          {/* Column 2 — data + analysis catalogue. */}
+          <InfoColumn
+            title={GENERAL_INFO.provide.title}
+            accent={GENERAL_INFO.provide.accent}
+          >
+            <ul className="space-y-2 text-sm leading-snug">
+              {GENERAL_INFO.provide.items.map((item) => (
+                <li key={item.lead} className="flex gap-2.5">
+                  <span
+                    aria-hidden="true"
+                    className="inline-block w-1.5 h-1.5 mt-1.5 shrink-0 bg-blue-700"
+                  />
+                  <span>
+                    <span className="font-semibold text-stone-900">
+                      {item.lead}
+                    </span>
+                    <span className="text-stone-600"> — {item.body}</span>
                   </span>
-                  <span>{item}</span>
                 </li>
               ))}
             </ul>
           </InfoColumn>
-          <InfoColumn title={GENERAL_INFO.how.title}>
-            <ul className="space-y-1 text-sm leading-snug">
-              {GENERAL_INFO.how.body.map((item) =>
-                item.external ? (
-                  <li key={item.label}>
+
+          {/* Column 3 — access surfaces. */}
+          <InfoColumn
+            title={GENERAL_INFO.how.title}
+            accent={GENERAL_INFO.how.accent}
+          >
+            <ul className="space-y-1.5 text-sm leading-snug">
+              {GENERAL_INFO.how.items.map((item) => (
+                <li
+                  key={item.label}
+                  className="flex items-baseline gap-2.5"
+                >
+                  <AccessTag tag={item.tag} />
+                  {item.external ? (
                     <a
                       href={item.href}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-stone-800 underline hover:text-blue-700"
+                      className="group inline-flex items-baseline gap-1.5 min-w-0"
                     >
-                      {item.label}
+                      <span className="font-semibold text-stone-900 group-hover:text-emerald-700 group-hover:underline">
+                        {item.label}
+                      </span>
+                      <span className="text-stone-500 text-xs truncate">
+                        — {item.hint}
+                      </span>
                     </a>
-                  </li>
-                ) : (
-                  <li key={item.label}>
+                  ) : (
                     <Link
                       to={item.href}
-                      className="text-stone-800 underline hover:text-blue-700 hover:no-underline"
+                      className="group inline-flex items-baseline gap-1.5 min-w-0"
                     >
-                      {item.label}
+                      <span className="font-semibold text-stone-900 group-hover:text-emerald-700 group-hover:underline">
+                        {item.label}
+                      </span>
+                      <span className="text-stone-500 text-xs truncate">
+                        — {item.hint}
+                      </span>
                     </Link>
-                  </li>
-                ),
-              )}
+                  )}
+                </li>
+              ))}
             </ul>
           </InfoColumn>
         </div>
@@ -769,20 +804,54 @@ function GeneralInfo({
   );
 }
 
+/** Per-column accent — small coloured bar on the left edge +
+ *  matching tinted title dot. Anchors the column visually
+ *  without competing with the body content. Three accents:
+ *  orange (identity), blue (data), emerald (action). */
 function InfoColumn({
   title,
+  accent,
   children,
 }: {
   title: string;
+  accent: "orange" | "blue" | "emerald";
   children: React.ReactNode;
 }) {
+  const accentClass =
+    accent === "orange"
+      ? "bg-orange-500"
+      : accent === "blue"
+        ? "bg-blue-700"
+        : "bg-emerald-600";
   return (
-    <div className="bg-stone-100 px-5 py-4">
-      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-2">
-        {title}
+    <div className="bg-stone-100 relative pl-5 pr-5 py-4">
+      <span
+        aria-hidden="true"
+        className={`absolute left-0 top-0 bottom-0 w-1 ${accentClass}`}
+      />
+      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-3 flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className={`inline-block w-2 h-2 ${accentClass}`}
+        />
+        <span className="text-stone-900 font-semibold">{title}</span>
       </div>
       {children}
     </div>
+  );
+}
+
+/** Mono tag-chip in the access column (WEB / REST / R / PY /
+ *  MCP / DOC). Provides a glyph-like anchor without resorting to
+ *  emoji or external icon assets. */
+function AccessTag({ tag }: { tag: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex items-center justify-center min-w-[2.5rem] px-1.5 py-[1px] text-[10px] font-mono font-semibold tracking-wide bg-stone-900 text-stone-100 shrink-0"
+    >
+      {tag}
+    </span>
   );
 }
 
