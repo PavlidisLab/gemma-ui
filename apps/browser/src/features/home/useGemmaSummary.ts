@@ -158,6 +158,15 @@ export interface GemmaSummary {
    *  source for the factor-values-per-category bar chart. Sorted
    *  descending server-side. */
   factorValuesByCategory: FactorValueCategoryRow[];
+  /** Top annotation categories by EE coverage. Pairs with
+   *  ``factorValuesByCategory`` on the bar chart: bar = FV depth,
+   *  suffix = EE breadth. */
+  categoryDistribution: Array<{
+    key: string | null;
+    category: string;
+    categoryUri: string | null;
+    numberOfExpressionExperiments: number;
+  }>;
   recentDatasets: RecentDataset[];
   snapshotAt: string | null;
   updatedThisWeek: number | null;
@@ -475,6 +484,7 @@ export function useGemmaSummary(): GemmaSummary {
       cellLines: byCat.cell_line ?? null,
     },
     factorValuesByCategory,
+    categoryDistribution: wire?.categoryDistribution ?? [],
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,
     updatedThisWeek,

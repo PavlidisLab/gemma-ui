@@ -14,6 +14,7 @@
  *   - Single accent (blue-700) for hover affordances only.
  */
 
+import type React from "react";
 import { Link } from "@tanstack/react-router";
 import { COPY, SURFACES } from "../copy";
 import {
@@ -125,18 +126,56 @@ export function HomeBrutalist() {
 }
 
 function StatsRow({ s }: { s: GemmaSummary }) {
-  // 6 primary tiles. Datasets / platforms / samples / genes ride on
-  // the /stats/home snapshot (single homeLoading flag); DEA + the
-  // ontology-term count have their own queries.
+  // 6 primary tiles. Samples + Genes nest a secondary breakdown
+  // under the headline number (footnote prop) instead of claiming
+  // additional tiles for samplesByTech / geneManipulated.
   const homeLoading = s.datasets === null && !s.isError;
   const resultSetsLoading = s.diffExResultSets === null && !s.isError;
   const ontologyLoading = s.ontologyTerms === null && !s.isError;
+
+  const samplesFootnote = (() => {
+    const t = s.samplesByTech;
+    const parts: string[] = [];
+    if (t.singleCell !== null && t.singleCell > 0)
+      parts.push(`single-cell ${fmtCount(t.singleCell, "compact")}`);
+    if (t.rnaSeq !== null && t.rnaSeq > 0)
+      parts.push(`RNA-seq ${fmtCount(t.rnaSeq, "compact")}`);
+    if (t.microarray !== null && t.microarray > 0)
+      parts.push(`microarray ${fmtCount(t.microarray, "compact")}`);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  })();
+
+  const genesFootnote = (() => {
+    const g = s.geneManipulated;
+    const e = s.geneManipulatedExperiments;
+    if (g === null || g === 0) return null;
+    if (e !== null && e > 0) {
+      return `${fmtCount(g, "compact")} perturbed in ${fmtCount(e, "compact")} experiments`;
+    }
+    return `${fmtCount(g, "compact")} perturbed`;
+  })();
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-12 gap-px bg-stone-950">
       <StatBlock label="Datasets" value={fmtCount(s.datasets, "full", homeLoading)} cols="md:col-span-2" />
       <StatBlock label="Platforms" value={fmtCount(s.platforms, "full", homeLoading)} cols="md:col-span-2" />
-      <StatBlock label="Samples" value={fmtCount(s.samples, "full", homeLoading)} cols="md:col-span-2" />
-      <StatBlock label="Genes" value={fmtCount(s.genes, "full", homeLoading)} cols="md:col-span-2" />
+      <StatBlock
+        label="Samples"
+        value={fmtCount(s.samples, "full", homeLoading)}
+        cols="md:col-span-2"
+        footnote={samplesFootnote}
+      />
+      <StatBlock
+        label="Genes"
+        value={fmtCount(s.genes, "full", homeLoading)}
+        cols="md:col-span-2"
+        footnote={genesFootnote}
+        hint={
+          genesFootnote
+            ? "headline = total distinct genes in the database; footnote = distinct genes with perturbation annotations + the experiments they appear in"
+            : undefined
+        }
+      />
       <StatBlock label="DEA result sets" value={fmtCount(s.diffExResultSets, "full", resultSetsLoading)} cols="md:col-span-2" />
       <StatBlock
         label="Ontology terms"
@@ -218,28 +257,61 @@ function Concept({
 
 function CategoryBars({ s }: { s: GemmaSummary }) {
   // Factor-values-per-category bar chart. Source:
-  // /stats/home.factorValuesByCategory (bro's v2 wishlist landing).
-  // Filter / merge against FACTOR_CATEGORY_DISPLAY so the chart
-  // shows the ~8-10 user-facing experimental axes instead of
-  // mixed-in curator-bookkeeping slots (assay / BioSource / block /
-  // labelling) and the molecular-entity bucket that overlaps with
-  // treatment.
-  const merged = new Map<string, { uris: Set<string>; count: number }>();
+  // /stats/home.factorValuesByCategory. Filter / merge against
+  // FACTOR_CATEGORY_DISPLAY so the chart shows the ~8-10 user-
+  // facing experimental axes only.
+  //
+  // Each row also picks up an EE-coverage tag from
+  // categoryDistribution (bar carries FV depth; tag carries EE
+  // breadth). The two distributions are independently sourced; we
+  // join on category URI primarily, label as fallback.
+  const eeByUri = new Map<string, number>();
+  const eeByLabel = new Map<string, number>();
+  for (const c of s.categoryDistribution) {
+    if (c.categoryUri) eeByUri.set(c.categoryUri, c.numberOfExpressionExperiments);
+    if (c.category)
+      eeByLabel.set(
+        c.category.trim().toLowerCase(),
+        c.numberOfExpressionExperiments,
+      );
+  }
+
+  const merged = new Map<
+    string,
+    { uris: Set<string>; sourceLabels: Set<string>; count: number }
+  >();
   for (const row of s.factorValuesByCategory) {
     const key = row.category.trim().toLowerCase();
     const display = FACTOR_CATEGORY_DISPLAY[key];
-    if (!display) continue; // drop bookkeeping + unknown categories
-    const cur = merged.get(display) ?? { uris: new Set(), count: 0 };
+    if (!display) continue;
+    const cur =
+      merged.get(display) ??
+      { uris: new Set<string>(), sourceLabels: new Set<string>(), count: 0 };
     if (row.uri) cur.uris.add(row.uri);
+    cur.sourceLabels.add(key);
     cur.count += row.count;
     merged.set(display, cur);
   }
+
+  // Resolve EE coverage per displayed group. When multiple source
+  // categories merged into one group (e.g. molecular entity →
+  // Treatment), take the max EE count — summing would double-count
+  // experiments tagged with both.
   const rows = Array.from(merged.entries())
-    .map(([label, v]) => ({
-      label,
-      count: v.count,
-      uris: Array.from(v.uris),
-    }))
+    .map(([label, v]) => {
+      let ee = 0;
+      for (const uri of v.uris) {
+        const x = eeByUri.get(uri);
+        if (x !== undefined && x > ee) ee = x;
+      }
+      if (ee === 0) {
+        for (const lbl of v.sourceLabels) {
+          const x = eeByLabel.get(lbl);
+          if (x !== undefined && x > ee) ee = x;
+        }
+      }
+      return { label, count: v.count, ee: ee > 0 ? ee : null };
+    })
     .sort((a, b) => b.count - a.count);
 
   const ready = rows.length > 0;
@@ -252,15 +324,21 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
         </span>
         <span
           className="text-stone-500 normal-case tracking-normal text-[11px]"
-          title="Distinct factor values existing under each ExperimentalFactor category across the public corpus."
+          title="Bar: distinct factor values existing under each ExperimentalFactor category. Tag: experiments using any annotation in that category — depth vs breadth."
         >
-          experimental axes
+          bar = FV depth · tag = EE breadth
         </span>
       </div>
       {ready ? (
         <ul>
           {rows.map((r) => (
-            <CategoryBar key={r.label} label={r.label} count={r.count} max={max} />
+            <CategoryBar
+              key={r.label}
+              label={r.label}
+              count={r.count}
+              ee={r.ee}
+              max={max}
+            />
           ))}
         </ul>
       ) : (
@@ -275,15 +353,17 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
 function CategoryBar({
   label,
   count,
+  ee,
   max,
 }: {
   label: string;
   count: number;
+  ee: number | null;
   max: number;
 }) {
   const pct = Math.max(0.5, (count / max) * 100);
   return (
-    <li className="px-4 py-0.5 grid grid-cols-[8rem_1fr_3.5rem] items-center gap-2 text-xs">
+    <li className="px-4 py-0.5 grid grid-cols-[8rem_1fr_6.5rem] items-center gap-2 text-xs">
       <span className="text-stone-800 truncate" title={label}>
         {label}
       </span>
@@ -293,8 +373,13 @@ function CategoryBar({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-right tabular-nums text-stone-900 font-medium">
-        {count.toLocaleString()}
+      <span className="text-right tabular-nums text-stone-900">
+        <span className="font-medium">{count.toLocaleString()}</span>
+        {ee !== null ? (
+          <span className="ml-1.5 text-stone-500 font-normal">
+            · {fmtCount(ee, "compact")} EEs
+          </span>
+        ) : null}
       </span>
     </li>
   );
@@ -434,11 +519,16 @@ function StatBlock({
   value,
   cols,
   hint,
+  footnote,
 }: {
   label: string;
   value: string;
   cols: string;
   hint?: string;
+  /** Tiny muted line under the headline number. Used to nest a
+   *  secondary breakdown (e.g. samplesByTech under Samples,
+   *  perturbed-genes under Genes) without claiming a new tile. */
+  footnote?: React.ReactNode;
 }) {
   return (
     <div className={`${cols} bg-stone-100 px-5 py-4`} title={hint}>
@@ -448,6 +538,11 @@ function StatBlock({
       <div className="text-3xl font-semibold tabular-nums tracking-tight text-stone-950">
         {value}
       </div>
+      {footnote ? (
+        <div className="mt-1 text-[10px] text-stone-500 leading-snug">
+          {footnote}
+        </div>
+      ) : null}
     </div>
   );
 }
