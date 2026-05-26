@@ -76,6 +76,11 @@ interface HomeStatsWire {
    *  the ExternalDatabase.name or ``"none"``. Sorted desc.
    *  Empty array on pre-deploy snapshots. */
   datasetsByAccessionSource?: Array<{ source: string; count: number }>;
+  /** Distinct external accessions across the corpus, regardless of
+   *  source. ≤ ``datasetCount`` — a single GEO submission split into
+   *  two Gemma EEs counts once here. Undefined on snapshots that
+   *  predate the field landing. */
+  distinctAccessionCount?: number;
   recentExperiments: Array<{
     id: number;
     shortName: string;
@@ -170,8 +175,15 @@ export interface GemmaSummary {
    *  CELLxGENE, …); ``source === "none"`` carries direct lab
    *  submissions / Gemma-native EEs. Sorted desc, sums to
    *  ``datasets``. Empty until bro's accession field lands in the
-   *  daily snapshot. */
+   *  daily snapshot. Currently unused on the home page (Paul
+   *  dropped the per-source footnote — see distinctAccessionCount). */
   datasetsByAccessionSource: Array<{ source: string; count: number }>;
+  /** Distinct external accessions across the corpus, regardless of
+   *  source. ≤ ``datasets`` because a single GEO submission split
+   *  into two Gemma EEs counts once here. Drives the Datasets-tile
+   *  "from N distinct accessions" footnote. ``null`` until bro's
+   *  field ships (filed in HOME_PAGE_STATS_DISTINCT_ACCESSIONS_…). */
+  distinctAccessionCount: number | null;
   recentDatasets: RecentDataset[];
   snapshotAt: string | null;
   updatedThisWeek: number | null;
@@ -438,6 +450,7 @@ export function useGemmaSummary(): GemmaSummary {
     factorValuesByCategory,
     categoryDistribution: wire?.categoryDistribution ?? [],
     datasetsByAccessionSource: wire?.datasetsByAccessionSource ?? [],
+    distinctAccessionCount: wire?.distinctAccessionCount ?? null,
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,
     updatedThisWeek,

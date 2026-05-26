@@ -154,19 +154,19 @@ function StatsRow({ s }: { s: GemmaSummary }) {
     return parts.length > 0 ? parts.join(" · ") : null;
   })();
 
-  // Datasets-by-source footnote — bro's accessions field. Empty
-  // until the daily refresh after deploy runs; null check hides
-  // the footnote gracefully meanwhile. "none" bucket → "direct"
-  // for the visitor-friendly framing.
+  // Datasets footnote — Paul (2026-05-25): drop the per-source
+  // breakdown ("99.9% from GEO anyway, the breakdown isn't
+  // informative"). Render just a single "from N distinct
+  // accessions" line. That count is NOT what
+  // datasetsByAccessionSource sums to (which is the per-source
+  // dataset count, same total as datasetCount — see the 1:N split
+  // hint). It needs a separate distinctAccessionCount field on
+  // /stats/home — filed as a follow-up ask. Until then the
+  // footnote stays null and the tile shows just the headline.
   const datasetsFootnote = (() => {
-    const rows = s.datasetsByAccessionSource;
-    if (rows.length === 0) return null;
-    return rows
-      .map((r) => {
-        const label = r.source === "none" ? "direct" : r.source;
-        return `${label} ${fmtCount(r.count, "compact")}`;
-      })
-      .join(" · ");
+    const n = s.distinctAccessionCount;
+    if (n === null || n <= 0) return null;
+    return `from ${n.toLocaleString()} distinct accessions`;
   })();
 
   const perturbedFootnote = (() => {
@@ -184,7 +184,7 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         value={fmtCount(s.datasets, "full", homeLoading)}
         cols="md:col-span-2"
         footnote={datasetsFootnote}
-        hint="Public expression experiments in Gemma. Footnote breaks the corpus down by external-accession source (GEO, ArrayExpress, CELLxGENE, etc.); the 'direct' bucket is lab submissions / Gemma-native experiments with no external accession. Note: a single GEO submission with two distinct experiments is split into two Gemma datasets, so the source counts here are dataset counts, not raw accession counts — the GEO-accession total is a bit smaller."
+        hint="Public expression experiments in Gemma. The footnote shows the number of distinct external accessions behind the corpus — slightly smaller than the dataset count because Gemma sometimes splits one GEO submission into two experiments when the submission actually contains two distinct studies. Almost all are from GEO (the per-source breakdown isn't shown because it's ≈99.9% GEO)."
       />
       <StatBlock
         label="Platforms"
@@ -589,7 +589,10 @@ function StatBlock({
  *  (60ms open delay, portal-mounted, stone-900 bubble) instead of
  *  the browser-default ``title=`` which has a ~700ms open delay
  *  Paul (and everyone) finds frustrating. Sized to match the 10px
- *  label text so it doesn't compete visually. */
+ *  label text so it doesn't compete visually.
+ *  No ``cursor-help`` — that yields the macOS circle-with-question-
+ *  mark cursor which Paul (correctly) flagged as visual noise.
+ *  The (i) glyph + bubble tooltip is affordance enough. */
 function InfoBadge({ hint }: { hint: string }) {
   return (
     <Tooltip label={hint}>
@@ -597,7 +600,7 @@ function InfoBadge({ hint }: { hint: string }) {
         role="img"
         aria-label={hint}
         tabIndex={0}
-        className="ml-1.5 inline-flex items-center justify-center w-3 h-3 rounded-full border border-stone-400 text-stone-500 text-[8px] leading-none cursor-help select-none normal-case tracking-normal font-medium hover:border-stone-700 hover:text-stone-800 focus:outline-none focus:ring-1 focus:ring-stone-600"
+        className="ml-1.5 inline-flex items-center justify-center w-3 h-3 rounded-full border border-stone-400 text-stone-500 text-[8px] leading-none select-none normal-case tracking-normal font-medium hover:border-stone-700 hover:text-stone-800 focus:outline-none focus:ring-1 focus:ring-stone-600"
       >
         i
       </span>
