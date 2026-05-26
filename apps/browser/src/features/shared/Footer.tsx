@@ -229,7 +229,23 @@ export function Footer() {
           Terms
         </a>
         <span className="opacity-60 uppercase tracking-[0.16em] text-[10px]">
-          Pavlidis Lab · UBC
+          <a
+            href="https://pavlab.msl.ubc.ca"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline hover:opacity-100"
+          >
+            Pavlidis Lab
+          </a>
+          {" · "}
+          <a
+            href="https://www.ubc.ca"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline hover:opacity-100"
+          >
+            UBC
+          </a>
         </span>
       </span>
     </footer>
