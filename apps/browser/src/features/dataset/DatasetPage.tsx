@@ -23,6 +23,7 @@ import {
 } from "@/api/endpoints";
 import { HeatmapWidget } from "@gemma/heatmap";
 import type { HeatmapData } from "@gemma/heatmap";
+import { VisualizeTab } from "./VisualizeTab";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { gemmaUrl } from "@/lib/gemmaConfig";
 import type {
@@ -43,13 +44,20 @@ import type {
   GeeqScores,
 } from "@/lib/types";
 
-type TabId = "overview" | "design" | "samples" | "expression" | "downloads";
+type TabId =
+  | "overview"
+  | "design"
+  | "samples"
+  | "expression"
+  | "visualize"
+  | "downloads";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview",   label: "Overview"    },
   { id: "design",     label: "Design"      },
   { id: "samples",    label: "Samples"     },
   { id: "expression", label: "Expression"  },
+  { id: "visualize",  label: "Visualize"   },
   { id: "downloads",  label: "Downloads"   },
 ];
 
@@ -89,6 +97,7 @@ export function DatasetPage() {
         {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
         {activeTab === "expression" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} />}
         {activeTab === "downloads"  && <DownloadsTab  dataset={dataset} />}
       </div>
     </PageShell>

@@ -794,6 +794,124 @@ export async function getGeneGoTerms(
   return r.data ?? [];
 }
 
+/** Free-text gene search (typeahead). Wraps Gemma's
+ *  ``GET /rest/v2/genes/search?query=&taxon=&limit=`` — bro shipped
+ *  this as a search-service-backed shim. Returns gene value objects
+ *  ranked by search score. ``taxon`` is the common name
+ *  (``"human"`` / ``"mouse"`` / ``"rat"``); pass to scope a dataset's
+ *  visualisation picker to its own organism. */
+export async function searchGenes(
+  query: string,
+  options: { taxon?: string; limit?: number; signal?: AbortSignal } = {},
+): Promise<Gene[]> {
+  const { taxon, limit = 20, signal } = options;
+  const q = query.trim();
+  if (!q) return [];
+  const params: Params = { query: q, limit };
+  if (taxon) params.taxon = taxon;
+  const r = await apiGet<PaginatedResponse<Gene>>(`${BASE}/genes/search`, {
+    params,
+    signal,
+  });
+  return r.data ?? [];
+}
+
+// ─── Heatmap-data (dataset visualisation) ─────────────────────────────────────
+
+/** Wire shape returned by ``GET /datasets/{id}/heatmap-data``. Mirrors
+ *  ``HeatmapDataValueObject`` on the Java side. Adapter ``adaptHeatmapWire``
+ *  below normalises this into the shape ``@gemma/heatmap``'s
+ *  ``HeatmapWidget`` consumes. */
+export interface HeatmapWireResponse {
+  datasetId: number;
+  datasetShortName?: string;
+  matrix: {
+    values: Array<Array<number | null>>;
+    encoding?: string;
+    rowsCount: number;
+    colsCount: number;
+    quantitationType: {
+      id?: number;
+      name: string;
+      isPreferred: boolean;
+      isRatio: boolean;
+      scale: string;
+    };
+  };
+  rows: Array<{
+    designElementId: number;
+    designElementName: string;
+    genes?: Array<{
+      id: number;
+      officialSymbol?: string | null;
+      name?: string | null;
+    }>;
+    annotations?: Record<string, unknown>;
+  }>;
+  columns: Array<{
+    bioAssayId: number;
+    bioMaterialId: number;
+    name: string;
+    outlier: boolean;
+    factorValueIds?: Record<string, number>;
+  }>;
+  factors?: Array<{
+    factor: {
+      id: number;
+      name: string;
+      type?: string;
+      category?: string;
+      categoryUri?: string | null;
+      values?: Array<{
+        id: number;
+        isBaseline?: boolean;
+        summary?: string;
+      }>;
+    };
+  }>;
+}
+
+export interface HeatmapDataArgs {
+  /** Selected gene NCBI ids / Gemma gene ids. The endpoint accepts
+   *  any GeneArg-resolvable identifier; numeric ids are unambiguous. */
+  genes?: Array<number | string>;
+  /** Cap on samples — useful for very large single-cell experiments
+   *  where the full matrix doesn't fit. */
+  sampleSize?: number;
+  /** Sub-set the matrix to a specific subSet id (filter the columns). */
+  subSet?: number;
+}
+
+/** Fetch the heatmap matrix for a user-curated gene list on this
+ *  dataset. Use cases:
+ *    - "show me expression for BRCA1, TP53, MYC across all samples"
+ *    - same as above but for a sub-set (e.g. one cell type) of the
+ *      bio-assays
+ *
+ *  Endpoint is anonymous-safe (subject to dataset ACL); large
+ *  payloads compressed via standard Tomcat gzip. */
+export async function getHeatmapData(
+  datasetId: number | string,
+  args: HeatmapDataArgs = {},
+  signal?: AbortSignal,
+): Promise<HeatmapWireResponse | null> {
+  const params: Params = {};
+  if (args.genes && args.genes.length > 0) {
+    params.genes = args.genes.join(",");
+  }
+  if (args.sampleSize) params.sampleSize = args.sampleSize;
+  if (args.subSet) params.subSet = args.subSet;
+  try {
+    const r = await apiGet<{ data?: HeatmapWireResponse }>(
+      `${BASE}/datasets/${datasetId}/heatmap-data`,
+      { params, signal },
+    );
+    return r.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Categories endpoint also returns annotations under each category as a separate call. */
 export async function getCategoriesWithChildren(
   args: CategoriesArgs,
