@@ -157,31 +157,43 @@ function StatsRow({ s }: { s: GemmaSummary }) {
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-12 gap-px bg-stone-950">
-      <StatBlock label="Datasets" value={fmtCount(s.datasets, "full", homeLoading)} cols="md:col-span-2" />
-      <StatBlock label="Platforms" value={fmtCount(s.platforms, "full", homeLoading)} cols="md:col-span-2" />
+      <StatBlock
+        label="Datasets"
+        value={fmtCount(s.datasets, "full", homeLoading)}
+        cols="md:col-span-2"
+        hint="Public expression experiments in Gemma. Each dataset is one re-analysed study (typically a GEO / ArrayExpress / CELLxGENE submission, some without an external accession)."
+      />
+      <StatBlock
+        label="Platforms"
+        value={fmtCount(s.platforms, "full", homeLoading)}
+        cols="md:col-span-2"
+        hint="Distinct microarray + sequencing platforms (array designs) referenced by at least one dataset."
+      />
       <StatBlock
         label="Samples"
         value={fmtCount(s.samples, "full", homeLoading)}
         cols="md:col-span-2"
         footnote={samplesFootnote}
+        hint="Total biomaterials across all public experiments. Footnote splits samples by the technology that produced them (single-cell vs. bulk RNA-seq vs. microarray)."
       />
       <StatBlock
         label="Genes"
         value={fmtCount(s.genes, "full", homeLoading)}
         cols="md:col-span-2"
         footnote={genesFootnote}
-        hint={
-          genesFootnote
-            ? "headline = total distinct genes in the database; footnote = distinct genes with perturbation annotations + the experiments they appear in"
-            : undefined
-        }
+        hint="Headline: total distinct genes in Gemma's database across all taxa. Footnote: distinct genes annotated as perturbation targets (knockouts, knockdowns, overexpression) and the experiments they appear in."
       />
-      <StatBlock label="DEA result sets" value={fmtCount(s.diffExResultSets, "full", resultSetsLoading)} cols="md:col-span-2" />
+      <StatBlock
+        label="DEA result sets"
+        value={fmtCount(s.diffExResultSets, "full", resultSetsLoading)}
+        cols="md:col-span-2"
+        hint="Differential-expression contrasts Gemma has computed — each result set is one re-usable comparison (e.g. 'diseased vs. control on factor X')."
+      />
       <StatBlock
         label="Ontology terms"
         value={fmtCount(s.ontologyTerms, "full", ontologyLoading)}
         cols="md:col-span-2"
-        hint="distinct ontology-backed terms used for annotation across the corpus (excludes free-text variants)"
+        hint="Distinct ontology-backed terms used to annotate the corpus. Free-text variants (un-resolved strings) are excluded."
       />
     </div>
   );
@@ -244,9 +256,10 @@ function Concept({
   hint?: string;
 }) {
   return (
-    <div className="bg-stone-100 px-4 py-3" title={hint}>
-      <div className="text-[10px] uppercase tracking-[0.18em] text-stone-600 mb-0.5">
-        {label}
+    <div className="bg-stone-100 px-4 py-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-stone-600 mb-0.5 flex items-center">
+        <span>{label}</span>
+        {hint ? <InfoBadge hint={hint} /> : null}
       </div>
       <div className="text-xl font-semibold tabular-nums tracking-tight text-stone-950">
         {value}
@@ -531,9 +544,10 @@ function StatBlock({
   footnote?: React.ReactNode;
 }) {
   return (
-    <div className={`${cols} bg-stone-100 px-5 py-4`} title={hint}>
-      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-1">
-        {label}
+    <div className={`${cols} bg-stone-100 px-5 py-4`}>
+      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-1 flex items-center">
+        <span>{label}</span>
+        {hint ? <InfoBadge hint={hint} /> : null}
       </div>
       <div className="text-3xl font-semibold tabular-nums tracking-tight text-stone-950">
         {value}
@@ -544,6 +558,25 @@ function StatBlock({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Small ``i`` glyph next to a tile label — clickable / hoverable
+ *  affordance for the explanation. Renders with title= so the
+ *  browser-default tooltip surfaces the prose on hover; no JS /
+ *  popover dep needed. Sized to match the 10px label text so it
+ *  doesn't compete visually. */
+function InfoBadge({ hint }: { hint: string }) {
+  return (
+    <span
+      role="img"
+      aria-label={hint}
+      title={hint}
+      tabIndex={0}
+      className="ml-1.5 inline-flex items-center justify-center w-3 h-3 rounded-full border border-stone-400 text-stone-500 text-[8px] leading-none cursor-help select-none normal-case tracking-normal font-medium hover:border-stone-700 hover:text-stone-800 focus:outline-none focus:ring-1 focus:ring-stone-600"
+    >
+      i
+    </span>
   );
 }
 
