@@ -55,9 +55,4 @@
 }
 
 
-/* Vertical-credits-crawl ticker CSS removed 2026-05-26 when the
- * Marquee swapped to a React-state cross-fade (titles disappearing
- * into the panel edges read as distracting per Paul). The new
- * implementation lives inline in HomeBrutalist::Marquee — no
- * shared CSS classes needed. */
 

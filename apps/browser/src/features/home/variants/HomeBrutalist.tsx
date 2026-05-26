@@ -271,12 +271,6 @@ function ConceptRow({ s }: { s: GemmaSummary }) {
   );
 }
 
-// TreatmentBreakdown (the rich tooltip body) removed 2026-05-25
-// when the Treatment-subcategories chart moved to its own panel
-// in the bar-chart row — keeping it on the tile would duplicate
-// the same data twice on the page. Restore from commit 22d70cc
-// if a collapsed-tooltip view is ever wanted.
-
 function Concept({
   label,
   value,
@@ -1146,23 +1140,3 @@ function InfoBadge({
   );
 }
 
-// SurfaceBlock (the 4-card row at the bottom of the home page)
-// removed 2026-05-26 per Paul: redundant with the now-clickable
-// stat tiles at the top. SURFACES constant in copy.ts is still
-// referenced elsewhere (?) — kept in copy.ts but no longer
-// rendered on the home page.
-
-/* ─── Saved alternative: short-name-led marquee ──────────────────
- * Initial shape (2026-05-25) led with the GSE short name in mono,
- * with the taxon as a small muted tail. Paul rejected because the
- * accession is curator/API shorthand — meaningless to a public-site
- * visitor. Kept here so we can swap back behind a curator-mode
- * toggle later if a dedicated audience surfaces.
- *
- *   <span className="font-mono text-sm">{d.shortName}</span>
- *   {d.taxonName ? (
- *     <span className="text-stone-500 text-xs ml-1.5">
- *       {d.taxonName}
- *     </span>
- *   ) : null}
- */

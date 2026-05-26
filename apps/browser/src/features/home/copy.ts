@@ -97,33 +97,3 @@ export const GENERAL_INFO = {
   },
 } as const;
 
-/** Top-line navigation surfaces shown on every variant.
- *  Each variant decides its own visual treatment.
- *  `to: null` means the page isn't built yet — variants render a
- *  grayed-out card. */
-export const SURFACES: ReadonlyArray<{
-  to: string | null;
-  label: string;
-  blurb: string;
-}> = [
-  {
-    to: "/browser",
-    label: "Datasets",
-    blurb: "Search and filter ~25K experiments by taxon, technology, and ontology annotation.",
-  },
-  {
-    to: "/platforms",
-    label: "Platforms",
-    blurb: "Microarray and sequencing platforms — manufacturer, technology, taxon.",
-  },
-  {
-    to: "/genes",
-    label: "Genes",
-    blurb: "Per-gene expression and differential expression results across datasets.",
-  },
-  {
-    to: "/about",
-    label: "About",
-    blurb: "Pipeline, citation, team, licenses, and programmatic access.",
-  },
-];
