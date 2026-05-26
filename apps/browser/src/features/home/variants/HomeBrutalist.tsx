@@ -17,7 +17,7 @@
 import type React from "react";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { COPY, GENERAL_INFO, SURFACES } from "../copy";
+import { GENERAL_INFO, SURFACES } from "../copy";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useMe, useLogout } from "@/api/auth";
 import { LoginModal } from "@/features/shared/LoginModal";
@@ -111,27 +111,11 @@ export function HomeBrutalist() {
           ))}
         </div>
 
-        {/* Footer strip */}
-        <div className="border border-stone-950 bg-stone-100">
-          <div className="px-6 py-3 flex items-baseline justify-between gap-4 flex-wrap text-xs text-stone-600">
-            <div className="uppercase tracking-[0.18em]">
-              Pavlidis Lab · UBC
-              {s.snapshotAt ? (
-                <span
-                  className="ml-3 normal-case tracking-normal text-stone-500"
-                  title={`Numbers refresh daily — snapshot ${s.snapshotAt}`}
-                >
-                  · stats as of {new Date(s.snapshotAt).toLocaleDateString()}
-                </span>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-4">
-              <a href={COPY.links.docs} className="text-stone-950 underline hover:text-blue-700" target="_blank" rel="noreferrer">Docs</a>
-              <a href={COPY.links.rest} className="text-stone-950 underline hover:text-blue-700" target="_blank" rel="noreferrer">REST</a>
-              <a href={COPY.links.github} className="text-stone-950 underline hover:text-blue-700" target="_blank" rel="noreferrer">GitHub</a>
-            </div>
-          </div>
-        </div>
+        {/* Home-page footer strip removed 2026-05-26 — the shared
+            <Footer> now carries the Pavlidis-lab attribution +
+            Docs / REST / GitHub quick-links. The snapshot-date
+            "stats as of …" hint moved to the (i) tooltips on the
+            individual tiles, which is where it was most useful. */}
       </div>
     </div>
   );

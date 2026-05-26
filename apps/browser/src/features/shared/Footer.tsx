@@ -195,7 +195,31 @@ export function Footer() {
         </>
       ) : null}
 
-      <span className="ml-auto inline-flex items-center gap-3">
+      <span className="ml-auto inline-flex items-center gap-3 flex-wrap">
+        <a
+          href="https://pavlidislab.github.io/Gemma/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+        >
+          Docs
+        </a>
+        <a
+          href="https://gemma.msl.ubc.ca/resources/restapidocs/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+        >
+          REST
+        </a>
+        <a
+          href="https://github.com/PavlidisLab"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+        >
+          GitHub
+        </a>
         <a
           href="https://pavlidislab.github.io/Gemma/terms.html"
           target="_blank"
@@ -204,7 +228,9 @@ export function Footer() {
         >
           Terms
         </a>
-        <span className="opacity-50">Gemma Browser</span>
+        <span className="opacity-60 uppercase tracking-[0.16em] text-[10px]">
+          Pavlidis Lab · UBC
+        </span>
       </span>
     </footer>
   );
