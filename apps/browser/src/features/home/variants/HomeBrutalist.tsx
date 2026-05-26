@@ -15,11 +15,13 @@
  */
 
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { GENERAL_INFO } from "../copy";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useMe, useLogout } from "@/api/auth";
+import { getDatasetAnnotations } from "@/api/endpoints";
 import { LoginModal } from "@/features/shared/LoginModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import {
@@ -84,22 +86,17 @@ export function HomeBrutalist() {
         {/* Hero stats — 5 metrics + about column */}
         <StatsRow s={s} />
 
-        {/* Recent-dataset marquee */}
-        <Marquee items={s.recentDatasets} />
-
         {/* General info — three columns. Collapsible so curators /
             API users can fold it away and focus on the breakdowns
             and charts below. */}
         <GeneralInfo open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
 
-        {/* Three-pane breakdown row: taxon + technology + reserve.
-            Matches the bar-chart row's 1/3 + 2/3 split so the page
-            has a consistent "left 2/3 narrative + right 1/3 future
-            widget" rhythm. */}
+        {/* Three-pane breakdown row: taxon + technology + recently
+            updated. */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-950">
           <TaxonBreakdown rows={s.byTaxon} />
           <TechnologyBreakdown rows={s.byTechnology} totalCells={s.totalCells} />
-          <div className="bg-stone-100" aria-hidden="true" />
+          <RecentlyUpdatedCard items={s.recentDatasets} />
         </div>
 
         {/* Concept stats — distinct ontology terms per slot */}
@@ -637,13 +634,28 @@ function TechnologyBreakdown({
   );
 }
 
-function Marquee({ items }: { items: RecentDataset[] }) {
-  // One-at-a-time cross-fade ticker. Paul (2026-05-26): the
-  // vertical credits-crawl had titles "disappearing into nowhere"
-  // at the panel edges, distracting at peripheral vision. The
-  // cross-fade replaces motion with a calm in/out at full opacity
-  // — each item holds for ~4.5s then cross-fades to the next.
-  // Hover pauses cycling; prefers-reduced-motion locks on item 0.
+/** User-facing annotation categories to surface as chips in the
+ *  Recently-updated card. Anything not in this set is dropped —
+ *  Gemma's annotation surface includes a lot of bookkeeping
+ *  category labels that aren't interesting to a public visitor. */
+const RECENT_CARD_ANNOTATION_CATEGORIES = new Set([
+  "disease",
+  "organism part",
+  "cell type",
+  "treatment",
+  "genotype",
+  "strain",
+  "cell line",
+  "developmental stage",
+  "biological sex",
+]);
+
+function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
+  // One-at-a-time card showing the most recently updated experiment.
+  // Cycles through the top-50 every 5 s. Hover pauses;
+  // prefers-reduced-motion locks on item 0. Annotation chips fetched
+  // lazily for the current experiment via /datasets/{id}/annotations
+  // — React Query caches per id so re-visiting one is free.
   const [idx, setIdx] = useState(0);
   const [paused, setPaused] = useState(false);
   const ready = items.length > 0;
@@ -656,61 +668,89 @@ function Marquee({ items }: { items: RecentDataset[] }) {
     }
     const t = window.setInterval(
       () => setIdx((i) => (i + 1) % items.length),
-      4500,
+      5000,
     );
     return () => window.clearInterval(t);
   }, [ready, paused, items.length]);
 
-  // Clamp idx if items shrink between renders.
-  const safeIdx = ready ? idx % items.length : 0;
+  const current = ready ? items[idx % items.length] : null;
+
+  const annsQ = useQuery({
+    queryKey: ["dataset-annotations", current?.id ?? 0],
+    queryFn: ({ signal }) =>
+      current ? getDatasetAnnotations(current.id, signal) : Promise.resolve(null),
+    enabled: !!current,
+    staleTime: 10 * 60_000,
+  });
+
+  const chips = useMemo(() => {
+    const rows = annsQ.data?.data ?? [];
+    const seen = new Set<string>();
+    const out: Array<{ category: string; term: string }> = [];
+    for (const a of rows) {
+      const cat = (a.className ?? "").trim().toLowerCase();
+      if (!RECENT_CARD_ANNOTATION_CATEGORIES.has(cat)) continue;
+      const term = (a.termName ?? "").trim();
+      if (!term) continue;
+      const key = `${cat}|${term.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ category: cat, term });
+      if (out.length >= 5) break;
+    }
+    return out;
+  }, [annsQ.data]);
 
   return (
     <div
-      className="border border-stone-950 bg-stone-100"
+      className="bg-stone-100"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <div className="flex items-baseline justify-between gap-3 px-5 py-2 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300">
+      <div className="flex items-baseline justify-between gap-3 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300">
         <span className="text-stone-900 font-semibold">Recently updated</span>
         <Link
           to="/browser"
-          className="text-stone-600 hover:text-blue-700 hover:no-underline"
+          className="text-stone-600 hover:text-blue-700 hover:no-underline normal-case tracking-normal text-[11px]"
         >
           see all →
         </Link>
       </div>
-      {ready ? (
-        <div className="relative h-9 px-5">
-          {items.map((d, i) => (
-            <Link
-              key={d.id}
-              to="/dataset/$id"
-              params={{ id: d.shortName }}
-              aria-hidden={i === safeIdx ? undefined : true}
-              tabIndex={i === safeIdx ? 0 : -1}
-              className={
-                "absolute inset-x-5 inset-y-0 flex items-center text-stone-900 hover:text-blue-700 hover:no-underline whitespace-nowrap overflow-hidden transition-opacity duration-700 " +
-                (i === safeIdx ? "opacity-100" : "opacity-0 pointer-events-none")
-              }
-              title={`${d.shortName} — ${d.name}`}
-            >
-              <span className="text-sm truncate">
-                {cleanExperimentTitle(d.name)}
+      {current ? (
+        <Link
+          key={current.id}
+          to="/dataset/$id"
+          params={{ id: current.shortName }}
+          title={`${current.shortName} — ${current.name}`}
+          className="block px-5 py-3 text-stone-900 hover:bg-stone-50 hover:no-underline transition-opacity duration-500"
+        >
+          <div className="text-xs font-semibold leading-snug line-clamp-2 min-h-[2.4em]">
+            {cleanExperimentTitle(current.name)}
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1 min-h-[1.5em]">
+            {chips.map((c) => (
+              <span
+                key={`${c.category}-${c.term}`}
+                className="inline-flex items-center text-[10px] leading-none px-1.5 py-0.5 border border-stone-400 text-stone-800"
+                title={c.category}
+              >
+                {c.term}
               </span>
-              {d.taxonName ? (
-                <span className="text-stone-500 text-xs ml-3 shrink-0">
-                  {d.taxonName}
-                </span>
-              ) : null}
-              <span className="font-mono text-[10px] text-stone-500 ml-3 shrink-0">
-                {d.shortName}
-              </span>
-            </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+          <div className="mt-2 text-[10px] text-stone-500 inline-flex items-baseline gap-2">
+            <span className="font-mono">{current.shortName}</span>
+            {current.taxonName ? (
+              <>
+                <span className="text-stone-400">·</span>
+                <span>{current.taxonName}</span>
+              </>
+            ) : null}
+          </div>
+        </Link>
       ) : (
-        <div className="px-5 py-4 text-stone-500 text-sm">
-          loading recent datasets…
+        <div className="px-5 py-4 text-stone-500 text-xs italic">
+          loading…
         </div>
       )}
     </div>
