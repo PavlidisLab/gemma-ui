@@ -25,10 +25,33 @@ import {
   type TechnologyRow,
   type RecentDataset,
 } from "../useGemmaSummary";
-import {
-  useAnnotationCategoryBreakdown,
-  type CategoryBreakdownRow,
-} from "../useAnnotationCategoryBreakdown";
+
+/**
+ * Whitelist of ExperimentalFactor categories that are user-facing
+ * on the public home page. Keys are the canonical Gemma category
+ * label (lowercased) as it arrives from
+ * ``factorValuesByCategory``. Values are the display label used in
+ * the bar chart.
+ *
+ * Buckets not in this map are dropped (assay / BioSource / block /
+ * labelling — curator-bookkeeping, not real experimental axes).
+ * Multiple keys can map to the same display group when a natural
+ * merge applies (e.g. ``molecular entity`` rolls into Treatment —
+ * both are "what was applied to the sample").
+ */
+const FACTOR_CATEGORY_DISPLAY: Record<string, string> = {
+  genotype: "Genotype",
+  treatment: "Treatment",
+  "molecular entity": "Treatment",
+  disease: "Disease",
+  "organism part": "Tissue",
+  "cell type": "Cell type",
+  strain: "Strain",
+  "cell line": "Cell line",
+  "developmental stage": "Developmental stage",
+  age: "Age",
+  "biological sex": "Sex",
+};
 
 export function HomeBrutalist() {
   const s = useGemmaSummary();
@@ -46,7 +69,7 @@ export function HomeBrutalist() {
                 GEMMA
               </span>
               <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600">
-                Curated · re-analyzed · API-first
+                Curated · re-analyzed
               </span>
             </div>
             <div className="text-base text-stone-800 max-w-md text-right leading-snug">
@@ -70,8 +93,8 @@ export function HomeBrutalist() {
         {/* Concept stats — distinct ontology terms per slot */}
         <ConceptRow s={s} />
 
-        {/* Top categories by distinct ontology terms — bar chart */}
-        <CategoryBars />
+        {/* Factor values per category — compact bar chart */}
+        <CategoryBars s={s} />
 
         {/* Surface buttons */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-stone-950">
@@ -191,35 +214,56 @@ function Concept({
   );
 }
 
-function CategoryBars() {
-  // Top 12 annotation categories by distinct ontology-term count.
-  // Drives off /datasets/categories + a fan-out of /annotations/
-  // count?category=URI&excludeFreeText=true. Rows render
-  // progressively as each fan-out query lands; the bar widths
-  // recompute against the rolling max so partial-fill doesn't
-  // look broken.
-  const { rows, isLoading } = useAnnotationCategoryBreakdown(12);
+function CategoryBars({ s }: { s: GemmaSummary }) {
+  // Factor-values-per-category bar chart. Source:
+  // /stats/home.factorValuesByCategory (bro's v2 wishlist landing).
+  // Filter / merge against FACTOR_CATEGORY_DISPLAY so the chart
+  // shows the ~8-10 user-facing experimental axes instead of
+  // mixed-in curator-bookkeeping slots (assay / BioSource / block /
+  // labelling) and the molecular-entity bucket that overlaps with
+  // treatment.
+  const merged = new Map<string, { uris: Set<string>; count: number }>();
+  for (const row of s.factorValuesByCategory) {
+    const key = row.category.trim().toLowerCase();
+    const display = FACTOR_CATEGORY_DISPLAY[key];
+    if (!display) continue; // drop bookkeeping + unknown categories
+    const cur = merged.get(display) ?? { uris: new Set(), count: 0 };
+    if (row.uri) cur.uris.add(row.uri);
+    cur.count += row.count;
+    merged.set(display, cur);
+  }
+  const rows = Array.from(merged.entries())
+    .map(([label, v]) => ({
+      label,
+      count: v.count,
+      uris: Array.from(v.uris),
+    }))
+    .sort((a, b) => b.count - a.count);
+
   const ready = rows.length > 0;
-  const max = Math.max(1, ...rows.map((r) => r.terms ?? 0));
+  const max = Math.max(1, ...rows.map((r) => r.count));
   return (
     <div className="border border-stone-950 bg-stone-100">
-      <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between">
+      <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between">
         <span className="text-stone-900 font-semibold">
-          Top categories · distinct ontology terms
+          Factor values per category
         </span>
-        <span className="text-stone-500 normal-case tracking-normal text-[11px]">
-          {ready ? `${rows.length} of top categories` : isLoading ? "loading…" : ""}
+        <span
+          className="text-stone-500 normal-case tracking-normal text-[11px]"
+          title="Distinct factor values existing under each ExperimentalFactor category across the public corpus."
+        >
+          experimental axes
         </span>
       </div>
       {ready ? (
-        <ul className="divide-y divide-stone-200">
+        <ul>
           {rows.map((r) => (
-            <CategoryBar key={r.label} row={r} max={max} />
+            <CategoryBar key={r.label} label={r.label} count={r.count} max={max} />
           ))}
         </ul>
       ) : (
-        <div className="px-5 py-6 text-stone-500 text-sm">
-          {isLoading ? "loading annotation categories…" : "no categories"}
+        <div className="px-4 py-3 text-stone-500 text-xs">
+          {s.isLoading ? "loading…" : "no factor-value categories"}
         </div>
       )}
     </div>
@@ -227,39 +271,33 @@ function CategoryBars() {
 }
 
 function CategoryBar({
-  row,
+  label,
+  count,
   max,
 }: {
-  row: CategoryBreakdownRow;
+  label: string;
+  count: number;
   max: number;
 }) {
-  const value = row.terms;
-  const pending = value === null;
-  const pct = pending ? 0 : Math.max(0.5, (value / max) * 100);
+  const pct = Math.max(0.5, (count / max) * 100);
   return (
-    <li className="px-5 py-1.5 grid grid-cols-[10rem_1fr_5rem] items-center gap-3 text-sm">
-      <span
-        className="text-stone-800 truncate"
-        title={row.uri ? `${row.label} · ${row.uri}` : row.label}
-      >
-        {row.label}
+    <li className="px-4 py-0.5 grid grid-cols-[8rem_1fr_3.5rem] items-center gap-2 text-xs">
+      <span className="text-stone-800 truncate" title={label}>
+        {label}
       </span>
-      <div className="h-2.5 bg-stone-200 relative overflow-hidden">
+      <div className="h-1.5 bg-stone-200 relative overflow-hidden">
         <div
           className="absolute inset-y-0 left-0 bg-blue-700"
-          style={{ width: `${pct}%`, opacity: pending ? 0.2 : 1 }}
+          style={{ width: `${pct}%` }}
         />
       </div>
       <span className="text-right tabular-nums text-stone-900 font-medium">
-        {pending ? (
-          <span className="text-stone-400">…</span>
-        ) : (
-          value.toLocaleString()
-        )}
+        {count.toLocaleString()}
       </span>
     </li>
   );
 }
+
 
 function TaxonBreakdown({ rows }: { rows: TaxonRow[] }) {
   return (

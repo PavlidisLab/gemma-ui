@@ -30,6 +30,8 @@ import type {
 
 const BASE = "/rest/v2";
 
+/** ``/stats/home`` v2 payload — bro's full landed wishlist. Mirrors
+ *  ``HomeStats.java`` in the Gemma REST module. */
 interface HomeStatsWire {
   generatedAt: string;
   datasetCount: number;
@@ -44,6 +46,27 @@ interface HomeStatsWire {
   }>;
   byPlatformType: Record<string, number>;
   singleCellCount: number;
+  deaResultSetCount: number;
+  drugCount: number;
+  geneManipulatedCount: number;
+  /** Distinct factor-value count per ``ExperimentalFactor.category``.
+   *  This is the source for the "factor values per category" bar
+   *  chart — distinct FVs only, not all characteristics. */
+  factorValuesByCategory: Array<{
+    category: string | null;
+    categoryUri: string | null;
+    numberOfDistinctFactorValues: number;
+  }>;
+  ontologyTermCount: number;
+  /** Stable lowercase-snake-case keys: ``disease``, ``organism_part``,
+   *  ``cell_type``, ``treatment``, ``strain``, ``cell_line``. */
+  byAnnotationCategory: Record<string, number>;
+  categoryDistribution: Array<{
+    key: string | null;
+    category: string;
+    categoryUri: string | null;
+    numberOfExpressionExperiments: number;
+  }>;
   recentExperiments: Array<{
     id: number;
     shortName: string;
@@ -51,6 +74,15 @@ interface HomeStatsWire {
     taxon: string;
     lastUpdated: string;
   }>;
+}
+
+export interface FactorValueCategoryRow {
+  /** Canonical category label as Gemma stores it on the
+   *  ExperimentalFactor (e.g. ``disease state``, ``treatment``,
+   *  ``genotype``). */
+  category: string;
+  uri: string | null;
+  count: number;
 }
 
 export interface TaxonRow {
@@ -84,12 +116,25 @@ export interface GemmaSummary {
   singleCellExperiments: number | null;
   ontologyTerms: number | null;
   diffExResultSets: number | null;
+  /** Distinct CHEBI-anchored drug / chemical annotations. Narrower
+   *  than ``byCategory.drugs`` (which covers all
+   *  treatment-tagged annotations, drug or not). */
+  drugs: number | null;
+  /** Distinct genes annotated as perturbation targets across the
+   *  corpus (knockouts, knockdowns, overexpression). */
+  geneManipulated: number | null;
   byCategory: {
     drugs: number | null;
     diseases: number | null;
     tissues: number | null;
     cellTypes: number | null;
+    strains: number | null;
+    cellLines: number | null;
   };
+  /** Distinct factor values per ExperimentalFactor category — the
+   *  source for the factor-values-per-category bar chart. Sorted
+   *  descending server-side. */
+  factorValuesByCategory: FactorValueCategoryRow[];
   recentDatasets: RecentDataset[];
   snapshotAt: string | null;
   updatedThisWeek: number | null;
@@ -249,30 +294,16 @@ export function useGemmaSummary(): GemmaSummary {
     retry: false,
   });
 
-  // Annotation counts — single global + 4 per-category. All pass
-  // excludeFreeText=true so the values reflect distinct URI-bound
-  // ontology terms.
-  const ontologyTerms = useNumericCount(
+  // Annotation counts — single global as a fallback when
+  // /stats/home isn't deployed. v2 snapshot carries
+  // ontologyTermCount + byAnnotationCategory + drugCount +
+  // factorValuesByCategory + deaResultSetCount directly so we
+  // don't need the per-category fan-out anymore.
+  const ontologyTermsFallback = useNumericCount(
     `${BASE}/datasets/annotations/count?excludeFreeText=true`,
     "annotations-all",
   );
-  const drugs = useNumericCount(
-    `${BASE}/datasets/annotations/count?category=treatment&excludeFreeText=true`,
-    "annotations-treatment",
-  );
-  const diseases = useNumericCount(
-    `${BASE}/datasets/annotations/count?category=disease&excludeFreeText=true`,
-    "annotations-disease",
-  );
-  const tissues = useNumericCount(
-    `${BASE}/datasets/annotations/count?category=organism%20part&excludeFreeText=true`,
-    "annotations-organism-part",
-  );
-  const cellTypes = useNumericCount(
-    `${BASE}/datasets/annotations/count?category=cell%20type&excludeFreeText=true`,
-    "annotations-cell-type",
-  );
-  const diffExResultSets = useTotalElements(
+  const diffExResultSetsFallback = useTotalElements(
     `${BASE}/resultSets`,
     "result-sets",
   );
@@ -376,6 +407,21 @@ export function useGemmaSummary(): GemmaSummary {
     taxa.isLoading &&
     platformsForTech.isLoading;
 
+  // ── factorValuesByCategory ────────────────────────────────────
+  // Read straight off /stats/home v2; categories with null label
+  // are dropped (factor with no category set isn't user-facing).
+  const factorValuesByCategory: FactorValueCategoryRow[] = wire
+    ? wire.factorValuesByCategory
+        .filter((r) => !!r.category)
+        .map((r) => ({
+          category: r.category as string,
+          uri: r.categoryUri,
+          count: r.numberOfDistinctFactorValues,
+        }))
+    : [];
+
+  const byCat = wire?.byAnnotationCategory ?? {};
+
   return {
     datasets,
     platforms,
@@ -384,14 +430,21 @@ export function useGemmaSummary(): GemmaSummary {
     byTaxon,
     byTechnology,
     singleCellExperiments,
-    ontologyTerms: ontologyTerms.data ?? null,
-    diffExResultSets: diffExResultSets.data ?? null,
+    ontologyTerms:
+      wire?.ontologyTermCount ?? ontologyTermsFallback.data ?? null,
+    diffExResultSets:
+      wire?.deaResultSetCount ?? diffExResultSetsFallback.data ?? null,
+    drugs: wire?.drugCount ?? null,
+    geneManipulated: wire?.geneManipulatedCount ?? null,
     byCategory: {
-      drugs: drugs.data ?? null,
-      diseases: diseases.data ?? null,
-      tissues: tissues.data ?? null,
-      cellTypes: cellTypes.data ?? null,
+      drugs: byCat.treatment ?? null,
+      diseases: byCat.disease ?? null,
+      tissues: byCat.organism_part ?? null,
+      cellTypes: byCat.cell_type ?? null,
+      strains: byCat.strain ?? null,
+      cellLines: byCat.cell_line ?? null,
     },
+    factorValuesByCategory,
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,
     updatedThisWeek,
