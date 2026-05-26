@@ -59,10 +59,14 @@ export const GENERAL_INFO = {
     title: "What Gemma is",
     accent: "orange", // identity colour, matches the favicon
     /** One-line essence — rendered large + bold at the top. */
-    lead: "Curated and re-analysed gene-expression data — primarily human, mouse, and rat.",
-    /** Supporting paragraph, smaller and muted. */
-    body:
-      "A repository of public gene-expression studies, re-analysed end-to-end so the data is actually usable for meta-analysis. We re-process raw sequencing / array data, harmonise sample-level annotations against ontologies, and publish results through the website, the REST API, and the gemma.R / gemmapy clients.",
+    lead: "Curated and re-analysed gene-expression data — human, mouse, and rat.",
+    /** Supporting paragraphs, rendered as separate <p> elements
+     *  so each idea has its own block of breathing room. */
+    body: [
+      "A repository of public gene-expression studies, re-analysed end-to-end so the data is actually usable for meta-analysis.",
+      "We re-process raw sequencing and array data, then harmonise sample-level annotations against community ontologies.",
+      "Results are published through this website, a REST API, and the gemma.R / gemmapy clients.",
+    ],
   },
   provide: {
     title: "What we provide",

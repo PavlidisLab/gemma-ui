@@ -727,9 +727,11 @@ function GeneralInfo({
             <p className="text-[15px] font-semibold text-stone-900 leading-snug mb-3">
               {GENERAL_INFO.idea.lead}
             </p>
-            <p className="text-sm text-stone-600 leading-relaxed">
-              {GENERAL_INFO.idea.body}
-            </p>
+            <div className="space-y-2 text-sm text-stone-600 leading-relaxed">
+              {GENERAL_INFO.idea.body.map((para) => (
+                <p key={para}>{para}</p>
+              ))}
+            </div>
           </InfoColumn>
 
           {/* Column 2 — data + analysis catalogue. */}
