@@ -63,18 +63,8 @@ export function HomeBrutalist() {
           <TechnologyBreakdown rows={s.byTechnology} />
         </div>
 
-        {/* Concept row removed 2026-05-25: the current
-            /datasets/annotations/count endpoint counts free-text
-            annotations alongside URI-bound ontology terms, so the
-            global total (482K) and per-category counts (drugs /
-            diseases / tissues / cell types) read wildly high to
-            anyone who reads ontology as ontology. Restore when bro
-            ships excludeFreeText=true on the count endpoint, or
-            when /stats/home v2 carries ontologyTermCount +
-            byAnnotationCategory.{disease, tissue, cellType, drug}.
-            Filed in HOME_PAGE_STATS_FOLLOWUP_2026_05_25.md. The
-            ConceptRow + Concept components are kept below for the
-            restore. */}
+        {/* Concept stats — distinct ontology terms per slot */}
+        <ConceptRow s={s} />
 
         {/* Surface buttons */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-stone-950">
@@ -110,29 +100,93 @@ export function HomeBrutalist() {
 }
 
 function StatsRow({ s }: { s: GemmaSummary }) {
-  // The 5 primary numbers from /stats/home + result-sets land
-  // together as the corpus snapshot. Ontology-term tile is dropped
-  // pending excludeFreeText on /datasets/annotations/count — the
-  // current count includes free-text variants and reads wildly
-  // high. See HOME_PAGE_STATS_FOLLOWUP_2026_05_25.md.
+  // 6 primary tiles. Datasets / platforms / samples / genes ride on
+  // the /stats/home snapshot (single homeLoading flag); DEA + the
+  // ontology-term count have their own queries.
   const homeLoading = s.datasets === null && !s.isError;
   const resultSetsLoading = s.diffExResultSets === null && !s.isError;
+  const ontologyLoading = s.ontologyTerms === null && !s.isError;
   return (
-    <div className="grid grid-cols-2 md:grid-cols-10 gap-px bg-stone-950">
+    <div className="grid grid-cols-2 md:grid-cols-12 gap-px bg-stone-950">
       <StatBlock label="Datasets" value={fmtCount(s.datasets, "full", homeLoading)} cols="md:col-span-2" />
       <StatBlock label="Platforms" value={fmtCount(s.platforms, "full", homeLoading)} cols="md:col-span-2" />
       <StatBlock label="Samples" value={fmtCount(s.samples, "full", homeLoading)} cols="md:col-span-2" />
       <StatBlock label="Genes" value={fmtCount(s.genes, "full", homeLoading)} cols="md:col-span-2" />
       <StatBlock label="DEA result sets" value={fmtCount(s.diffExResultSets, "full", resultSetsLoading)} cols="md:col-span-2" />
+      <StatBlock
+        label="Ontology terms"
+        value={fmtCount(s.ontologyTerms, "full", ontologyLoading)}
+        cols="md:col-span-2"
+        hint="distinct ontology-backed terms used for annotation across the corpus (excludes free-text variants)"
+      />
     </div>
   );
 }
 
-// ConceptRow + Concept removed 2026-05-25 — see comment in the
-// layout above. Restore from git when bro ships excludeFreeText on
-// /datasets/annotations/count (or v2 of /stats/home folds in the
-// per-category URI-only counts). The commit before this one
-// (9294b49) is the last working version.
+function ConceptRow({ s }: { s: GemmaSummary }) {
+  // All five counts are URI-bound (excludeFreeText=true on the
+  // count endpoint). The header reflects the contract.
+  const catsLoading = s.ontologyCategories === null && !s.isError;
+  const drugs = s.byCategory.drugs;
+  const diseases = s.byCategory.diseases;
+  const tissues = s.byCategory.tissues;
+  const cellTypes = s.byCategory.cellTypes;
+  return (
+    <div className="border border-stone-950 bg-stone-100">
+      <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
+        Annotation coverage · distinct ontology terms in use
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-stone-300">
+        <Concept
+          label="Categories"
+          value={fmtCount(s.ontologyCategories, "full", catsLoading)}
+          hint="distinct annotation categories in use across the corpus"
+        />
+        <Concept
+          label="Drugs / treatments"
+          value={fmtCount(drugs, "full", drugs === null && !s.isError)}
+          hint="distinct ontology terms tagged as treatment (drugs, infections, exposures, etc.)"
+        />
+        <Concept
+          label="Diseases"
+          value={fmtCount(diseases, "full", diseases === null && !s.isError)}
+          hint="distinct disease ontology terms used to annotate experiments"
+        />
+        <Concept
+          label="Tissues"
+          value={fmtCount(tissues, "full", tissues === null && !s.isError)}
+          hint="distinct organism-part terms (typically UBERON)"
+        />
+        <Concept
+          label="Cell types"
+          value={fmtCount(cellTypes, "full", cellTypes === null && !s.isError)}
+          hint="distinct cell-type terms (typically Cell Ontology / CL)"
+        />
+      </div>
+    </div>
+  );
+}
+
+function Concept({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="bg-stone-100 px-4 py-3" title={hint}>
+      <div className="text-[10px] uppercase tracking-[0.18em] text-stone-600 mb-0.5">
+        {label}
+      </div>
+      <div className="text-xl font-semibold tabular-nums tracking-tight text-stone-950">
+        {value}
+      </div>
+    </div>
+  );
+}
 
 function TaxonBreakdown({ rows }: { rows: TaxonRow[] }) {
   return (

@@ -247,24 +247,30 @@ export function useGemmaSummary(): GemmaSummary {
     "categories",
   );
   const diffExResultSets = useTotalElements(`${BASE}/resultSets`, "result-sets");
+  // All annotation-count queries pass excludeFreeText=true so the
+  // counts reflect distinct URI-bound ontology terms, not the union
+  // of every curator-entered free-text string (which inflated the
+  // pre-flag total to ~482K and made the tile read as misleading).
+  // Bro shipped the flag 2026-05-25 (842977dc88) per
+  // HOME_PAGE_STATS_FOLLOWUP_REPLY_2026_05_25.md.
   const ontologyTerms = useNumericCount(
-    `${BASE}/datasets/annotations/count`,
+    `${BASE}/datasets/annotations/count?excludeFreeText=true`,
     "annotations-all",
   );
   const drugs = useNumericCount(
-    `${BASE}/datasets/annotations/count?category=treatment`,
+    `${BASE}/datasets/annotations/count?category=treatment&excludeFreeText=true`,
     "annotations-treatment",
   );
   const diseases = useNumericCount(
-    `${BASE}/datasets/annotations/count?category=disease`,
+    `${BASE}/datasets/annotations/count?category=disease&excludeFreeText=true`,
     "annotations-disease",
   );
   const tissues = useNumericCount(
-    `${BASE}/datasets/annotations/count?category=organism%20part`,
+    `${BASE}/datasets/annotations/count?category=organism%20part&excludeFreeText=true`,
     "annotations-organism-part",
   );
   const cellTypes = useNumericCount(
-    `${BASE}/datasets/annotations/count?category=cell%20type`,
+    `${BASE}/datasets/annotations/count?category=cell%20type&excludeFreeText=true`,
     "annotations-cell-type",
   );
 
