@@ -124,9 +124,10 @@ function StatsRow({ s }: { s: GemmaSummary }) {
 }
 
 function ConceptRow({ s }: { s: GemmaSummary }) {
-  // All five counts are URI-bound (excludeFreeText=true on the
-  // count endpoint). The header reflects the contract.
-  const catsLoading = s.ontologyCategories === null && !s.isError;
+  // All four counts are URI-bound (excludeFreeText=true on the
+  // count endpoint). Categories tile dropped 2026-05-25 per Paul —
+  // returning 0 from /datasets/categories on the current backend +
+  // less useful than the per-category counts that surround it.
   const drugs = s.byCategory.drugs;
   const diseases = s.byCategory.diseases;
   const tissues = s.byCategory.tissues;
@@ -136,12 +137,7 @@ function ConceptRow({ s }: { s: GemmaSummary }) {
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
         Annotation coverage · distinct ontology terms in use
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-stone-300">
-        <Concept
-          label="Categories"
-          value={fmtCount(s.ontologyCategories, "full", catsLoading)}
-          hint="distinct annotation categories in use across the corpus"
-        />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-stone-300">
         <Concept
           label="Drugs / treatments"
           value={fmtCount(drugs, "full", drugs === null && !s.isError)}

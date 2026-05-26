@@ -1,47 +1,35 @@
 /**
  * Aggregate counts for the home-page summary panel.
  *
- * Primary source: ``GET /rest/v2/stats/home`` — a precomputed
- * daily-refresh snapshot bro 2 shipped 2026-05-25 that bundles
- * dataset / platform / sample / gene totals, the per-taxon
- * breakdown, the per-platform-type histogram, and the top 50
- * recently-updated experiments in one ~50 ms call. Numbers are
- * 0–24 h stale; fine for a marketing-style home tile. See
- * ``~/Dev/eclipseworkspace/Gemma/handoffs/HOME_PAGE_STATS_REPLY_2026_05_25.md``
- * and ``HOME_STATS_WISHLIST.md`` for the contract.
+ * The fast path is bro 2's ``GET /rest/v2/stats/home`` daily-refresh
+ * snapshot — one ~50 ms call that carries dataset / platform /
+ * sample / gene totals + per-taxon + per-platform-type +
+ * recently-updated. When it's reachable, every tile fills off it
+ * in one round-trip.
  *
- * Secondary queries (each its own ``useQuery`` so they parallelise):
+ * When it's not (staging Gemma not yet deployed onto
+ * ``feat/public-home-stats``, snapshot generation hasn't run,
+ * etc.), every field also has a per-endpoint fallback via the
+ * older standalone endpoints. Each tile renders independently; a
+ * failing snapshot doesn't black-out the page.
  *
- *  - ``/datasets/categories?limit=1`` → distinct annotation category
- *    count. Cheap; not yet in ``/stats/home``.
- *  - ``/resultSets?limit=1``         → DEA result-set total.
- *  - ``/datasets/annotations/count?category=…`` × 4 → distinct-term
- *    counts for treatments (drugs), diseases, organism parts
- *    (tissues), cell types. Dedicated endpoint bro shipped because
- *    ``/datasets/annotations`` doesn't carry ``totalElements``.
- *  - ``/datasets/annotations/count`` (no category) → total ontology
- *    terms across the corpus.
- *
- * Fields on the legacy hook shape (``byTaxon``, ``updatedThisWeek``,
- * ``newThisWeek``) are preserved so the other 13 home variants that
- * read them keep rendering unchanged.
- *
- * Open items — filed in the asks handoff, not blocking GA:
- *  - ``singleCellCount`` lives in ``/stats/home`` but returns 0 in
- *    v1 (no aggregate yet — see HOME_STATS_WISHLIST.md v2 wishlist).
- *  - DEA conditions (distinct factor-values participating in a DEA)
- *    aren't in v1 either; falling back to result-set total as the
- *    proxy.
+ * The annotation-count endpoints
+ * (``/datasets/annotations/count?category=…&excludeFreeText=true``)
+ * have no fallback — they need bro's recently-shipped flag. If the
+ * server doesn't expose them, those tiles stay "—".
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/api/client";
+import type {
+  Dataset,
+  PaginatedResponse,
+  Platform,
+  Taxon,
+} from "@/lib/types";
 
 const BASE = "/rest/v2";
 
-/** Wire shape returned by ``GET /rest/v2/stats/home``. Mirrors
- *  ``HomeStats`` in the Java REST module; keep in sync with
- *  ``HOME_STATS_WISHLIST.md`` payload v1. */
 interface HomeStatsWire {
   generatedAt: string;
   datasetCount: number;
@@ -68,19 +56,11 @@ interface HomeStatsWire {
 export interface TaxonRow {
   name: string;
   total: number | null;
-  /** Reserved — populated when a server-side ``createdSince`` /
-   *  ``updatedSince`` filter lands. Today the new-this-week heuristic
-   *  is computed only at the corpus level (see ``newThisWeek``), not
-   *  per-taxon. */
   updated?: number | null;
   new?: number | null;
 }
 
 export interface TechnologyRow {
-  /** Human-facing bucket label: Microarray / RNA-seq / Single-cell /
-   *  Gene list / Other. The mapping rolls Gemma's raw
-   *  ``ArrayDesign.TechnologyType`` enum values up to display
-   *  buckets per bro's recommendation in HOME_STATS_WISHLIST.md. */
   label: string;
   count: number;
 }
@@ -98,22 +78,12 @@ export interface GemmaSummary {
   datasets: number | null;
   platforms: number | null;
   samples: number | null;
-  /** Total distinct genes with any expression data. From
-   *  ``/stats/home``; ``null`` while loading. */
   genes: number | null;
   byTaxon: TaxonRow[];
   byTechnology: TechnologyRow[];
-  /** Single-cell experiment count — orthogonal to TechnologyType.
-   *  Returns 0 in stats/home v1; will populate in v2. */
   singleCellExperiments: number | null;
-  /** Total distinct ontology terms in use across the corpus. */
   ontologyTerms: number | null;
-  /** Distinct ontology categories ("disease", "treatment", …). */
-  ontologyCategories: number | null;
-  /** Differential-expression result sets corpus-wide — proxy for
-   *  "DEA conditions" until the v2 aggregate lands. */
   diffExResultSets: number | null;
-  /** Per-category distinct-term counts. ``null`` while loading. */
   byCategory: {
     drugs: number | null;
     diseases: number | null;
@@ -121,9 +91,6 @@ export interface GemmaSummary {
     cellTypes: number | null;
   };
   recentDatasets: RecentDataset[];
-  /** ``generatedAt`` from the /stats/home snapshot — surfacing this
-   *  lets the UI render a small "as of <date>" footnote so visitors
-   *  understand the daily-refresh staleness. */
   snapshotAt: string | null;
   updatedThisWeek: number | null;
   newThisWeek: number | null;
@@ -138,13 +105,8 @@ const TAXA_PLACEHOLDER: TaxonRow[] = [
 ];
 
 /** Roll Gemma's raw ``ArrayDesign.TechnologyType`` enum counts up to
- *  the display buckets used on the home page. Bro's recommendation
- *  in HOME_STATS_WISHLIST.md groups:
- *    - Microarray = ONECOLOR + TWOCOLOR + DUALMODE
- *    - RNA-seq    = SEQUENCING + GENELIST
- *    - Single-cell rides on the separate ``singleCellCount`` field
- *  Anything else collapses into "Other" so an unfamiliar upstream
- *  enum value doesn't crash the chart. */
+ *  the display buckets used on the home page (Microarray = ONECOLOR
+ *  + TWOCOLOR + DUALMODE; RNA-seq = SEQUENCING + GENELIST). */
 function rollUpPlatformTypes(
   raw: Record<string, number>,
   singleCellCount: number,
@@ -162,62 +124,67 @@ function rollUpPlatformTypes(
   const other = Object.entries(raw)
     .filter(([k]) => !known.has(k))
     .reduce((s, [, v]) => s + (v ?? 0), 0);
-  const rows: TechnologyRow[] = [
+  return [
     { label: "Microarray", count: microarray },
     { label: "RNA-seq", count: sequencing },
     { label: "Single-cell", count: singleCellCount },
     { label: "Other", count: other },
-  ];
-  // Drop zero buckets so the breakdown doesn't carry empty rows
-  // (Single-cell renders 0 until v2 lands; suppress).
-  return rows.filter((r) => r.count > 0).sort((a, b) => b.count - a.count);
+  ]
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count);
 }
 
-/** Read a single-number count from one of Gemma's ``…/count``
- *  endpoints. The response envelope is ``{ data: <number> }``. */
+/** ``ArrayDesign.TechnologyType`` → display bucket. Same mapping as
+ *  ``rollUpPlatformTypes`` but row-by-row for the fallback path that
+ *  aggregates from ``/datasets/platforms``. */
+function technologyLabel(type: string): string {
+  switch (type) {
+    case "ONECOLOR":
+    case "TWOCOLOR":
+    case "DUALMODE":
+      return "Microarray";
+    case "SEQUENCING":
+    case "GENELIST":
+      return "RNA-seq";
+    case "SINGLE_CELL_SEQUENCING":
+    case "SINGLE_CELL":
+      return "Single-cell";
+    default:
+      return "Other";
+  }
+}
+
 function useNumericCount(path: string, key: string) {
   return useQuery({
     queryKey: ["summary", key],
     queryFn: async ({ signal }) => {
-      try {
-        const r = await apiGet<{ data?: number }>(path, { signal });
-        return r.data ?? 0;
-      } catch (e) {
-        console.error(`[gemma summary] ${path} failed:`, e);
-        throw e;
-      }
+      const r = await apiGet<{ data?: number }>(path, { signal });
+      return r.data ?? null;
     },
     staleTime: 5 * 60_000,
+    retry: false,
   });
 }
 
-/** Read ``totalElements`` from a paginated endpoint via the
- *  ``limit=1`` trick. Used for ``/datasets/categories`` and
- *  ``/resultSets`` which both carry ``totalElements``. */
 function useTotalElements(path: string, key: string) {
   return useQuery({
     queryKey: ["summary", key],
     queryFn: async ({ signal }) => {
-      try {
-        const r = await apiGet<{ totalElements?: number }>(
-          `${path}?limit=1`,
-          { signal },
-        );
-        return r.totalElements ?? 0;
-      } catch (e) {
-        console.error(`[gemma summary] ${path} failed:`, e);
-        throw e;
-      }
+      const r = await apiGet<{ totalElements?: number }>(
+        `${path}?limit=1`,
+        { signal },
+      );
+      return r.totalElements ?? null;
     },
     staleTime: 5 * 60_000,
+    retry: false,
   });
 }
 
 export function useGemmaSummary(): GemmaSummary {
-  // Primary one-shot — bundles datasets / platforms / samples /
-  // genes / byTaxon / byPlatformType / recentExperiments. Cached
-  // hard server-side (daily refresh), so a long client-side
-  // staleTime is fine — we won't beat the server snapshot anyway.
+  // /stats/home — fast path. Best-effort: if it errors, the per-
+  // endpoint fallbacks below cover every field except geneCount
+  // and singleCellCount (which only ship in the snapshot).
   const home = useQuery({
     queryKey: ["summary", "stats-home"],
     queryFn: async ({ signal }) => {
@@ -228,31 +195,63 @@ export function useGemmaSummary(): GemmaSummary {
       return r.data ?? null;
     },
     staleTime: 30 * 60_000,
-    retry: (failureCount, err) => {
-      // 503 = snapshot not yet generated (first deploy / dev server).
-      // Retry a couple of times in case the server is mid-generation,
-      // then give up and let the UI render placeholders.
-      const status =
-        err && typeof err === "object" && "status" in err
-          ? (err as { status: number }).status
-          : 0;
-      if (status === 404) return false;
-      return failureCount < 2;
-    },
+    retry: false,
   });
 
-  // Secondary stats not yet in /stats/home v1.
-  const ontologyCategories = useTotalElements(
-    `${BASE}/datasets/categories`,
-    "categories",
+  // Per-endpoint fallbacks. Each fires independently of /stats/home
+  // so the page fills in even when the snapshot 404s / 503s.
+  const datasetsCount = useTotalElements(`${BASE}/datasets`, "datasets-count");
+  const platformsCount = useTotalElements(
+    `${BASE}/platforms`,
+    "platforms-count",
   );
-  const diffExResultSets = useTotalElements(`${BASE}/resultSets`, "result-sets");
-  // All annotation-count queries pass excludeFreeText=true so the
-  // counts reflect distinct URI-bound ontology terms, not the union
-  // of every curator-entered free-text string (which inflated the
-  // pre-flag total to ~482K and made the tile read as misleading).
-  // Bro shipped the flag 2026-05-25 (842977dc88) per
-  // HOME_PAGE_STATS_FOLLOWUP_REPLY_2026_05_25.md.
+  const samplesCount = useNumericCount(
+    `${BASE}/datasets/samples/count`,
+    "samples-count",
+  );
+
+  const taxa = useQuery({
+    queryKey: ["summary", "taxa"],
+    queryFn: async ({ signal }) => {
+      const r = await apiGet<PaginatedResponse<Taxon>>(
+        `${BASE}/datasets/taxa`,
+        { signal },
+      );
+      return r.data ?? [];
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
+  const platformsForTech = useQuery({
+    queryKey: ["summary", "platforms-by-tech"],
+    queryFn: async ({ signal }) => {
+      const r = await apiGet<PaginatedResponse<Platform>>(
+        `${BASE}/datasets/platforms?limit=100`,
+        { signal },
+      );
+      return r.data ?? [];
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
+  const recent = useQuery({
+    queryKey: ["summary", "recent-datasets"],
+    queryFn: async ({ signal }) => {
+      const r = await apiGet<PaginatedResponse<Dataset>>(
+        `${BASE}/datasets?sort=-lastUpdated&limit=50`,
+        { signal },
+      );
+      return r.data ?? [];
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
+  // Annotation counts — single global + 4 per-category. All pass
+  // excludeFreeText=true so the values reflect distinct URI-bound
+  // ontology terms.
   const ontologyTerms = useNumericCount(
     `${BASE}/datasets/annotations/count?excludeFreeText=true`,
     "annotations-all",
@@ -273,52 +272,119 @@ export function useGemmaSummary(): GemmaSummary {
     `${BASE}/datasets/annotations/count?category=cell%20type&excludeFreeText=true`,
     "annotations-cell-type",
   );
+  const diffExResultSets = useTotalElements(
+    `${BASE}/resultSets`,
+    "result-sets",
+  );
 
   const wire = home.data;
 
-  const byTaxon: TaxonRow[] = wire
-    ? wire.byTaxon
-        .map((t) => ({ name: t.commonName, total: t.count }))
-        .slice(0, 6)
-    : TAXA_PLACEHOLDER;
+  // Resolve each field with: snapshot wins, fallback fills the gap.
+  const datasets = wire?.datasetCount ?? datasetsCount.data ?? null;
+  const platforms = wire?.platformCount ?? platformsCount.data ?? null;
+  const samples = wire?.sampleCount ?? samplesCount.data ?? null;
+  const genes = wire?.geneCount ?? null;
+  const singleCellExperiments = wire?.singleCellCount ?? null;
 
-  const byTechnology: TechnologyRow[] = wire
-    ? rollUpPlatformTypes(wire.byPlatformType, wire.singleCellCount)
-    : [];
-
-  const recentDatasets: RecentDataset[] = wire
-    ? wire.recentExperiments.map((d) => ({
-        id: d.id,
-        shortName: d.shortName,
-        name: d.name,
-        taxonName: d.taxon ?? null,
-        bioAssays: 0, // not in stats/home v1; suppressed downstream
-        lastUpdated: d.lastUpdated ?? null,
+  // ── byTaxon ───────────────────────────────────────────────────
+  // Snapshot shape: { id, commonName, scientificName, count }.
+  // Fallback shape: full Taxon VO with numberOfExpressionExperiments.
+  let byTaxon: TaxonRow[];
+  if (wire) {
+    byTaxon = wire.byTaxon
+      .map((t) => ({ name: t.commonName, total: t.count }))
+      .slice(0, 6);
+  } else if (taxa.data && taxa.data.length > 0) {
+    byTaxon = taxa.data
+      .map((t) => ({
+        name: t.commonName || t.scientificName || "(unknown)",
+        total: t.numberOfExpressionExperiments ?? null,
       }))
-    : [];
+      .sort((a, b) => (b.total ?? 0) - (a.total ?? 0))
+      .slice(0, 6);
+  } else {
+    byTaxon = TAXA_PLACEHOLDER;
+  }
 
-  // Derive a "updated this week" count from the recent slice. The
-  // /stats/home snapshot's recent list is top-50 by lastUpdated, so
-  // anything in the last 7 days is in this window unless we shipped
-  // >50 updates in a week — flag would be visible against the
-  // dataset-tile count delta.
+  // ── byTechnology ──────────────────────────────────────────────
+  // Snapshot: byPlatformType is a raw enum-keyed histogram; roll up.
+  // Fallback: aggregate from /datasets/platforms — each row carries
+  // numberOfExpressionExperimentsForTechnologyType for ITS bucket,
+  // so taking the max per bucket gives the correct total.
+  let byTechnology: TechnologyRow[];
+  if (wire) {
+    byTechnology = rollUpPlatformTypes(wire.byPlatformType, wire.singleCellCount);
+  } else if (platformsForTech.data && platformsForTech.data.length > 0) {
+    const agg = new Map<string, number>();
+    for (const p of platformsForTech.data) {
+      if (!p.technologyType) continue;
+      const label = technologyLabel(p.technologyType);
+      const candidate =
+        p.numberOfExpressionExperimentsForTechnologyType ??
+        p.numberOfExpressionExperiments ??
+        0;
+      const cur = agg.get(label) ?? 0;
+      if (candidate > cur) agg.set(label, candidate);
+    }
+    byTechnology = Array.from(agg.entries())
+      .map(([label, count]) => ({ label, count }))
+      .filter((r) => r.count > 0)
+      .sort((a, b) => b.count - a.count);
+  } else {
+    byTechnology = [];
+  }
+
+  // ── recentDatasets ────────────────────────────────────────────
+  let recentDatasets: RecentDataset[];
+  if (wire) {
+    recentDatasets = wire.recentExperiments.map((d) => ({
+      id: d.id,
+      shortName: d.shortName,
+      name: d.name,
+      taxonName: d.taxon ?? null,
+      bioAssays: 0,
+      lastUpdated: d.lastUpdated ?? null,
+    }));
+  } else if (recent.data) {
+    recentDatasets = recent.data.map((d) => ({
+      id: d.id,
+      shortName: d.shortName,
+      name: d.name,
+      taxonName: d.taxon?.commonName ?? null,
+      bioAssays: d.numberOfBioAssays ?? 0,
+      lastUpdated: d.lastUpdated ?? null,
+    }));
+  } else {
+    recentDatasets = [];
+  }
+
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const updatedThisWeek = wire
-    ? recentDatasets.filter(
-        (d) => d.lastUpdated && Date.parse(d.lastUpdated) >= sevenDaysAgo,
-      ).length
-    : null;
+  const updatedThisWeek =
+    recentDatasets.length > 0
+      ? recentDatasets.filter(
+          (d) => d.lastUpdated && Date.parse(d.lastUpdated) >= sevenDaysAgo,
+        ).length
+      : null;
+
+  // isLoading collapses to true while every relevant query is
+  // still pending. Each tile's local "loading" gate keys off
+  // its own value being null, so a partial-fill page renders.
+  const isLoading =
+    home.isLoading &&
+    datasetsCount.isLoading &&
+    platformsCount.isLoading &&
+    taxa.isLoading &&
+    platformsForTech.isLoading;
 
   return {
-    datasets: wire?.datasetCount ?? null,
-    platforms: wire?.platformCount ?? null,
-    samples: wire?.sampleCount ?? null,
-    genes: wire?.geneCount ?? null,
+    datasets,
+    platforms,
+    samples,
+    genes,
     byTaxon,
     byTechnology,
-    singleCellExperiments: wire?.singleCellCount ?? null,
+    singleCellExperiments,
     ontologyTerms: ontologyTerms.data ?? null,
-    ontologyCategories: ontologyCategories.data ?? null,
     diffExResultSets: diffExResultSets.data ?? null,
     byCategory: {
       drugs: drugs.data ?? null,
@@ -330,8 +396,8 @@ export function useGemmaSummary(): GemmaSummary {
     snapshotAt: wire?.generatedAt ?? null,
     updatedThisWeek,
     newThisWeek: updatedThisWeek,
-    isLoading: home.isLoading,
-    isError: home.isError,
+    isLoading,
+    isError: false,
   };
 }
 
