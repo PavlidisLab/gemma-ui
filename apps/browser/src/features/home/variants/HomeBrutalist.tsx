@@ -15,8 +15,9 @@
  */
 
 import type React from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { COPY, SURFACES } from "../copy";
+import { COPY, GENERAL_INFO, SURFACES } from "../copy";
 import { Tooltip } from "@/components/ui/Tooltip";
 import {
   useGemmaSummary,
@@ -57,6 +58,9 @@ const FACTOR_CATEGORY_DISPLAY: Record<string, string> = {
 
 export function HomeBrutalist() {
   const s = useGemmaSummary();
+  // General-info section starts expanded on first load (per Paul);
+  // power users can fold it away once they know what Gemma is.
+  const [infoOpen, setInfoOpen] = useState(true);
   return (
     <div
       className="h-full overflow-y-auto bg-stone-100 text-stone-950"
@@ -80,6 +84,11 @@ export function HomeBrutalist() {
 
         {/* Recent-dataset marquee */}
         <Marquee items={s.recentDatasets} />
+
+        {/* General info — three columns. Collapsible so curators /
+            API users can fold it away and focus on the breakdowns
+            and charts below. */}
+        <GeneralInfo open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
 
         {/* Three-pane breakdown row: taxon + technology + reserve.
             Matches the bar-chart row's 1/3 + 2/3 split so the page
@@ -680,6 +689,99 @@ function Marquee({ items }: { items: RecentDataset[] }) {
           loading recent datasets…
         </div>
       )}
+    </div>
+  );
+}
+
+function GeneralInfo({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="border border-stone-950 bg-stone-100">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls="general-info-body"
+        className="w-full flex items-baseline justify-between gap-3 px-5 py-2.5 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300 hover:bg-stone-50"
+      >
+        <span className="text-stone-900 font-semibold">About Gemma</span>
+        <span className="text-stone-500 normal-case tracking-normal text-[11px]">
+          {open ? "▾ hide" : "▸ show"}
+        </span>
+      </button>
+      {open ? (
+        <div
+          id="general-info-body"
+          className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-300"
+        >
+          <InfoColumn title={GENERAL_INFO.idea.title}>
+            <p className="text-sm text-stone-700 leading-relaxed">
+              {GENERAL_INFO.idea.body}
+            </p>
+          </InfoColumn>
+          <InfoColumn title={GENERAL_INFO.provide.title}>
+            <ul className="space-y-1.5 text-sm text-stone-700 leading-snug">
+              {GENERAL_INFO.provide.body.map((item) => (
+                <li key={item} className="flex gap-2">
+                  <span aria-hidden="true" className="text-stone-400 shrink-0">
+                    —
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </InfoColumn>
+          <InfoColumn title={GENERAL_INFO.how.title}>
+            <ul className="space-y-1 text-sm leading-snug">
+              {GENERAL_INFO.how.body.map((item) =>
+                item.external ? (
+                  <li key={item.label}>
+                    <a
+                      href={item.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-stone-800 underline hover:text-blue-700"
+                    >
+                      {item.label}
+                    </a>
+                  </li>
+                ) : (
+                  <li key={item.label}>
+                    <Link
+                      to={item.href}
+                      className="text-stone-800 underline hover:text-blue-700 hover:no-underline"
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                ),
+              )}
+            </ul>
+          </InfoColumn>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InfoColumn({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-stone-100 px-5 py-4">
+      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-2">
+        {title}
+      </div>
+      {children}
     </div>
   );
 }

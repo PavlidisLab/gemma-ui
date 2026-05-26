@@ -43,6 +43,41 @@ export const COPY = {
   },
 } as const;
 
+/** Three-column "general info" block shown by default just below
+ *  the recently-updated ticker on the home page. Folded away by
+ *  curators / API users who already know what Gemma is and want
+ *  the stats / breakdowns below directly.
+ *
+ *  Edit prose here; the section reads from this. */
+export const GENERAL_INFO = {
+  idea: {
+    title: "What Gemma is",
+    body:
+      "A curated repository of public gene-expression studies, re-analysed end-to-end so the data is actually usable for meta-analysis. We re-process raw sequencing / array data, harmonise sample-level annotations against ontologies, and publish results through a public website, a REST API, and the gemma.R / gemmapy clients.",
+  },
+  provide: {
+    title: "What we provide",
+    body: [
+      "Curated and re-processed expression datasets — bulk microarray, bulk RNA-seq, and single-cell.",
+      "Sample-level annotations harmonised against MONDO / EFO / UBERON / CL / CHEBI.",
+      "Pre-computed differential-expression contrasts on every dataset where the experimental design supports it.",
+      "Per-dataset GEEQ quality scores + provenance metadata.",
+      "Coverage primarily across human, mouse, and rat.",
+    ],
+  },
+  how: {
+    title: "How to access",
+    body: [
+      { label: "Browse the corpus", href: "/browser", external: false },
+      { label: "REST API", href: "https://gemma.msl.ubc.ca/resources/restapidocs/", external: true },
+      { label: "gemma.R (R client)", href: "https://github.com/PavlidisLab/gemma.R", external: true },
+      { label: "gemmapy (Python client)", href: "https://github.com/PavlidisLab/gemmapy", external: true },
+      { label: "gemma-mcp (AI-agent server)", href: "https://github.com/PavlidisLab/gemma-mcp", external: true },
+      { label: "Docs", href: "https://pavlidislab.github.io/Gemma/", external: true },
+    ],
+  },
+} as const;
+
 /** Top-line navigation surfaces shown on every variant.
  *  Each variant decides its own visual treatment.
  *  `to: null` means the page isn't built yet — variants render a
