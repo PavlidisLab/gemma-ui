@@ -794,6 +794,66 @@ export async function getGeneGoTerms(
   return r.data ?? [];
 }
 
+/** GO-term typeahead. Wraps Gemma's
+ *  ``GET /annotations/search?query=&prefixes=GO_&limit=`` — the
+ *  same Lucene search the broader ontology picker uses, narrowed
+ *  to the GO namespace by URI-prefix filter. */
+export async function searchGoTerms(
+  query: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<AnnotationSearchResult[]> {
+  const { limit = 20, signal } = options;
+  const q = query.trim();
+  if (!q) return [];
+  const r = await apiGet<{ data?: AnnotationSearchResult[] }>(
+    `${BASE}/annotations/search`,
+    { params: { query: q, prefixes: "GO_", limit }, signal },
+  );
+  return r.data ?? [];
+}
+
+/** Genes annotated under a GO term. Paginated; ``totalElements``
+ *  drives the "247 genes — refine or pick individually" hint. The
+ *  caller's responsibility to pick individually rather than
+ *  bulk-add — a top-level GO node can carry thousands of genes
+ *  and the home page can't sensibly display all of them. */
+export interface GoTermGenesPage {
+  data: Gene[];
+  totalElements: number;
+  offset: number;
+  limit: number;
+}
+
+export async function getGoTermGenes(
+  termUri: string,
+  options: {
+    taxon?: string;
+    offset?: number;
+    limit?: number;
+    propagate?: boolean;
+    signal?: AbortSignal;
+  } = {},
+): Promise<GoTermGenesPage | null> {
+  const { taxon, offset = 0, limit = 100, propagate = false, signal } = options;
+  const params: Params = { offset, limit };
+  if (taxon) params.taxon = taxon;
+  if (propagate) params.propagate = "true";
+  try {
+    const r = await apiGet<PaginatedResponse<Gene>>(
+      `${BASE}/goTerms/${encodeURIComponent(termUri)}/genes`,
+      { params, signal },
+    );
+    return {
+      data: r.data ?? [],
+      totalElements: r.totalElements ?? 0,
+      offset: r.offset ?? 0,
+      limit: r.limit ?? limit,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Free-text gene search (typeahead). Wraps Gemma's
  *  ``GET /rest/v2/genes/search?query=&taxon=&limit=`` — bro shipped
  *  this as a search-service-backed shim. Returns gene value objects

@@ -23,10 +23,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HeatmapWidget, type HeatmapPayload } from "@gemma/heatmap";
 import {
   searchGenes,
+  searchGoTerms,
+  getGoTermGenes,
   getHeatmapData,
   type Gene,
   type HeatmapWireResponse,
 } from "@/api/endpoints";
+import type { AnnotationSearchResult } from "@/lib/types";
 import type { Dataset } from "@/lib/types";
 
 const GENES_HASH_KEY = "genes";
@@ -70,7 +73,15 @@ export function VisualizeTab({ dataset }: { dataset: Dataset }) {
               }
             />
           ) : (
-            <GenePickerByGoComingSoon />
+            <GenePickerByGo
+              taxon={taxon}
+              alreadySelected={selected.map((g) => g.id)}
+              onAdd={(gene) =>
+                setSelected((cur) =>
+                  cur.some((g) => g.id === gene.id) ? cur : [...cur, gene],
+                )
+              }
+            />
           )}
         </div>
         <SelectedGenesStrip
@@ -236,24 +247,246 @@ function GenePickerBySymbol({
   );
 }
 
-// ─── GO-term picker — coming-soon placeholder ────────────────────────────────
+// ─── GO-term picker — typeahead → browse genes → individual add ─────────────
 
-function GenePickerByGoComingSoon() {
+/**
+ * Two-stage picker:
+ *   1. Type a fragment of a GO term name. Typeahead against
+ *      ``/annotations/search?prefixes=GO_`` returns ranked GO
+ *      matches.
+ *   2. Pick a GO term. The picker fetches up to 100 of its
+ *      annotated genes from ``/goTerms/{uri}/genes`` (taxon-scoped
+ *      to the dataset) and shows them as a scrollable browsable
+ *      list. Each gene has a +add button — no bulk-add by design:
+ *      a top-level GO node can carry thousands of genes and the
+ *      heatmap can't sensibly display all of them, so the user
+ *      picks individually.
+ */
+function GenePickerByGo({
+  taxon,
+  alreadySelected,
+  onAdd,
+}: {
+  taxon: string | undefined;
+  alreadySelected: number[];
+  onAdd: (gene: Gene) => void;
+}) {
+  const [termQuery, setTermQuery] = useState("");
+  const [pickedTerm, setPickedTerm] = useState<AnnotationSearchResult | null>(
+    null,
+  );
+  const debouncedTermQuery = useDebounced(termQuery, 150);
+  const trimmedTermQuery = debouncedTermQuery.trim();
+
+  // Phase 1: GO-term typeahead.
+  const termsQ = useQuery({
+    queryKey: ["go-term-search", trimmedTermQuery],
+    queryFn: ({ signal }) =>
+      searchGoTerms(trimmedTermQuery, { limit: 15, signal }),
+    enabled: !pickedTerm && trimmedTermQuery.length >= 2,
+    staleTime: 5 * 60_000,
+  });
+
+  // Phase 2: genes under the picked term.
+  const genesQ = useQuery({
+    queryKey: [
+      "go-term-genes",
+      pickedTerm?.valueUri ?? "",
+      taxon ?? "",
+    ],
+    queryFn: ({ signal }) =>
+      pickedTerm?.valueUri
+        ? getGoTermGenes(pickedTerm.valueUri, {
+            taxon,
+            limit: 100,
+            signal,
+          })
+        : Promise.resolve(null),
+    enabled: !!pickedTerm?.valueUri,
+    staleTime: 5 * 60_000,
+  });
+
+  const already = useMemo(() => new Set(alreadySelected), [alreadySelected]);
+
+  // ── Phase 1 UI: term not yet picked.
+  if (!pickedTerm) {
+    const matches = termsQ.data ?? [];
+    return (
+      <div className="flex flex-col gap-2">
+        <label className="block">
+          <span className="block text-[11px] text-slate-500 mb-1">
+            Search a GO term
+            {taxon ? (
+              <span className="ml-1.5 text-slate-400">
+                — genes scoped to {taxon}
+              </span>
+            ) : null}
+          </span>
+          <input
+            type="search"
+            value={termQuery}
+            onChange={(e) => setTermQuery(e.target.value)}
+            placeholder="apoptosis, cell cycle, immune response…"
+            className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </label>
+        {trimmedTermQuery.length >= 2 ? (
+          <div className="border border-slate-200 rounded max-h-64 overflow-y-auto">
+            {termsQ.isFetching ? (
+              <div className="px-3 py-2 text-xs text-slate-500 italic">
+                searching GO terms…
+              </div>
+            ) : matches.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-500 italic">
+                no GO terms match
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {matches.map((t) => (
+                  <li
+                    key={t.valueUri ?? t.value}
+                    className="px-3 py-1.5 hover:bg-slate-50"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setPickedTerm(t)}
+                      className="w-full flex items-baseline justify-between gap-3 text-left"
+                    >
+                      <span className="min-w-0">
+                        <span className="font-medium text-slate-900">
+                          {t.value}
+                        </span>
+                        {t.valueUri ? (
+                          <span className="ml-2 text-[10px] font-mono text-slate-400">
+                            {shortenGoUri(t.valueUri)}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="text-xs text-blue-700 shrink-0">
+                        browse →
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // ── Phase 2 UI: term picked, browsing genes.
+  const page = genesQ.data;
+  const total = page?.totalElements ?? 0;
+  const shown = page?.data ?? [];
+  const truncated = page && total > shown.length;
+
   return (
-    <div className="text-xs text-slate-500 leading-relaxed border border-dashed border-slate-300 rounded p-3 bg-slate-50">
-      <p className="mb-1.5 font-medium text-slate-700">
-        GO-term picker — pending backend support
-      </p>
-      <p>
-        Reverse GO→genes lookup ({" "}
-        <code className="px-1 bg-slate-100 rounded">/go-terms/{"{uri}"}/genes</code>
-        ) doesn't ship yet on the Gemma REST API. When it does, this tab
-        will browse genes within a GO term and let you add individual
-        ones — never the full list (a typical GO term covers hundreds of
-        genes and the heatmap can't sensibly display that many at once).
-      </p>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500">
+            GO term
+          </div>
+          <div className="text-sm font-medium text-slate-900 truncate">
+            {pickedTerm.value}
+          </div>
+          {pickedTerm.valueUri ? (
+            <a
+              href={pickedTerm.valueUri}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] font-mono text-slate-400 hover:text-blue-700 hover:underline"
+            >
+              {shortenGoUri(pickedTerm.valueUri)} ↗
+            </a>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setPickedTerm(null);
+            setTermQuery("");
+          }}
+          className="text-xs text-slate-500 hover:text-slate-900 hover:underline"
+        >
+          ← pick a different term
+        </button>
+      </div>
+      {genesQ.isLoading ? (
+        <div className="border border-slate-200 rounded px-3 py-3 text-xs text-slate-500 italic">
+          loading genes for this term…
+        </div>
+      ) : !page ? (
+        <div className="border border-slate-200 rounded px-3 py-3 text-xs text-slate-500 italic">
+          No gene-list returned for this term. Either the dataset's taxon
+          has no genes annotated here, or the GO ontology isn't loaded
+          on this Gemma instance.
+        </div>
+      ) : (
+        <>
+          <p className="text-[11px] text-slate-500 leading-snug">
+            <strong className="text-slate-700">
+              {total.toLocaleString()}
+            </strong>{" "}
+            {total === 1 ? "gene" : "genes"} annotated{taxon ? ` in ${taxon}` : ""}.
+            {truncated ? (
+              <>
+                {" "}
+                Showing the first {shown.length} — refine the term, or pick
+                from the list.
+              </>
+            ) : null}
+          </p>
+          <div className="border border-slate-200 rounded max-h-72 overflow-y-auto">
+            <ul className="divide-y divide-slate-100">
+              {shown.map((g) => {
+                const isSelected = already.has(g.id);
+                return (
+                  <li
+                    key={g.id}
+                    className="px-3 py-1.5 flex items-baseline justify-between gap-3 hover:bg-slate-50"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-mono font-semibold text-slate-900">
+                        {g.officialSymbol ?? `#${g.id}`}
+                      </span>
+                      {g.officialName ? (
+                        <span className="ml-2 text-xs text-slate-500 truncate inline-block max-w-[28ch] align-bottom">
+                          {g.officialName}
+                        </span>
+                      ) : null}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isSelected}
+                      onClick={() => onAdd(g)}
+                      className={
+                        "text-xs px-2 py-0.5 border rounded " +
+                        (isSelected
+                          ? "border-slate-200 text-slate-400 cursor-default"
+                          : "border-slate-300 hover:bg-slate-900 hover:text-white hover:border-slate-900")
+                      }
+                    >
+                      {isSelected ? "✓ added" : "+ add"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </>
+      )}
     </div>
   );
+}
+
+/** Render ``http://purl.obolibrary.org/obo/GO_0006915`` as
+ *  ``GO:0006915`` for compact display. */
+function shortenGoUri(uri: string): string {
+  const m = uri.match(/GO_(\d+)/);
+  return m ? `GO:${m[1]}` : uri;
 }
 
 // ─── Selected gene chips ─────────────────────────────────────────────────────
