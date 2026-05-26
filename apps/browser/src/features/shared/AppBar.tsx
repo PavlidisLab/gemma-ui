@@ -2,7 +2,6 @@ import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { gemmaUrl } from "@/lib/gemmaConfig";
-import { SkinSwitcher } from "@/lib/skin/SkinSwitcher";
 import { LoginModal } from "./LoginModal";
 
 export function AppBar() {
@@ -12,23 +11,12 @@ export function AppBar() {
   const [loginOpen, setLoginOpen] = useState(false);
 
   return (
-    <header
-      className="flex items-center gap-3 h-14 px-4 border-b border-gemma-grid bg-surface"
-      style={{
-        // ExtJS skin paints the titlebar via gradient + dark text;
-        // declared inline so the AppBar picks up the skin without
-        // each new skin needing a Tailwind override block.
-        background:
-          "linear-gradient(to bottom, rgb(var(--skin-titlebar-from)) 0%, rgb(var(--skin-titlebar-to)) 100%)",
-        color: "rgb(var(--skin-titlebar-text))",
-      }}
-    >
+    <header className="flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
       <Link
         to="/"
-        className="flex items-center gap-2 font-semibold hover:no-underline"
-        style={{ color: "rgb(var(--skin-titlebar-text))" }}
+        className="flex items-center gap-2 font-semibold text-stone-900 hover:no-underline"
       >
-        <span className="inline-block w-2 h-2 rounded-full bg-gemma-accent" />
+        <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
         <span>Gemma</span>
       </Link>
 
@@ -36,7 +24,6 @@ export function AppBar() {
         <NavTab to="/browser">Datasets</NavTab>
         <NavTab to="/platforms">Platforms</NavTab>
         <NavTab to="/genes">Genes</NavTab>
-        <NavTab to="/summary">Summary</NavTab>
       </nav>
 
       <div className="flex-1" />
@@ -69,7 +56,6 @@ export function AppBar() {
         onSignOut={() => logout.mutate()}
         signingOut={logout.isPending}
       />
-      <SkinSwitcher />
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </header>
   );
@@ -107,19 +93,15 @@ function AuthControls({
     // backing the bearer).
     const display = user.userName || user.email || "(signed in)";
     return (
-      <div
-        className="text-sm inline-flex items-baseline gap-2"
-        style={{ color: "rgb(var(--skin-titlebar-text))" }}
-      >
-        <span style={{ opacity: 0.7 }}>Signed in as</span>
+      <div className="text-sm inline-flex items-baseline gap-2 text-stone-900">
+        <span className="opacity-70">Signed in as</span>
         <span className="font-medium">{display}</span>
         <button
           type="button"
           onClick={onSignOut}
           disabled={signingOut}
-          className="text-sm hover:no-underline opacity-70 hover:opacity-100 bg-transparent border-none cursor-pointer disabled:cursor-progress p-0"
+          className="text-sm text-stone-900 hover:no-underline opacity-70 hover:opacity-100 bg-transparent border-none cursor-pointer disabled:cursor-progress p-0"
           title="sign out — invalidates the bearer token"
-          style={{ color: "rgb(var(--skin-titlebar-text))" }}
         >
           {signingOut ? "Signing out…" : "Sign out"}
         </button>

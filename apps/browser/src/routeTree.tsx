@@ -15,7 +15,6 @@ import {
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { HomePage } from "@/features/home/HomePage";
-import { HomeDashboard } from "@/features/home/variants/HomeDashboard";
 import { BrowserPage } from "@/features/browser/BrowserPage";
 import { PlatformsPage } from "@/features/platforms/PlatformsPage";
 import { PlatformDetailPage } from "@/features/platforms/PlatformDetailPage";
@@ -93,14 +92,9 @@ const platformDetailRoute = createRoute({
   component: () => <PlatformDetailPage />,
 });
 
-// Standalone "summary" destination — reuses the Dashboard variant
-// so curators who want the deep stats view have a stable URL,
-// independent of whichever home variant they've pinned.
-const summaryRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/summary",
-  component: () => <HomeDashboard />,
-});
+// /summary route removed 2026-05-26 — pointed at the (now-deleted)
+// HomeDashboard variant. With only one home layout, the route was
+// indistinguishable from "/".
 
 const heatmapDemoRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -176,7 +170,6 @@ export const routeTree = rootRoute.addChildren([
   browserPresetRoute,
   platformsRoute,
   platformDetailRoute,
-  summaryRoute,
   heatmapDemoRoute,
   heatmapDemoV2Route,
   datasetRoute,

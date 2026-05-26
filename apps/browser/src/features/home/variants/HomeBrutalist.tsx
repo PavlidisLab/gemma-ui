@@ -20,7 +20,6 @@ import { Link } from "@tanstack/react-router";
 import { COPY, GENERAL_INFO, SURFACES } from "../copy";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useMe, useLogout } from "@/api/auth";
-import { SkinSwitcher } from "@/lib/skin/SkinSwitcher";
 import { LoginModal } from "@/features/shared/LoginModal";
 import {
   useGemmaSummary,
@@ -782,7 +781,6 @@ function Masthead() {
               Sign in
             </button>
           )}
-          <SkinSwitcher />
         </div>
       </div>
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
