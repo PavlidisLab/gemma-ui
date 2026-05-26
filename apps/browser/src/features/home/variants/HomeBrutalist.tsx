@@ -81,10 +81,14 @@ export function HomeBrutalist() {
         {/* Recent-dataset marquee */}
         <Marquee items={s.recentDatasets} />
 
-        {/* Two breakdowns side-by-side: taxon + technology */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-stone-950">
+        {/* Three-pane breakdown row: taxon + technology + reserve.
+            Matches the bar-chart row's 1/3 + 2/3 split so the page
+            has a consistent "left 2/3 narrative + right 1/3 future
+            widget" rhythm. */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-950">
           <TaxonBreakdown rows={s.byTaxon} />
           <TechnologyBreakdown rows={s.byTechnology} totalCells={s.totalCells} />
+          <div className="bg-stone-100" aria-hidden="true" />
         </div>
 
         {/* Concept stats — distinct ontology terms per slot */}
@@ -422,7 +426,7 @@ function TaxonBreakdown({ rows }: { rows: TaxonRow[] }) {
   return (
     <div className="bg-stone-100">
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
-        By organism
+        Datasets by taxon
       </div>
       <table className="w-full text-sm">
         <tbody>
@@ -459,7 +463,7 @@ function TechnologyBreakdown({
   return (
     <div className="bg-stone-100">
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
-        By technology
+        Samples by technology
       </div>
       <table className="w-full text-sm">
         <tbody>
