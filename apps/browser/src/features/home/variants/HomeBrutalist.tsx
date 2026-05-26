@@ -17,6 +17,7 @@
 import type React from "react";
 import { Link } from "@tanstack/react-router";
 import { COPY, SURFACES } from "../copy";
+import { Tooltip } from "@/components/ui/Tooltip";
 import {
   useGemmaSummary,
   fmtCount,
@@ -164,14 +165,12 @@ function StatsRow({ s }: { s: GemmaSummary }) {
       .join(" · ");
   })();
 
-  const genesFootnote = (() => {
-    const g = s.geneManipulated;
+  const perturbedFootnote = (() => {
     const e = s.geneManipulatedExperiments;
-    if (g === null || g === 0) return null;
     if (e !== null && e > 0) {
-      return `${fmtCount(g, "compact")} perturbed in ${fmtCount(e, "compact")} experiments`;
+      return `across ${fmtCount(e, "compact")} experiments`;
     }
-    return `${fmtCount(g, "compact")} perturbed`;
+    return null;
   })();
 
   return (
@@ -197,11 +196,11 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         hint="Total biomaterials across all public experiments. Footnote splits samples by the technology that produced them (single-cell vs. bulk RNA-seq vs. microarray)."
       />
       <StatBlock
-        label="Genes"
-        value={fmtCount(s.genes, "full", homeLoading)}
+        label="Genes perturbed"
+        value={fmtCount(s.geneManipulated, "full", homeLoading)}
         cols="md:col-span-2"
-        footnote={genesFootnote}
-        hint="Headline: total distinct genes in Gemma's database across all taxa. Footnote: distinct genes annotated as perturbation targets (knockouts, knockdowns, overexpression) and the experiments they appear in."
+        footnote={perturbedFootnote}
+        hint="Distinct genes annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression. The total-genes-in-the-database number isn't meaningful (Gemma carries every gene from every supported taxon's reference); the perturbation count is what reflects experimental coverage."
       />
       <StatBlock
         label="DEA result sets"
@@ -230,7 +229,7 @@ function ConceptRow({ s }: { s: GemmaSummary }) {
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
         Annotation coverage · distinct ontology terms in use
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-px bg-stone-300">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-stone-300">
         <Concept
           label="Treatments"
           value={fmtCount(c.drugs, "full", loadingOf(c.drugs))}
@@ -396,7 +395,7 @@ function CategoryBar({
 }) {
   const pct = Math.max(0.5, (count / max) * 100);
   return (
-    <li className="px-4 py-0.5 grid grid-cols-[8rem_1fr_6.5rem] items-center gap-2 text-xs">
+    <li className="px-4 py-0.5 grid grid-cols-[6.5rem_minmax(0,1fr)_max-content] items-center gap-2 text-xs">
       <span className="text-stone-800 truncate" title={label}>
         {label}
       </span>
@@ -406,7 +405,7 @@ function CategoryBar({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-right tabular-nums text-stone-900">
+      <span className="text-right tabular-nums text-stone-900 whitespace-nowrap">
         <span className="font-medium">{count.toLocaleString()}</span>
         {ee !== null ? (
           <span className="ml-1.5 text-stone-500 font-normal">
@@ -581,22 +580,24 @@ function StatBlock({
   );
 }
 
-/** Small ``i`` glyph next to a tile label — clickable / hoverable
- *  affordance for the explanation. Renders with title= so the
- *  browser-default tooltip surfaces the prose on hover; no JS /
- *  popover dep needed. Sized to match the 10px label text so it
- *  doesn't compete visually. */
+/** Small ``i`` glyph next to a tile label — hoverable affordance
+ *  for the explanation. Wrapped in the shared Tooltip component
+ *  (60ms open delay, portal-mounted, stone-900 bubble) instead of
+ *  the browser-default ``title=`` which has a ~700ms open delay
+ *  Paul (and everyone) finds frustrating. Sized to match the 10px
+ *  label text so it doesn't compete visually. */
 function InfoBadge({ hint }: { hint: string }) {
   return (
-    <span
-      role="img"
-      aria-label={hint}
-      title={hint}
-      tabIndex={0}
-      className="ml-1.5 inline-flex items-center justify-center w-3 h-3 rounded-full border border-stone-400 text-stone-500 text-[8px] leading-none cursor-help select-none normal-case tracking-normal font-medium hover:border-stone-700 hover:text-stone-800 focus:outline-none focus:ring-1 focus:ring-stone-600"
-    >
-      i
-    </span>
+    <Tooltip label={hint}>
+      <span
+        role="img"
+        aria-label={hint}
+        tabIndex={0}
+        className="ml-1.5 inline-flex items-center justify-center w-3 h-3 rounded-full border border-stone-400 text-stone-500 text-[8px] leading-none cursor-help select-none normal-case tracking-normal font-medium hover:border-stone-700 hover:text-stone-800 focus:outline-none focus:ring-1 focus:ring-stone-600"
+      >
+        i
+      </span>
+    </Tooltip>
   );
 }
 

@@ -21,12 +21,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/api/client";
-import type {
-  Dataset,
-  PaginatedResponse,
-  Platform,
-  Taxon,
-} from "@/lib/types";
+import type { Dataset, PaginatedResponse, Taxon } from "@/lib/types";
 
 const BASE = "/rest/v2";
 
@@ -191,54 +186,24 @@ const TAXA_PLACEHOLDER: TaxonRow[] = [
   { name: "Rat", total: null },
 ];
 
-/** Roll Gemma's raw ``ArrayDesign.TechnologyType`` enum counts up to
- *  the display buckets used on the home page (Microarray = ONECOLOR
- *  + TWOCOLOR + DUALMODE; RNA-seq = SEQUENCING + GENELIST). */
-function rollUpPlatformTypes(
-  raw: Record<string, number>,
-  singleCellCount: number,
-): TechnologyRow[] {
-  const microarray =
-    (raw.ONECOLOR ?? 0) + (raw.TWOCOLOR ?? 0) + (raw.DUALMODE ?? 0);
-  const sequencing = (raw.SEQUENCING ?? 0) + (raw.GENELIST ?? 0);
-  const known = new Set([
-    "ONECOLOR",
-    "TWOCOLOR",
-    "DUALMODE",
-    "SEQUENCING",
-    "GENELIST",
-  ]);
-  const other = Object.entries(raw)
-    .filter(([k]) => !known.has(k))
-    .reduce((s, [, v]) => s + (v ?? 0), 0);
+/** Build the "By technology" chart rows from samplesByTech
+ *  (mutually-exclusive biomaterial counts). The old byPlatformType
+ *  source double-counted EEs that had multiple platforms attached
+ *  (e.g. a SEQUENCING + GENELIST representation of the same study
+ *  inflated RNA-seq by 2×). samplesByTech is single-counted at the
+ *  biomaterial level — no overlap, no client-side gymnastics. */
+function rollUpFromSamplesByTech(samplesByTech: {
+  singleCell: number | null;
+  rnaSeq: number | null;
+  microarray: number | null;
+}): TechnologyRow[] {
   return [
-    { label: "Microarray", count: microarray },
-    { label: "RNA-seq", count: sequencing },
-    { label: "Single-cell", count: singleCellCount },
-    { label: "Other", count: other },
+    { label: "RNA-seq", count: samplesByTech.rnaSeq ?? 0 },
+    { label: "Microarray", count: samplesByTech.microarray ?? 0 },
+    { label: "Single-cell", count: samplesByTech.singleCell ?? 0 },
   ]
     .filter((r) => r.count > 0)
     .sort((a, b) => b.count - a.count);
-}
-
-/** ``ArrayDesign.TechnologyType`` → display bucket. Same mapping as
- *  ``rollUpPlatformTypes`` but row-by-row for the fallback path that
- *  aggregates from ``/datasets/platforms``. */
-function technologyLabel(type: string): string {
-  switch (type) {
-    case "ONECOLOR":
-    case "TWOCOLOR":
-    case "DUALMODE":
-      return "Microarray";
-    case "SEQUENCING":
-    case "GENELIST":
-      return "RNA-seq";
-    case "SINGLE_CELL_SEQUENCING":
-    case "SINGLE_CELL":
-      return "Single-cell";
-    default:
-      return "Other";
-  }
 }
 
 function useNumericCount(path: string, key: string) {
@@ -310,19 +275,6 @@ export function useGemmaSummary(): GemmaSummary {
     retry: false,
   });
 
-  const platformsForTech = useQuery({
-    queryKey: ["summary", "platforms-by-tech"],
-    queryFn: async ({ signal }) => {
-      const r = await apiGet<PaginatedResponse<Platform>>(
-        `${BASE}/datasets/platforms?limit=100`,
-        { signal },
-      );
-      return r.data ?? [];
-    },
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-
   const recent = useQuery({
     queryKey: ["summary", "recent-datasets"],
     queryFn: async ({ signal }) => {
@@ -380,32 +332,23 @@ export function useGemmaSummary(): GemmaSummary {
   }
 
   // ── byTechnology ──────────────────────────────────────────────
-  // Snapshot: byPlatformType is a raw enum-keyed histogram; roll up.
-  // Fallback: aggregate from /datasets/platforms — each row carries
-  // numberOfExpressionExperimentsForTechnologyType for ITS bucket,
-  // so taking the max per bucket gives the correct total.
-  let byTechnology: TechnologyRow[];
-  if (wire) {
-    byTechnology = rollUpPlatformTypes(wire.byPlatformType, wire.singleCellCount);
-  } else if (platformsForTech.data && platformsForTech.data.length > 0) {
-    const agg = new Map<string, number>();
-    for (const p of platformsForTech.data) {
-      if (!p.technologyType) continue;
-      const label = technologyLabel(p.technologyType);
-      const candidate =
-        p.numberOfExpressionExperimentsForTechnologyType ??
-        p.numberOfExpressionExperiments ??
-        0;
-      const cur = agg.get(label) ?? 0;
-      if (candidate > cur) agg.set(label, candidate);
-    }
-    byTechnology = Array.from(agg.entries())
-      .map(([label, count]) => ({ label, count }))
-      .filter((r) => r.count > 0)
-      .sort((a, b) => b.count - a.count);
-  } else {
-    byTechnology = [];
-  }
+  // Source: samplesByTech (biomaterial-level, mutually exclusive).
+  // The earlier byPlatformType-based rollup double-counted EEs that
+  // appeared under multiple TechnologyType buckets (esp. SEQUENCING +
+  // GENELIST for the same sequencing study), pushing RNA-seq past
+  // the corpus dataset total. samplesByTech is single-counted by
+  // bro server-side, so the numbers are honest.
+  const samplesByTechResolved = {
+    singleCell: wire?.samplesByTech?.single_cell ?? null,
+    rnaSeq: wire?.samplesByTech?.rna_seq ?? null,
+    microarray: wire?.samplesByTech?.microarray ?? null,
+  };
+  const byTechnology: TechnologyRow[] =
+    samplesByTechResolved.singleCell !== null ||
+    samplesByTechResolved.rnaSeq !== null ||
+    samplesByTechResolved.microarray !== null
+      ? rollUpFromSamplesByTech(samplesByTechResolved)
+      : [];
 
   // ── recentDatasets ────────────────────────────────────────────
   let recentDatasets: RecentDataset[];
@@ -446,8 +389,7 @@ export function useGemmaSummary(): GemmaSummary {
     home.isLoading &&
     datasetsCount.isLoading &&
     platformsCount.isLoading &&
-    taxa.isLoading &&
-    platformsForTech.isLoading;
+    taxa.isLoading;
 
   // ── factorValuesByCategory ────────────────────────────────────
   // Read straight off /stats/home v2; categories with null label
