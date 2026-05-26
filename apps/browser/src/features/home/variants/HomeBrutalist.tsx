@@ -21,6 +21,7 @@ import { GENERAL_INFO, SURFACES } from "../copy";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useMe, useLogout } from "@/api/auth";
 import { LoginModal } from "@/features/shared/LoginModal";
+import { SearchBox } from "@/features/shared/SearchBox";
 import {
   useGemmaSummary,
   fmtCount,
@@ -71,6 +72,14 @@ export function HomeBrutalist() {
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-px">
         {/* Wordmark + tagline — single block, no inversion */}
         <Masthead />
+
+        {/* Hero search — primary entry point to the corpus. */}
+        <div className="px-1 pt-1 pb-2">
+          <SearchBox
+            variant="hero"
+            placeholder="Search datasets — by name, accession, or gene…"
+          />
+        </div>
 
         {/* Hero stats — 5 metrics + about column */}
         <StatsRow s={s} />

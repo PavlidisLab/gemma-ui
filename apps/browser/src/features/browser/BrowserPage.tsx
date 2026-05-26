@@ -106,7 +106,12 @@ export function BrowserPage() {
 
   function onApplyQuery(q: string | undefined) {
     dispatch({ type: "setQuery", value: q });
-    navigate({ to: q ? `/q/${encodeURIComponent(q)}` : "/" });
+    // Route is /browser/q/$query (see routeTree). The earlier
+    // /q/<query> dropped the /browser prefix, landing the user on
+    // a 404. Empty query falls back to the un-queried /browser.
+    navigate({
+      to: q ? `/browser/q/${encodeURIComponent(q)}` : "/browser",
+    });
   }
 
   function toggleExpanded(id: number) {

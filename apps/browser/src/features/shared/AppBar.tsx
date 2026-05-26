@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { gemmaUrl } from "@/lib/gemmaConfig";
 import { LoginModal } from "./LoginModal";
+import { SearchBox } from "./SearchBox";
 
 export function AppBar() {
   const me = useMe();
@@ -25,6 +26,10 @@ export function AppBar() {
         <NavTab to="/platforms">Platforms</NavTab>
         <NavTab to="/genes">Genes</NavTab>
       </nav>
+
+      <div className="ml-4">
+        <SearchBox variant="compact" />
+      </div>
 
       <div className="flex-1" />
 
