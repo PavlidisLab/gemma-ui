@@ -197,12 +197,12 @@ export function Footer() {
 
       <span className="ml-auto inline-flex items-center gap-3">
         <a
-          href="https://github.com/PavlidisLab/Gemma/blob/master/LICENSE"
+          href="https://pavlidislab.github.io/Gemma/terms.html"
           target="_blank"
           rel="noopener noreferrer"
           className="hover:underline"
         >
-          License
+          Terms
         </a>
         <span className="opacity-50">Gemma Browser</span>
       </span>
