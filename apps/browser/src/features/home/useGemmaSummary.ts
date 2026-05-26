@@ -77,6 +77,10 @@ interface HomeStatsWire {
     categoryUri: string | null;
     numberOfExpressionExperiments: number;
   }>;
+  /** Datasets grouped by external-database source. ``source`` is
+   *  the ExternalDatabase.name or ``"none"``. Sorted desc.
+   *  Empty array on pre-deploy snapshots. */
+  datasetsByAccessionSource?: Array<{ source: string; count: number }>;
   recentExperiments: Array<{
     id: number;
     shortName: string;
@@ -167,6 +171,12 @@ export interface GemmaSummary {
     categoryUri: string | null;
     numberOfExpressionExperiments: number;
   }>;
+  /** Datasets grouped by external-database source (GEO, ArrayExpress,
+   *  CELLxGENE, …); ``source === "none"`` carries direct lab
+   *  submissions / Gemma-native EEs. Sorted desc, sums to
+   *  ``datasets``. Empty until bro's accession field lands in the
+   *  daily snapshot. */
+  datasetsByAccessionSource: Array<{ source: string; count: number }>;
   recentDatasets: RecentDataset[];
   snapshotAt: string | null;
   updatedThisWeek: number | null;
@@ -485,6 +495,7 @@ export function useGemmaSummary(): GemmaSummary {
     },
     factorValuesByCategory,
     categoryDistribution: wire?.categoryDistribution ?? [],
+    datasetsByAccessionSource: wire?.datasetsByAccessionSource ?? [],
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,
     updatedThisWeek,

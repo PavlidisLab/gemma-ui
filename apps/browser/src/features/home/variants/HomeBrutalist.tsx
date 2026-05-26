@@ -145,6 +145,21 @@ function StatsRow({ s }: { s: GemmaSummary }) {
     return parts.length > 0 ? parts.join(" · ") : null;
   })();
 
+  // Datasets-by-source footnote — bro's accessions field. Empty
+  // until the daily refresh after deploy runs; null check hides
+  // the footnote gracefully meanwhile. "none" bucket → "direct"
+  // for the visitor-friendly framing.
+  const datasetsFootnote = (() => {
+    const rows = s.datasetsByAccessionSource;
+    if (rows.length === 0) return null;
+    return rows
+      .map((r) => {
+        const label = r.source === "none" ? "direct" : r.source;
+        return `${label} ${fmtCount(r.count, "compact")}`;
+      })
+      .join(" · ");
+  })();
+
   const genesFootnote = (() => {
     const g = s.geneManipulated;
     const e = s.geneManipulatedExperiments;
@@ -161,7 +176,8 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         label="Datasets"
         value={fmtCount(s.datasets, "full", homeLoading)}
         cols="md:col-span-2"
-        hint="Public expression experiments in Gemma. A single external accession (e.g. one GSE) sometimes maps to multiple Gemma datasets — Gemma splits a GEO submission when it actually contains two or more distinct experiments. So the dataset count is slightly larger than the count of distinct source accessions (footnote, once the wire field lands)."
+        footnote={datasetsFootnote}
+        hint="Public expression experiments in Gemma. Footnote breaks the corpus down by external-accession source (GEO, ArrayExpress, CELLxGENE, etc.); the 'direct' bucket is lab submissions / Gemma-native experiments with no external accession. Note: a single GEO submission with two distinct experiments is split into two Gemma datasets, so the source counts here are dataset counts, not raw accession counts — the GEO-accession total is a bit smaller."
       />
       <StatBlock
         label="Platforms"
