@@ -237,17 +237,17 @@ function TechnologyBreakdown({ rows }: { rows: TechnologyRow[] }) {
 }
 
 function Marquee({ items }: { items: RecentDataset[] }) {
-  // No scrolling. The earlier horizontal CSS marquee was rejected
-  // (2026-05-25, "barf") — motion under text the reader is trying
-  // to parse is queasy-inducing. Replaced with a static two-column
-  // grid showing the most recently updated experiments by title,
-  // with a "see all →" link into the full browse surface. Same
-  // content the marquee carried; no motion.
+  // One-line vertical "credits crawl" ticker per Paul (2026-05-25):
+  // single visible row, titles slide upward at a slow steady pace,
+  // hover pauses the loop, prefers-reduced-motion stops it entirely.
+  // The horizontal variant ("barf") and the static grid were both
+  // rejected — horizontal motion is queasy, the grid is dead weight.
+  // Vertical-ticker direction matches reading flow + has the
+  // contemplative-sign quality of a building marquee or end credits.
   const ready = items.length > 0;
-  const top = items.slice(0, 12);
   return (
     <div className="border border-stone-950 bg-stone-100">
-      <div className="flex items-baseline justify-between gap-3 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300">
+      <div className="flex items-baseline justify-between gap-3 px-5 py-2 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300">
         <span className="text-stone-900 font-semibold">Recently updated</span>
         <Link
           to="/browser"
@@ -257,37 +257,31 @@ function Marquee({ items }: { items: RecentDataset[] }) {
         </Link>
       </div>
       {ready ? (
-        <ul className="grid grid-cols-1 md:grid-cols-2 gap-px bg-stone-300">
-          {top.map((d) => (
-            <li key={d.id} className="bg-stone-100">
+        <div className="ticker-wrap px-5">
+          <div className="ticker-track">
+            {[...items, ...items].map((d, i) => (
               <Link
+                key={`${d.id}-${i}`}
                 to="/dataset/$id"
                 params={{ id: d.shortName }}
-                className="block px-5 py-2 text-stone-900 hover:bg-stone-50 hover:no-underline"
+                className="ticker-item text-stone-900 hover:text-blue-700 hover:no-underline"
                 title={`${d.shortName} — ${d.name}`}
               >
-                <span className="text-sm leading-snug line-clamp-1">
+                <span className="text-sm truncate">
                   {cleanExperimentTitle(d.name)}
                 </span>
-                <span className="block text-[10px] text-stone-500 mt-0.5">
-                  <span className="font-mono">{d.shortName}</span>
-                  {d.taxonName ? (
-                    <>
-                      <span className="mx-1.5 text-stone-400">·</span>
-                      <span>{d.taxonName}</span>
-                    </>
-                  ) : null}
-                  {d.bioAssays > 0 ? (
-                    <>
-                      <span className="mx-1.5 text-stone-400">·</span>
-                      <span>{d.bioAssays} samples</span>
-                    </>
-                  ) : null}
+                {d.taxonName ? (
+                  <span className="text-stone-500 text-xs ml-3 shrink-0">
+                    {d.taxonName}
+                  </span>
+                ) : null}
+                <span className="font-mono text-[10px] text-stone-500 ml-3 shrink-0">
+                  {d.shortName}
                 </span>
               </Link>
-            </li>
-          ))}
-        </ul>
+            ))}
+          </div>
+        </div>
       ) : (
         <div className="px-5 py-4 text-stone-500 text-sm">
           loading recent datasets…

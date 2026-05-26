@@ -1908,3 +1908,54 @@ html.skin-carbon h3 {
 html.skin-carbon a { color: rgb(var(--skin-accent)); }
 html.skin-carbon main { background: transparent; }
 
+/* ─── Home-page vertical ticker ─────────────────────────────────
+ * One-line "credits crawl" for the recently-updated dataset
+ * strip on the home page. Container clips to a single row; the
+ * track holds two copies of the list end-to-end and translates
+ * upward over a long duration so each title sits readable for a
+ * beat before sliding off. translateY(-50%) moves exactly one
+ * copy's height — the loop joins seamlessly because the second
+ * copy is identical to the first.
+ *
+ * Each item is forced to the container's row height with flex
+ * + min-height so a wrapping title can't break the rhythm.
+ *
+ * Hover anywhere on the strip pauses the loop. prefers-reduced-
+ * motion stops it entirely so a screen reader / motion-sensitive
+ * user can scan the first item without dizziness.
+ */
+:root {
+  --ticker-row-height: 2.25rem; /* 36px — sets the visible window */
+  --ticker-duration: 240s;      /* full loop; ~2.4 s per item for 50×2 */
+}
+.ticker-wrap {
+  height: var(--ticker-row-height);
+  overflow: hidden;
+  position: relative;
+}
+.ticker-track {
+  display: flex;
+  flex-direction: column;
+  animation: ticker-up var(--ticker-duration) linear infinite;
+  will-change: transform;
+}
+.ticker-wrap:hover .ticker-track {
+  animation-play-state: paused;
+}
+.ticker-item {
+  display: flex;
+  align-items: center;
+  min-height: var(--ticker-row-height);
+  white-space: nowrap;
+  overflow: hidden;
+}
+@keyframes ticker-up {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+}
+
