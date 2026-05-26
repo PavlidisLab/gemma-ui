@@ -39,7 +39,14 @@ type PickerMode = "symbol" | "go";
 
 export function VisualizeTab({ dataset }: { dataset: Dataset }) {
   const datasetId = dataset.id;
-  const taxon = dataset.taxon?.commonName?.toLowerCase() ?? undefined;
+  // Hard-scope all gene queries to this experiment's taxon. Try
+  // common name first (the visitor-facing form bro's TaxonArg
+  // accepts), fall back to scientific name, then to the taxon id
+  // as a last resort — all three resolve server-side.
+  const taxon =
+    dataset.taxon?.commonName?.toLowerCase() ??
+    dataset.taxon?.scientificName?.toLowerCase() ??
+    (dataset.taxon?.id != null ? String(dataset.taxon.id) : undefined);
 
   // ── selected genes — client-only state, URL-hash + localStorage backed.
   const [selected, setSelected] = useGeneSelection(datasetId);
