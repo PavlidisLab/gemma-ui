@@ -25,6 +25,10 @@ import {
   type TechnologyRow,
   type RecentDataset,
 } from "../useGemmaSummary";
+import {
+  useAnnotationCategoryBreakdown,
+  type CategoryBreakdownRow,
+} from "../useAnnotationCategoryBreakdown";
 
 export function HomeBrutalist() {
   const s = useGemmaSummary();
@@ -65,6 +69,9 @@ export function HomeBrutalist() {
 
         {/* Concept stats — distinct ontology terms per slot */}
         <ConceptRow s={s} />
+
+        {/* Top categories by distinct ontology terms — bar chart */}
+        <CategoryBars />
 
         {/* Surface buttons */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-stone-950">
@@ -181,6 +188,76 @@ function Concept({
         {value}
       </div>
     </div>
+  );
+}
+
+function CategoryBars() {
+  // Top 12 annotation categories by distinct ontology-term count.
+  // Drives off /datasets/categories + a fan-out of /annotations/
+  // count?category=URI&excludeFreeText=true. Rows render
+  // progressively as each fan-out query lands; the bar widths
+  // recompute against the rolling max so partial-fill doesn't
+  // look broken.
+  const { rows, isLoading } = useAnnotationCategoryBreakdown(12);
+  const ready = rows.length > 0;
+  const max = Math.max(1, ...rows.map((r) => r.terms ?? 0));
+  return (
+    <div className="border border-stone-950 bg-stone-100">
+      <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between">
+        <span className="text-stone-900 font-semibold">
+          Top categories · distinct ontology terms
+        </span>
+        <span className="text-stone-500 normal-case tracking-normal text-[11px]">
+          {ready ? `${rows.length} of top categories` : isLoading ? "loading…" : ""}
+        </span>
+      </div>
+      {ready ? (
+        <ul className="divide-y divide-stone-200">
+          {rows.map((r) => (
+            <CategoryBar key={r.label} row={r} max={max} />
+          ))}
+        </ul>
+      ) : (
+        <div className="px-5 py-6 text-stone-500 text-sm">
+          {isLoading ? "loading annotation categories…" : "no categories"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CategoryBar({
+  row,
+  max,
+}: {
+  row: CategoryBreakdownRow;
+  max: number;
+}) {
+  const value = row.terms;
+  const pending = value === null;
+  const pct = pending ? 0 : Math.max(0.5, (value / max) * 100);
+  return (
+    <li className="px-5 py-1.5 grid grid-cols-[10rem_1fr_5rem] items-center gap-3 text-sm">
+      <span
+        className="text-stone-800 truncate"
+        title={row.uri ? `${row.label} · ${row.uri}` : row.label}
+      >
+        {row.label}
+      </span>
+      <div className="h-2.5 bg-stone-200 relative overflow-hidden">
+        <div
+          className="absolute inset-y-0 left-0 bg-blue-700"
+          style={{ width: `${pct}%`, opacity: pending ? 0.2 : 1 }}
+        />
+      </div>
+      <span className="text-right tabular-nums text-stone-900 font-medium">
+        {pending ? (
+          <span className="text-stone-400">…</span>
+        ) : (
+          value.toLocaleString()
+        )}
+      </span>
+    </li>
   );
 }
 
