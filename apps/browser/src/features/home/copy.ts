@@ -71,28 +71,15 @@ export const GENERAL_INFO = {
   provide: {
     title: "What we provide",
     accent: "blue", // data + analysis blue
-    /** Each item is rendered as: <bullet><bold lead> — <body>. */
+    /** Two-column ``<dl>``: <dt>lead</dt> <dd>body</dd>. Bodies
+     *  trimmed to ~1 line each so the panel reads as a tight
+     *  reference table, not a wall of text. */
     items: [
-      {
-        lead: "Datasets",
-        body: "Bulk microarray, bulk RNA-seq, and single-cell — re-processed from raw.",
-      },
-      {
-        lead: "Annotations",
-        body: "Sample-level metadata harmonised against MONDO / EFO / UBERON / CL / CHEBI.",
-      },
-      {
-        lead: "Analyses",
-        body: "Pre-computed differential-expression contrasts on every supported design.",
-      },
-      {
-        lead: "Quality",
-        body: "Per-dataset GEEQ scores and provenance metadata.",
-      },
-      {
-        lead: "Coverage",
-        body: "Primarily human, mouse, and rat across thousands of submissions.",
-      },
+      { lead: "Datasets",    body: "Microarray, RNA-seq, single-cell — re-processed." },
+      { lead: "Annotations", body: "Harmonised to MONDO, EFO, UBERON, CL, CHEBI." },
+      { lead: "Analyses",    body: "Pre-computed DEA contrasts." },
+      { lead: "Quality",     body: "GEEQ scores and provenance." },
+      { lead: "Coverage",    body: "Human, mouse, rat." },
     ],
   },
   how: {

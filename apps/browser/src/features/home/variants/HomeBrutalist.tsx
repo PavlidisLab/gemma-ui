@@ -734,27 +734,24 @@ function GeneralInfo({
             </div>
           </InfoColumn>
 
-          {/* Column 2 — data + analysis catalogue. */}
+          {/* Column 2 — data + analysis catalogue. Two-column
+              definition list: bold lead on the left, muted body on
+              the right. Bullets dropped — the typography +
+              grid alignment carry enough structure on their own. */}
           <InfoColumn
             title={GENERAL_INFO.provide.title}
             accent={GENERAL_INFO.provide.accent}
           >
-            <ul className="space-y-2 text-sm leading-snug">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm leading-snug">
               {GENERAL_INFO.provide.items.map((item) => (
-                <li key={item.lead} className="flex gap-2.5">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block w-1.5 h-1.5 mt-1.5 shrink-0 bg-blue-700"
-                  />
-                  <span>
-                    <span className="font-semibold text-stone-900">
-                      {item.lead}
-                    </span>
-                    <span className="text-stone-600"> — {item.body}</span>
-                  </span>
-                </li>
+                <div key={item.lead} className="contents">
+                  <dt className="font-semibold text-stone-900 whitespace-nowrap">
+                    {item.lead}
+                  </dt>
+                  <dd className="text-stone-600">{item.body}</dd>
+                </div>
               ))}
-            </ul>
+            </dl>
           </InfoColumn>
 
           {/* Column 3 — access surfaces. */}
