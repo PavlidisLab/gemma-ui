@@ -707,8 +707,8 @@ function Masthead() {
   const [loginOpen, setLoginOpen] = useState(false);
 
   return (
-    <div className="border border-stone-950 bg-stone-100">
-      <div className="px-6 py-5 flex items-center gap-6 flex-wrap">
+    <div className="border-b border-stone-950 bg-stone-100">
+      <div className="px-6 py-3 flex items-center gap-6 flex-wrap">
         {/* Brand mark — left */}
         <div className="flex items-baseline gap-3">
           <span className="text-5xl leading-none font-bold tracking-tight">
