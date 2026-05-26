@@ -62,6 +62,13 @@ interface HomeStatsWire {
     categoryUri: string | null;
     numberOfDistinctFactorValues: number;
   }>;
+  /** Distinct DEA contrasts across the corpus — the per-comparison
+   *  count (e.g. a 3-level factor "drug" with values control / drug-A
+   *  / drug-B yields 2 contrasts). Strictly greater than
+   *  ``deaResultSetCount`` since each result set carries one or more
+   *  contrasts. Bro: not yet shipped — filed in
+   *  HOME_PAGE_DEA_CONTRASTS_2026_05_25.md. */
+  deaContrastCount?: number;
   ontologyTermCount: number;
   /** Stable lowercase-snake-case keys: ``disease``, ``organism_part``,
    *  ``cell_type``, ``treatment``, ``strain``, ``cell_line``. */
@@ -146,6 +153,11 @@ export interface GemmaSummary {
   singleCellExperiments: number | null;
   ontologyTerms: number | null;
   diffExResultSets: number | null;
+  /** Distinct DEA contrasts (per-comparison count). When available,
+   *  this becomes the headline DEA number on the home page and
+   *  ``diffExResultSets`` demotes to a footnote. ``null`` until
+   *  bro ships the field. */
+  diffExContrasts: number | null;
   /** Distinct CHEBI-anchored drug / chemical annotations. Narrower
    *  than ``byCategory.drugs`` (which covers all
    *  treatment-tagged annotations, drug or not). */
@@ -465,6 +477,7 @@ export function useGemmaSummary(): GemmaSummary {
       wire?.ontologyTermCount ?? ontologyTermsFallback.data ?? null,
     diffExResultSets:
       wire?.deaResultSetCount ?? diffExResultSetsFallback.data ?? null,
+    diffExContrasts: wire?.deaContrastCount ?? null,
     drugs: wire?.drugCount ?? null,
     geneManipulated: wire?.geneManipulatedCount ?? null,
     geneManipulatedExperiments: wire?.geneManipulatedExperimentCount ?? null,

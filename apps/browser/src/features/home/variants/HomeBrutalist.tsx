@@ -140,7 +140,6 @@ function StatsRow({ s }: { s: GemmaSummary }) {
   // under the headline number (footnote prop) instead of claiming
   // additional tiles for samplesByTech / geneManipulated.
   const homeLoading = s.datasets === null && !s.isError;
-  const resultSetsLoading = s.diffExResultSets === null && !s.isError;
   const ontologyLoading = s.ontologyTerms === null && !s.isError;
 
   const samplesFootnote = (() => {
@@ -208,10 +207,19 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         hint="Distinct genes annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression. The total-genes-in-the-database number isn't meaningful (Gemma carries every gene from every supported taxon's reference); the perturbation count is what reflects experimental coverage."
       />
       <StatBlock
-        label="DEA result sets"
-        value={fmtCount(s.diffExResultSets, "full", resultSetsLoading)}
+        label="DEA contrasts"
+        value={fmtCount(
+          s.diffExContrasts ?? s.diffExResultSets,
+          "full",
+          (s.diffExContrasts ?? s.diffExResultSets) === null && !s.isError,
+        )}
         cols="md:col-span-2"
-        hint="Differential-expression contrasts Gemma has computed — each result set is one re-usable comparison (e.g. 'diseased vs. control on factor X')."
+        footnote={
+          s.diffExContrasts !== null && s.diffExResultSets !== null
+            ? `${fmtCount(s.diffExResultSets, "compact")} result sets`
+            : null
+        }
+        hint="Differential-expression contrasts Gemma has computed across all public datasets. Each contrast is one pairwise comparison (e.g. 'diseased vs. control'); a single result set typically carries several contrasts (one per factor-value pair). Footnote shows the result-set count for orientation."
       />
       <StatBlock
         label="Ontology terms"
@@ -695,20 +703,24 @@ function StatBlock({
    *  perturbed-genes under Genes) without claiming a new tile. */
   footnote?: React.ReactNode;
 }) {
+  // Reserve min-height for the label + footnote slots so values
+  // sit on the same horizontal baseline across the row regardless
+  // of whether a particular label wraps to two lines (e.g. "GENES
+  // PERTURBED") or whether a tile has a footnote at all. mt-auto
+  // on the footnote slot pins it to the bottom of the flex column
+  // so empty-footnote tiles match the height of populated ones.
   return (
-    <div className={`${cols} bg-stone-100 px-5 py-4`}>
-      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-1 flex items-center">
+    <div className={`${cols} bg-stone-100 px-5 py-4 flex flex-col`}>
+      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-1 flex items-center min-h-[2.4em]">
         <span>{label}</span>
         {hint ? <InfoBadge hint={hint} ariaLabel={hintAria} /> : null}
       </div>
       <div className="text-3xl font-semibold tabular-nums tracking-tight text-stone-950">
         {value}
       </div>
-      {footnote ? (
-        <div className="mt-1 text-[10px] text-stone-500 leading-snug">
-          {footnote}
-        </div>
-      ) : null}
+      <div className="mt-auto pt-1 text-[10px] text-stone-500 leading-snug min-h-[2.6em]">
+        {footnote ?? null}
+      </div>
     </div>
   );
 }
