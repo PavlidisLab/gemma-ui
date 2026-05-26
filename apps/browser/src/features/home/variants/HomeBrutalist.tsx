@@ -82,7 +82,7 @@ export function HomeBrutalist() {
         {/* Two breakdowns side-by-side: taxon + technology */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-stone-950">
           <TaxonBreakdown rows={s.byTaxon} />
-          <TechnologyBreakdown rows={s.byTechnology} />
+          <TechnologyBreakdown rows={s.byTechnology} totalCells={s.totalCells} />
         </div>
 
         {/* Concept stats — distinct ontology terms per slot */}
@@ -149,39 +149,46 @@ function StatsRow({ s }: { s: GemmaSummary }) {
 }
 
 function ConceptRow({ s }: { s: GemmaSummary }) {
-  // All four counts are URI-bound (excludeFreeText=true on the
-  // count endpoint). Categories tile dropped 2026-05-25 per Paul —
-  // returning 0 from /datasets/categories on the current backend +
-  // less useful than the per-category counts that surround it.
-  const drugs = s.byCategory.drugs;
-  const diseases = s.byCategory.diseases;
-  const tissues = s.byCategory.tissues;
-  const cellTypes = s.byCategory.cellTypes;
+  // All six counts are URI-bound (excludeFreeText=true).
+  // Source: /stats/home byAnnotationCategory in one snapshot —
+  // strain + cell_line landed in bro's v3 daily-refresh.
+  const c = s.byCategory;
+  const loadingOf = (v: number | null) => v === null && !s.isError;
   return (
     <div className="border border-stone-950 bg-stone-100">
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
         Annotation coverage · distinct ontology terms in use
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-stone-300">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-px bg-stone-300">
         <Concept
-          label="Drugs / treatments"
-          value={fmtCount(drugs, "full", drugs === null && !s.isError)}
+          label="Treatments"
+          value={fmtCount(c.drugs, "full", loadingOf(c.drugs))}
           hint="distinct ontology terms tagged as treatment (drugs, infections, exposures, etc.)"
         />
         <Concept
           label="Diseases"
-          value={fmtCount(diseases, "full", diseases === null && !s.isError)}
+          value={fmtCount(c.diseases, "full", loadingOf(c.diseases))}
           hint="distinct disease ontology terms used to annotate experiments"
         />
         <Concept
           label="Tissues"
-          value={fmtCount(tissues, "full", tissues === null && !s.isError)}
+          value={fmtCount(c.tissues, "full", loadingOf(c.tissues))}
           hint="distinct organism-part terms (typically UBERON)"
         />
         <Concept
           label="Cell types"
-          value={fmtCount(cellTypes, "full", cellTypes === null && !s.isError)}
+          value={fmtCount(c.cellTypes, "full", loadingOf(c.cellTypes))}
           hint="distinct cell-type terms (typically Cell Ontology / CL)"
+        />
+        <Concept
+          label="Strains"
+          value={fmtCount(c.strains, "full", loadingOf(c.strains))}
+          hint="distinct strain ontology terms (common in mouse studies)"
+        />
+        <Concept
+          label="Cell lines"
+          value={fmtCount(c.cellLines, "full", loadingOf(c.cellLines))}
+          hint="distinct cell-line ontology terms (CLO)"
         />
       </div>
     </div>
@@ -316,8 +323,22 @@ function TaxonBreakdown({ rows }: { rows: TaxonRow[] }) {
   );
 }
 
-function TechnologyBreakdown({ rows }: { rows: TechnologyRow[] }) {
+function TechnologyBreakdown({
+  rows,
+  totalCells,
+}: {
+  rows: TechnologyRow[];
+  totalCells: number | null;
+}) {
   const isLoading = rows.length === 0;
+  // Format totalCells in millions for the Single-cell row footnote.
+  // The number is a sum across all SC BioAssays; rendering raw would
+  // dwarf the EE count visually. Show "· 12.3M cells" only when we
+  // have a real number.
+  const cellsLabel =
+    totalCells !== null && totalCells > 0
+      ? `${(totalCells / 1_000_000).toFixed(totalCells >= 10_000_000 ? 0 : 1)}M cells`
+      : null;
   return (
     <div className="bg-stone-100">
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
@@ -333,7 +354,14 @@ function TechnologyBreakdown({ rows }: { rows: TechnologyRow[] }) {
           ) : (
             rows.map((r) => (
               <tr key={r.label} className="border-t border-stone-200 first:border-t-0">
-                <td className="px-5 py-2 text-stone-800">{r.label}</td>
+                <td className="px-5 py-2 text-stone-800">
+                  {r.label}
+                  {r.label === "Single-cell" && cellsLabel ? (
+                    <span className="ml-2 text-[11px] text-stone-500">
+                      · {cellsLabel}
+                    </span>
+                  ) : null}
+                </td>
                 <td className="px-5 py-2 text-right tabular-nums font-semibold text-stone-950">
                   {fmtCount(r.count)}
                 </td>

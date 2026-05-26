@@ -45,10 +45,20 @@ interface HomeStatsWire {
     count: number;
   }>;
   byPlatformType: Record<string, number>;
+  /** Mutually-exclusive biomaterial counts split by technology.
+   *  Keys: ``single_cell`` / ``rna_seq`` / ``microarray``. */
+  samplesByTech?: Record<string, number>;
   singleCellCount: number;
+  /** Sum of BioAssay.numberOfCells across single-cell studies —
+   *  render in millions on the home page. */
+  totalCells?: number;
   deaResultSetCount: number;
   drugCount: number;
   geneManipulatedCount: number;
+  /** Experiments touched by any gene-URI annotation — pairs with
+   *  ``geneManipulatedCount`` ("N genes perturbed across M
+   *  experiments"). */
+  geneManipulatedExperimentCount?: number;
   /** Distinct factor-value count per ``ExperimentalFactor.category``.
    *  This is the source for the "factor values per category" bar
    *  chart — distinct FVs only, not all characteristics. */
@@ -123,6 +133,19 @@ export interface GemmaSummary {
   /** Distinct genes annotated as perturbation targets across the
    *  corpus (knockouts, knockdowns, overexpression). */
   geneManipulated: number | null;
+  /** Experiments touched by any gene-URI annotation; pairs with
+   *  ``geneManipulated``. */
+  geneManipulatedExperiments: number | null;
+  /** Sum of cells profiled across single-cell studies. Render in
+   *  millions for the home tile. */
+  totalCells: number | null;
+  /** Biomaterial counts split by technology. Keys: ``single_cell``,
+   *  ``rna_seq``, ``microarray``. */
+  samplesByTech: {
+    singleCell: number | null;
+    rnaSeq: number | null;
+    microarray: number | null;
+  };
   byCategory: {
     drugs: number | null;
     diseases: number | null;
@@ -436,6 +459,13 @@ export function useGemmaSummary(): GemmaSummary {
       wire?.deaResultSetCount ?? diffExResultSetsFallback.data ?? null,
     drugs: wire?.drugCount ?? null,
     geneManipulated: wire?.geneManipulatedCount ?? null,
+    geneManipulatedExperiments: wire?.geneManipulatedExperimentCount ?? null,
+    totalCells: wire?.totalCells ?? null,
+    samplesByTech: {
+      singleCell: wire?.samplesByTech?.single_cell ?? null,
+      rnaSeq: wire?.samplesByTech?.rna_seq ?? null,
+      microarray: wire?.samplesByTech?.microarray ?? null,
+    },
     byCategory: {
       drugs: byCat.treatment ?? null,
       diseases: byCat.disease ?? null,
