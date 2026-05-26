@@ -95,11 +95,11 @@ export function HomeBrutalist() {
         <ConceptRow s={s} />
 
         {/* Three-pane data row: factor values · perturbed genes ·
-            reserve. Same 3-col rhythm as the breakdown row above. */}
+            treatment subcategories. */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-950">
           <CategoryBars s={s} />
           <PerturbedGenesBars s={s} />
-          <div className="bg-stone-100" aria-hidden="true" />
+          <TreatmentSubcategoryBars s={s} />
         </div>
 
         {/* Surface buttons */}
@@ -238,8 +238,7 @@ function ConceptRow({ s }: { s: GemmaSummary }) {
         <Concept
           label="Treatments"
           value={fmtCount(c.drugs, "full", loadingOf(c.drugs))}
-          hint={<TreatmentBreakdown subcategories={s.treatmentSubcategories} />}
-          hintAria="distinct ontology terms tagged as treatment, split by drug / pathogen / biologic / other"
+          hint="Distinct ontology terms tagged as treatment — drugs, pathogens, biologics, and other exposures. See the Treatment subcategories chart below for the breakdown."
         />
         <Concept
           label="Diseases"
@@ -271,42 +270,11 @@ function ConceptRow({ s }: { s: GemmaSummary }) {
   );
 }
 
-/** Treatment-tile tooltip body. Renders a compact ranked list of
- *  the four treatment sub-buckets (drug / pathogen / biologic /
- *  other) when /stats/home has shipped the field; falls back to a
- *  plain-prose explanation when it hasn't. */
-function TreatmentBreakdown({
-  subcategories,
-}: {
-  subcategories: Array<{ key: string; label: string; count: number }>;
-}) {
-  if (subcategories.length === 0) {
-    return (
-      <span>
-        Distinct ontology terms tagged as treatment — drugs, pathogens,
-        biologics, behavioural / physical exposures.
-      </span>
-    );
-  }
-  return (
-    <div>
-      <div className="text-stone-300 mb-1">
-        Distinct ontology terms used as treatment annotations:
-      </div>
-      <ul className="space-y-0.5">
-        {subcategories.map((b) => (
-          <li
-            key={b.key}
-            className="flex items-baseline justify-between gap-3 tabular-nums"
-          >
-            <span>{b.label}</span>
-            <span className="font-medium">{b.count.toLocaleString()}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+// TreatmentBreakdown (the rich tooltip body) removed 2026-05-25
+// when the Treatment-subcategories chart moved to its own panel
+// in the bar-chart row — keeping it on the tile would duplicate
+// the same data twice on the page. Restore from commit 22d70cc
+// if a collapsed-tooltip view is ever wanted.
 
 function Concept({
   label,
@@ -421,6 +389,61 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
       ) : (
         <div className="px-4 py-3 text-stone-500 text-xs">
           {s.isLoading ? "loading…" : "no factor-value categories"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
+  // Right-third bar chart: the four treatment sub-buckets shipped
+  // by bro (drug / pathogen / biologic / other). Same compact bar
+  // shape as the sibling charts. Sums to byAnnotationCategory.
+  // treatment — total tile up top stays the headline number.
+  const rows = s.treatmentSubcategories;
+  const ready = rows.length > 0;
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  return (
+    <div className="bg-stone-100">
+      <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between gap-2">
+        <span className="text-stone-900 font-semibold">
+          Treatment subcategories
+        </span>
+        <span
+          className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
+          title="Distinct ontology terms in the treatment annotation category, partitioned by URI prefix (CHEBI → drugs; NCBITaxon → pathogens; PR → biologics; everything else → other)."
+        >
+          drug · pathogen · biologic · other
+        </span>
+      </div>
+      {ready ? (
+        <ul>
+          {rows.map((r) => {
+            const pct = Math.max(0.5, (r.count / max) * 100);
+            return (
+              <li
+                key={r.key}
+                className="px-4 py-0.5 grid grid-cols-[6.5rem_minmax(0,1fr)_max-content] items-center gap-2 text-xs"
+              >
+                <span className="text-stone-800 truncate" title={r.label}>
+                  {r.label}
+                </span>
+                <div className="h-1.5 bg-stone-200 relative overflow-hidden">
+                  <div
+                    className="absolute inset-y-0 left-0 bg-blue-700"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="text-right tabular-nums text-stone-900 font-medium whitespace-nowrap">
+                  {r.count.toLocaleString()}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="px-4 py-3 text-stone-500 text-xs">
+          pending /stats/home refresh
         </div>
       )}
     </div>
