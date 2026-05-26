@@ -53,6 +53,24 @@ RUN mkdir -p gemma_curation_agents \
 # tree.
 COPY --from=agents . .
 
+# Bake Gemma's authoritative ontology resource files into the image
+# so local-api's resources_dir() resolves cleanly inside the
+# container. Without these, gemma_resources.load_value_mappings()
+# returns None and the annotation catalog drops to the 17-entry
+# in-code fallback — typeahead narrows badly. Source: PavlidisLab
+# Gemma java repo, master branch (these change rarely; pinning a
+# branch is fine for distributed curator builds — if the upstream
+# moves we can bump the ref here).
+ENV GEMMA_RESOURCES_DIR=/gemma-resources
+RUN mkdir -p $GEMMA_RESOURCES_DIR \
+    && curl -fsSL \
+        "https://raw.githubusercontent.com/PavlidisLab/Gemma/master/gemma-core/src/main/resources/ubic/gemma/core/ontology/valueStringToOntologyTermMappings.txt" \
+        -o "$GEMMA_RESOURCES_DIR/valueStringToOntologyTermMappings.txt" \
+    && curl -fsSL \
+        "https://raw.githubusercontent.com/PavlidisLab/Gemma/master/gemma-core/src/main/resources/ubic/gemma/core/ontology/EFO.factor.categories.txt" \
+        -o "$GEMMA_RESOURCES_DIR/EFO.factor.categories.txt" \
+    && wc -l "$GEMMA_RESOURCES_DIR/"*.txt
+
 # A writable spot for the SQLite + any imported calibration packages.
 # Compose mounts a named volume here so data persists across
 # container recreation.

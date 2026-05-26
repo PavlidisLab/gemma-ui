@@ -50,14 +50,19 @@ keeps working.
 3. `cp .env.example .env` — edit `GEMMA_ONTOLOGY_URL` if a non-default ontology host is preferred.
 4. `docker compose pull` (or `docker compose up --build` if a registry isn't set up yet).
 5. `docker compose up -d`.
-6. Import a calibration package (see below).
+6. **Import the calibration packages — `./import-all.sh`** (mandatory; UI is blank without this).
 7. Open <http://localhost:5175/>.
 
 To load a calibration package:
 
 ```sh
-# Drop the package directory into ./calibration-packages/ on the host
-# then from this curator/ folder:
+# Easy path — imports every package in ./calibration-packages/:
+./import-all.sh
+```
+
+Or one package at a time:
+
+```sh
 docker compose exec local-api python /calibration-packages/<package-dir>/setup.py --base-url http://local-api:8000
 ```
 
@@ -65,7 +70,7 @@ Or wipe + reload:
 
 ```sh
 docker compose exec local-api gca mock-gemma reset-curation
-docker compose exec local-api python /calibration-packages/<package-dir>/setup.py --base-url http://local-api:8000
+./import-all.sh
 ```
 
 State persists in the `local-api-data` docker volume.

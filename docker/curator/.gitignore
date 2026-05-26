@@ -1,3 +1,5 @@
 .env
 calibration-packages/*
 !calibration-packages/.gitkeep
+# package.sh output — large (>100MB) handoff tarball, not for git
+curator-handoff-*.tar.gz
