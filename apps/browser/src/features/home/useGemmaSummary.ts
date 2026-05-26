@@ -95,7 +95,14 @@ interface HomeStatsWire {
   treatmentSubcategories?: Array<{
     key: string;
     label: string;
+    /** Bro's parent group: ``control`` / ``pharmacology`` /
+     *  ``biological`` / ``unclassified``. Lets the UI strip
+     *  control-like buckets (Control / reference, Vehicles /
+     *  solvents) before rendering — they dominate the count but
+     *  carry no biological signal. */
+    group?: string | null;
     count: number;
+    termCount?: number;
   }>;
   /** Top perturbed genes by number of experiments. Not yet shipped
    *  — see HOME_PAGE_PERTURBED_GENES_2026_05_25.md. */
@@ -220,7 +227,9 @@ export interface GemmaSummary {
   treatmentSubcategories: Array<{
     key: string;
     label: string;
+    group: string | null;
     count: number;
+    termCount: number | null;
   }>;
   /** Top perturbed genes by number of experiments referencing them
    *  as perturbation targets. Drives the middle-third bar chart on
@@ -499,7 +508,13 @@ export function useGemmaSummary(): GemmaSummary {
     categoryDistribution: wire?.categoryDistribution ?? [],
     datasetsByAccessionSource: wire?.datasetsByAccessionSource ?? [],
     distinctAccessionCount: wire?.distinctAccessionCount ?? null,
-    treatmentSubcategories: wire?.treatmentSubcategories ?? [],
+    treatmentSubcategories: (wire?.treatmentSubcategories ?? []).map((t) => ({
+      key: t.key,
+      label: t.label,
+      group: t.group ?? null,
+      count: t.count,
+      termCount: t.termCount ?? null,
+    })),
     topPerturbedGenes: wire?.topPerturbedGenes ?? [],
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,

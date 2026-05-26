@@ -126,9 +126,12 @@ export function HomeBrutalist() {
 }
 
 function StatsRow({ s }: { s: GemmaSummary }) {
-  // 6 primary tiles. Samples + Genes nest a secondary breakdown
+  // 5 primary tiles. Samples nests a per-technology breakdown
   // under the headline number (footnote prop) instead of claiming
-  // additional tiles for samplesByTech / geneManipulated.
+  // an extra tile for samplesByTech. Perturbed-gene coverage lives
+  // in the ConceptRow below — surfacing it again here would
+  // double-count and the gene-search link this tile used to carry
+  // resolved to the general gene search, which was confusing.
   const homeLoading = s.datasets === null && !s.isError;
   const ontologyLoading = s.ontologyTerms === null && !s.isError;
 
@@ -159,16 +162,8 @@ function StatsRow({ s }: { s: GemmaSummary }) {
     return `from ${n.toLocaleString()} distinct accessions`;
   })();
 
-  const perturbedFootnote = (() => {
-    const e = s.geneManipulatedExperiments;
-    if (e !== null && e > 0) {
-      return `across ${fmtCount(e, "compact")} experiments`;
-    }
-    return null;
-  })();
-
   return (
-    <div className="grid grid-cols-2 md:grid-cols-12 gap-px bg-stone-950">
+    <div className="grid grid-cols-2 md:grid-cols-10 gap-px bg-stone-950">
       <StatBlock
         label="Datasets"
         value={fmtCount(s.datasets, "full", homeLoading)}
@@ -190,14 +185,6 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         cols="md:col-span-2"
         footnote={samplesFootnote}
         hint="Total biomaterials across all public experiments. Footnote splits samples by the technology that produced them (single-cell vs. bulk RNA-seq vs. microarray)."
-      />
-      <StatBlock
-        label="Genes perturbed"
-        value={fmtCount(s.geneManipulated, "full", homeLoading)}
-        cols="md:col-span-2"
-        footnote={perturbedFootnote}
-        to="/genes"
-        hint="Distinct genes annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression. The total-genes-in-the-database number isn't meaningful (Gemma carries every gene from every supported taxon's reference); the perturbation count is what reflects experimental coverage."
       />
       <StatBlock
         label="DEA contrasts"
@@ -225,21 +212,27 @@ function StatsRow({ s }: { s: GemmaSummary }) {
 }
 
 function ConceptRow({ s }: { s: GemmaSummary }) {
-  // All six counts are URI-bound (excludeFreeText=true).
-  // Source: /stats/home byAnnotationCategory in one snapshot —
-  // strain + cell_line landed in bro's v3 daily-refresh.
+  // Eight URI-bound counts (excludeFreeText=true). Five come from
+  // /stats/home byAnnotationCategory (disease / organism_part /
+  // cell_type / strain / cell_line); the other three pull from
+  // siblings on the same snapshot — drugCount (CHEBI subset of
+  // treatment), geneManipulatedCount (perturbed gene URIs), and
+  // the pathogen sub-bucket termCount inside treatmentSubcategories.
   const c = s.byCategory;
   const loadingOf = (v: number | null) => v === null && !s.isError;
+  const pathogens =
+    s.treatmentSubcategories.find((t) => t.key === "pathogen")?.termCount ??
+    null;
   return (
     <div className="border border-stone-950 bg-stone-100">
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
         Annotation coverage · distinct ontology terms in use
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-stone-300">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-stone-300">
         <Concept
-          label="Treatments"
-          value={fmtCount(c.drugs, "full", loadingOf(c.drugs))}
-          hint="Distinct ontology terms tagged as treatment — drugs, pathogens, biologics, and other exposures. See the Treatment subcategories chart below for the breakdown."
+          label="Approved drugs"
+          value={fmtCount(s.drugs, "full", loadingOf(s.drugs))}
+          hint="Distinct CHEBI-anchored drug / chemical annotations. Narrower than the full Treatment category (which also includes pathogens, biologics, and other exposures)."
         />
         <Concept
           label="Diseases"
@@ -257,14 +250,28 @@ function ConceptRow({ s }: { s: GemmaSummary }) {
           hint="distinct cell-type terms (typically Cell Ontology / CL)"
         />
         <Concept
+          label="Cell lines"
+          value={fmtCount(c.cellLines, "full", loadingOf(c.cellLines))}
+          hint="distinct cell-line ontology terms (CLO)"
+        />
+        <Concept
           label="Strains"
           value={fmtCount(c.strains, "full", loadingOf(c.strains))}
           hint="distinct strain ontology terms (common in mouse studies)"
         />
         <Concept
-          label="Cell lines"
-          value={fmtCount(c.cellLines, "full", loadingOf(c.cellLines))}
-          hint="distinct cell-line ontology terms (CLO)"
+          label="Perturbed genes"
+          value={fmtCount(
+            s.geneManipulated,
+            "full",
+            loadingOf(s.geneManipulated),
+          )}
+          hint="Distinct gene URIs annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression."
+        />
+        <Concept
+          label="Pathogens"
+          value={fmtCount(pathogens, "full", loadingOf(pathogens))}
+          hint="Distinct NCBITaxon pathogen annotations (viruses, bacteria, parasites) used in infection / immune-response studies — a sub-bucket of the broader Treatment category."
         />
       </div>
     </div>
@@ -365,9 +372,9 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
         </span>
         <span
           className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
-          title="Bar: distinct factor values existing under each ExperimentalFactor category. Tag: experiments using any annotation in that category — depth vs breadth."
+          title="Factor-value occurrences per ExperimentalFactor category — each experiment defines its own FactorValue records (so Sex shows thousands of occurrences, not two), and the bar reflects how heavily a category is used across the corpus."
         >
-          bar = FV depth · tag = EE breadth
+          occurrences
         </span>
       </div>
       {ready ? (
@@ -377,7 +384,6 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
               key={r.label}
               label={r.label}
               count={r.count}
-              ee={r.ee}
               max={max}
             />
           ))}
@@ -392,19 +398,22 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
 }
 
 function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
-  // Right-third bar chart: the four treatment sub-buckets shipped
-  // by bro (drug / pathogen / biologic / other). Same compact bar
-  // shape as the sibling charts. Sums to byAnnotationCategory.
-  // treatment — total tile up top stays the headline number.
-  // Cap at 10 so the panel matches its siblings in row count
-  // (Factor values, Genes perturbed) and the bottoms line up.
-  // Bro ships 10 buckets after splitting CHEBI drugs into
-  // approved-drug / hormone / vitamin / toxin / vehicle / other-
-  // chemical (plus pathogen / biologic / control-reference /
-  // other). "Other chemicals" dominates today because the CHEBI
-  // subtree expansion misses most treatment-tagged terms — flagged
-  // for bro in a follow-up.
-  const rows = s.treatmentSubcategories.slice(0, 10);
+  // Right-third bar chart: the treatment sub-buckets shipped by
+  // bro (approved-drug / hormone / vitamin / toxin / vehicle /
+  // other-chemical / pathogen / biologic / control-reference /
+  // other). Sums to byAnnotationCategory.treatment.
+  //
+  // Drop the ``control`` group (Control / reference, Vehicles /
+  // solvents) — those dominate the count but carry no biological
+  // signal; surfacing them on the home page just buries the real
+  // pharmacology / biological buckets and pushes "control" to the
+  // top of the chart, which is misleading. Group field comes from
+  // bro's treatmentSubcategories.group ("control" / "pharmacology"
+  // / "biological" / "unclassified"). Then cap at 10 so the panel
+  // matches its siblings in row count and bottoms line up.
+  const rows = s.treatmentSubcategories
+    .filter((r) => r.group !== "control")
+    .slice(0, 10);
   const ready = rows.length > 0;
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
@@ -415,9 +424,9 @@ function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
         </span>
         <span
           className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
-          title="Distinct ontology terms in the treatment annotation category, bucketed by CHEBI subtree / NCBITaxon (pathogens) / PR (biologics). Counts sum to byAnnotationCategory.treatment."
+          title="Experiments using any annotation in each treatment sub-bucket. Buckets span CHEBI chemicals (approved drugs, hormones, toxins, vitamins, other chemicals), NCBITaxon pathogens, PR / NCBI-gene biologics, and an unclassified ``other`` catch-all. Control / reference and vehicle / solvent buckets are filtered out — they dominate the count but carry no biological signal."
         >
-          by chemical class
+          experiments
         </span>
       </div>
       {ready ? (
@@ -470,12 +479,14 @@ function PerturbedGenesBars({ s }: { s: GemmaSummary }) {
   return (
     <div className="bg-stone-100">
       <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between gap-2">
-        <span className="text-stone-900 font-semibold">Genes perturbed</span>
+        <span className="text-stone-900 font-semibold">
+          Top genes perturbed
+        </span>
         <span
           className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
           title="Top perturbed genes by number of experiments they're annotated in as a perturbation target (knockouts, knockdowns, overexpression)."
         >
-          most-studied
+          experiments
         </span>
       </div>
       {ready ? (
@@ -504,7 +515,6 @@ function PerturbedGenesBars({ s }: { s: GemmaSummary }) {
                 </div>
                 <span className="text-right tabular-nums text-stone-900 font-medium whitespace-nowrap">
                   {r.numberOfExpressionExperiments.toLocaleString()}
-                  <span className="ml-1 text-stone-500 font-normal">EEs</span>
                 </span>
               </li>
             );
@@ -522,12 +532,10 @@ function PerturbedGenesBars({ s }: { s: GemmaSummary }) {
 function CategoryBar({
   label,
   count,
-  ee,
   max,
 }: {
   label: string;
   count: number;
-  ee: number | null;
   max: number;
 }) {
   const pct = Math.max(0.5, (count / max) * 100);
@@ -542,13 +550,8 @@ function CategoryBar({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-right tabular-nums text-stone-900 whitespace-nowrap">
-        <span className="font-medium">{count.toLocaleString()}</span>
-        {ee !== null ? (
-          <span className="ml-1.5 text-stone-500 font-normal">
-            · {fmtCount(ee, "compact")} EEs
-          </span>
-        ) : null}
+      <span className="text-right tabular-nums text-stone-900 font-medium whitespace-nowrap">
+        {count.toLocaleString()}
       </span>
     </li>
   );
@@ -721,7 +724,7 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
           <div className="text-xs font-semibold leading-snug line-clamp-2 min-h-[2.4em]">
             {cleanExperimentTitle(current.name)}
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-1 min-h-[1.5em]">
+          <div className="mt-1.5 flex flex-wrap content-start gap-1 h-[3.2em] overflow-hidden">
             {chips.map((c) => (
               <span
                 key={`${c.category}-${c.term}`}
@@ -890,16 +893,16 @@ function GeneralInfo({
   onToggle: () => void;
 }) {
   return (
-    <div className="border border-stone-950 bg-stone-100">
+    <div className="my-3 border-2 border-stone-950 bg-stone-100">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
         aria-controls="general-info-body"
-        className="w-full flex items-baseline justify-between gap-3 px-5 py-2.5 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300 hover:bg-stone-50"
+        className="w-full flex items-baseline gap-2 px-5 py-2.5 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300 hover:bg-stone-50"
       >
         <span className="text-stone-900 font-semibold">About Gemma</span>
-        <span className="text-stone-500 normal-case tracking-normal text-[11px]">
+        <span className="text-blue-700 normal-case tracking-normal text-[11px] font-medium">
           {open ? "▾ hide" : "▸ show"}
         </span>
       </button>

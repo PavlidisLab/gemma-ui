@@ -54,5 +54,12 @@
   --skin-font-size: 14px;
 }
 
+/* Reserve the vertical-scrollbar gutter at all times so expandable
+   panels (e.g. About on the home page) don't shift the page width
+   when content grows past the viewport and the scrollbar appears. */
+html {
+  scrollbar-gutter: stable;
+}
+
 
 
