@@ -17,7 +17,7 @@
 import type React from "react";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { GENERAL_INFO, SURFACES } from "../copy";
+import { GENERAL_INFO } from "../copy";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useMe, useLogout } from "@/api/auth";
 import { LoginModal } from "@/features/shared/LoginModal";
@@ -113,12 +113,10 @@ export function HomeBrutalist() {
           <TreatmentSubcategoryBars s={s} />
         </div>
 
-        {/* Surface buttons */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-stone-950">
-          {SURFACES.map((surf) => (
-            <SurfaceBlock key={surf.label} surface={surf} />
-          ))}
-        </div>
+        {/* Surface buttons removed 2026-05-26 — Paul: redundant with
+            the stat tiles up top. Datasets / Platforms / Genes
+            perturbed tiles are now hot links to /browser /
+            /platforms / /genes. About lives on the Masthead. */}
 
         {/* Home-page footer strip removed 2026-05-26 — the shared
             <Footer> now carries the Pavlidis-lab attribution +
@@ -179,12 +177,14 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         value={fmtCount(s.datasets, "full", homeLoading)}
         cols="md:col-span-2"
         footnote={datasetsFootnote}
+        to="/browser"
         hint="Public expression experiments in Gemma. The footnote shows the number of distinct external accessions behind the corpus — slightly smaller than the dataset count because Gemma sometimes splits one GEO submission into two experiments when the submission actually contains two distinct studies. Almost all are from GEO (the per-source breakdown isn't shown because it's ≈99.9% GEO)."
       />
       <StatBlock
         label="Platforms"
         value={fmtCount(s.platforms, "full", homeLoading)}
         cols="md:col-span-2"
+        to="/platforms"
         hint="Distinct microarray + sequencing platforms (array designs) referenced by at least one dataset."
       />
       <StatBlock
@@ -199,6 +199,7 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         value={fmtCount(s.geneManipulated, "full", homeLoading)}
         cols="md:col-span-2"
         footnote={perturbedFootnote}
+        to="/genes"
         hint="Distinct genes annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression. The total-genes-in-the-database number isn't meaningful (Gemma carries every gene from every supported taxon's reference); the perturbation count is what reflects experimental coverage."
       />
       <StatBlock
@@ -754,8 +755,14 @@ function Masthead() {
           <VisualPlaceholder />
         </div>
 
-        {/* Auth + skin — right */}
-        <div className="flex items-center gap-3">
+        {/* Right side — quick About link + auth. */}
+        <div className="flex items-center gap-4">
+          <Link
+            to="/about"
+            className="text-xs text-stone-600 hover:text-stone-900 hover:no-underline"
+          >
+            About
+          </Link>
           {me.isPending && !me.data ? null : user ? (
             <span className="text-xs text-stone-600 inline-flex items-baseline gap-2">
               <span className="opacity-70">Signed in as</span>
@@ -1004,6 +1011,7 @@ function StatBlock({
   hint,
   hintAria,
   footnote,
+  to,
 }: {
   label: string;
   value: string;
@@ -1015,6 +1023,11 @@ function StatBlock({
    *  secondary breakdown (e.g. samplesByTech under Samples,
    *  perturbed-genes under Genes) without claiming a new tile. */
   footnote?: React.ReactNode;
+  /** Optional in-app navigation target. When set the tile renders
+   *  as a Link with a subtle hover affordance (blue underline +
+   *  bg-stone-50 on the headline). Non-link tiles stay as
+   *  static divs. */
+  to?: string;
 }) {
   // Reserve min-height for the label + footnote slots so values
   // sit on the same horizontal baseline across the row regardless
@@ -1022,20 +1035,38 @@ function StatBlock({
   // PERTURBED") or whether a tile has a footnote at all. mt-auto
   // on the footnote slot pins it to the bottom of the flex column
   // so empty-footnote tiles match the height of populated ones.
-  return (
-    <div className={`${cols} bg-stone-100 px-5 py-4 flex flex-col`}>
+  const baseCls = `${cols} bg-stone-100 px-5 py-4 flex flex-col`;
+  const linkCls = `${baseCls} cursor-pointer transition-colors hover:bg-stone-50 group focus:outline-none focus:ring-1 focus:ring-stone-900`;
+  const body = (
+    <>
       <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-1 flex items-center min-h-[2.4em]">
         <span>{label}</span>
         {hint ? <InfoBadge hint={hint} ariaLabel={hintAria} /> : null}
       </div>
-      <div className="text-3xl font-semibold tabular-nums tracking-tight text-stone-950">
+      <div className="text-3xl font-semibold tabular-nums tracking-tight text-stone-950 group-hover:text-blue-700">
         {value}
+        {to ? (
+          <span
+            aria-hidden="true"
+            className="ml-2 text-base text-stone-400 group-hover:text-blue-700"
+          >
+            →
+          </span>
+        ) : null}
       </div>
       <div className="mt-auto pt-1 text-[10px] text-stone-500 leading-snug min-h-[2.6em]">
         {footnote ?? null}
       </div>
-    </div>
+    </>
   );
+  if (to) {
+    return (
+      <Link to={to} className={linkCls + " no-underline hover:no-underline"}>
+        {body}
+      </Link>
+    );
+  }
+  return <div className={baseCls}>{body}</div>;
 }
 
 /** Small ``i`` glyph next to a tile label — hoverable affordance
@@ -1075,37 +1106,11 @@ function InfoBadge({
   );
 }
 
-function SurfaceBlock({
-  surface,
-}: {
-  surface: (typeof SURFACES)[number];
-}) {
-  if (!surface.to) {
-    return (
-      <div className="bg-stone-200/60 px-5 py-5 opacity-60 cursor-not-allowed border-b-2 border-transparent">
-        <div className="text-lg font-semibold tracking-tight text-stone-500 mb-1">
-          {surface.label}
-        </div>
-        <div className="text-xs text-stone-500 leading-snug">
-          {surface.blurb}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <Link
-      to={surface.to}
-      className="bg-stone-100 px-5 py-5 border-b-2 border-transparent hover:bg-stone-50 hover:border-blue-700 hover:no-underline transition-colors"
-    >
-      <div className="text-lg font-semibold tracking-tight text-stone-950 mb-1">
-        {surface.label} <span className="text-stone-400">→</span>
-      </div>
-      <div className="text-xs text-stone-600 leading-snug">
-        {surface.blurb}
-      </div>
-    </Link>
-  );
-}
+// SurfaceBlock (the 4-card row at the bottom of the home page)
+// removed 2026-05-26 per Paul: redundant with the now-clickable
+// stat tiles at the top. SURFACES constant in copy.ts is still
+// referenced elsewhere (?) — kept in copy.ts but no longer
+// rendered on the home page.
 
 /* ─── Saved alternative: short-name-led marquee ──────────────────
  * Initial shape (2026-05-25) led with the GSE short name in mono,

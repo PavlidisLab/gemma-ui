@@ -228,6 +228,15 @@ export function Footer() {
         >
           Terms
         </a>
+        <a
+          href="https://pavlidislab.github.io/Gemma/terms.html#cookies"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+          title="Essential cookies only — sign-in session + UI preferences."
+        >
+          Cookies
+        </a>
         <span className="opacity-60 uppercase tracking-[0.16em] text-[10px]">
           <a
             href="https://pavlab.msl.ubc.ca"
