@@ -78,6 +78,14 @@ export function HomeBrutalist() {
           <div className="px-6 py-3 flex items-baseline justify-between gap-4 flex-wrap text-xs text-stone-600">
             <div className="uppercase tracking-[0.18em]">
               Pavlidis Lab · UBC
+              {s.snapshotAt ? (
+                <span
+                  className="ml-3 normal-case tracking-normal text-stone-500"
+                  title={`Numbers refresh daily — snapshot ${s.snapshotAt}`}
+                >
+                  · stats as of {new Date(s.snapshotAt).toLocaleDateString()}
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center gap-4">
               <a href={COPY.links.docs} className="text-stone-950 underline hover:text-blue-700" target="_blank" rel="noreferrer">Docs</a>
@@ -92,59 +100,62 @@ export function HomeBrutalist() {
 }
 
 function StatsRow({ s }: { s: GemmaSummary }) {
-  // Each block resolves independently — pass the per-stat loading
-  // hint so the placeholder reads "…" rather than "—" until its own
-  // query settles.
-  const datasetsLoading = s.datasets === null && !s.isError;
-  const platformsLoading = s.platforms === null && !s.isError;
-  const samplesLoading = false; // ``null`` is final until backend ask lands; show "—"
+  // The 6 primary numbers from /stats/home land together — datasets
+  // / platforms / samples / genes all key off ``s.datasets === null``
+  // as the loading proxy. Secondary stats (DEA / ontology terms)
+  // each have their own query, so the loading flag is per-tile.
+  const homeLoading = s.datasets === null && !s.isError;
   const resultSetsLoading = s.diffExResultSets === null && !s.isError;
   const ontologyLoading = s.ontologyTerms === null && !s.isError;
   return (
     <div className="grid grid-cols-2 md:grid-cols-12 gap-px bg-stone-950">
-      <StatBlock label="Datasets" value={fmtCount(s.datasets, "full", datasetsLoading)} cols="md:col-span-2" />
-      <StatBlock label="Platforms" value={fmtCount(s.platforms, "full", platformsLoading)} cols="md:col-span-2" />
-      <StatBlock
-        label="Samples"
-        value={fmtCount(s.samples, "full", samplesLoading)}
-        cols="md:col-span-2"
-        hint={s.samples === null ? "pending backend endpoint" : undefined}
-      />
+      <StatBlock label="Datasets" value={fmtCount(s.datasets, "full", homeLoading)} cols="md:col-span-2" />
+      <StatBlock label="Platforms" value={fmtCount(s.platforms, "full", homeLoading)} cols="md:col-span-2" />
+      <StatBlock label="Samples" value={fmtCount(s.samples, "full", homeLoading)} cols="md:col-span-2" />
+      <StatBlock label="Genes" value={fmtCount(s.genes, "full", homeLoading)} cols="md:col-span-2" />
       <StatBlock label="DEA result sets" value={fmtCount(s.diffExResultSets, "full", resultSetsLoading)} cols="md:col-span-2" />
       <StatBlock label="Ontology terms" value={fmtCount(s.ontologyTerms, "full", ontologyLoading)} cols="md:col-span-2" />
-      <div className="md:col-span-2 bg-stone-100 px-5 py-4 text-xs leading-relaxed text-stone-700">
-        {s.updatedThisWeek !== null ? (
-          <>
-            <span className="block text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-1">
-              Updated · 7d
-            </span>
-            <span className="text-2xl font-semibold tabular-nums tracking-tight text-stone-950">
-              {fmtCount(s.updatedThisWeek)}
-            </span>
-            <span className="ml-1 text-[11px] text-stone-500">
-              of recent 50
-            </span>
-          </>
-        ) : (
-          <span className="text-stone-400">…</span>
-        )}
-      </div>
     </div>
   );
 }
 
 function ConceptRow({ s }: { s: GemmaSummary }) {
   const catsLoading = s.ontologyCategories === null && !s.isError;
+  const drugs = s.byCategory.drugs;
+  const diseases = s.byCategory.diseases;
+  const tissues = s.byCategory.tissues;
+  const cellTypes = s.byCategory.cellTypes;
   return (
     <div className="border border-stone-950 bg-stone-100">
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
-        Annotation coverage
+        Annotation coverage · distinct terms in use
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-stone-300">
-        <Concept label="Categories" value={fmtCount(s.ontologyCategories, "full", catsLoading)} hint="distinct annotation categories in use" />
-        <Concept label="Drugs / treatments" value="—" hint="pending /datasets/annotations?category= verification" muted />
-        <Concept label="Diseases" value="—" hint="pending /datasets/annotations?category= verification" muted />
-        <Concept label="Tissues + cell types" value="—" hint="pending /datasets/annotations?category= verification" muted />
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-stone-300">
+        <Concept
+          label="Categories"
+          value={fmtCount(s.ontologyCategories, "full", catsLoading)}
+          hint="distinct annotation categories in use across the corpus"
+        />
+        <Concept
+          label="Drugs / treatments"
+          value={fmtCount(drugs, "full", drugs === null && !s.isError)}
+          hint="distinct terms tagged as treatment (includes drugs, infections, exposures)"
+        />
+        <Concept
+          label="Diseases"
+          value={fmtCount(diseases, "full", diseases === null && !s.isError)}
+          hint="distinct disease ontology terms used to annotate experiments"
+        />
+        <Concept
+          label="Tissues"
+          value={fmtCount(tissues, "full", tissues === null && !s.isError)}
+          hint="distinct organism-part terms (typically UBERON)"
+        />
+        <Concept
+          label="Cell types"
+          value={fmtCount(cellTypes, "full", cellTypes === null && !s.isError)}
+          hint="distinct cell-type terms (typically Cell Ontology / CL)"
+        />
       </div>
     </div>
   );
