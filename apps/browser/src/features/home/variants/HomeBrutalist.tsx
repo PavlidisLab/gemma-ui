@@ -63,18 +63,13 @@ export function HomeBrutalist() {
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-px">
         {/* Wordmark + tagline — single block, no inversion */}
         <div className="border border-stone-950 bg-stone-100">
-          <div className="px-6 py-6 flex items-baseline justify-between gap-6 flex-wrap">
-            <div className="flex items-baseline gap-3">
-              <span className="text-4xl leading-none font-bold tracking-tight">
-                GEMMA
-              </span>
-              <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600">
-                Curated · re-analyzed
-              </span>
-            </div>
-            <div className="text-base text-stone-800 max-w-md text-right leading-snug">
-              {COPY.tagline}
-            </div>
+          <div className="px-6 py-6 flex items-baseline gap-3">
+            <span className="text-4xl leading-none font-bold tracking-tight">
+              GEMMA
+            </span>
+            <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600">
+              Curated · re-analyzed
+            </span>
           </div>
         </div>
 
