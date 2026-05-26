@@ -754,47 +754,50 @@ function GeneralInfo({
             </dl>
           </InfoColumn>
 
-          {/* Column 3 — access surfaces. */}
+          {/* Column 3 — access surfaces. Same compact dl pattern
+              as Column 2: tag column on the left, link in the
+              middle, muted hint on the right. Tight rows, no
+              heavy filled chips — outlined tag at the same scale
+              as the body text. */}
           <InfoColumn
             title={GENERAL_INFO.how.title}
             accent={GENERAL_INFO.how.accent}
           >
-            <ul className="space-y-1.5 text-sm leading-snug">
-              {GENERAL_INFO.how.items.map((item) => (
-                <li
-                  key={item.label}
-                  className="flex items-baseline gap-2.5"
-                >
-                  <AccessTag tag={item.tag} />
-                  {item.external ? (
-                    <a
-                      href={item.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="group inline-flex items-baseline gap-1.5 min-w-0"
+            <ul className="grid grid-cols-[2.5rem_auto_1fr] gap-x-3 gap-y-1 text-sm leading-snug">
+              {GENERAL_INFO.how.items.map((item) => {
+                const labelEl = (
+                  <span className="font-semibold text-stone-900 group-hover:text-emerald-700 group-hover:underline">
+                    {item.label}
+                  </span>
+                );
+                return (
+                  <li key={item.label} className="contents">
+                    <span
+                      aria-hidden="true"
+                      className="text-[10px] font-mono font-semibold tracking-wide text-stone-500 self-baseline"
                     >
-                      <span className="font-semibold text-stone-900 group-hover:text-emerald-700 group-hover:underline">
-                        {item.label}
-                      </span>
-                      <span className="text-stone-500 text-xs truncate">
-                        — {item.hint}
-                      </span>
-                    </a>
-                  ) : (
-                    <Link
-                      to={item.href}
-                      className="group inline-flex items-baseline gap-1.5 min-w-0"
-                    >
-                      <span className="font-semibold text-stone-900 group-hover:text-emerald-700 group-hover:underline">
-                        {item.label}
-                      </span>
-                      <span className="text-stone-500 text-xs truncate">
-                        — {item.hint}
-                      </span>
-                    </Link>
-                  )}
-                </li>
-              ))}
+                      {item.tag}
+                    </span>
+                    {item.external ? (
+                      <a
+                        href={item.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="group inline-block"
+                      >
+                        {labelEl}
+                      </a>
+                    ) : (
+                      <Link to={item.href} className="group inline-block">
+                        {labelEl}
+                      </Link>
+                    )}
+                    <span className="text-stone-500 text-xs self-baseline truncate">
+                      {item.hint}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </InfoColumn>
         </div>
@@ -840,19 +843,11 @@ function InfoColumn({
   );
 }
 
-/** Mono tag-chip in the access column (WEB / REST / R / PY /
- *  MCP / DOC). Provides a glyph-like anchor without resorting to
- *  emoji or external icon assets. */
-function AccessTag({ tag }: { tag: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-flex items-center justify-center min-w-[2.5rem] px-1.5 py-[1px] text-[10px] font-mono font-semibold tracking-wide bg-stone-900 text-stone-100 shrink-0"
-    >
-      {tag}
-    </span>
-  );
-}
+// AccessTag (the heavy filled black chip) removed 2026-05-25 —
+// Paul: "ugly, poor use of space". The access column now uses a
+// flat 3-column grid with the tag rendered as muted mono text in
+// line with the other text. Restore from commit af06461 if a
+// chip-style treatment is ever wanted again.
 
 function StatBlock({
   label,
