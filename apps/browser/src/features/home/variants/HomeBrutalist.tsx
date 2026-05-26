@@ -15,7 +15,7 @@
  */
 
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { COPY, GENERAL_INFO, SURFACES } from "../copy";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -368,7 +368,8 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
       }
       return { label, count: v.count, ee: ee > 0 ? ee : null };
     })
-    .sort((a, b) => b.count - a.count);
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10); // match sibling panels' row count
 
   const ready = rows.length > 0;
   const max = Math.max(1, ...rows.map((r) => r.count));
@@ -411,7 +412,9 @@ function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
   // by bro (drug / pathogen / biologic / other). Same compact bar
   // shape as the sibling charts. Sums to byAnnotationCategory.
   // treatment — total tile up top stays the headline number.
-  const rows = s.treatmentSubcategories;
+  // Cap at 10 so the panel matches its siblings in row count
+  // (Factor values, Genes perturbed) and the bottoms line up.
+  const rows = s.treatmentSubcategories.slice(0, 10);
   const ready = rows.length > 0;
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
@@ -468,7 +471,10 @@ function PerturbedGenesBars({ s }: { s: GemmaSummary }) {
   // Until the field lands the panel renders a placeholder so the
   // 3-col layout has visual mass and the page communicates the
   // intent. Empty-state header line keeps the slot honest.
-  const rows = s.topPerturbedGenes.slice(0, 12);
+  // Cap at 10 to match the sibling panels in the row — all three
+  // render the same row count so the bottoms line up. Paul: "make
+  // it all fit and line up well".
+  const rows = s.topPerturbedGenes.slice(0, 10);
   const ready = rows.length > 0;
   const max = Math.max(1, ...rows.map((r) => r.numberOfExpressionExperiments));
   return (
@@ -633,16 +639,38 @@ function TechnologyBreakdown({
 }
 
 function Marquee({ items }: { items: RecentDataset[] }) {
-  // One-line vertical "credits crawl" ticker per Paul (2026-05-25):
-  // single visible row, titles slide upward at a slow steady pace,
-  // hover pauses the loop, prefers-reduced-motion stops it entirely.
-  // The horizontal variant ("barf") and the static grid were both
-  // rejected — horizontal motion is queasy, the grid is dead weight.
-  // Vertical-ticker direction matches reading flow + has the
-  // contemplative-sign quality of a building marquee or end credits.
+  // One-at-a-time cross-fade ticker. Paul (2026-05-26): the
+  // vertical credits-crawl had titles "disappearing into nowhere"
+  // at the panel edges, distracting at peripheral vision. The
+  // cross-fade replaces motion with a calm in/out at full opacity
+  // — each item holds for ~4.5s then cross-fades to the next.
+  // Hover pauses cycling; prefers-reduced-motion locks on item 0.
+  const [idx, setIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
   const ready = items.length > 0;
+
+  useEffect(() => {
+    if (!ready || paused) return;
+    if (typeof window !== "undefined" && window.matchMedia) {
+      const m = window.matchMedia("(prefers-reduced-motion: reduce)");
+      if (m.matches) return;
+    }
+    const t = window.setInterval(
+      () => setIdx((i) => (i + 1) % items.length),
+      4500,
+    );
+    return () => window.clearInterval(t);
+  }, [ready, paused, items.length]);
+
+  // Clamp idx if items shrink between renders.
+  const safeIdx = ready ? idx % items.length : 0;
+
   return (
-    <div className="border border-stone-950 bg-stone-100">
+    <div
+      className="border border-stone-950 bg-stone-100"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
       <div className="flex items-baseline justify-between gap-3 px-5 py-2 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300">
         <span className="text-stone-900 font-semibold">Recently updated</span>
         <Link
@@ -653,30 +681,33 @@ function Marquee({ items }: { items: RecentDataset[] }) {
         </Link>
       </div>
       {ready ? (
-        <div className="ticker-wrap px-5">
-          <div className="ticker-track">
-            {[...items, ...items].map((d, i) => (
-              <Link
-                key={`${d.id}-${i}`}
-                to="/dataset/$id"
-                params={{ id: d.shortName }}
-                className="ticker-item text-stone-900 hover:text-blue-700 hover:no-underline"
-                title={`${d.shortName} — ${d.name}`}
-              >
-                <span className="text-sm truncate">
-                  {cleanExperimentTitle(d.name)}
+        <div className="relative h-9 px-5">
+          {items.map((d, i) => (
+            <Link
+              key={d.id}
+              to="/dataset/$id"
+              params={{ id: d.shortName }}
+              aria-hidden={i === safeIdx ? undefined : true}
+              tabIndex={i === safeIdx ? 0 : -1}
+              className={
+                "absolute inset-x-5 inset-y-0 flex items-center text-stone-900 hover:text-blue-700 hover:no-underline whitespace-nowrap overflow-hidden transition-opacity duration-700 " +
+                (i === safeIdx ? "opacity-100" : "opacity-0 pointer-events-none")
+              }
+              title={`${d.shortName} — ${d.name}`}
+            >
+              <span className="text-sm truncate">
+                {cleanExperimentTitle(d.name)}
+              </span>
+              {d.taxonName ? (
+                <span className="text-stone-500 text-xs ml-3 shrink-0">
+                  {d.taxonName}
                 </span>
-                {d.taxonName ? (
-                  <span className="text-stone-500 text-xs ml-3 shrink-0">
-                    {d.taxonName}
-                  </span>
-                ) : null}
-                <span className="font-mono text-[10px] text-stone-500 ml-3 shrink-0">
-                  {d.shortName}
-                </span>
-              </Link>
-            ))}
-          </div>
+              ) : null}
+              <span className="font-mono text-[10px] text-stone-500 ml-3 shrink-0">
+                {d.shortName}
+              </span>
+            </Link>
+          ))}
         </div>
       ) : (
         <div className="px-5 py-4 text-stone-500 text-sm">
