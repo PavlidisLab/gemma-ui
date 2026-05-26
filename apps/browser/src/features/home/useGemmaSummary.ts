@@ -276,6 +276,33 @@ export function useGemmaSummary(): GemmaSummary {
   };
 }
 
+/** Clean a raw Gemma experiment title for compact display.
+ *
+ *  Two noise patterns live in the corpus:
+ *
+ *  - **"Split (…) of GSE…: "** style prefixes — Gemma adds these when
+ *    a parent submission is split into a per-platform / per-taxon /
+ *    per-condition derivative. The prefix is curator-bookkeeping;
+ *    a public visitor cares about the body.
+ *  - **Trailing bracket blocks** — e.g. ``[collection of material:
+ *    cortex]``, ``[treatment: cisplatin]``. Curator-side annotations
+ *    glued onto the end; not part of the published title.
+ *
+ *  Conservative regexes: only strip when the leading pattern matches
+ *  the recognised shape (``Split\b`` followed by ≤120 chars up to a
+ *  ``: ``) or when the entire trailing block is bracketed. Real
+ *  titles that happen to start with "Split" but don't follow the
+ *  curator-prefix shape (e.g. "Split-brain studies in macaques")
+ *  pass through unchanged.
+ */
+export function cleanExperimentTitle(raw: string): string {
+  if (!raw) return raw;
+  let s = raw;
+  s = s.replace(/^Split\s[^:]{0,120}:\s+/, "");
+  s = s.replace(/(?:\s*\[[^\]]*\])+\s*$/, "");
+  return s.trim();
+}
+
 /** Format a count for compact display ("23,549" or "23K" / "23.5K").
  *  Use ``compact`` for hero stats; default (full) for the table.
  *  ``null`` renders as "—" (unsupported / not-yet-wired). Pass

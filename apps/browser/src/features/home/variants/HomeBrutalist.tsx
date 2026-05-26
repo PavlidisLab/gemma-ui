@@ -19,6 +19,7 @@ import { COPY, SURFACES } from "../copy";
 import {
   useGemmaSummary,
   fmtCount,
+  cleanExperimentTitle,
   type GemmaSummary,
   type TaxonRow,
   type TechnologyRow,
@@ -225,53 +226,61 @@ function TechnologyBreakdown({ rows }: { rows: TechnologyRow[] }) {
 }
 
 function Marquee({ items }: { items: RecentDataset[] }) {
-  // CSS-only marquee: a single track that scrolls horizontally,
-  // duplicated to make the loop seamless. ``prefers-reduced-motion``
-  // pauses it so a reader can scan. Hover anywhere on the strip also
-  // pauses the loop.
-  //
-  // Per Paul (2026-05-25): the experiment **title** is the lede;
-  // the short name (GSE accession) is curator/API shorthand and
-  // close to noise for a public-site visitor — keep it as a small
-  // muted trailing chip. The earlier "scroll the short names"
-  // shape is saved at the bottom of this file for reference.
+  // No scrolling. The earlier horizontal CSS marquee was rejected
+  // (2026-05-25, "barf") — motion under text the reader is trying
+  // to parse is queasy-inducing. Replaced with a static two-column
+  // grid showing the most recently updated experiments by title,
+  // with a "see all →" link into the full browse surface. Same
+  // content the marquee carried; no motion.
   const ready = items.length > 0;
+  const top = items.slice(0, 12);
   return (
-    <div className="border border-stone-950 bg-stone-950 text-stone-100 overflow-hidden">
-      <div className="flex items-baseline gap-3 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-stone-400 border-b border-stone-700">
-        <span className="text-stone-300 font-semibold">Recently updated</span>
-        <span className="text-stone-500">·</span>
-        <span>{ready ? `${items.length} datasets` : "…"}</span>
+    <div className="border border-stone-950 bg-stone-100">
+      <div className="flex items-baseline justify-between gap-3 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300">
+        <span className="text-stone-900 font-semibold">Recently updated</span>
+        <Link
+          to="/browser"
+          className="text-stone-600 hover:text-blue-700 hover:no-underline"
+        >
+          see all →
+        </Link>
       </div>
       {ready ? (
-        <div className="marquee-wrap py-2">
-          <div className="marquee-track">
-            {[...items, ...items].map((d, i) => (
+        <ul className="grid grid-cols-1 md:grid-cols-2 gap-px bg-stone-300">
+          {top.map((d) => (
+            <li key={d.id} className="bg-stone-100">
               <Link
-                key={`${d.id}-${i}`}
                 to="/dataset/$id"
                 params={{ id: d.shortName }}
-                className="marquee-item text-stone-100 hover:text-blue-300 hover:no-underline"
+                className="block px-5 py-2 text-stone-900 hover:bg-stone-50 hover:no-underline"
                 title={`${d.shortName} — ${d.name}`}
               >
-                <span className="text-sm max-w-[42ch] truncate inline-block align-middle">
-                  {d.name}
+                <span className="text-sm leading-snug line-clamp-1">
+                  {cleanExperimentTitle(d.name)}
                 </span>
-                {d.taxonName ? (
-                  <span className="text-stone-500 text-xs ml-2">
-                    {d.taxonName}
-                  </span>
-                ) : null}
-                <span className="font-mono text-[10px] text-stone-500 ml-2">
-                  {d.shortName}
+                <span className="block text-[10px] text-stone-500 mt-0.5">
+                  <span className="font-mono">{d.shortName}</span>
+                  {d.taxonName ? (
+                    <>
+                      <span className="mx-1.5 text-stone-400">·</span>
+                      <span>{d.taxonName}</span>
+                    </>
+                  ) : null}
+                  {d.bioAssays > 0 ? (
+                    <>
+                      <span className="mx-1.5 text-stone-400">·</span>
+                      <span>{d.bioAssays} samples</span>
+                    </>
+                  ) : null}
                 </span>
-                <span className="text-stone-700 mx-3">·</span>
               </Link>
-            ))}
-          </div>
-        </div>
+            </li>
+          ))}
+        </ul>
       ) : (
-        <div className="px-4 py-3 text-stone-500 text-sm">loading recent datasets…</div>
+        <div className="px-5 py-4 text-stone-500 text-sm">
+          loading recent datasets…
+        </div>
       )}
     </div>
   );

@@ -1908,39 +1908,3 @@ html.skin-carbon h3 {
 html.skin-carbon a { color: rgb(var(--skin-accent)); }
 html.skin-carbon main { background: transparent; }
 
-/* ─── Home-page marquee ─────────────────────────────────────────
- * CSS-only horizontal scroller for the recently-updated dataset
- * strip on the home page. The track holds two copies of the list
- * end-to-end and animates -50% so the visible portion always
- * shows real items (no leading gap on first loop). prefers-
- * reduced-motion pauses the animation so screen-readers and
- * vestibular-sensitive users can scan the list statically.
- */
-.marquee-wrap {
-  overflow: hidden;
-  width: 100%;
-}
-.marquee-track {
-  display: inline-flex;
-  white-space: nowrap;
-  animation: marquee-scroll 90s linear infinite;
-  will-change: transform;
-}
-.marquee-wrap:hover .marquee-track {
-  animation-play-state: paused;
-}
-.marquee-item {
-  display: inline-flex;
-  align-items: baseline;
-  padding: 0 0.25rem;
-}
-@keyframes marquee-scroll {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .marquee-track {
-    animation: none;
-  }
-}
-
