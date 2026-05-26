@@ -816,6 +816,57 @@ export async function searchGenes(
   return r.data ?? [];
 }
 
+// ─── PCA / SVD loadings — used by the scree click-to-zoom popup ─────────────
+
+export type PcLoadingsDirection = "both" | "positive" | "negative";
+
+export interface PcLoadingsRow {
+  /** Probe / design-element id. Gemma may emit null when the probe
+   *  no longer resolves to a CompositeSequence. */
+  designElementId?: number | null;
+  /** Probe / design-element name. */
+  designElementName?: string | null;
+  /** Resolved gene symbol when probe→gene mapping is available. */
+  geneSymbol?: string | null;
+  /** Loading on this PC. Sign is meaningful when direction != both. */
+  loading: number;
+}
+
+export interface PcLoadings {
+  /** 1-indexed PC. Mirrors the request. */
+  pc: number;
+  /** Top-N probe loadings (server caps at 500). */
+  rows: PcLoadingsRow[];
+  /** bioAssayId (stringified) → score on this PC. */
+  bioAssayScores: Record<string, number>;
+}
+
+/** Top-loaded probes for a single PC, plus per-sample scores —
+ *  enough to render a rank-1 projection heatmap (cell = loading[r] *
+ *  score[c]). 404 means the SVDResult hasn't been computed for the
+ *  dataset (returns null so the consumer renders an empty state
+ *  instead of toasting). */
+export async function getPcLoadings(
+  datasetId: number | string,
+  pc: number,
+  options: {
+    top?: number;
+    direction?: PcLoadingsDirection;
+    signal?: AbortSignal;
+  } = {},
+): Promise<PcLoadings | null> {
+  const { top = 50, direction = "both", signal } = options;
+  try {
+    const r = await apiGet<{ data?: PcLoadings }>(
+      `${BASE}/datasets/${datasetId}/svd/loadings`,
+      { params: { pc, top, direction }, signal },
+    );
+    return r.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Heatmap-data (dataset visualisation) ─────────────────────────────────────
 
 /** Wire shape returned by ``GET /datasets/{id}/heatmap-data``. Mirrors

@@ -15,6 +15,7 @@ import {
   getDatasetDiffExAnalyses,
   getDatasetResultSets,
   getDatasetSvd,
+  getPcLoadings,
   getDatasetGeeq,
   getTopDiffExpressedGenes,
   getPvalueDistribution,
@@ -853,7 +854,7 @@ function ExpressionTab({ datasetId }: { datasetId: number }) {
           <DiffExAnalysesList analyses={analyses.data} datasetId={datasetId} />
         )}
       </SectionCard>
-      <SvdSection svd={svd.data ?? null} loading={svd.isLoading} />
+      <SvdSection datasetId={datasetId} svd={svd.data ?? null} loading={svd.isLoading} />
     </>
   );
 }
@@ -1495,36 +1496,184 @@ function buildDeHeatmap(response: DiffExpressionResponse): HeatmapData {
   };
 }
 
-function SvdSection({ svd, loading }: { svd: SvdResult | null; loading: boolean }) {
-  if (loading) return (
-    <SectionCard title="PCA / SVD"><LoadingRow /></SectionCard>
-  );
-  if (!svd || !svd.variances?.length) return (
-    <SectionCard title="PCA / SVD"><Empty msg="no SVD computed for this dataset" /></SectionCard>
-  );
+function SvdSection({
+  datasetId,
+  svd,
+  loading,
+}: {
+  datasetId: number;
+  svd: SvdResult | null;
+  loading: boolean;
+}) {
+  const [openPc, setOpenPc] = useState<number | null>(null);
+
+  if (loading) {
+    return (
+      <SectionCard title="PCA / SVD">
+        <LoadingRow />
+      </SectionCard>
+    );
+  }
+  if (!svd || !svd.variances?.length) {
+    return (
+      <SectionCard title="PCA / SVD">
+        <Empty msg="no SVD computed for this dataset" />
+      </SectionCard>
+    );
+  }
 
   const variances = svd.variances.slice(0, 10);
   const maxV = Math.max(...variances);
 
   return (
-    <SectionCard title="PCA / SVD" subtitle="Variance explained per component">
-      <div className="space-y-1.5">
-        {variances.map((v, i) => (
-          <div key={i} className="flex items-center gap-3">
-            <span className="text-[11px] font-mono text-slate-500 w-6 text-right">{i + 1}</span>
-            <div className="flex-1 h-3 bg-slate-100 rounded overflow-hidden">
-              <div
-                className="h-full bg-sky-500 rounded"
-                style={{ width: `${(v / maxV) * 100}%` }}
-              />
+    <>
+      <SectionCard
+        title="PCA / SVD"
+        subtitle="Variance explained per component · click a bar for the top-loaded probes"
+      >
+        <div className="space-y-1.5">
+          {variances.map((v, i) => {
+            const pc = i + 1;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setOpenPc(pc)}
+                className="w-full flex items-center gap-3 group focus:outline-none focus:ring-1 focus:ring-sky-500 rounded"
+                title={`PC${pc}: ${(v * 100).toFixed(1)}% — top-loaded probes`}
+              >
+                <span className="text-[11px] font-mono text-slate-500 w-6 text-right">
+                  {pc}
+                </span>
+                <div className="flex-1 h-3 bg-slate-100 rounded overflow-hidden">
+                  <div
+                    className="h-full bg-sky-500 group-hover:bg-sky-700 rounded transition-colors"
+                    style={{ width: `${(v / maxV) * 100}%` }}
+                  />
+                </div>
+                <span className="text-[11px] tabular-nums text-slate-600 w-12 text-right group-hover:text-slate-900">
+                  {(v * 100).toFixed(1)}%
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </SectionCard>
+      {openPc !== null ? (
+        <PcLoadingsModal
+          datasetId={datasetId}
+          pc={openPc}
+          onClose={() => setOpenPc(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** Click-to-zoom popup on a PC scree bar. Pulls
+ *  ``/datasets/{id}/svd/loadings?pc=N&top=50`` and renders a
+ *  rank-1 projection heatmap — each cell is the probe's loading
+ *  on PCN multiplied by the sample's score on PCN, i.e. what PCN
+ *  "sees" as the signal. Sign + magnitude both matter, so the
+ *  widget's diverging palette is the right choice. */
+function PcLoadingsModal({
+  datasetId,
+  pc,
+  onClose,
+}: {
+  datasetId: number;
+  pc: number;
+  onClose: () => void;
+}) {
+  const loadingsQ = useQuery({
+    queryKey: ["pc-loadings", datasetId, pc],
+    queryFn: ({ signal }) => getPcLoadings(datasetId, pc, { top: 50, signal }),
+    staleTime: 5 * 60_000,
+  });
+
+  const heatmap = useMemo<HeatmapData | null>(() => {
+    const d = loadingsQ.data;
+    if (!d || !d.rows.length) return null;
+    const sampleEntries = Object.entries(d.bioAssayScores ?? {});
+    if (sampleEntries.length === 0) return null;
+    const colLabels = sampleEntries.map(([id]) => id);
+    const scores = sampleEntries.map(([, s]) => s);
+    const rowLabels = d.rows.map(
+      (r, i) =>
+        r.geneSymbol ||
+        r.designElementName ||
+        (r.designElementId != null
+          ? `probe ${r.designElementId}`
+          : `row ${i + 1}`),
+    );
+    const values: (number | null)[][] = d.rows.map((r) =>
+      scores.map((s) => r.loading * s),
+    );
+    return { rowLabels, colLabels, values };
+  }, [loadingsQ.data]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded shadow-lg max-w-5xl w-full max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+          <span className="font-semibold text-slate-800">
+            Top-loaded probes on PC{pc}
+            {heatmap ? (
+              <span className="ml-2 text-[11px] font-normal text-slate-500">
+                · cell = loading × sample score (rank-1 projection)
+              </span>
+            ) : null}
+          </span>
+          <button
+            type="button"
+            className="text-slate-400 hover:text-slate-700"
+            onClick={onClose}
+            aria-label="close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 min-h-[400px] overflow-auto p-3">
+          {loadingsQ.isLoading ? (
+            <div className="text-xs text-slate-500 italic">loading…</div>
+          ) : loadingsQ.error ? (
+            <div className="text-xs text-rose-700">
+              {(loadingsQ.error as Error).message}
             </div>
-            <span className="text-[11px] tabular-nums text-slate-600 w-12 text-right">
-              {(v * 100).toFixed(1)}%
-            </span>
-          </div>
-        ))}
+          ) : !heatmap ? (
+            <div className="text-xs text-slate-500 italic">
+              No SVD loadings available for this dataset yet.
+            </div>
+          ) : (
+            <HeatmapWidget
+              data={heatmap}
+              chrome={false}
+              showControls
+              showLegend
+              showTooltip
+              showDownload
+              defaultPalette="ambsky"
+              defaultClip={
+                Math.max(
+                  ...heatmap.values.flat().map((v) => Math.abs(v ?? 0)),
+                ) || 1
+              }
+              defaultRowScale={false}
+              defaultMaxHeight={14}
+              defaultMaxWidth={14}
+              defaultFitMode="squeeze"
+              downloadFilenameStem={`pc${pc}-loadings`}
+            />
+          )}
+        </div>
       </div>
-    </SectionCard>
+    </div>
   );
 }
 
