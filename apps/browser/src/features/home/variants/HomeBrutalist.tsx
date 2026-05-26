@@ -397,6 +397,12 @@ function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
   // treatment — total tile up top stays the headline number.
   // Cap at 10 so the panel matches its siblings in row count
   // (Factor values, Genes perturbed) and the bottoms line up.
+  // Bro ships 10 buckets after splitting CHEBI drugs into
+  // approved-drug / hormone / vitamin / toxin / vehicle / other-
+  // chemical (plus pathogen / biologic / control-reference /
+  // other). "Other chemicals" dominates today because the CHEBI
+  // subtree expansion misses most treatment-tagged terms — flagged
+  // for bro in a follow-up.
   const rows = s.treatmentSubcategories.slice(0, 10);
   const ready = rows.length > 0;
   const max = Math.max(1, ...rows.map((r) => r.count));
@@ -408,9 +414,9 @@ function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
         </span>
         <span
           className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
-          title="Distinct ontology terms in the treatment annotation category, partitioned by URI prefix (CHEBI → drugs; NCBITaxon → pathogens; PR → biologics; everything else → other)."
+          title="Distinct ontology terms in the treatment annotation category, bucketed by CHEBI subtree / NCBITaxon (pathogens) / PR (biologics). Counts sum to byAnnotationCategory.treatment."
         >
-          drug · pathogen · biologic · other
+          by chemical class
         </span>
       </div>
       {ready ? (
