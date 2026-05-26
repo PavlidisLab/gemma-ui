@@ -21,9 +21,15 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
+      "@gemma/diagnostics": ["../../packages/diagnostics/src/index.ts"],
       "@gemma/heatmap": ["../../packages/heatmap/src/index.ts"],
       "@gemma/ontology": ["../../packages/ontology/src/index.ts"]
     }
   },
-  "include": ["src", "../../packages/heatmap/src", "../../packages/ontology/src"]
+  "include": [
+    "src",
+    "../../packages/diagnostics/src",
+    "../../packages/heatmap/src",
+    "../../packages/ontology/src"
+  ]
 }

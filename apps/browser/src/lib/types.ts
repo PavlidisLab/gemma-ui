@@ -141,33 +141,53 @@ export interface PipelineStatus {
   troubleDetails?: string | null;
   needsAttention: boolean;
   isPublic: boolean;
-  geeq?: { publicQualityScore?: number } | null;
+  geeq?: GeeqScores | null;
 }
 
 // ─── GEEQ ─────────────────────────────────────────────────────────────────────
 
+/** GEEQ score breakdown as embedded in the Dataset payload. Field
+ *  names here mirror what the Gemma REST actually emits (verified
+ *  against /datasets/{id} on prod 1.x and against gemma-rest's
+ *  GeeqValueObject Java class — see
+ *  ``GEEQ_PUBLIC_BREAKDOWN_HANDOFF.md`` for the historical mismatch).
+ *
+ *  All sub-scores normalised to [-1, 1] (higher = better); the
+ *  aggregate ``publicQualityScore`` / ``publicSuitabilityScore``
+ *  are bounded to [0, 1]. */
 export interface GeeqScores {
   publicQualityScore?: number | null;
   publicSuitabilityScore?: number | null;
-  /** Suitability scores — range −1 to 1 */
+
+  // ─── Flags / counts (not in the score-bar table) ───
+  /** ``true`` when the dataset has no processed data vectors. */
+  noVectors?: boolean | null;
+  corrMatIssues?: number | null;
+  replicatesIssues?: number | null;
+  batchCorrected?: boolean | null;
+
+  // ─── Suitability sub-scores ───
   sScorePublication?: number | null;
-  sScoreOutliers?: number | null;
-  sScoreSampleMeanCorrelation?: number | null;
-  sScoreExperimentDesignProblems?: number | null;
-  sScoreReplicates?: number | null;
+  sScorePlatformAmount?: number | null;
   sScorePlatformTechMulti?: number | null;
-  sScorePlatformPopularity?: number | null;
-  /** Quality scores — range −1 to 1 */
-  qScoreOutlierLow?: number | null;
-  qScoreOutlierHigh?: number | null;
-  qScoreSampleCorrelation?: number | null;
-  qScorePlatformAmount?: number | null;
-  qScoreReplicateCorrelation?: number | null;
-  qScoreRawDataAvailable?: number | null;
-  qScoreRawDataSuitable?: number | null;
+  sScoreAvgPlatformPopularity?: number | null;
+  sScoreAvgPlatformSize?: number | null;
+  sScoreSampleSize?: number | null;
+  sScoreRawData?: number | null;
+  sScoreMissingValues?: number | null;
+
+  // ─── Quality sub-scores ───
+  qScoreOutliers?: number | null;
+  qScoreSampleMeanCorrelation?: number | null;
+  qScoreSampleMedianCorrelation?: number | null;
+  qScoreSampleCorrelationVariance?: number | null;
+  qScorePlatformsTech?: number | null;
+  qScoreReplicates?: number | null;
+  qScoreBatchInfo?: number | null;
   qScorePublicBatchEffect?: number | null;
   qScorePublicBatchConfound?: number | null;
-  [key: string]: number | null | undefined;
+
+  [key: string]: number | boolean | null | undefined;
 }
 
 // ─── Differential expression analysis ────────────────────────────────────────
@@ -255,8 +275,15 @@ export interface DiffExpressionResponse {
   datasetId?: number;
   geneExpressionLevels: {
     geneOfficialSymbol?: string | null;
+    /** Long descriptive gene name (e.g. "transformation related protein 53").
+     *  Pending bro's enrichment of /datasets/{id}/expressions/differential —
+     *  see ``SVD_LOADINGS_GENE_ENRICHMENT_HANDOFF.md``. */
+    geneOfficialName?: string | null;
+    /** Gemma-internal gene id. Pending the same enrichment. */
+    geneId?: number | null;
     geneNcbiId?: number | null;
     vectors: {
+      designElementId?: number | null;
       designElementName?: string | null;
       bioAssayExpressionLevels: Record<string, number | null>;
     }[];
@@ -294,15 +321,80 @@ export interface DiffExResultSet {
   baselineGroup?: { id?: number; factorValue?: string | null } | null;
 }
 
-// ─── SVD ─────────────────────────────────────────────────────────────────────
+// ─── SVD + diagnostics ───────────────────────────────────────────────────────
 
 export interface SvdResult {
   /** Fraction of variance explained per component (0-indexed). */
   variances?: number[] | null;
-  /** Bio-assay scores on the top components. Map from bioAssay ID to component scores. */
-  bioAssayScores?: Record<string, number[]> | null;
+  /** Parallel to ``vmatrix`` rows — the bioAssay ID for each row. */
+  bioAssayIds?: number[] | null;
+  /** Parallel to ``vmatrix`` rows — the biomaterial ID for each row.
+   *  Several bioAssays can share a biomaterial in multi-array studies. */
+  bioMaterialIds?: number[] | null;
+  /** Right-singular-vector matrix. Rows = bioAssays (parallel to
+   *  ``bioAssayIds``), cols = PCs. ``vmatrix[i][pc]`` is bioAssay i's
+   *  score on PC ``(pc + 1)``. Flatten via ``bioAssayScoresFromSvd``. */
+  vmatrix?: number[][] | null;
   /** Eigenvalues. */
   eigenValues?: number[] | null;
+}
+
+/** Pairwise sample-correlation matrix returned by
+ *  ``/datasets/{id}/sample-correlation``. Symmetric, values in [-1, 1].
+ *  Diagonal is always 1; cards typically mask it. */
+export interface SampleCorrelationMatrix {
+  bioAssayIds: number[];
+  /** Parallel to ``bioAssayIds``. Entries may be null for assays
+   *  whose name has not been set on the Gemma side. */
+  bioAssayShortNames: (string | null)[];
+  /** Row-major N×N. */
+  values: number[][];
+  /** Curator-flagged outliers. */
+  actualOutlierBioAssayIds?: number[] | null;
+  /** Outlier-detector suggestions; may overlap with actual. */
+  predictedOutlierBioAssayIds?: number[] | null;
+  /** Placeholder for a probe-filter caption — currently null. */
+  filterDescription?: string | null;
+  /** Currently always "pearson". */
+  method?: string | null;
+}
+
+/** Per-probe mean / variance pairs from ``/datasets/{id}/mean-variance``.
+ *  Used to render the M-V scatter that flags overdispersion + bad
+ *  normalisation. */
+export interface MeanVarianceData {
+  /** Reserved — Gemma's ``MeanVarianceRelation`` doesn't currently
+   *  carry design-element ids. */
+  designElementIds?: (number | null)[] | null;
+  designElementNames?: (string | null)[] | null;
+  /** Per-probe means (typically log2 CPM or normalized intensity). */
+  means: number[];
+  /** Per-probe variances, parallel to ``means``. */
+  variances: number[];
+  /** Reserved — ``MeanVarianceRelation`` doesn't currently expose a
+   *  fit curve. */
+  fit?: {
+    sortedMeans: number[];
+    fittedVariances: number[];
+  } | null;
+  /** Reserved — placeholder for the producing method
+   *  (``"limma_voom"`` / ``"edger_glmqlf"`` / ``"naive"``). */
+  source?: string | null;
+}
+
+/** Flatten the SVD's parallel ``bioAssayIds`` + ``vmatrix`` arrays
+ *  into a per-id score record (``{[bioAssayId]: scores[]}``) — the
+ *  shape PC×factor's association math wants. */
+export function bioAssayScoresFromSvd(
+  svd: SvdResult | null | undefined,
+): Record<string, number[]> | null {
+  if (!svd?.bioAssayIds || !svd?.vmatrix) return null;
+  const out: Record<string, number[]> = {};
+  const n = Math.min(svd.bioAssayIds.length, svd.vmatrix.length);
+  for (let i = 0; i < n; i++) {
+    out[String(svd.bioAssayIds[i])] = svd.vmatrix[i];
+  }
+  return out;
 }
 
 export interface Taxon {
@@ -369,7 +461,7 @@ export interface Dataset {
   taxon: Taxon;
   numberOfBioAssays: number;
   lastUpdated?: string;
-  geeq?: { publicQualityScore?: number };
+  geeq?: GeeqScores | null;
   characteristics?: DatasetCharacteristic[];
   curationNote?: string;
   searchResult?: {

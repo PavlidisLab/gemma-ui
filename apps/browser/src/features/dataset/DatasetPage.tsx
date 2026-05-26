@@ -14,9 +14,6 @@ import {
   getDatasetPipelineStatus,
   getDatasetDiffExAnalyses,
   getDatasetResultSets,
-  getDatasetSvd,
-  getPcLoadings,
-  getDatasetGeeq,
   getTopDiffExpressedGenes,
   getPvalueDistribution,
   datasetDataDownloadUrl,
@@ -25,8 +22,10 @@ import {
 import { HeatmapWidget } from "@gemma/heatmap";
 import type { HeatmapData } from "@gemma/heatmap";
 import { VisualizeTab } from "./VisualizeTab";
+import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
+import { GeneRowsTable, type GeneRow } from "@gemma/diagnostics";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
-import { gemmaUrl } from "@/lib/gemmaConfig";
+import { gemmaUrl, geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
 import type {
   Dataset,
   DatasetAnnotation,
@@ -41,7 +40,6 @@ import type {
   DiffExNestedResultSet,
   DiffExResultSet,
   DiffExpressionResponse,
-  SvdResult,
   GeeqScores,
 } from "@/lib/types";
 
@@ -142,7 +140,7 @@ function Banner({
   dataset: Dataset; activeTab: TabId; onTabChange: (t: TabId) => void;
 }) {
   const geo = dataset.accession?.accession;
-  const geeq = dataset.geeq?.publicQualityScore;
+  const geeq = dataset.geeq;
   const legacyUrl = gemmaUrl(`/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`);
 
   const pipeline = useQuery({
@@ -181,9 +179,7 @@ function Banner({
           </div>
           {ps && <PipelineStatusRow ps={ps} />}
         </div>
-        {geeq != null && (
-          <GeeqChip datasetId={dataset.id} score={geeq} />
-        )}
+        {geeq && <GeeqChip geeq={geeq} />}
         {ps?.troubled && (
           <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 shrink-0"
             title={ps.troubleDetails ?? undefined}>
@@ -238,29 +234,37 @@ function PipelineStatusRow({ ps }: { ps: PipelineStatus }) {
 
 // ─── GEEQ popover ─────────────────────────────────────────────────────────────
 
+// GEEQ sub-score labels — keys mirror the actual wire field names
+// emitted by gemma-rest's GeeqValueObject (see GeeqScores in
+// @/lib/types). Wrong keys here would silently drop a row from the
+// breakdown popover. Suitability scores capture whether the dataset
+// is fit for downstream use (publication, platform amount, raw data,
+// sample size); quality scores capture how clean the data actually is
+// (outliers, replicate behaviour, batch effects).
 const S_SCORE_LABELS: Record<string, string> = {
-  sScorePublication:              "Publication",
-  sScoreOutliers:                 "Few outliers",
-  sScoreSampleMeanCorrelation:    "Sample correlation",
-  sScoreExperimentDesignProblems: "Design (no problems)",
-  sScoreReplicates:               "Has replicates",
-  sScorePlatformTechMulti:        "Single technology",
-  sScorePlatformPopularity:       "Platform popularity",
+  sScorePublication:           "Has publication",
+  sScoreSampleSize:            "Sample size",
+  sScoreRawData:               "Raw data available",
+  sScoreMissingValues:         "Few missing values",
+  sScorePlatformAmount:        "Platform amount",
+  sScorePlatformTechMulti:     "Single technology",
+  sScoreAvgPlatformPopularity: "Platform popularity",
+  sScoreAvgPlatformSize:       "Platform size",
 };
 
 const Q_SCORE_LABELS: Record<string, string> = {
-  qScoreOutlierLow:           "Outlier detection (low)",
-  qScoreOutlierHigh:          "Outlier detection (high)",
-  qScoreSampleCorrelation:    "Sample correlation",
-  qScorePlatformAmount:       "Platform amount",
-  qScoreReplicateCorrelation: "Replicate correlation",
-  qScoreRawDataAvailable:     "Raw data available",
-  qScoreRawDataSuitable:      "Raw data suitable",
-  qScorePublicBatchEffect:    "Batch effect",
-  qScorePublicBatchConfound:  "Batch confound",
+  qScoreOutliers:                  "Few outliers",
+  qScoreSampleMeanCorrelation:     "Sample correlation (mean)",
+  qScoreSampleMedianCorrelation:   "Sample correlation (median)",
+  qScoreSampleCorrelationVariance: "Sample correlation (variance)",
+  qScoreReplicates:                "Has replicates",
+  qScorePlatformsTech:             "Platform technology",
+  qScoreBatchInfo:                 "Batch info available",
+  qScorePublicBatchEffect:         "Low batch effect",
+  qScorePublicBatchConfound:       "Low batch confound",
 };
 
-function GeeqChip({ datasetId, score }: { datasetId: number; score: number }) {
+function GeeqChip({ geeq }: { geeq: GeeqScores }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -273,12 +277,8 @@ function GeeqChip({ datasetId, score }: { datasetId: number; score: number }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const geeqQ = useQuery({
-    queryKey: ["geeq", datasetId],
-    queryFn: ({ signal }) => getDatasetGeeq(datasetId, signal),
-    enabled: open,
-    staleTime: Infinity,
-  });
+  const score = geeq.publicQualityScore;
+  if (score == null) return null;
 
   return (
     <div ref={ref} className="relative shrink-0">
@@ -290,42 +290,26 @@ function GeeqChip({ datasetId, score }: { datasetId: number; score: number }) {
       >
         GEEQ {score.toFixed(2)}
       </button>
-      {open && <GeeqPopover geeq={geeqQ.data ?? null} loading={geeqQ.isLoading} />}
+      {open && <GeeqPopover geeq={geeq} />}
     </div>
   );
 }
 
-function GeeqPopover({ geeq, loading }: { geeq: GeeqScores | null; loading: boolean }) {
+function GeeqPopover({ geeq }: { geeq: GeeqScores }) {
   return (
     <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white border border-slate-200 rounded shadow-lg text-[11px]">
       <div className="px-3 py-2 border-b border-slate-100 flex items-baseline justify-between">
         <span className="text-xs font-semibold text-slate-700">GEEQ scores</span>
-        {geeq?.publicSuitabilityScore != null && (
+        {geeq.publicSuitabilityScore != null && (
           <span className="text-slate-500">
             suitability {geeq.publicSuitabilityScore.toFixed(2)}
           </span>
         )}
       </div>
-      {loading ? (
-        <div className="px-3 py-3 text-slate-400 italic">Loading…</div>
-      ) : !geeq ? (
-        // Two reasons we land here on Gemma 1.x: (a) GEEQ hasn't been
-        // computed for this dataset (404), or (b) the breakdown
-        // endpoint is admin-locked and the user isn't signed in (403).
-        // We can't tell them apart from the client side without
-        // probing further; the friendlier message covers both — the
-        // aggregate score is already on the badge above.
-        <div className="px-3 py-3 text-slate-500 italic leading-snug">
-          Per-factor breakdown isn't available here. The aggregate
-          score is on the badge; the breakdown is currently admin-only
-          on Gemma 1.x.
-        </div>
-      ) : (
-        <div className="divide-y divide-slate-100">
-          <ScoreGroup label="Suitability" scores={geeq} labels={S_SCORE_LABELS} />
-          <ScoreGroup label="Quality" scores={geeq} labels={Q_SCORE_LABELS} />
-        </div>
-      )}
+      <div className="divide-y divide-slate-100">
+        <ScoreGroup label="Suitability" scores={geeq} labels={S_SCORE_LABELS} />
+        <ScoreGroup label="Quality" scores={geeq} labels={Q_SCORE_LABELS} />
+      </div>
       <div className="px-3 py-1.5 border-t border-slate-100 text-[10px] text-slate-400">
         Scores range −1 to 1; higher is better.
       </div>
@@ -838,11 +822,6 @@ function ExpressionTab({ datasetId }: { datasetId: number }) {
     queryKey: ["datasetDiffEx", datasetId],
     queryFn: ({ signal }) => getDatasetDiffExAnalyses(datasetId, signal),
   });
-  const svd = useQuery({
-    queryKey: ["datasetSvd", datasetId],
-    queryFn: ({ signal }) => getDatasetSvd(datasetId, signal),
-    staleTime: 10 * 60_000,
-  });
 
   return (
     <>
@@ -854,7 +833,15 @@ function ExpressionTab({ datasetId }: { datasetId: number }) {
           <DiffExAnalysesList analyses={analyses.data} datasetId={datasetId} />
         )}
       </SectionCard>
-      <SvdSection datasetId={datasetId} svd={svd.data ?? null} loading={svd.isLoading} />
+      {/* Diagnostics — replaces the old standalone PCA scree.
+          Four panels (Sample correlation · PCA scree · PC × factor ·
+          Mean-variance) mirror the curation app's Diagnostics tab. */}
+      <SectionCard
+        title="Diagnostics"
+        subtitle="Sample correlation · PCA scree · PC × factor · mean-variance"
+      >
+        <DiagnosticsRow datasetId={datasetId} />
+      </SectionCard>
     </>
   );
 }
@@ -1404,6 +1391,19 @@ function ResultSetHeatmap({
     return buildDeHeatmap(q.data);
   }, [q.data]);
 
+  const geneRows = useMemo<GeneRow[]>(() => {
+    const levels = q.data?.geneExpressionLevels ?? [];
+    return levels.map((lvl, i) => ({
+      index: i + 1,
+      geneSymbol: lvl.geneOfficialSymbol,
+      geneOfficialName: lvl.geneOfficialName,
+      geneNcbiId: lvl.geneNcbiId,
+      geneId: lvl.geneId,
+      designElementId: lvl.vectors?.[0]?.designElementId,
+      designElementName: lvl.vectors?.[0]?.designElementName,
+    }));
+  }, [q.data]);
+
   if (q.isLoading) {
     return (
       <div className="mt-2 px-2 py-3 border border-slate-200 rounded text-xs text-slate-500 italic">
@@ -1438,24 +1438,35 @@ function ResultSetHeatmap({
     .filter(Boolean)
     .join("__");
   return (
-    <HeatmapWidget
-      data={data}
-      title={contrastLabel}
-      caption={caption}
-      defaultRowScale
-      defaultControlsOpen={false}
-      // DE result sets typically have a handful of samples (5–30)
-      // and 50 genes. We want the matrix dense, not poster-sized;
-      // the legacy Gemma popup paints cells ~14×11px which lets a
-      // 50×18 matrix fit on a ~400px-wide pane alongside legible row
-      // labels. Match that proportion as the minimum-target footprint.
-      // Curators can still pull the Cell H / Cell W sliders to grow
-      // the matrix from the Options popover.
-      defaultFitMode="expand"
-      defaultMaxWidth={14}
-      defaultMaxHeight={11}
-      downloadFilenameStem={downloadStem}
-    />
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,320px)] gap-3 items-start">
+      <div className="min-w-0">
+        <HeatmapWidget
+          data={data}
+          title={contrastLabel}
+          caption={caption}
+          defaultRowScale
+          defaultControlsOpen={false}
+          // DE result sets typically have a handful of samples (5–30)
+          // and 50 genes. We want the matrix dense, not poster-sized;
+          // the legacy Gemma popup paints cells ~14×11px which lets a
+          // 50×18 matrix fit on a ~400px-wide pane alongside legible row
+          // labels. Match that proportion as the minimum-target footprint.
+          // Curators can still pull the Cell H / Cell W sliders to grow
+          // the matrix from the Options popover.
+          defaultFitMode="expand"
+          defaultMaxWidth={14}
+          defaultMaxHeight={11}
+          downloadFilenameStem={downloadStem}
+        />
+      </div>
+      <GeneRowsTable
+        rows={geneRows}
+        caption={`${geneRows.length} genes · same row order as the heatmap`}
+        maxHeightClass="max-h-[480px]"
+        geneHref={(r) => geneUrl({ ncbiId: r.geneNcbiId, geneId: r.geneId })}
+        probeHref={(r) => compositeSequenceUrl(r.designElementId)}
+      />
+    </div>
   );
 }
 
@@ -1494,187 +1505,6 @@ function buildDeHeatmap(response: DiffExpressionResponse): HeatmapData {
     rowLabels,
     colLabels: colOrder,
   };
-}
-
-function SvdSection({
-  datasetId,
-  svd,
-  loading,
-}: {
-  datasetId: number;
-  svd: SvdResult | null;
-  loading: boolean;
-}) {
-  const [openPc, setOpenPc] = useState<number | null>(null);
-
-  if (loading) {
-    return (
-      <SectionCard title="PCA / SVD">
-        <LoadingRow />
-      </SectionCard>
-    );
-  }
-  if (!svd || !svd.variances?.length) {
-    return (
-      <SectionCard title="PCA / SVD">
-        <Empty msg="no SVD computed for this dataset" />
-      </SectionCard>
-    );
-  }
-
-  const variances = svd.variances.slice(0, 10);
-  const maxV = Math.max(...variances);
-
-  return (
-    <>
-      <SectionCard
-        title="PCA / SVD"
-        subtitle="Variance explained per component · click a bar for the top-loaded probes"
-      >
-        <div className="space-y-1.5">
-          {variances.map((v, i) => {
-            const pc = i + 1;
-            return (
-              <button
-                key={i}
-                type="button"
-                onClick={() => setOpenPc(pc)}
-                className="w-full flex items-center gap-3 group focus:outline-none focus:ring-1 focus:ring-sky-500 rounded"
-                title={`PC${pc}: ${(v * 100).toFixed(1)}% — top-loaded probes`}
-              >
-                <span className="text-[11px] font-mono text-slate-500 w-6 text-right">
-                  {pc}
-                </span>
-                <div className="flex-1 h-3 bg-slate-100 rounded overflow-hidden">
-                  <div
-                    className="h-full bg-sky-500 group-hover:bg-sky-700 rounded transition-colors"
-                    style={{ width: `${(v / maxV) * 100}%` }}
-                  />
-                </div>
-                <span className="text-[11px] tabular-nums text-slate-600 w-12 text-right group-hover:text-slate-900">
-                  {(v * 100).toFixed(1)}%
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </SectionCard>
-      {openPc !== null ? (
-        <PcLoadingsModal
-          datasetId={datasetId}
-          pc={openPc}
-          onClose={() => setOpenPc(null)}
-        />
-      ) : null}
-    </>
-  );
-}
-
-/** Click-to-zoom popup on a PC scree bar. Pulls
- *  ``/datasets/{id}/svd/loadings?pc=N&top=50`` and renders a
- *  rank-1 projection heatmap — each cell is the probe's loading
- *  on PCN multiplied by the sample's score on PCN, i.e. what PCN
- *  "sees" as the signal. Sign + magnitude both matter, so the
- *  widget's diverging palette is the right choice. */
-function PcLoadingsModal({
-  datasetId,
-  pc,
-  onClose,
-}: {
-  datasetId: number;
-  pc: number;
-  onClose: () => void;
-}) {
-  const loadingsQ = useQuery({
-    queryKey: ["pc-loadings", datasetId, pc],
-    queryFn: ({ signal }) => getPcLoadings(datasetId, pc, { top: 50, signal }),
-    staleTime: 5 * 60_000,
-  });
-
-  const heatmap = useMemo<HeatmapData | null>(() => {
-    const d = loadingsQ.data;
-    if (!d || !d.rows.length) return null;
-    const sampleEntries = Object.entries(d.bioAssayScores ?? {});
-    if (sampleEntries.length === 0) return null;
-    const colLabels = sampleEntries.map(([id]) => id);
-    const scores = sampleEntries.map(([, s]) => s);
-    const rowLabels = d.rows.map(
-      (r, i) =>
-        r.geneSymbol ||
-        r.designElementName ||
-        (r.designElementId != null
-          ? `probe ${r.designElementId}`
-          : `row ${i + 1}`),
-    );
-    const values: (number | null)[][] = d.rows.map((r) =>
-      scores.map((s) => r.loading * s),
-    );
-    return { rowLabels, colLabels, values };
-  }, [loadingsQ.data]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-6"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded shadow-lg max-w-5xl w-full max-h-[90vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-          <span className="font-semibold text-slate-800">
-            Top-loaded probes on PC{pc}
-            {heatmap ? (
-              <span className="ml-2 text-[11px] font-normal text-slate-500">
-                · cell = loading × sample score (rank-1 projection)
-              </span>
-            ) : null}
-          </span>
-          <button
-            type="button"
-            className="text-slate-400 hover:text-slate-700"
-            onClick={onClose}
-            aria-label="close"
-          >
-            ×
-          </button>
-        </div>
-        <div className="flex-1 min-h-[400px] overflow-auto p-3">
-          {loadingsQ.isLoading ? (
-            <div className="text-xs text-slate-500 italic">loading…</div>
-          ) : loadingsQ.error ? (
-            <div className="text-xs text-rose-700">
-              {(loadingsQ.error as Error).message}
-            </div>
-          ) : !heatmap ? (
-            <div className="text-xs text-slate-500 italic">
-              No SVD loadings available for this dataset yet.
-            </div>
-          ) : (
-            <HeatmapWidget
-              data={heatmap}
-              chrome={false}
-              showControls
-              showLegend
-              showTooltip
-              showDownload
-              defaultPalette="ambsky"
-              defaultClip={
-                Math.max(
-                  ...heatmap.values.flat().map((v) => Math.abs(v ?? 0)),
-                ) || 1
-              }
-              defaultRowScale={false}
-              defaultMaxHeight={14}
-              defaultMaxWidth={14}
-              defaultFitMode="squeeze"
-              downloadFilenameStem={`pc${pc}-loadings`}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ─── Downloads tab ────────────────────────────────────────────────────────────

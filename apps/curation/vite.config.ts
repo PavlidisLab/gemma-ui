@@ -84,6 +84,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "src"),
+        "@gemma/diagnostics": path.resolve(__dirname, "../../packages/diagnostics/src"),
         "@gemma/heatmap": path.resolve(__dirname, "../../packages/heatmap/src"),
         "@gemma/ontology": path.resolve(__dirname, "../../packages/ontology/src"),
       },

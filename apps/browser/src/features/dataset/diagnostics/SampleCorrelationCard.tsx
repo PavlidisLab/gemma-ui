@@ -1,16 +1,12 @@
 /**
- * Sample-correlation panel — curator-side wrapper. Heatmap rendering
- * + outlier caption + domain math live in @gemma/diagnostics; this
- * wrapper handles the snake_case-to-shared-shape adapter and the
- * curator-facing footer affordances.
- *
- * Curator-only tools (mark / unmark predicted outliers) land on the
- * footer strip — wire them in as the workflow lands; the shared
- * package stays affordance-free so the public browse wrapper isn't
- * forced to pull in mutating UI.
+ * Sample-correlation panel — browser-side wrapper. Fetches the matrix
+ * via the browser's REST endpoint, normalises into the @gemma/heatmap
+ * shape via the shared helpers, and renders. Public / read-only —
+ * curator outlier-marking affordances live in the curation wrapper.
  */
 
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { HeatmapWidget } from "@gemma/heatmap";
 import {
   PanelCard,
@@ -21,29 +17,18 @@ import {
   computeSampleCorrelationDomain,
   summariseOutliers,
 } from "@gemma/diagnostics";
-import { useSampleCorrelation } from "@/api/diagnostics";
+import { getDatasetSampleCorrelation } from "@/api/endpoints";
 
-export function SampleCorrelationCard({
-  experimentId,
-}: {
-  experimentId: number | string;
-}) {
-  const { data, isLoading, error } = useSampleCorrelation(experimentId);
-
-  // Adapt curation's snake_case wire to the camelCase shape the shared
-  // helpers consume. The fields carry the same semantics.
-  const adapted = useMemo(() => {
-    if (!data) return null;
-    return {
-      bioAssayIds: data.bio_assay_ids,
-      bioAssayShortNames: data.bio_assay_short_names,
-      values: data.values,
-    };
-  }, [data]);
+export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["sample-correlation", datasetId],
+    queryFn: ({ signal }) => getDatasetSampleCorrelation(datasetId, signal),
+    staleTime: 10 * 60_000,
+  });
 
   const built = useMemo(
-    () => buildSampleCorrelationHeatmapData(adapted),
-    [adapted],
+    () => buildSampleCorrelationHeatmapData(data ?? null),
+    [data],
   );
   const seqDomain = useMemo(
     () => computeSampleCorrelationDomain(data?.values),
@@ -57,7 +42,7 @@ export function SampleCorrelationCard({
     body = <PanelError message={(error as Error).message} />;
   } else if (!data || !built) {
     body = (
-      <PanelEmpty reason="No sample-correlation matrix returned (HTTP 404). Either this dataset hasn't been preprocessed, or /datasets/{id}/sample-correlation isn't deployed on the current Gemma build." />
+      <PanelEmpty reason="No sample-correlation matrix available. Either this dataset hasn't been preprocessed or /datasets/{id}/sample-correlation isn't deployed on the current Gemma build." />
     );
   } else {
     body = (
@@ -81,8 +66,8 @@ export function SampleCorrelationCard({
 
   const outliers = data
     ? summariseOutliers(
-        data.actual_outlier_bio_assay_ids ?? [],
-        data.predicted_outlier_bio_assay_ids ?? [],
+        data.actualOutlierBioAssayIds ?? [],
+        data.predictedOutlierBioAssayIds ?? [],
       )
     : null;
 
@@ -93,7 +78,7 @@ export function SampleCorrelationCard({
         data ? (
           <>
             <span>
-              {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
+              {data.bioAssayIds.length} samples · {data.method ?? "pearson"}
             </span>
             {outliers ? (
               <span
@@ -111,15 +96,9 @@ export function SampleCorrelationCard({
                 {outliers.text}
               </span>
             ) : null}
-            {/* Curator-only affordance — wire a "Mark / Unmark
-                outlier" button cluster here when the
-                /datasets/{id}/samples/{baId}/outlier PATCH endpoint
-                lands. The shared package stays affordance-free so
-                the public browse wrapper isn't forced to pull in
-                mutating UI. */}
             <span className="ml-auto">
               <a
-                href={`/rest/v2/datasets/${experimentId}/sample-correlation?format=tsv`}
+                href={`/rest/v2/datasets/${datasetId}/sample-correlation?format=tsv`}
                 className="text-blue-700 dark:text-blue-300 hover:underline"
                 download
                 title="raw matrix as TSV"

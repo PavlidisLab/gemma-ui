@@ -1,0 +1,28 @@
+/**
+ * Four-up diagnostics row that lives inside the Expression tab in
+ * place of the legacy standalone PCA-scree section. Same four-panel
+ * granularity as the curation app's Diagnostics tab:
+ *
+ *   Sample correlation │ PCA scree │ PC × factor │ Mean-variance
+ *
+ * Each card hits its own /datasets/{id}/* endpoint and renders an
+ * empty state when the data isn't computed yet, so the row ships
+ * before every Gemma build serves all four. Layout: 4-up on xl,
+ * 2×2 on md, stacked on sm — same breakpoints as curation.
+ */
+
+import { SampleCorrelationCard } from "./SampleCorrelationCard";
+import { PcaScreeCard } from "./PcaScreeCard";
+import { PcFactorCard } from "./PcFactorCard";
+import { MeanVarianceCard } from "./MeanVarianceCard";
+
+export function DiagnosticsRow({ datasetId }: { datasetId: number }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      <SampleCorrelationCard datasetId={datasetId} />
+      <PcaScreeCard datasetId={datasetId} />
+      <PcFactorCard datasetId={datasetId} />
+      <MeanVarianceCard datasetId={datasetId} />
+    </div>
+  );
+}

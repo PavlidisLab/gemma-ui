@@ -1,9 +1,13 @@
 /**
- * Common chrome for a Diagnostics-tab panel. Title + body + optional
- * footer slot for download / caption links. Mirrors the four-up
- * layout from the legacy Gemma ExtJS Diagnostics tab — same panel
- * granularity (Sample Corr / Scree / PC+Factors / M-V) but with the
- * Pavlab-flat palette and our own widget set inside.
+ * Common chrome for one diagnostics panel. Title + body + optional
+ * footer slot for download / caption / outlier-control links.
+ *
+ * Both the curator app (apps/curation) and the public browse app
+ * (apps/browser) wrap each chart body in this card so the four-up
+ * Diagnostics row has visually-uniform tiles regardless of which
+ * app it's rendering in. Tailwind's `dark:` variants keep the dark
+ * theme alive for curation; apps without a dark mode toggle (today:
+ * browser) get the light treatment.
  */
 
 import type { ReactNode } from "react";
@@ -15,16 +19,15 @@ export function PanelCard({
 }: {
   title: string;
   children: ReactNode;
-  /** Bottom-of-card slot for the caption / download links the
-   *  legacy Diagnostics tab had under each panel ("No outliers
-   *  removed nor detected.", "Download correlation matrix",
-   *  "Download eigengenes"). */
+  /** Bottom-of-card slot — caption, "download matrix ↓" links,
+   *  outlier-control affordances. Keep it short; this strip stays
+   *  one line tall by design. */
   footer?: ReactNode;
 }) {
   return (
     <div className="flex flex-col rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
       <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
-        <span className="section-h text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
           {title}
         </span>
       </div>
@@ -40,16 +43,7 @@ export function PanelCard({
   );
 }
 
-/** Empty-state for the four diagnostic panels — same copy as the
- *  legacy Diagnostics tab's "Preprocessing metadata: Not available
- *  for this experiment" footer, but per-panel so the curator knows
- *  which one is missing. Bro: this branch fires when the matching
- *  endpoint 404s. */
-export function PanelEmpty({
-  reason,
-}: {
-  reason: string;
-}) {
+export function PanelEmpty({ reason }: { reason: string }) {
   return (
     <div className="flex-1 flex items-center justify-center text-xs text-slate-500 dark:text-slate-400 italic text-center px-4">
       {reason}

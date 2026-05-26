@@ -12,6 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@gemma/diagnostics": "*",
     "@gemma/heatmap": "*",
     "@gemma/ontology": "*",
     "@tanstack/react-query": "^5.59.0",

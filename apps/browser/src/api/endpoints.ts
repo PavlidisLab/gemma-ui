@@ -469,7 +469,8 @@ import type {
   DiffExpressionResponse,
   PvalueDistribution,
   SvdResult,
-  GeeqScores,
+  SampleCorrelationMatrix,
+  MeanVarianceData,
 } from "@/lib/types";
 
 export async function getDatasetDesign(
@@ -696,25 +697,44 @@ export async function getDatasetSvd(
   }
 }
 
-export async function getDatasetGeeq(
+/** Sample-correlation matrix for the Diagnostics row. 404 / 204 →
+ *  null ("not yet computed" or endpoint not deployed on the current
+ *  Gemma build; the card surfaces an empty-state instead of throwing). */
+export async function getDatasetSampleCorrelation(
   id: number | string,
   signal?: AbortSignal,
-): Promise<GeeqScores | null> {
+): Promise<SampleCorrelationMatrix | null> {
   try {
-    const r = await apiGet<{ data?: GeeqScores }>(`${BASE}/datasets/${id}/geeq`, { signal });
+    const r = await apiGet<{ data?: SampleCorrelationMatrix }>(
+      `${BASE}/datasets/${id}/sample-correlation`,
+      { signal },
+    );
     return r.data ?? null;
   } catch (e: unknown) {
-    // The Gemma 1.x endpoint is GROUP_ADMIN-only; anonymous browse
-    // users hit 403. The badge score itself is public (carried on
-    // ``dataset.geeq.publicQualityScore``); only the per-factor
-    // breakdown is admin-locked. Treat 401/403/404 the same here —
-    // "no breakdown to show" — and let the caller surface a clearer
-    // message rather than throwing. See
-    // ``~/Dev/eclipseworkspace/Gemma/handoffs/GEEQ_PUBLIC_BREAKDOWN_HANDOFF.md``
-    // for the bro ask to expose a public breakdown endpoint.
     if (e && typeof e === "object" && "status" in e) {
       const s = (e as { status: number }).status;
-      if (s === 401 || s === 403 || s === 404) return null;
+      if (s === 404 || s === 204) return null;
+    }
+    throw e;
+  }
+}
+
+/** Per-probe mean / variance scatter. 404 / 204 → null, same
+ *  rationale as ``getDatasetSampleCorrelation``. */
+export async function getDatasetMeanVariance(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<MeanVarianceData | null> {
+  try {
+    const r = await apiGet<{ data?: MeanVarianceData }>(
+      `${BASE}/datasets/${id}/mean-variance`,
+      { signal },
+    );
+    return r.data ?? null;
+  } catch (e: unknown) {
+    if (e && typeof e === "object" && "status" in e) {
+      const s = (e as { status: number }).status;
+      if (s === 404 || s === 204) return null;
     }
     throw e;
   }
@@ -888,6 +908,15 @@ export interface PcLoadingsRow {
   designElementName?: string | null;
   /** Resolved gene symbol when probe→gene mapping is available. */
   geneSymbol?: string | null;
+  /** Resolved gene official name (long descriptive name). Pending
+   *  bro's enrichment of /svd/loadings rows — see
+   *  ``SVD_LOADINGS_GENE_ENRICHMENT_HANDOFF.md``. */
+  geneOfficialName?: string | null;
+  /** Gemma-internal gene id. Same enrichment ask as ``geneOfficialName``. */
+  geneId?: number | null;
+  /** NCBI gene id — stable across taxa and rebuilds; prefer for the
+   *  gene-page link. Same enrichment ask as ``geneOfficialName``. */
+  geneNcbiId?: number | null;
   /** Loading on this PC. Sign is meaningful when direction != both. */
   loading: number;
 }

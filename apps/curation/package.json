@@ -16,6 +16,7 @@
     "gen-types": "openapi-typescript http://localhost:8080/openapi.json -o src/api/schema.ts"
   },
   "dependencies": {
+    "@gemma/diagnostics": "*",
     "@gemma/heatmap": "*",
     "@gemma/ontology": "*",
     "@tanstack/react-query": "^5.59.0",
