@@ -89,8 +89,12 @@ export function HomeBrutalist() {
         {/* Concept stats — distinct ontology terms per slot */}
         <ConceptRow s={s} />
 
-        {/* Factor values per category — compact bar chart */}
-        <CategoryBars s={s} />
+        {/* Factor values per category — left-third; remaining 2/3
+            reserved for future widgets per Paul (2026-05-25). */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-950">
+          <CategoryBars s={s} />
+          <div className="md:col-span-2 bg-stone-100" aria-hidden="true" />
+        </div>
 
         {/* Surface buttons */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-px bg-stone-950">
@@ -346,13 +350,13 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
   const ready = rows.length > 0;
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
-    <div className="border border-stone-950 bg-stone-100">
-      <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between">
+    <div className="bg-stone-100">
+      <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between gap-2">
         <span className="text-stone-900 font-semibold">
           Factor values per category
         </span>
         <span
-          className="text-stone-500 normal-case tracking-normal text-[11px]"
+          className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
           title="Bar: distinct factor values existing under each ExperimentalFactor category. Tag: experiments using any annotation in that category — depth vs breadth."
         >
           bar = FV depth · tag = EE breadth
