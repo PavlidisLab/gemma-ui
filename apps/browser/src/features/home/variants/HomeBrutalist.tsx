@@ -237,7 +237,8 @@ function ConceptRow({ s }: { s: GemmaSummary }) {
         <Concept
           label="Treatments"
           value={fmtCount(c.drugs, "full", loadingOf(c.drugs))}
-          hint="distinct ontology terms tagged as treatment (drugs, infections, exposures, etc.)"
+          hint={<TreatmentBreakdown subcategories={s.treatmentSubcategories} />}
+          hintAria="distinct ontology terms tagged as treatment, split by drug / pathogen / biologic / other"
         />
         <Concept
           label="Diseases"
@@ -269,20 +270,59 @@ function ConceptRow({ s }: { s: GemmaSummary }) {
   );
 }
 
+/** Treatment-tile tooltip body. Renders a compact ranked list of
+ *  the four treatment sub-buckets (drug / pathogen / biologic /
+ *  other) when /stats/home has shipped the field; falls back to a
+ *  plain-prose explanation when it hasn't. */
+function TreatmentBreakdown({
+  subcategories,
+}: {
+  subcategories: Array<{ key: string; label: string; count: number }>;
+}) {
+  if (subcategories.length === 0) {
+    return (
+      <span>
+        Distinct ontology terms tagged as treatment — drugs, pathogens,
+        biologics, behavioural / physical exposures.
+      </span>
+    );
+  }
+  return (
+    <div>
+      <div className="text-stone-300 mb-1">
+        Distinct ontology terms used as treatment annotations:
+      </div>
+      <ul className="space-y-0.5">
+        {subcategories.map((b) => (
+          <li
+            key={b.key}
+            className="flex items-baseline justify-between gap-3 tabular-nums"
+          >
+            <span>{b.label}</span>
+            <span className="font-medium">{b.count.toLocaleString()}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Concept({
   label,
   value,
   hint,
+  hintAria,
 }: {
   label: string;
   value: string;
-  hint?: string;
+  hint?: React.ReactNode;
+  hintAria?: string;
 }) {
   return (
     <div className="bg-stone-100 px-4 py-3">
       <div className="text-[10px] uppercase tracking-[0.18em] text-stone-600 mb-0.5 flex items-center">
         <span>{label}</span>
-        {hint ? <InfoBadge hint={hint} /> : null}
+        {hint ? <InfoBadge hint={hint} ariaLabel={hintAria} /> : null}
       </div>
       <div className="text-xl font-semibold tabular-nums tracking-tight text-stone-950">
         {value}
@@ -555,12 +595,15 @@ function StatBlock({
   value,
   cols,
   hint,
+  hintAria,
   footnote,
 }: {
   label: string;
   value: string;
   cols: string;
-  hint?: string;
+  hint?: React.ReactNode;
+  /** Plain-text aria-label when ``hint`` is a node. */
+  hintAria?: string;
   /** Tiny muted line under the headline number. Used to nest a
    *  secondary breakdown (e.g. samplesByTech under Samples,
    *  perturbed-genes under Genes) without claiming a new tile. */
@@ -570,7 +613,7 @@ function StatBlock({
     <div className={`${cols} bg-stone-100 px-5 py-4`}>
       <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-1 flex items-center">
         <span>{label}</span>
-        {hint ? <InfoBadge hint={hint} /> : null}
+        {hint ? <InfoBadge hint={hint} ariaLabel={hintAria} /> : null}
       </div>
       <div className="text-3xl font-semibold tabular-nums tracking-tight text-stone-950">
         {value}
@@ -593,12 +636,25 @@ function StatBlock({
  *  No ``cursor-help`` — that yields the macOS circle-with-question-
  *  mark cursor which Paul (correctly) flagged as visual noise.
  *  The (i) glyph + bubble tooltip is affordance enough. */
-function InfoBadge({ hint }: { hint: string }) {
+function InfoBadge({
+  hint,
+  ariaLabel,
+}: {
+  /** Tooltip body. Accept ReactNode so callers can pass a rich
+   *  layout (e.g. a small ranked list) for tiles that benefit from
+   *  structured content. */
+  hint: React.ReactNode;
+  /** Plain-text fallback for screen readers + aria. Required when
+   *  ``hint`` is a node; ignored otherwise. */
+  ariaLabel?: string;
+}) {
+  const a11y =
+    ariaLabel ?? (typeof hint === "string" ? hint : "more info");
   return (
     <Tooltip label={hint}>
       <span
         role="img"
-        aria-label={hint}
+        aria-label={a11y}
         tabIndex={0}
         className="ml-1.5 inline-flex items-center justify-center w-3 h-3 rounded-full border border-stone-400 text-stone-500 text-[8px] leading-none select-none normal-case tracking-normal font-medium hover:border-stone-700 hover:text-stone-800 focus:outline-none focus:ring-1 focus:ring-stone-600"
       >

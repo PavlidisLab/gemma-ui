@@ -81,6 +81,15 @@ interface HomeStatsWire {
    *  two Gemma EEs counts once here. Undefined on snapshots that
    *  predate the field landing. */
   distinctAccessionCount?: number;
+  /** Sub-bucket breakdown of the ``treatment`` annotation category.
+   *  Keys: ``drug`` (CHEBI), ``pathogen`` (NCBITaxon), ``biologic``
+   *  (PR), ``other`` (everything else). Sums to
+   *  ``byAnnotationCategory.treatment``. */
+  treatmentSubcategories?: Array<{
+    key: string;
+    label: string;
+    count: number;
+  }>;
   recentExperiments: Array<{
     id: number;
     shortName: string;
@@ -184,6 +193,16 @@ export interface GemmaSummary {
    *  "from N distinct accessions" footnote. ``null`` until bro's
    *  field ships (filed in HOME_PAGE_STATS_DISTINCT_ACCESSIONS_…). */
   distinctAccessionCount: number | null;
+  /** Per-sub-bucket breakdown of the Treatment annotation category.
+   *  Used to enrich the Treatments tile tooltip from a one-line
+   *  prose explanation to a ranked drug / pathogen / biologic /
+   *  other list. Empty array on snapshots predating bro's
+   *  treatmentSubcategories field. */
+  treatmentSubcategories: Array<{
+    key: string;
+    label: string;
+    count: number;
+  }>;
   recentDatasets: RecentDataset[];
   snapshotAt: string | null;
   updatedThisWeek: number | null;
@@ -451,6 +470,7 @@ export function useGemmaSummary(): GemmaSummary {
     categoryDistribution: wire?.categoryDistribution ?? [],
     datasetsByAccessionSource: wire?.datasetsByAccessionSource ?? [],
     distinctAccessionCount: wire?.distinctAccessionCount ?? null,
+    treatmentSubcategories: wire?.treatmentSubcategories ?? [],
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,
     updatedThisWeek,
