@@ -58,9 +58,19 @@ export function CachesSection() {
   const [sortBy, setSortBy] = useState<SortKey>("hits");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
+  // Fallback synth when the backend pre-dates the stats-bearing response —
+  // wrap each name as a row with null stat fields so the table still shows
+  // the inventory. "—" cells make the older-backend state visually obvious.
+  const allRows = useMemo<CacheStatRow[]>(() => {
+    if (list.data?.caches && list.data.caches.length > 0) {
+      return list.data.caches;
+    }
+    return (list.data?.names ?? []).map((n) => ({ name: n }) as CacheStatRow);
+  }, [list.data]);
+
   const filtered = useMemo<CacheStatRow[]>(() => {
     const q = filter.trim().toLowerCase();
-    const rows: CacheStatRow[] = (list.data?.caches ?? []).slice();
+    const rows = allRows.slice();
     const matched = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
     matched.sort((a, b) => {
       const av = sortKey(a, sortBy);
@@ -72,7 +82,9 @@ export function CachesSection() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return matched;
-  }, [filter, list.data, sortBy, sortDir]);
+  }, [filter, allRows, sortBy, sortDir]);
+
+  const statsMissing = allRows.length > 0 && allRows.every((r) => r.hits == null && r.misses == null);
 
   function toggleSort(k: SortKey) {
     if (sortBy === k) {
@@ -121,7 +133,9 @@ export function CachesSection() {
       ) : !list.data ? (
         <div className="text-xs text-slate-500 italic">loading…</div>
       ) : filtered.length === 0 ? (
-        <div className="text-xs text-slate-500 italic">no matches</div>
+        <div className="text-xs text-slate-500 italic">
+          {filter ? "no matches" : "no caches reported"}
+        </div>
       ) : (
         <div className="max-h-80 overflow-auto">
           <table className="w-full text-[11px] tabular-nums">
@@ -201,6 +215,11 @@ export function CachesSection() {
           </table>
         </div>
       )}
+      {statsMissing ? (
+        <div className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">
+          Per-cache stats unavailable on this server build — names only. Update gemma-rest to a build with JCache MBean stats wired.
+        </div>
+      ) : null}
       {(clearAll.isError || clearOne.isError) ? (
         <div className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">
           {((clearAll.error || clearOne.error) as Error).message}

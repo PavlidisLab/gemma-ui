@@ -69,9 +69,7 @@ export function SystemMonitoringPage() {
         <TicketsSection />
         <SessionsSection />
         <IndicesSection />
-        <div className="md:col-span-2 xl:col-span-3">
-          <OntologiesSection />
-        </div>
+        <OntologiesSection />
       </div>
     </div>
   );
