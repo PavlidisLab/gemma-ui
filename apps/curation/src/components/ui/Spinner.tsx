@@ -1,28 +1,9 @@
 /**
- * Tiny inline spinner for buttons mid-mutation.
- *
- * Border-trick spinner — one rounded element with a transparent top
- * border. Inherits ``currentColor`` from its parent so a button
- * styled in slate / amber / emerald gets a matching ring without
- * configuration. ``size`` defaults to 12px (3 in Tailwind units),
- * which lines up with text-[11px] / text-xs button copy.
+ * Re-export from ``@gemma/ui``. The implementation moved into the
+ * shared UI package on 2026-05-26 so the browser app can use the
+ * same border-trick spinner without duplicating it. The file path
+ * stays put as a thin shim — every existing caller's
+ * ``import { Spinner } from "@/components/ui/Spinner"`` keeps
+ * working without a churn pass.
  */
-export function Spinner({
-  size = 12,
-  className = "",
-}: {
-  size?: number;
-  className?: string;
-}) {
-  return (
-    <span
-      role="status"
-      aria-label="loading"
-      style={{ width: size, height: size, borderWidth: Math.max(1, Math.round(size / 6)) }}
-      className={
-        "inline-block rounded-full border-current border-t-transparent animate-spin shrink-0 " +
-        className
-      }
-    />
-  );
-}
+export { Spinner } from "@gemma/ui";

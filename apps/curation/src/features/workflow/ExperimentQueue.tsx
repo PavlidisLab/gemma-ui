@@ -14,7 +14,7 @@ import {
   useReopenGroup,
 } from "@/api/workflow";
 import { useMemo, useState } from "react";
-import { PipelineStatusRow } from "./PipelineStatusRow";
+import { PipelineStatusRow, type BadgeTone } from "./PipelineStatusRow";
 import { useMe } from "@/api/session";
 import { useToast } from "@/components/ui/Toast";
 import { exportSetAsGzip } from "./exportSet";
@@ -397,7 +397,30 @@ function FinalizeSetButton({ group }: { group: Group }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ExperimentQueue({ groupId }: { groupId?: string }) {
+export function ExperimentQueue({
+  groupId,
+  experimentIds,
+  leadingBadge,
+  ticketId,
+}: {
+  groupId?: string;
+  /** Explicit list of experiment IDs to scope the queue by. Used by
+   *  the ticket detail page to render the same row layout as the
+   *  workflow page, without going through a Group. Takes precedence
+   *  over ``groupId`` when both are set. */
+  experimentIds?: number[];
+  /** Optional badge rendered at the front of every row (before the
+   *  status disc + accession). The ticket detail page uses this to
+   *  surface the ticket task on each target — e.g. "Audit" on every
+   *  row of an AUDIT-typed ticket. */
+  leadingBadge?: { label: string; tone: BadgeTone };
+  /** Ticket id whose targets are being listed. When set, each row's
+   *  click-through navigation appends ``?ticket=<id>`` so the
+   *  experiment page's ``TicketContextChip`` lights up with the
+   *  back-to-ticket affordance + prev/next walker. Mirrors how
+   *  ``groupId`` threads ``?group=<id>`` for set context. */
+  ticketId?: number;
+}) {
   const [activeFilter, setActiveFilter] = useState<QuickFilter>("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("-lastUpdated");
@@ -409,11 +432,15 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
     includeSummaries: true,
   });
 
-  // Group-scoped view: pass member IDs as comma-separated ids param.
-  const groupIds = useMemo(() => {
+  // Scope ids: ``experimentIds`` wins (ticket targets); otherwise
+  // fall back to the group's member_ids when a groupId is set.
+  const scopeIds = useMemo(() => {
+    if (experimentIds && experimentIds.length > 0) {
+      return experimentIds.map(String).join(",");
+    }
     if (!groupId || !group) return undefined;
     return group.member_ids.join(",");
-  }, [groupId, group]);
+  }, [experimentIds, groupId, group]);
 
   const filterStr = QUICK_FILTERS.find((f) => f.id === activeFilter)?.serverFilter;
 
@@ -423,7 +450,7 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
     sort,
     limit: PAGE_SIZE,
     offset,
-    ids: groupIds,
+    ids: scopeIds,
   });
 
   const rows = page?.data ?? [];
@@ -549,6 +576,7 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
             dataset={d}
             status={statusMap[String(d.id)]}
             groupContext={groupId}
+            ticketContext={ticketId != null ? String(ticketId) : undefined}
             // Lossless identifier from the group's member_ids when
             // available; falls back to the dataset's numeric id (the
             // non-group / global queue view).
@@ -557,6 +585,7 @@ export function ExperimentQueue({ groupId }: { groupId?: string }) {
             tickets={tickets ?? null}
             groupType={group?.type}
             groupTaskKind={group?.task_kind ?? null}
+            leadingBadge={leadingBadge}
           />
         ))}
       </div>

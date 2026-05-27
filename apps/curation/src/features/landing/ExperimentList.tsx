@@ -1,25 +1,26 @@
 import {
   useDatasets,
-  useGemmaSearch,
-  useImportFromGemma,
   type DatasetSummary,
-  type GemmaDatasetHit,
 } from "@/api/datasets";
-import { useLogout } from "@/api/session";
-import { useDebouncedValue } from "@/lib/useDebouncedValue";
-import { experimentRoute, navigate, workflowRoute, type ExperimentTab } from "@/routes";
-import { useState } from "react";
+import { experimentRoute, navigate, type ExperimentTab } from "@/routes";
+import { useMemo, useState } from "react";
 import { useStickyState } from "@/lib/useStickyState";
-import { ModeChip } from "@/components/ui/ModeChip";
-import { HealthChip } from "@/components/ui/HealthChip";
+import { AppHeader } from "@/components/ui/AppHeader";
+import {
+  useMyTickets,
+  ticketTypeLabel,
+  type Ticket,
+} from "@/api/tickets";
+import { cn } from "@/lib/cn";
 
 /**
- * Landing page: lists experiments imported into the mock. Click
+ * Landing page: lists every experiment in the curation store. Click
  * one to navigate to its curation surface.
  *
- * Importing happens out-of-band (``./run_import.sh GSE...``).
- * Future: an inline import form here that calls the agent CLI
- * via a thin endpoint — not yet wired.
+ * The pull-from-Gemma import bar that used to sit at the top of
+ * this page was removed 2026-05-26 (Paul: "too confusing to use the
+ * ui to pull data from remote to local"). Imports happen via the
+ * workflow / ticket pipeline now.
  */
 export function ExperimentList({
   onSelect,
@@ -28,12 +29,30 @@ export function ExperimentList({
   onSelect: (experimentId: number | string) => void;
   reviewer: string;
 }) {
-  const { data, isLoading, error, refetch, isFetching } = useDatasets();
-  const logout = useLogout();
-  const importer = useImportFromGemma();
+  // Experiment → tickets index. Driven by ``useMyTickets`` (open +
+  // in-progress only — resolved/cancelled don't get badges, they'd
+  // just add visual noise to a table whose primary axis is "what
+  // needs work"). Built once per fetch and consulted per-row.
+  //
+  // Polled every 5s while the page is mounted so the "anyUnderway"
+  // signal below picks up status flips made by background runners
+  // (e.g. PRELOAD). Cheap — tickets is a small payload.
+  const { data: tickets } = useMyTickets({ refetchInterval: 5000 });
+  const ticketsByExp = useMemo(
+    () => buildTicketsByExperiment(tickets ?? []),
+    [tickets],
+  );
+  // While any ticket has UNDERWAY targets, an async runner is
+  // populating designs — poll the datasets list at 3s so newly-
+  // loaded rows bubble to the top of an updated_at-sorted view.
+  // Stops polling as soon as nothing is in flight (returns false).
+  const anyUnderway = (tickets ?? []).some((t) =>
+    t.targets.some((target) => target.status === "UNDERWAY"),
+  );
+  const { data, isLoading, error, refetch, isFetching } = useDatasets({
+    refetchInterval: anyUnderway ? 3000 : false,
+  });
   const [filter, setFilter] = useState("");
-  const [importRef, setImportRef] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   // Status pill filter: "all", "troubled", "needs_attention", "proposals", "notes".
   const [statusFilter, setStatusFilter] = useStickyState<StatusFilter>(
     "experiments.statusFilter",
@@ -45,43 +64,6 @@ export function ExperimentList({
     "experiments.sort",
     { key: "updated_at", dir: "desc" },
   );
-
-  // Debounce the search query so we don't hammer Gemma on every key.
-  const debounced = useDebouncedValue(importRef, 250);
-  // Treat single-token alphanumerics that look like an accession
-  // (GSE…, GDS…, E-MTAB-…) as direct submissions, not as search
-  // queries. Anything with a space or punctuation triggers search.
-  const looksLikeAccession = /^(GSE|GDS|GPL|GSM|E-[A-Z]+-)\d/i.test(
-    debounced.trim(),
-  );
-  const search = useGemmaSearch(debounced, {
-    enabled: !looksLikeAccession,
-  });
-  const hits = search.data ?? [];
-
-  function submitImport(e: React.FormEvent) {
-    e.preventDefault();
-    const ref = importRef.trim();
-    if (!ref) return;
-    importer.mutate(ref, {
-      onSuccess: (design) => {
-        setImportRef("");
-        setSearchOpen(false);
-        onSelect(design.experiment_id);
-      },
-    });
-  }
-
-  function importHit(hit: GemmaDatasetHit) {
-    const ref = hit.accession || hit.short_name || String(hit.experiment_id);
-    importer.mutate(ref, {
-      onSuccess: (design) => {
-        setImportRef("");
-        setSearchOpen(false);
-        onSelect(design.experiment_id);
-      },
-    });
-  }
 
   const all = data ?? [];
   const counts = {
@@ -123,149 +105,9 @@ export function ExperimentList({
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto w-full max-w-[1800px] px-4 py-2 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold">Gemma</span>
-            <span className="text-xs text-slate-400">/</span>
-            <span className="text-sm text-slate-600">Curation</span>
-            <span className="text-xs text-slate-400">/</span>
-            <button
-              type="button"
-              onClick={() => navigate("#/inbox")}
-              className="text-sm text-slate-600 hover:text-slate-900 underline-offset-2 hover:underline"
-              title="Cross-experiment proposal inbox"
-            >
-              proposals
-            </button>
-            <span className="text-xs text-slate-400">·</span>
-            <button
-              type="button"
-              onClick={() => navigate("#/audits")}
-              className="text-sm text-slate-600 hover:text-slate-900 underline-offset-2 hover:underline"
-              title="Cross-experiment audit inbox"
-            >
-              audits
-            </button>
-            <span className="text-xs text-slate-400">·</span>
-            <button
-              type="button"
-              onClick={() => navigate(workflowRoute())}
-              className="text-sm text-slate-600 hover:text-slate-900 underline-offset-2 hover:underline"
-              title="Workflow manager"
-            >
-              workflow
-            </button>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-slate-600">
-            <span>
-              signed in as <span className="font-medium">{reviewer}</span>
-            </span>
-            <ModeChip />
-            <HealthChip />
-            <button
-              type="button"
-              className="text-slate-500 hover:text-slate-900 underline"
-              onClick={() => logout.mutate()}
-            >
-              sign out
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppHeader reviewer={reviewer} />
 
       <main className="mx-auto w-full max-w-[1800px] px-4 py-6 flex-1">
-        <div className="card mb-4 px-3 py-2 relative">
-          <form
-            onSubmit={submitImport}
-            className="flex items-center gap-2 flex-wrap"
-          >
-            <span className="text-xs font-semibold text-slate-700">
-              Import from Gemma:
-            </span>
-            <input
-              type="text"
-              value={importRef}
-              onChange={(e) => {
-                setImportRef(e.target.value);
-                setSearchOpen(true);
-              }}
-              onFocus={() => setSearchOpen(true)}
-              onBlur={() => {
-                // Defer so a click on a hit row registers before
-                // the popup unmounts.
-                window.setTimeout(() => setSearchOpen(false), 150);
-              }}
-              placeholder="GSE accession, shortName, numeric id, or free-text search…"
-              className="text-sm border border-slate-300 rounded px-2 py-1 flex-1 min-w-[20ch]"
-            />
-            <button
-              type="submit"
-              className="btn primary text-xs"
-              disabled={!importRef.trim() || importer.isPending}
-            >
-              {importer.isPending ? "importing…" : "import"}
-            </button>
-            {importer.isError ? (
-              <span
-                className="text-xs text-rose-700"
-                title={(importer.error as Error).message}
-              >
-                import failed: {(importer.error as Error).message}
-              </span>
-            ) : null}
-            <span className="text-[11px] text-slate-500 basis-full">
-              Submit an exact Gemma reference, or type a query like
-              "Alzheimer mouse" to search Gemma's catalog. Pulls real
-              data via gemmapy on import.
-            </span>
-          </form>
-
-          {searchOpen &&
-          !looksLikeAccession &&
-          debounced.trim().length >= 2 ? (
-            <div className="absolute left-3 right-3 top-full mt-1 z-30 bg-white border border-slate-200 rounded shadow-md max-h-96 overflow-auto text-xs">
-              {search.isFetching && hits.length === 0 ? (
-                <div className="px-3 py-2 text-slate-500">searching…</div>
-              ) : hits.length === 0 ? (
-                <div className="px-3 py-2 text-slate-500">
-                  no Gemma hits for "{debounced}"
-                </div>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {hits.map((h) => (
-                    <li
-                      key={h.experiment_id}
-                      onMouseDown={() => importHit(h)}
-                      className="px-3 py-1.5 cursor-pointer hover:bg-slate-50"
-                    >
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-mono shrink-0">
-                          {h.short_name || h.accession}
-                        </span>
-                        <span className="text-slate-700 truncate">
-                          {h.title || (
-                            <span className="italic text-slate-400">(no title)</span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-3 flex-wrap">
-                        {h.taxon ? <span>{h.taxon}</span> : null}
-                        {h.n_samples ? (
-                          <span>{h.n_samples} samples</span>
-                        ) : null}
-                        {h.external_database ? (
-                          <span>source: {h.external_database}</span>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : null}
-        </div>
-
         <div className="card">
           <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200 flex-wrap">
             <h1 className="section-h">Experiments staged for curation</h1>
@@ -367,6 +209,7 @@ export function ExperimentList({
                   <SortableTh sort={sort} sortKey="status" onToggle={toggleSort} className="w-44">
                     status
                   </SortableTh>
+                  <th className="text-left px-3 py-1.5 w-32">tickets</th>
                   <SortableTh sort={sort} sortKey="updated_at" onToggle={toggleSort} className="w-40">
                     last updated
                   </SortableTh>
@@ -374,22 +217,18 @@ export function ExperimentList({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((r) => (
-                  <Row key={r.experiment_id} r={r} onSelect={onSelect} />
+                  <Row
+                    key={r.experiment_id}
+                    r={r}
+                    onSelect={onSelect}
+                    tickets={ticketsByExp.get(r.experiment_id) ?? []}
+                  />
                 ))}
               </tbody>
             </table>
           )}
         </div>
       </main>
-
-      <footer className="border-t border-slate-200 bg-white">
-        <div className="mx-auto w-full max-w-[1800px] px-4 py-1.5 text-xs text-slate-500">
-          Use the import form above to pull a Gemma experiment in.
-          The CLI wrapper{" "}
-          <code className="font-mono">./run_import.sh &lt;ACCESSION&gt;</code>
-          {" "}does the same thing for batch / scripted imports.
-        </div>
-      </footer>
     </div>
   );
 }
@@ -397,21 +236,52 @@ export function ExperimentList({
 function Row({
   r,
   onSelect,
+  tickets,
 }: {
   r: DatasetSummary;
   onSelect: (experimentId: number | string) => void;
+  /** Open/in-progress tickets that target this experiment. Empty
+   *  array when none — column renders an em-dash placeholder. */
+  tickets: Ticket[];
 }) {
   const updated = formatTimestamp(r.updated_at);
+  // "Thin" / preboarded — imported as a shell, design body has no
+  // biomaterials, factors, or tags yet. Reuses the same amber chip
+  // styling that PreboardingDetailPage uses on the per-row landing
+  // page, so a curator scanning the table sees the same "preboarded"
+  // mark they get on the detail surface. Also dims the numeric +
+  // status cells so the all-zero row reads as "pending" rather than
+  // "broken curation".
+  const isThin = r.n_biomaterials === 0 && r.n_factors === 0 && r.n_tags === 0;
   return (
     <tr
-      className="cursor-pointer hover:bg-slate-50"
+      className={cn(
+        "cursor-pointer hover:bg-slate-50",
+        isThin && "text-slate-400 dark:text-slate-500",
+      )}
       onClick={() => onSelect(r.experiment_id)}
     >
-      <td className="px-3 py-2 font-mono">{r.short_name}</td>
+      <td className="px-3 py-2 font-mono">
+        <div className="flex items-center gap-2">
+          <span>{r.short_name}</span>
+          {isThin ? (
+            <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+              preboarded
+            </span>
+          ) : null}
+        </div>
+      </td>
       <td className="px-3 py-2 text-slate-700">
-        {r.title || (
-          <span className="italic text-slate-400">(no title)</span>
-        )}
+        <div>
+          {r.title || (
+            <span className="italic text-slate-400">(no title)</span>
+          )}
+        </div>
+        {isThin && (r.assay || r.platform_short_name) ? (
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+            {[r.assay, r.platform_short_name].filter(Boolean).join(" · ")}
+          </div>
+        ) : null}
       </td>
       <td className="px-3 py-2 text-slate-700">
         {r.taxon || <span className="text-slate-300">—</span>}
@@ -426,8 +296,80 @@ function Row({
       <td className="px-3 py-2">
         <StatusChips r={r} />
       </td>
+      <td className="px-3 py-2">
+        <TicketBadges tickets={tickets} />
+      </td>
       <td className="px-3 py-2 text-slate-500 text-xs">{updated}</td>
     </tr>
+  );
+}
+
+/** Build a per-experiment ticket index from a flat ticket list.
+ *  Walks each ticket's targets, filters to ``EXPRESSION_EXPERIMENT``,
+ *  and appends the ticket under that target's id. Same ticket can
+ *  appear under multiple experiments (multi-target ticket); same
+ *  experiment can carry multiple tickets. */
+function buildTicketsByExperiment(
+  tickets: Ticket[],
+): Map<number | string, Ticket[]> {
+  const out = new Map<number | string, Ticket[]>();
+  for (const t of tickets) {
+    for (const target of t.targets) {
+      if (target.target_type !== "EXPRESSION_EXPERIMENT") continue;
+      const key: number | string = target.target_id;
+      const list = out.get(key) ?? [];
+      list.push(t);
+      out.set(key, list);
+    }
+  }
+  return out;
+}
+
+/** Stacked ticket-id badges, one per ticket on this experiment.
+ *  Colour-coded by priority (matches the dashboard's PriorityPill
+ *  palette so a curator scanning across surfaces sees the same
+ *  visual). Click opens the ticket detail page; the row-level click
+ *  handler that opens the experiment is suppressed via
+ *  ``stopPropagation``. */
+function TicketBadges({ tickets }: { tickets: Ticket[] }) {
+  if (tickets.length === 0) {
+    return <span className="text-slate-300">—</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {tickets.map((t) => (
+        <TicketBadge key={t.id} ticket={t} />
+      ))}
+    </div>
+  );
+}
+
+/** Compact #id badge in the same violet palette as
+ *  ``TicketContextChip`` (ExperimentBanner.tsx) — the existing
+ *  in-banner ticket chip on the experiment page. Matches that
+ *  surface so a curator scanning the table recognises the same
+ *  thing they see inside an experiment. Priority is in the tooltip
+ *  rather than the colour: the violet conveys "this is a ticket",
+ *  not "how urgent". */
+function TicketBadge({ ticket }: { ticket: Ticket }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        // Don't bubble up to the row-level handler (which would open
+        // the experiment instead).
+        e.stopPropagation();
+        navigate(`#/tickets/${ticket.id}`);
+      }}
+      title={`${ticket.title} · ${ticketTypeLabel(ticket.type)} · ${ticket.priority.toLowerCase()} priority`}
+      className={cn(
+        "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border tabular-nums hover:bg-violet-200",
+        "border-violet-300 bg-violet-100 text-violet-800",
+        "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
+      )}
+    >
+      #{ticket.id}
+    </button>
   );
 }
 
@@ -749,9 +691,8 @@ function EmptyState({
   }
   return (
     <div className="px-3 py-6 text-sm text-slate-500">
-      No experiments staged yet.{" "}
-      <code className="font-mono">./run_import.sh GSE277245</code> in the agents
-      repo, then click ↻.
+      No experiments staged yet. Imports land via the workflow /
+      ticket pipeline.
     </div>
   );
 }

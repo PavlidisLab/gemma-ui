@@ -1,12 +1,10 @@
 import { useMemo } from "react";
 import { useAuditsInbox } from "@/api/audits";
-import { useLogout } from "@/api/session";
 import { experimentRoute, navigate } from "@/routes";
 import { useStickyState } from "@/lib/useStickyState";
 import { cn } from "@/lib/cn";
 import type { AuditReport, OverallVerdict, Severity } from "@/api/auditTypes";
-import { ModeChip } from "@/components/ui/ModeChip";
-import { HealthChip } from "@/components/ui/HealthChip";
+import { AppHeader } from "@/components/ui/AppHeader";
 
 /**
  * Cross-experiment inbox of audit reports.
@@ -39,7 +37,6 @@ export function AuditsInbox({ reviewer }: { reviewer: string }) {
     "actionable",
   );
   const { data, isLoading, error, refetch, isFetching } = useAuditsInbox();
-  const logout = useLogout();
   const items = data?.items ?? [];
 
   // Server returns the full set; filter client-side. The mock's audit
@@ -49,50 +46,18 @@ export function AuditsInbox({ reviewer }: { reviewer: string }) {
   const grouped = useMemo(() => groupByExperiment(filtered), [filtered]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto w-full max-w-[1800px] px-4 py-2 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate("#/")}
-              className="text-sm text-slate-600 hover:text-slate-900"
-            >
-              ← experiments
-            </button>
-            <span className="text-xs text-slate-400">/</span>
-            <span className="font-semibold">Audits</span>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-slate-600">
-            <a
-              href="#/inbox"
-              className="text-slate-500 hover:text-slate-900 hover:underline"
-              title="proposals inbox"
-            >
-              proposals
-            </a>
-            <span>
-              signed in as <span className="font-medium">{reviewer}</span>
-            </span>
-            <ModeChip />
-            <HealthChip />
-            <button
-              type="button"
-              className="text-slate-500 hover:text-slate-900 underline"
-              onClick={() => logout.mutate()}
-            >
-              sign out
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 dark:text-slate-100">
+      <AppHeader reviewer={reviewer}>
+        <span className="text-xs text-slate-400 ml-2" aria-hidden>/</span>
+        <span className="text-sm text-slate-600 dark:text-slate-300">Audits</span>
+      </AppHeader>
 
       <main className="mx-auto w-full max-w-[1800px] px-4 py-6 flex-1 space-y-4">
         <div className="card">
-          <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200 flex-wrap">
+          <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex-wrap">
             <h1 className="section-h">
               Curation audits
-              <span className="ml-2 text-xs text-slate-500 font-normal">
+              <span className="ml-2 text-xs text-slate-500 dark:text-slate-400 font-normal">
                 {filtered.length} of {items.length}
               </span>
             </h1>
@@ -128,19 +93,19 @@ export function AuditsInbox({ reviewer }: { reviewer: string }) {
           </div>
 
           {isLoading ? (
-            <div className="px-3 py-6 text-sm text-slate-500">loading…</div>
+            <div className="px-3 py-6 text-sm text-slate-500 dark:text-slate-400">loading…</div>
           ) : error ? (
-            <div className="px-3 py-6 text-sm text-rose-700">
+            <div className="px-3 py-6 text-sm text-rose-700 dark:text-rose-400">
               couldn't load: {(error as Error).message}
             </div>
           ) : grouped.length === 0 ? (
-            <div className="px-3 py-6 text-sm text-slate-500">
+            <div className="px-3 py-6 text-sm text-slate-500 dark:text-slate-400">
               {items.length === 0
                 ? "No audits on the local server yet. Submit one with `gca audit-curation … --submit` from the agents repo."
                 : `No audits matching "${filter}".`}
             </div>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {grouped.map((g) => (
                 <ExperimentGroup key={g.experimentId} group={g} />
               ))}
@@ -171,8 +136,8 @@ function VerdictTab({
       className={cn(
         "text-xs px-2 py-1 border rounded",
         active
-          ? "bg-slate-800 text-white border-slate-800"
-          : "border-slate-200 text-slate-700 hover:bg-slate-50",
+          ? "bg-slate-800 text-white border-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100"
+          : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
       )}
     >
       {children}
@@ -234,23 +199,23 @@ function ExperimentGroup({ group }: { group: Group }) {
       <button
         type="button"
         onClick={() => navigate(experimentRoute(group.experimentId))}
-        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-baseline gap-3"
+        className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-baseline gap-3"
         title="open the experiment shell with the audit sidebar"
       >
         <span className="font-mono text-sm shrink-0">
           {group.experimentShortName}
         </span>
-        <span className="text-xs text-slate-500 shrink-0">
+        <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0">
           {group.items.length} audit{group.items.length === 1 ? "" : "s"}
         </span>
-        <span className="text-xs text-slate-400">
+        <span className="text-xs text-slate-400 dark:text-slate-500">
           newest {formatTimestamp(group.items[0]?.audited_at ?? "")}
         </span>
-        <span className="ml-auto text-[11px] text-blue-700 hover:underline">
+        <span className="ml-auto text-[11px] text-blue-700 dark:text-blue-400 hover:underline">
           experiment →
         </span>
       </button>
-      <ul className="border-t border-slate-100 bg-slate-50/40">
+      <ul className="border-t border-slate-100 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-900/40">
         {group.items.map((a, i) => {
           const linkable = !!a.audit_id;
           const onClick = linkable
@@ -267,7 +232,7 @@ function ExperimentGroup({ group }: { group: Group }) {
                 className={cn(
                   "w-full text-left px-6 py-1.5 text-xs flex items-baseline gap-3",
                   linkable
-                    ? "hover:bg-slate-100 cursor-pointer"
+                    ? "hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                     : "cursor-default",
                 )}
                 title={
@@ -277,16 +242,16 @@ function ExperimentGroup({ group }: { group: Group }) {
                 }
               >
                 <VerdictPill verdict={a.summary.overall_verdict} />
-                <span className="text-slate-700 flex-1 inline-flex items-baseline gap-2 flex-wrap">
+                <span className="text-slate-700 dark:text-slate-200 flex-1 inline-flex items-baseline gap-2 flex-wrap">
                   <SeverityCount label="blocker" count={a.summary.n_blocker} severity="blocker" />
                   <SeverityCount label="major" count={a.summary.n_major} severity="major" />
                   <SeverityCount label="minor" count={a.summary.n_minor} severity="minor" />
                   <SeverityCount label="ok" count={a.summary.n_ok} severity="ok" />
                   {a.model ? (
-                    <span className="text-slate-400">· {a.model}</span>
+                    <span className="text-slate-400 dark:text-slate-500">· {a.model}</span>
                   ) : null}
                 </span>
-                <span className="text-slate-400 shrink-0">
+                <span className="text-slate-400 dark:text-slate-500 shrink-0">
                   {formatTimestamp(a.audited_at)}
                 </span>
               </button>
@@ -335,10 +300,10 @@ function SeverityCount({
 }) {
   if (count === 0) return null;
   const cls = {
-    blocker: "text-rose-700",
-    major: "text-amber-700",
-    minor: "text-slate-600",
-    ok: "text-emerald-700",
+    blocker: "text-rose-700 dark:text-rose-400",
+    major: "text-amber-700 dark:text-amber-400",
+    minor: "text-slate-600 dark:text-slate-300",
+    ok: "text-emerald-700 dark:text-emerald-400",
   }[severity];
   return (
     <span className={cn("inline-flex items-baseline gap-0.5", cls)}>

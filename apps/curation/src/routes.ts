@@ -46,10 +46,16 @@ export type Route =
        *  this group; member-list clicks elsewhere preserve it so the
        *  curator stays in-set as they walk the queue. */
       groupContext?: string;
+      /** Active Ticket context (mutually exclusive with
+       *  ``groupContext``). When present, the banner renders a
+       *  ticket breadcrumb + prev/next walking the ticket's
+       *  targets — same pattern groups use. */
+      ticketContext?: string;
     }
   | { kind: "audit-preview" }
   | { kind: "proposal-preview" }
-  | { kind: "workflow"; groupId?: string };
+  | { kind: "workflow"; groupId?: string }
+  | { kind: "ticket"; ticketId: number };
 
 export function parseRoute(): Route {
   const h = (typeof window !== "undefined" && window.location.hash) || "";
@@ -65,11 +71,13 @@ export function parseRoute(): Route {
     const params = m[2] ? new URLSearchParams(m[2]) : null;
     const tab = params?.get("tab") ?? null;
     const groupContext = params?.get("group") ?? null;
+    const ticketContext = params?.get("ticket") ?? null;
     return {
       kind: "experiment",
       id: decodeURIComponent(m[1]),
       tab: tab ? (tab as ExperimentTab) : undefined,
       groupContext: groupContext || undefined,
+      ticketContext: ticketContext || undefined,
     };
   }
   if (/^#\/all-experiments\b/.test(h)) return { kind: "all-experiments" };
@@ -100,21 +108,72 @@ export function parseRoute(): Route {
     return { kind: "workflow", groupId: decodeURIComponent(workflowGroupMatch[1]) };
   }
   if (/^#\/workflow\b/.test(h)) return { kind: "workflow" };
+  // Tickets are the canonical work-item surface (sets retired 2026-05-26).
+  // ``#/tickets/{id}`` lands on the per-ticket detail page; the bare
+  // ``#/tickets`` list view is deferred.
+  const ticketMatch = h.match(/^#\/tickets\/(\d+)/);
+  if (ticketMatch) {
+    return { kind: "ticket", ticketId: parseInt(ticketMatch[1], 10) };
+  }
   return { kind: "landing" };
 }
 
+/** Navigation blocker contract. Each registered blocker is consulted
+ *  before ``navigate`` actually mutates the hash. A blocker returns:
+ *
+ *   - ``true`` (or any non-Promise truthy value): proceed
+ *   - ``false`` (or any non-Promise falsy value): cancel
+ *   - ``Promise<boolean>``: defer until resolved; ``true`` proceeds,
+ *     ``false`` cancels
+ *
+ *  Blockers run in registration order; the first one that cancels
+ *  wins (subsequent blockers don't run). This matches what a curator
+ *  expects when two surfaces both want to gate the same navigation —
+ *  the inner one (modal currently visible) usually registered last
+ *  and should preempt.
+ *
+ *  Used by ``LeaveJobGuard`` to ask the curator about pending
+ *  proposal/audit work before they navigate away from an EE page. */
+export type NavigationBlocker = (target: string) => boolean | Promise<boolean>;
+
+const blockers: NavigationBlocker[] = [];
+
+export function registerNavigationBlocker(b: NavigationBlocker): () => void {
+  blockers.push(b);
+  return () => {
+    const i = blockers.indexOf(b);
+    if (i >= 0) blockers.splice(i, 1);
+  };
+}
+
 export function navigate(target: string): void {
-  window.location.hash = target;
+  if (blockers.length === 0) {
+    window.location.hash = target;
+    return;
+  }
+  // Walk blockers in reverse so the most-recently-mounted modal (the
+  // foreground UI the user is looking at) gets to ask first.
+  const queue = [...blockers].reverse();
+  void (async () => {
+    for (const b of queue) {
+      const result = b(target);
+      const ok = result instanceof Promise ? await result : result;
+      if (!ok) return;
+    }
+    window.location.hash = target;
+  })();
 }
 
 export function experimentRoute(
   id: number | string,
   tab?: ExperimentTab,
   groupContext?: string,
+  ticketContext?: string,
 ): string {
   const params = new URLSearchParams();
   if (tab) params.set("tab", tab);
   if (groupContext) params.set("group", groupContext);
+  if (ticketContext) params.set("ticket", ticketContext);
   const qs = params.toString();
   // Don't ``encodeURIComponent`` the id — the only non-alphanumeric
   // char in the accepted forms is `:` from `preboarding:N`, which is

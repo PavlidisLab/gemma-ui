@@ -1,11 +1,9 @@
 import { useMemo } from "react";
 import { useAllProposals } from "@/api/proposals";
-import { useLogout } from "@/api/session";
 import { experimentRoute, navigate } from "@/routes";
 import type { Proposal, ProposalStatus } from "@/api/types";
 import { useStickyState } from "@/lib/useStickyState";
-import { ModeChip } from "@/components/ui/ModeChip";
-import { HealthChip } from "@/components/ui/HealthChip";
+import { AppHeader } from "@/components/ui/AppHeader";
 
 /**
  * Cross-experiment inbox of agent-submitted curation proposals.
@@ -27,7 +25,6 @@ export function ProposalsInbox({ reviewer }: { reviewer: string }) {
   const { data, isLoading, error, refetch, isFetching } = useAllProposals({
     status: statusFilter,
   });
-  const logout = useLogout();
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
 
@@ -35,42 +32,10 @@ export function ProposalsInbox({ reviewer }: { reviewer: string }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto w-full max-w-[1800px] px-4 py-2 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate("#/")}
-              className="text-sm text-slate-600 hover:text-slate-900"
-            >
-              ← experiments
-            </button>
-            <span className="text-xs text-slate-400">/</span>
-            <span className="font-semibold">Proposals</span>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-slate-600">
-            <a
-              href="#/audits"
-              className="text-slate-500 hover:text-slate-900 hover:underline"
-              title="audits inbox"
-            >
-              audits
-            </a>
-            <span>
-              signed in as <span className="font-medium">{reviewer}</span>
-            </span>
-            <ModeChip />
-            <HealthChip />
-            <button
-              type="button"
-              className="text-slate-500 hover:text-slate-900 underline"
-              onClick={() => logout.mutate()}
-            >
-              sign out
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppHeader reviewer={reviewer}>
+        <span className="text-xs text-slate-400 ml-2" aria-hidden>/</span>
+        <span className="text-sm text-slate-600">Proposals</span>
+      </AppHeader>
 
       <main className="mx-auto w-full max-w-[1800px] px-4 py-6 flex-1 space-y-4">
         <div className="card">

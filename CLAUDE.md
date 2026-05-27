@@ -55,6 +55,39 @@ npm run build              # both apps
 Or `cd apps/<app>` and run scripts there directly — each app's
 scripts are unchanged from when it was a standalone repo.
 
+## Don't make new UI components
+
+**Default = reuse. Building a new component is the exception.**
+
+Paul has repeatedly caught me writing the second or third
+implementation of something that already exists (TicketBadge vs.
+PriorityPill / TicketContextChip; ThinExperimentScreener vs.
+PreboardingDetailPage). Drift across surfaces is the harm — the
+same visual idea, two different palettes / behaviours / spacings,
+and curators stop trusting the chrome.
+
+Before authoring **any** new chip / pill / badge / picker / mask /
+dialog / card / panel / banner / table-column variant:
+
+1. **Grep the repo.** Search the literal name AND the visual idea
+   — `chip`, `pill`, `badge`, `mask`, `picker`, `screener`, etc.
+2. **Check shared first.** `packages/ui/` → `apps/<app>/src/components/ui/` →
+   `apps/<app>/src/features/`. Component exists somewhere? Use it.
+3. **If close-but-not-quite:** extend it (add a prop, a variant,
+   a slot). Don't fork.
+4. **If it's in the wrong app:** promote to `packages/ui/`.
+5. **Only if nothing exists, even after extension:** write the new
+   one. Justify it out loud first ("I checked X, Y, Z and the
+   shape doesn't fit because …") so Paul can veto.
+
+This rule overrides the urge to ship fast. Forking compounds drift;
+shipping a wrong component is worse than shipping nothing for one
+turn while we find the right one.
+
+Related project-memory entries (auto-loaded each session):
+`feedback-check-existing-component`,
+`feedback-dont-build-parallel-to-spec`.
+
 ## Working inside a feature
 
 Most session work happens inside `apps/curation/src/features/*` (or

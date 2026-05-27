@@ -121,8 +121,17 @@ export function useMe() {
           : resp;
       return normalizeUser(raw);
     },
+    // /me lockdown — see apps/browser/src/api/auth.ts:useMe. Without
+    // these flags the focus-blur cycle (devtools attach, alt-tab,
+    // window refocus) fires /me on every transition, flooding the
+    // gemma-rest log with AccessDeniedException stack traces on 403.
+    // Mirror the browser app's settings exactly so the two stay in
+    // lockstep.
     staleTime: 1000 * 60 * 5,
     retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 }
 

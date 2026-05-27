@@ -99,15 +99,22 @@ export function PipelineStatusRow({
   dataset,
   status,
   groupContext,
+  ticketContext,
   navId,
   hasLocalDraft = false,
   tickets,
   groupType,
   groupTaskKind,
+  leadingBadge,
 }: {
   dataset: WorkflowDatasetRow;
   status: ExperimentPipelineStatus | undefined;
   groupContext?: string;
+  /** Ticket id (as string) threaded through to the experiment URL
+   *  as ``?ticket=<id>`` so the experiment page's
+   *  ``TicketContextChip`` renders the back-to-ticket + prev/next
+   *  navigator. Mirrors ``groupContext`` for sets. */
+  ticketContext?: string;
   navId?: string;
   /** Curator-side "uncommitted draft in localStorage" signal —
    *  passed in from the parent so we don't re-scan localStorage
@@ -125,11 +132,32 @@ export function PipelineStatusRow({
    *  when present — ``review_proposal`` → "Review proposal",
    *  ``audit_existing`` → "Review audit", etc. */
   groupTaskKind?: GroupTaskKind | null;
+  /** Optional badge rendered at the FRONT of the row (before the
+   *  status disc + accession). Used by the ticket detail page to
+   *  surface the ticket task ("Audit") on every target row.
+   *  ``tone`` keys into the palette below; pick one that matches the
+   *  semantic of the work — ``audit`` (violet), ``pipeline`` (sky),
+   *  ``screen`` (fuchsia), ``quality`` (emerald), ``info`` (amber). */
+  leadingBadge?: { label: string; tone: BadgeTone };
 }) {
   const accession = dataset.short_name || String(dataset.id);
   const title = dataset.name;
+  // Has the row been through Gemma's loadGeoData? Use sample count
+  // as the proxy: shells imported as bare accessions show 0
+  // biomaterials. The analysis + curation chip strips below are
+  // suppressed for these rows because every step's default
+  // ``ok``/``na`` state reads as "all green" and misleads the
+  // curator into thinking a row is fully processed.
+  const hasBio = (dataset.number_of_bio_assays ?? 0) > 0;
   const goTo = () =>
-    navigate(experimentRoute(navId ?? String(dataset.id), undefined, groupContext));
+    navigate(
+      experimentRoute(
+        navId ?? String(dataset.id),
+        undefined,
+        groupContext,
+        ticketContext,
+      ),
+    );
 
   const discTone = rowDiscTone(status, hasLocalDraft);
   const discTitle = rowDiscTitle(status, hasLocalDraft);
@@ -151,11 +179,37 @@ export function PipelineStatusRow({
       }}
       className="group px-4 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 transition-colors"
     >
-      {/* Header row: disc + accession + title + flag badges */}
+      {/* Header row: disc + leadingBadge + accession + title + flag badges */}
       <div className="flex items-baseline gap-2 min-w-0">
         <span className="self-center">
           <StatusDisc tone={discTone} title={discTitle} />
         </span>
+        {leadingBadge ? (
+          <LeadingBadge
+            label={leadingBadge.label}
+            tone={
+              // Per-row tone override: when this row is targeted by
+              // the active ticket (``ticketContext``) AND that
+              // target's status is DONE, flip the badge to
+              // ``quality`` (emerald) so curators can see at a
+              // glance which rows have finished the ticket's
+              // current action. Falls back to the static badge tone
+              // otherwise.
+              ticketContext &&
+              (tickets ?? []).some((t) => {
+                if (String(t.id) !== ticketContext) return false;
+                return t.targets.some(
+                  (tg) =>
+                    tg.target_type === "EXPRESSION_EXPERIMENT" &&
+                    tg.target_id === dataset.id &&
+                    tg.status === "DONE",
+                );
+              })
+                ? "quality"
+                : leadingBadge.tone
+            }
+          />
+        ) : null}
         <span className="font-mono text-xs font-semibold text-slate-600 dark:text-slate-300 shrink-0">
           {accession}
         </span>
@@ -204,10 +258,18 @@ export function PipelineStatusRow({
         </span>
       </div>
 
-      {/* Detail row: next-task chip + pipeline strips */}
+      {/* Detail row: next-task chip + pipeline strips. The next-task
+       *  chip itself is hidden when (a) it's pipeline-derived (e.g.
+       *  "Design", "Tags") AND (b) the row has no biomaterials —
+       *  those "next step" labels are wrong for shells that haven't
+       *  been through Gemma's loadGeoData (no factors / no
+       *  biomaterials means "Design" isn't actually pending, it's
+       *  just the default not-OK state of an empty design). Ticket-
+       *  sourced chips stay visible always (they're explicit
+       *  curator work, not derived state). */}
       {status && status.analysis && status.curation ? (
         <div className="flex items-center gap-2 flex-wrap mt-1 pl-5">
-          {nextTask ? (
+          {nextTask && (hasBio || nextTask.source === "ticket") ? (
             <span
               title={nextTask.tooltip}
               className={cn(
@@ -222,13 +284,17 @@ export function PipelineStatusRow({
               ) : null}
             </span>
           ) : null}
-          {nextTask ? (
+          {nextTask && hasBio ? (
             <span className="text-slate-300 dark:text-slate-700" aria-hidden>
               |
             </span>
           ) : null}
-          <AnalysisTrackStrip track={status.analysis} compact />
-          <CurationTrackStrip track={status.curation} compact />
+          {hasBio ? (
+            <AnalysisTrackStrip track={status.analysis} compact />
+          ) : null}
+          {hasBio ? (
+            <CurationTrackStrip track={status.curation} compact />
+          ) : null}
         </div>
       ) : status ? (
         <div className="text-[10px] text-slate-400 dark:text-slate-500 italic pl-5 mt-0.5">
@@ -245,5 +311,31 @@ export function PipelineStatusRow({
         </p>
       )}
     </div>
+  );
+}
+
+export type BadgeTone = "audit" | "pipeline" | "screen" | "quality" | "info" | "neutral";
+
+function LeadingBadge({ label, tone }: { label: string; tone: BadgeTone }) {
+  const palette: Record<BadgeTone, string> = {
+    audit:
+      "bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-900/40 dark:text-violet-200 dark:border-violet-700",
+    pipeline:
+      "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/40 dark:text-sky-200 dark:border-sky-700",
+    screen:
+      "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 dark:bg-fuchsia-900/40 dark:text-fuchsia-200 dark:border-fuchsia-700",
+    quality:
+      "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-700",
+    info:
+      "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700",
+    neutral:
+      "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600",
+  };
+  return (
+    <span
+      className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border shrink-0 ${palette[tone]}`}
+    >
+      {label}
+    </span>
   );
 }

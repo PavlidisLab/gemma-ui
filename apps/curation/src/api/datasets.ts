@@ -55,13 +55,31 @@ export interface DatasetSummary {
   n_unactioned_blocker?: number;
   n_unactioned_major?: number;
   n_unactioned_minor?: number;
+
+  // ---- Optional GEO-derived fields populated on preboarded rows
+  // (eutils deep-fetch path; see shared/geo_eutils.py in the agents
+  // repo). Absent on rows that pre-date the field or never went
+  // through preboarding. UI renders them when present, ignores when
+  // not.
+  /** Short study-type string from NCBI eutils ``gdstype``. */
+  assay?: string;
+  /** Primary platform short name (GPLxxxx). */
+  platform_short_name?: string;
+  /** External-source link — GEO FTP series root for preboarded rows. */
+  external_uri?: string;
+  /** GEO accession (same as ``short_name`` for GEO-sourced rows; kept
+   *  separate so non-GEO sources can populate it differently). */
+  accession?: string;
+  /** Source database — "GEO", "ArrayExpress", etc. */
+  external_database?: string;
 }
 
 const KEY = ["datasets"] as const;
 
-export function useDatasets() {
+export function useDatasets(options: { refetchInterval?: number | false } = {}) {
   return useQuery({
     queryKey: KEY,
+    refetchInterval: options.refetchInterval,
     queryFn: async () => {
       const resp = await api.get<WorkflowDatasetListResponse>(
         "/rest/v2/datasets?limit=100",
@@ -88,6 +106,13 @@ export function useDatasets() {
           n_audits:             undefined,
           latest_audit_id:      undefined,
           latest_audited_at:    undefined,
+          // GEO-derived optional fields (preboarded rows only;
+          // undefined elsewhere). Pass-through from WorkflowDatasetRow.
+          assay:                r.assay,
+          platform_short_name:  r.platform_short_name,
+          external_uri:         r.external_uri,
+          accession:            r.accession,
+          external_database:    r.external_database,
         }),
       );
     },

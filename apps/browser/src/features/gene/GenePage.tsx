@@ -13,6 +13,7 @@ import {
 } from "@/api/endpoints";
 import type { Gene, GeneLocation, GoTerm } from "@/api/endpoints";
 import { gemmaUrl } from "@/lib/gemmaConfig";
+import { PageMask } from "@gemma/ui";
 
 export function GenePage() {
   const { id } = useParams({ from: "/gene/$id" });
@@ -24,13 +25,7 @@ export function GenePage() {
   });
 
   if (geneQ.isLoading) {
-    return (
-      <div className="h-full overflow-y-auto bg-gemma-bg">
-        <div className="max-w-4xl mx-auto px-6 py-8 text-sm text-gemma-subtle italic">
-          Loading gene…
-        </div>
-      </div>
-    );
+    return <PageMask mode="region" label="Loading gene" detail={`${id}…`} />;
   }
 
   if (geneQ.isError || !geneQ.data) {

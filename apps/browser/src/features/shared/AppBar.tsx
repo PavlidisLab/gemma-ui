@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { gemmaUrl } from "@/lib/gemmaConfig";
+import { curationUrl } from "@/lib/appLinks";
 import { LoginModal } from "./LoginModal";
 import { SearchBox } from "./SearchBox";
 
@@ -25,6 +26,16 @@ export function AppBar() {
         <NavTab to="/browser">Datasets</NavTab>
         <NavTab to="/platforms">Platforms</NavTab>
         <NavTab to="/genes">Genes</NavTab>
+        {/* Cross-app link into the curator dashboard. The curation
+            app is a separate vite build on a different origin (see
+            ``lib/appLinks.ts``). TODO: gate this tab on an admin /
+            curator role flag once /me exposes one — for now it's
+            visible to everyone per Paul 2026-05-26. */}
+        <ExternalNavTab href={curationUrl()}>Curation</ExternalNavTab>
+        {/* Administration — admin-only in the final product. The
+            existing /admin/system page handles its own 401/403, so
+            the route is safe to expose unconditionally for now. */}
+        <NavTab to="/admin/system">Administration</NavTab>
       </nav>
 
       <div className="ml-4">
@@ -34,22 +45,12 @@ export function AppBar() {
       <div className="flex-1" />
 
       <NavTab to="/about">About</NavTab>
-      <a
+      <ExtAnchor
         href={gemmaUrl("/expressionExperiment/showAllExpressionExperiments.html")}
-        className="text-sm text-gemma-subtle hover:text-gemma-ink hover:no-underline"
-        target="_blank"
-        rel="noreferrer"
       >
         Legacy browser
-      </a>
-      <a
-        href="https://pavlidislab.github.io/Gemma/"
-        className="text-sm text-gemma-subtle hover:text-gemma-ink hover:no-underline"
-        target="_blank"
-        rel="noreferrer"
-      >
-        Docs
-      </a>
+      </ExtAnchor>
+      <ExtAnchor href="https://pavlidislab.github.io/Gemma/">Docs</ExtAnchor>
 
       {/* Auth surface — in-app sign-in modal posts directly to
           /rest/v2/login and stashes the bearer token. Sign-out
@@ -122,6 +123,54 @@ function AuthControls({
     >
       Sign in
     </button>
+  );
+}
+
+/** Plain anchor variant of NavTab — used when the target leaves the
+ *  browser SPA (e.g. cross-app into the curation site). No active
+ *  state, since we're never "on" an external app when this bar
+ *  renders. Trailing ↗ marks the navigation as leaving the current
+ *  origin so curators don't lose their place by accident. */
+function ExternalNavTab({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      className="px-2.5 py-1 text-sm rounded text-gemma-subtle hover:text-gemma-ink hover:bg-gemma-grid/40 hover:no-underline"
+    >
+      {children}
+      <ExtGlyph />
+    </a>
+  );
+}
+
+/** Plain right-side external anchor — used for the AppBar's
+ *  About-row external links (Legacy browser, Docs, …) that open in a
+ *  new tab. Bakes in ``target="_blank"`` + ``rel="noopener
+ *  noreferrer"`` so callers can't forget either, and stamps the
+ *  trailing ↗. */
+function ExtAnchor({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      className="text-sm text-gemma-subtle hover:text-gemma-ink hover:no-underline"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {children}
+      <ExtGlyph />
+    </a>
+  );
+}
+
+/** Tiny North-East arrow glyph used to mark links that leave the
+ *  current site / origin. ``aria-hidden`` because the cue is purely
+ *  visual — screen readers should rely on the link's own text +
+ *  whatever surrounding context already conveys "external". */
+function ExtGlyph() {
+  return (
+    <span aria-hidden className="ml-0.5 text-[0.85em] opacity-60">
+      ↗
+    </span>
   );
 }
 

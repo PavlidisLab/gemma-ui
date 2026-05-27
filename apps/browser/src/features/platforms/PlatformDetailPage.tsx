@@ -32,6 +32,7 @@ import {
 import type { MappedGene } from "@/api/endpoints";
 import type { AnnotationTerm, Dataset, Platform } from "@/lib/types";
 import { manufacturerOf } from "./manufacturer";
+import { PageMask } from "@gemma/ui";
 
 const ELEMENTS_PAGE = 50;
 const DATASETS_PAGE = 25;
@@ -51,11 +52,7 @@ export function PlatformDetailPage() {
 
   if (platformQ.isLoading) {
     return (
-      <div className="h-full overflow-y-auto bg-gemma-bg">
-        <div className="max-w-5xl mx-auto px-6 py-8 text-sm text-gemma-subtle italic">
-          Loading platform…
-        </div>
-      </div>
+      <PageMask mode="region" label="Loading platform" detail={`${name}…`} />
     );
   }
   if (platformQ.isError || !platformQ.data) {

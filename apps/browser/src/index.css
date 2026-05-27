@@ -61,5 +61,24 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* Component classes shared across the browser SPA. Kept here (not in
+   a packages/ helper yet) because the call sites are small and the
+   curation app's equivalents in apps/curation/src/index.css use
+   slate-based colours that don't fit the browser's stone palette.
+   The classes themselves were missing in the browser CSS before
+   2026-05-26, so every ``className="btn"`` / ``btn-ghost`` callsite
+   in the browser was rendering unstyled — button contents fell back
+   to inline flow, stacking icon + label + chevron vertically.
+   Naming: ``btn-ghost`` (dash form) matches existing browser call
+   sites. */
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded border border-stone-400 bg-white hover:bg-stone-100 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply bg-transparent border-transparent text-stone-600 hover:bg-stone-200 hover:text-stone-900;
+  }
+}
+
 
 

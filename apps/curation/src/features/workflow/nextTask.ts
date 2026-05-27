@@ -47,11 +47,14 @@ function ticketVerb(t: Ticket): string {
       return "Realign";
     case "QUALITY_REVIEW":
       return "Review";
+    case "PRELOAD":
+      return "Preload";
     case "GENERIC":
-    default:
+    default: {
       // Strip parenthetical / dashed qualifiers, take first ~3 words.
       const stem = (t.title || "Task").split(/[—–\-(]/u)[0].trim();
       return stem.split(/\s+/).slice(0, 3).join(" ") || "Task";
+    }
   }
 }
 
@@ -164,14 +167,19 @@ export function deriveNextTask(
   groupType: GroupType | undefined = undefined,
   groupTaskKind: GroupTaskKind | null | undefined = undefined,
 ): NextTask | null {
-  // 1. Assigned ticket wins, if any.
+  // 1. Assigned ticket wins, if any — BUT only when this
+  //     experiment's target on the ticket isn't already DONE. A
+  //     DONE target means the curator (or a runner) has resolved
+  //     that target's work; surfacing the chip past that point is
+  //     misleading ("Preload" badge on already-preloaded rows).
   const ticketHit = (tickets ?? []).find(
     (t) =>
       (t.state === "OPEN" || t.state === "IN_PROGRESS") &&
       t.targets.some(
         (tg) =>
           tg.target_type === "EXPRESSION_EXPERIMENT" &&
-          tg.target_id === experimentId,
+          tg.target_id === experimentId &&
+          tg.status !== "DONE",
       ),
   );
   if (ticketHit) {

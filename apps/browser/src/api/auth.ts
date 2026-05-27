@@ -150,8 +150,18 @@ export function useMe() {
   return useQuery({
     queryKey: ["auth", "me", readSessionToken() ?? "cookie"],
     queryFn: ({ signal }) => getMe(signal),
-    staleTime: 60_000,
-    refetchOnWindowFocus: true,
+    // Generous staleTime + no refetch triggers — the only times
+    // we want /me to re-fire are (a) session-token change (handled
+    // via queryKey) and (b) explicit ``invalidateQueries(["auth"])``
+    // from useLogin/useLogout. ``refetchOnWindowFocus: true`` was
+    // the prior default and produced /me hammering on every
+    // focus-blur cycle (devtools, alt-tab, …) — observed 2-3 QPS
+    // sustained against frink with 5KB stack traces per 403.
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    retry: false,
   });
 }
 

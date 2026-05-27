@@ -308,6 +308,17 @@ function adaptDatasetListResponse(
       n_unactioned_blocker: Number(r.n_unactioned_blocker ?? 0),
       n_unactioned_major: Number(r.n_unactioned_major ?? 0),
       latest_audit_verdict: (r.latest_audit_verdict as string | null | undefined) ?? null,
+      // GEO-derived optional fields. Server only populates these on
+      // preboarded rows (where the eutils deep-fetch ran); harmless
+      // pass-through when absent — the consumer types them as
+      // optional.
+      assay: (r.assay as string | undefined) || undefined,
+      platform_short_name:
+        (r.platform_short_name as string | undefined) || undefined,
+      external_uri: (r.external_uri as string | undefined) || undefined,
+      accession: (r.accession as string | undefined) || undefined,
+      external_database:
+        (r.external_database as string | undefined) || undefined,
     };
   });
   return {

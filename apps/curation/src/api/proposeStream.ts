@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { bearerToken, snakeify } from "./client";
 import type { Proposal } from "./types";
 import type { TriggerProposalBody } from "./proposals";
+import { registerJob } from "@/state/inFlightJobs";
 
 /**
  * Server-Sent Events client for the proposer service's
@@ -59,22 +60,37 @@ export function useProposeStream(experimentId: number | string) {
   const qc = useQueryClient();
   const [state, setState] = useState<ProposeStreamState>(INITIAL_STATE);
   const ctlRef = useRef<AbortController | null>(null);
+  // Unregister handle for the current in-flight job entry. Cleared
+  // on stream-end / reset / unmount so the leave-guard stops
+  // prompting once the proposer's actually done.
+  const jobOffRef = useRef<(() => void) | null>(null);
+  const clearJob = useCallback(() => {
+    jobOffRef.current?.();
+    jobOffRef.current = null;
+  }, []);
 
   // Cancel any in-flight stream when the component unmounts so we
   // don't keep reading from a dead React tree. The pipeline keeps
   // running server-side regardless; same-accession 409s gate
   // duplicate runs.
+  //
+  // We also drop the job from the registry on unmount — the leave-
+  // guard should reflect what the UI knows about, and the UI is
+  // gone after unmount. The server-side run continues; if the
+  // curator wants to resume it they can re-trigger from the page.
   useEffect(() => {
     return () => {
       ctlRef.current?.abort();
+      clearJob();
     };
-  }, []);
+  }, [clearJob]);
 
   const reset = useCallback(() => {
     ctlRef.current?.abort();
     ctlRef.current = null;
+    clearJob();
     setState(INITIAL_STATE);
-  }, []);
+  }, [clearJob]);
 
   const start = useCallback(
     (accession: string, body?: TriggerProposalBody) => {
@@ -86,6 +102,20 @@ export function useProposeStream(experimentId: number | string) {
       // Reset state on every start. The previous run's events
       // shouldn't bleed into the next.
       setState({ ...INITIAL_STATE, status: "running" });
+
+      // Register with the in-flight registry so the leave-guard can
+      // prompt for a ticket if the curator navigates away mid-run.
+      // Clear any prior registration first (rapid double-click case).
+      clearJob();
+      jobOffRef.current = registerJob({
+        id:
+          (typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `propose-${experimentId}-${Date.now()}`),
+        eeId: experimentId,
+        kind: "proposal",
+        label: `Proposal for ${accession}`,
+      });
 
       const token = bearerToken();
       void (async () => {
@@ -178,6 +208,10 @@ export function useProposeStream(experimentId: number | string) {
             error: e instanceof Error ? e.message : String(e),
           }));
         } finally {
+          // Stream is over (success, error, or abort) — drop the
+          // leave-guard registration so the curator can navigate
+          // without the prompt firing on stale state.
+          clearJob();
           // Refresh the proposals list so the new pending row shows
           // up in the sidebar — same as ``useTriggerProposal``'s
           // invalidation path. Done on both success and error so a
@@ -191,7 +225,7 @@ export function useProposeStream(experimentId: number | string) {
         }
       })();
     },
-    [experimentId, qc],
+    [experimentId, qc, clearJob],
   );
 
   return { ...state, start, reset };

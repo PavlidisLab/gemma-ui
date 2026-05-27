@@ -4,6 +4,7 @@ import { LoginPage } from "@/features/auth/LoginPage";
 import { PreboardingDetailPage } from "@/features/preboarding/PreboardingDetailPage";
 import { ExperimentList } from "@/features/landing/ExperimentList";
 import { CuratorDashboard } from "@/features/landing/CuratorDashboard";
+import { TicketDetailPage } from "@/features/tickets/TicketDetailPage";
 import { ImportPrompt } from "@/features/landing/ImportPrompt";
 import { useStickyState } from "@/lib/useStickyState";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
@@ -13,6 +14,7 @@ import { ProposalPreviewPage } from "@/features/proposal/ProposalPreviewPage";
 import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
 import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { PipelinePanel } from "@/features/workflow/PipelinePanel";
+import { LeaveJobGuard } from "@/features/leaveGuard/LeaveJobGuard";
 import { useGroup } from "@/api/workflow";
 import { useAuditsForExperiment } from "@/api/audits";
 import { useProposalReviewsForExperiment } from "@/api/reviewProposals";
@@ -41,6 +43,8 @@ import {
   TopBar,
   type TabId,
 } from "@/features/experiment/ExperimentBanner";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { PageMask } from "@gemma/ui";
 import { useProposeStream } from "@/api/proposeStream";
 import { useAuditStream } from "@/api/auditStream";
 import { useServicesHealth } from "@/api/health";
@@ -115,15 +119,7 @@ export default function App() {
   const { data: me, isLoading: meLoading, error: meError } = useMe();
 
   if (meLoading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-sm text-slate-500 bg-white dark:bg-slate-950 dark:text-slate-400">
-        <div
-          className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-blue-600 dark:border-slate-700 dark:border-t-blue-400 animate-spin"
-          aria-label="loading"
-        />
-        <div>loading session…</div>
-      </div>
-    );
+    return <PageMask label="loading session…" />;
   }
   if (meError || me === undefined || me === null) {
     return <LoginPage />;
@@ -159,7 +155,9 @@ export default function App() {
   }
 
   if (route.kind === "audit-detail") {
-    return <AuditDetailPage auditId={route.auditId} />;
+    return (
+      <AuditDetailPage auditId={route.auditId} reviewer={fullName || reviewer} />
+    );
   }
 
   if (route.kind === "audit-preview") {
@@ -172,6 +170,15 @@ export default function App() {
 
   if (route.kind === "workflow") {
     return <WorkflowPage groupId={route.groupId} reviewer={fullName || reviewer} />;
+  }
+
+  if (route.kind === "ticket") {
+    return (
+      <TicketDetailPage
+        ticketId={route.ticketId}
+        reviewer={fullName || reviewer}
+      />
+    );
   }
 
   // Preboarded candidates (id form ``preboarding:N``) don't have a
@@ -217,6 +224,7 @@ export default function App() {
             fullName={fullName}
             initialTab={route.tab}
             groupContext={route.groupContext}
+            ticketContext={route.ticketContext}
           />
         </DesignDraftProvider>
       </ProposalReviewProvider>
@@ -298,6 +306,7 @@ function Shell({
   fullName,
   initialTab,
   groupContext,
+  ticketContext,
 }: {
   experimentId: number | string;
   reviewer: string;
@@ -308,6 +317,12 @@ function Shell({
    *  which set the curator is walking; preserved on tab-switch
    *  navigations so the context survives. */
   groupContext?: string;
+  /** Active Ticket context from the URL ``?ticket=<id>``. Threaded
+   *  into the banner so the ticket breadcrumb + per-target prev/next
+   *  cluster renders. Mutually exclusive with ``groupContext`` in
+   *  practice — a ticket's targets play the role of a group's
+   *  member_ids. */
+  ticketContext?: string;
 }) {
   // Map a free-form route tab onto the local TabId enum (or onto the
   // notes drawer, which isn't a tab in the bar). Unknown tabs fall
@@ -433,6 +448,7 @@ function Shell({
   if (draftLoading && !draft) {
     return (
       <div className="min-h-screen flex flex-col">
+        <AppHeader reviewer={fullName || reviewer} />
         <TopBar
           experimentId={experimentId}
           experimentShortName={`experiment ${experimentId}`}
@@ -446,8 +462,69 @@ function Shell({
   const externalSource = draft?.external_source ?? null;
   const shortName = draft?.experiment_short_name ?? `experiment ${experimentId}`;
 
+  // "Thin" experiment — imported as a numeric-id shell with NO
+  // metadata at all (no preload has run, no factors, no
+  // biomaterials, no curator tags). Rendering the full curation
+  // chrome against this state looks broken — Overview has nothing
+  // to show. Mount PreboardingDetailPage in embedded mode so the
+  // curator gets a screening surface that doesn't pretend there's
+  // a design.
+  //
+  // Once preload has populated GEO metadata (title / taxon /
+  // external_source / assay), the Overview tab IS the screening
+  // surface — title, organism, platform, publications all render
+  // there. The dedicated PreboardingDetailPage would be redundant.
+  // So we only short-circuit when even the preload bits are empty.
+  // Per Paul 2026-05-26 — "once they are loaded, rowclick should
+  // take you to the curator view; the preload view is irrelevant".
+  const hasPreloadMetadata = !!(
+    draft &&
+    (draft.title || draft.taxon || draft.external_source || draft.assay)
+  );
+  const isThin =
+    !!draft &&
+    !hasPreloadMetadata &&
+    (draft.biomaterials?.length ?? 0) === 0 &&
+    (draft.factors?.length ?? 0) === 0 &&
+    (draft.tags ?? []).filter((t) => !t.inferred).length === 0;
+  if (isThin && draft) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <AppHeader reviewer={fullName || reviewer} />
+        <TopBar
+          experimentId={experimentId}
+          experimentShortName={shortName}
+          reviewer={fullName || reviewer}
+        />
+        <PreboardingDetailPage
+          experimentId={experimentId}
+          embedded
+          preloaded={{
+            id: typeof experimentId === "number" ? experimentId : undefined,
+            short_name: draft.experiment_short_name,
+            name: draft.title,
+            taxon_common_name: draft.taxon,
+            technology_type: draft.technology_type,
+            number_of_bio_assays: draft.biomaterials?.length ?? 0,
+            external_uri: draft.external_source?.uri ?? undefined,
+            accession:
+              draft.external_source?.accession || draft.experiment_short_name,
+            external_database: draft.external_source?.database || "GEO",
+            platform_short_name:
+              draft.platform_short_name || draft.platform || undefined,
+            // ``assay`` carries the gdsType string on preboarded
+            // rows; the draft uses the same field name (populated by
+            // the python preboarding mapper).
+            assay: draft.assay || undefined,
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
+      <AppHeader reviewer={fullName || reviewer} />
       <TopBar
         experimentId={experimentId}
         experimentShortName={shortName}
@@ -476,6 +553,7 @@ function Shell({
         externalSource={externalSource}
         activeTab={activeTab}
         groupContext={groupContext}
+        ticketContext={ticketContext}
         onTabChange={(tab) => {
           // Keep the URL in sync with the visible tab. Without
           // this, manual tab-bar clicks drift the URL away from
@@ -492,6 +570,7 @@ function Shell({
               experimentId,
               tabIdToRouteTab(tab),
               groupContext,
+              ticketContext,
             ),
           );
         }}
@@ -539,6 +618,11 @@ function Shell({
         activeTab={activeTab}
         experimentId={experimentId}
         reviewer={reviewer}
+      />
+
+      <LeaveJobGuard
+        eeId={experimentId}
+        accession={shortName || String(experimentId)}
       />
 
       {/* "connected to /rest (proxied)" footer retired 2026-05-23 —
@@ -1093,26 +1177,16 @@ function SharedCommitBar({
  *  in its initial fetch. Keeps the chrome that matters (TopBar,
  *  HealthChip) while replacing the banner + content with a single
  *  centered "loading…" state so the curator doesn't see the
- *  experiment-shell mount against fallback values for a frame. */
+ *  experiment-shell mount against fallback values for a frame.
+ *  Delegates to ``PageMask`` from ``@gemma/ui`` in region mode — the
+ *  chrome above is already mounted. */
 function ExperimentShellLoading({
   experimentId,
 }: {
   experimentId: number | string;
 }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 gap-3 px-4">
-      <div
-        className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-blue-600 dark:border-slate-700 dark:border-t-blue-400 animate-spin"
-        aria-label="loading"
-      />
-      <div className="text-sm">
-        Loading experiment{" "}
-        <span className="font-mono text-slate-700 dark:text-slate-300">
-          {experimentId}
-        </span>
-        …
-      </div>
-    </div>
+    <PageMask mode="region" label="Loading experiment" detail={`${experimentId}…`} />
   );
 }
 

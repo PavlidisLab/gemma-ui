@@ -405,14 +405,16 @@ export function PipelinePanel({ experimentId }: { experimentId: number | string 
         <div className="card px-4 divide-y divide-slate-100 dark:divide-slate-800">
           {analysis ? (
             <>
-              <AnalysisStepRow
-                title="Missing value analysis"
-                step={analysis.missing_value_analysis}
-                actionLabel={analysis.missing_value_analysis.status === "not_run" ? "Run" : "Re-run"}
-                onRun={() => dispatch((_, opts) => runPreprocess.mutate(undefined, opts))}
-                running={runPreprocess.isPending}
-                disabled={anyRunning}
-              />
+              {analysis.missing_value_analysis.status !== "na" ? (
+                <AnalysisStepRow
+                  title="Missing value analysis"
+                  step={analysis.missing_value_analysis}
+                  actionLabel={analysis.missing_value_analysis.status === "not_run" ? "Run" : "Re-run"}
+                  onRun={() => dispatch((_, opts) => runPreprocess.mutate(undefined, opts))}
+                  running={runPreprocess.isPending}
+                  disabled={anyRunning}
+                />
+              ) : null}
               <AnalysisStepRow
                 title="Batch information"
                 step={analysis.batch_info}

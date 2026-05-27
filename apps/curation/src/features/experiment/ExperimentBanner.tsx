@@ -12,19 +12,16 @@ import { ApiError } from "@/api/client";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { setDesignTitle } from "@/features/design/mutations";
 import { useCurationDetails } from "@/api/curation";
-import { useLogout, useMe } from "@/api/session";
+import { useMe } from "@/api/session";
+import { useTicket } from "@/api/tickets";
 import {
   useDatasetVisibility,
-  useImportFromGemma,
   usePublishExperiment,
   useRenameExperiment,
 } from "@/api/datasets";
-import { useGemmaMode } from "@/lib/gemmaMode";
 import { Pencil as PencilIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
-import { ModeChip } from "@/components/ui/ModeChip";
-import { HealthChip } from "@/components/ui/HealthChip";
 import { experimentPageUrl, platformPageUrl } from "@/lib/gemmaUrls";
 import {
   inferModality,
@@ -103,6 +100,7 @@ export function ExperimentBanner({
   notesOpen,
   onToggleNotes,
   groupContext,
+  ticketContext,
   commitBar,
 }: {
   experimentId: number | string;
@@ -137,6 +135,11 @@ export function ExperimentBanner({
    *  to that group; member-link navigations preserve the param so
    *  the curator stays in-set. */
   groupContext?: string;
+  /** Active Ticket context (URL ``?ticket=<id>``). When set, the
+   *  banner renders a ticket breadcrumb + prev/next walking the
+   *  ticket's targets. Mutually exclusive with ``groupContext`` in
+   *  practice. */
+  ticketContext?: string;
   /** Inline commit-status chip rendered in the action row. App-level
    *  composition pulls in the design draft + validation. Renders
    *  null when the draft is clean, so passing it always is fine. */
@@ -246,6 +249,12 @@ export function ExperimentBanner({
              three set chips PLUS a separate paginator for "the active
              one", with the same data echoed twice. Open the active
              chip to navigate. */}
+          {ticketContext ? (
+            <TicketContextChip
+              experimentId={experimentId}
+              ticketContext={ticketContext}
+            />
+          ) : null}
           <ExperimentGroupChips
             experimentId={experimentId}
             groupContext={groupContext}
@@ -272,7 +281,12 @@ export function ExperimentBanner({
             overrides + change summary), and showing both invited the
             collision the curator noticed in the top-right.
            */}
-          <ResyncButton />
+          {/* ``ResyncButton`` ("re-import from Gemma") retired
+              2026-05-26 — Paul: pulling data from remote into local
+              via the UI is too confusing. The functionality lived in
+              the local-mode dev escape hatch; if needed it returns
+              via a CLI / admin path. ``useImportFromGemma`` kept on
+              the data-layer for ImportPrompt's 404 fallback. */}
           <PublishButton experimentId={experimentId} />
         </div>
       </div>
@@ -533,60 +547,6 @@ function ShortNameEditor({
  * whatever's currently in the local backend. Gated by a confirmation
  * modal that warns about the draft when the diff is dirty.
  */
-function ResyncButton() {
-  const { mode } = useGemmaMode();
-  const { draft, diff } = useDesignDraft();
-  const importer = useImportFromGemma();
-  const [confirming, setConfirming] = useState(false);
-
-  if (mode !== "local") return null;
-  if (!draft) return null;
-
-  const isDirty = diff.isDirty;
-  const ref =
-    draft.external_source?.accession ||
-    draft.experiment_short_name ||
-    String(draft.experiment_id);
-
-  return (
-    <>
-      {importer.isError ? (
-        <span
-          className="text-xs text-rose-700 max-w-md truncate"
-          title={(importer.error as Error).message}
-        >
-          import failed: {(importer.error as Error).message}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        className="btn text-xs !px-2 !py-1"
-        onClick={() => setConfirming(true)}
-        disabled={importer.isPending}
-        title="re-pull this experiment's design from Gemma (local mode only)"
-      >
-        {importer.isPending ? "re-importing…" : "re-import from Gemma"}
-      </button>
-      <ConfirmModal
-        open={confirming}
-        title="Re-import from Gemma?"
-        body={
-          (isDirty
-            ? "You have uncommitted changes to this design. Re-importing replaces the saved Design with whatever Gemma has now; your draft is preserved client-side until you discard it.\n\n"
-            : "Replaces the saved Design with whatever Gemma has now. Curator-edited fields stamped on the local backend will be overwritten.\n\n") +
-          `Will resolve "${ref}" against Gemma.`
-        }
-        confirmLabel="re-import"
-        destructive
-        onConfirm={() => {
-          setConfirming(false);
-          importer.mutate(ref);
-        }}
-        onCancel={() => setConfirming(false)}
-      />
-    </>
-  );
-}
 
 /**
  * Click-to-edit display of the experiment title (the human-readable
@@ -1319,22 +1279,6 @@ function groupTypeChipCls(type: GroupType): string {
   }
 }
 
-function LogoutButton() {
-  const logout = useLogout();
-  return (
-    <button
-      type="button"
-      className="text-slate-500 hover:text-slate-900 underline disabled:opacity-50"
-      onClick={() => logout.mutate()}
-      disabled={logout.isPending}
-      title="sign out"
-    >
-      {logout.isPending ? "signing out…" : "sign out"}
-    </button>
-  );
-}
-
-
 /**
  * Compact "Apr 16 07:32" rendering of an ISO timestamp. Falls back
  * to the raw string when parsing fails — better noise than "Invalid
@@ -1838,25 +1782,27 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
 export function TopBar({
   experimentId,
   experimentShortName,
-  reviewer,
+  reviewer: _reviewer,
 }: {
   experimentId: number | string;
   experimentShortName: string;
+  /** Retained for caller-side type compatibility; no longer rendered
+   *  here — the signed-in / mode / health / logout cluster moved to
+   *  the global ``<AppHeader>`` that mounts above this bar
+   *  (2026-05-26 unification pass). */
   reviewer: string;
 }) {
   const gemmaUrl = experimentPageUrl(experimentId);
+  // Slimmed 2026-05-26: dropped the Gemma brand mark + the right-side
+  // signed-in/mode/health/logout cluster — both are now owned by the
+  // shared ``AppHeader`` (``apps/curation/src/components/ui/AppHeader.tsx``).
+  // What's left is the experiment-context breadcrumb + the per-page
+  // SettingsMenu — i.e. the bits that are only meaningful inside an
+  // experiment, and have no equivalent in the global bar.
   return (
     <header className="border-b border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200">
-      <div className="mx-auto w-full max-w-[1800px] px-4 py-2 flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <span className="font-semibold">Gemma</span>
-          <span className="text-xs text-slate-400">/</span>
-          {/*
-            Renamed from "Curation" → "Experiments" — the destination
-            is the experiment-list landing page, so the breadcrumb
-            now reads "Gemma / Experiments / GSE..." which matches
-            what the user gets when they click.
-          */}
+      <div className="mx-auto w-full max-w-[1800px] px-4 py-1.5 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
           <a
             href="#/"
             className="text-sm text-slate-600 hover:underline"
@@ -1876,19 +1822,310 @@ export function TopBar({
           </a>
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-600">
-          {/* Public/private pill retired here 2026-05-23 — moved
-              into BannerStatusChips below the banner action row so
-              it sits alongside the other experiment-status chips
-              (needs-attention, troubled). */}
-          <span>
-            signed in as <span className="font-medium">{reviewer}</span>
-          </span>
-          <ModeChip />
-          <HealthChip />
           <SettingsMenu />
-          <LogoutButton />
         </div>
       </div>
     </header>
+  );
+}
+
+/** Banner chip surfacing the active Ticket context. Renders a
+ *  back-link to the ticket detail page + the curator's position
+ *  within the ticket's targets ("3/20"), with prev/next arrows
+ *  walking the target list — same workflow as the group navigator
+ *  for sets. */
+function TicketContextChip({
+  experimentId,
+  ticketContext,
+}: {
+  experimentId: number | string;
+  ticketContext: string;
+}) {
+  const ticketId = parseInt(ticketContext, 10);
+  const { data: ticket } = useTicket(Number.isFinite(ticketId) ? ticketId : null);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  // Outside-click + Escape dismissal — same pattern as SetChip.
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  if (!ticket) return null;
+  const expTargets = ticket.targets.filter(
+    (t) => t.target_type === "EXPRESSION_EXPERIMENT",
+  );
+  const currentNumericId =
+    typeof experimentId === "number"
+      ? experimentId
+      : parseInt(String(experimentId), 10);
+  const idx = expTargets.findIndex((t) => t.target_id === currentNumericId);
+  const total = expTargets.length;
+  const chipLabel =
+    ticket.title.length > 32 ? `${ticket.title.slice(0, 32)}…` : ticket.title;
+
+  return (
+    <span ref={wrapRef} className="relative inline-flex items-center gap-1 text-[11px]">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer",
+          "border-violet-300 bg-violet-100 text-violet-800",
+          "hover:bg-violet-200",
+          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
+          open && "ring-2 ring-offset-1 ring-violet-400/50",
+        )}
+        title={`${ticket.title} — click to see ticket members`}
+      >
+        <span>Ticket: {chipLabel}</span>
+        <span className="text-[10px] text-violet-700/70 dark:text-violet-300/70 tabular-nums">
+          {total}
+        </span>
+        <span className="text-violet-700/70 dark:text-violet-300/70" aria-hidden>
+          ▾
+        </span>
+      </button>
+      <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300">
+        {idx >= 0 ? idx + 1 : "?"}/{total}
+      </span>
+      {open ? (
+        <TicketNavigatorPopover
+          ticketId={ticketId}
+          ticketTitle={ticket.title}
+          targets={expTargets}
+          currentExperimentId={currentNumericId}
+          anchorRef={wrapRef}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+/** Anchored dropdown listing every EE target on the ticket, with the
+ *  current one highlighted. Mirrors ``SetNavigatorPopover``'s shape
+ *  (header / position readout / search filter / scrollable list) so
+ *  the navigator feels the same whether the curator is set-walking
+ *  or ticket-walking. The set version handles screening-group
+ *  placeholders + uncommitted-draft hints that don't apply to
+ *  tickets, so we keep this as a sibling rather than refactoring
+ *  ``SetMemberRow`` into a single generic. */
+function TicketNavigatorPopover({
+  ticketId,
+  ticketTitle,
+  targets,
+  currentExperimentId,
+  anchorRef,
+  onClose,
+}: {
+  ticketId: number;
+  ticketTitle: string;
+  targets: Array<{
+    target_id: number;
+    display_label?: string;
+    display_name?: string;
+    status?: "NOT_DONE" | "UNDERWAY" | "DONE";
+  }>;
+  currentExperimentId: number;
+  anchorRef: RefObject<HTMLElement | null>;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  // Vertical-flip if too close to bottom of viewport (same heuristic
+  // as SetNavigatorPopover; popover is similar height).
+  const [flipUp, setFlipUp] = useState(false);
+  useEffect(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const POPOVER_H_ESTIMATE = 380;
+    const margin = 8;
+    setFlipUp(
+      rect.bottom + POPOVER_H_ESTIMATE + margin > window.innerHeight &&
+        rect.top > POPOVER_H_ESTIMATE,
+    );
+  }, [anchorRef]);
+
+  const currentIdx = targets.findIndex(
+    (t) => t.target_id === currentExperimentId,
+  );
+
+  const goToIndex = useCallback(
+    (idx: number) => {
+      if (targets.length === 0) return;
+      const wrapped = ((idx % targets.length) + targets.length) % targets.length;
+      const target = targets[wrapped];
+      if (!target) return;
+      window.location.hash = `#/experiments/${target.target_id}?ticket=${ticketId}`;
+      onClose();
+    },
+    [targets, ticketId, onClose],
+  );
+
+  // [ / ] keyboard prev-next while the popover is open. Same UX
+  // as SetNavigatorPopover; curator never types literal brackets
+  // when filtering by accession.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "[") {
+        e.preventDefault();
+        goToIndex(currentIdx - 1);
+      } else if (e.key === "]") {
+        e.preventDefault();
+        goToIndex(currentIdx + 1);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [goToIndex, currentIdx]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return targets;
+    return targets.filter(
+      (t) =>
+        (t.display_label ?? "").toLowerCase().includes(q) ||
+        (t.display_name ?? "").toLowerCase().includes(q),
+    );
+  }, [targets, query]);
+
+  return (
+    <div
+      role="dialog"
+      aria-label={`Ticket ${ticketId} navigator`}
+      className={cn(
+        "absolute z-30 left-0 w-96 max-w-[90vw] rounded-md border border-slate-200 bg-white shadow-lg text-xs dark:bg-slate-900 dark:border-slate-700",
+        flipUp ? "bottom-full mb-1" : "top-full mt-1",
+      )}
+    >
+      <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
+            {ticketTitle}
+          </span>
+          <span className="ml-auto">
+            <a
+              href={`#/tickets/${ticketId}`}
+              className="text-blue-700 hover:underline text-[11px] dark:text-blue-300"
+              onClick={onClose}
+            >
+              Open ticket ↗
+            </a>
+          </span>
+        </div>
+        {targets.length > 0 ? (
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+            {currentIdx >= 0
+              ? `${currentIdx + 1} of ${targets.length}  ·  [ and ] keys to navigate`
+              : `not on ticket · ${targets.length} member${
+                  targets.length === 1 ? "" : "s"
+                }`}
+          </div>
+        ) : null}
+      </div>
+      <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+        <input
+          type="search"
+          placeholder="Filter by accession or title…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full px-2 py-1 text-xs border border-slate-300 rounded outline-none focus:border-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-blue-400"
+          autoFocus
+        />
+      </div>
+      <ul className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+        {filtered.length === 0 ? (
+          <li className="px-3 py-2 text-slate-500 dark:text-slate-400 italic">
+            No members match "{query}".
+          </li>
+        ) : (
+          filtered.map((t) => (
+            <TicketMemberRow
+              key={t.target_id}
+              target={t}
+              isCurrent={t.target_id === currentExperimentId}
+              onClick={() => {
+                window.location.hash = `#/experiments/${t.target_id}?ticket=${ticketId}`;
+                onClose();
+              }}
+            />
+          ))
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function TicketMemberRow({
+  target,
+  isCurrent,
+  onClick,
+}: {
+  target: {
+    target_id: number;
+    display_label?: string;
+    display_name?: string;
+    status?: "NOT_DONE" | "UNDERWAY" | "DONE";
+  };
+  isCurrent: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "w-full text-left px-3 py-1.5 flex items-baseline gap-2",
+          "hover:bg-slate-50 cursor-pointer dark:hover:bg-slate-800",
+          isCurrent &&
+            "bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50",
+        )}
+        title={`Open ${target.display_label ?? target.target_id}`}
+      >
+        <span
+          className={cn(
+            "font-mono text-[11px] tabular-nums shrink-0",
+            isCurrent
+              ? "font-semibold text-blue-900 dark:text-blue-200"
+              : "text-slate-700 dark:text-slate-200",
+          )}
+        >
+          {target.display_label ?? String(target.target_id)}
+        </span>
+        <span className="flex-1 truncate text-slate-600 dark:text-slate-400 text-[11px]">
+          {target.display_name || "(no title)"}
+        </span>
+        {target.status ? (
+          <span
+            className={cn(
+              "text-[9px] uppercase tracking-wide shrink-0",
+              target.status === "DONE"
+                ? "text-emerald-700 dark:text-emerald-400"
+                : target.status === "UNDERWAY"
+                  ? "text-amber-700 dark:text-amber-400"
+                  : "text-slate-500 dark:text-slate-400",
+            )}
+          >
+            {target.status === "NOT_DONE" ? "todo" : target.status.toLowerCase()}
+          </span>
+        ) : null}
+      </button>
+    </li>
   );
 }

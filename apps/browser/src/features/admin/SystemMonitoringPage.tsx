@@ -61,10 +61,18 @@ export function SystemMonitoringPage() {
   return (
     <div className="mx-auto w-full max-w-[1800px] px-4 py-4 space-y-3">
       <HeaderSection />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      {/* Top tier: JVM / Hibernate / Caches. Capped at 28rem so the
+          Caches table (the only intrinsically-tall member) scrolls
+          inside its card instead of stretching the other two. The
+          SectionCard body flexes to fill the remaining card height;
+          see ``SectionCard`` + ``CachesSection``'s ``flex-1
+          min-h-0`` table wrapper. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 [&>*]:max-h-[28rem]">
         <JvmSection />
         <HibernateSection />
         <CachesSection />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <JobsSection />
         <TicketsSection />
         <SessionsSection />

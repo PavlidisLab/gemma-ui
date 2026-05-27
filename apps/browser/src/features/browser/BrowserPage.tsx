@@ -48,7 +48,11 @@ export function BrowserPage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [sort, setSort] = useState<string | undefined>("-id");
+  // Seed sort from ``?sort=`` if present (e.g. "Recently updated →
+  // see all" lands with ``?sort=-lastUpdated``). Default falls back
+  // to the legacy "-id" so direct ``/browser`` navigation is
+  // unchanged. Initial-only — user column-sorts don't write back.
+  const [sort, setSort] = useState<string | undefined>(url.sort ?? "-id");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showSnippet, setShowSnippet] = useState(false);
 

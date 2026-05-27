@@ -25,6 +25,43 @@ import type { Dataset, PaginatedResponse, Taxon } from "@/lib/types";
 
 const BASE = "/rest/v2";
 
+/** One ontology term that exemplifies a treatment subcategory. Ships
+ *  ranked-by-count under each ``treatmentSubcategories[].topTerms``
+ *  so the home page can show "e.g. dexamethasone, doxycycline, JQ1"
+ *  rather than a bare "Approved drugs: 1,759". */
+interface TreatmentTopTermWire {
+  uri: string;
+  label: string;
+  count: number;
+}
+
+/** One sub-bucket of a treatment subcategory. Today only
+ *  ``approved_drug`` carries non-empty subBuckets (therapeutic
+ *  classes: antineoplastic, kinase inhibitor, etc); the field is
+ *  defined recursively on the wire to leave room for nested
+ *  classifications later (currently always a leaf — children's
+ *  ``subBuckets`` is always ``[]``). */
+interface TreatmentSubcategoryWire {
+  key: string;
+  label: string;
+  /** Bro's parent group: ``control`` / ``pharmacology`` /
+   *  ``biological`` / ``unclassified``. Lets the UI strip
+   *  control-like buckets (Control / reference, Vehicles /
+   *  solvents) before rendering — they dominate the count but
+   *  carry no biological signal. */
+  group?: string | null;
+  count: number;
+  termCount?: number;
+  /** Top ontology terms inside this bucket, sorted by count desc.
+   *  Backend ships up to ~15 entries; UI only surfaces the first 3
+   *  inline (rest live in the row's title tooltip). */
+  topTerms?: TreatmentTopTermWire[];
+  /** Secondary classification (currently approved_drug → therapeutic
+   *  class). Empty for every other bucket. Recursive type for future
+   *  nesting; today the children carry empty ``subBuckets``. */
+  subBuckets?: TreatmentSubcategoryWire[];
+}
+
 /** ``/stats/home`` v2 payload — bro's full landed wishlist. Mirrors
  *  ``HomeStats.java`` in the Gemma REST module. */
 interface HomeStatsWire {
@@ -92,18 +129,7 @@ interface HomeStatsWire {
    *  Keys: ``drug`` (CHEBI), ``pathogen`` (NCBITaxon), ``biologic``
    *  (PR), ``other`` (everything else). Sums to
    *  ``byAnnotationCategory.treatment``. */
-  treatmentSubcategories?: Array<{
-    key: string;
-    label: string;
-    /** Bro's parent group: ``control`` / ``pharmacology`` /
-     *  ``biological`` / ``unclassified``. Lets the UI strip
-     *  control-like buckets (Control / reference, Vehicles /
-     *  solvents) before rendering — they dominate the count but
-     *  carry no biological signal. */
-    group?: string | null;
-    count: number;
-    termCount?: number;
-  }>;
+  treatmentSubcategories?: Array<TreatmentSubcategoryWire>;
   /** Top perturbed genes by number of experiments. Not yet shipped
    *  — see HOME_PAGE_PERTURBED_GENES_2026_05_25.md. */
   topPerturbedGenes?: Array<{
@@ -148,6 +174,35 @@ export interface RecentDataset {
   taxonName: string | null;
   bioAssays: number;
   lastUpdated: string | null;
+}
+
+/** Top-term sample inside a Treatment subcategory. Same shape on the
+ *  consumer side as on the wire — no normalisation needed. */
+export interface TreatmentTopTerm {
+  uri: string;
+  label: string;
+  count: number;
+}
+
+/** One Treatment subcategory row as consumed by the home page panels.
+ *  Mirrors the wire shape with two normalisations: ``group`` /
+ *  ``termCount`` are nullable (the API may omit on older snapshots),
+ *  and ``topTerms`` / ``subBuckets`` default to empty arrays so
+ *  consumers can iterate without null checks. */
+export interface TreatmentSubcategory {
+  key: string;
+  label: string;
+  group: string | null;
+  count: number;
+  termCount: number | null;
+  /** Top representative terms (e.g. ``approved_drug`` →
+   *  dexamethasone, doxycycline, JQ1). Empty on snapshots that
+   *  predate bro's enrichment of the field. */
+  topTerms: TreatmentTopTerm[];
+  /** Secondary classification (today ``approved_drug`` →
+   *  Antineoplastics / Kinase inhibitors / …). Empty everywhere
+   *  else. */
+  subBuckets: TreatmentSubcategory[];
 }
 
 export interface GemmaSummary {
@@ -224,13 +279,7 @@ export interface GemmaSummary {
    *  prose explanation to a ranked drug / pathogen / biologic /
    *  other list. Empty array on snapshots predating bro's
    *  treatmentSubcategories field. */
-  treatmentSubcategories: Array<{
-    key: string;
-    label: string;
-    group: string | null;
-    count: number;
-    termCount: number | null;
-  }>;
+  treatmentSubcategories: Array<TreatmentSubcategory>;
   /** Top perturbed genes by number of experiments referencing them
    *  as perturbation targets. Drives the middle-third bar chart on
    *  the home page. Empty until bro ships the field — filed in
@@ -272,6 +321,28 @@ function rollUpFromSamplesByTech(samplesByTech: {
   ]
     .filter((r) => r.count > 0)
     .sort((a, b) => b.count - a.count);
+}
+
+/** Wire → consumer normalisation for a treatment subcategory row.
+ *  Recursive — sub-buckets share the same shape. ``topTerms`` and
+ *  ``subBuckets`` default to ``[]`` so render code doesn't need to
+ *  null-check before mapping. */
+function normalizeTreatmentSubcategory(
+  t: TreatmentSubcategoryWire,
+): TreatmentSubcategory {
+  return {
+    key: t.key,
+    label: t.label,
+    group: t.group ?? null,
+    count: t.count,
+    termCount: t.termCount ?? null,
+    topTerms: (t.topTerms ?? []).map((tt) => ({
+      uri: tt.uri,
+      label: tt.label,
+      count: tt.count,
+    })),
+    subBuckets: (t.subBuckets ?? []).map(normalizeTreatmentSubcategory),
+  };
 }
 
 function useNumericCount(path: string, key: string) {
@@ -508,13 +579,9 @@ export function useGemmaSummary(): GemmaSummary {
     categoryDistribution: wire?.categoryDistribution ?? [],
     datasetsByAccessionSource: wire?.datasetsByAccessionSource ?? [],
     distinctAccessionCount: wire?.distinctAccessionCount ?? null,
-    treatmentSubcategories: (wire?.treatmentSubcategories ?? []).map((t) => ({
-      key: t.key,
-      label: t.label,
-      group: t.group ?? null,
-      count: t.count,
-      termCount: t.termCount ?? null,
-    })),
+    treatmentSubcategories: (wire?.treatmentSubcategories ?? []).map(
+      normalizeTreatmentSubcategory,
+    ),
     topPerturbedGenes: wire?.topPerturbedGenes ?? [],
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,

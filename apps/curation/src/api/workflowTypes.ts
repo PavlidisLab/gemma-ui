@@ -371,6 +371,24 @@ export interface WorkflowDatasetRow {
   n_unactioned_blocker: number;
   n_unactioned_major: number;
   latest_audit_verdict: string | null;
+  // ---- Optional GEO-derived fields, populated for preboarded
+  // rows by the python deep-fetch (shared/geo_eutils.py +
+  // local_api/storage.py preboarding row mapper, 2026-05-26).
+  // Absent on rows from older snapshots — UI degrades to the
+  // existing empty-cell render when missing.
+  /** Short study-type string from NCBI eutils ``gdstype`` (e.g.
+   *  "Expression profiling by high throughput sequencing"). */
+  assay?: string;
+  /** Primary platform short name (GPLxxxx). First entry from
+   *  ``platforms`` in the eutils response. */
+  platform_short_name?: string;
+  /** External-source link — for preboarded GEO rows this is the
+   *  GEO FTP series root. */
+  external_uri?: string;
+  /** GEO accession (same as short_name for GEO-sourced rows). */
+  accession?: string;
+  /** Source database — "GEO", "ArrayExpress", etc. */
+  external_database?: string;
 }
 
 export interface WorkflowDatasetListResponse {

@@ -433,14 +433,40 @@ function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
         <ul>
           {rows.map((r) => {
             const pct = Math.max(0.5, (r.count / max) * 100);
+            // Rich title= tooltip carries the new data (top terms +
+            // approved_drug therapeutic-class breakdown) without
+            // changing row height — keeps alignment with the sibling
+            // CategoryBars / PerturbedGenesBars panels.
+            const tooltipLines: string[] = [r.label];
+            if (r.topTerms.length > 0) {
+              tooltipLines.push(
+                "",
+                `Top terms (${r.topTerms.length}):`,
+                ...r.topTerms
+                  .slice(0, 10)
+                  .map(
+                    (t) =>
+                      `  • ${t.label} — ${t.count.toLocaleString()} experiments`,
+                  ),
+              );
+            }
+            if (r.subBuckets.length > 0) {
+              tooltipLines.push(
+                "",
+                `Therapeutic-class breakdown (${r.subBuckets.length}):`,
+                ...r.subBuckets.map(
+                  (b) =>
+                    `  • ${b.label} — ${b.count.toLocaleString()} experiments`,
+                ),
+              );
+            }
             return (
               <li
                 key={r.key}
                 className="px-4 py-0.5 grid grid-cols-[6.5rem_minmax(0,1fr)_max-content] items-center gap-2 text-xs"
+                title={tooltipLines.join("\n")}
               >
-                <span className="text-stone-800 truncate" title={r.label}>
-                  {r.label}
-                </span>
+                <span className="text-stone-800 truncate">{r.label}</span>
                 <div className="h-1.5 bg-stone-200 relative overflow-hidden">
                   <div
                     className="absolute inset-y-0 left-0 bg-blue-700"
@@ -708,6 +734,7 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
         <span className="text-stone-900 font-semibold">Recently updated</span>
         <Link
           to="/browser"
+          search={{ sort: "-lastUpdated" }}
           className="text-stone-600 hover:text-blue-700 hover:no-underline normal-case tracking-normal text-[11px]"
         >
           see all →
@@ -974,10 +1001,16 @@ function GeneralInfo({
                       <a
                         href={item.href}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         className="group inline-block"
                       >
                         {labelEl}
+                        <span
+                          aria-hidden
+                          className="ml-0.5 text-[0.85em] opacity-60 font-normal text-stone-500"
+                        >
+                          ↗
+                        </span>
                       </a>
                     ) : (
                       <Link to={item.href} className="group inline-block">

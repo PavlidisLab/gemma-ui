@@ -44,7 +44,7 @@ export function SectionCard({
         </div>
         {accessory ? <div className="flex-none">{accessory}</div> : null}
       </div>
-      <div className="p-3">{children}</div>
+      <div className="p-3 flex-1 min-h-0 flex flex-col">{children}</div>
     </div>
   );
 }

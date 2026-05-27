@@ -13,7 +13,9 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { apiGet, ApiError } from "@/api/client";
+import { curationUrl } from "@/lib/appLinks";
 
 /** Compact relative-time formatter ("3m ago", "2h ago"). Pure;
  *  caller renders the absolute ISO via title= for accuracy. */
@@ -196,67 +198,82 @@ export function Footer() {
       ) : null}
 
       <span className="ml-auto inline-flex items-center gap-3 flex-wrap">
-        <a
-          href="https://pavlidislab.github.io/Gemma/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
-          Docs
+        {/* App-level surfaces. Render in the footer so the home page
+            (which hides the AppBar) still has a way into Curation +
+            Administration. TODO: gate Administration on an admin
+            role flag once /me carries one — Paul 2026-05-26. */}
+        <a href={curationUrl()} className="hover:underline">
+          Curation
         </a>
-        <a
-          href="https://gemma.msl.ubc.ca/resources/restapidocs/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
+        <Link to="/admin/system" className="hover:underline">
+          Administration
+        </Link>
+        <span className="opacity-40" aria-hidden>·</span>
+        <ExtLink href="https://pavlidislab.github.io/Gemma/">Docs</ExtLink>
+        <ExtLink href="https://gemma.msl.ubc.ca/resources/restapidocs/">
           REST
-        </a>
-        <a
-          href="https://github.com/PavlidisLab"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
-          GitHub
-        </a>
-        <a
-          href="https://pavlidislab.github.io/Gemma/terms.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
+        </ExtLink>
+        <ExtLink href="https://github.com/PavlidisLab">GitHub</ExtLink>
+        <ExtLink href="https://pavlidislab.github.io/Gemma/terms.html">
           Terms
-        </a>
-        <a
+        </ExtLink>
+        <ExtLink
           href="https://pavlidislab.github.io/Gemma/terms.html#cookies"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
           title="Essential cookies only — sign-in session + UI preferences."
         >
           Cookies
-        </a>
+        </ExtLink>
         <span className="opacity-60 uppercase tracking-[0.16em] text-[10px]">
-          <a
+          <ExtLink
             href="https://pavlab.msl.ubc.ca"
-            target="_blank"
-            rel="noopener noreferrer"
             className="hover:underline hover:opacity-100"
           >
             Pavlidis Lab
-          </a>
+          </ExtLink>
           {" · "}
-          <a
+          <ExtLink
             href="https://www.ubc.ca"
-            target="_blank"
-            rel="noopener noreferrer"
             className="hover:underline hover:opacity-100"
           >
             UBC
-          </a>
+          </ExtLink>
         </span>
       </span>
     </footer>
+  );
+}
+
+/** External link with a trailing ↗ glyph so readers can tell at a
+ *  glance the click leaves Gemma. ``target="_blank"`` +
+ *  ``rel="noopener noreferrer"`` are baked in (security + tab-
+ *  hygiene defaults — every caller in the footer wanted them
+ *  anyway). */
+function ExtLink({
+  href,
+  children,
+  title,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      className={className ?? "hover:underline"}
+    >
+      {children}
+      <span
+        aria-hidden
+        className="ml-0.5 text-[0.85em] opacity-60"
+      >
+        ↗
+      </span>
+    </a>
   );
 }

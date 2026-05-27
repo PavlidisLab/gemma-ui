@@ -15,6 +15,7 @@
     "@gemma/diagnostics": "*",
     "@gemma/heatmap": "*",
     "@gemma/ontology": "*",
+    "@gemma/ui": "*",
     "@tanstack/react-query": "^5.59.0",
     "@tanstack/react-router": "^1.95.0",
     "clsx": "^2.1.1",

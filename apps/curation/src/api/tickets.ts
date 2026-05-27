@@ -8,19 +8,21 @@
  * Java side exactly so a future flip to the real REST surface only
  * needs to swap ``useMyTickets`` to a network fetch.
  *
- * **Status (2026-05-25): MOCK.** Gemma 2.0's tickets REST API exists
- * (``/rest/v2/tickets``) but isn't wired into the local-mode flow
- * yet. ``useMyTickets`` returns an in-memory seed pointing at real
- * experiment_ids from ``local_curation.sqlite`` so the dashboard
- * surface has something to render. Drop the seed + flip to a
- * network call when the local-api side lands the endpoint.
+ * ``useMyTickets`` hits the local-api ``/rest/v2/tickets`` endpoint
+ * directly. No in-tree fixture; the dashboard renders whatever the
+ * backend serves (empty list on a fresh DB).
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Query } from "@tanstack/react-query";
+
+import { api } from "@/api/client";
 
 export type TicketType =
   | "BATCH_INFO_NEEDED"
   | "REALIGNMENT_NEEDED"
   | "QUALITY_REVIEW"
+  | "PRELOAD"
+  | "CURATION"
   | "GENERIC";
 
 export type TicketState = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
@@ -33,6 +35,8 @@ export type TicketTargetType =
   | "FACTOR_VALUE"
   | "GEO_SCRAPE_WATERMARK";
 
+export type TicketTargetStatus = "NOT_DONE" | "UNDERWAY" | "DONE";
+
 export interface TicketTarget {
   /** Wire-shape ID of the targeted entity. For
    *  ``EXPRESSION_EXPERIMENT`` this is the numeric experiment_id the
@@ -44,7 +48,24 @@ export interface TicketTarget {
    *  resolve it from a side fetch in production. The mock pre-
    *  populates it so the dashboard reads as it would post-resolve. */
   display_label?: string;
+  /** Optional human-readable name (the experiment's ``name`` field
+   *  on the design — what the EE shell renders as the page title).
+   *  Populated server-side via a JOIN on ``designs.body_json.name``
+   *  when the target is an EE; absent for non-experiment target
+   *  types. */
+  display_name?: string;
+  /** Per-target progress through the ticket's work:
+   *   - ``NOT_DONE``: curator hasn't touched this target
+   *   - ``UNDERWAY``: curator started; not yet committed
+   *   - ``DONE``: curator finished whatever the ticket required
+   *
+   *  Mirrors the proposed ``TicketTarget.status`` on Gemma's Java
+   *  side. Tickets-with-many-targets render a summary roll-up over
+   *  this field rather than per-target chips. */
+  status?: TicketTargetStatus;
 }
+
+export type TicketMode = "MANUAL" | "AUTO";
 
 export interface Ticket {
   id: number;
@@ -60,109 +81,150 @@ export interface Ticket {
   created_at: string;
   updated_at: string;
   external_issue_url: string | null;
+  /** Curator-facing instructions for the ticket — the "what does
+   *  the curator need to do" text the reporter writes when filing.
+   *  Plain text today; rendered as multi-line on the detail page
+   *  and clamped to 2 lines on dashboard cards. Empty for tickets
+   *  filed by scripts that didn't set body. */
+  body: string;
+  /** How the ticket advances between actions. ``MANUAL`` — the
+   *  curator clicks the next-action button after each completed
+   *  action (default). ``AUTO`` — server auto-schedules the next
+   *  defined action when the current runner finishes with no
+   *  failures. */
+  mode: TicketMode;
   targets: TicketTarget[];
 }
 
-/** In-memory seed. Targets are real experiment_ids from
- *  ``local_curation.sqlite`` so the dashboard cards click through
- *  to populated experiment shells. */
-const MOCK_TICKETS: Ticket[] = [
-  {
-    id: 1001,
-    title: "Calibration batch Gen4 — proposer review",
-    type: "QUALITY_REVIEW",
-    state: "IN_PROGRESS",
-    priority: "HIGH",
-    due_date: "2026-05-29",
-    reporter_id: 1,
-    reporter_name: "calibration-pipeline",
-    assignee_id: 2,
-    assignee_name: "local-curator",
-    created_at: "2026-05-24T04:23:10Z",
-    updated_at: "2026-05-25T01:11:00Z",
-    external_issue_url: null,
-    targets: [
-      { target_id: 91247, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE286287" },
-      { target_id: 91672, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE269647" },
-      { target_id: 91654, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE253365" },
-      { target_id: 91277, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE267498" },
-    ],
-  },
-  {
-    id: 1002,
-    title: "GEO scrape 2026-05-22 — preboarded candidates",
-    type: "GENERIC",
-    state: "OPEN",
-    priority: "NORMAL",
-    due_date: null,
-    reporter_id: 1,
-    reporter_name: "geo-scrape-pipeline",
-    assignee_id: null,
-    assignee_name: null,
-    created_at: "2026-05-22T08:00:00Z",
-    updated_at: "2026-05-22T08:00:00Z",
-    external_issue_url: null,
-    targets: [
-      { target_id: 91651, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE277231" },
-      { target_id: 91271, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE286384.1" },
-      { target_id: 91270, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE286384.2" },
-    ],
-  },
-  {
-    id: 1003,
-    title: "GSE271616 — batch info ambiguous, needs curator decision",
-    type: "BATCH_INFO_NEEDED",
-    state: "OPEN",
-    priority: "URGENT",
-    due_date: "2026-05-26",
-    reporter_id: 3,
-    reporter_name: "qc-pipeline",
-    assignee_id: 2,
-    assignee_name: "local-curator",
-    created_at: "2026-05-23T14:30:00Z",
-    updated_at: "2026-05-24T09:00:00Z",
-    external_issue_url: null,
-    targets: [
-      { target_id: 91222, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE271616.1" },
-      { target_id: 91224, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE271616.2" },
-    ],
-  },
-  {
-    id: 1004,
-    title: "Realign GSE292869 against GRCm39",
-    type: "REALIGNMENT_NEEDED",
-    state: "OPEN",
-    priority: "LOW",
-    due_date: null,
-    reporter_id: 1,
-    reporter_name: "pipeline-admin",
-    assignee_id: null,
-    assignee_name: null,
-    created_at: "2026-05-18T11:00:00Z",
-    updated_at: "2026-05-18T11:00:00Z",
-    external_issue_url: null,
-    targets: [
-      { target_id: 91648, target_type: "EXPRESSION_EXPERIMENT", display_label: "GSE292869" },
-    ],
-  },
-];
+/** Fetch a single ticket by id.
+ *
+ *  ``options.refetchInterval`` lets the caller poll the ticket while
+ *  an async action is in flight (e.g. the PRELOAD runner). The
+ *  callback receives the Query (TanStack v5 shape) — pull
+ *  ``query.state.data`` to inspect the current ticket. Return
+ *  ``false`` from the function to stop polling. */
+export function useTicket(
+  id: number | null | undefined,
+  options: {
+    refetchInterval?:
+      | number
+      | ((
+          query: Query<Ticket | null, Error, Ticket | null, readonly unknown[]>,
+        ) => number | false | undefined);
+  } = {},
+) {
+  return useQuery<Ticket | null>({
+    queryKey: ["ticket", id],
+    queryFn: async () => {
+      if (id == null) return null;
+      return await api.get<Ticket>(`/rest/v2/tickets/${id}`);
+    },
+    enabled: id != null,
+    refetchInterval: options.refetchInterval,
+  });
+}
+
+/** PATCH a ticket. Partial body — only set fields actually change.
+ *  Today the UI uses this for the mode toggle (MANUAL ↔ AUTO);
+ *  future surfaces can flip state / assignee / title / etc through
+ *  the same hook. */
+export function usePatchTicket(ticketId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: Partial<Pick<Ticket, "mode" | "state" | "title">>) => {
+      return await api.patch<Ticket>(`/rest/v2/tickets/${ticketId}`, patch);
+    },
+    onSuccess: (next) => {
+      qc.setQueryData(["ticket", ticketId], next);
+      qc.invalidateQueries({ queryKey: ["tickets", "mine"] });
+    },
+  });
+}
+
+/** Trigger an async action on a ticket. The local-api endpoint
+ *  ``POST /rest/v2/tickets/{id}/actions`` dispatches on ``action``
+ *  and schedules the work as a FastAPI ``BackgroundTask``; the
+ *  request returns 202 immediately. Callers should follow up by
+ *  polling the ticket (see ``useTicket``'s ``refetchInterval`` opt)
+ *  to watch per-target status flip NOT_DONE → UNDERWAY → DONE.
+ *
+ *  On the long-term gemma-rest path this endpoint reroutes to the
+ *  Java side; the UI contract doesn't change. See project memory
+ *  ``project-mock-with-local-pattern``. */
+export function useRunTicketAction(ticketId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (action: string) => {
+      return await api.post<unknown>(
+        `/rest/v2/tickets/${ticketId}/actions`,
+        { action },
+      );
+    },
+    onSuccess: () => {
+      // Refetch the ticket so the polling layer picks up the first
+      // status flip without waiting a full interval.
+      qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
+    },
+  });
+}
+
+/** Body for ``POST /rest/v2/tickets`` — modern shape with explicit
+ *  targets. The server backfills the legacy ``investigation_kind`` /
+ *  ``investigation_id`` columns from the first EE target when those
+ *  aren't supplied. Java side will own this endpoint in production;
+ *  the UI contract is what survives the swap. */
+export interface TicketCreateBody {
+  type: TicketType;
+  title: string;
+  priority?: TicketPriority;
+  mode?: "MANUAL" | "AUTO";
+  assignee?: string;
+  body?: string;
+  targets: Array<{
+    target_type: TicketTargetType;
+    target_id: number;
+    status?: "NOT_DONE" | "UNDERWAY" | "DONE";
+  }>;
+}
+
+/** Mutation hook for creating a ticket. Invalidates the curator's
+ *  open-ticket list on success so the dashboard / leave-guard pick
+ *  up the new ticket without a manual refetch. */
+export function useCreateTicket() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: TicketCreateBody) => {
+      return await api.post<Ticket>("/rest/v2/tickets", body);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tickets", "mine"] });
+    },
+  });
+}
 
 /** Tickets the current curator should see as "work to do" — open
  *  or in-progress. The real REST surface will scope by assignee +
- *  permissions; the mock returns everything open/in-progress
- *  regardless of assignee since the UI has one local user. */
-export function useMyTickets() {
+ *  permissions; the local-api currently returns every open/in-progress
+ *  ticket since there's one local user.
+ *
+ *  ``options.refetchInterval`` lets the caller drive a live-refresh
+ *  loop — same shape as ``useTicket``. Callers that watch a
+ *  long-running ticket action (PRELOAD runner, future agent
+ *  passes) poll this to pick up per-target status changes that bump
+ *  the ``IN_PROGRESS`` filter. */
+export function useMyTickets(
+  options: { refetchInterval?: number | false } = {},
+) {
   return useQuery<Ticket[]>({
     queryKey: ["tickets", "mine"],
     queryFn: async () => {
-      // Simulate a tiny network delay so loading states are
-      // visible during development.
-      await new Promise((r) => setTimeout(r, 50));
-      return MOCK_TICKETS.filter(
+      const all = await api.get<Ticket[]>("/rest/v2/tickets");
+      return (all ?? []).filter(
         (t) => t.state === "OPEN" || t.state === "IN_PROGRESS",
       );
     },
     staleTime: 1000 * 60,
+    refetchInterval: options.refetchInterval,
   });
 }
 
@@ -176,6 +238,10 @@ export function ticketTypeLabel(t: TicketType): string {
       return "Realignment";
     case "QUALITY_REVIEW":
       return "Quality review";
+    case "PRELOAD":
+      return "Preload";
+    case "CURATION":
+      return "Curation";
     case "GENERIC":
       return "General";
   }

@@ -3,6 +3,7 @@ import { useAuditDetail, usePatchDisposition } from "@/api/audits";
 import { useMe } from "@/api/session";
 import { experimentRoute, navigate } from "@/routes";
 import { AuditReportView } from "./AuditReportView";
+import { AppHeader } from "@/components/ui/AppHeader";
 
 /**
  * Standalone full-page view for a single `AuditReport`, identified
@@ -19,58 +20,74 @@ import { AuditReportView } from "./AuditReportView";
  * want to act on a finding in-context (e.g. fix a forbidden EFC by
  * editing the factor).
  */
-export function AuditDetailPage({ auditId }: { auditId: string }) {
+export function AuditDetailPage({
+  auditId,
+  reviewer,
+}: {
+  auditId: string;
+  reviewer: string;
+}) {
   return (
     <ToastProvider>
-      <Body auditId={auditId} />
+      <Body auditId={auditId} reviewer={reviewer} />
     </ToastProvider>
   );
 }
 
-function Body({ auditId }: { auditId: string }) {
+function Body({ auditId, reviewer }: { auditId: string; reviewer: string }) {
   const { data: report, isLoading, error } = useAuditDetail(auditId);
   const me = useMe();
-  const reviewer = me.data?.username ?? "";
+  const dispositionReviewer = me.data?.username ?? "";
   const patch = usePatchDisposition(report?.experiment_id ?? 0);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">
-        loading audit…
+      <div className="min-h-screen flex flex-col bg-slate-50">
+        <AppHeader reviewer={reviewer} />
+        <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
+          loading audit…
+        </div>
       </div>
     );
   }
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-rose-700">
-        couldn't load audit {auditId}: {(error as Error).message}
+      <div className="min-h-screen flex flex-col bg-slate-50">
+        <AppHeader reviewer={reviewer} />
+        <div className="flex-1 flex items-center justify-center text-sm text-rose-700">
+          couldn't load audit {auditId}: {(error as Error).message}
+        </div>
       </div>
     );
   }
   if (!report) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">
-        no audit at {auditId}
+      <div className="min-h-screen flex flex-col bg-slate-50">
+        <AppHeader reviewer={reviewer} />
+        <div className="flex-1 flex items-center justify-center text-sm text-slate-500">
+          no audit at {auditId}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen flex flex-col bg-slate-50">
+      <AppHeader reviewer={reviewer}>
+        <span className="text-xs text-slate-400 ml-2" aria-hidden>/</span>
+        <a href="#/audits" className="text-sm text-slate-600 hover:text-slate-900 hover:underline">
+          Audits
+        </a>
+        <span className="text-xs text-slate-400" aria-hidden>/</span>
+        <span className="text-sm text-slate-700 font-medium">
+          {report.experiment_short_name}
+        </span>
+        <span className="ml-1 font-mono text-[11px] text-slate-400">
+          {report.audit_id}
+        </span>
+      </AppHeader>
       <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto w-full max-w-[1200px] px-4 py-2 flex items-center justify-between text-xs text-slate-500">
-          <span>
-            <a href="#/audits" className="text-blue-700 hover:underline">
-              ← audits
-            </a>
-            <span className="mx-2 text-slate-300">/</span>
-            <span className="font-semibold text-slate-700">
-              {report.experiment_short_name}
-            </span>
-            <span className="ml-2 font-mono text-slate-400">
-              {report.audit_id}
-            </span>
-          </span>
+        <div className="mx-auto w-full max-w-[1200px] px-4 py-1.5 flex items-center justify-end text-xs text-slate-500">
           <button
             type="button"
             className="text-blue-700 hover:underline"
@@ -88,7 +105,7 @@ function Body({ auditId }: { auditId: string }) {
             if (!report.audit_id) return;
             await patch.mutateAsync({
               auditId: report.audit_id,
-              patch: { target_id: targetId, status, reviewer, notes },
+              patch: { target_id: targetId, status, reviewer: dispositionReviewer, notes },
             });
           }}
         />
