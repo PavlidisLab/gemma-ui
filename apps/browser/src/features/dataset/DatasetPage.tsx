@@ -4,7 +4,9 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { marked } from "marked";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Pencil } from "lucide-react";
+import { useMe } from "@/api/auth";
+import { curationUrl } from "@/lib/appLinks";
 import {
   getDatasetById,
   getDatasetAnnotations,
@@ -142,6 +144,8 @@ function Banner({
   const geo = dataset.accession?.accession;
   const geeq = dataset.geeq;
   const legacyUrl = gemmaUrl(`/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`);
+  const me = useMe();
+  const curateHref = me.data ? curationUrl(`/#/experiments/${dataset.id}`) : null;
 
   const pipeline = useQuery({
     queryKey: ["pipelineStatus", dataset.id],
@@ -176,6 +180,13 @@ function Banner({
               className="text-sky-700 hover:underline inline-flex items-center gap-1">
               Gemma<ExternalLink size={11} />
             </a>
+            {curateHref && (
+              <a href={curateHref} target="_blank" rel="noopener noreferrer"
+                className="text-sky-700 hover:underline inline-flex items-center gap-1"
+                title="Open this experiment in the curation app">
+                Curate<Pencil size={11} />
+              </a>
+            )}
           </div>
           {ps && <PipelineStatusRow ps={ps} />}
         </div>
@@ -1498,7 +1509,14 @@ function buildDeHeatmap(response: DiffExpressionResponse): HeatmapData {
   for (const lvl of levels) {
     rowLabels.push(lvl.geneOfficialSymbol || String(lvl.geneNcbiId ?? "?"));
     const vec = lvl.vectors?.[0]?.bioAssayExpressionLevels ?? {};
-    values.push(colOrder.map((c) => (vec[c] != null ? vec[c]! : null)));
+    values.push(
+      colOrder.map((c) => {
+        const raw = vec[c];
+        if (raw == null) return null;
+        const n = typeof raw === "number" ? raw : Number(raw);
+        return Number.isFinite(n) ? n : null;
+      }),
+    );
   }
   return {
     values,

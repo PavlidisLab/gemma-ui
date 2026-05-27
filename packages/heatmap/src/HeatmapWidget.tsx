@@ -240,10 +240,17 @@ export function HeatmapWidget({
   const legendDomain: [number, number] = seqDomain ?? [-clip, clip];
   const fmt =
     formatValue ??
-    ((v: number) =>
-      Math.abs(v) >= 100 || (Math.abs(v) < 0.01 && v !== 0)
-        ? v.toExponential(1)
-        : v.toFixed(2));
+    ((v: number) => {
+      // Defensive: ``CellValue`` is typed as ``number | null`` but
+      // upstream builders sometimes leak strings / NaN through. Coerce
+      // before calling ``toFixed`` so the tooltip can't crash the
+      // page.
+      const n = typeof v === "number" ? v : Number(v);
+      if (!Number.isFinite(n)) return String(v);
+      return Math.abs(n) >= 100 || (Math.abs(n) < 0.01 && n !== 0)
+        ? n.toExponential(1)
+        : n.toFixed(2);
+    });
 
   const stripeGradient = stripeFor(palette);
 
@@ -1048,7 +1055,16 @@ function CursorTooltip({
           fontVariantNumeric: 'tabular-nums',
         }}
       >
-        {hover.value == null ? <em>NA</em> : formatValue(hover.value)}
+        {(() => {
+          if (hover.value == null) return <em>NA</em>;
+          // Coerce upstream string / NaN leaks before calling
+          // ``formatValue`` (callers may pass formatters that assume
+          // a number, e.g. ``v.toFixed``).
+          const v = hover.value;
+          const n = typeof v === "number" ? v : Number(v);
+          if (!Number.isFinite(n)) return <em>NA</em>;
+          return formatValue(n);
+        })()}
         {hover.cell.mergedCols > 1 ? (
           <span style={{ color: '#9ca3af', marginLeft: 6 }}>
             mean of {hover.cell.mergedCols}

@@ -25,8 +25,17 @@ export function buildSampleCorrelationHeatmapData(
   const labels = data.bioAssayShortNames.map(
     (s, i) => s || String(data.bioAssayIds[i] ?? i),
   );
+  // Coerce each cell — some Gemma builds return numbers as JSON
+  // strings, which the widget's ``v.toFixed(2)`` formatter cannot
+  // handle. ``Number()`` parses numeric strings; non-finite results
+  // (NaN from "—" / null / undefined) become null so the heatmap
+  // renders them as the NA colour.
   const values: (number | null)[][] = data.values.map((row, i) =>
-    row.map((v, j) => (i === j ? null : v)),
+    row.map((v, j) => {
+      if (i === j) return null;
+      const n = typeof v === "number" ? v : Number(v);
+      return Number.isFinite(n) ? n : null;
+    }),
   );
   return {
     rowLabels: labels,

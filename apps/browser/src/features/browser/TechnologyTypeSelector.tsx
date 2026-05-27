@@ -87,14 +87,52 @@ export function TechnologyTypeSelector({
 
   function toggleGroup(g: typeof groups[number]) {
     if (disabled) return;
-    const isOn = g.tts.every((t) => selectedTechSet.has(t));
-    if (isOn) {
+    const allSubgroupUris = (g.subgroups ?? []).flatMap((sg) => sg.termUris);
+    const state = groupState(g);
+    if (state === "on") {
       onChangeTechnologyTypes(selectedTechnologyTypes.filter((t) => !g.tts.includes(t)));
+      if (allSubgroupUris.length > 0) {
+        onChangeTechAnnotations(
+          selectedTechAnnotations.filter((a) => !a.termUri || !allSubgroupUris.includes(a.termUri)),
+        );
+      }
     } else {
       const nextSet = new Set(selectedTechnologyTypes);
       g.tts.forEach((t) => nextSet.add(t));
       onChangeTechnologyTypes([...nextSet]);
+      if (allSubgroupUris.length > 0) {
+        const additions: AnnotationTerm[] = [];
+        for (const uri of allSubgroupUris) {
+          if (selectedAnnotUris.has(uri)) continue;
+          const t = assayTermByUri.get(uri);
+          if (t) additions.push(t);
+          else
+            additions.push({
+              classUri: ASSAY_CATEGORY_URI,
+              className: "assay",
+              termUri: uri,
+              termName: uri,
+            });
+        }
+        if (additions.length > 0) onChangeTechAnnotations([...selectedTechAnnotations, ...additions]);
+      }
     }
+  }
+
+  function groupState(g: typeof groups[number]): "on" | "off" | "partial" {
+    const ttOn = g.tts.every((t) => selectedTechSet.has(t));
+    const ttOff = g.tts.every((t) => !selectedTechSet.has(t));
+    const allSgUris = (g.subgroups ?? []).flatMap((sg) => sg.termUris);
+    if (allSgUris.length === 0) {
+      if (ttOn) return "on";
+      if (ttOff) return "off";
+      return "partial";
+    }
+    const sgOn = allSgUris.every((u) => selectedAnnotUris.has(u));
+    const sgOff = allSgUris.every((u) => !selectedAnnotUris.has(u));
+    if (ttOn && sgOn) return "on";
+    if (ttOff && sgOff) return "off";
+    return "partial";
   }
 
   function togglePlatform(p: Platform) {
@@ -176,7 +214,7 @@ export function TechnologyTypeSelector({
           <li className="text-gemma-subtle italic py-1">No platforms available</li>
         ) : null}
         {groups.map((g) => {
-          const isOn = g.tts.every((t) => selectedTechSet.has(t));
+          const state = groupState(g);
           const isOpen = !!open[g.id];
           const hasSubgroups = (g.subgroups?.length ?? 0) > 0;
           return (
@@ -184,7 +222,10 @@ export function TechnologyTypeSelector({
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={isOn}
+                  checked={state === "on"}
+                  ref={(el) => {
+                    if (el) el.indeterminate = state === "partial";
+                  }}
                   disabled={disabled}
                   onChange={() => toggleGroup(g)}
                   className="h-3.5 w-3.5 accent-gemma-accent"

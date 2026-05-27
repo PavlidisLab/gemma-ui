@@ -164,6 +164,10 @@ export function AnnotationSelector(props: Props) {
   };
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  // Per-category expansion of the chip strip. Keys are
+  // `${pos|neg}:${catId}` so positive + negative groups for the same
+  // category track independently.
+  const [chipGroupExpanded, setChipGroupExpanded] = useState<Record<string, boolean>>({});
 
   // Debounce the search text by 300ms so we don't fire one /annotations/search
   // call per keystroke.
@@ -180,6 +184,30 @@ export function AnnotationSelector(props: Props) {
   });
 
   const ranked = useMemo(() => rankCategories(annotations), [annotations]);
+
+  // Ghost rows for any cat-level selection/negation whose category
+  // isn't in the current facet response. Without these, a category
+  // can become a chip the user can't get rid of via its parent
+  // button — cat-level NOT narrows the result set enough that the
+  // category drops out of the facet, leaving the chip stranded.
+  // Ghosts give the cycle (all-pos → … → off) a parent button to
+  // click for the final clean-up step.
+  const displayCategories = useMemo(() => {
+    const known = new Set(ranked.map((c) => categoryId(c)));
+    const ghosts: CategoryWithChildren[] = [];
+    for (const c of [...selectedCategories, ...negativeCategories]) {
+      const cid = categoryId(c);
+      if (!cid || known.has(cid)) continue;
+      ghosts.push({
+        classUri: c.classUri,
+        className: c.className,
+        numberOfExpressionExperiments: 0,
+        children: [],
+      });
+      known.add(cid);
+    }
+    return [...ranked, ...ghosts];
+  }, [ranked, selectedCategories, negativeCategories]);
 
   // De-dup fallback results against terms already present in the local
   // tree (by termUri), and against terms already selected/negated.
@@ -228,16 +256,44 @@ export function AnnotationSelector(props: Props) {
   }
 
   type CategoryDerived = "all-pos" | "all-neg" | "some-pos" | "some-neg" | "mixed" | "empty";
+
+  // Merge cat.children with any per-term selections / negations the
+  // user holds for this category. The facet response narrows after a
+  // bulk negation (server drops terms not present in the narrowed
+  // result set), so without this supplement the in-list children
+  // collapse to whatever survived — even though the user's filter
+  // chips still reference the dropped terms.
+  function mergedChildren(cat: CategoryWithChildren): AnnotationTerm[] {
+    const cid = categoryId(cat);
+    const merged = new Map<string, AnnotationTerm>();
+    for (const c of cat.children) merged.set(getId(c), c);
+    for (const t of selectedAnnotations) {
+      if (getCategoryId(t) === cid) merged.set(getId(t), t);
+    }
+    for (const t of negativeAnnotations) {
+      if (getCategoryId(t) === cid) merged.set(getId(t), t);
+    }
+    return [...merged.values()];
+  }
+
   function categoryState(cat: CategoryWithChildren): CategoryDerived {
     const catId = categoryId(cat);
     if (selectedCatIds.has(catId)) return "all-pos";
     if (negativeCatIds.has(catId)) return "all-neg";
-    const states = cat.children.map((c) => termState(c, catId));
+    const all = mergedChildren(cat);
+    if (all.length === 0) return "empty";
+    const states = all.map((c) => termState(c, catId));
     const hasPos = states.some((s) => s === 1);
     const hasNeg = states.some((s) => s === -1);
+    // Treat "some children marked, none of the other polarity" as the
+    // fully-marked state. Distinguishing some-vs-all is brittle because
+    // ``cat.children`` changes after facet refresh (the set of "all" is
+    // unstable). The cycle logic also requires this: ``some-neg`` would
+    // route through the else branch into all-pos, making it impossible
+    // to cycle back to off after a bulk negation.
     if (hasPos && hasNeg) return "mixed";
-    if (hasPos) return "some-pos";
-    if (hasNeg) return "some-neg";
+    if (hasPos) return "all-pos";
+    if (hasNeg) return "all-neg";
     return "empty";
   }
 
@@ -292,11 +348,18 @@ export function AnnotationSelector(props: Props) {
     const clearedCatNeg = negativeCategories.filter((c) => categoryId(c) !== cid);
 
     if (state === "all-pos") {
-      // pos -> neg
+      // pos -> neg. Expand to per-term negation rather than category-
+      // level NOT: cat-level NOT narrows the facet response so hard
+      // that the children list collapses to whatever still survives
+      // in the narrowed result set, which reads as "the click ate the
+      // list." Per-term keeps each previously-visible child pinned via
+      // negativeAnnotations + the supplemented render path, so all
+      // children flip from blue check to red X.
+      const children = mergedChildren(cat);
       onChangeSelected(clearedSel);
-      onChangeNegative(clearedNeg);
+      onChangeNegative([...clearedNeg, ...children]);
       onChangeCategoriesSelected(clearedCatSel);
-      onChangeCategoriesNegative([...clearedCatNeg, asCategory]);
+      onChangeCategoriesNegative(clearedCatNeg);
     } else if (state === "all-neg") {
       // neg -> off
       onChangeSelected(clearedSel);
@@ -393,36 +456,38 @@ export function AnnotationSelector(props: Props) {
               }
             />
           ))}
-          {selectedAnnotations.map((a) => (
-            <ChipRemovable
-              key={`an-${a.termUri ?? a.termName}`}
-              cls="chip-pos"
-              text={titleCase(a.termName ?? a.termUri ?? "")}
-              title={`${a.className ?? ""} → ${a.termName ?? a.termUri}`}
-              onRemove={() =>
-                onChangeSelected(
-                  selectedAnnotations.filter(
-                    (x) => (x.termUri ?? x.termName) !== (a.termUri ?? a.termName),
-                  ),
-                )
-              }
-            />
-          ))}
-          {negativeAnnotations.map((a) => (
-            <ChipRemovable
-              key={`xan-${a.termUri ?? a.termName}`}
-              cls="chip-neg"
-              text={`NOT ${titleCase(a.termName ?? a.termUri ?? "")}`}
-              title={`NOT ${a.className ?? ""} → ${a.termName ?? a.termUri}`}
-              onRemove={() =>
-                onChangeNegative(
-                  negativeAnnotations.filter(
-                    (x) => (x.termUri ?? x.termName) !== (a.termUri ?? a.termName),
-                  ),
-                )
-              }
-            />
-          ))}
+          {renderTermChipsGrouped({
+            terms: selectedAnnotations,
+            sign: "pos",
+            chipGroupExpanded,
+            setChipGroupExpanded,
+            onRemoveOne: (a) =>
+              onChangeSelected(
+                selectedAnnotations.filter(
+                  (x) => (x.termUri ?? x.termName) !== (a.termUri ?? a.termName),
+                ),
+              ),
+            onRemoveGroup: (cid) =>
+              onChangeSelected(
+                selectedAnnotations.filter((x) => (getCategoryId(x) ?? "") !== cid),
+              ),
+          })}
+          {renderTermChipsGrouped({
+            terms: negativeAnnotations,
+            sign: "neg",
+            chipGroupExpanded,
+            setChipGroupExpanded,
+            onRemoveOne: (a) =>
+              onChangeNegative(
+                negativeAnnotations.filter(
+                  (x) => (x.termUri ?? x.termName) !== (a.termUri ?? a.termName),
+                ),
+              ),
+            onRemoveGroup: (cid) =>
+              onChangeNegative(
+                negativeAnnotations.filter((x) => (getCategoryId(x) ?? "") !== cid),
+              ),
+          })}
         </div>
       ) : null}
 
@@ -470,13 +535,14 @@ export function AnnotationSelector(props: Props) {
       )}
 
       <ul className="text-sm">
-        {ranked.length === 0 && !loading ? (
+        {displayCategories.length === 0 && !loading ? (
           <li className="text-gemma-subtle italic py-1">No annotations available</li>
         ) : null}
-        {ranked.map((cat) => {
+        {displayCategories.map((cat) => {
           const cid = categoryId(cat);
           const isOpen = search ? true : !!open[cid];
-          const visibleChildren = cat.children.filter(filterTermBySearch);
+          const mergedKids = mergedChildren(cat);
+          const visibleChildren = mergedKids.filter(filterTermBySearch);
           if (search && visibleChildren.length === 0) return null;
           const catState = categoryState(cat);
 
@@ -486,7 +552,7 @@ export function AnnotationSelector(props: Props) {
           // expanding each one. Truncated; "+N" expander shows the
           // overflow count. Mirrors how the dashboard ticket cards
           // surface their per-target progress. Per Paul 2026-05-27.
-          const selectedHere = cat.children.filter(
+          const selectedHere = mergedKids.filter(
             (t) => termState(t, cid) !== 0,
           );
           return (
@@ -684,6 +750,107 @@ function ChipRemovable({
       </button>
     </span>
   );
+}
+
+// Per-term chips collapse into a single summary chip when there are
+// ``CHIP_COLLAPSE_THRESHOLD`` or more for the same category — bulk-
+// negating a large category (e.g. "Diets") previously produced ~20+
+// individual chips that flooded the filter strip. Click the summary
+// chip to expand into individuals; the X clears the entire group.
+const CHIP_COLLAPSE_THRESHOLD = 5;
+
+function renderTermChipsGrouped({
+  terms,
+  sign,
+  chipGroupExpanded,
+  setChipGroupExpanded,
+  onRemoveOne,
+  onRemoveGroup,
+}: {
+  terms: AnnotationTerm[];
+  sign: "pos" | "neg";
+  chipGroupExpanded: Record<string, boolean>;
+  setChipGroupExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  onRemoveOne: (a: AnnotationTerm) => void;
+  onRemoveGroup: (cid: string) => void;
+}): React.ReactNode {
+  if (terms.length === 0) return null;
+  const groups = new Map<string, AnnotationTerm[]>();
+  const labels = new Map<string, string>();
+  for (const t of terms) {
+    const cid = getCategoryId(t) ?? "";
+    if (!groups.has(cid)) {
+      groups.set(cid, []);
+      labels.set(cid, t.className ?? cid ?? "Uncategorized");
+    }
+    groups.get(cid)!.push(t);
+  }
+  const out: React.ReactNode[] = [];
+  for (const [cid, group] of groups) {
+    const key = `${sign}:${cid}`;
+    const expanded = !!chipGroupExpanded[key];
+    const overThreshold = group.length >= CHIP_COLLAPSE_THRESHOLD;
+    const catLabel = titleCase(labels.get(cid) ?? "Uncategorized");
+    if (overThreshold && !expanded) {
+      const text =
+        sign === "neg"
+          ? `NOT ${catLabel} × ${group.length}`
+          : `${catLabel} × ${group.length}`;
+      out.push(
+        <span
+          key={`grp-${sign}-${cid}`}
+          className={`chip ${sign === "neg" ? "chip-neg" : "chip-pos"} cursor-pointer`}
+          title={`${group.length} ${sign === "neg" ? "negated" : "selected"} ${catLabel} term${group.length === 1 ? "" : "s"} — click to expand`}
+          onClick={() => setChipGroupExpanded((s) => ({ ...s, [key]: true }))}
+        >
+          <span className="max-w-[20ch] truncate">{text}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveGroup(cid);
+            }}
+            className="opacity-60 hover:opacity-100"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>,
+      );
+      continue;
+    }
+    for (const a of group) {
+      out.push(
+        <ChipRemovable
+          key={`${sign === "neg" ? "xan" : "an"}-${a.termUri ?? a.termName}`}
+          cls={sign === "neg" ? "chip-neg" : "chip-pos"}
+          text={
+            sign === "neg"
+              ? `NOT ${titleCase(a.termName ?? a.termUri ?? "")}`
+              : titleCase(a.termName ?? a.termUri ?? "")
+          }
+          title={
+            sign === "neg"
+              ? `NOT ${a.className ?? ""} → ${a.termName ?? a.termUri}`
+              : `${a.className ?? ""} → ${a.termName ?? a.termUri}`
+          }
+          onRemove={() => onRemoveOne(a)}
+        />,
+      );
+    }
+    if (overThreshold && expanded) {
+      out.push(
+        <button
+          key={`collapse-${sign}-${cid}`}
+          type="button"
+          onClick={() => setChipGroupExpanded((s) => ({ ...s, [key]: false }))}
+          className="text-[10px] text-gemma-subtle hover:text-gemma-ink hover:underline ml-1 self-center"
+          title="Collapse group"
+        >
+          collapse
+        </button>,
+      );
+    }
+  }
+  return out;
 }
 
 /** Tristate "checkbox" — three visible states so the curator can see

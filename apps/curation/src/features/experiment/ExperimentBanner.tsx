@@ -21,7 +21,6 @@ import {
 } from "@/api/datasets";
 import { Pencil as PencilIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
-import { SettingsMenu } from "@/features/settings/SettingsMenu";
 import { experimentPageUrl, platformPageUrl } from "@/lib/gemmaUrls";
 import {
   inferModality,
@@ -1780,31 +1779,17 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
 
 /** Header bar above the banner.
  *
- *  Slimmed further 2026-05-27: the "Experiments / GSE…" breadcrumb +
- *  outbound link to legacy Gemma was redundant with (a) the
- *  Experiments link now living in the global AppHeader and (b) the
- *  GSE accession + tech-type badge sitting right below in the
- *  ExperimentBanner. What survives here is the per-experiment
- *  SettingsMenu — the only chrome on this row that doesn't have a
- *  home in the global bar. */
-export function TopBar({
-  experimentId: _experimentId,
-  experimentShortName: _experimentShortName,
-  reviewer: _reviewer,
-}: {
+ *  Currently a no-op. The breadcrumb, signed-in/mode/health cluster,
+ *  and SettingsMenu have all migrated to the global AppHeader. Kept
+ *  as a render no-op (rather than removed) so the three callers in
+ *  App.tsx don't need to be touched in this pass; a follow-up can
+ *  drop the call sites and this export. */
+export function TopBar(_props: {
   experimentId: number | string;
   experimentShortName: string;
-  /** Retained for caller-side type compatibility; the signed-in /
-   *  mode / health / logout cluster lives in the global AppHeader. */
   reviewer: string;
 }) {
-  return (
-    <header className="border-b border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200">
-      <div className="mx-auto w-full max-w-[1800px] px-4 py-1 flex items-center justify-end gap-4 flex-wrap">
-        <SettingsMenu />
-      </div>
-    </header>
-  );
+  return null;
 }
 
 /** Banner chip surfacing the active Ticket context. Renders a

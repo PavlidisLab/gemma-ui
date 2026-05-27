@@ -23,6 +23,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { ModeChip } from "@/components/ui/ModeChip";
 import { HealthChip } from "@/components/ui/HealthChip";
+import { SettingsMenu } from "@/features/settings/SettingsMenu";
 import { useLogout } from "@/api/session";
 import { navigate } from "@/routes";
 import { browserUrl, adminUrl } from "@/lib/appLinks";
@@ -87,6 +88,7 @@ export function AppHeader({
         </span>
         <ModeChip />
         <HealthChip />
+        <SettingsMenu />
         <button
           type="button"
           className="text-stone-500 hover:text-stone-900 underline dark:text-slate-400 dark:hover:text-slate-100 bg-transparent border-none cursor-pointer p-0"
