@@ -1,11 +1,15 @@
 /**
- * Cache panel — alphabetical list with per-cache `[clear]` plus
- * `[clear all]` accessory. Per-cache hit/miss stats are NOT
- * available in the current build (post-EhCache-2; would need a
- * Caffeine recordStats() adapter), so we just show the names.
+ * Cache panel — per-cache hits / misses / hit-% / size table, with
+ * filter + per-row [clear] and section-level [clear all].
  *
- * Filter input lets a curator narrow down a long list (Gemma
- * carries ~50 caches in production).
+ * Backed by GET /admin/caches which now reads JCache standard MBeans
+ * (statisticsEnabled+managementEnabled at config time via
+ * EhcacheConfig.buildConfig). Caches without registered MBeans
+ * render as "—" placeholders rather than disappearing, so the table
+ * stays a complete inventory.
+ *
+ * Filter input lets a curator narrow a long list (Gemma carries
+ * ~120 caches in production).
  */
 
 import { useMemo, useState } from "react";
@@ -13,30 +17,82 @@ import {
   useCacheList,
   useClearAllCaches,
   useClearCache,
+  type CacheStatRow,
 } from "../api";
 import { SectionCard } from "../components/SectionCard";
 import { ConfirmButton } from "../components/ConfirmButton";
+
+type SortKey = "name" | "hits" | "misses" | "hitPct" | "puts" | "evictions";
+
+function fmt(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n === 0) return "0";
+  return n.toLocaleString();
+}
+
+function fmtPct(n: number | null | undefined): string {
+  if (n == null) return "—";
+  // CacheHitPercentage starts at 0 when no gets have happened — treat
+  // a zero-percentage *with zero gets* as "—" to avoid the misleading
+  // "0%" reading on a never-hit cache.
+  if (n === 0) return "0%";
+  return n.toFixed(1) + "%";
+}
+
+function sortKey(row: CacheStatRow, by: SortKey): number | string {
+  switch (by) {
+    case "name": return row.name;
+    case "hits": return row.hits ?? -1;
+    case "misses": return row.misses ?? -1;
+    case "hitPct": return row.hitPercentage ?? -1;
+    case "puts": return row.puts ?? -1;
+    case "evictions": return row.evictions ?? -1;
+  }
+}
 
 export function CachesSection() {
   const list = useCacheList();
   const clearAll = useClearAllCaches();
   const clearOne = useClearCache();
   const [filter, setFilter] = useState("");
+  const [sortBy, setSortBy] = useState<SortKey>("hits");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const filtered = useMemo(() => {
+  const filtered = useMemo<CacheStatRow[]>(() => {
     const q = filter.trim().toLowerCase();
-    const names = list.data?.names ?? [];
-    if (!q) return names;
-    return names.filter((n) => n.toLowerCase().includes(q));
-  }, [filter, list.data]);
+    const rows: CacheStatRow[] = (list.data?.caches ?? []).slice();
+    const matched = q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows;
+    matched.sort((a, b) => {
+      const av = sortKey(a, sortBy);
+      const bv = sortKey(b, sortBy);
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+      const cmp = String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return matched;
+  }, [filter, list.data, sortBy, sortDir]);
+
+  function toggleSort(k: SortKey) {
+    if (sortBy === k) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(k);
+      setSortDir(k === "name" ? "asc" : "desc");
+    }
+  }
+
+  const sortArrow = (k: SortKey) =>
+    sortBy === k ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
   return (
     <SectionCard
       title="Caches"
       summary={
         list.data
-          ? `${list.data.count ?? list.data.names?.length ?? 0} cache${
-              (list.data.count ?? list.data.names?.length ?? 0) === 1 ? "" : "s"
+          ? `${list.data.count ?? list.data.caches?.length ?? 0} cache${
+              (list.data.count ?? list.data.caches?.length ?? 0) === 1 ? "" : "s"
             }`
           : undefined
       }
@@ -67,25 +123,83 @@ export function CachesSection() {
       ) : filtered.length === 0 ? (
         <div className="text-xs text-slate-500 italic">no matches</div>
       ) : (
-        <ul className="max-h-72 overflow-auto divide-y divide-slate-100 dark:divide-slate-700 text-xs">
-          {filtered.map((name) => (
-            <li
-              key={name}
-              className="flex items-center justify-between py-1"
-            >
-              <span className="font-mono truncate" title={name}>
-                {name}
-              </span>
-              <ConfirmButton
-                label="clear"
-                confirmLabel="clear"
-                disabled={clearOne.isPending}
-                onConfirm={() => clearOne.mutate(name)}
-                title={`DELETE /admin/caches/${name}`}
-              />
-            </li>
-          ))}
-        </ul>
+        <div className="max-h-80 overflow-auto">
+          <table className="w-full text-[11px] tabular-nums">
+            <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 sticky top-0">
+              <tr>
+                <th
+                  className="text-left px-2 py-1 font-medium cursor-pointer select-none"
+                  onClick={() => toggleSort("name")}
+                  title="sort by name"
+                >
+                  cache{sortArrow("name")}
+                </th>
+                <th
+                  className="text-right px-2 py-1 font-medium cursor-pointer select-none"
+                  onClick={() => toggleSort("hits")}
+                  title="sort by hits"
+                >
+                  hits{sortArrow("hits")}
+                </th>
+                <th
+                  className="text-right px-2 py-1 font-medium cursor-pointer select-none"
+                  onClick={() => toggleSort("misses")}
+                  title="sort by misses"
+                >
+                  misses{sortArrow("misses")}
+                </th>
+                <th
+                  className="text-right px-2 py-1 font-medium cursor-pointer select-none"
+                  onClick={() => toggleSort("hitPct")}
+                  title="sort by hit %"
+                >
+                  hit %{sortArrow("hitPct")}
+                </th>
+                <th
+                  className="text-right px-2 py-1 font-medium cursor-pointer select-none"
+                  onClick={() => toggleSort("puts")}
+                  title="sort by puts"
+                >
+                  puts{sortArrow("puts")}
+                </th>
+                <th
+                  className="text-right px-2 py-1 font-medium cursor-pointer select-none"
+                  onClick={() => toggleSort("evictions")}
+                  title="sort by evictions"
+                >
+                  evictions{sortArrow("evictions")}
+                </th>
+                <th className="text-right px-2 py-1 font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((row) => (
+                <tr
+                  key={row.name}
+                  className="border-t border-slate-100 dark:border-slate-700"
+                >
+                  <td className="px-2 py-1 font-mono truncate max-w-[28ch]" title={row.name}>
+                    {row.name}
+                  </td>
+                  <td className="px-2 py-1 text-right">{fmt(row.hits)}</td>
+                  <td className="px-2 py-1 text-right">{fmt(row.misses)}</td>
+                  <td className="px-2 py-1 text-right">{fmtPct(row.hitPercentage)}</td>
+                  <td className="px-2 py-1 text-right">{fmt(row.puts)}</td>
+                  <td className="px-2 py-1 text-right">{fmt(row.evictions)}</td>
+                  <td className="px-2 py-1 text-right whitespace-nowrap">
+                    <ConfirmButton
+                      label="clear"
+                      confirmLabel="clear"
+                      disabled={clearOne.isPending}
+                      onConfirm={() => clearOne.mutate(row.name)}
+                      title={`DELETE /admin/caches/${row.name}`}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {(clearAll.isError || clearOne.isError) ? (
         <div className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">

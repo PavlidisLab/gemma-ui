@@ -173,9 +173,25 @@ export function useResetHibernateStats() {
 
 // ─── /admin/caches ────────────────────────────────────────────────
 
+export interface CacheStatRow {
+  name: string;
+  hits?: number | null;
+  misses?: number | null;
+  gets?: number | null;
+  puts?: number | null;
+  removals?: number | null;
+  evictions?: number | null;
+  /** 0..100. Null when stats are unavailable (cache without statisticsEnabled). */
+  hitPercentage?: number | null;
+}
+
 export interface CacheList {
   count?: number;
+  /** Names only — preserved for backward compat. */
   names?: string[];
+  /** Per-cache stat rows in the same order as `names`. Newer fields used by
+   *  the redesigned CachesSection table. */
+  caches?: CacheStatRow[];
 }
 
 export function useCacheList() {
