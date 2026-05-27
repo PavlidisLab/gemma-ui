@@ -324,6 +324,8 @@ export interface OntologyRow {
   searchEnabled?: boolean;
   processImports?: boolean;
   termCount?: number | null;
+  /** True if the bean implements SlimmableOntologyService (CHEBI, MONDO so far). */
+  slimmable?: boolean | null;
   error?: string | null;
 }
 
@@ -343,6 +345,88 @@ export function useOntologies(
     queryKey: ["admin", "ontologies", opts.includeTermCount ?? false],
     queryFn: () => unwrap<OntologiesSnapshot>(`${BASE}/admin/ontologies${q}`),
     refetchInterval: opts.refetchMs ?? 30_000,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
+  });
+}
+
+// ─── /admin/ontologies/{name}/refresh + /rebuild-slim ─────────────
+
+/**
+ * Hot-refresh a single ontology in place (re-fetch source + re-init, atomic
+ * model swap). POST /admin/ontologies/{name}/refresh.
+ */
+export function useRefreshOntology() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      fetch(`${BASE}/admin/ontologies/${encodeURIComponent(name)}/refresh`, {
+        method: "POST",
+        credentials: "include",
+      }).then(throwIfNotOk),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "ontologies"] }),
+  });
+}
+
+/**
+ * Rebuild the corpus-tailored slim cache for a SlimmableOntologyService
+ * (CHEBI, MONDO so far). POST /admin/ontologies/{name}/rebuild-slim.
+ * Expensive (OWL-API STAR extraction over the full source); 202 + async.
+ */
+export function useRebuildOntologySlim() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      fetch(`${BASE}/admin/ontologies/${encodeURIComponent(name)}/rebuild-slim`, {
+        method: "POST",
+        credentials: "include",
+      }).then(throwIfNotOk),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "ontologies"] }),
+  });
+}
+
+// ─── /admin/search/indices POST (reindex) ─────────────────────────
+
+export interface ReindexResponse {
+  queued?: string[];
+  message?: string;
+}
+
+/**
+ * Trigger a Hibernate Search 7 mass-reindex. Pass an entity name (e.g.
+ * "datasets", "platforms", "genes") or null/undefined for all roots.
+ * POST /admin/search/indices?entity=NAME. Returns 202; the runtime
+ * actually rebuilds the on-disk Lucene index in the background.
+ */
+export function useReindexSearch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entity: string | null | undefined) => {
+      const q = entity ? `?entity=${encodeURIComponent(entity)}` : "";
+      const r = await fetch(`${BASE}/admin/search/indices${q}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      await throwIfNotOk(r);
+      const body = (await r.json().catch(() => ({}))) as { data?: ReindexResponse } | ReindexResponse;
+      return ("data" in (body as object) ? (body as { data: ReindexResponse }).data : body) as ReindexResponse;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "search-indices"] }),
+  });
+}
+
+// ─── /tickets/summary ─────────────────────────────────────────────
+
+export interface OpenTicketSummary {
+  totalOpen: number;
+  byType: Record<string, number>;
+}
+
+export function useTicketsSummary(refetchMs = 30_000) {
+  return useQuery({
+    queryKey: ["admin", "tickets-summary"],
+    queryFn: () => unwrap<OpenTicketSummary>(`${BASE}/tickets/summary`),
+    refetchInterval: refetchMs,
     refetchIntervalInBackground: false,
     staleTime: 0,
   });

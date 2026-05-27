@@ -36,6 +36,7 @@ import { JobsSection } from "./sections/JobsSection";
 import { SessionsSection } from "./sections/SessionsSection";
 import { IndicesSection } from "./sections/IndicesSection";
 import { OntologiesSection } from "./sections/OntologiesSection";
+import { TicketsSection } from "./sections/TicketsSection";
 
 export function SystemMonitoringPage() {
   const canary = useCacheList();
@@ -65,6 +66,7 @@ export function SystemMonitoringPage() {
         <HibernateSection />
         <CachesSection />
         <JobsSection />
+        <TicketsSection />
         <SessionsSection />
         <IndicesSection />
         <div className="md:col-span-2 xl:col-span-3">

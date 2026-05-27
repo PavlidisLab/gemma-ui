@@ -1,16 +1,20 @@
 /**
  * Hibernate Search indices panel — per-@Indexed entity, with doc
- * counts and on-disk mtime. Rebuild actions are intentionally
- * CLI-only (IndexGemmaCLI); this is read-only.
+ * counts and on-disk mtime. Per-row + section-level reindex actions
+ * mirror IndexGemmaCLI's surface so admins can rebuild without
+ * shelling into the container.
  */
 
-import { useSearchIndices } from "../api";
+import { useSearchIndices, useReindexSearch } from "../api";
 import { SectionCard } from "../components/SectionCard";
+import { ConfirmButton } from "../components/ConfirmButton";
 import { fmtNumber, fmtRelative } from "../timeseries";
 
 export function IndicesSection() {
   const { data, isError, error } = useSearchIndices(60_000);
+  const reindex = useReindexSearch();
   const indices = data?.indices ?? [];
+  const inflight = reindex.isPending ? (reindex.variables ?? "(all)") : null;
   return (
     <SectionCard
       title="Search indices"
@@ -20,6 +24,16 @@ export function IndicesSection() {
               data.totalDocumentCountExact === false ? " (approx)" : ""
             }`
           : undefined
+      }
+      accessory={
+        <ConfirmButton
+          label="reindex all"
+          confirmLabel="reindex every entity"
+          tone="danger"
+          disabled={reindex.isPending || !data}
+          onConfirm={() => reindex.mutate(null)}
+          title="POST /admin/search/indices — sequential mass reindex of every @Indexed root. Destructive (rewrites on-disk Lucene); search results may be stale until each entity finishes."
+        />
       }
     >
       {isError ? (
@@ -36,6 +50,7 @@ export function IndicesSection() {
                 <th className="text-left px-2 py-1 font-medium">entity</th>
                 <th className="text-right px-2 py-1 font-medium">documents</th>
                 <th className="text-left px-2 py-1 font-medium">last modified</th>
+                <th className="text-right px-2 py-1 font-medium">actions</th>
               </tr>
             </thead>
             <tbody>
@@ -68,6 +83,16 @@ export function IndicesSection() {
                   </td>
                   <td className="px-2 py-1 text-slate-500 dark:text-slate-400">
                     {fmtRelative(idx.lastModified)}
+                  </td>
+                  <td className="px-2 py-1 text-right whitespace-nowrap">
+                    <ConfirmButton
+                      label="reindex"
+                      confirmLabel="reindex this entity"
+                      tone="danger"
+                      disabled={reindex.isPending || inflight === idx.entityName}
+                      onConfirm={() => reindex.mutate(idx.entityName)}
+                      title={`POST /admin/search/indices?entity=${idx.entityName} — rebuild on-disk Lucene for this entity only.`}
+                    />
                   </td>
                 </tr>
               ))}

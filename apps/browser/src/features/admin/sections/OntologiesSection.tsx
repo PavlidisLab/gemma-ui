@@ -6,9 +6,10 @@
  */
 
 import { useState } from "react";
-import { useOntologies } from "../api";
+import { useOntologies, useRefreshOntology, useRebuildOntologySlim } from "../api";
 import { SectionCard } from "../components/SectionCard";
 import { HealthDot } from "../components/HealthDot";
+import { ConfirmButton } from "../components/ConfirmButton";
 import { fmtNumber } from "../timeseries";
 
 export function OntologiesSection() {
@@ -17,7 +18,17 @@ export function OntologiesSection() {
     includeTermCount: includeTerms,
     refetchMs: 30_000,
   });
+  const refresh = useRefreshOntology();
+  const rebuildSlim = useRebuildOntologySlim();
   const ontologies = data?.ontologies ?? [];
+
+  // Track which row's action is in flight so we can disable just that button
+  // while the mutation runs (the hook itself is a singleton; isPending toggles
+  // for the whole list otherwise).
+  const inflight =
+    refresh.isPending || rebuildSlim.isPending
+      ? (refresh.variables ?? rebuildSlim.variables ?? null)
+      : null;
 
   return (
     <SectionCard
@@ -60,6 +71,7 @@ export function OntologiesSection() {
                 {includeTerms ? (
                   <th className="text-right px-2 py-1 font-medium">terms</th>
                 ) : null}
+                <th className="text-right px-2 py-1 font-medium">actions</th>
               </tr>
             </thead>
             <tbody>
@@ -104,6 +116,28 @@ export function OntologiesSection() {
                         {o.termCount != null ? fmtNumber(o.termCount) : "—"}
                       </td>
                     ) : null}
+                    <td className="px-2 py-1 text-right whitespace-nowrap">
+                      <span className="inline-flex gap-1 justify-end">
+                        <ConfirmButton
+                          label="refresh"
+                          confirmLabel="hot-refresh"
+                          tone="default"
+                          disabled={!o.enabled || inflight === o.className}
+                          onConfirm={() => refresh.mutate(o.className)}
+                          title="POST /admin/ontologies/{name}/refresh — re-fetch source + re-init in place. Cheap for -base / slim caches; multi-minute for full sources."
+                        />
+                        {o.slimmable ? (
+                          <ConfirmButton
+                            label="rebuild slim"
+                            confirmLabel="rebuild slim cache"
+                            tone="danger"
+                            disabled={!o.loaded || inflight === o.className}
+                            onConfirm={() => rebuildSlim.mutate(o.className)}
+                            title="POST /admin/ontologies/{name}/rebuild-slim — STAR-extract a corpus-tailored slim from the cached source. Background; OWL-API holds the full source in heap during extraction (memory pressure on the container)."
+                          />
+                        ) : null}
+                      </span>
+                    </td>
                   </tr>
                 );
               })}
