@@ -1,8 +1,8 @@
 // Left-side filter panel: query input + selectors.
 
+import { useEffect, type Dispatch } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Dispatch } from "react";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { getMyself } from "@/api/endpoints";
 import { HelpHint } from "@/features/shared/HelpHint";
 import type {
@@ -47,6 +47,27 @@ export function SidePanel({
     onApplyQuery(settings.currentQuery?.trim() ? settings.currentQuery.trim() : undefined);
   }
 
+  // Unified search/filter: as the curator types, the same query
+  // string drives the annotation-tree filter (live), the cross-
+  // corpus "more matches" fallback (debounced inside the selector),
+  // and — after a 400ms beat — the dataset text-search.
+  //
+  // The debounced apply dispatches ``setQuery`` directly (rather
+  // than ``onApplyQuery`` which also navigates) so live typing
+  // doesn't pile history entries onto the browser back stack —
+  // navigation only fires on explicit Enter / clear via
+  // ``applyQuery``. Per Paul 2026-05-27: filter + search are the
+  // same thing.
+  useEffect(() => {
+    const v = (settings.currentQuery ?? "").trim();
+    const applied = settings.query ?? "";
+    if (v === applied) return;
+    const t = window.setTimeout(() => {
+      dispatch({ type: "setQuery", value: v || undefined });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [settings.currentQuery, settings.query, dispatch]);
+
   function clearAll() {
     dispatch({ type: "reset" });
     onApplyQuery(undefined);
@@ -83,19 +104,54 @@ export function SidePanel({
         ) : null}
       </div>
 
+      {/* Unified search + filter. One input drives the annotation
+          tree filter, the cross-corpus "more matches" fallback, and
+          the dataset text-search. Enter applies immediately;
+          otherwise a 400ms debounce kicks the dataset fetch (see
+          the ``useEffect`` above).
+
+          NOTE: the input is intentionally NOT ``disabled`` while the
+          dataset query refetches. Disabling drops focus, and the
+          400ms debounce + fast keystroke cadence meant the input
+          went disabled mid-typing — every other character. Visual
+          loading state goes on the right-edge slot instead. */}
       <div className="relative mb-4">
         <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gemma-subtle" />
         <input
           type="text"
-          placeholder="Search… (press Enter)"
+          placeholder="Search & filter…"
           value={settings.currentQuery ?? ""}
           onChange={(e) => dispatch({ type: "setCurrentQuery", value: e.target.value })}
           onKeyDown={(e) => {
             if (e.key === "Enter") applyQuery();
+            if (e.key === "Escape" && settings.currentQuery) {
+              e.preventDefault();
+              dispatch({ type: "setCurrentQuery", value: "" });
+              onApplyQuery(undefined);
+            }
           }}
-          className="input pl-7"
-          disabled={loadingDatasets}
+          className="input pl-7 pr-7"
         />
+        {settings.currentQuery ? (
+          <button
+            type="button"
+            onClick={() => {
+              dispatch({ type: "setCurrentQuery", value: "" });
+              onApplyQuery(undefined);
+            }}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-5 w-5 rounded text-gemma-subtle hover:text-gemma-ink hover:bg-stone-200"
+            aria-label="Clear search"
+            title="Clear (Esc)"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : loadingDatasets ? (
+          <span
+            className="absolute right-2 top-1/2 -translate-y-1/2 inline-block h-2 w-2 rounded-full bg-gemma-accent/70 animate-pulse"
+            aria-label="Refreshing results…"
+            title="Refreshing results…"
+          />
+        ) : null}
       </div>
 
       <TaxonSelector
@@ -139,6 +195,14 @@ export function SidePanel({
         onChangeNegative={(a) => dispatch({ type: "setNegativeAnnotations", value: a })}
         onChangeCategoriesSelected={(c) => dispatch({ type: "setCategories", value: c })}
         onChangeCategoriesNegative={(c) => dispatch({ type: "setNegativeCategories", value: c })}
+        // Wire the unified search/filter input above through to the
+        // annotation tree so typing narrows it live, AND the
+        // cross-corpus "more matches" fallback fires off the same
+        // value. The selector's own input is hidden — the SidePanel
+        // owns the input now.
+        query={settings.currentQuery ?? ""}
+        onQueryChange={(q) => dispatch({ type: "setCurrentQuery", value: q })}
+        hideOwnInput
       />
 
       {me.data?.group === "Administrators" ? (

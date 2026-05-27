@@ -448,7 +448,18 @@ function Shell({
   if (draftLoading && !draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer} />
+        <AppHeader reviewer={fullName || reviewer}>
+          <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
+            /
+          </span>
+          <a
+            href="#/"
+            className="text-sm text-slate-700 dark:text-slate-300 hover:underline"
+            title="back to dashboard"
+          >
+            Experiments
+          </a>
+        </AppHeader>
         <TopBar
           experimentId={experimentId}
           experimentShortName={`experiment ${experimentId}`}
@@ -490,7 +501,18 @@ function Shell({
   if (isThin && draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer} />
+        <AppHeader reviewer={fullName || reviewer}>
+          <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
+            /
+          </span>
+          <a
+            href="#/"
+            className="text-sm text-slate-700 dark:text-slate-300 hover:underline"
+            title="back to dashboard"
+          >
+            Experiments
+          </a>
+        </AppHeader>
         <TopBar
           experimentId={experimentId}
           experimentShortName={shortName}

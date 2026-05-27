@@ -78,6 +78,18 @@ html {
   .btn-ghost {
     @apply bg-transparent border-transparent text-stone-600 hover:bg-stone-200 hover:text-stone-900;
   }
+
+  /* Annotation chips — small rounded pills carrying an ontology
+     term name + an optional +/- affordance for filter add/remove.
+     The legacy Vuetify GemBrow used <v-chip> directly; the React
+     port wrote ``className="chip"`` on a bare <button> with no
+     matching CSS, so chips fell back to default button flow
+     (no padding, no border-width even though border-* classes
+     set the colour, no rounded shape, icon stacking vertically
+     under wrap). This class restores the missing chrome. */
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs whitespace-nowrap leading-snug max-w-full;
+  }
 }
 
 

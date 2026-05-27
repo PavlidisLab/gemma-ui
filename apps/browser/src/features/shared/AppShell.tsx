@@ -23,7 +23,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-col min-h-screen">
       {onHome ? null : <AppBar />}
-      <main className="flex-1 min-h-0">{children}</main>
+      {/* ``flex flex-col`` so children using ``flex-1`` (e.g. the
+          BrowserPage's results table + pager column) can fill
+          ``main``'s height. Without this, ``h-full`` on a child
+          collapsed to its parent's ``auto`` height and the pager
+          floated mid-page with empty space below it. */}
+      <main className="flex-1 min-h-0 flex flex-col">{children}</main>
       <Footer />
     </div>
   );

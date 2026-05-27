@@ -8,7 +8,7 @@ import type {
   CategoryWithChildren,
   Dataset,
 } from "@/lib/types";
-import { formatDecimal, formatNumber, highlight } from "@/lib/utils";
+import { displayTaxon, formatDecimal, formatNumber, highlight } from "@/lib/utils";
 import { DatasetPreview } from "./DatasetPreview";
 
 interface Props {
@@ -141,7 +141,7 @@ export function ResultsTable(props: Props) {
                     </Link>
                   </td>
                   <td className="px-2 py-1 align-middle whitespace-nowrap text-gemma-subtle capitalize text-xs italic">
-                    {d.taxon?.commonName}
+                    {displayTaxon(d.taxon)}
                   </td>
                   <td className="px-2 py-1 align-middle">
                     <div className="flex items-center gap-2 min-w-0">

@@ -46,6 +46,18 @@ interface Props {
   onChangeNegative: (a: AnnotationTerm[]) => void;
   onChangeCategoriesSelected: (c: Category[]) => void;
   onChangeCategoriesNegative: (c: Category[]) => void;
+  /** Search query, lifted from the parent so the unified search +
+   *  filter input can live at the top of the SidePanel and drive the
+   *  annotation tree filter, the cross-corpus "more matches" fallback,
+   *  AND the dataset text-search query simultaneously. When omitted,
+   *  the component falls back to its own internal state for
+   *  backwards-compat with older callers. */
+  query?: string;
+  onQueryChange?: (q: string) => void;
+  /** When ``true``, hide the in-component search input — the parent
+   *  is rendering its own (e.g. the SidePanel's top input). The
+   *  ranked list still narrows by ``query``. */
+  hideOwnInput?: boolean;
 }
 
 function getId(t: AnnotationTerm | Category): string {
@@ -68,12 +80,19 @@ function getUri(item: AnnotationTerm | Category, isCategory: boolean): string | 
   return isCategory ? item.classUri : (item as AnnotationTerm).termUri ?? null;
 }
 
-function externalUrl(uri: string): string | null {
-  for (const src of ontologySources) {
-    if (src.pattern.test(uri)) return src.getExternalUrl(uri);
-  }
-  return null;
-}
+// externalUrl(uri) — kept in source for the planned hover-revealed
+// "open in ontology" action; the ↗ link itself was hidden 2026-05-27
+// because it was too noisy at scroll-pace. Re-enable when that
+// enhancement lands. Until then, suppressed below to keep the
+// no-unused-vars rule quiet.
+//
+// function externalUrl(uri: string): string | null {
+//   for (const src of ontologySources) {
+//     if (src.pattern.test(uri)) return src.getExternalUrl(uri);
+//   }
+//   return null;
+// }
+void ontologySources;
 
 function getTitle(item: AnnotationTerm | Category, isCategory: boolean): string {
   if (isCategory) {
@@ -124,13 +143,25 @@ export function AnnotationSelector(props: Props) {
     onChangeNegative,
     onChangeCategoriesSelected,
     onChangeCategoriesNegative,
+    query: controlledQuery,
+    onQueryChange,
+    hideOwnInput,
   } = props;
 
   // Selection state derives from props — we don't keep a parallel
   // copy; we read selected[] / negative[] / categories[] / negCats[]
   // and look them up by id.
 
-  const [search, setSearch] = useState("");
+  // Controlled-when-parent-passes-query / uncontrolled fallback. Old
+  // callers that don't pass ``query`` keep the legacy behaviour
+  // (component owns its own input + state).
+  const isControlled = controlledQuery !== undefined;
+  const [internalSearch, setInternalSearch] = useState("");
+  const search = isControlled ? (controlledQuery ?? "") : internalSearch;
+  const setSearch = (next: string) => {
+    if (onQueryChange) onQueryChange(next);
+    if (!isControlled) setInternalSearch(next);
+  };
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
@@ -298,18 +329,35 @@ export function AnnotationSelector(props: Props) {
 
   return (
     <section className="mb-4">
-      <div className="flex items-baseline justify-between mb-1">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
         <h3 className="side-heading">Annotations</h3>
-        {totalMarked > 0 ? (
-          <button
-            type="button"
-            onClick={clearAll}
-            disabled={disabled}
-            className="text-xs text-gemma-accent hover:underline"
-          >
-            Clear
-          </button>
-        ) : null}
+        <div className="flex items-baseline gap-3">
+          {/* Collapse-all — appears only when at least one category
+              is open. No open-all counterpart (Paul lukewarm on it —
+              expanding every category at once is rarely the curator's
+              intent; the search field is the better discovery path). */}
+          {Object.values(open).some(Boolean) ? (
+            <button
+              type="button"
+              onClick={() => setOpen({})}
+              disabled={disabled}
+              className="text-xs text-gemma-subtle hover:text-gemma-ink hover:underline"
+              title="Collapse all categories"
+            >
+              Collapse all
+            </button>
+          ) : null}
+          {totalMarked > 0 ? (
+            <button
+              type="button"
+              onClick={clearAll}
+              disabled={disabled}
+              className="text-xs text-gemma-accent hover:underline"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {loading ? <div className="h-0.5 bg-gemma-accent/30 animate-pulse mb-1" /> : null}
@@ -378,25 +426,195 @@ export function AnnotationSelector(props: Props) {
         </div>
       ) : null}
 
-      <div className="relative mb-1">
-        <input
-          type="text"
-          placeholder="Filter annotations…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          disabled={disabled}
-          className="input text-xs pr-7"
-        />
-        {fallback.isFetching ? (
-          <Loader2
-            className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-gemma-subtle"
-            aria-label="Searching all annotations…"
+      {hideOwnInput ? null : (
+        <div className="relative mb-1">
+          <input
+            type="text"
+            placeholder="Filter annotations…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              // Escape resets the filter without losing focus — saves
+              // the curator from having to mouse over to the clear
+              // button when they're already typing.
+              if (e.key === "Escape" && search) {
+                e.preventDefault();
+                setSearch("");
+              }
+            }}
+            disabled={disabled}
+            className="input text-xs pr-7"
           />
-        ) : null}
-      </div>
+          {/* Right-edge slot: clear-button when there's a query, spinner
+              while the cross-corpus fallback is fetching. Spinner only
+              renders when there's no clear button to take its slot;
+              ``search`` is the gate. */}
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              disabled={disabled}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-5 w-5 rounded text-gemma-subtle hover:text-gemma-ink hover:bg-stone-200 disabled:opacity-40"
+              aria-label="Clear filter"
+              title="Clear filter (Esc)"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : fallback.isFetching ? (
+            <Loader2
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-gemma-subtle"
+              aria-label="Searching all annotations…"
+            />
+          ) : null}
+        </div>
+      )}
 
+      <ul className="text-sm">
+        {ranked.length === 0 && !loading ? (
+          <li className="text-gemma-subtle italic py-1">No annotations available</li>
+        ) : null}
+        {ranked.map((cat) => {
+          const cid = categoryId(cat);
+          const isOpen = search ? true : !!open[cid];
+          const visibleChildren = cat.children.filter(filterTermBySearch);
+          if (search && visibleChildren.length === 0) return null;
+          const catState = categoryState(cat);
+
+          // Folded-state summary: name the first two selected terms
+          // inline below the category header so a curator can see at a
+          // glance which categories carry active filters without
+          // expanding each one. Truncated; "+N" expander shows the
+          // overflow count. Mirrors how the dashboard ticket cards
+          // surface their per-target progress. Per Paul 2026-05-27.
+          const selectedHere = cat.children.filter(
+            (t) => termState(t, cid) !== 0,
+          );
+          return (
+            <li key={cid} className="py-0.5">
+              <div className="flex items-center gap-1.5">
+                <CategoryStateButton state={catState} onClick={() => cycleCategory(cat)} disabled={disabled} />
+                <button
+                  type="button"
+                  onClick={() => setOpen({ ...open, [cid]: !isOpen })}
+                  className="flex-1 text-left truncate hover:text-gemma-accent flex items-center gap-1"
+                  title={getTitle(cat, true)}
+                >
+                  <ChevronRight
+                    className={`h-3 w-3 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
+                  />
+                  <span className="truncate">
+                    {cat.className ? titleCase(pluralize(cat.className)) : (cat.classUri ?? <i>Uncategorized</i>)}
+                  </span>
+                  {selectedHere.length > 0 ? (
+                    <span
+                      className="text-[10px] text-gemma-accent font-medium tabular-nums"
+                      aria-label={`${selectedHere.length} selected`}
+                      title={`${selectedHere.length} selected`}
+                    >
+                      ·{selectedHere.length}
+                    </span>
+                  ) : null}
+                </button>
+                <span className="text-gemma-subtle text-xs tabular-nums">
+                  {formatNumber(cat.numberOfExpressionExperiments ?? 0)}
+                </span>
+              </div>
+              {!isOpen && selectedHere.length > 0 ? (
+                <div className="ml-7 -mt-0.5 flex flex-wrap items-baseline gap-1 text-[10px] text-gemma-accent truncate">
+                  {selectedHere.slice(0, 2).map((t, i) => (
+                    <span
+                      key={getId(t)}
+                      className={`truncate ${termState(t, cid) === -1 ? "line-through opacity-70" : ""}`}
+                      title={getTitle(t, false)}
+                    >
+                      {i > 0 ? <span className="text-gemma-subtle mr-1">·</span> : null}
+                      {titleCase(t.termName ?? "")}
+                    </span>
+                  ))}
+                  {selectedHere.length > 2 ? (
+                    <span className="text-gemma-subtle">
+                      +{selectedHere.length - 2}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {isOpen ? (() => {
+                // Pin checked terms (state ≠ 0) to the top of the
+                // category's scroll area so a curator scanning a long
+                // list of unselected terms doesn't lose track of what's
+                // already in the filter. The selected group is its own
+                // sticky band: capped at ``max-h-28`` with internal
+                // overflow when many are checked — beyond that the
+                // band scrolls, the rest of the list still scrolls
+                // underneath it.
+                //
+                // Render order in the term row is unchanged
+                // (checkbox · label · count); only the position is.
+                // Ontology external-link (``↗``) hidden 2026-05-27 —
+                // distracting at scroll-pace; we'll bring it back as
+                // a hover-revealed action when the enhancement pass
+                // happens. URI resolution kept in place for that
+                // future surface.
+                const selected = visibleChildren.filter(
+                  (t) => termState(t, cid) !== 0,
+                );
+                const unselected = visibleChildren.filter(
+                  (t) => termState(t, cid) === 0,
+                );
+                const renderRow = (t: AnnotationTerm) => {
+                  const state = termState(t, cid);
+                  return (
+                    <li key={getId(t)} className="flex items-center gap-1.5 py-0.5">
+                      <TermStateButton
+                        state={state}
+                        onClick={() => cycleTerm(t, cat)}
+                        disabled={disabled}
+                      />
+                      <span
+                        className={`flex-1 truncate text-xs ${isExcluded(t) ? "line-through text-gemma-subtle" : ""}`}
+                        title={getTitle(t, false)}
+                      >
+                        {titleCase(t.termName ?? "")}
+                      </span>
+                      <span className="text-gemma-subtle text-xs tabular-nums">
+                        ≥{formatNumber(t.numberOfExpressionExperiments ?? 0)}
+                      </span>
+                    </li>
+                  );
+                };
+                return (
+                  <div className="pl-5 border-l border-gemma-grid ml-1 mt-0.5 max-h-72 overflow-y-auto relative">
+                    {selected.length > 0 ? (
+                      <ul
+                        className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-gemma-grid max-h-28 overflow-y-auto"
+                        title={`${selected.length} selected in ${cat.className ?? "category"}`}
+                      >
+                        {selected.map(renderRow)}
+                      </ul>
+                    ) : null}
+                    <ul>
+                      {unselected.map(renderRow)}
+                      {!search && cat.children.length >= ANNOTATION_FETCH_LIMIT ? (
+                        <li className="text-xs text-gemma-subtle italic py-1 pl-1">
+                          … limit reached ({ANNOTATION_FETCH_LIMIT} terms shown, narrow filters to see more)
+                        </li>
+                      ) : null}
+                    </ul>
+                  </div>
+                );
+              })() : null}
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Cross-corpus fallback search — terms that match the query
+          but are NOT currently in the dataset filter's catalog. These
+          render BELOW the catalog list so the in-filter hits keep
+          their visual primacy; the curator drops down here only when
+          the catalog doesn't have what they need. Per Paul 2026-05-27. */}
       {debouncedSearch.length >= 2 && fallbackNew.length > 0 ? (
-        <div className="mb-2 pt-1 border-t border-gemma-grid">
+        <div className="mt-2 pt-1 border-t border-gemma-grid">
           <div className="text-[10px] uppercase tracking-wider text-gemma-subtle pt-1 pb-0.5">
             More matches ({fallbackNew.length})
             <span className="ml-1 italic normal-case tracking-normal">
@@ -443,82 +661,6 @@ export function AnnotationSelector(props: Props) {
           </ul>
         </div>
       ) : null}
-
-      <ul className="text-sm">
-        {ranked.length === 0 && !loading ? (
-          <li className="text-gemma-subtle italic py-1">No annotations available</li>
-        ) : null}
-        {ranked.map((cat) => {
-          const cid = categoryId(cat);
-          const isOpen = search ? true : !!open[cid];
-          const visibleChildren = cat.children.filter(filterTermBySearch);
-          if (search && visibleChildren.length === 0) return null;
-          const catState = categoryState(cat);
-
-          return (
-            <li key={cid} className="py-0.5">
-              <div className="flex items-center gap-1.5">
-                <CategoryStateButton state={catState} onClick={() => cycleCategory(cat)} disabled={disabled} />
-                <button
-                  type="button"
-                  onClick={() => setOpen({ ...open, [cid]: !isOpen })}
-                  className="flex-1 text-left truncate hover:text-gemma-accent flex items-center gap-1"
-                  title={getTitle(cat, true)}
-                >
-                  <ChevronRight
-                    className={`h-3 w-3 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
-                  />
-                  <span className="truncate">
-                    {cat.className ? titleCase(pluralize(cat.className)) : (cat.classUri ?? <i>Uncategorized</i>)}
-                  </span>
-                </button>
-                <span className="text-gemma-subtle text-xs tabular-nums">
-                  {formatNumber(cat.numberOfExpressionExperiments ?? 0)}
-                </span>
-              </div>
-              {isOpen ? (
-                <ul className="pl-5 border-l border-gemma-grid ml-1 mt-0.5 max-h-72 overflow-y-auto">
-                  {visibleChildren.map((t) => {
-                    const state = termState(t, cid);
-                    const uri = getUri(t, false);
-                    const ext = uri ? externalUrl(uri) : null;
-                    return (
-                      <li key={getId(t)} className="flex items-center gap-1.5 py-0.5">
-                        <TermStateButton state={state} onClick={() => cycleTerm(t, cat)} disabled={disabled} />
-                        <span
-                          className={`flex-1 truncate text-xs ${isExcluded(t) ? "line-through text-gemma-subtle" : ""}`}
-                          title={getTitle(t, false)}
-                        >
-                          {titleCase(t.termName ?? "")}
-                        </span>
-                        {ext ? (
-                          <a
-                            href={ext}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-gemma-subtle hover:text-gemma-accent text-xs"
-                            title="Open in ontology browser"
-                          >
-                            ↗
-                          </a>
-                        ) : null}
-                        <span className="text-gemma-subtle text-xs tabular-nums">
-                          ≥{formatNumber(t.numberOfExpressionExperiments ?? 0)}
-                        </span>
-                      </li>
-                    );
-                  })}
-                  {!search && cat.children.length >= ANNOTATION_FETCH_LIMIT ? (
-                    <li className="text-xs text-gemma-subtle italic py-1 pl-1">
-                      … limit reached ({ANNOTATION_FETCH_LIMIT} terms shown, narrow filters to see more)
-                    </li>
-                  ) : null}
-                </ul>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
     </section>
   );
 }
@@ -544,6 +686,16 @@ function ChipRemovable({
   );
 }
 
+/** Tristate "checkbox" — three visible states so the curator can see
+ *  the affordance even when nothing is selected:
+ *
+ *   - ``0`` (unselected) → empty square outline, click selects
+ *   - ``1`` (include)    → filled accent square with check
+ *   - ``-1`` (exclude)   → red square with X
+ *
+ *  Matches the legacy GemBrow's ``iconForState`` semantics — the
+ *  ported React version had been collapsing state 0 to a bare
+ *  unstyled button, which read as "no checkbox" on the page. */
 function TermStateButton({
   state,
   disabled,
@@ -553,15 +705,33 @@ function TermStateButton({
   disabled?: boolean;
   onClick: () => void;
 }) {
+  const base =
+    "inline-flex items-center justify-center h-4 w-4 shrink-0 rounded-sm border cursor-pointer transition-colors";
+  const tone =
+    state === 1
+      ? "bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
+      : state === -1
+        ? "bg-rose-600 border-rose-600 text-white hover:bg-rose-700"
+        : "bg-white border-stone-400 text-stone-400 hover:border-stone-600 dark:bg-slate-800 dark:border-slate-500 dark:hover:border-slate-300";
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`tristate-btn ${state === 1 ? "pos" : state === -1 ? "neg" : ""}`}
-      title={state === 1 ? "Selected (click to negate)" : state === -1 ? "Negated (click to clear)" : "Click to select"}
+      className={`${base} ${tone}`}
+      title={
+        state === 1
+          ? "Selected (click to negate)"
+          : state === -1
+            ? "Negated (click to clear)"
+            : "Click to select"
+      }
     >
-      {state === 1 ? <Check className="h-3 w-3" /> : state === -1 ? <X className="h-3 w-3" /> : null}
+      {state === 1 ? (
+        <Check className="h-3 w-3" />
+      ) : state === -1 ? (
+        <X className="h-3 w-3" />
+      ) : null}
     </button>
   );
 }
@@ -575,18 +745,48 @@ function CategoryStateButton({
   disabled?: boolean;
   onClick: () => void;
 }) {
-  let cls = "tristate-btn";
+  const base =
+    "inline-flex items-center justify-center h-4 w-4 shrink-0 rounded-sm border cursor-pointer transition-colors";
+  let tone: string;
   let icon: React.ReactNode = null;
   switch (state) {
-    case "all-pos": cls += " pos"; icon = <Check className="h-3 w-3" />; break;
-    case "all-neg": cls += " neg"; icon = <X className="h-3 w-3" />; break;
-    case "some-pos": icon = <Minus className="h-3 w-3 text-gemma-accent" />; break;
-    case "some-neg": icon = <Minus className="h-3 w-3 text-rose-500" />; break;
-    case "mixed":   icon = <Square className="h-3 w-3 text-gemma-subtle" />; break;
-    case "empty":   icon = null; break;
+    case "all-pos":
+      tone = "bg-blue-600 border-blue-600 text-white hover:bg-blue-700";
+      icon = <Check className="h-3 w-3" />;
+      break;
+    case "all-neg":
+      tone = "bg-rose-600 border-rose-600 text-white hover:bg-rose-700";
+      icon = <X className="h-3 w-3" />;
+      break;
+    case "some-pos":
+      tone =
+        "bg-white border-blue-500 text-blue-600 hover:border-blue-700 dark:bg-slate-800";
+      icon = <Minus className="h-3 w-3" />;
+      break;
+    case "some-neg":
+      tone =
+        "bg-white border-rose-500 text-rose-600 hover:border-rose-700 dark:bg-slate-800";
+      icon = <Minus className="h-3 w-3" />;
+      break;
+    case "mixed":
+      tone =
+        "bg-white border-stone-400 text-stone-500 hover:border-stone-600 dark:bg-slate-800";
+      icon = <Square className="h-3 w-3" />;
+      break;
+    case "empty":
+      tone =
+        "bg-white border-stone-400 text-stone-400 hover:border-stone-600 dark:bg-slate-800 dark:border-slate-500";
+      icon = null;
+      break;
   }
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className={cls} title="Cycle category">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`${base} ${tone}`}
+      title="Cycle category"
+    >
       {icon}
     </button>
   );

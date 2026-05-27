@@ -1778,52 +1778,30 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
 }
 
 
-/** Header bar above the banner. */
+/** Header bar above the banner.
+ *
+ *  Slimmed further 2026-05-27: the "Experiments / GSE…" breadcrumb +
+ *  outbound link to legacy Gemma was redundant with (a) the
+ *  Experiments link now living in the global AppHeader and (b) the
+ *  GSE accession + tech-type badge sitting right below in the
+ *  ExperimentBanner. What survives here is the per-experiment
+ *  SettingsMenu — the only chrome on this row that doesn't have a
+ *  home in the global bar. */
 export function TopBar({
-  experimentId,
-  experimentShortName,
+  experimentId: _experimentId,
+  experimentShortName: _experimentShortName,
   reviewer: _reviewer,
 }: {
   experimentId: number | string;
   experimentShortName: string;
-  /** Retained for caller-side type compatibility; no longer rendered
-   *  here — the signed-in / mode / health / logout cluster moved to
-   *  the global ``<AppHeader>`` that mounts above this bar
-   *  (2026-05-26 unification pass). */
+  /** Retained for caller-side type compatibility; the signed-in /
+   *  mode / health / logout cluster lives in the global AppHeader. */
   reviewer: string;
 }) {
-  const gemmaUrl = experimentPageUrl(experimentId);
-  // Slimmed 2026-05-26: dropped the Gemma brand mark + the right-side
-  // signed-in/mode/health/logout cluster — both are now owned by the
-  // shared ``AppHeader`` (``apps/curation/src/components/ui/AppHeader.tsx``).
-  // What's left is the experiment-context breadcrumb + the per-page
-  // SettingsMenu — i.e. the bits that are only meaningful inside an
-  // experiment, and have no equivalent in the global bar.
   return (
     <header className="border-b border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-800 dark:text-slate-200">
-      <div className="mx-auto w-full max-w-[1800px] px-4 py-1.5 flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <a
-            href="#/"
-            className="text-sm text-slate-600 hover:underline"
-            title="back to experiment list"
-          >
-            Experiments
-          </a>
-          <span className="text-xs text-slate-400">/</span>
-          <a
-            href={gemmaUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-blue-700 hover:underline"
-            title="open on Gemma"
-          >
-            {experimentShortName}
-          </a>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-slate-600">
-          <SettingsMenu />
-        </div>
+      <div className="mx-auto w-full max-w-[1800px] px-4 py-1 flex items-center justify-end gap-4 flex-wrap">
+        <SettingsMenu />
       </div>
     </header>
   );

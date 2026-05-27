@@ -145,11 +145,18 @@ export function FactorValueList({
           )}
         </div>
       </div>
-      {/* Baselines render first — when the factor declares a
+      {/* FV cards stacked inside a padded, spaced container. The
+          parent factor uses the sky-50 / sky-900/40 tint to claim
+          the visual region; each FV needs its own opaque card so
+          the curator can tell where one stops and the next begins.
+          ``space-y-2`` carries the gap; per-card border + opaque
+          background live on the ``FactorValueCard`` ``<article>``.
+          Baselines render first — when the factor declares a
           baseline ("reference substance role", "control", etc.) the
           curator's eye should land on it before the
           treatment / experimental levels. Stable secondary order
           (server-side declaration) within each group. */}
+      <div className="p-2 space-y-2">
       {[...factor.factor_values]
         .sort((a, b) =>
           a.is_baseline === b.is_baseline ? 0 : a.is_baseline ? -1 : 1,
@@ -206,6 +213,7 @@ export function FactorValueList({
           />
         );
       })}
+      </div>
     </div>
   );
 }

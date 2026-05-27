@@ -137,7 +137,16 @@ export function FactorValueCard({
           : undefined
       }
       className={
-        "px-3 py-1.5 border-b border-slate-100 " + borderClass +
+        // Self-contained card. The hairline ``border-b`` we used to
+        // ride between FVs disappeared into the sky-tinted parent
+        // background, so curators couldn't tell where one FV ended
+        // and the next began. Now each card has its own opaque
+        // background + full border + rounded corners, separated by
+        // the parent's ``space-y-2`` gap. ``borderClass`` carries the
+        // change-kind tone via a thicker left border (added /
+        // modified / removed).
+        "px-3 py-2 rounded-md border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700 " +
+        borderClass +
         (compact && onExpand && !isRemoved
           ? " cursor-text"
           : "")

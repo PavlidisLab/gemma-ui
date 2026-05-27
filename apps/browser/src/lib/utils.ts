@@ -11,6 +11,45 @@ export const formatPercent = (p: number): string => percentFormatter.format(p);
 export const formatDecimal = (d: number | undefined | null): string =>
   d === undefined || d === null || Number.isNaN(d) ? "" : decimalFormatter.format(d);
 
+/** Map of recognised scientific names → canonical lab-style common
+ *  name. Gemma's data carries inconsistent ``taxon.commonName``:
+ *  curated rows have proper common names ("human", "mouse"); GEO-
+ *  imported rows have the scientific name in the common-name slot
+ *  ("Homo sapiens"). Normalising at display time so the table reads
+ *  consistently — the underlying data fix belongs in the importer
+ *  (preload_runner.py). Per Paul 2026-05-27. */
+const TAXON_COMMON_NAMES: Record<string, string> = {
+  "homo sapiens": "human",
+  "mus musculus": "mouse",
+  "rattus norvegicus": "rat",
+  "danio rerio": "zebrafish",
+  "drosophila melanogaster": "fruit fly",
+  "caenorhabditis elegans": "worm",
+  "saccharomyces cerevisiae": "yeast",
+  "saccharomyces cerevisiae s288c": "yeast",
+  "schizosaccharomyces pombe": "fission yeast",
+  "macaca mulatta": "rhesus macaque",
+  "pan troglodytes": "chimpanzee",
+  "gallus gallus": "chicken",
+  "xenopus laevis": "frog",
+  "xenopus tropicalis": "frog",
+};
+
+/** Render a taxon for display: prefer the common name; fall back to
+ *  the scientific name. When the supplied "common name" is actually
+ *  a known scientific name (the import-side bug), map it to the
+ *  canonical short form. Always lowercased so the column reads
+ *  uniformly. */
+export function displayTaxon(
+  t: { commonName?: string | null; scientificName?: string | null } | null | undefined,
+): string {
+  if (!t) return "";
+  const raw = (t.commonName || t.scientificName || "").trim();
+  if (!raw) return "";
+  const canon = TAXON_COMMON_NAMES[raw.toLowerCase()];
+  return canon ?? raw.toLowerCase();
+}
+
 /**
  * Compress a single string with gzip and base64-encode it. If the
  * compressed form is bigger than the original, return the original.

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { gemmaUrl } from "@/lib/gemmaConfig";
 import { curationUrl } from "@/lib/appLinks";
@@ -11,6 +11,13 @@ export function AppBar() {
   const user = me.data;
   const logout = useLogout();
   const [loginOpen, setLoginOpen] = useState(false);
+  // Hide the AppBar search box once the curator is on /browser —
+  // the unified search + filter input lives in the page itself
+  // there, and the AppBar copy reads as redundant (and submitting
+  // it just re-navigates to the page they're already on).
+  const onBrowser = useRouterState({
+    select: (s) => s.location.pathname.startsWith("/browser"),
+  });
 
   return (
     <header className="flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
@@ -38,9 +45,11 @@ export function AppBar() {
         <NavTab to="/admin/system">Administration</NavTab>
       </nav>
 
-      <div className="ml-4">
-        <SearchBox variant="compact" />
-      </div>
+      {onBrowser ? null : (
+        <div className="ml-4">
+          <SearchBox variant="compact" />
+        </div>
+      )}
 
       <div className="flex-1" />
 

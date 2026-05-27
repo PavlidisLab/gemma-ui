@@ -17,6 +17,7 @@ import type {
   DatasetAnnotation,
 } from "@/lib/types";
 import {
+  displayTaxon,
   formatDecimal,
   formatNumber,
   getCategoryId,
@@ -174,8 +175,8 @@ export function DatasetPreview({
     <div className="py-3 px-2 space-y-3">
       {/* Meta strip: at-a-glance facts + outbound links. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gemma-subtle">
-        {dataset.taxon?.commonName ? (
-          <span className="capitalize text-gemma-ink">{dataset.taxon.commonName}</span>
+        {dataset.taxon ? (
+          <span className="capitalize text-gemma-ink">{displayTaxon(dataset.taxon)}</span>
         ) : null}
         {typeof dataset.numberOfBioAssays === "number" ? (
           <span>
