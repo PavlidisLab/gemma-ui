@@ -67,6 +67,14 @@ export interface TicketTarget {
 
 export type TicketMode = "MANUAL" | "AUTO";
 
+/** Edit vs review — drives the curation comparison view's read-only
+ *  lock per ``docs/CURATION_COMPARISON_VIEW_2026_05_27.md``. ``edit``
+ *  means the curator is actively working the ticket (design tab
+ *  editable, accept/reject live, commit bar visible). ``review`` is
+ *  show-and-tell — chip strip still drives diffs but all action
+ *  affordances are suppressed. Default ``review`` on the server. */
+export type TicketFlow = "edit" | "review";
+
 export interface Ticket {
   id: number;
   title: string;
@@ -93,6 +101,11 @@ export interface Ticket {
    *  defined action when the current runner finishes with no
    *  failures. */
   mode: TicketMode;
+  /** Edit / review flow control — see ``TicketFlow``. Optional on the
+   *  read shape so a UI talking to a backend predating this field
+   *  still functions (the chip strip falls back to its
+   *  no-ticket default, ``review``). */
+  flow?: TicketFlow;
   targets: TicketTarget[];
 }
 
@@ -131,7 +144,7 @@ export function useTicket(
 export function usePatchTicket(ticketId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (patch: Partial<Pick<Ticket, "mode" | "state" | "title">>) => {
+    mutationFn: async (patch: Partial<Pick<Ticket, "mode" | "state" | "title" | "flow">>) => {
       return await api.patch<Ticket>(`/rest/v2/tickets/${ticketId}`, patch);
     },
     onSuccess: (next) => {

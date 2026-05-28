@@ -15,12 +15,16 @@ import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
 import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { PipelinePanel } from "@/features/workflow/PipelinePanel";
 import { LeaveJobGuard } from "@/features/leaveGuard/LeaveJobGuard";
-import { useGroup } from "@/api/workflow";
 import { useAuditsForExperiment } from "@/api/audits";
 import { useProposalReviewsForExperiment } from "@/api/reviewProposals";
 import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
-import { decideComparisonBanner } from "@/features/audit/comparisonBanner";
+import { ChipStrip } from "@/features/comparison/ChipStrip";
+import { useChipState } from "@/features/comparison/useChipState";
+import { useChipDesignPair } from "@/features/comparison/useChipDiff";
+import { FlowProvider, useIsReadOnly } from "@/features/comparison/FlowContext";
+import { ChipOverrideMount } from "@/features/comparison/ChipOverrideMount";
+import { useTicket } from "@/api/tickets";
 import {
   parseRoute,
   navigate,
@@ -232,74 +236,6 @@ export default function App() {
   );
 }
 
-/** Full-width banner that fires when the curator is viewing an
- *  experiment in an inter-curator-audit context. Two detection
- *  paths:
- *    1. Group context — URL ``?group=<id>`` resolves to a Group
- *       whose name matches /inter-curator audit/i.
- *    2. Audit model — when the URL has NO ``?group=``, fall back
- *       to scanning the experiment's audit list for an audit
- *       whose ``model`` field carries the inter-curator pattern
- *       ("inter-curator audit · X's curation applied · Y reviews").
- *       Catches the case where the curator opened the experiment
- *       directly, without the group context in the URL.
- *
- *  The audit-history fallback is GATED on the URL having no
- *  ``?group=`` — without that gate it leaked across packages
- *  (Paul's 2026-05-21 repro: an experiment with a historical
- *  inter-curator audit kept the banner lit when the curator
- *  navigated to a non-inter-curator package containing the same
- *  experiment). Decision logic lives in `comparisonBanner.ts`,
- *  exported as `decideComparisonBanner` for unit-testing.
- *
- *  If either fires, the banner shows. The label content prefers
- *  the parsed identities (e.g. "cyan's review of amanda's
- *  curation") when available, falling back to the raw group name.
- *  See HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS §1 (bro's
- *  reply, "viewing chip" ask). */
-function ComparisonModeBanner({
-  experimentId,
-  groupId,
-}: {
-  experimentId: number | string;
-  groupId: string | undefined;
-}) {
-  const { data: group } = useGroup(groupId);
-  const { data: auditList } = useAuditsForExperiment(experimentId);
-
-  const decision = decideComparisonBanner(
-    groupId,
-    group?.name || "",
-    auditList?.items ?? [],
-  );
-
-  if (!decision.show) return null;
-  const { sourceText, goldCurator, reviewer } = decision;
-
-  return (
-    <div
-      className="w-full bg-amber-100 border-b border-amber-300 px-4 py-2 text-sm text-amber-900 dark:bg-amber-900/40 dark:border-amber-700 dark:text-amber-100"
-      role="status"
-      aria-live="polite"
-    >
-      <span className="font-semibold uppercase tracking-wide text-[11px] mr-2">
-        Viewing
-      </span>
-      {goldCurator && reviewer ? (
-        <span className="text-[13px]">
-          <strong>{reviewer}</strong>'s review of{" "}
-          <strong>{goldCurator}</strong>'s curation
-        </span>
-      ) : (
-        <span className="font-mono text-[13px]">{sourceText}</span>
-      )}
-      <span className="ml-2 text-[11px] opacity-80">
-        — design overlay + dispositions belong to this package only
-      </span>
-    </div>
-  );
-}
-
 function Shell({
   experimentId,
   reviewer,
@@ -346,6 +282,38 @@ function Shell({
 
   const { draft, isLoading: draftLoading, loadError, staleCacheDiscarded, diff } = useDesignDraft();
 
+  // ``flow`` drives the review-mode lock. Source of truth: the
+  // active Ticket's ``flow`` field — Paul 2026-05-27, "[mode should
+  // be] set at the ticket level". Fallback when there's no ticket
+  // context: ``review`` (safer default per spec). Computed early
+  // so chip state + sidebar override + downstream FlowProvider
+  // all see the same value.
+  const ticketIdNumeric = ticketContext
+    ? Number.parseInt(ticketContext, 10)
+    : null;
+  const activeTicket = useTicket(
+    Number.isFinite(ticketIdNumeric) ? ticketIdNumeric : null,
+  );
+  const flow: "edit" | "review" =
+    activeTicket.data?.flow === "edit" ? "edit" : "review";
+
+  // Chip state lives at the Shell level so within-experiment tab
+  // switches (samples, history, …) can thread ``?base=``/``?cmp=``
+  // through ``experimentRoute`` calls. Without this, every tab click
+  // would silently reset the chips to defaults — losing the curator's
+  // explicit comparison setup. Spec Gotcha #6.
+  const chipForRoute = useChipState({
+    experimentId,
+    flow,
+    tab: tabIdToRouteTab(mapRouteTab(initialTab).tab),
+    groupContext,
+    ticketContext,
+  });
+  const chipsForNav: { base?: typeof chipForRoute.baseline; cmp?: typeof chipForRoute.comparator } = {
+    base: chipForRoute.baseline,
+    cmp: chipForRoute.comparator,
+  };
+
   // Guard against accidental navigation away with uncommitted edits.
   // Drafts are persisted to localStorage so a refresh recovers them,
   // but a tab close on a workstation other than the curator's leaves
@@ -377,7 +345,15 @@ function Shell({
       if (parsed?.kind === "assignment") {
         // Assignments already route through the samples-scroll plumbing.
         setActiveTab("samples");
-        navigate(experimentRoute(experimentId, "samples"));
+        navigate(
+          experimentRoute(
+            experimentId,
+            "samples",
+            groupContext,
+            ticketContext,
+            chipsForNav,
+          ),
+        );
         dispatchSamplesScrollRow(parsed.biomaterialShortName);
         return;
       }
@@ -385,10 +361,18 @@ function Shell({
       if (!tab) return;
       const localTab = mapRouteTab(tab).tab;
       setActiveTab(localTab);
-      navigate(experimentRoute(experimentId, tab));
+      navigate(
+        experimentRoute(
+          experimentId,
+          tab,
+          groupContext,
+          ticketContext,
+          chipsForNav,
+        ),
+      );
       dispatchAuditFocusTarget(targetId);
     });
-  }, [experimentId]);
+  }, [experimentId, groupContext, ticketContext, chipsForNav]);
 
   // Listen for cross-tab "scroll to sample" requests (audit findings
   // on assignment kind, proposal cards referencing biomaterials).
@@ -401,10 +385,18 @@ function Shell({
     return onRequestSampleScroll(({ experimentId: targetId, shortName }) => {
       if (targetId !== experimentId) return;
       setActiveTab("samples");
-      navigate(experimentRoute(experimentId, "samples"));
+      navigate(
+        experimentRoute(
+          experimentId,
+          "samples",
+          groupContext,
+          ticketContext,
+          chipsForNav,
+        ),
+      );
       dispatchSamplesScrollRow(shortName);
     });
-  }, [experimentId]);
+  }, [experimentId, groupContext, ticketContext, chipsForNav]);
 
   // In-app navigation guard: hash changes that take the curator off
   // this experiment (back to landing, inbox, or a different
@@ -545,6 +537,7 @@ function Shell({
   }
 
   return (
+    <FlowProvider flow={flow}>
     <div className="min-h-screen flex flex-col">
       <AppHeader reviewer={fullName || reviewer} />
       <TopBar
@@ -552,9 +545,12 @@ function Shell({
         experimentShortName={shortName}
         reviewer={fullName || reviewer}
       />
-      <ComparisonModeBanner
+      <ChipStrip
         experimentId={experimentId}
-        groupId={groupContext}
+        flow={flow}
+        tab={tabIdToRouteTab(activeTab)}
+        groupContext={groupContext}
+        ticketContext={ticketContext}
       />
       <ExperimentBanner
         experimentId={experimentId}
@@ -593,6 +589,7 @@ function Shell({
               tabIdToRouteTab(tab),
               groupContext,
               ticketContext,
+              chipsForNav,
             ),
           );
         }}
@@ -608,6 +605,8 @@ function Shell({
               experimentId,
               next ? "notes" : tabIdToRouteTab(activeTab),
               groupContext,
+              ticketContext,
+              chipsForNav,
             ),
           );
         }}
@@ -640,6 +639,9 @@ function Shell({
         activeTab={activeTab}
         experimentId={experimentId}
         reviewer={reviewer}
+        groupContext={groupContext}
+        ticketContext={ticketContext}
+        flow={flow}
       />
 
       <LeaveJobGuard
@@ -652,6 +654,7 @@ function Shell({
           (the grid overflows the viewport). Its info now lives in
           the HealthChip popover in TopBar, which is always on-screen. */}
     </div>
+    </FlowProvider>
   );
 }
 
@@ -667,10 +670,16 @@ function MainGrid({
   activeTab,
   experimentId,
   reviewer,
+  groupContext,
+  ticketContext,
+  flow,
 }: {
   activeTab: TabId;
   experimentId: number | string;
   reviewer: string;
+  groupContext?: string;
+  ticketContext?: string;
+  flow: "edit" | "review";
 }) {
   // SSE-driven hooks for the two agent runs. Both fire from the
   // unified AgentRunDialog opened by the sidebar header strip;
@@ -807,6 +816,35 @@ function MainGrid({
   // default so they notice newly-submitted proposals; if they want
   // the editor full-width they can collapse it explicitly.
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Chip strip drives sidebar visibility: ``?cmp=`` empty ⇒ nothing
+  // to render in the right panel, so close it. Inverse (auto-reopen
+  // on non-empty) is intentionally NOT wired — if the curator
+  // explicitly closed the panel during a comparison they want full
+  // width, and force-reopening on every chip toggle would be hostile.
+  // The collapse button still works as before for the manual close.
+  const chipForSidebar = useChipState({
+    experimentId,
+    flow,
+    tab: tabIdToRouteTab(activeTab),
+    groupContext,
+    ticketContext,
+  });
+  useEffect(() => {
+    if (chipForSidebar.comparator === "empty" && sidebarOpen) {
+      setSidebarOpen(false);
+    }
+  }, [chipForSidebar.comparator, sidebarOpen]);
+  // Baseline source's Design — fed into the Design tab in review
+  // mode so the curator sees the source they chose, not the live
+  // editable draft. ``null`` while loading or when baseline=empty;
+  // the DesignEditor falls back to the live draft in that case.
+  const chipPair = useChipDesignPair(
+    experimentId,
+    chipForSidebar.baseline,
+    chipForSidebar.comparator,
+  );
+  const chipBaselineDesign = chipPair.baseline;
   // Sidebar width. Default 320 = Tailwind's old ``lg:w-80``. Curators
   // who want more room for the v2 ProposalCard's verify-N or edit
   // affordances drag the left edge wider; persists via localStorage.
@@ -881,7 +919,14 @@ function MainGrid({
         {activeTab === "overview" ? (
           <OverviewPanel />
         ) : activeTab === "design" ? (
-          <DesignEditor experimentId={experimentId} />
+          <DesignEditor
+            experimentId={experimentId}
+            displayOverride={
+              flow === "review" && chipForSidebar.baseline !== "empty"
+                ? chipBaselineDesign
+                : null
+            }
+          />
         ) : activeTab === "samples" ? (
           <SampleDetailsPanel experimentId={experimentId} />
         ) : activeTab === "qc" ? (
@@ -1040,6 +1085,21 @@ function MainGrid({
                 setSidebarView("proposalReview");
               }}
             >
+              {/* Chip-strip → AuditProvider bridge. When the
+                  comparator chip is a polished source (Cy / Am /
+                  preboard), feeds a synthetic AuditReport into
+                  this provider so the panel renders diff-as-cards
+                  instead of the live agent proposal. Clears the
+                  override when comparator = agent_proposal so the
+                  live cards return. */}
+              <ChipOverrideMount
+                experimentId={experimentId}
+                flow={flow}
+                tab={tabIdToRouteTab(activeTab)}
+                groupContext={groupContext}
+                ticketContext={ticketContext}
+                experimentShortName={draft?.experiment_short_name || String(experimentId)}
+              />
               <AuditSidebarPanel
                 experimentId={experimentId}
                 stream={auditStream}
@@ -1155,7 +1215,12 @@ function SharedCommitBar({
   experimentId: number | string;
   reviewer: string;
 }) {
+  // Review-mode lock — no committing when the curator is just
+  // looking at someone else's polished gold. The chip strip's
+  // FlowContext is the single source of truth for this.
+  const readOnly = useIsReadOnly();
   const { diff, draft, commit, discard, saving, saveError } = useDesignDraft();
+  if (readOnly) return null;
   // Compute the validator state from the draft so the bar can gate
   // commit on baseline correctness without a round-trip to the
   // server. validateDesign is cheap (linear in factors × FVs).

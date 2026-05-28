@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSessionState } from "@/lib/useStickyState";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { ContinuousFactorView } from "./ContinuousFactorView";
 import { FactorList } from "./FactorList";
 import { FactorValueList } from "./FactorValueList";
@@ -32,7 +33,7 @@ import {
   toggleBaseline,
 } from "./mutations";
 import { validateDesign } from "@/features/experiment/types";
-import type { Statement } from "@/features/experiment/types";
+import type { Design, Statement } from "@/features/experiment/types";
 
 /**
  * Owner of the design-editing surface for the **design tab**.
@@ -41,8 +42,30 @@ import type { Statement } from "@/features/experiment/types";
  * the same uncommitted draft, and the `<CommitBar/>` is rendered
  * once at App level.
  */
-export function DesignEditor({ experimentId }: { experimentId: number | string }) {
-  const { draft, saved, diff, apply, isLoading, loadError } = useDesignDraft();
+export function DesignEditor({
+  experimentId,
+  displayOverride,
+}: {
+  experimentId: number | string;
+  /** When provided AND non-null, the tab renders against this Design
+   *  instead of the live editable draft. Used by the curation
+   *  comparison view's chip strip: in review mode with a baseline
+   *  chip set, the curator wants to LOOK at that source's state,
+   *  not the locked draft. ``readOnly`` should always be true when
+   *  this is non-null (caller's responsibility). */
+  displayOverride?: Design | null;
+}) {
+  const live = useDesignDraft();
+  const liveDraft = live.draft;
+  const saved = live.saved;
+  const diff = live.diff;
+  const apply = live.apply;
+  const isLoading = live.isLoading;
+  const loadError = live.loadError;
+  // ``draft`` below is what the tab RENDERS against. Mutations
+  // continue to target the live draft via ``apply`` (gated by the
+  // fieldset disabled in review mode).
+  const draft = displayOverride ?? liveDraft;
 
   // Persist the selected factor per-experiment-per-tab-session so
   // switching to another tab and back doesn't reset the selection to
@@ -159,8 +182,31 @@ export function DesignEditor({ experimentId }: { experimentId: number | string }
   const selectedFactor =
     draft.factors.find((f) => f.id === effectiveSelected) ?? null;
 
+  // Review-mode lock — design tab is read-only when the curator is
+  // just looking (no group / ticket context). Native ``fieldset
+  // disabled`` blanks every nested form control + button so click
+  // events don't fire; the banner explains the greyed-out chrome so
+  // it doesn't read as a bug.
+  const readOnly = useIsReadOnly();
+
   return (
     <div className="space-y-4">
+      {readOnly ? (
+        <div
+          className="rounded border border-slate-300 bg-slate-100/60 px-3 py-2 text-[12px] text-slate-600 dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-300"
+          role="status"
+        >
+          <span className="font-semibold uppercase tracking-wide text-[10px] mr-2">
+            Read-only
+          </span>
+          no calibration / ticket context — open this experiment via a
+          package to take action on the design
+        </div>
+      ) : null}
+      <fieldset
+        disabled={readOnly}
+        className="space-y-4 m-0 p-0 border-0 disabled:opacity-90"
+      >
       {/* Validator banner sits above FactorList so the
           "design valid / has warnings" summary is visible the
           moment the curator lands on the tab. Earlier placement at
@@ -331,6 +377,7 @@ export function DesignEditor({ experimentId }: { experimentId: number | string }
           Select a factor above to edit its values.
         </div>
       )}
+      </fieldset>
     </div>
   );
 }

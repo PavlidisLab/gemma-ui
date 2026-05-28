@@ -35,6 +35,7 @@ import type { useAuditStream } from "@/api/auditStream";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import sampleReport from "./fixtures/sample_audit_report.json";
 import { useAudit, findingKey } from "./AuditContext";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
   experimentTarget,
   factorTarget,
@@ -509,6 +510,9 @@ function SidebarHeader({
     activeAuditIndex,
     setActiveAuditIndex,
   } = useAudit();
+  // Review-mode lock — suppresses Apply All (per-finding row actions
+  // are gated inside ``ActionRow`` itself; same FlowContext source).
+  const readOnly = useIsReadOnly();
   const copy = KIND_COPY[kind];
   const toast = useToast();
   const [confirmClose, setConfirmClose] = useState(false);
@@ -995,9 +999,10 @@ function SidebarHeader({
               stamps each finding's disposition as accepted+resolved.
               Findings without a clean mutator (wrong_fv_partition
               etc.) are skipped — the curator still triages those
-              from the per-finding rows. */}
+              from the per-finding rows. Suppressed in review mode —
+              same lock as the per-finding action rows. */}
           {kind === "proposal" && !isFinalized && lifecycleAvailable
-            && pendingApplyableCount > 0 ? (
+            && pendingApplyableCount > 0 && !readOnly ? (
             <button
               type="button"
               onClick={handleApplyAll}
@@ -3834,6 +3839,17 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   } = useAudit();
   const { apply: applyDraft, draft } = useDesignDraft();
   const toast = useToast();
+  // Review-mode lock — same gate as ``ActionRow`` in
+  // FindingDetailsEditor. Curator can read the finding cards but
+  // can't act on them without a calibration / ticket context.
+  const readOnly = useIsReadOnly();
+  if (readOnly) {
+    return (
+      <div className="pt-1 text-[11px] text-slate-400 italic dark:text-slate-500">
+        read-only — open via a calibration package to take action
+      </div>
+    );
+  }
   const [dismissOpen, setDismissOpen] = useState(false);
   // Two new dialogs for the unified reason flow (2026-05-10): accept
   // (curator agrees with an agent-extra suggestion) and not-sure

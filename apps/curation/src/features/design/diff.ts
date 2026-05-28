@@ -364,3 +364,121 @@ export function indexChanges(diff: DesignDiff): FvChangeIndex {
     factorsRemoved: new Set(diff.factorsRemoved.map((f) => f.id)),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Cross-source semantic diff.
+//
+// ``diffDesign`` above matches by Gemma-assigned IDs (factor.id,
+// tag.id, fv.id) — correct for the in-experiment edit buffer where
+// the draft is a structural mutation of the saved server design.
+// Cross-source comparisons (preboard vs Cy's polished export, Cy
+// polished vs Am polished, …) can't trust the IDs — separate
+// curation lineages may produce different IDs for what is
+// conceptually the same factor / tag.
+//
+// ``summariseSemanticDiff`` matches on OBVIOUS keys only:
+//   - factors  → category URI (or category label if URI absent)
+//   - tags     → (category URI || label, value URI || label)
+// Anything that doesn't match on those keys lands in added/removed.
+// We do NOT reach for fuzzy / ontology-distance / RAG matchers —
+// per Paul 2026-05-27, "if it's not obvious, it doesn't deserve to
+// match." Honest add/remove pairs beat over-eager "modified".
+// ---------------------------------------------------------------------------
+
+export interface SemanticDiffSummary {
+  addedTags: number;
+  removedTags: number;
+  modifiedTags: number;
+  addedFactors: number;
+  removedFactors: number;
+  modifiedFactors: number;
+  /** ``true`` when every count is zero — drives the regression-test
+   *  invariant (baseline = comparator → empty diff). */
+  empty: boolean;
+}
+
+const EMPTY_SEMANTIC_DIFF: SemanticDiffSummary = {
+  addedTags: 0,
+  removedTags: 0,
+  modifiedTags: 0,
+  addedFactors: 0,
+  removedFactors: 0,
+  modifiedFactors: 0,
+  empty: true,
+};
+
+function factorKey(f: Factor): string {
+  const cat = f.category;
+  if (cat?.uri) return `uri:${cat.uri.toLowerCase()}`;
+  if (cat?.label) return `label:${cat.label.toLowerCase()}`;
+  return `name:${(f.name || "").toLowerCase()}`;
+}
+
+function tagKey(t: Tag): string {
+  const c = t.category;
+  const v = t.value;
+  const ck = c?.uri ?? c?.label ?? "";
+  const vk = v?.uri ?? v?.label ?? "";
+  return `${ck.toLowerCase()}|${vk.toLowerCase()}`;
+}
+
+export function summariseSemanticDiff(
+  baseline: Design | null | undefined,
+  comparator: Design | null | undefined,
+): SemanticDiffSummary {
+  if (!baseline || !comparator) return EMPTY_SEMANTIC_DIFF;
+
+  const baseFactors = baseline.factors ?? [];
+  const cmpFactors = comparator.factors ?? [];
+  const baseByFactor = new Map(baseFactors.map((f) => [factorKey(f), f]));
+  const cmpByFactor = new Map(cmpFactors.map((f) => [factorKey(f), f]));
+
+  let addedFactors = 0;
+  let removedFactors = 0;
+  let modifiedFactors = 0;
+  for (const [k, cmp] of cmpByFactor) {
+    const base = baseByFactor.get(k);
+    if (!base) {
+      addedFactors++;
+      continue;
+    }
+    if (!sameFactorFields(base, cmp)) modifiedFactors++;
+  }
+  for (const k of baseByFactor.keys()) {
+    if (!cmpByFactor.has(k)) removedFactors++;
+  }
+
+  const baseTags = baseline.tags ?? [];
+  const cmpTags = comparator.tags ?? [];
+  const baseByTag = new Map(baseTags.map((t) => [tagKey(t), t]));
+  const cmpByTag = new Map(cmpTags.map((t) => [tagKey(t), t]));
+
+  let addedTags = 0;
+  let removedTags = 0;
+  let modifiedTags = 0;
+  for (const [k, cmp] of cmpByTag) {
+    const base = baseByTag.get(k);
+    if (!base) {
+      addedTags++;
+      continue;
+    }
+    if (!sameTag(base, cmp)) modifiedTags++;
+  }
+  for (const k of baseByTag.keys()) {
+    if (!cmpByTag.has(k)) removedTags++;
+  }
+
+  const empty =
+    addedFactors + removedFactors + modifiedFactors === 0 &&
+    addedTags + removedTags + modifiedTags === 0;
+
+  return {
+    addedFactors,
+    removedFactors,
+    modifiedFactors,
+    addedTags,
+    removedTags,
+    modifiedTags,
+    empty,
+  };
+}

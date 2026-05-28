@@ -3,6 +3,7 @@
  * so leaf components can call ``navigate`` without circular imports
  * back through App.
  */
+import { parseSource, type Source } from "./features/comparison/sources";
 
 /**
  * Tabs that the experiment surface supports. Kept loose at the route
@@ -51,6 +52,12 @@ export type Route =
        *  ticket breadcrumb + prev/next walking the ticket's
        *  targets — same pattern groups use. */
       ticketContext?: string;
+      /** Baseline-slot occupant for the comparison chip strip.
+       *  Persisted as ``?base=<source>`` so the URL is shareable.
+       *  Spec: ``docs/CURATION_COMPARISON_VIEW_2026_05_27.md``. */
+      baselineSource?: Source;
+      /** Comparator-slot occupant; persisted as ``?cmp=<source>``. */
+      comparatorSource?: Source;
     }
   | { kind: "audit-preview" }
   | { kind: "proposal-preview" }
@@ -72,12 +79,16 @@ export function parseRoute(): Route {
     const tab = params?.get("tab") ?? null;
     const groupContext = params?.get("group") ?? null;
     const ticketContext = params?.get("ticket") ?? null;
+    const baselineSource = parseSource(params?.get("base"));
+    const comparatorSource = parseSource(params?.get("cmp"));
     return {
       kind: "experiment",
       id: decodeURIComponent(m[1]),
       tab: tab ? (tab as ExperimentTab) : undefined,
       groupContext: groupContext || undefined,
       ticketContext: ticketContext || undefined,
+      baselineSource: baselineSource ?? undefined,
+      comparatorSource: comparatorSource ?? undefined,
     };
   }
   if (/^#\/all-experiments\b/.test(h)) return { kind: "all-experiments" };
@@ -169,11 +180,18 @@ export function experimentRoute(
   tab?: ExperimentTab,
   groupContext?: string,
   ticketContext?: string,
+  /** Comparison chip-strip selection — preserved across tab switches
+   *  so the curator's "what am I looking at" framing doesn't reset
+   *  when they navigate tabs. Both fields omitted ⇒ no chip params
+   *  in the URL (defaults take over). */
+  chips?: { base?: Source; cmp?: Source },
 ): string {
   const params = new URLSearchParams();
   if (tab) params.set("tab", tab);
   if (groupContext) params.set("group", groupContext);
   if (ticketContext) params.set("ticket", ticketContext);
+  if (chips?.base) params.set("base", chips.base);
+  if (chips?.cmp) params.set("cmp", chips.cmp);
   const qs = params.toString();
   // Don't ``encodeURIComponent`` the id — the only non-alphanumeric
   // char in the accepted forms is `:` from `preboarding:N`, which is

@@ -55,6 +55,32 @@ export function useDesign(experimentId: number | string) {
   });
 }
 
+/** Fetch the immutable preboard Design — the dataset's design as it
+ *  was when its calibration package was imported into local_api. Never
+ *  reflects curator edits, so this is the canonical "Gemma preboard"
+ *  source for the baseline / comparator chip strip
+ *  (`docs/CURATION_COMPARISON_VIEW_2026_05_27.md` PR 1).
+ *
+ *  Throws on 404 — legacy experiments imported before the snapshot
+ *  endpoint landed have no captured preboard. Callers in the chip-strip
+ *  flow should treat this as "preboard source not available for this
+ *  experiment" and grey the chip out. */
+export async function fetchPreboardSnapshot(
+  experimentId: number | string,
+): Promise<Design> {
+  return api.get<Design>(`/rest/v2/datasets/${experimentId}/design/snapshot`);
+}
+
+export function usePreboardSnapshot(experimentId: number | string) {
+  return useQuery({
+    queryKey: ["design-snapshot", experimentId] as const,
+    enabled: Boolean(experimentId),
+    queryFn: () => fetchPreboardSnapshot(experimentId),
+    // Frozen on the server — no need to refetch on focus / interval.
+    staleTime: Infinity,
+  });
+}
+
 export interface DatasetMeta {
   id?: number;
   short_name?: string | null;

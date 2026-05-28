@@ -40,6 +40,7 @@ import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
 
 // The editor-scoped term renderer lives inside FindingDetailsEditor
@@ -4104,6 +4105,17 @@ function ActionRow({
    *  the close-review step will record. Per Paul 2026-05-25. */
   hideDismiss?: boolean;
 }) {
+  // Review-mode lock — curator can read every proposal but can't
+  // act on one. Replace the action row with a faint "read-only"
+  // marker so the visual rhythm of the card stays consistent.
+  const readOnly = useIsReadOnly();
+  if (readOnly) {
+    return (
+      <div className="pt-1 text-[11px] text-slate-400 italic dark:text-slate-500">
+        read-only — open via a calibration package to take action
+      </div>
+    );
+  }
   // If there's nothing for the curator to act on AND we've hidden
   // the escape hatches, the whole row collapses to either the undo
   // affordance (if dispositioned) or nothing at all.
