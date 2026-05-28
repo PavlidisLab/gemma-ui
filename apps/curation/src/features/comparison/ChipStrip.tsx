@@ -53,12 +53,34 @@ export function ChipStrip({
   // chips stay selectable so the curator can audit / compare freely.
   const baselineLocked = flow === "edit";
 
+  // Mode label — explicit "REVIEW MODE" / "CURATION MODE" pill so
+  // the curator never has to infer state from chip styling. Paul's
+  // terminology: "review" / "curation" (not "edit"). The chip strip's
+  // existing baseline-lock visual is still the secondary cue.
+  const modePill =
+    flow === "edit" ? (
+      <span
+        className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:border-amber-500 dark:text-amber-100"
+        title="Curator is assigned this ticket — design tab editable, accept/reject live, commit bar shows"
+      >
+        Curation mode
+      </span>
+    ) : (
+      <span
+        className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-sky-400 bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:border-sky-500 dark:text-sky-100"
+        title="No curator ticket — show-and-tell only. Switch baseline / audit freely; nothing commits."
+      >
+        Review mode
+      </span>
+    );
+
   return (
     <div
-      className="w-full bg-slate-50 border-b border-slate-200 px-4 py-1.5 text-sm flex items-center gap-4 dark:bg-slate-900/40 dark:border-slate-700"
+      className="w-full bg-slate-50 border-b border-slate-200 px-4 py-2 text-base flex items-center gap-4 dark:bg-slate-900/40 dark:border-slate-700"
       role="region"
       aria-label="Comparison source selection"
     >
+      {modePill}
       {baselineLocked ? (
         <ChipLabel slotLabel="Baseline" value={baseline} />
       ) : (
@@ -151,12 +173,12 @@ function ChipLabel({
   const palette = SLOT_PALETTE.baseline;
   return (
     <div
-      className="relative inline-flex items-baseline gap-2"
-      title="Baseline is fixed in edit mode — switch to a review/audit context to change it"
+      className="relative inline-flex items-center gap-2"
+      title="Baseline is fixed in curation mode — switch to a review context to change it"
     >
       <span
         className={cn(
-          "text-[11px] uppercase tracking-wide font-semibold",
+          "text-[12px] uppercase tracking-wide font-semibold",
           palette.label,
         )}
       >
@@ -164,7 +186,9 @@ function ChipLabel({
       </span>
       <span
         className={cn(
-          "inline-flex items-baseline gap-1 px-2 py-0.5 rounded border border-dashed text-[13px] opacity-90",
+          // Matches ChipDropdown sizing so locked + selectable chips
+          // line up visually in the strip.
+          "inline-flex items-center gap-1 px-3 py-1 rounded border border-dashed text-[14px] font-medium opacity-90",
           palette.chip,
         )}
       >
@@ -249,10 +273,10 @@ function ChipDropdown({
   const palette = SLOT_PALETTE[slot];
 
   return (
-    <div ref={ref} className="relative inline-flex items-baseline gap-2">
+    <div ref={ref} className="relative inline-flex items-center gap-2">
       <span
         className={cn(
-          "text-[11px] uppercase tracking-wide font-semibold",
+          "text-[12px] uppercase tracking-wide font-semibold",
           palette.label,
         )}
       >
@@ -262,14 +286,18 @@ function ChipDropdown({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex items-baseline gap-1 px-2 py-0.5 rounded border text-[13px]",
+          // Larger trigger — Paul 2026-05-27 round 2: "the little
+          // triggers to change the baseline/audit are too small again".
+          // Bumped padding + font size so the clickable target reads
+          // as a button at a glance.
+          "inline-flex items-center gap-1.5 px-3 py-1 rounded border text-[14px] font-medium",
           palette.chip,
         )}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
         <span>{SOURCE_LABEL[value]}</span>
-        <span className="opacity-60 text-[10px]">▾</span>
+        <span className="opacity-70 text-[11px]">▾</span>
       </button>
 
       {open ? (
