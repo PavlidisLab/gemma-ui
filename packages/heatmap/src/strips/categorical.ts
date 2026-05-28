@@ -34,8 +34,30 @@ const QUAL_PALETTE: readonly string[] = [
   '#f97316', // orange-500
 ];
 
+/** Greyscale ramp for nuisance factors (batch / block). Tailwind
+ *  slate 300-700 — enough contrast to distinguish groups, low enough
+ *  saturation not to compete visually with the biological strips. */
+const GREY_PALETTE: readonly string[] = [
+  '#cbd5e1', // slate-300
+  '#94a3b8', // slate-400
+  '#64748b', // slate-500
+  '#475569', // slate-600
+  '#334155', // slate-700
+  '#e2e8f0', // slate-200 (cycle continues if many groups)
+  '#1e293b', // slate-800
+];
+
 /** Reserved baseline slot — neutral gray-400. */
 const BASELINE_COLOR = '#9ca3af';
+
+/** Factors we render compact + greyscale (nuisance / technical). */
+const COMPACT_FACTOR_RE = /\b(batch|block)\b/i;
+
+function isCompactFactor(factor: Factor): boolean {
+  const cat = factor.category?.label ?? '';
+  const name = factor.name ?? '';
+  return COMPACT_FACTOR_RE.test(cat) || COMPACT_FACTOR_RE.test(name);
+}
 
 /**
  * Stable 32-bit hash over a string. Deterministic; matches no
@@ -65,15 +87,17 @@ export function buildCategoricalStrip(
   factor: Factor,
   columns: HeatmapPayloadColumn[],
 ): CategoricalAnnotation {
+  const compact = isCompactFactor(factor);
+  const ramp = compact ? GREY_PALETTE : QUAL_PALETTE;
   const palette: Record<string, string> = {};
   for (const fv of factor.factor_values) {
     const key = fv.free_text_label || `fv:${fv.id}`;
-    if (fv.is_baseline) {
+    if (fv.is_baseline && !compact) {
       palette[key] = BASELINE_COLOR;
       continue;
     }
-    const slot = hash32(`${factor.id}:${fv.id}`) % QUAL_PALETTE.length;
-    palette[key] = QUAL_PALETTE[slot];
+    const slot = hash32(`${factor.id}:${fv.id}`) % ramp.length;
+    palette[key] = ramp[slot];
   }
 
   // Build a fast (id -> label) lookup so we don't scan factor_values
@@ -95,5 +119,6 @@ export function buildCategoricalStrip(
     values,
     palette,
     factorId: factor.id,
+    compact,
   };
 }

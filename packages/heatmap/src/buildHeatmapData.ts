@@ -52,15 +52,43 @@ export function buildHeatmapDataFromPayload(
       : buildCategoricalStrip(f, cols),
   );
 
+  // Single-string fallback (TSV download + label tooltip use this).
   const rowLabels = payload.rows.map(
     (r) => r.geneSymbols[0] ?? r.designElementName,
   );
+  // Rich multi-column row labels — symbol + gene name when available.
+  // Renderer auto-aligns columns across rows via CSS grid; we MUST
+  // emit a fixed column count per row or grid auto-flow misaligns
+  // (empty string keeps the slot, just renders blank).
+  const anyName = payload.rows.some(
+    (r) => (r.geneNames ?? []).some((n) => n && n.length > 0),
+  );
+  const rowLabelColumns: string[][] | undefined = anyName
+    ? payload.rows.map((r) => [
+        r.geneSymbols[0] ?? r.designElementName,
+        r.geneNames?.[0] ?? '',
+      ])
+    : undefined;
   const colLabels = cols.map((c) => c.name);
+
+  // Per-row origin disc (e.g. GO-term provenance). Only emit the
+  // arrays when at least one row carries an origin — saves
+  // downstream code from checking length-zero edge cases.
+  const anyOrigin = payload.rows.some((r) => !!r.originColor);
+  const rowDotColors = anyOrigin
+    ? payload.rows.map((r) => r.originColor ?? null)
+    : undefined;
+  const rowDotTitles = anyOrigin
+    ? payload.rows.map((r) => r.originTitle ?? null)
+    : undefined;
 
   return {
     data: {
       values,
       rowLabels,
+      rowLabelColumns,
+      rowDotColors,
+      rowDotTitles,
       colLabels,
       colAnnotations,
       colOutliers: outliers,

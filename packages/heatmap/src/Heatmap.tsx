@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CellGeometry,
   HeatmapConfig,
@@ -45,6 +45,18 @@ export interface HeatmapProps {
   /** Wrapper className for styling hooks (Tailwind, etc.). */
   className?: string;
 
+  /** Per-row rich-tooltip producer. When provided, hovering a row
+   *  label opens a floating popover anchored to that label; the
+   *  popover renders the returned node and stays open while the
+   *  cursor is inside either the label or the popover (so links
+   *  rendered inside it remain clickable). */
+  rowLabelTooltip?: (rowIndex: number) => React.ReactNode;
+  /** Width (in CSS px) reserved for the row-label gutter on the
+   *  right. Defaults to 100, which fits a single ~14ch column. Pass
+   *  a larger value when using ``data.rowLabelColumns`` for
+   *  multi-column labels. */
+  rowLabelGutterWidth?: number;
+
   // — back-compat shims for v1 callers —
   /** v1 alias: hover on matrix cell only. Prefer `onPointerOver`. */
   onCellHover?: (cell: CellGeometry, ev: React.MouseEvent<HTMLCanvasElement>) => void;
@@ -76,10 +88,38 @@ export function Heatmap({
   onStripGutterClick,
   selectedStripIndex,
   className,
+  rowLabelTooltip,
+  rowLabelGutterWidth,
 }: HeatmapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [containerW, setContainerW] = useState<number>(600);
+  // Row-label hover popover state. ``row`` = which row is open;
+  // ``anchor`` = absolute viewport coords of the row-label's right
+  // edge (so the popover can render to its right). A short
+  // ``setTimeout`` hide delay gives the cursor time to traverse the
+  // label→popover gap; entering the popover cancels the hide.
+  const [labelHover, setLabelHover] = useState<{
+    row: number;
+    top: number;
+    left: number;
+  } | null>(null);
+  const hideTimerRef = useRef<number | null>(null);
+  function scheduleHide() {
+    if (hideTimerRef.current != null) {
+      window.clearTimeout(hideTimerRef.current);
+    }
+    hideTimerRef.current = window.setTimeout(() => {
+      setLabelHover(null);
+      hideTimerRef.current = null;
+    }, 180);
+  }
+  function cancelHide() {
+    if (hideTimerRef.current != null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  }
 
   // Observe container width so 'fit' mode reflows when the surrounding layout changes.
   useEffect(() => {
@@ -100,7 +140,10 @@ export function Heatmap({
   // Reserve right-side gutter for row labels (in CSS px). Picked to fit ~16
   // characters of typical gene-symbol labels at 7–9px font; the consumer can
   // override via CSS on the wrapper.
-  const rowLabelGutter = data.rowLabels && resolved.showRowLabels !== false ? 100 : 0;
+  const rowLabelGutter =
+    (data.rowLabels || data.rowLabelColumns) && resolved.showRowLabels !== false
+      ? (rowLabelGutterWidth ?? 100)
+      : 0;
   // Reserve top gutter for column labels. Hide the rotated text (but keep
   // a thin hover-only bar) when cells are too narrow for the rotated text
   // to fit — at narrower widths labels would just smudge into each other.
@@ -136,7 +179,9 @@ export function Heatmap({
     (m, l) => Math.max(m, l?.length ?? 0),
     0,
   );
-  const adaptiveLabelPx = Math.ceil(longestColLabelChars * labelFontSize * 0.6 + 6);
+  // +12 safety so the top of the longest rotated label has headroom
+  // above the gutter rather than crowding the heatmap chrome above it.
+  const adaptiveLabelPx = Math.ceil(longestColLabelChars * labelFontSize * 0.6 + 12);
   const colLabelGutter = colLabelsRequested
     ? colLabelsTextVisible
       ? Math.min(resolved.maxColLabelPx, Math.max(20, adaptiveLabelPx))
@@ -164,12 +209,18 @@ export function Heatmap({
   }, [data, config, matrixAvailableW, matrixAvailableH]);
 
   const annotations = data.colAnnotations ?? [];
-  // Total stripped block height, including inter-strip gaps so the
-  // grid row matches what the canvas renderer draws.
+  // Per-strip height: categorical strips marked ``compact`` (batch /
+  // block) render at half the configured strip height so they sit
+  // below the biological factors visually.
+  const stripHeights = annotations.map((a) =>
+    a.kind === 'categorical' && a.compact
+      ? Math.max(4, Math.floor(resolved.annotationStripHeight / 2))
+      : resolved.annotationStripHeight,
+  );
   const stripsH =
     annotations.length === 0
       ? 0
-      : annotations.length * resolved.annotationStripHeight +
+      : stripHeights.reduce((s, h) => s + h, 0) +
         (annotations.length - 1) * resolved.annotationStripGap;
   const gapAfterStrips = annotations.length > 0 ? 4 : 0;
 
@@ -267,7 +318,9 @@ export function Heatmap({
                       style={{
                         position: 'absolute',
                         left: layout.cellW / 2 + fontSize / 2,
-                        bottom: 2,
+                        // 5px of breathing room between rotated label
+                        // bottom edge and the strips/matrix top.
+                        bottom: 5,
                         transform: 'rotate(-90deg)',
                         transformOrigin: 'left bottom',
                         whiteSpace: 'nowrap',
@@ -290,6 +343,7 @@ export function Heatmap({
         <div style={{ gridRow: '2 / span 2', gridColumn: '1 / span 1' }}>
           <canvas
             ref={canvasRef}
+            data-heatmap-matrix="true"
             onMouseMove={wantsCanvasMouse ? handleMouseMove : undefined}
             onMouseLeave={onCellLeave}
             onClick={onCellClick ? handleClick : undefined}
@@ -307,8 +361,8 @@ export function Heatmap({
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-start',
-            paddingLeft: 6,
-            fontSize: 10,
+            paddingLeft: 10,
+            fontSize: 12,
             color: '#374151',
           }}
         >
@@ -327,13 +381,19 @@ export function Heatmap({
                     : undefined
                 }
                 style={{
-                  height: resolved.annotationStripHeight,
-                  lineHeight: `${resolved.annotationStripHeight}px`,
+                  height: stripHeights[i],
+                  lineHeight: `${stripHeights[i]}px`,
                   marginTop: i === 0 ? 0 : resolved.annotationStripGap,
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   cursor: clickable ? 'pointer' : undefined,
+                  // Compact (batch/block) strips look visually quieter
+                  // in the gutter too: small label, muted.
+                  fontSize:
+                    a.kind === 'categorical' && a.compact ? 10 : undefined,
+                  color:
+                    a.kind === 'categorical' && a.compact ? '#64748b' : undefined,
                   // 2px amber-500 outline on the selected strip's
                   // gutter (HEATMAP_SPEC §4.2). `outline` doesn't
                   // consume layout space, so non-selected strips
@@ -356,27 +416,168 @@ export function Heatmap({
           })}
         </div>
 
-        {/* (3,2) row labels */}
-        <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: 6 }}>
-          {data.rowLabels?.map((lbl, i) => (
-            <div
-              key={i}
-              title={lbl}
-              style={{
-                height: layout.cellH,
-                lineHeight: `${layout.cellH}px`,
-                fontSize: Math.min(11, Math.max(7, layout.cellH - 1)),
-                color: '#1f2937',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {lbl}
-            </div>
-          ))}
-        </div>
+        {/* (3,2) row labels. Two render paths:
+              - rowLabelColumns: CSS grid so columns auto-align across
+                rows (gene · name · …).
+              - rowLabels (string-only legacy): single column per row. */}
+        {data.rowLabelColumns && data.rowLabelColumns.length > 0 ? (
+          <div
+            style={{
+              display: 'grid',
+              // Leading "auto" column for the origin disc when any
+              // row supplies one, then one auto per content column.
+              gridTemplateColumns: (data.rowDotColors?.some((c) => c)
+                ? 'auto '
+                : '') +
+                'auto '.repeat(
+                  Math.max(...data.rowLabelColumns.map((c) => c.length)),
+                ).trim(),
+              columnGap: 12,
+              alignContent: 'start',
+              paddingLeft: 10,
+              fontSize: Math.min(11, Math.max(7, layout.cellH - 1)),
+              color: '#1f2937',
+            }}
+          >
+            {data.rowLabelColumns.map((cols, i) => {
+              const hasTip = !!rowLabelTooltip;
+              const fallbackTitle = data.rowLabels?.[i] ?? cols.join(' · ');
+              const handleEnter = hasTip
+                ? (e: React.MouseEvent<HTMLDivElement>) => {
+                    cancelHide();
+                    const rect = (
+                      e.currentTarget as HTMLDivElement
+                    ).getBoundingClientRect();
+                    setLabelHover({
+                      row: i,
+                      top: rect.top,
+                      left: rect.right + 6,
+                    });
+                  }
+                : undefined;
+              const handleLeave = hasTip ? scheduleHide : undefined;
+              const dot = data.rowDotColors?.[i] ?? null;
+              const dotTitle = data.rowDotTitles?.[i] ?? null;
+              return (
+                <React.Fragment key={i}>
+                  {data.rowDotColors?.some((c) => c) ? (
+                    <div
+                      title={dotTitle ?? undefined}
+                      onMouseEnter={handleEnter}
+                      onMouseLeave={handleLeave}
+                      style={{
+                        height: layout.cellH,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: dotTitle ? 'help' : (hasTip ? 'help' : 'default'),
+                      }}
+                    >
+                      {dot ? (
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: Math.max(6, Math.min(10, layout.cellH - 3)),
+                            height: Math.max(6, Math.min(10, layout.cellH - 3)),
+                            borderRadius: '50%',
+                            background: dot,
+                            border: '1px solid rgba(0,0,0,0.15)',
+                          }}
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {cols.map((c, j) => (
+                    <div
+                      key={j}
+                      title={hasTip ? undefined : fallbackTitle}
+                      onMouseEnter={handleEnter}
+                      onMouseLeave={handleLeave}
+                      style={{
+                        height: layout.cellH,
+                        lineHeight: `${layout.cellH}px`,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        cursor: hasTip ? 'help' : 'default',
+                        // Slightly mute non-leading columns so the
+                        // primary identifier (gene symbol) reads first.
+                        color: j === 0 ? '#1f2937' : '#6b7280',
+                        maxWidth: j === 0 ? 120 : 200,
+                      }}
+                    >
+                      {c}
+                    </div>
+                  ))}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: 6 }}>
+            {data.rowLabels?.map((lbl, i) => {
+              const hasTip = !!rowLabelTooltip;
+              return (
+                <div
+                  key={i}
+                  title={hasTip ? undefined : lbl}
+                  onMouseEnter={
+                    hasTip
+                      ? (e) => {
+                          cancelHide();
+                          const rect = (
+                            e.currentTarget as HTMLDivElement
+                          ).getBoundingClientRect();
+                          setLabelHover({
+                            row: i,
+                            top: rect.top,
+                            left: rect.right + 6,
+                          });
+                        }
+                      : undefined
+                  }
+                  onMouseLeave={hasTip ? scheduleHide : undefined}
+                  style={{
+                    height: layout.cellH,
+                    lineHeight: `${layout.cellH}px`,
+                    fontSize: Math.min(11, Math.max(7, layout.cellH - 1)),
+                    color: '#1f2937',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    cursor: hasTip ? 'help' : 'default',
+                  }}
+                >
+                  {lbl}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      {labelHover && rowLabelTooltip ? (
+        <div
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+          style={{
+            position: 'fixed',
+            top: labelHover.top,
+            left: labelHover.left,
+            zIndex: 50,
+            background: '#fff',
+            border: '1px solid #e5e7eb',
+            borderRadius: 4,
+            boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
+            padding: '6px 8px',
+            fontSize: 11,
+            color: '#1f2937',
+            maxWidth: 320,
+          }}
+        >
+          {rowLabelTooltip(labelHover.row)}
+        </div>
+      ) : null}
     </div>
   );
 }

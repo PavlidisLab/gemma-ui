@@ -84,6 +84,17 @@ export interface HeatmapWidgetProps {
    *  ``true``. Set ``false`` for a stripped chrome (e.g. an embedded
    *  thumbnail). */
   showDownload?: boolean;
+  /** Per-row rich-tooltip producer. When provided, hovering a row
+   *  label opens a floating popover anchored to that row; the
+   *  popover renders the returned node and stays open while the
+   *  cursor is inside either the label or the popover (so links
+   *  rendered inside it remain clickable). */
+  rowLabelTooltip?: (rowIndex: number) => React.ReactNode;
+  /** Width (in CSS px) reserved for the row-label gutter. Defaults
+   *  to 100 — fits a single ~14ch column. Pass a larger value (e.g.
+   *  220) when ``data.rowLabelColumns`` is used so the auto-sized
+   *  grid columns have room. */
+  rowLabelGutterWidth?: number;
 }
 
 // Pavlab-style palette tokens (per CLAUDE.md).
@@ -100,6 +111,31 @@ const PALETTE_OPTIONS: Array<{ key: WidgetPalette; label: string }> = [
   { key: 'ambsky', label: 'Diverging' },
   { key: 'blackbody', label: 'Sequential' },
 ];
+
+// Persisted-preference key. The user's last explicit palette choice
+// (made via the Options popover) is saved here and seeds every
+// subsequent heatmap in the app. Wrapped in try/catch so the widget
+// still works in environments without localStorage (SSR, sandboxed
+// iframes, exotic privacy modes).
+const PALETTE_STORAGE_KEY = 'gemma-heatmap-palette';
+function readStoredPalette(): WidgetPalette | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const v = window.localStorage.getItem(PALETTE_STORAGE_KEY);
+    if (v === 'ambsky' || v === 'blackbody') return v;
+    return null;
+  } catch {
+    return null;
+  }
+}
+function writeStoredPalette(v: WidgetPalette): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PALETTE_STORAGE_KEY, v);
+  } catch {
+    // localStorage unavailable — in-memory state is still updated.
+  }
+}
 
 const FIT_OPTIONS: Array<{ key: FitMode; label: string; hint: string }> = [
   {
@@ -141,7 +177,7 @@ export function HeatmapWidget({
   payload,
   title,
   caption,
-  defaultPalette = 'ambsky',
+  defaultPalette = 'blackbody',
   defaultClip = 2,
   defaultDomain,
   defaultRowScale = true,
@@ -158,12 +194,27 @@ export function HeatmapWidget({
   style,
   downloadFilenameStem = 'heatmap',
   showDownload = true,
+  rowLabelTooltip,
+  rowLabelGutterWidth,
 }: HeatmapWidgetProps): JSX.Element {
   // Root ref — used by the download-image button to locate the
   // rendered canvas inside the matrix wrapper. Avoids threading a
   // ref into the inner Heatmap component just for one feature.
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [paletteKey, setPaletteKey] = useState<WidgetPalette>(defaultPalette);
+  // Palette state is seeded from localStorage so the user's last
+  // explicit choice (made via the Options popover) carries across
+  // every heatmap in the app. ``defaultPalette`` is only the seed
+  // when no preference is stored. Saves happen via
+  // ``handleSetPaletteKey`` — initial mount is NOT persisted so a
+  // caller-supplied default doesn't silently become the user's
+  // global preference.
+  const [paletteKey, setPaletteKeyRaw] = useState<WidgetPalette>(() =>
+    readStoredPalette() ?? defaultPalette,
+  );
+  const setPaletteKey = (next: WidgetPalette) => {
+    setPaletteKeyRaw(next);
+    writeStoredPalette(next);
+  };
   const [clip, setClip] = useState(defaultClip);
   const [rowScale, setRowScale] = useState(defaultRowScale);
   const [maxH, setMaxH] = useState(defaultMaxHeight);
@@ -172,8 +223,44 @@ export function HeatmapWidget({
   const [controlsOpen, setControlsOpen] = useState(defaultControlsOpen);
   // v2: main-grouping factor selection (HEATMAP_SPEC §4). Lives on
   // the widget; intentionally NOT persisted to the URL — spec §7 #4.
+  // Default = auto-pick the first sensible biological factor in the
+  // payload so the heatmap loads with samples already grouped (and
+  // controls/baselines on the left, courtesy of categoricalOrder).
+  // Skips obviously-technical categories (batch / collection / scan
+  // date) so the default isn't a useless bucketing.
+  const autoPickedFactorId = useMemo<number | null>(() => {
+    if (!payload) return null;
+    const TECHNICAL_RE = /\b(batch|collection|scan|protocol|technical|library)\b/i;
+    const eligible = (payload.factors ?? []).filter((f) => {
+      if (f.type !== 'categorical') return false;
+      const fvs = f.factor_values ?? [];
+      if (fvs.length < 2) return false;
+      const cat = f.category?.label ?? f.name ?? '';
+      if (TECHNICAL_RE.test(cat)) return false;
+      return true;
+    });
+    // Prefer a factor that has at least one declared baseline.
+    const withBaseline = eligible.find((f) =>
+      (f.factor_values ?? []).some((fv) => fv.is_baseline),
+    );
+    return (withBaseline ?? eligible[0])?.id ?? null;
+  }, [payload]);
   const [mainGroupingFactorId, setMainGroupingFactorId] =
-    useState<number | null>(null);
+    useState<number | null>(autoPickedFactorId);
+  // When a fresh payload arrives with a different auto-pick (e.g.
+  // user navigated to a different dataset, or genes loaded in
+  // and factors arrived for the first time), adopt it.
+  const userTouchedGroupingRef = useRef(false);
+  useEffect(() => {
+    if (userTouchedGroupingRef.current) return;
+    setMainGroupingFactorId(autoPickedFactorId);
+  }, [autoPickedFactorId]);
+  const setMainGroupingFactorIdWithTouch = (
+    updater: number | null | ((prev: number | null) => number | null),
+  ) => {
+    userTouchedGroupingRef.current = true;
+    setMainGroupingFactorId(updater as never);
+  };
   // v2 tooltip + side-panel state (HEATMAP_SPEC §5).
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [pinned, setPinned] = useState<SidePanelClick | null>(null);
@@ -221,10 +308,40 @@ export function HeatmapWidget({
 
   const palette: Palette = PALETTES[paletteKey];
 
+  // When row-standardisation is OFF, the values are on the raw data
+  // scale (often log2 expression, ~0..14). The default ±clip domain
+  // is meant for z-scores and saturates everything to white. Compute
+  // a 5%-trimmed [lo, hi] from the actual data so the gradient
+  // covers the bulk of the dynamic range with the tails clipped.
+  const naturalDomain = useMemo<[number, number] | null>(() => {
+    if (rowScale) return null;
+    const vals: number[] = [];
+    for (const row of rawData.values) {
+      for (const v of row) {
+        if (typeof v === 'number' && Number.isFinite(v)) vals.push(v);
+      }
+    }
+    if (vals.length < 2) return null;
+    vals.sort((a, b) => a - b);
+    const pick = (q: number) => {
+      const i = Math.min(vals.length - 1, Math.max(0, Math.floor(q * (vals.length - 1))));
+      return vals[i];
+    };
+    let lo = pick(0.025);
+    let hi = pick(0.975);
+    if (!(hi > lo)) {
+      // Guard against degenerate range — fall back to true min/max.
+      lo = vals[0];
+      hi = vals[vals.length - 1];
+      if (!(hi > lo)) return null;
+    }
+    return [lo, hi];
+  }, [rawData, rowScale]);
+
   const seqDomain: [number, number] | null =
     palette.kind === 'sequential'
-      ? defaultDomain ?? [-clip, clip]
-      : null;
+      ? defaultDomain ?? naturalDomain ?? [-clip, clip]
+      : naturalDomain; // diverging palette still honours the natural domain when row-scale is off
 
   const config = useMemo<HeatmapConfig>(
     () => ({
@@ -263,7 +380,14 @@ export function HeatmapWidget({
   // image, by contrast, reflects whatever the curator sees on
   // screen (the rendered canvas, after row-scale + clip + palette).
   const handleDownloadImage = () => {
-    const canvas = rootRef.current?.querySelector('canvas');
+    // Target the matrix canvas explicitly (data-attr added in
+    // Heatmap.tsx). Plain ``querySelector('canvas')`` picked the
+    // Legend's small scale-bar canvas, since it lives earlier in
+    // the DOM than the matrix.
+    const canvas =
+      rootRef.current?.querySelector<HTMLCanvasElement>(
+        'canvas[data-heatmap-matrix="true"]',
+      ) ?? rootRef.current?.querySelector('canvas');
     if (!canvas) return;
     const url = canvas.toDataURL('image/png');
     triggerDownload(url, `${downloadFilenameStem}.png`);
@@ -464,9 +588,11 @@ export function HeatmapWidget({
             palette={palette}
             domain={legendDomain}
             label={
-              defaultDomain && palette.kind === 'sequential'
-                ? `${rowScale ? 'Z-score' : 'Value'}  ·  ${fmt(legendDomain[0])} – ${fmt(legendDomain[1])}`
-                : `${rowScale ? 'Z-score' : 'Value'}  ·  clip ±${fmt(clip)}`
+              !rowScale
+                ? `natural  ·  ${fmt(legendDomain[0])} – ${fmt(legendDomain[1])}`
+                : defaultDomain && palette.kind === 'sequential'
+                  ? `Z-score  ·  ${fmt(legendDomain[0])} – ${fmt(legendDomain[1])}`
+                  : `Z-score  ·  clip ±${fmt(clip)}`
             }
           />
         )}
@@ -495,13 +621,15 @@ export function HeatmapWidget({
               data={scaledData}
               config={config}
               selectedStripIndex={selectedStripIndex}
+              rowLabelTooltip={rowLabelTooltip}
+              rowLabelGutterWidth={rowLabelGutterWidth}
               onStripGutterClick={
                 payload
                   ? (i) => {
                       const f = payload.factors[i];
                       if (!f) return;
                       // Re-click clears.
-                      setMainGroupingFactorId((prev) =>
+                      setMainGroupingFactorIdWithTouch((prev: number | null) =>
                         prev === f.id ? null : f.id,
                       );
                     }

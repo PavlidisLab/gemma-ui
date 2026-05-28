@@ -70,6 +70,18 @@ export interface HeatmapPayloadRow {
   designElementName: string;
   geneIds: number[];
   geneSymbols: string[];
+  /** Parallel to ``geneSymbols``. Optional — when present, the
+   *  row-label gutter renders a second column with the full gene
+   *  name. Use the empty string when a gene has no name on file. */
+  geneNames?: string[];
+  /** Optional coloured-disc tag rendered in the leading slot of the
+   *  row-label gutter. Carries arbitrary CSS colour. Use to surface
+   *  a row's origin (e.g. which GO term it came from) or cluster
+   *  membership. */
+  originColor?: string | null;
+  /** Optional hover title for ``originColor`` — typically the source
+   *  GO term label or similar provenance. */
+  originTitle?: string | null;
   pvalue?: number;
   validated?: boolean;
 }

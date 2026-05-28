@@ -2,15 +2,22 @@
  * Pure derivation of a column-display order from the payload + the
  * curator-selected "main grouping factor" (HEATMAP_SPEC §4).
  *
- *  - null factor id           → server-side order (identity).
- *  - categorical factor       → bucket by FV (baseline first, then
- *                               `factor_values[]` order); stable
- *                               secondary sort = server index.
- *  - continuous factor        → ascending by sample's numeric value;
- *                               missing values to the right.
+ * Two layers:
  *
- * Also emits per-rendered-column gap markers (categorical only; 4px
- * between FV groups per the spec).
+ *  - A chain of CATEGORICAL factors is built by ascending count of
+ *    distinct FVs actually assigned in this dataset (ties broken
+ *    randomly per session). The user-selected main grouping factor,
+ *    if any, is promoted to the head of the chain.
+ *  - Columns are sorted lexicographically against the chain:
+ *    baseline FVs first within each factor, then declared FV order.
+ *    Within-bucket: continuous factor ascending, then server index.
+ *
+ * If the chain is empty (no categorical factors or just one with
+ * <2 groups), we fall back to the server-side order (identity).
+ *
+ * Also emits per-rendered-column gap markers — 4px gap only at the
+ * boundary of the primary-sort-key bucket so visual grouping
+ * remains legible.
  */
 import { continuousValueOf } from './payload';
 import type { Factor, HeatmapPayload } from './payload';
@@ -26,10 +33,19 @@ export interface ColumnOrderResult {
 
 const GROUP_GAP_PX = 4;
 
+/** Stable per-session randomness so the picked chain doesn't reshuffle
+ *  on every re-render but still differs across page loads (when the
+ *  user wants a fresh tie-break, a reload gives them one). Module-
+ *  scoped Math.random() lazily seeded by first use. */
+let _moduleRand: number | null = null;
+function sessionRand(): number {
+  if (_moduleRand == null) _moduleRand = Math.random();
+  return _moduleRand;
+}
+
 /**
  * Compute the render-order permutation for a payload, given the
- * main-grouping-factor selection. Stable: when grouping resolves to
- * "no change" (server order) the identity permutation is returned.
+ * main-grouping-factor selection. Stable when the chain is empty.
  *
  * Never mutates `payload.columns`.
  */
@@ -40,69 +56,124 @@ export function computeColumnOrder(
   const n = payload.columns.length;
   const identity = Array.from({ length: n }, (_, i) => i);
   const noGaps = new Array<number>(n).fill(0);
+  if (n === 0) return { columnOrder: identity, gaps: noGaps };
 
-  if (mainGroupingFactorId == null || n === 0) {
+  const chain = buildFactorChain(payload, mainGroupingFactorId);
+  if (chain.length === 0) {
+    // No categorical factors in scope — fall back to the continuous
+    // single-factor path if main-grouping points at one, else identity.
+    if (mainGroupingFactorId != null) {
+      const f = payload.factors.find((x) => x.id === mainGroupingFactorId);
+      if (f && f.type === 'continuous') return continuousOrder(f, payload);
+    }
     return { columnOrder: identity, gaps: noGaps };
   }
 
-  const factor = payload.factors.find((f) => f.id === mainGroupingFactorId);
-  if (!factor) {
-    return { columnOrder: identity, gaps: noGaps };
+  // Build sort-key per source column. Each key is a fixed-length
+  // tuple of (bucket index within factor) where lower = earlier.
+  const fvOrderByFactor = new Map<number, Map<number | null, number>>();
+  for (const f of chain) {
+    const order = new Map<number | null, number>();
+    let idx = 0;
+    for (const fv of f.factor_values) {
+      if (fv.is_baseline) order.set(fv.id, idx++);
+    }
+    for (const fv of f.factor_values) {
+      if (!fv.is_baseline) order.set(fv.id, idx++);
+    }
+    // Unassigned bucket — always last.
+    order.set(null, idx);
+    fvOrderByFactor.set(f.id, order);
   }
 
-  if (factor.type === 'continuous') {
-    return continuousOrder(factor, payload);
-  }
-  return categoricalOrder(factor, payload);
-}
-
-function categoricalOrder(
-  factor: Factor,
-  payload: HeatmapPayload,
-): ColumnOrderResult {
-  // Bucket order: baseline FV(s) first, then remaining FVs in
-  // payload order. The spec says "the baseline FV (singular) goes
-  // first"; we tolerate multiple baselines by emitting them all up
-  // front in their declared order — keeps the rule simple and
-  // doesn't depend on `validateDesign` being clean.
-  const fvOrder: Array<number | null> = [];
-  for (const fv of factor.factor_values) {
-    if (fv.is_baseline) fvOrder.push(fv.id);
-  }
-  for (const fv of factor.factor_values) {
-    if (!fv.is_baseline) fvOrder.push(fv.id);
-  }
-  // Unassigned bucket at the end.
-  fvOrder.push(null);
-
-  // Bucketise columns. Preserve server order within each bucket
-  // (the natural for-loop achieves this).
-  const buckets = new Map<number | null, number[]>();
-  for (const id of fvOrder) buckets.set(id, []);
-  for (let i = 0; i < payload.columns.length; i++) {
-    const fvId = payload.columns[i].factorValueIds[factor.id] ?? null;
-    const key = buckets.has(fvId) ? fvId : null;
-    buckets.get(key)!.push(i);
+  type Row = { src: number; keys: number[]; primary: number };
+  const rows: Row[] = [];
+  for (let i = 0; i < n; i++) {
+    const col = payload.columns[i];
+    const keys: number[] = [];
+    for (const f of chain) {
+      const fvId = col.factorValueIds[f.id] ?? null;
+      const order = fvOrderByFactor.get(f.id)!;
+      keys.push(order.get(fvId) ?? order.get(null)!);
+    }
+    rows.push({ src: i, keys, primary: keys[0] });
   }
 
-  // Flatten + emit a leading gap whenever the bucket boundary is
-  // crossed (and the new bucket isn't empty).
+  // Lexicographic sort. Stable tie-break = preserve server index.
+  rows.sort((a, b) => {
+    for (let k = 0; k < a.keys.length; k++) {
+      if (a.keys[k] !== b.keys[k]) return a.keys[k] - b.keys[k];
+    }
+    return a.src - b.src;
+  });
+
+  // Emit gaps at primary-bucket boundary only (matches the prior
+  // single-factor visual; multi-level boundary marks at every level
+  // get visually noisy quickly).
   const columnOrder: number[] = [];
   const gaps: number[] = [];
-  let firstNonEmpty = true;
-  for (const id of fvOrder) {
-    const bucket = buckets.get(id)!;
-    if (bucket.length === 0) continue;
-    for (let j = 0; j < bucket.length; j++) {
-      columnOrder.push(bucket[j]);
-      // Gap only at bucket boundary (j === 0) AND not the first
-      // non-empty bucket (no leading gap on the first column).
-      gaps.push(j === 0 && !firstNonEmpty ? GROUP_GAP_PX : 0);
-    }
-    firstNonEmpty = false;
+  let prevPrimary: number | null = null;
+  for (let i = 0; i < rows.length; i++) {
+    columnOrder.push(rows[i].src);
+    const isBoundary = prevPrimary != null && rows[i].primary !== prevPrimary;
+    gaps.push(isBoundary ? GROUP_GAP_PX : 0);
+    prevPrimary = rows[i].primary;
   }
 
   return { columnOrder, gaps };
+}
+
+/**
+ * Order categorical factors by (count of distinct assigned FVs) asc,
+ * ties broken via a per-session random. The user-pinned factor (if
+ * any) is promoted to the head. Continuous factors are excluded —
+ * lexicographic chain only handles categoricals.
+ */
+function buildFactorChain(
+  payload: HeatmapPayload,
+  mainGroupingFactorId: number | null,
+): Factor[] {
+  const r0 = sessionRand();
+  const decorated = payload.factors
+    .filter((f) => f.type === 'categorical')
+    .map((f) => {
+      // Count DISTINCT FVs assigned to at least one column in this
+      // dataset. Factors with 0 or 1 distinct assignment carry no
+      // sort signal and are dropped.
+      const seen = new Set<number>();
+      for (const col of payload.columns) {
+        const fvId = col.factorValueIds[f.id];
+        if (fvId != null) seen.add(fvId);
+      }
+      return { f, count: seen.size };
+    })
+    .filter((x) => x.count >= 2)
+    // Stable random per (session, factor.id) — same dataset within a
+    // tab gives the same tie-break order, fresh tab can reshuffle.
+    .map((x, i) => ({
+      ...x,
+      rnd: hashTo01(`${r0}:${x.f.id}:${i}`),
+    }))
+    .sort((a, b) => a.count - b.count || a.rnd - b.rnd);
+
+  let chain = decorated.map((x) => x.f);
+  if (mainGroupingFactorId != null) {
+    const pinned = chain.find((f) => f.id === mainGroupingFactorId);
+    if (pinned) {
+      chain = [pinned, ...chain.filter((f) => f.id !== pinned.id)];
+    }
+  }
+  return chain;
+}
+
+/** Map a string deterministically to a number in [0, 1). */
+function hashTo01(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) / 0xffffffff;
 }
 
 function continuousOrder(

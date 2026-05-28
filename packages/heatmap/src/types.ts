@@ -26,6 +26,10 @@ export interface CategoricalAnnotation {
   /** Optional factor id — set when the strip was built from a
    *  payload `Factor`. Drives main-grouping click + side panel. */
   factorId?: number;
+  /** Render at half height with a greyscale palette. Used for
+   *  nuisance factors (batch / block) that we want surfaced but
+   *  visually demoted vs. biological factors. */
+  compact?: boolean;
 }
 
 /**
@@ -62,6 +66,20 @@ export interface HeatmapData {
   /** Row-major value matrix. `values[row][col]`. All rows must be the same length. */
   values: CellValue[][];
   rowLabels?: string[];
+  /** Optional structured row labels — when present, each row's label
+   *  is an array of column strings rendered in aligned columns
+   *  (CSS grid). ``rowLabels`` still feeds the TSV download / tooltip
+   *  fallback. */
+  rowLabelColumns?: string[][];
+  /** Optional per-row coloured-disc tags rendered as the leading
+   *  column of the row-label gutter. Use to carry a small visual
+   *  cue about origin / source group / cluster membership. ``null``
+   *  in a slot means "no disc for this row". Length must equal
+   *  rowLabelColumns / rowLabels when present. */
+  rowDotColors?: Array<string | null>;
+  /** Optional per-row title text for the leading disc. Length parallel
+   *  to ``rowDotColors``. Surfaced via the cell's ``title`` attribute. */
+  rowDotTitles?: Array<string | null>;
   colLabels?: string[];
   colAnnotations?: AnnotationStrip[];
   /** Per-column outlier flag — drives the §3.3 red vertical stripe. */

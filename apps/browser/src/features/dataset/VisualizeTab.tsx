@@ -34,8 +34,68 @@ import type { Dataset } from "@/lib/types";
 
 const GENES_HASH_KEY = "genes";
 const LS_PREFIX = "gemma-visualize-genes:";
+const ORIGINS_LS_PREFIX = "gemma-visualize-origins:";
+const PICKER_MODE_LS_KEY = "gemma-visualize-picker-mode";
+// Recent-query history is shared across datasets (it's the visitor's
+// vocabulary, not dataset-bound). No per-dataset namespacing.
+const RECENT_SYMBOL_QUERIES_LS_KEY = "gemma-visualize-recent-symbol-queries";
+const RECENT_GO_TERMS_LS_KEY = "gemma-visualize-recent-go-terms";
+const RECENT_CAP = 8;
 
 type PickerMode = "symbol" | "go";
+
+/** Per-gene origin record — currently captures the GO term the gene
+ *  was selected from. Lives in localStorage parallel to the gene
+ *  selection list. */
+type GeneOrigin = { goUri: string; goLabel: string };
+type RecentGoTerm = { valueUri: string | null; value: string };
+
+/** Tailwind 500-shade qualitative ramp, mirrors the one used by the
+ *  heatmap's categorical strips so origin discs read as members of
+ *  the same colour family. */
+const ORIGIN_PALETTE = [
+  "#3b82f6", // blue
+  "#10b981", // emerald
+  "#f59e0b", // amber
+  "#8b5cf6", // violet
+  "#f43f5e", // rose
+  "#14b8a6", // teal
+  "#6366f1", // indigo
+  "#84cc16", // lime
+  "#ec4899", // pink
+  "#06b6d4", // cyan
+  "#d946ef", // fuchsia
+  "#f97316", // orange
+];
+
+function colorForGoUri(uri: string): string {
+  // FNV-1a 32-bit; deterministic + tiny.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < uri.length; i++) {
+    h ^= uri.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return ORIGIN_PALETTE[(h >>> 0) % ORIGIN_PALETTE.length];
+}
+
+function readStickyPickerMode(): PickerMode {
+  if (typeof window === "undefined") return "symbol";
+  try {
+    const raw = window.localStorage.getItem(PICKER_MODE_LS_KEY);
+    return raw === "go" || raw === "symbol" ? raw : "symbol";
+  } catch {
+    return "symbol";
+  }
+}
+
+function writeStickyPickerMode(mode: PickerMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PICKER_MODE_LS_KEY, mode);
+  } catch {
+    /* sandboxed env */
+  }
+}
 
 export function VisualizeTab({ dataset }: { dataset: Dataset }) {
   const datasetId = dataset.id;
@@ -50,44 +110,100 @@ export function VisualizeTab({ dataset }: { dataset: Dataset }) {
 
   // ── selected genes — client-only state, URL-hash + localStorage backed.
   const [selected, setSelected] = useGeneSelection(datasetId);
-  const [mode, setMode] = useState<PickerMode>("symbol");
+  const [origins, setOrigins] = useGeneOrigins(datasetId);
+  const [mode, setModeState] = useState<PickerMode>(readStickyPickerMode);
+  // Search query shared across modes so toggling symbol↔GO doesn't
+  // wipe what the visitor typed.
+  const [query, setQuery] = useState("");
+  const setMode = (m: PickerMode) => {
+    setModeState(m);
+    writeStickyPickerMode(m);
+  };
+  // Recent histories — global to the session, not dataset-bound.
+  const [recentSymbolQueries, pushRecentSymbolQuery, clearRecentSymbolQueries] =
+    useRecentList<string>(RECENT_SYMBOL_QUERIES_LS_KEY);
+  const [recentGoTerms, pushRecentGoTerm, clearRecentGoTerms] =
+    useRecentList<RecentGoTerm>(RECENT_GO_TERMS_LS_KEY);
+
+  const modeToggle = <PickerModeTabs mode={mode} onChange={setMode} />;
+
+  const addMany = (genes: Gene[]) =>
+    setSelected((cur) => {
+      const have = new Set(cur.map((g) => g.id));
+      const next = [...cur];
+      for (const g of genes) if (!have.has(g.id)) next.push(g);
+      return next;
+    });
+
+  // Origin writes happen separately from gene writes so the gene
+  // selection updater stays a pure function (React 18 strict-mode
+  // double-invokes updaters; writing siblings inside would
+  // duplicate).
+  const tagOriginFor = (geneIds: number[], origin: GeneOrigin) => {
+    setOrigins((cur) => {
+      const next = { ...cur };
+      for (const id of geneIds) next[id] = origin;
+      return next;
+    });
+  };
 
   return (
-    <div className="space-y-4">
-      {/* Picker header + mode tabs */}
-      <section className="bg-white border border-slate-200 rounded">
-        <header className="px-4 py-2 border-b border-slate-200 flex items-baseline justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold tracking-wide">
-              Visualise expression
-            </h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Build a custom gene set and render the heatmap. Selection is
-              held in the URL — share the link to share the view.
-            </p>
-          </div>
-          <PickerModeTabs mode={mode} onChange={setMode} />
+    <div className="lg:flex lg:items-start lg:gap-4 space-y-4 lg:space-y-0">
+      {/* Picker — 1/3 width on lg+, full width on small. Heatmap renders
+          alongside on the right. */}
+      <section className="bg-white border border-slate-200 rounded lg:w-1/3 lg:shrink-0">
+        <header className="px-4 py-2 border-b border-slate-200">
+          <h2 className="text-sm font-semibold tracking-wide">
+            Visualise expression
+          </h2>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Build a custom gene set and render the heatmap. Selection is
+            held in the URL — share the link to share the view.
+          </p>
         </header>
         <div className="px-4 py-3">
           {mode === "symbol" ? (
             <GenePickerBySymbol
               taxon={taxon}
               alreadySelected={selected.map((g) => g.id)}
-              onAdd={(gene) =>
+              modeToggle={modeToggle}
+              query={query}
+              setQuery={setQuery}
+              recentQueries={recentSymbolQueries}
+              onClearRecent={clearRecentSymbolQueries}
+              onAdd={(gene) => {
+                if (query.trim()) pushRecentSymbolQuery(query.trim());
                 setSelected((cur) =>
                   cur.some((g) => g.id === gene.id) ? cur : [...cur, gene],
-                )
-              }
+                );
+              }}
+              onAddMany={(g) => {
+                if (query.trim()) pushRecentSymbolQuery(query.trim());
+                addMany(g);
+              }}
             />
           ) : (
             <GenePickerByGo
               taxon={taxon}
               alreadySelected={selected.map((g) => g.id)}
-              onAdd={(gene) =>
+              modeToggle={modeToggle}
+              query={query}
+              setQuery={setQuery}
+              recentTerms={recentGoTerms}
+              onPickTerm={(t) =>
+                pushRecentGoTerm({ valueUri: t.valueUri, value: t.value })
+              }
+              onClearRecent={clearRecentGoTerms}
+              onAdd={(gene, origin) => {
                 setSelected((cur) =>
                   cur.some((g) => g.id === gene.id) ? cur : [...cur, gene],
-                )
-              }
+                );
+                if (origin) tagOriginFor([gene.id], origin);
+              }}
+              onAddMany={(genes, origin) => {
+                addMany(genes);
+                if (origin) tagOriginFor(genes.map((g) => g.id), origin);
+              }}
             />
           )}
         </div>
@@ -100,11 +216,14 @@ export function VisualizeTab({ dataset }: { dataset: Dataset }) {
         />
       </section>
 
-      {/* Heatmap render */}
-      <HeatmapPanel
-        datasetId={datasetId}
-        genes={selected}
-      />
+      {/* Heatmap render — right of the form on lg+, below on small. */}
+      <div className="lg:flex-1 lg:min-w-0">
+        <HeatmapPanel
+          datasetId={datasetId}
+          genes={selected}
+          origins={origins}
+        />
+      </div>
     </div>
   );
 }
@@ -160,13 +279,24 @@ function ModeButton({
 function GenePickerBySymbol({
   taxon,
   alreadySelected,
+  modeToggle,
+  query,
+  setQuery,
+  recentQueries,
+  onClearRecent,
   onAdd,
+  onAddMany,
 }: {
   taxon: string | undefined;
   alreadySelected: number[];
+  modeToggle: React.ReactNode;
+  query: string;
+  setQuery: (q: string) => void;
+  recentQueries: string[];
+  onClearRecent: () => void;
   onAdd: (gene: Gene) => void;
+  onAddMany: (genes: Gene[]) => void;
 }) {
-  const [query, setQuery] = useState("");
   const debounced = useDebounced(query, 150);
   const trimmed = debounced.trim();
 
@@ -183,27 +313,71 @@ function GenePickerBySymbol({
     [alreadySelected],
   );
 
-  const candidates = (results.data ?? []).filter((g) => !already.has(g.id));
+  // Hard-filter to the dataset's taxon client-side. The server takes
+  // a ``taxon`` query param but currently mixes in other-organism hits
+  // anyway; without this guard, the picker offers e.g. human + rat
+  // genes on a mouse dataset, and selecting one of them crashes the
+  // heatmap fetch downstream (the dataset has no probes for them).
+  const taxonNeedle = taxon?.toLowerCase() ?? null;
+  const candidates = (results.data ?? []).filter((g) => {
+    if (already.has(g.id)) return false;
+    if (!taxonNeedle) return true;
+    const c = g.taxon?.commonName?.toLowerCase() ?? null;
+    const s = g.taxon?.scientificName?.toLowerCase() ?? null;
+    return c === taxonNeedle || s === taxonNeedle;
+  });
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="block">
-        <span className="block text-[11px] text-slate-500 mb-1">
-          Search by gene symbol or alias
-          {taxon ? (
-            <span className="ml-1.5 text-slate-400">— {taxon} only</span>
-          ) : null}
-        </span>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="BRCA1, TP53, MYC…"
-          className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-        />
-      </label>
+      <div className="flex items-end gap-2">
+        <label className="block flex-1 min-w-0">
+          <span className="block text-[11px] text-slate-500 mb-1">
+            Search by gene symbol or alias
+            {taxon ? (
+              <span className="ml-1.5 text-slate-400">— {taxon} only</span>
+            ) : null}
+          </span>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="BRCA1, TP53, MYC…"
+            className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </label>
+        {modeToggle}
+      </div>
+      {trimmed.length < 2 && recentQueries.length > 0 ? (
+        <RecentRow
+          label="recent"
+          onClear={onClearRecent}
+        >
+          {recentQueries.map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setQuery(q)}
+              className="text-[11px] px-2 py-0.5 border border-slate-200 bg-slate-50 rounded hover:bg-slate-900 hover:text-white hover:border-slate-900"
+            >
+              {q}
+            </button>
+          ))}
+        </RecentRow>
+      ) : null}
       {trimmed.length >= 2 ? (
-        <div className="border border-slate-200 rounded max-h-64 overflow-y-auto">
+        <>
+          {candidates.length > 1 ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => onAddMany(candidates)}
+                className="text-[11px] px-2 py-0.5 border border-slate-300 rounded whitespace-nowrap hover:bg-slate-900 hover:text-white hover:border-slate-900"
+              >
+                + add all {candidates.length}
+              </button>
+            </div>
+          ) : null}
+          <div className="border border-slate-200 rounded max-h-64 overflow-y-auto">
           {results.isFetching ? (
             <div className="px-3 py-2 text-xs text-slate-500 italic">
               searching…
@@ -217,14 +391,14 @@ function GenePickerBySymbol({
               {candidates.map((g) => (
                 <li
                   key={g.id}
-                  className="px-3 py-1.5 flex items-baseline justify-between gap-3 hover:bg-slate-50"
+                  className="px-2.5 py-1 flex items-baseline justify-between gap-2 hover:bg-slate-50"
                 >
-                  <span className="min-w-0">
-                    <span className="font-mono font-semibold text-slate-900">
+                  <span className="min-w-0 truncate">
+                    <span className="font-mono font-semibold text-xs text-slate-900">
                       {g.officialSymbol ?? `#${g.id}`}
                     </span>
                     {g.officialName ? (
-                      <span className="ml-2 text-xs text-slate-500 truncate inline-block max-w-[28ch] align-bottom">
+                      <span className="ml-2 text-[11px] text-slate-500">
                         {g.officialName}
                       </span>
                     ) : null}
@@ -237,10 +411,12 @@ function GenePickerBySymbol({
                   <button
                     type="button"
                     onClick={() => {
+                      // Don't clear the query — keep the dropdown open
+                      // so the visitor can add more matches from the
+                      // same search.
                       onAdd(g);
-                      setQuery("");
                     }}
-                    className="text-xs px-2 py-0.5 border border-slate-300 rounded hover:bg-slate-900 hover:text-white hover:border-slate-900"
+                    className="text-[11px] px-2 py-0.5 border border-slate-300 rounded whitespace-nowrap shrink-0 hover:bg-slate-900 hover:text-white hover:border-slate-900"
                   >
                     + add
                   </button>
@@ -248,7 +424,8 @@ function GenePickerBySymbol({
               ))}
             </ul>
           )}
-        </div>
+          </div>
+        </>
       ) : null}
     </div>
   );
@@ -272,13 +449,28 @@ function GenePickerBySymbol({
 function GenePickerByGo({
   taxon,
   alreadySelected,
+  modeToggle,
+  query,
+  setQuery,
+  recentTerms,
+  onPickTerm,
+  onClearRecent,
   onAdd,
+  onAddMany,
 }: {
   taxon: string | undefined;
   alreadySelected: number[];
-  onAdd: (gene: Gene) => void;
+  modeToggle: React.ReactNode;
+  query: string;
+  setQuery: (q: string) => void;
+  recentTerms: RecentGoTerm[];
+  onPickTerm: (t: { valueUri: string | null; value: string }) => void;
+  onClearRecent: () => void;
+  onAdd: (gene: Gene, origin?: GeneOrigin) => void;
+  onAddMany: (genes: Gene[], origin?: GeneOrigin) => void;
 }) {
-  const [termQuery, setTermQuery] = useState("");
+  const termQuery = query;
+  const setTermQuery = setQuery;
   const [pickedTerm, setPickedTerm] = useState<AnnotationSearchResult | null>(
     null,
   );
@@ -320,23 +512,50 @@ function GenePickerByGo({
     const matches = termsQ.data ?? [];
     return (
       <div className="flex flex-col gap-2">
-        <label className="block">
-          <span className="block text-[11px] text-slate-500 mb-1">
-            Search a GO term
-            {taxon ? (
-              <span className="ml-1.5 text-slate-400">
-                — genes scoped to {taxon}
-              </span>
-            ) : null}
-          </span>
-          <input
-            type="search"
-            value={termQuery}
-            onChange={(e) => setTermQuery(e.target.value)}
-            placeholder="apoptosis, cell cycle, immune response…"
-            className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </label>
+        <div className="flex items-end gap-2">
+          <label className="block flex-1 min-w-0">
+            <span className="block text-[11px] text-slate-500 mb-1">
+              Search a GO term
+              {taxon ? (
+                <span className="ml-1.5 text-slate-400">
+                  — genes scoped to {taxon}
+                </span>
+              ) : null}
+            </span>
+            <input
+              type="search"
+              value={termQuery}
+              onChange={(e) => setTermQuery(e.target.value)}
+              placeholder="apoptosis, cell cycle, immune response…"
+              className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </label>
+          {modeToggle}
+        </div>
+        {trimmedTermQuery.length < 2 && recentTerms.length > 0 ? (
+          <RecentRow label="recent terms" onClear={onClearRecent}>
+            {recentTerms.map((t) => (
+              <button
+                key={t.valueUri ?? t.value}
+                type="button"
+                onClick={() => {
+                  // Synthesize an AnnotationSearchResult-shaped object
+                  // — the picker only consumes value / valueUri so the
+                  // other fields stay undefined.
+                  setPickedTerm({
+                    value: t.value,
+                    valueUri: t.valueUri,
+                  } as AnnotationSearchResult);
+                  onPickTerm(t);
+                }}
+                className="text-[11px] px-2 py-0.5 border border-slate-200 bg-slate-50 rounded hover:bg-slate-900 hover:text-white hover:border-slate-900"
+                title={t.valueUri ?? undefined}
+              >
+                {t.value}
+              </button>
+            ))}
+          </RecentRow>
+        ) : null}
         {trimmedTermQuery.length >= 2 ? (
           <div className="border border-slate-200 rounded max-h-64 overflow-y-auto">
             {termsQ.isFetching ? (
@@ -352,15 +571,21 @@ function GenePickerByGo({
                 {matches.map((t) => (
                   <li
                     key={t.valueUri ?? t.value}
-                    className="px-3 py-1.5 hover:bg-slate-50"
+                    className="px-2.5 py-1 hover:bg-slate-50"
                   >
                     <button
                       type="button"
-                      onClick={() => setPickedTerm(t)}
-                      className="w-full flex items-baseline justify-between gap-3 text-left"
+                      onClick={() => {
+                        setPickedTerm(t);
+                        onPickTerm({
+                          valueUri: t.valueUri,
+                          value: t.value,
+                        });
+                      }}
+                      className="w-full flex items-baseline justify-between gap-2 text-left"
                     >
-                      <span className="min-w-0">
-                        <span className="font-medium text-slate-900">
+                      <span className="min-w-0 truncate">
+                        <span className="font-medium text-xs text-slate-900">
                           {t.value}
                         </span>
                         {t.valueUri ? (
@@ -369,7 +594,7 @@ function GenePickerByGo({
                           </span>
                         ) : null}
                       </span>
-                      <span className="text-xs text-blue-700 shrink-0">
+                      <span className="text-[11px] text-blue-700 shrink-0 whitespace-nowrap">
                         browse →
                       </span>
                     </button>
@@ -391,7 +616,7 @@ function GenePickerByGo({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <div className="text-[10px] uppercase tracking-wide text-slate-500">
             GO term
@@ -410,16 +635,19 @@ function GenePickerByGo({
             </a>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setPickedTerm(null);
-            setTermQuery("");
-          }}
-          className="text-xs text-slate-500 hover:text-slate-900 hover:underline"
-        >
-          ← pick a different term
-        </button>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          {modeToggle}
+          <button
+            type="button"
+            onClick={() => {
+              setPickedTerm(null);
+              setTermQuery("");
+            }}
+            className="text-xs text-slate-500 hover:text-slate-900 hover:underline"
+          >
+            ← pick a different term
+          </button>
+        </div>
       </div>
       {genesQ.isLoading ? (
         <div className="border border-slate-200 rounded px-3 py-3 text-xs text-slate-500 italic">
@@ -433,19 +661,39 @@ function GenePickerByGo({
         </div>
       ) : (
         <>
-          <p className="text-[11px] text-slate-500 leading-snug">
-            <strong className="text-slate-700">
-              {total.toLocaleString()}
-            </strong>{" "}
-            {total === 1 ? "gene" : "genes"} annotated{taxon ? ` in ${taxon}` : ""}.
-            {truncated ? (
-              <>
-                {" "}
-                Showing the first {shown.length} — refine the term, or pick
-                from the list.
-              </>
-            ) : null}
-          </p>
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <p className="text-[11px] text-slate-500 leading-snug min-w-0">
+              <strong className="text-slate-700">
+                {total.toLocaleString()}
+              </strong>{" "}
+              {total === 1 ? "gene" : "genes"} annotated{taxon ? ` in ${taxon}` : ""}.
+              {truncated ? (
+                <>
+                  {" "}
+                  Showing the first {shown.length}.
+                </>
+              ) : null}
+            </p>
+            {(() => {
+              const addable = shown.filter((g) => !already.has(g.id));
+              const n = addable.length;
+              if (n === 0) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAddMany(addable, {
+                      goUri: pickedTerm.valueUri ?? "",
+                      goLabel: pickedTerm.value,
+                    })
+                  }
+                  className="text-[11px] px-2 py-0.5 border border-slate-300 rounded whitespace-nowrap hover:bg-slate-900 hover:text-white hover:border-slate-900 shrink-0"
+                >
+                  + add all {n}
+                </button>
+              );
+            })()}
+          </div>
           <div className="border border-slate-200 rounded max-h-72 overflow-y-auto">
             <ul className="divide-y divide-slate-100">
               {shown.map((g) => {
@@ -453,14 +701,14 @@ function GenePickerByGo({
                 return (
                   <li
                     key={g.id}
-                    className="px-3 py-1.5 flex items-baseline justify-between gap-3 hover:bg-slate-50"
+                    className="px-2.5 py-1 flex items-baseline justify-between gap-2 hover:bg-slate-50"
                   >
-                    <span className="min-w-0">
-                      <span className="font-mono font-semibold text-slate-900">
+                    <span className="min-w-0 truncate">
+                      <span className="font-mono font-semibold text-xs text-slate-900">
                         {g.officialSymbol ?? `#${g.id}`}
                       </span>
                       {g.officialName ? (
-                        <span className="ml-2 text-xs text-slate-500 truncate inline-block max-w-[28ch] align-bottom">
+                        <span className="ml-2 text-[11px] text-slate-500">
                           {g.officialName}
                         </span>
                       ) : null}
@@ -468,9 +716,14 @@ function GenePickerByGo({
                     <button
                       type="button"
                       disabled={isSelected}
-                      onClick={() => onAdd(g)}
+                      onClick={() =>
+                        onAdd(g, {
+                          goUri: pickedTerm.valueUri ?? "",
+                          goLabel: pickedTerm.value,
+                        })
+                      }
                       className={
-                        "text-xs px-2 py-0.5 border rounded " +
+                        "text-[11px] px-2 py-0.5 border rounded whitespace-nowrap shrink-0 " +
                         (isSelected
                           ? "border-slate-200 text-slate-400 cursor-default"
                           : "border-slate-300 hover:bg-slate-900 hover:text-white hover:border-slate-900")
@@ -507,13 +760,24 @@ function SelectedGenesStrip({
   onRemove: (id: number) => void;
   onClear: () => void;
 }) {
+  // When the strip would render more chips than this, collapse to
+  // a "+N more" affordance and let the visitor expand on click.
+  // Beyond ~50 the strip dominates the viewport and the heatmap
+  // becomes the source of truth for gene identity anyway.
+  const COLLAPSE_THRESHOLD = 15;
+  const [expanded, setExpanded] = useState(false);
   if (genes.length === 0) return null;
+  const visible =
+    expanded || genes.length <= COLLAPSE_THRESHOLD
+      ? genes
+      : genes.slice(0, COLLAPSE_THRESHOLD);
+  const hiddenCount = genes.length - visible.length;
   return (
     <div className="border-t border-slate-200 px-4 py-2 flex items-center gap-2 flex-wrap">
       <span className="text-[10px] uppercase tracking-wide text-slate-500 mr-1">
         {genes.length} {genes.length === 1 ? "gene" : "genes"}
       </span>
-      {genes.map((g) => (
+      {visible.map((g) => (
         <span
           key={g.id}
           className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-100 border border-slate-300 rounded"
@@ -531,6 +795,24 @@ function SelectedGenesStrip({
           </button>
         </span>
       ))}
+      {hiddenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="px-2 py-0.5 text-[11px] text-slate-600 border border-slate-300 rounded hover:bg-slate-100"
+        >
+          +{hiddenCount} more
+        </button>
+      ) : null}
+      {expanded && genes.length > COLLAPSE_THRESHOLD ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="px-2 py-0.5 text-[11px] text-slate-600 border border-slate-300 rounded hover:bg-slate-100"
+        >
+          collapse
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onClear}
@@ -547,9 +829,11 @@ function SelectedGenesStrip({
 function HeatmapPanel({
   datasetId,
   genes,
+  origins,
 }: {
   datasetId: number;
   genes: Gene[];
+  origins: Record<number, GeneOrigin>;
 }) {
   const geneIds = useMemo(() => genes.map((g) => g.id), [genes]);
   const wireQuery = useQuery({
@@ -577,7 +861,7 @@ function HeatmapPanel({
   }
 
   const wire = wireQuery.data;
-  if (!wire || wire.rows.length === 0) {
+  if (!wire || !wire.rows || wire.rows.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded px-6 py-10 text-center text-sm text-slate-500">
         No expression data returned for the selected genes on this dataset.
@@ -587,17 +871,64 @@ function HeatmapPanel({
     );
   }
 
-  const payload = adaptHeatmapWire(wire);
+  const payload = adaptHeatmapWire(wire, origins);
+  // Rich tooltip on row-label hover — surfaces the full gene info
+  // (symbol + name + ncbi id + gemma id) without needing a click-out
+  // to a separate page. Keeps the gutter compact while making the
+  // detail one mouseover away.
+  const rowLabelTooltip = (i: number) => {
+    const r = payload.rows[i];
+    if (!r) return null;
+    const matched = r.geneIds
+      .map((id, idx) => ({
+        id,
+        symbol: r.geneSymbols[idx] ?? "",
+        name: r.geneNames?.[idx] ?? "",
+        gene: genes.find((g) => g.id === id),
+      }))
+      .filter((m) => m.symbol || m.name);
+    if (matched.length === 0) {
+      return (
+        <span className="text-xs text-slate-500">
+          design element {r.designElementName}
+        </span>
+      );
+    }
+    return (
+      <div className="text-xs text-slate-800 space-y-1">
+        {matched.map((m) => (
+          <div key={m.id}>
+            <span className="font-mono font-semibold">{m.symbol}</span>
+            {m.name ? (
+              <span className="ml-2 text-slate-600">{m.name}</span>
+            ) : null}
+            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+              gemma:{m.id}
+              {m.gene?.ncbiId ? ` · ncbi:${m.gene.ncbiId}` : ""}
+              {" · "}probe {r.designElementName}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
   return (
-    <div className="bg-white border border-slate-200 rounded p-2">
-      <HeatmapWidget payload={payload} />
+    <div className="bg-slate-50 border border-slate-200 rounded p-2">
+      <HeatmapWidget
+        payload={payload}
+        rowLabelGutterWidth={260}
+        rowLabelTooltip={rowLabelTooltip}
+      />
     </div>
   );
 }
 
 // ─── Wire-to-HeatmapPayload adapter ──────────────────────────────────────────
 
-function adaptHeatmapWire(wire: HeatmapWireResponse): HeatmapPayload {
+function adaptHeatmapWire(
+  wire: HeatmapWireResponse,
+  origins: Record<number, GeneOrigin> = {},
+): HeatmapPayload {
   return {
     datasetId: wire.datasetId,
     matrix: {
@@ -611,12 +942,24 @@ function adaptHeatmapWire(wire: HeatmapWireResponse): HeatmapPayload {
         scale: wire.matrix.quantitationType.scale,
       },
     },
-    rows: wire.rows.map((r) => ({
-      designElementId: r.designElementId,
-      designElementName: r.designElementName,
-      geneIds: (r.genes ?? []).map((g) => g.id),
-      geneSymbols: (r.genes ?? []).map((g) => g.officialSymbol ?? ""),
-    })),
+    rows: wire.rows.map((r) => {
+      const geneIds = (r.genes ?? []).map((g) => g.id);
+      // First gene id that carries an origin wins — single disc per row.
+      const originHit = geneIds
+        .map((id) => origins[id])
+        .find((o) => o && o.goUri);
+      return {
+        designElementId: r.designElementId,
+        designElementName: r.designElementName,
+        geneIds,
+        geneSymbols: (r.genes ?? []).map((g) => g.officialSymbol ?? ""),
+        // Pull the full gene name through so the heatmap row gutter
+        // can render symbol + name inline (no link-out required).
+        geneNames: (r.genes ?? []).map((g) => g.name ?? ""),
+        originColor: originHit ? colorForGoUri(originHit.goUri) : null,
+        originTitle: originHit ? originHit.goLabel : null,
+      };
+    }),
     columns: wire.columns.map((c) => {
       const ids: Record<number, number> = {};
       for (const [k, v] of Object.entries(c.factorValueIds ?? {})) {
@@ -704,6 +1047,132 @@ function useGeneSelection(datasetId: number): [
   return [selected, setSelected];
 }
 
+/**
+ * Hold per-gene origin metadata (currently: the GO term the gene was
+ * picked from). LocalStorage only — origin is a hint, not load-bearing
+ * for the heatmap render, and we don't pollute the URL hash with it.
+ */
+function useGeneOrigins(datasetId: number): [
+  Record<number, GeneOrigin>,
+  (updater: (cur: Record<number, GeneOrigin>) => Record<number, GeneOrigin>) => void,
+] {
+  const lsKey = `${ORIGINS_LS_PREFIX}${datasetId}`;
+  const initRan = useRef(false);
+  const [origins, setOriginsState] = useState<Record<number, GeneOrigin>>({});
+
+  // First-paint hydrate.
+  useEffect(() => {
+    if (initRan.current) return;
+    initRan.current = true;
+    try {
+      const raw = window.localStorage.getItem(lsKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<number, GeneOrigin>;
+      if (parsed && typeof parsed === "object") setOriginsState(parsed);
+    } catch {
+      /* ignore */
+    }
+  }, [lsKey]);
+
+  // Persist on change.
+  useEffect(() => {
+    if (!initRan.current) return;
+    try {
+      if (Object.keys(origins).length === 0) {
+        window.localStorage.removeItem(lsKey);
+      } else {
+        window.localStorage.setItem(lsKey, JSON.stringify(origins));
+      }
+    } catch {
+      /* sandboxed env */
+    }
+  }, [origins, lsKey]);
+
+  const setOrigins = (
+    updater: (cur: Record<number, GeneOrigin>) => Record<number, GeneOrigin>,
+  ) => {
+    setOriginsState((cur) => updater(cur));
+  };
+
+  return [origins, setOrigins];
+}
+
+/**
+ * Generic LRU list persisted to localStorage. Used for recent search
+ * queries (symbol mode) and recent picked GO terms (GO mode) so the
+ * visitor can re-fire something they did before in one click.
+ *
+ * Equality is by JSON-stringified form, which is good enough for the
+ * shallow records we store. Cap is module-level RECENT_CAP.
+ */
+function useRecentList<T>(
+  lsKey: string,
+): [T[], (item: T) => void, () => void] {
+  const initRan = useRef(false);
+  const [items, setItems] = useState<T[]>([]);
+
+  useEffect(() => {
+    if (initRan.current) return;
+    initRan.current = true;
+    try {
+      const raw = window.localStorage.getItem(lsKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setItems(parsed.slice(0, RECENT_CAP));
+    } catch {
+      /* ignore */
+    }
+  }, [lsKey]);
+
+  useEffect(() => {
+    if (!initRan.current) return;
+    try {
+      if (items.length === 0) window.localStorage.removeItem(lsKey);
+      else window.localStorage.setItem(lsKey, JSON.stringify(items));
+    } catch {
+      /* sandboxed env */
+    }
+  }, [items, lsKey]);
+
+  const push = (item: T) => {
+    setItems((cur) => {
+      const k = JSON.stringify(item);
+      const next = [item, ...cur.filter((x) => JSON.stringify(x) !== k)];
+      return next.slice(0, RECENT_CAP);
+    });
+  };
+  const clear = () => setItems([]);
+  return [items, push, clear];
+}
+
+/** Small horizontal row of "recent" buttons + a clear control. */
+function RecentRow({
+  label,
+  onClear,
+  children,
+}: {
+  label: string;
+  onClear: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center flex-wrap gap-1.5">
+      <span className="text-[10px] uppercase tracking-wide text-slate-400 mr-1">
+        {label}
+      </span>
+      {children}
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-1 text-[10px] text-slate-400 hover:text-slate-700 hover:underline"
+        title="clear recent"
+      >
+        clear
+      </button>
+    </div>
+  );
+}
+
 function readGeneIdsFromHash(): number[] | null {
   if (typeof window === "undefined") return null;
   const hash = window.location.hash.replace(/^#/, "");
@@ -764,12 +1233,19 @@ async function resolveGeneIds(
 ): Promise<Gene[]> {
   const out: Gene[] = [];
   const cached = new Map<number, Gene>();
-  // Sweep cached gene-search results for matches.
+  // Sweep cached gene-search AND go-term-genes results for matches —
+  // GO-picked genes need to rehydrate too, not just symbol-picked ones.
   const cache = qc.getQueryCache();
   for (const entry of cache.findAll({ queryKey: ["gene-search"] })) {
     const data = entry.state.data as Gene[] | undefined;
     if (!data) continue;
     for (const g of data) cached.set(g.id, g);
+  }
+  for (const entry of cache.findAll({ queryKey: ["go-term-genes"] })) {
+    const data = entry.state.data as { data?: Gene[] } | undefined;
+    const list = data?.data;
+    if (!list) continue;
+    for (const g of list) cached.set(g.id, g);
   }
   for (const id of ids) {
     const hit = cached.get(id);
