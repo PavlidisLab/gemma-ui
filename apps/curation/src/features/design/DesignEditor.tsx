@@ -205,6 +205,13 @@ export function DesignEditor({
       ) : null}
       <fieldset
         disabled={readOnly}
+        // ``inert`` covers the gap ``fieldset disabled`` leaves for
+        // span+role="button" widgets (CategoryPicker,
+        // OntologyTermPicker, FV-edit pencils) — those onClicks
+        // sail past ``disabled``. ``inert`` blocks the whole
+        // subtree. Applied conditionally so curation mode keeps
+        // its full interactivity.
+        {...(readOnly ? { inert: "" } : {})}
         className="space-y-4 m-0 p-0 border-0 disabled:opacity-90"
       >
       {/* Validator banner sits above FactorList so the

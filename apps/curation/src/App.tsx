@@ -923,7 +923,17 @@ function MainGrid({
             // (title / description / publication add / tag picker)
             // don't fire when the panel renders against a chip
             // source's snapshot.
-            <fieldset disabled className="m-0 p-0 border-0">
+            <fieldset
+              disabled
+              // ``inert`` covers the gap ``fieldset disabled`` leaves
+              // for non-form-control widgets — the OverviewPanel
+              // uses span+role="button" pickers (CategoryPicker,
+              // OntologyTermPicker) and onClick spans that
+              // ``disabled`` doesn't block. ``inert`` blocks
+              // pointer + focus + keyboard at the subtree.
+              {...{ inert: "" }}
+              className="m-0 p-0 border-0"
+            >
               <OverviewPanel displayOverride={chipBaselineDesign} />
             </fieldset>
           ) : (
