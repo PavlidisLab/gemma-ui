@@ -162,6 +162,37 @@ async function fetchAgentProposalPayload(
   }
 }
 
+/** Fetch the full calibration-package ``curation_review`` row — the
+ *  same AuditReport the package import lands. Used by the chip-strip
+ *  override path for ``polished-vs-agent`` comparisons: the report
+ *  already carries the agent's findings (with rationale, defender
+ *  verdicts, debate badges) AND the curator's dispositions (accept /
+ *  dismiss reasons + notes), so the existing AuditSidebarPanel can
+ *  render the full provenance trail without re-synthesis. Per Paul
+ *  2026-05-27: "we want all provenance and documentation we pick up
+ *  along the way". */
+export function useCalibrationAuditReport(experimentId: number | string) {
+  return useQuery({
+    enabled: Boolean(experimentId),
+    queryKey: ["chip-calibration-report", experimentId] as const,
+    staleTime: 30_000,
+    queryFn: async () => {
+      try {
+        const raw = await api.get<{ items?: unknown[] } | unknown[]>(
+          `/rest/v2/datasets/${experimentId}/proposals?limit=1`,
+        );
+        const rows = Array.isArray(raw)
+          ? raw
+          : ((raw as { items?: unknown[] })?.items ?? []);
+        if (rows.length === 0) return null;
+        return rows[0] as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    },
+  });
+}
+
 /** Fetch one source's ``Design`` for the chip strip. ``empty`` and
  *  unfetchable sources return ``null`` rather than throw — the
  *  caller treats ``null`` baseline OR comparator as "no diff to

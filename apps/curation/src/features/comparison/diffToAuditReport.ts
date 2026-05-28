@@ -130,6 +130,22 @@ export function diffDesignsToAuditReport(args: {
   const { baseline, comparator, comparatorSource } = args;
   if (!baseline || !comparator) return null;
 
+  // When the comparator is the agent's proposal AND the baseline is
+  // a curator's polished work, the diff reads most naturally from the
+  // CURATOR's perspective: she accepted some of what the agent
+  // proposed, dismissed others, and may have added items the agent
+  // didn't suggest. We surface all three so the audit-cards aren't
+  // silent on accepted items (Paul 2026-05-27 review: "the factor
+  // that was added should be more obviously 'accepted'").
+  //
+  // Other source-pair shapes (cy vs am, preboard vs cy) just surface
+  // the diff symmetrically — there's no "proposed by agent" framing
+  // to invert, so the comparator-side actor leads as before.
+  const curatorAuditing =
+    args.comparatorSource === "agent_proposal"
+    && (args.baselineSource === "cy_polished"
+      || args.baselineSource === "am_polished");
+  const curatorActor = actor(args.baselineSource);
   const cmpActor = actor(comparatorSource);
   const findings: AuditFinding[] = [];
 
@@ -142,10 +158,12 @@ export function diffDesignsToAuditReport(args: {
   for (const [k, cmp] of cmpByFactor) {
     const base = baseByFactor.get(k);
     if (!base) {
+      // In cmp not in baseline. For curator-auditing-agent: the
+      // curator DISMISSED what the agent proposed.
       findings.push(makeFactorFinding({
-        kind: "added",
+        kind: curatorAuditing ? "dismissed" : "added",
         factor: cmp,
-        actor: cmpActor,
+        actor: curatorAuditing ? curatorActor : cmpActor,
         key: k,
       }));
     } else if (factorChanged(base, cmp)) {
@@ -156,14 +174,24 @@ export function diffDesignsToAuditReport(args: {
         actor: cmpActor,
         key: k,
       }));
+    } else if (curatorAuditing) {
+      // Match — curator accepted it from the agent.
+      findings.push(makeFactorFinding({
+        kind: "accepted",
+        factor: cmp,
+        actor: curatorActor,
+        key: k,
+      }));
     }
   }
   for (const [k, base] of baseByFactor) {
     if (!cmpByFactor.has(k)) {
+      // In baseline not in cmp. For curator-auditing-agent: the
+      // curator added something the agent didn't propose.
       findings.push(makeFactorFinding({
-        kind: "removed",
+        kind: curatorAuditing ? "added_solo" : "removed",
         factor: base,
-        actor: cmpActor,
+        actor: curatorAuditing ? curatorActor : cmpActor,
         key: k,
       }));
     }
@@ -179,15 +207,24 @@ export function diffDesignsToAuditReport(args: {
     const base = baseByTag.get(k);
     if (!base) {
       findings.push(makeTagFinding({
-        kind: "added", tag: cmp, actor: cmpActor, key: k,
+        kind: curatorAuditing ? "dismissed" : "added",
+        tag: cmp,
+        actor: curatorAuditing ? curatorActor : cmpActor,
+        key: k,
+      }));
+    } else if (curatorAuditing) {
+      findings.push(makeTagFinding({
+        kind: "accepted", tag: cmp, actor: curatorActor, key: k,
       }));
     }
-    // tags match → no "modified" case for tags (the key IS the tag identity)
   }
   for (const [k, base] of baseByTag) {
     if (!cmpByTag.has(k)) {
       findings.push(makeTagFinding({
-        kind: "removed", tag: base, actor: cmpActor, key: k,
+        kind: curatorAuditing ? "added_solo" : "removed",
+        tag: base,
+        actor: curatorAuditing ? curatorActor : cmpActor,
+        key: k,
       }));
     }
   }
@@ -228,8 +265,10 @@ function factorChanged(a: Factor, b: Factor): boolean {
   return false;
 }
 
+type DiffKind = "added" | "removed" | "modified" | "accepted" | "dismissed" | "added_solo";
+
 function makeFactorFinding(args: {
-  kind: "added" | "removed" | "modified";
+  kind: DiffKind;
   factor: Factor;
   before?: Factor;
   actor: string;
@@ -241,15 +280,20 @@ function makeFactorFinding(args: {
     kind === "modified" && before
       ? factorModifiedDescription(before, factor)
       : factorDescription(factor);
-  // Rationale reads as a sentence. Actor leads (matches the spec's
-  // "who's saying what" framing in the panel-header table); verb
-  // matches the diff kind; the description carries the structural
-  // detail.
+  // Rationale reads from the active actor's perspective: a curator
+  // auditing an agent's proposal gets "Cy accepted / dismissed";
+  // structural diffs (no agent involved) get "added / dropped /
+  // changed". See ``DiffKind`` for the full kind set.
   const rationale = `${actor} ${verbFor(kind)} factor — ${desc}`;
+  // ``ok`` severity tells the existing audit-card renderer to default
+  // the card to "resolved-looking" — green check, expanded label —
+  // which is what we want for accepted items. Everything else stays
+  // ``minor`` so it surfaces as a normal review card.
+  const severity = kind === "accepted" ? "ok" : "minor";
   return {
     target_kind: "factor" as AuditTargetKind,
     target_id,
-    severity: "minor",
+    severity,
     issue_code: `chipdiff_factor_${kind}`,
     rationale,
     citation: "",
@@ -261,7 +305,7 @@ function makeFactorFinding(args: {
 }
 
 function makeTagFinding(args: {
-  kind: "added" | "removed";
+  kind: DiffKind;
   tag: Tag;
   actor: string;
   key: string;
@@ -269,12 +313,19 @@ function makeTagFinding(args: {
   const { kind, tag, actor, key } = args;
   const target_id = `chipdiff:tag:${kind}:${key}`;
   const desc = tagDescription(tag);
+  const severity = kind === "accepted" ? "ok" : "minor";
+  // Backtick the ``category: value`` so the existing tag-card
+  // renderer's ``firstBacktick`` fallback (AuditSidebarPanel.tsx
+  // line ~3460) picks up the labels and renders them as Term chips.
+  // Our synthetic ``chipdiff:`` target_ids aren't recognised by
+  // ``parseTargetId``, so this is the simplest hook into the
+  // existing tag-rendering path without forking it.
   return {
     target_kind: "tag" as AuditTargetKind,
     target_id,
-    severity: "minor",
+    severity,
     issue_code: `chipdiff_tag_${kind}`,
-    rationale: `${actor} ${verbFor(kind)} tag — ${desc}`,
+    rationale: `${actor} ${verbFor(kind)} tag — \`${desc}\``,
     citation: "",
     citation_url: "",
     suggested_fix: "",
@@ -283,7 +334,7 @@ function makeTagFinding(args: {
   };
 }
 
-function verbFor(kind: "added" | "removed" | "modified"): string {
+function verbFor(kind: DiffKind): string {
   switch (kind) {
     case "added":
       return "added";
@@ -291,6 +342,16 @@ function verbFor(kind: "added" | "removed" | "modified"): string {
       return "dropped";
     case "modified":
       return "changed";
+    case "accepted":
+      return "accepted";
+    case "dismissed":
+      return "dismissed";
+    case "added_solo":
+      // Curator added something the agent didn't propose — distinct
+      // from "added" which is a structural-diff verb for non-curator
+      // pairings. Reads cleanly as "Cy added X (not proposed by
+      // agent)" via the rationale suffix below.
+      return "added (not proposed by agent),";
   }
 }
 

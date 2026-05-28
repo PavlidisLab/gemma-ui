@@ -917,7 +917,18 @@ function MainGrid({
             visible without stealing real estate. */}
 
         {activeTab === "overview" ? (
-          <OverviewPanel />
+          flow === "review" && chipForSidebar.baseline !== "empty" ? (
+            // Fieldset-disabled wrapper mirrors the DesignEditor
+            // review-mode lock so edit affordances inside the panel
+            // (title / description / publication add / tag picker)
+            // don't fire when the panel renders against a chip
+            // source's snapshot.
+            <fieldset disabled className="m-0 p-0 border-0">
+              <OverviewPanel displayOverride={chipBaselineDesign} />
+            </fieldset>
+          ) : (
+            <OverviewPanel />
+          )
         ) : activeTab === "design" ? (
           <DesignEditor
             experimentId={experimentId}

@@ -309,7 +309,16 @@ export function AuditSidebarPanel({
           <div className="flex-1 min-w-0">
             <SidebarTopBar
               accession={accession}
-              hasOpenAudit={!!(report && !report.finalized_at)}
+              hasOpenAudit={
+                !!(report && !report.finalized_at)
+                // Suppress for synthetic chip-diff overrides — those
+                // reports carry audit_id=null and a ``chip-diff:`` model
+                // marker; they're not real "open" reviews waiting for
+                // a curator. Same gate as ChipOverrideMount uses.
+                && !(report && report.audit_id == null
+                  && typeof report.model === "string"
+                  && report.model.startsWith("chip-diff:"))
+              }
               kind={kind}
             />
           </div>
@@ -5797,18 +5806,44 @@ function DispositionDot({
   resolved: boolean;
   severity: Severity;
 }) {
+  // Per Paul 2026-05-27: the original tiny grey-on-grey ✓/× was
+  // unreadable next to the kind-tinted card chrome. Bump to a
+  // padded square badge with explicit emerald (accepted) / rose
+  // (dismissed) / slate (parked) so the curator can scan a card
+  // grid and see verdicts at a glance. Same shape + sizing as
+  // SeverityBadge so the left-edge slot reads as one design system.
   const cfg =
     status === "accepted"
       ? {
           glyph: "✓",
+          cls:
+            "bg-emerald-500 text-white border-emerald-600 "
+            + "dark:bg-emerald-600 dark:border-emerald-700",
           title: `${resolved ? "resolved" : "agreed (follow-up owed)"} — was ${severity}`,
         }
       : status === "dismissed"
-        ? { glyph: "×", title: `dismissed — was ${severity}` }
-        : { glyph: "⋯", title: `parked — was ${severity}` };
+        ? {
+            glyph: "✗",
+            cls:
+              "bg-rose-500 text-white border-rose-600 "
+              + "dark:bg-rose-600 dark:border-rose-700",
+            title: `dismissed — was ${severity}`,
+          }
+        : {
+            glyph: "⋯",
+            cls:
+              "bg-slate-300 text-slate-800 border-slate-400 "
+              + "dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500",
+            title: `parked — was ${severity}`,
+          };
   return (
     <span
-      className="inline-block text-[11px] leading-none text-slate-500 dark:text-slate-400 mt-0.5 shrink-0"
+      className={cn(
+        "inline-flex items-center justify-center shrink-0",
+        "rounded border font-bold leading-none",
+        "h-6 w-6 text-[14px]",
+        cfg.cls,
+      )}
       title={cfg.title}
       aria-label={cfg.title}
     >

@@ -468,15 +468,41 @@ export function buildFactorRows(
 }
 
 function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
-  if (!finding.target_id.startsWith("calibration:")) return [];
-  const rest = finding.target_id.slice("calibration:".length);
-  const colon = rest.indexOf(":");
-  if (colon === -1) return [];
-  const tail = rest.slice(colon + 1);
-  const slash = tail.indexOf("/");
-  if (slash === -1) return [];
-  const agentCategory = tail.slice(0, slash);
-  const agentValue = tail.slice(slash + 1);
+  // Recognised prefixes:
+  //   - ``calibration:<bucket>:<category>/<value>`` — real calibration
+  //     finding from the agent-audit pipeline.
+  //   - ``chipdiff:tag:<verb>:<key>`` — synthetic finding from the
+  //     comparison view's chip strip (see
+  //     features/comparison/diffToAuditReport.ts). The key is a
+  //     ``<category>|<value>`` pair (URI when available, label
+  //     fallback) — we want the human-readable bits from
+  //     ``proposer_term`` + the rationale, not the URI keys.
+  let agentCategory: string;
+  let agentValue: string;
+  if (finding.target_id.startsWith("calibration:")) {
+    const rest = finding.target_id.slice("calibration:".length);
+    const colon = rest.indexOf(":");
+    if (colon === -1) return [];
+    const tail = rest.slice(colon + 1);
+    const slash = tail.indexOf("/");
+    if (slash === -1) return [];
+    agentCategory = tail.slice(0, slash);
+    agentValue = tail.slice(slash + 1);
+  } else if (finding.target_id.startsWith("chipdiff:tag:")) {
+    // Synthetic chip-diff tag finding. The category + value labels
+    // live on ``proposer_term`` (value side) + parsed out of the
+    // rationale's "category: value" tail. Cheaper than threading
+    // both URIs through the target_id.
+    const term = finding.proposer_term ?? null;
+    agentValue = term?.label ?? "";
+    // Rationale is shaped "Actor verb tag — category: value". Pull
+    // the ``category`` chunk by splitting on the last em-dash.
+    const tail = finding.rationale.split(" — ").slice(-1)[0] ?? "";
+    const idx = tail.lastIndexOf(": ");
+    agentCategory = idx >= 0 ? tail.slice(0, idx) : "";
+  } else {
+    return [];
+  }
   const term = finding.proposer_term ?? null;
 
   const categoryProposal: SideValue = { label: agentCategory, uri: null };

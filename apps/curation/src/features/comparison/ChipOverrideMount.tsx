@@ -1,6 +1,10 @@
 import { useEffect } from "react";
 import { useAudit } from "@/features/audit/AuditContext";
-import { useChipDesignPair } from "./useChipDiff";
+import type { AuditReport } from "@/api/auditTypes";
+import {
+  useChipDesignPair,
+  useCalibrationAuditReport,
+} from "./useChipDiff";
 import { useChipState } from "./useChipState";
 import { diffDesignsToAuditReport } from "./diffToAuditReport";
 
@@ -41,19 +45,50 @@ export function ChipOverrideMount({
     ticketContext,
   });
   const pair = useChipDesignPair(experimentId, baseline, comparator);
+  // The ``polished-vs-agent`` pair (curator auditing the agent's
+  // proposal) gets first-class treatment: the calibration package's
+  // own ``curation_review`` row already carries the agent's
+  // findings + the curator's dispositions + defender verdicts +
+  // debate badges. Re-use it directly so all provenance survives
+  // (Paul 2026-05-27: "we want all provenance and documentation we
+  // pick up along the way"). For every other pair we still
+  // synthesise from the structural diff.
+  const isCuratorAuditingAgent =
+    (baseline === "cy_polished" || baseline === "am_polished")
+    && comparator === "agent_proposal";
+  const calibrationReport = useCalibrationAuditReport(
+    isCuratorAuditingAgent ? experimentId : "",
+  );
   const { setOverrideReport } = useAudit();
 
-  // Override only applies when comparator is a *polished* source
-  // (or preboard) — agent_proposal keeps the live proposal cards.
-  // ``empty`` is a no-op (nothing to diff against).
+  // Override fires whenever both slots resolve to a Design — the
+  // sidebar then renders the DELTA between baseline and comparator
+  // as cards, not the live agent-proposal feed. Includes
+  // ``cmp = agent_proposal`` when a real baseline is set: baseline =
+  // Cy polished, cmp = agent original proposal ⇒ show the
+  // curator's audit of the agent's proposal, with dispositions.
+  //
+  // Skipped only when comparator is empty (no diff possible) OR
+  // when baseline is empty AND comparator is agent_proposal (the
+  // "raw proposal" framing — let the live feed pass through so the
+  // legacy calibration-review UX is untouched).
   const shouldOverride =
-    comparator === "cy_polished"
-    || comparator === "am_polished"
-    || comparator === "preboard";
+    comparator !== "empty"
+    && !(baseline === "empty" && comparator === "agent_proposal");
 
   useEffect(() => {
     if (!shouldOverride) {
       setOverrideReport(null);
+      return;
+    }
+    // Polished-vs-agent: use the real calibration AuditReport with
+    // full provenance baked in.
+    if (isCuratorAuditingAgent) {
+      if (calibrationReport.data) {
+        setOverrideReport(calibrationReport.data as unknown as AuditReport);
+      } else if (!calibrationReport.isLoading) {
+        setOverrideReport(null);
+      }
       return;
     }
     if (!pair.baseline || !pair.comparator) {
@@ -73,6 +108,9 @@ export function ChipOverrideMount({
     setOverrideReport(report);
   }, [
     shouldOverride,
+    isCuratorAuditingAgent,
+    calibrationReport.data,
+    calibrationReport.isLoading,
     pair.baseline,
     pair.comparator,
     pair.isLoading,
