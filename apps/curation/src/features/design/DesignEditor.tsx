@@ -182,11 +182,10 @@ export function DesignEditor({
   const selectedFactor =
     draft.factors.find((f) => f.id === effectiveSelected) ?? null;
 
-  // Review-mode lock — design tab is read-only when the curator is
-  // just looking (no group / ticket context). Native ``fieldset
-  // disabled`` blanks every nested form control + button so click
-  // events don't fire; the banner explains the greyed-out chrome so
-  // it doesn't read as a bug.
+  // Review-mode banner — surfaces *why* the tab is locked. The
+  // App-level fieldset+inert wrapper handles the actual interaction
+  // block; this is just the visible status line so a greyed-out
+  // chip strip doesn't read as a bug.
   const readOnly = useIsReadOnly();
 
   return (
@@ -203,17 +202,7 @@ export function DesignEditor({
           package to take action on the design
         </div>
       ) : null}
-      <fieldset
-        disabled={readOnly}
-        // ``inert`` covers the gap ``fieldset disabled`` leaves for
-        // span+role="button" widgets (CategoryPicker,
-        // OntologyTermPicker, FV-edit pencils) — those onClicks
-        // sail past ``disabled``. ``inert`` blocks the whole
-        // subtree. Applied conditionally so curation mode keeps
-        // its full interactivity.
-        {...(readOnly ? { inert: "" } : {})}
-        className="space-y-4 m-0 p-0 border-0 disabled:opacity-90"
-      >
+      <div className="space-y-4">
       {/* Validator banner sits above FactorList so the
           "design valid / has warnings" summary is visible the
           moment the curator lands on the tab. Earlier placement at
@@ -384,7 +373,7 @@ export function DesignEditor({
           Select a factor above to edit its values.
         </div>
       )}
-      </fieldset>
+      </div>
     </div>
   );
 }

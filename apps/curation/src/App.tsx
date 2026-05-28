@@ -909,33 +909,24 @@ function MainGrid({
       }}
     >
       <main className="mx-auto w-full max-w-[1800px] px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
-        <section className="flex-1 min-w-0 space-y-4">
-        {/* CommitBar moved into the ExperimentBanner action row
-            (passed as the ``commitBar`` slot, beside Status /
-            publish). Earlier sticky-top placement obscured the
-            actual page content; inline-in-banner keeps the chip
-            visible without stealing real estate. */}
-
+        {/* Review-mode lock wraps the ENTIRE tab section, not just
+            the per-panel surfaces. ``fieldset disabled`` blocks form
+            controls; ``inert`` covers the gap for span+role="button"
+            widgets and any future tab we haven't audited (Samples,
+            Quality control, etc.). Kept outside the ``<aside>``
+            sidebar so the curator can still expand AUDITOR DETAILS
+            and scroll through the audit cards while everything that
+            would mutate state stays locked. No opacity dim — text
+            stays at full contrast per Paul 2026-05-27. */}
+        <fieldset
+          disabled={flow === "review"}
+          {...(flow === "review" ? { inert: "" } : {})}
+          className="flex-1 min-w-0 m-0 p-0 border-0"
+        >
+        <section className="space-y-4">
         {activeTab === "overview" ? (
           flow === "review" && chipForSidebar.baseline !== "empty" ? (
-            // Fieldset-disabled wrapper mirrors the DesignEditor
-            // review-mode lock so edit affordances inside the panel
-            // (title / description / publication add / tag picker)
-            // don't fire when the panel renders against a chip
-            // source's snapshot.
-            <fieldset
-              disabled
-              // ``inert`` covers the gap ``fieldset disabled`` leaves
-              // for non-form-control widgets — the OverviewPanel
-              // uses span+role="button" pickers (CategoryPicker,
-              // OntologyTermPicker) and onClick spans that
-              // ``disabled`` doesn't block. ``inert`` blocks
-              // pointer + focus + keyboard at the subtree.
-              {...{ inert: "" }}
-              className="m-0 p-0 border-0"
-            >
-              <OverviewPanel displayOverride={chipBaselineDesign} />
-            </fieldset>
+            <OverviewPanel displayOverride={chipBaselineDesign} />
           ) : (
             <OverviewPanel />
           )
@@ -964,6 +955,7 @@ function MainGrid({
           <QuantitationTypesPanel experimentId={experimentId} />
         )}
       </section>
+      </fieldset>
 
       <aside
         className={
