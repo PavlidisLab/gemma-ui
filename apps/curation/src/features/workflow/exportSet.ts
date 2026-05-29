@@ -34,7 +34,7 @@
  * — no dependency. Output is a single ``.json.gz`` file; the agent
  * (or any consumer) can decompress with stock zlib.
  */
-import { fetchDesignSnapshot } from "@/api/design";
+import { fetchDesignSnapshot, fetchPolishedSnapshot } from "@/api/design";
 import { api } from "@/api/client";
 import type { AuditReport, CurationReviewKind } from "@/api/auditTypes";
 import type { Design } from "@/features/experiment/types";
@@ -205,8 +205,18 @@ export async function buildSetExport(
 
   const experiments = await Promise.all(
     exportable.map(async ({ memberId, experimentId }): Promise<SetExportExperiment> => {
+      // Source preference: the curator's polished Design (the actual
+      // edited state, what the UI's "<curator> polished" baseline
+      // chip reads from). If the curator has no polished Design
+      // stored for this experiment, fall back to the composed
+      // snapshot — at minimum the bundle still carries the preboard
+      // + the agent's last proposal overlay, which is what legacy
+      // bundles shipped pre-2026-05-29.
       const [designResult, reviewResult] = await Promise.allSettled([
-        fetchDesignSnapshot(experimentId),
+        (async () => {
+          const polished = await fetchPolishedSnapshot(experimentId, curator);
+          return polished ?? await fetchDesignSnapshot(experimentId);
+        })(),
         fetchLatestReviewStatus(experimentId),
       ]);
       const design =

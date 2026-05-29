@@ -47,6 +47,34 @@ export async function fetchDesignSnapshot(
   );
 }
 
+/** Fetch a curator's polished Design for an experiment from
+ *  ``/rest/v2/datasets/{id}/polished/{curator}``. Returns null on
+ *  404 (no polished design stored for that curator).
+ *
+ *  This is the canonical source for "what the curator's final state
+ *  looks like" — strictly preferred over ``fetchDesignSnapshot`` for
+ *  any caller that needs the curator's edits (Export Set, comparison
+ *  baseline, gold projection). ``fetchDesignSnapshot`` returns the
+ *  preboard + agent-proposal overlay, which is the agent's last
+ *  proposed design, not the curator's polished one — the 2026-05-29
+ *  GSE269647 incident proved that the two diverge in practice (cy's
+ *  polished has factor ``age``; the snapshot has factor
+ *  ``developmental stage``). */
+export async function fetchPolishedSnapshot(
+  experimentId: number | string,
+  curator: string,
+): Promise<Design | null> {
+  try {
+    return await api.get<Design>(
+      `/rest/v2/datasets/${experimentId}/polished/${curator}`,
+    );
+  } catch (err) {
+    const e = err as { status?: number };
+    if (e && typeof e === "object" && e.status === 404) return null;
+    throw err;
+  }
+}
+
 export function useDesign(experimentId: number | string) {
   return useQuery({
     queryKey: KEY.byExperiment(experimentId),
