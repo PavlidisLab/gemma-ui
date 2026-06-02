@@ -18,6 +18,23 @@ export function lc(s: string | null | undefined): string {
   return (s || "").toLowerCase().trim();
 }
 
+/** Conservative label normalizer used by ``sidesAgree`` so trivial
+ *  number-and-unit pluralizations don't surface as disagreements.
+ *  ``"2 month"`` and ``"2 months"`` collapse to the same canonical
+ *  form; ``"prime adult stage"`` and similar non-quantitative labels
+ *  pass through unchanged. The scoped pattern (digits + a single
+ *  alphabetic word + optional ``s``) is safe — it won't fold
+ *  ``"5 doctors"`` vs ``"5 doctor"`` style cases either, since both
+ *  forms collapse to the same canonical anyway. Per Paul 2026-06-02:
+ *  ``"2 month"`` / ``"2 months"`` were showing as FV-level diffs
+ *  on developmental stage objects in the holdout-50 audit. */
+export function normalizeLiteralLabel(s: string): string {
+  const trimmed = lc(s);
+  const m = trimmed.match(/^(\d+(?:\.\d+)?)\s+([a-z]+?)s?$/);
+  if (m) return `${m[1]} ${m[2]}`;
+  return trimmed;
+}
+
 export function isSideEmpty(s: SideValue | null): boolean {
   if (!s) return true;
   return !s.label && !s.uri;
@@ -43,6 +60,12 @@ export function sidesAgree(
   if (aEmpty !== bEmpty) return false;
   if (a.uri && b.uri && a.uri === b.uri) return true;
   if (lc(a.label) === lc(b.label)) return true;
+  // Last chance: literal-label normalization for the URI-less object
+  // side (e.g. "2 month" vs "2 months" on a developmental stage FV).
+  // Only fires for the number+unit shape; everything else is identity.
+  if (normalizeLiteralLabel(a.label) === normalizeLiteralLabel(b.label)) {
+    return true;
+  }
   return false;
 }
 

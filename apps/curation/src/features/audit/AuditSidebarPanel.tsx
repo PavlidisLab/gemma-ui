@@ -2280,6 +2280,10 @@ function isMatchFinding(f: AuditFinding): boolean {
   // the curator gets the "peek to confirm" cue without losing the
   // compact match-row affordance.
   if (f.issue_code === "calibration_match") return f.severity === "ok";
+  // Reconciled-at-build findings — the consensus design already
+  // reflects the agent's proposed change. Render as a compact match
+  // row so the curator skips them by default.
+  if (f.issue_code === "already_in_baseline") return f.severity === "ok";
   const v = factorMatchVariant(f.issue_code);
   if (v === "exact") return true;
   if (v === "near") return true;
@@ -5585,6 +5589,18 @@ const ISSUE_CODE_RENDER: Record<
   ok: {
     glyph: "✓",
     label: "ok",
+    cls:
+      "bg-emerald-50 border-emerald-200 text-emerald-700 " +
+      "dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-300",
+  },
+  // Emitted by the consensus-build reconciliation pass: a finding's
+  // apply_action is already reflected in the baseline design (e.g. the
+  // agent re-proposed a tag the curators previously accepted, so it's
+  // already there). Rendered as a compact green-check match so curators
+  // don't waste time re-deciding settled questions.
+  already_in_baseline: {
+    glyph: "✓",
+    label: "already current",
     cls:
       "bg-emerald-50 border-emerald-200 text-emerald-700 " +
       "dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-300",

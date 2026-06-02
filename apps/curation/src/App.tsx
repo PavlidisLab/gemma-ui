@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { PreboardingDetailPage } from "@/features/preboarding/PreboardingDetailPage";
@@ -830,11 +830,21 @@ function MainGrid({
     groupContext,
     ticketContext,
   });
+  // Auto-close on the transition non-empty → empty (the user just
+  // cleared the comparator, suggesting they're done with the
+  // comparison surface). One-shot per transition: re-opening the
+  // sidebar manually after that point sticks, even if comparator
+  // stays empty (Paul 2026-05-29: "the proposal tab refuses to
+  // stay open when the comparator is empty… it's fine to close it
+  // by default but don't trap it").
+  const prevComparatorRef = useRef(chipForSidebar.comparator);
   useEffect(() => {
-    if (chipForSidebar.comparator === "empty" && sidebarOpen) {
+    const prev = prevComparatorRef.current;
+    if (prev !== "empty" && chipForSidebar.comparator === "empty") {
       setSidebarOpen(false);
     }
-  }, [chipForSidebar.comparator, sidebarOpen]);
+    prevComparatorRef.current = chipForSidebar.comparator;
+  }, [chipForSidebar.comparator]);
   // Baseline source's Design — fed into the Design tab in review
   // mode so the curator sees the source they chose, not the live
   // editable draft. ``null`` while loading or when baseline=empty;
@@ -909,23 +919,30 @@ function MainGrid({
       }}
     >
       <main className="mx-auto w-full max-w-[1800px] px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
-        {/* Review-mode lock wraps the ENTIRE tab section, not just
-            the per-panel surfaces. ``fieldset disabled`` blocks form
-            controls; ``inert`` covers the gap for span+role="button"
-            widgets and any future tab we haven't audited (Samples,
-            Quality control, etc.). Kept outside the ``<aside>``
-            sidebar so the curator can still expand AUDITOR DETAILS
-            and scroll through the audit cards while everything that
-            would mutate state stays locked. No opacity dim — text
-            stays at full contrast per Paul 2026-05-27. */}
-        <fieldset
-          disabled={flow === "review"}
-          {...(flow === "review" ? { inert: "" } : {})}
-          className="flex-1 min-w-0 m-0 p-0 border-0"
-        >
+        {/* Review-mode lock scope, per Paul 2026-05-29: "all we
+            need to block is editing of the factors and tags."
+            Sample-table sorting, guideline popups, expand/collapse,
+            scroll, navigation, and any other read-only affordance
+            stays live. The lock now lives INSIDE the relevant
+            editing surfaces (``DesignEditor`` for factor edits,
+            ``OverviewPanel``'s tag bar for tag edits). The few
+            span+role="button" widgets that bypass ``fieldset
+            disabled`` (``CategoryPicker``, ``OntologyTermPicker``,
+            ``EditableDescription``) self-gate via
+            ``useIsReadOnly()``. */}
+        <div className="flex-1 min-w-0">
         <section className="space-y-4">
         {activeTab === "overview" ? (
-          flow === "review" && chipForSidebar.baseline !== "empty" ? (
+          // displayOverride routes the tab to render against the chip
+          // baseline (e.g. polished:cy snapshot) instead of the live
+          // editable draft. Fires only when the baseline is something
+          // OTHER than ``preboard`` — preboard IS the live draft, so
+          // overlaying it would just lock editing for no reason. Per
+          // Paul 2026-06-02 ("I would like this holdout 50 to be
+          // finalized" — the curator needs the design tab editable
+          // when baseline = consensus polished gold = preboard).
+          chipForSidebar.baseline !== "empty"
+          && chipForSidebar.baseline !== "preboard" ? (
             <OverviewPanel displayOverride={chipBaselineDesign} />
           ) : (
             <OverviewPanel />
@@ -934,7 +951,8 @@ function MainGrid({
           <DesignEditor
             experimentId={experimentId}
             displayOverride={
-              flow === "review" && chipForSidebar.baseline !== "empty"
+              chipForSidebar.baseline !== "empty"
+              && chipForSidebar.baseline !== "preboard"
                 ? chipBaselineDesign
                 : null
             }
@@ -955,7 +973,7 @@ function MainGrid({
           <QuantitationTypesPanel experimentId={experimentId} />
         )}
       </section>
-      </fieldset>
+      </div>
 
       <aside
         className={
@@ -1300,17 +1318,20 @@ function ViewToggleButton({
   children,
   badge,
   badgeCls,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
   badge?: number;
   badgeCls?: string;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={
         "px-2 py-0.5 text-[11px] font-semibold rounded transition-colors " +
         (active
