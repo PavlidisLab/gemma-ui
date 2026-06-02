@@ -2110,9 +2110,20 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
   let nNoted = 0;
   for (const f of sorted) {
     const d = dispositionByTarget.get(f.target_id);
+    // A finding is actionable when it isn't a match AND either its
+    // severity is non-ok or its apply_action mutates. The match guard
+    // matters because match findings carry an apply_action that
+    // represents the *dismissal* path (e.g. ``remove_tag`` when the
+    // curator disagrees with the match) — not the primary action.
+    // Without the guard, every confirmed match was counted as a
+    // pending decision, inflating the "open" count and making the
+    // summary look like there's still work to do on a fully-confirmed
+    // panel. Per 2026-06-02 review on GSE1024 holdout-50-opus-v4-rerun.
     const isActionableFinding =
-      f.severity !== "ok" ||
-      (!!resolveApplyAction(f) && resolveApplyAction(f)!.mutates);
+      !isMatchFinding(f) && (
+        f.severity !== "ok" ||
+        (!!resolveApplyAction(f) && resolveApplyAction(f)!.mutates)
+      );
     if (d && (d.status === "accepted" || d.status === "dismissed")) {
       nApplied++;
     } else if (isActionableFinding) {
@@ -3529,6 +3540,9 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             <>
               <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400 mr-1">
                 {TARGET_KIND_LABEL[finding.target_kind]}
+                {finding.proposer_term?.label
+                  ? `: ${finding.proposer_term.label}`
+                  : ""}
               </span>
               <IssueCodeBadge issueCode={finding.issue_code} />
               <DebateBadgeChip
@@ -5574,6 +5588,88 @@ const ISSUE_CODE_RENDER: Record<
     cls:
       "bg-emerald-50 border-emerald-200 text-emerald-700 " +
       "dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-300",
+  },
+  // Chip-diff synthetic findings — curator's accept / dismiss /
+  // add-solo / modify framing when one slot in the comparison view
+  // holds a curator's polished Design. The label is the curator's
+  // ACTION, not the raw issue_code; the underlying code stays in the
+  // hover title for debugging.
+  chipdiff_factor_accepted: {
+    glyph: "✓",
+    label: "accepted",
+    cls:
+      "bg-emerald-50 border-emerald-200 text-emerald-700 " +
+      "dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-300",
+  },
+  chipdiff_factor_added_solo: {
+    glyph: "+",
+    label: "added",
+    cls:
+      "bg-emerald-50 border-emerald-200 text-emerald-800 " +
+      "dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-200",
+  },
+  chipdiff_factor_dismissed: {
+    glyph: "×",
+    label: "dismissed",
+    cls:
+      "bg-rose-50 border-rose-200 text-rose-800 " +
+      "dark:bg-rose-900/30 dark:border-rose-700 dark:text-rose-200",
+  },
+  chipdiff_factor_modified: {
+    glyph: "~",
+    label: "modified",
+    cls:
+      "bg-amber-50 border-amber-200 text-amber-800 " +
+      "dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200",
+  },
+  chipdiff_factor_added: {
+    glyph: "+",
+    label: "added",
+    cls:
+      "bg-slate-100 border-slate-300 text-slate-700 " +
+      "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200",
+  },
+  chipdiff_factor_removed: {
+    glyph: "−",
+    label: "removed",
+    cls:
+      "bg-slate-100 border-slate-300 text-slate-700 " +
+      "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200",
+  },
+  chipdiff_tag_accepted: {
+    glyph: "✓",
+    label: "accepted",
+    cls:
+      "bg-emerald-50 border-emerald-200 text-emerald-700 " +
+      "dark:bg-emerald-900/20 dark:border-emerald-700 dark:text-emerald-300",
+  },
+  chipdiff_tag_added_solo: {
+    glyph: "+",
+    label: "added",
+    cls:
+      "bg-emerald-50 border-emerald-200 text-emerald-800 " +
+      "dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-200",
+  },
+  chipdiff_tag_dismissed: {
+    glyph: "×",
+    label: "dismissed",
+    cls:
+      "bg-rose-50 border-rose-200 text-rose-800 " +
+      "dark:bg-rose-900/30 dark:border-rose-700 dark:text-rose-200",
+  },
+  chipdiff_tag_added: {
+    glyph: "+",
+    label: "added",
+    cls:
+      "bg-slate-100 border-slate-300 text-slate-700 " +
+      "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200",
+  },
+  chipdiff_tag_removed: {
+    glyph: "−",
+    label: "removed",
+    cls:
+      "bg-slate-100 border-slate-300 text-slate-700 " +
+      "dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-200",
   },
 };
 

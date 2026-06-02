@@ -7,6 +7,7 @@ import {
 } from "./useChipDiff";
 import { useChipState } from "./useChipState";
 import { diffDesignsToAuditReport } from "./diffToAuditReport";
+import { isPolishedSource } from "./sources";
 
 /** Bridge between the chip strip and the existing
  *  ``AuditSidebarPanel``: when the comparator chip is a polished
@@ -54,8 +55,7 @@ export function ChipOverrideMount({
   // pick up along the way"). For every other pair we still
   // synthesise from the structural diff.
   const isCuratorAuditingAgent =
-    (baseline === "cy_polished" || baseline === "am_polished")
-    && comparator === "agent_proposal";
+    isPolishedSource(baseline) && comparator === "agent_proposal";
   const calibrationReport = useCalibrationAuditReport(
     isCuratorAuditingAgent ? experimentId : "",
   );
@@ -64,17 +64,27 @@ export function ChipOverrideMount({
   // Override fires whenever both slots resolve to a Design — the
   // sidebar then renders the DELTA between baseline and comparator
   // as cards, not the live agent-proposal feed. Includes
-  // ``cmp = agent_proposal`` when a real baseline is set: baseline =
-  // Cy polished, cmp = agent original proposal ⇒ show the
-  // curator's audit of the agent's proposal, with dispositions.
+  // ``cmp = agent_proposal`` when a real polished baseline is set:
+  // baseline = polished:cyan, cmp = agent original proposal ⇒ show
+  // the curator's audit of the agent's proposal, with dispositions.
   //
-  // Skipped only when comparator is empty (no diff possible) OR
-  // when baseline is empty AND comparator is agent_proposal (the
-  // "raw proposal" framing — let the live feed pass through so the
-  // legacy calibration-review UX is untouched).
+  // Skipped when:
+  //  * comparator is empty (no diff possible)
+  //  * baseline=empty + comparator=agent_proposal (the "raw proposal"
+  //    framing — let the live feed pass through so the legacy
+  //    calibration-review UX is untouched)
+  //  * baseline=preboard + comparator=agent_proposal (the default
+  //    review/edit state — the live calibration-package report is
+  //    the canonical "what to disposition" surface and carries full
+  //    finding provenance, issue codes, severity, and dispositions
+  //    that the chip-diff synthetic discards. Per 2026-06-02 review
+  //    on GSE1024 / GSE161828: the synthetic was shadowing real
+  //    factor findings + the calibration_match framing on tag
+  //    findings, leaving curators with a structurally-thin view).
   const shouldOverride =
     comparator !== "empty"
-    && !(baseline === "empty" && comparator === "agent_proposal");
+    && !(baseline === "empty" && comparator === "agent_proposal")
+    && !(baseline === "preboard" && comparator === "agent_proposal");
 
   useEffect(() => {
     if (!shouldOverride) {

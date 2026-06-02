@@ -12,7 +12,7 @@ import {
   type SemanticDiffSummary,
 } from "@/features/design/diff";
 import { fetchPreboardSnapshot } from "../../api/design";
-import type { Source } from "./sources";
+import { isPolishedSource, polishedCuratorOf, type Source } from "./sources";
 
 // Wire shape served by ``GET /datasets/{id}/proposals``. The endpoint
 // returns ``curation_review(kind='proposal')`` rows — i.e. the proposal
@@ -209,8 +209,8 @@ async function fetchSourceDesign(
       return null;
     }
   }
-  if (source === "cy_polished" || source === "am_polished") {
-    const curator = source === "cy_polished" ? "cy" : "am";
+  if (isPolishedSource(source)) {
+    const curator = polishedCuratorOf(source);
     try {
       return await api.get<Design>(
         `/rest/v2/datasets/${experimentId}/polished/${curator}`,

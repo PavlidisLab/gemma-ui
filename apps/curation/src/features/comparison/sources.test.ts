@@ -1,29 +1,48 @@
 import { describe, expect, it } from "vitest";
 import {
-  ALL_SOURCES,
   defaultSlots,
   isPairAllowed,
+  isPolishedSource,
   isSourceValidInSlot,
   modeOf,
   parseSource,
+  polishedCuratorOf,
+  polishedSourceFor,
+  sourceLabel,
+  SYSTEM_SOURCES,
+  type Source,
 } from "./sources";
+
+// Sample polished tokens used across the suite. These are content,
+// not literals — any curator name should work the same way.
+const CY: Source = "polished:cyan";
+const AM: Source = "polished:amanda";
+const JX: Source = "polished:jordan";
 
 describe("slot validity", () => {
   it("rejects agent_proposal as a baseline", () => {
     expect(isSourceValidInSlot("baseline", "agent_proposal")).toBe(false);
   });
 
-  it("accepts every other source as a baseline", () => {
-    for (const s of ALL_SOURCES) {
-      if (s === "agent_proposal") continue;
-      expect(isSourceValidInSlot("baseline", s)).toBe(true);
-    }
+  it("rejects empty as a baseline (Paul 2026-05-29: preboard always exists)", () => {
+    expect(isSourceValidInSlot("baseline", "empty")).toBe(false);
   });
 
-  it("accepts every source as a comparator (preboard-with-empty-baseline gated by pair rule)", () => {
-    for (const s of ALL_SOURCES) {
+  it("accepts every system + polished source as a baseline (except empty/agent_proposal)", () => {
+    for (const s of SYSTEM_SOURCES) {
+      if (s === "agent_proposal" || s === "empty") continue;
+      expect(isSourceValidInSlot("baseline", s)).toBe(true);
+    }
+    expect(isSourceValidInSlot("baseline", CY)).toBe(true);
+    expect(isSourceValidInSlot("baseline", JX)).toBe(true);
+  });
+
+  it("accepts every source as a comparator (including empty + arbitrary polished:*)", () => {
+    for (const s of SYSTEM_SOURCES) {
       expect(isSourceValidInSlot("comparator", s)).toBe(true);
     }
+    expect(isSourceValidInSlot("comparator", CY)).toBe(true);
+    expect(isSourceValidInSlot("comparator", AM)).toBe(true);
   });
 });
 
@@ -34,32 +53,50 @@ describe("pair rule", () => {
 
   it("accepts every other pair involving empty", () => {
     expect(isPairAllowed("empty", "empty")).toBe(true);
-    expect(isPairAllowed("empty", "cy_polished")).toBe(true);
-    expect(isPairAllowed("empty", "am_polished")).toBe(true);
+    expect(isPairAllowed("empty", CY)).toBe(true);
+    expect(isPairAllowed("empty", AM)).toBe(true);
     expect(isPairAllowed("empty", "agent_proposal")).toBe(true);
     expect(isPairAllowed("preboard", "empty")).toBe(true);
   });
 
   it("accepts identity pairs (regression-test mode)", () => {
-    expect(isPairAllowed("cy_polished", "cy_polished")).toBe(true);
+    expect(isPairAllowed(CY, CY)).toBe(true);
     expect(isPairAllowed("preboard", "preboard")).toBe(true);
+  });
+
+  it("accepts cross-curator pairs", () => {
+    expect(isPairAllowed(CY, AM)).toBe(true);
+    expect(isPairAllowed(JX, CY)).toBe(true);
   });
 });
 
 describe("modeOf", () => {
-  it("classifies all 25 combinations", () => {
+  it("classifies combinations across system + polished sources", () => {
     expect(modeOf("empty", "empty")).toBe("degenerate");
     expect(modeOf("empty", "agent_proposal")).toBe("proposal");
-    expect(modeOf("cy_polished", "empty")).toBe("bare");
-    expect(modeOf("cy_polished", "agent_proposal")).toBe("audit");
-    expect(modeOf("cy_polished", "cy_polished")).toBe("identity");
+    expect(modeOf(CY, "empty")).toBe("bare");
+    expect(modeOf(CY, "agent_proposal")).toBe("audit");
+    expect(modeOf(CY, CY)).toBe("identity");
+    expect(modeOf(CY, AM)).toBe("audit");
   });
 });
 
 describe("defaults", () => {
-  it("review opens to Cy polished + agent proposal", () => {
+  it("review opens to first polished curator + agent proposal when one is loaded", () => {
+    expect(defaultSlots("review", { polishedCurators: ["cyan", "amanda"] }))
+      .toEqual({
+        baseline: "polished:cyan",
+        comparator: "agent_proposal",
+      });
+  });
+
+  it("review falls back to preboard baseline when no polished pack is loaded", () => {
     expect(defaultSlots("review")).toEqual({
-      baseline: "cy_polished",
+      baseline: "preboard",
+      comparator: "agent_proposal",
+    });
+    expect(defaultSlots("review", { polishedCurators: [] })).toEqual({
+      baseline: "preboard",
       comparator: "agent_proposal",
     });
   });
@@ -69,20 +106,71 @@ describe("defaults", () => {
       baseline: "preboard",
       comparator: "agent_proposal",
     });
+    // Curators-list is ignored in edit mode — baseline is the
+    // package-anchored preboard regardless.
+    expect(defaultSlots("edit", { polishedCurators: ["cyan"] })).toEqual({
+      baseline: "preboard",
+      comparator: "agent_proposal",
+    });
   });
 });
 
 describe("parseSource", () => {
-  it("round-trips every known token", () => {
-    for (const s of ALL_SOURCES) {
+  it("round-trips every system token", () => {
+    for (const s of SYSTEM_SOURCES) {
       expect(parseSource(s)).toBe(s);
     }
   });
 
+  it("round-trips polished tokens with arbitrary curator names", () => {
+    expect(parseSource("polished:cyan")).toBe("polished:cyan");
+    expect(parseSource("polished:amanda")).toBe("polished:amanda");
+    expect(parseSource("polished:jordan-doe")).toBe("polished:jordan-doe");
+  });
+
   it("returns null on unknown tokens", () => {
     expect(parseSource("xyz")).toBeNull();
+    expect(parseSource("polished:")).toBeNull();
     expect(parseSource("")).toBeNull();
     expect(parseSource(null)).toBeNull();
     expect(parseSource(undefined)).toBeNull();
+  });
+});
+
+describe("polished helpers", () => {
+  it("isPolishedSource matches any polished:* token", () => {
+    expect(isPolishedSource(CY)).toBe(true);
+    expect(isPolishedSource(AM)).toBe(true);
+    expect(isPolishedSource(JX)).toBe(true);
+    expect(isPolishedSource("preboard")).toBe(false);
+    expect(isPolishedSource("agent_proposal")).toBe(false);
+    expect(isPolishedSource("empty")).toBe(false);
+  });
+
+  it("polishedCuratorOf extracts the username", () => {
+    expect(polishedCuratorOf(CY)).toBe("cyan");
+    expect(polishedCuratorOf(AM)).toBe("amanda");
+    expect(polishedCuratorOf("polished:jordan-doe")).toBe("jordan-doe");
+    expect(polishedCuratorOf("preboard")).toBe("");
+  });
+
+  it("polishedSourceFor builds a token", () => {
+    expect(polishedSourceFor("cyan")).toBe("polished:cyan");
+    expect(polishedSourceFor("jordan-doe")).toBe("polished:jordan-doe");
+  });
+});
+
+describe("sourceLabel", () => {
+  it("labels system sources", () => {
+    expect(sourceLabel("empty")).toBe("(empty)");
+    expect(sourceLabel("preboard")).toBe("Gemma");
+    expect(sourceLabel("agent_proposal")).toBe("agent original proposal");
+  });
+
+  it("title-cases the curator name for polished sources", () => {
+    expect(sourceLabel(CY)).toBe("Cyan polished");
+    expect(sourceLabel(AM)).toBe("Amanda polished");
+    expect(sourceLabel("polished:jordan-doe")).toBe("Jordan-Doe polished");
+    expect(sourceLabel("polished:cy")).toBe("Cy polished");
   });
 });

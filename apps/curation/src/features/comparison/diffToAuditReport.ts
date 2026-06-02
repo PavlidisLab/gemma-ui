@@ -27,11 +27,18 @@ import type {
 } from "@/features/experiment/types";
 import type {
   AuditFinding,
+  AuditFindingDisposition,
   AuditReport,
   AuditTargetKind,
+  DispositionStatus,
 } from "@/api/auditTypes";
 import type { OntologyTerm } from "@/api/types";
-import { SOURCE_LABEL, type Source } from "./sources";
+import {
+  isPolishedSource,
+  polishedCuratorOf,
+  sourceLabel,
+  type Source,
+} from "./sources";
 
 function factorKey(f: Factor): string {
   const cat = f.category;
@@ -103,22 +110,51 @@ function factorModifiedDescription(before: Factor, after: Factor): string {
  *  panel-header table — the comparator slot identity is the voice
  *  speaking. */
 function actor(source: Source): string {
-  switch (source) {
-    case "cy_polished":
-      return "Cy";
-    case "am_polished":
-      return "Am";
-    case "preboard":
-      return "Preboard";
-    case "agent_proposal":
-      return "Agent";
-    case "empty":
-      return "";
+  if (source === "preboard") return "Preboard";
+  if (source === "agent_proposal") return "Agent";
+  if (source === "empty") return "";
+  if (isPolishedSource(source)) {
+    const curator = polishedCuratorOf(source);
+    if (!curator) return "";
+    return curator.charAt(0).toUpperCase() + curator.slice(1).toLowerCase();
   }
+  return "";
+}
+
+/** True when ``s`` represents a specific curator's polished Design
+ *  (i.e. carries one human's accept/reject decisions). */
+function isCuratorPolished(s: Source): boolean {
+  return isPolishedSource(s);
 }
 
 /** Build the synthetic report. Returns ``null`` when there's
- *  nothing to diff (empty / null inputs). */
+ *  nothing to diff (empty / null inputs).
+ *
+ *  Curator-auditing framing (Paul 2026-05-29): whenever ONE slot
+ *  holds a curator's polished view, the diff reads as that curator's
+ *  accept/reject/modify decisions relative to the other slot — and
+ *  the synthesised report includes ``dispositions`` so the existing
+ *  AuditDot ✓/✗ path renders, not just the plain pending ``□``.
+ *
+ *  Two configurations:
+ *
+ *  1. ``baseline = curator's polished, comparator = agent_proposal``
+ *     (the original curator-audits-agent path). Curator is in the
+ *     baseline; comparator items are what was proposed.
+ *      - in cmp ∩ base → curator accepted
+ *      - in cmp \ base → curator dismissed (didn't keep agent's item)
+ *      - in base \ cmp → curator added solo (beyond agent's proposal)
+ *
+ *  2. ``comparator = curator's polished, baseline = anything else``
+ *     (cross-curator review, preboard-vs-curator review, etc.).
+ *     Curator is in the comparator; baseline items are the reference.
+ *      - in cmp ∩ base → curator accepted (kept what was in baseline)
+ *      - in cmp \ base → curator added (beyond baseline)
+ *      - in base \ cmp → curator dismissed (dropped from baseline)
+ *
+ *  If neither slot is a curator's polished, we fall back to the plain
+ *  symmetric diff (no synthesised dispositions; cards stay open).
+ */
 export function diffDesignsToAuditReport(args: {
   baseline: Design | null | undefined;
   comparator: Design | null | undefined;
@@ -130,22 +166,22 @@ export function diffDesignsToAuditReport(args: {
   const { baseline, comparator, comparatorSource } = args;
   if (!baseline || !comparator) return null;
 
-  // When the comparator is the agent's proposal AND the baseline is
-  // a curator's polished work, the diff reads most naturally from the
-  // CURATOR's perspective: she accepted some of what the agent
-  // proposed, dismissed others, and may have added items the agent
-  // didn't suggest. We surface all three so the audit-cards aren't
-  // silent on accepted items (Paul 2026-05-27 review: "the factor
-  // that was added should be more obviously 'accepted'").
-  //
-  // Other source-pair shapes (cy vs am, preboard vs cy) just surface
-  // the diff symmetrically — there's no "proposed by agent" framing
-  // to invert, so the comparator-side actor leads as before.
-  const curatorAuditing =
-    args.comparatorSource === "agent_proposal"
-    && (args.baselineSource === "cy_polished"
-      || args.baselineSource === "am_polished");
-  const curatorActor = actor(args.baselineSource);
+  const baselineIsCurator = isCuratorPolished(args.baselineSource);
+  const comparatorIsCurator = isCuratorPolished(args.comparatorSource);
+
+  // ``curatorInComparator`` (new path) takes precedence: if both slots
+  // are curators (cross-curator review), we treat the comparator as
+  // the "proposal being inspected against the baseline gold". The
+  // comparator's curator is the actor whose decisions we render.
+  const curatorInComparator = comparatorIsCurator;
+  const curatorInBaseline =
+    !curatorInComparator
+    && baselineIsCurator
+    && args.comparatorSource === "agent_proposal";
+  const curatorAuditing = curatorInComparator || curatorInBaseline;
+  const curatorActor = curatorInComparator
+    ? actor(args.comparatorSource)
+    : actor(args.baselineSource);
   const cmpActor = actor(comparatorSource);
   const findings: AuditFinding[] = [];
 
@@ -158,10 +194,17 @@ export function diffDesignsToAuditReport(args: {
   for (const [k, cmp] of cmpByFactor) {
     const base = baseByFactor.get(k);
     if (!base) {
-      // In cmp not in baseline. For curator-auditing-agent: the
-      // curator DISMISSED what the agent proposed.
+      // In cmp not in baseline.
+      //  - curator-in-comparator (new): curator ADDED it (beyond baseline)
+      //  - curator-in-baseline (existing): curator DISMISSED what cmp proposed
+      //  - no-curator: plain "added" structural diff
+      const kind: DiffKind = curatorInComparator
+        ? "added_solo"
+        : curatorInBaseline
+          ? "dismissed"
+          : "added";
       findings.push(makeFactorFinding({
-        kind: curatorAuditing ? "dismissed" : "added",
+        kind,
         factor: cmp,
         actor: curatorAuditing ? curatorActor : cmpActor,
         key: k,
@@ -171,11 +214,13 @@ export function diffDesignsToAuditReport(args: {
         kind: "modified",
         factor: cmp,
         before: base,
-        actor: cmpActor,
+        actor: curatorAuditing ? curatorActor : cmpActor,
         key: k,
       }));
     } else if (curatorAuditing) {
-      // Match — curator accepted it from the agent.
+      // Match — curator kept the baseline item (curator-in-comparator)
+      // OR accepted the comparator's proposed item (curator-in-baseline).
+      // Either way, ``accepted`` is the right verb.
       findings.push(makeFactorFinding({
         kind: "accepted",
         factor: cmp,
@@ -186,10 +231,17 @@ export function diffDesignsToAuditReport(args: {
   }
   for (const [k, base] of baseByFactor) {
     if (!cmpByFactor.has(k)) {
-      // In baseline not in cmp. For curator-auditing-agent: the
-      // curator added something the agent didn't propose.
+      // In baseline not in cmp.
+      //  - curator-in-comparator (new): curator DROPPED it from baseline
+      //  - curator-in-baseline (existing): curator ADDED solo beyond agent
+      //  - no-curator: plain "removed" structural diff
+      const kind: DiffKind = curatorInComparator
+        ? "dismissed"
+        : curatorInBaseline
+          ? "added_solo"
+          : "removed";
       findings.push(makeFactorFinding({
-        kind: curatorAuditing ? "added_solo" : "removed",
+        kind,
         factor: base,
         actor: curatorAuditing ? curatorActor : cmpActor,
         key: k,
@@ -206,8 +258,13 @@ export function diffDesignsToAuditReport(args: {
   for (const [k, cmp] of cmpByTag) {
     const base = baseByTag.get(k);
     if (!base) {
+      const kind: DiffKind = curatorInComparator
+        ? "added_solo"
+        : curatorInBaseline
+          ? "dismissed"
+          : "added";
       findings.push(makeTagFinding({
-        kind: curatorAuditing ? "dismissed" : "added",
+        kind,
         tag: cmp,
         actor: curatorAuditing ? curatorActor : cmpActor,
         key: k,
@@ -220,12 +277,48 @@ export function diffDesignsToAuditReport(args: {
   }
   for (const [k, base] of baseByTag) {
     if (!cmpByTag.has(k)) {
+      const kind: DiffKind = curatorInComparator
+        ? "dismissed"
+        : curatorInBaseline
+          ? "added_solo"
+          : "removed";
       findings.push(makeTagFinding({
-        kind: curatorAuditing ? "added_solo" : "removed",
+        kind,
         tag: base,
         actor: curatorAuditing ? curatorActor : cmpActor,
         key: k,
       }));
+    }
+  }
+
+  // Synthesise dispositions so the existing ``AuditDot`` ✓/✗ path
+  // renders — without these, every chip-diff card shows the
+  // open/pending ``□`` regardless of kind. The mapping is driven by
+  // the finding's ``issue_code`` suffix (set in ``makeFactorFinding``
+  // / ``makeTagFinding`` via the ``DiffKind``).
+  const dispositions: AuditFindingDisposition[] = [];
+  if (curatorAuditing) {
+    const stampedAt = new Date().toISOString();
+    for (const f of findings) {
+      const code = f.issue_code;
+      let status: DispositionStatus = "pending";
+      if (
+        code.endsWith("_accepted")
+        || code.endsWith("_added_solo")
+        || code.endsWith("_modified")
+      ) {
+        status = "accepted";
+      } else if (code.endsWith("_dismissed")) {
+        status = "dismissed";
+      }
+      if (status === "pending") continue;
+      dispositions.push({
+        target_id: f.target_id,
+        status,
+        reviewer: curatorActor,
+        reviewed_at: stampedAt,
+        notes: "",
+      });
     }
   }
 
@@ -251,7 +344,7 @@ export function diffDesignsToAuditReport(args: {
       n_ok: 0,
       overall_verdict: findings.length > 0 ? "minor_issues" : "clean",
     },
-    dispositions: [],
+    dispositions,
   };
 }
 
@@ -341,17 +434,15 @@ function verbFor(kind: DiffKind): string {
     case "removed":
       return "dropped";
     case "modified":
-      return "changed";
+      return "modified";
     case "accepted":
       return "accepted";
     case "dismissed":
       return "dismissed";
     case "added_solo":
-      // Curator added something the agent didn't propose — distinct
-      // from "added" which is a structural-diff verb for non-curator
-      // pairings. Reads cleanly as "Cy added X (not proposed by
-      // agent)" via the rationale suffix below.
-      return "added (not proposed by agent),";
+      // Curator added something the baseline doesn't have. Reads as
+      // "Am added X (not in cy_polished)" via the rationale below.
+      return "added (not in baseline),";
   }
 }
 
@@ -363,10 +454,10 @@ export function diffPanelTitle(
   comparatorSource: Source,
 ): string {
   if (baselineSource === "empty") {
-    return `${SOURCE_LABEL[comparatorSource]} (proposal)`;
+    return `${sourceLabel(comparatorSource)} (proposal)`;
   }
   if (baselineSource === comparatorSource) {
-    return `${SOURCE_LABEL[baselineSource]} vs itself (regression check)`;
+    return `${sourceLabel(baselineSource)} vs itself (regression check)`;
   }
-  return `${SOURCE_LABEL[comparatorSource]} vs ${SOURCE_LABEL[baselineSource]}`;
+  return `${sourceLabel(comparatorSource)} vs ${sourceLabel(baselineSource)}`;
 }

@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import {
-  ALL_SOURCES,
   isPairAllowed,
   isSourceValidInSlot,
   modeOf,
-  SOURCE_LABEL,
+  sourceLabel,
   type SlotKind,
   type Source,
 } from "./sources";
 import { useChipState } from "./useChipState";
 import {
-  useSourceAvailability,
+  useSourceUniverse,
   type AvailabilityMap,
 } from "./useSourceAvailability";
 import { useChipDiffSummary } from "./useChipDiff";
@@ -42,7 +41,7 @@ export function ChipStrip({
     groupContext,
     ticketContext,
   });
-  const availability = useSourceAvailability(experimentId);
+  const universe = useSourceUniverse(experimentId);
   const mode = modeOf(baseline, comparator);
   const diff = useChipDiffSummary(experimentId, baseline, comparator);
 
@@ -67,12 +66,13 @@ export function ChipStrip({
       </span>
     ) : (
       <span
-        className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-sky-400 bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:border-sky-500 dark:text-sky-100"
-        title="No curator ticket — show-and-tell only. Switch baseline / audit freely; nothing commits."
+        className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-sky-400 bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:border-sky-500 dark:text-sky-100 cursor-help"
+        title="Edits are disabled in review mode. Switch baseline / comparator freely; expand chips, popups, and audit details still work — only factor / tag editing is locked. Open the experiment via a calibration package to take action."
       >
         Review mode
       </span>
     );
+
 
   return (
     <div
@@ -90,7 +90,8 @@ export function ChipStrip({
           value={baseline}
           otherSlotValue={comparator}
           onChange={setBaseline}
-          availability={availability}
+          sources={universe.sources}
+          availability={universe.availability}
         />
       )}
       <ChipDropdown
@@ -99,7 +100,8 @@ export function ChipStrip({
         value={comparator}
         otherSlotValue={baseline}
         onChange={setComparator}
-        availability={availability}
+        sources={universe.sources}
+        availability={universe.availability}
       />
       <DiffSummaryReadout
         summary={diff.summary}
@@ -192,7 +194,7 @@ function ChipLabel({
           palette.chip,
         )}
       >
-        {SOURCE_LABEL[value]}
+        {sourceLabel(value)}
       </span>
     </div>
   );
@@ -240,6 +242,7 @@ function ChipDropdown({
   value,
   otherSlotValue,
   onChange,
+  sources,
   availability,
 }: {
   slot: SlotKind;
@@ -247,6 +250,7 @@ function ChipDropdown({
   value: Source;
   otherSlotValue: Source;
   onChange: (s: Source) => void;
+  sources: readonly Source[];
   availability: AvailabilityMap;
 }) {
   const [open, setOpen] = useState(false);
@@ -296,7 +300,7 @@ function ChipDropdown({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span>{SOURCE_LABEL[value]}</span>
+        <span>{sourceLabel(value)}</span>
         <span className="opacity-70 text-[11px]">▾</span>
       </button>
 
@@ -306,14 +310,26 @@ function ChipDropdown({
           aria-label={`${slotLabel} source`}
           className="absolute left-0 top-full mt-1 z-50 min-w-[14rem] rounded border border-slate-300 bg-white shadow-lg py-1 text-[13px] dark:bg-slate-800 dark:border-slate-600"
         >
-          {ALL_SOURCES.map((s) => {
-            const slotValid = isSourceValidInSlot(slot, s);
+          {sources.filter((s) => {
+            if (!isSourceValidInSlot(slot, s)) return false;
+            // Hide unavailable options entirely (per 2026-06-01
+            // feedback: "only the relevant options are to be shown").
+            // Always show the currently-selected source so the
+            // dropdown doesn't lose its anchor on a transient
+            // availability change.
+            const avail = availability[s];
+            return (avail?.available ?? false) || s === value;
+          }).map((s) => {
             const pairValid =
               slot === "baseline"
                 ? isPairAllowed(s, otherSlotValue)
                 : isPairAllowed(otherSlotValue, s);
-            const avail = availability[s];
-            const disabled = !slotValid || !pairValid || !avail.available;
+            const avail = availability[s] ?? {
+              available: false,
+              reason: "unknown source",
+              comingSoon: false,
+            };
+            const disabled = !pairValid || !avail.available;
             const isSelected = s === value;
             return (
               <button
@@ -325,7 +341,7 @@ function ChipDropdown({
                   onChange(s);
                   setOpen(false);
                 }}
-                title={menuItemTooltip(s, slot, slotValid, pairValid, avail)}
+                title={menuItemTooltip(s, slot, true, pairValid, avail)}
                 className={cn(
                   "w-full text-left px-3 py-1.5 flex items-baseline justify-between gap-3",
                   disabled
@@ -338,8 +354,8 @@ function ChipDropdown({
                 aria-disabled={disabled}
               >
                 <span>
-                  {SOURCE_LABEL[s]}
-                  {avail.comingSoon ? (
+                  {sourceLabel(s)}
+                  {avail?.comingSoon ? (
                     <span className="ml-1 text-[10px] uppercase tracking-wide opacity-60">
                       coming soon
                     </span>
@@ -373,7 +389,7 @@ function menuItemTooltip(
     return "not valid for this slot";
   }
   if (!pairValid) {
-    return "baseline=empty + comparator=Gemma preboard isn't a coherent pair (per spec)";
+    return "baseline=empty + comparator=Gemma isn't a coherent pair (per spec)";
   }
   if (!avail.available) return avail.reason;
   return undefined;

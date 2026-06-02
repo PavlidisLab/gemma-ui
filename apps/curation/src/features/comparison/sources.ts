@@ -1,37 +1,76 @@
-/** The 5 sources that can populate the baseline / comparator slots
- *  of the curation comparison view. Spec:
- *  ``docs/CURATION_COMPARISON_VIEW_2026_05_27.md`` (project root).
+/** The comparison-view sources. Spec:
+ *  ``docs/CURATION_COMPARISON_VIEW_2026_05_27.md``.
  *
- *  The empty sentinel models "this slot is unselected" — combined with
- *  the other slot's state, it drives the bare / proposal / audit /
- *  degenerate modes the spec enumerates.
+ *  Three system-level sources (``empty``, ``preboard``,
+ *  ``agent_proposal``) plus a dynamic ``polished:<curator>`` family
+ *  driven by whichever curation packs have been loaded for the
+ *  experiment. ``polished:cyan`` and ``polished:amanda`` are typical
+ *  but not enumerated up front — any curator with a loaded polished
+ *  pack appears as ``polished:<their_username>`` automatically.
+ *  See memory ``polished-sources-are-dynamic-per-loaded-pack``.
  *
- *  Wire form (URL ``?base=`` and ``?cmp=``): the bare token strings
- *  below. Stable across sessions; renaming requires a migration step.
- */
-export type Source =
-  | "empty"
-  | "preboard"
-  | "cy_polished"
-  | "am_polished"
-  | "agent_proposal";
+ *  Wire form (URL ``?base=`` and ``?cmp=``): the bare token strings.
+ *  Stable across sessions; renaming a system-level token requires a
+ *  migration step. Curator-specific tokens (``polished:foo``) don't
+ *  need migrations — the curator name comes from the data. */
+export type SystemSource = "empty" | "preboard" | "agent_proposal";
+export type PolishedSource = `polished:${string}`;
+export type Source = SystemSource | PolishedSource;
 
-export const ALL_SOURCES: readonly Source[] = [
+/** System-level sources that are always part of the universe (their
+ *  availability per-experiment depends on whether the data is there).
+ *  The polished family is dynamic and not enumerated here. */
+export const SYSTEM_SOURCES: readonly SystemSource[] = [
   "empty",
   "preboard",
-  "cy_polished",
-  "am_polished",
   "agent_proposal",
 ] as const;
 
-/** Human-facing label, used in chip dropdown items + the chip face. */
-export const SOURCE_LABEL: Record<Source, string> = {
-  empty: "(empty)",
-  preboard: "Gemma preboard",
-  cy_polished: "Cy polished",
-  am_polished: "Am polished",
-  agent_proposal: "agent original proposal",
-};
+/** True for any ``polished:<curator>`` token. */
+export function isPolishedSource(s: Source): s is PolishedSource {
+  return typeof s === "string" && s.startsWith("polished:");
+}
+
+/** Extract the curator username from a ``polished:<curator>`` token.
+ *  Returns the empty string for non-polished sources. */
+export function polishedCuratorOf(s: Source): string {
+  if (!isPolishedSource(s)) return "";
+  return s.slice("polished:".length);
+}
+
+/** Build a polished-source token for a given curator username. */
+export function polishedSourceFor(curator: string): PolishedSource {
+  return `polished:${curator}` as PolishedSource;
+}
+
+/** Title-Case a curator username for display. ``"cyan"`` → ``"Cyan"``;
+ *  ``"jordan-doe"`` → ``"Jordan-Doe"``. Falls back to verbatim if the
+ *  name is empty. */
+function titleCaseCurator(name: string): string {
+  if (!name) return "";
+  return name
+    .split(/([\s\-_])/)
+    .map((part) =>
+      /^[\s\-_]$/.test(part)
+        ? part
+        : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase(),
+    )
+    .join("");
+}
+
+/** Human-facing label for a source. ``"Gemma"`` for the preboard;
+ *  ``"<Curator> polished"`` for polished sources — derived from the
+ *  username dynamically, no hand-maintained label map. */
+export function sourceLabel(s: Source): string {
+  if (s === "empty") return "(empty)";
+  if (s === "preboard") return "Gemma";
+  if (s === "agent_proposal") return "agent original proposal";
+  if (isPolishedSource(s)) {
+    const curator = polishedCuratorOf(s);
+    return `${titleCaseCurator(curator)} polished`;
+  }
+  return s;
+}
 
 /** Slot identifier — drives validity rules + default selection. */
 export type SlotKind = "baseline" | "comparator";
@@ -46,9 +85,12 @@ export type SlotKind = "baseline" | "comparator";
  *  ``isPairAllowed``, not here. */
 export function isSourceValidInSlot(slot: SlotKind, source: Source): boolean {
   if (slot === "baseline") {
+    // ``empty`` isn't a legitimate baseline (Paul 2026-05-29: "there
+    // is always going to be a preboard with at least the title").
     // The agent's proposal is a proposal, not a canonical state —
-    // never a legitimate baseline. Everything else is.
-    return source !== "agent_proposal";
+    // never a legitimate baseline. Everything else (preboard +
+    // polished:*) is.
+    return source !== "agent_proposal" && source !== "empty";
   }
   // Comparator slot: empty | preboard | polished | proposal all OK.
   // The preboard-only-as-baseline rule for the special
@@ -91,27 +133,40 @@ export function modeOf(baseline: Source, comparator: Source): ComparisonMode {
  *  section.
  *
  *  - ``review``: post-curation evaluation. Open into "where did the
- *    agent go wrong" → Cy polished vs agent proposal.
+ *    agent go wrong" → <first available polished curator> vs agent
+ *    proposal. Falls back to ``preboard`` vs agent proposal when no
+ *    polished pack is loaded yet.
  *  - ``edit``: curator working their assigned calibration package.
- *    Open into "agent's proposal against the bare Gemma preboard".
+ *    Open into "agent's proposal against the bare Gemma state".
  *
  *  Defaults are advisory — the URL ``?base=``/``?cmp=`` params win
- *  if set. */
+ *  if set. Callers pass the loaded-curators list so the default
+ *  baseline can pick the first available polished source. */
 export type FlowKind = "review" | "edit";
 
 export function defaultSlots(
   flow: FlowKind,
+  options?: { polishedCurators?: readonly string[] },
 ): { baseline: Source; comparator: Source } {
   if (flow === "edit") {
     return { baseline: "preboard", comparator: "agent_proposal" };
   }
-  return { baseline: "cy_polished", comparator: "agent_proposal" };
+  const first = options?.polishedCurators?.[0];
+  const baseline: Source = first ? polishedSourceFor(first) : "preboard";
+  return { baseline, comparator: "agent_proposal" };
 }
 
-/** Token → Source parser. Returns ``null`` on unknown input so the
- *  URL layer can fall back to the default rather than crash. */
+/** Token → Source parser. Accepts any ``polished:<curator>`` token
+ *  (the curator name is data, not a literal). Returns ``null`` on
+ *  unknown input so the URL layer can fall back to the default rather
+ *  than crash. */
 export function parseSource(s: string | null | undefined): Source | null {
   if (!s) return null;
-  if ((ALL_SOURCES as readonly string[]).includes(s)) return s as Source;
+  if (s === "empty" || s === "preboard" || s === "agent_proposal") {
+    return s;
+  }
+  if (s.startsWith("polished:") && s.length > "polished:".length) {
+    return s as PolishedSource;
+  }
   return null;
 }

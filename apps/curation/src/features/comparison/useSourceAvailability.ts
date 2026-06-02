@@ -1,6 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
-import { ALL_SOURCES, type Source } from "./sources";
+import {
+  isPolishedSource,
+  polishedCuratorOf,
+  polishedSourceFor,
+  SYSTEM_SOURCES,
+  type Source,
+} from "./sources";
 
 /** Per-source availability report. ``available`` is the only signal
  *  the chip menu needs to grey an entry; ``reason`` provides the
@@ -17,6 +23,19 @@ export interface SourceAvailability {
 }
 
 export type AvailabilityMap = Record<Source, SourceAvailability>;
+
+/** The dynamic enumeration of sources that exist for one experiment:
+ *  system sources (empty / preboard / agent_proposal) plus one
+ *  polished:<curator> entry for each curator who has a loaded
+ *  polished pack. Order: system sources first, then polished sources
+ *  in the order returned by the backend. */
+export interface SourceUniverse {
+  /** All sources to render in the chip dropdown — even if currently
+   *  unavailable for this experiment (e.g. probe still loading). */
+  sources: readonly Source[];
+  availability: AvailabilityMap;
+  isLoading: boolean;
+}
 
 /** Probe for a stored preboard snapshot. 404 ⇒ not available. */
 function usePreboardAvailable(experimentId: number | string) {
@@ -48,10 +67,10 @@ function usePreboardAvailable(experimentId: number | string) {
   });
 }
 
-/** List which curators have a polished design on file for this
- *  experiment. Used to grey/light the ``Cy polished`` / ``Am polished``
- *  chip entries. Lowercase curator keys (``cy``, ``am``) per
- *  storage normalisation. */
+/** List the curators with a polished design on file for this
+ *  experiment. Each returned username spawns one ``polished:<name>``
+ *  source in the chip dropdown. Lowercase / canonical usernames per
+ *  storage normalisation; the labelling step Title-Cases them. */
 function usePolishedCurators(experimentId: number | string) {
   return useQuery({
     enabled: Boolean(experimentId),
@@ -117,75 +136,87 @@ function useAgentProposalAvailable(experimentId: number | string) {
   });
 }
 
-/** Report availability of all 5 sources for one experiment. ``empty``
- *  is always available (it's the absence-of-data sentinel); preboard
+/** Report availability of every source that applies to one
+ *  experiment. ``empty`` is always available (sentinel); preboard
  *  and agent_proposal probe their respective endpoints; polished
- *  sources are gated on a backend ingest path that hasn't landed yet
- *  (spec Gotcha #1) — surface as ``comingSoon`` for now. */
-export function useSourceAvailability(
+ *  sources are listed one per curator returned by the
+ *  ``/polished`` endpoint. */
+export function useSourceUniverse(
   experimentId: number | string,
-): AvailabilityMap {
+): SourceUniverse {
   const preboard = usePreboardAvailable(experimentId);
   const agent = useAgentProposalAvailable(experimentId);
   const polished = usePolishedCurators(experimentId);
 
-  // Curator keys → chip sources. ``cy`` ⇒ ``cy_polished`` etc.
-  const polishedSet = new Set(polished.data ?? []);
-  const cyHas = polishedSet.has("cy") || polishedSet.has("cyan");
-  const amHas = polishedSet.has("am") || polishedSet.has("amanda");
+  // The dynamic enumeration. System sources first (stable order:
+  // empty → preboard → agent_proposal), then polished:<curator> in
+  // the order returned by the backend.
+  const polishedCurators = polished.data ?? [];
+  const sources: Source[] = [
+    ...SYSTEM_SOURCES,
+    ...polishedCurators.map((c) => polishedSourceFor(c)),
+  ];
 
-  // Defaults to ``available: false`` while a probe is in flight so
-  // the chip menu shows the entry as disabled — flickering between
-  // available / disabled is worse than waiting for the first hit.
-  const map: AvailabilityMap = {
-    empty: { available: true, reason: "", comingSoon: false },
-    preboard: preboard.data
-      ? { available: true, reason: "", comingSoon: false }
-      : {
-          available: false,
-          reason: preboard.isLoading
-            ? "checking…"
-            : "no preboard snapshot stored for this experiment",
-          comingSoon: false,
-        },
-    cy_polished: cyHas
-      ? { available: true, reason: "", comingSoon: false }
-      : {
-          available: false,
-          reason: polished.isLoading
-            ? "checking…"
-            : "no Cy polished design ingested for this experiment",
-          comingSoon: false,
-        },
-    am_polished: amHas
-      ? { available: true, reason: "", comingSoon: false }
-      : {
-          available: false,
-          reason: polished.isLoading
-            ? "checking…"
-            : "amanda's polished design not yet ingested",
-          comingSoon: false,
-        },
-    agent_proposal: agent.data
-      ? { available: true, reason: "", comingSoon: false }
-      : {
-          available: false,
-          reason: agent.isLoading
-            ? "checking…"
-            : "no agent proposal found for this experiment",
-          comingSoon: false,
-        },
-  };
+  const isLoading =
+    preboard.isLoading || agent.isLoading || polished.isLoading;
 
-  // Defensive: make sure every Source key is populated.
-  for (const s of ALL_SOURCES) {
-    if (!(s in map)) {
-      map[s] = {
+  const availability = {} as AvailabilityMap;
+  for (const s of sources) {
+    if (s === "empty") {
+      availability[s] = { available: true, reason: "", comingSoon: false };
+    } else if (s === "preboard") {
+      availability[s] = preboard.data
+        ? { available: true, reason: "", comingSoon: false }
+        : {
+            available: false,
+            reason: preboard.isLoading
+              ? "checking…"
+              : "no preboard snapshot stored for this experiment",
+            comingSoon: false,
+          };
+    } else if (s === "agent_proposal") {
+      availability[s] = agent.data
+        ? { available: true, reason: "", comingSoon: false }
+        : {
+            available: false,
+            reason: agent.isLoading
+              ? "checking…"
+              : "no agent proposal found for this experiment",
+            comingSoon: false,
+          };
+    } else if (isPolishedSource(s)) {
+      // Polished sources are only enumerated for curators the
+      // backend returned, so they're available by construction.
+      availability[s] = { available: true, reason: "", comingSoon: false };
+    } else {
+      availability[s] = {
         available: false,
         reason: "unknown source",
         comingSoon: false,
       };
     }
   }
-  return map;
+  return { sources, availability, isLoading };
+}
+
+/** Convenience wrapper for callers that only care about the
+ *  availability map (legacy API). Prefer ``useSourceUniverse`` for
+ *  new code so the dynamic ``sources`` list is reachable. */
+export function useSourceAvailability(
+  experimentId: number | string,
+): AvailabilityMap {
+  return useSourceUniverse(experimentId).availability;
+}
+
+/** Convenience: just the curator usernames with a polished pack for
+ *  this experiment, in backend-returned order. Useful for callers
+ *  that need to pick a default (e.g. ``defaultSlots(..., {
+ *  polishedCurators })``). */
+export function usePolishedCuratorList(
+  experimentId: number | string,
+): string[] {
+  const universe = useSourceUniverse(experimentId);
+  return universe.sources
+    .filter(isPolishedSource)
+    .map(polishedCuratorOf);
 }
