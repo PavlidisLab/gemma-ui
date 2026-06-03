@@ -131,7 +131,16 @@ export interface G2Design {
 
 /** Slice of the latest proposal's payload that we lift onto the
  *  composed Design. We only read the fields we need; the full
- *  proposal payload is rich and lives in its own type elsewhere. */
+ *  proposal payload is rich and lives in its own type elsewhere.
+ *
+ *  ``design.proposed_factors`` is the materialise-from-payload path:
+ *  when the canonical /design has no factors yet (the agent's
+ *  proposed factors haven't been committed), we synthesise Factor[]
+ *  from the overlay so the sample-details + design-setup tabs
+ *  agree. Before this landed (2026-06-03), the sample-details tab
+ *  showed zero factor columns on uncommitted-proposal experiments
+ *  while design-setup parsed the payload via a separate adapter
+ *  path. */
 export interface CurationProposalOverlay {
   /** Per FV-id overlay. */
   factor_values?: Record<
@@ -142,6 +151,32 @@ export interface CurationProposalOverlay {
     }
   >;
   tags?: Tag[];
+  design?: {
+    proposed_factors?: ProposedFactorOverlay[];
+  };
+}
+
+interface ProposedFactorOverlay {
+  category?: string | null;
+  category_uri?: string | null;
+  factor_type?: string | null;
+  factor_values?: ProposedFactorValueOverlay[];
+}
+
+interface ProposedFactorValueOverlay {
+  label?: string | null;
+  is_baseline?: boolean;
+  samples?: string[];
+  statements?: ProposedStatementOverlay[];
+}
+
+interface ProposedStatementOverlay {
+  subject_label?: string | null;
+  subject_uri?: string | null;
+  predicate_label?: string | null;
+  predicate_uri?: string | null;
+  object_label?: string | null;
+  object_uri?: string | null;
 }
 
 // ─── Compose ─────────────────────────────────────────────────────
@@ -191,9 +226,23 @@ export function composeCurationDesign(
     }
   }
 
-  const factors: Factor[] = (g2.experimental_factors ?? []).map((ef) =>
+  let factors: Factor[] = (g2.experimental_factors ?? []).map((ef) =>
     composeFactor(ef, fvOverlay, samplesByFvId),
   );
+
+  // Materialise from proposal payload when the canonical design has
+  // no factors yet. The agent's proposed factors live in the proposal
+  // payload (``payload.design.proposed_factors``) — sample-details
+  // can't show factor columns without them, and the design-setup tab
+  // was the only consumer parsing the payload directly. This unifies
+  // the two paths: every Design consumer sees the same factors.
+  // FV/factor ids are synthesised as negatives (real Gemma ids are
+  // positive) so consumers that key on id don't collide with future
+  // commits.
+  const proposed = overlay?.design?.proposed_factors;
+  if (factors.length === 0 && proposed && proposed.length > 0) {
+    factors = proposed.map((pf, fi) => materialiseProposedFactor(pf, fi));
+  }
 
   // Biomaterials: prefer the legacy ``biomaterials`` array when the
   // server emits it (the local API does — see
@@ -294,6 +343,65 @@ function composeFactor(
     factor_values,
   };
 }
+
+/** Build a Factor from a proposal-payload ``proposed_factors`` entry.
+ *  Used when the canonical /design has zero factors — the proposal is
+ *  the only source of factor shape. Synthesises negative ids so they
+ *  don't collide with real Gemma factor ids when the proposal lands
+ *  for real later. */
+function materialiseProposedFactor(
+  pf: ProposedFactorOverlay,
+  fi: number,
+): Factor {
+  const categoryLabel = (pf.category ?? "").trim();
+  const factor_values: FactorValue[] = (pf.factor_values ?? []).map(
+    (pfv, vi) => materialiseProposedFv(pfv, fi, vi),
+  );
+  return {
+    id: -(fi + 1),
+    name: categoryLabel,
+    category: { label: categoryLabel, uri: pf.category_uri ?? null },
+    description: "",
+    type: (pf.factor_type === "continuous" ? "continuous" : "categorical") as FactorType,
+    factor_values,
+  };
+}
+
+function materialiseProposedFv(
+  pfv: ProposedFactorValueOverlay,
+  fi: number,
+  vi: number,
+): FactorValue {
+  return {
+    id: -((fi + 1) * 1000 + (vi + 1)),
+    free_text_label: (pfv.label ?? "").trim(),
+    is_baseline: !!pfv.is_baseline,
+    statements: (pfv.statements ?? []).map(materialiseProposedStatement),
+    biomaterial_short_names: [...(pfv.samples ?? [])],
+    numeric_value: null,
+  };
+}
+
+function materialiseProposedStatement(
+  ps: ProposedStatementOverlay,
+): Statement {
+  const hasPredicate = !!(ps.predicate_label || ps.predicate_uri);
+  const hasObject = !!(ps.object_label || ps.object_uri);
+  return {
+    category: { label: "", uri: null },
+    subject: {
+      label: ps.subject_label ?? "",
+      uri: ps.subject_uri ?? null,
+    },
+    predicate: hasPredicate
+      ? { label: ps.predicate_label ?? "", uri: ps.predicate_uri ?? null }
+      : null,
+    object: hasObject
+      ? { label: ps.object_label ?? "", uri: ps.object_uri ?? null }
+      : null,
+  };
+}
+
 
 function composeStatement(s: G2Statement): Statement {
   return {

@@ -188,7 +188,25 @@ function extractOverlayFromProposalsResponse(
     first = (raw as { items: Record<string, unknown>[] }).items[0];
   }
   if (!first) return null;
-  const payload = first.payload_json ?? first.payload ?? null;
+  const rawPayload = first.payload_json ?? first.payload ?? null;
+  if (!rawPayload) return null;
+  // ``payload_json`` is a JSON STRING on the new-shape endpoint
+  // (``agent_proposal`` rows from local_api/Gemma), an object on the
+  // legacy envelope. Parse the string form before returning;
+  // otherwise downstream consumers see ``{0: '{', 1: '"', ...}`` from
+  // the object-spread coercion and silently treat the overlay as
+  // empty. Before this fix the new-shape path always returned a
+  // useless overlay → composeCurationDesign never lifted proposed
+  // factors → sample-details tab showed no factor columns on
+  // experiments whose canonical design hadn't been committed yet.
+  let payload: unknown = rawPayload;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
   if (!payload || typeof payload !== "object") return null;
   // The payload schema is the proposal Pydantic model; only the
   // fields we surface here matter, so cast conservatively.
