@@ -23,6 +23,7 @@ export type TicketType =
   | "QUALITY_REVIEW"
   | "PRELOAD"
   | "CURATION"
+  | "SCREENING"
   | "GENERIC";
 
 export type TicketState = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
@@ -33,14 +34,24 @@ export type TicketTargetType =
   | "EXPRESSION_EXPERIMENT"
   | "ARRAY_DESIGN"
   | "FACTOR_VALUE"
-  | "GEO_SCRAPE_WATERMARK";
+  | "GEO_SCRAPE_WATERMARK"
+  | "GEO_ACCESSION";
 
 export type TicketTargetStatus = "NOT_DONE" | "UNDERWAY" | "DONE";
+
+/** Per-target triage decision used by ``SCREENING`` tickets. ``null``
+ *  / undefined = curator hasn't decided yet; ``include`` = ship to
+ *  the follow-up curation ticket; ``exclude`` = drop. Independent of
+ *  ``status`` (which tracks "processed" vs "not"). */
+export type TicketTargetTriageDisposition = "include" | "exclude" | null;
 
 export interface TicketTarget {
   /** Wire-shape ID of the targeted entity. For
    *  ``EXPRESSION_EXPERIMENT`` this is the numeric experiment_id the
-   *  ``/experiments/{id}`` route accepts. */
+   *  ``/experiments/{id}`` route accepts. For ``GEO_ACCESSION``
+   *  triage targets it's a synthetic 1..N id minted by the scrape
+   *  script; the real accession lives in the parent ticket's
+   *  ``payload_json.candidates[<target_id>]``. */
   target_id: number;
   target_type: TicketTargetType;
   /** Optional display label the dashboard renders on the ticket
@@ -63,6 +74,11 @@ export interface TicketTarget {
    *  side. Tickets-with-many-targets render a summary roll-up over
    *  this field rather than per-target chips. */
   status?: TicketTargetStatus;
+  /** ``SCREENING`` tickets only — include/exclude decision the
+   *  curator sets during triage. ``null`` until the curator
+   *  decides. Set via ``usePatchTicketTarget`` and consumed by
+   *  ``useFinalizeTriage`` at the end of the worklist. */
+  triage_disposition?: TicketTargetTriageDisposition;
 }
 
 export type TicketMode = "MANUAL" | "AUTO";
@@ -106,6 +122,15 @@ export interface Ticket {
    *  still functions (the chip strip falls back to its
    *  no-ticket default, ``review``). */
   flow?: TicketFlow;
+  /** Server-side payload blob (JSON string). For ``SCREENING``
+   *  triage tickets the scrape script stashes the candidate map
+   *  here so the UI can read per-target accession + identifying
+   *  metadata without an extra round-trip. Shape (when
+   *  populated by the scrape):
+   *  ``{candidates: {"<target_id>": {accession, identifying_metadata,
+   *  matched_criteria, source}}, scrape_window: {since, until,
+   *  criteria}}``. */
+  payload_json?: string;
   targets: TicketTarget[];
 }
 
@@ -271,4 +296,70 @@ export function ticketPriorityRank(p: TicketPriority): number {
     case "LOW":
       return 3;
   }
+}
+
+/** Body for ``PATCH /rest/v2/tickets/{id}/targets/{type}/{tid}`` —
+ *  flip one ticket-target's status and/or triage_disposition. Both
+ *  fields optional. Used by the triage view to record include /
+ *  exclude per row. */
+export interface TicketTargetPatchBody {
+  status?: TicketTargetStatus;
+  triage_disposition?: TicketTargetTriageDisposition;
+}
+
+/** Mutation hook for per-target patches on a ticket. Optimistically
+ *  updates the cached ticket so the row flips immediately; server
+ *  response replaces the cache on success. */
+export function usePatchTicketTarget(ticketId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      target_type: TicketTargetType;
+      target_id: number;
+      patch: TicketTargetPatchBody;
+    }) => {
+      const path =
+        `/rest/v2/tickets/${ticketId}/targets/` +
+        `${encodeURIComponent(args.target_type)}/${args.target_id}`;
+      return await api.patch<Ticket>(path, args.patch);
+    },
+    onSuccess: (next) => {
+      qc.setQueryData(["ticket", ticketId], next);
+    },
+  });
+}
+
+/** One bucketed candidate returned by ``finalize-triage`` — mirrors
+ *  ``TriageFinalizeCandidate`` on the Python side. */
+export interface TriageFinalizeCandidate {
+  target_id: number;
+  target_type: TicketTargetType;
+  accession: string;
+  identifying_metadata?: Record<string, unknown> | null;
+  matched_criteria: string[];
+  source: string;
+}
+
+export interface TriageFinalizeResponse {
+  ticket_id: number;
+  included: TriageFinalizeCandidate[];
+  excluded: TriageFinalizeCandidate[];
+  undecided: TriageFinalizeCandidate[];
+  undecided_count: number;
+}
+
+/** Mutation hook for ``POST /rest/v2/tickets/{id}/finalize-triage``.
+ *  Buckets the ticket's targets by ``triage_disposition`` and
+ *  returns the lists the follow-up runner needs. Does not mutate
+ *  the ticket — the runner closes it after the follow-on is
+ *  created. */
+export function useFinalizeTriage(ticketId: number) {
+  return useMutation({
+    mutationFn: async () => {
+      return await api.post<TriageFinalizeResponse>(
+        `/rest/v2/tickets/${ticketId}/finalize-triage`,
+        {},
+      );
+    },
+  });
 }

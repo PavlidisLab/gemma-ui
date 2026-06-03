@@ -12,6 +12,7 @@
  * `?group=<id>` query param threaded in by the workflow page.
  */
 
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { navigate, workflowRoute } from "@/routes";
@@ -39,16 +40,111 @@ interface PreboardingRow {
   accession?: string;
   /** "GEO" / "ArrayExpress" / etc. */
   external_database?: string;
+  /** Rich GEO-derived metadata decoded from
+   *  ``preboarding.identifying_metadata``. Populated by the
+   *  agents-side geo-scrape ingest (2026-06-02). Shape:
+   *  ``{title, summary, overallDesign, organisms, platform,
+   *  platforms, seriesType, libraryStrategy, librarySource,
+   *  numSamples, releaseDate, pubMedIds, meshHeadings,
+   *  sampleDetails, scrapedAt}``. Surfaced inline below the
+   *  thin-row fields so curators can triage a fresh preboard
+   *  without leaving this surface. */
+  identifying_metadata?: IdentifyingMetadata | null;
+}
+
+/** Decoded ``identifying_metadata`` blob. Both casings appear in
+ *  practice: the wire shape is camelCase (Gemma's
+ *  ``buildIdentifyingMetadata`` writes camel; local-api round-trips
+ *  the JSON string verbatim), but the API client's ``snakeify`` pass
+ *  recursively converts response keys before components see them.
+ *  We accept either casing so the same reader works against the API
+ *  GET path AND against ``ticket.payload_json.candidates`` (which is
+ *  a JSON string parsed client-side without snakeify). */
+interface IdentifyingMetadata {
+  title?: string;
+  summary?: string;
+  overallDesign?: string;
+  overall_design?: string;
+  organisms?: string[];
+  platform?: string;
+  platforms?: string[];
+  seriesType?: string;
+  series_type?: string;
+  libraryStrategy?: string;
+  library_strategy?: string;
+  librarySource?: string;
+  library_source?: string;
+  numSamples?: number;
+  num_samples?: number;
+  releaseDate?: string;
+  release_date?: string;
+  pubMedIds?: (string | number)[];
+  pub_med_ids?: (string | number)[];
+  meshHeadings?: string[];
+  mesh_headings?: string[];
+  sampleDetails?: string;
+  sample_details?: string;
+  scrapedAt?: string;
+  scraped_at?: string;
+}
+
+function pickIm(
+  im: IdentifyingMetadata | null | undefined,
+): {
+  title?: string;
+  summary?: string;
+  overallDesign?: string;
+  organisms?: string[];
+  platforms: string[];
+  platform?: string;
+  seriesType?: string;
+  libraryStrategy?: string;
+  librarySource?: string;
+  releaseDate?: string;
+  pubMedIds: (string | number)[];
+  meshHeadings: string[];
+  sampleDetails?: string;
+} {
+  if (!im) {
+    return {
+      platforms: [],
+      pubMedIds: [],
+      meshHeadings: [],
+    };
+  }
+  return {
+    title: im.title,
+    summary: im.summary,
+    overallDesign: im.overallDesign ?? im.overall_design,
+    organisms: im.organisms,
+    platforms: im.platforms ?? [],
+    platform: im.platform,
+    seriesType: im.seriesType ?? im.series_type,
+    libraryStrategy: im.libraryStrategy ?? im.library_strategy,
+    librarySource: im.librarySource ?? im.library_source,
+    releaseDate: im.releaseDate ?? im.release_date,
+    pubMedIds: im.pubMedIds ?? im.pub_med_ids ?? [],
+    meshHeadings: im.meshHeadings ?? im.mesh_headings ?? [],
+    sampleDetails: im.sampleDetails ?? im.sample_details,
+  };
 }
 
 export function PreboardingDetailPage({
   experimentId,
   groupContext,
+  ticketContext,
   preloaded,
   embedded = false,
 }: {
   experimentId: string | number;
   groupContext?: string;
+  /** ID of the parent ticket the curator drilled in from (the
+   *  ``?ticket=`` query param from ``parseRoute``). When set, the
+   *  back button routes to ``#/tickets/<id>`` instead of the
+   *  workflow page; matches the way the design editor handles
+   *  ticket-scoped navigation. Triage rows on a SCREENING ticket
+   *  always carry this. */
+  ticketContext?: string;
   /** Pre-fetched row, supplied when the parent already has the data
    *  (e.g. Shell mounting this surface for a thin numeric-id EE
    *  whose design draft is already loaded). When provided, skips the
@@ -109,48 +205,139 @@ export function PreboardingDetailPage({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <Field label="Organism" value={data.taxon_common_name} />
-              <Field
-                label="Study type"
-                value={data.assay || data.technology_type}
-              />
-              <Field
-                label="Samples"
-                value={
-                  typeof data.number_of_bio_assays === "number"
-                    ? String(data.number_of_bio_assays)
-                    : undefined
-                }
-              />
-              <Field label="Platform" value={data.platform_short_name} />
-              <Field label="Source" value={data.external_database} />
-              <Field label="Accession" value={data.accession} />
-            </div>
+            {(() => {
+              const im = pickIm(data.identifying_metadata);
+              return (
+                <>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <Field
+                      label="Organism"
+                      value={
+                        im.organisms?.join(", ") || data.taxon_common_name
+                      }
+                    />
+                    <Field
+                      label="Study type"
+                      value={
+                        im.seriesType || data.assay || data.technology_type
+                      }
+                    />
+                    <Field
+                      label="Samples"
+                      value={
+                        typeof data.number_of_bio_assays === "number"
+                          ? String(data.number_of_bio_assays)
+                          : undefined
+                      }
+                    />
+                    <Field label="Library strategy" value={im.libraryStrategy} />
+                    <Field label="Library source" value={im.librarySource} />
+                    <Field
+                      label="Platform"
+                      value={
+                        im.platforms.join(", ") ||
+                        im.platform ||
+                        data.platform_short_name
+                      }
+                    />
+                    <Field label="Release date" value={im.releaseDate} />
+                    <Field label="Source" value={data.external_database} />
+                    <Field label="Accession" value={data.accession} />
+                  </div>
+
+                  {im.summary ? (
+                    <Section title="Summary">
+                      <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
+                        {im.summary}
+                      </p>
+                    </Section>
+                  ) : null}
+
+                  {im.overallDesign ? (
+                    <Section title="Overall design">
+                      <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
+                        {im.overallDesign}
+                      </p>
+                    </Section>
+                  ) : null}
+
+                  {im.sampleDetails ? (
+                    <Section title="Sample details">
+                      <p className="text-xs font-mono text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">
+                        {im.sampleDetails}
+                      </p>
+                      <p className="mt-1 text-[10px] italic text-slate-500">
+                        GEO's flat semicolon-joined characteristic list — not
+                        per-sample, but the cheap-to-scrape view. Per-sample
+                        load comes via the iteration-batch deep-fetch.
+                      </p>
+                    </Section>
+                  ) : null}
+
+                  {im.meshHeadings.length > 0 ? (
+                    <Section title="MeSH headings">
+                      <div className="flex flex-wrap gap-1.5">
+                        {im.meshHeadings.map((m) => (
+                          <span
+                            key={m}
+                            className="px-1.5 py-0.5 rounded text-[11px] bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200"
+                          >
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                    </Section>
+                  ) : null}
+
+                  {im.pubMedIds.length > 0 ? (
+                    <Section title="Publications">
+                      <div className="flex flex-wrap gap-3 text-sm">
+                        {im.pubMedIds.map((p) => (
+                          <a
+                            key={String(p)}
+                            href={`https://pubmed.ncbi.nlm.nih.gov/${p}/`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-700 dark:text-blue-300 hover:underline"
+                          >
+                            PMID {p} ↗
+                          </a>
+                        ))}
+                      </div>
+                    </Section>
+                  ) : null}
+                </>
+              );
+            })()}
 
             {data.description ? (
-              <div>
-                <div className="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                  Description
-                </div>
-                <div className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+              <Section title="Description">
+                <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
                   {data.description}
-                </div>
-              </div>
+                </p>
+              </Section>
             ) : null}
 
-            {data.external_uri ? (
-              <div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              <a
+                href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${data.accession ?? data.short_name}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-700 dark:text-blue-300 hover:underline"
+              >
+                Open on GEO ↗
+              </a>
+              {data.external_uri ? (
                 <a
                   href={data.external_uri}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-blue-700 dark:text-blue-300 hover:underline"
+                  className="text-blue-700 dark:text-blue-300 hover:underline"
                 >
                   External source ↗
                 </a>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
 
             <div className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 text-sm text-slate-600 dark:text-slate-300">
               <div className="font-semibold mb-1">
@@ -176,15 +363,27 @@ export function PreboardingDetailPage({
   // straight into the parent layout.
   if (embedded) return body;
 
+  // Back-button destination — prefer the ticket the curator drilled
+  // in from; otherwise the group set; otherwise the workflow page.
+  // Keeps the breadcrumb honest: SCREENING-triage rows always carry
+  // ``ticketContext`` so "back" actually returns to the triage table.
+  const backTarget = ticketContext
+    ? `#/tickets/${ticketContext}`
+    : workflowRoute(groupContext);
+  const backLabel = ticketContext
+    ? `ticket #${ticketContext}`
+    : groupContext
+      ? "set"
+      : "workflow";
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-3 flex items-center gap-3">
         <button
           type="button"
-          onClick={() => navigate(workflowRoute(groupContext))}
+          onClick={() => navigate(backTarget)}
           className="text-xs text-blue-700 dark:text-blue-300 hover:underline"
         >
-          ← back to {groupContext ? "set" : "workflow"}
+          ← back to {backLabel}
         </button>
         <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
           preboarded
@@ -207,6 +406,23 @@ function Field({ label, value }: { label: string; value: string | undefined }) {
       <div className="text-slate-800 dark:text-slate-100">
         {value ?? <span className="italic text-slate-400">—</span>}
       </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1">
+        {title}
+      </div>
+      {children}
     </div>
   );
 }

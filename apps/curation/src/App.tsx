@@ -196,6 +196,7 @@ export default function App() {
         <PreboardingDetailPage
           experimentId={route.id}
           groupContext={route.groupContext}
+          ticketContext={route.ticketContext}
         />
       </ToastProvider>
     );

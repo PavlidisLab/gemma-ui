@@ -23,6 +23,7 @@ import type { Ticket, TicketMode, TicketType } from "@/api/tickets";
 import { Spinner } from "@gemma/ui";
 import { ExperimentQueue } from "@/features/workflow/ExperimentQueue";
 import type { BadgeTone } from "@/features/workflow/PipelineStatusRow";
+import { TriageView } from "@/features/triage/TriageView";
 
 export function TicketDetailPage({
   ticketId,
@@ -109,6 +110,10 @@ function TicketDetailBody({
     .filter((t) => t.target_type === "EXPRESSION_EXPERIMENT")
     .map((t) => t.target_id);
   const taskBadge = TASK_BADGE[ticket.type] ?? { label: "Task", tone: "neutral" };
+  // SCREENING tickets are GEO-accession triage — different body
+  // surface (TriageView), no NextActionBar (triage's own Finalize
+  // button drives the next stage via run_triage_followup.py).
+  const isTriage = ticket.type === "SCREENING";
   return (
     <article className="space-y-6">
       <header className="space-y-2">
@@ -166,20 +171,26 @@ function TicketDetailBody({
           ) : null}
           <ModeToggle ticketId={ticketId} mode={ticket.mode} />
         </div>
-        <NextActionBar
-          ticketId={ticketId}
-          ticket={ticket}
-          anyUnderway={nUnderway > 0}
-          anyNotDone={nNotDone > 0}
-        />
+        {isTriage ? null : (
+          <NextActionBar
+            ticketId={ticketId}
+            ticket={ticket}
+            anyUnderway={nUnderway > 0}
+            anyNotDone={nNotDone > 0}
+          />
+        )}
       </header>
 
       <section>
-        <ExperimentQueue
-          experimentIds={expIds}
-          leadingBadge={taskBadge}
-          ticketId={ticketId}
-        />
+        {isTriage ? (
+          <TriageView ticket={ticket} />
+        ) : (
+          <ExperimentQueue
+            experimentIds={expIds}
+            leadingBadge={taskBadge}
+            ticketId={ticketId}
+          />
+        )}
       </section>
     </article>
   );
