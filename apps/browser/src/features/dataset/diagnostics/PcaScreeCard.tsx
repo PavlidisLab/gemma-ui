@@ -1,8 +1,10 @@
 /**
  * PCA scree panel — browser-side wrapper. The scree bar chart lives
- * in @gemma/diagnostics; the click-to-zoom popup (HeatmapWidget +
- * GeneRowsTable, fed by /svd/loadings) stays here because the data
- * source + modal chrome are app-specific.
+ * in @gemma/diagnostics; the click-to-zoom popup (HeatmapWidget fed
+ * by /svd/loadings) stays here because the data source + modal
+ * chrome are app-specific. The dedicated GeneRowsTable side panel
+ * was retired 2026-05-27; its info (symbol / official name / probe
+ * id) is now baked into the heatmap row labels directly.
  */
 
 import { useMemo, useState } from "react";
@@ -15,8 +17,6 @@ import {
   PanelLoading,
   PanelError,
   ScreeChart,
-  GeneRowsTable,
-  type GeneRow,
 } from "@gemma/diagnostics";
 import { getDatasetSvd, getPcLoadings } from "@/api/endpoints";
 import { geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
@@ -80,9 +80,9 @@ export function PcaScreeCard({ datasetId }: { datasetId: number }) {
 /**
  * Click-to-zoom popup. Cell = probe loading × sample score on PCN
  * (rank-1 PC projection) — what PC-N "sees" as the signal. Sign and
- * magnitude both matter, so the widget gets a diverging palette. The
- * GeneRowsTable to the right surfaces gene symbol / official name /
- * NCBI link / probe link per row, mirroring the heatmap row order.
+ * magnitude both matter, so the widget gets a diverging palette. Row
+ * labels bake in gene symbol / official name / probe id per row —
+ * previously surfaced via a side GeneRowsTable (retired 2026-05-27).
  */
 function PcLoadingsPopup({
   datasetId,
@@ -105,29 +105,24 @@ function PcLoadingsPopup({
     if (sampleEntries.length === 0) return null;
     const colLabels = sampleEntries.map(([id]) => id);
     const sampleScores = sampleEntries.map(([, s]) => s);
-    const rowLabels = data.rows.map(
-      (r, i) =>
-        r.geneSymbol ||
+    // Inline label columns: [gene symbol, gene official name].
+    // Probe id is intentionally NOT inline — only the tooltip
+    // surfaces it (along with NCBI / Gemma links). When the gene
+    // isn't mapped, the symbol column falls back to the probe name
+    // so the row still has a visible identifier.
+    const rowLabelColumns = data.rows.map((r, i) => [
+      r.geneSymbol ||
         r.designElementName ||
         (r.designElementId != null ? `probe ${r.designElementId}` : `row ${i + 1}`),
+      r.geneOfficialName ?? "",
+    ]);
+    const rowLabels = rowLabelColumns.map((cols) =>
+      cols.filter(Boolean).join(" · "),
     );
     const values: (number | null)[][] = data.rows.map((r) =>
       sampleScores.map((s) => r.loading * s),
     );
-    return { rowLabels, colLabels, values };
-  }, [data]);
-
-  const geneRows = useMemo<GeneRow[]>(() => {
-    if (!data) return [];
-    return data.rows.map((r, i) => ({
-      index: i + 1,
-      geneSymbol: r.geneSymbol,
-      geneOfficialName: r.geneOfficialName,
-      geneNcbiId: r.geneNcbiId,
-      geneId: r.geneId,
-      designElementId: r.designElementId,
-      designElementName: r.designElementName,
-    }));
+    return { rowLabels, rowLabelColumns, colLabels, values };
   }, [data]);
 
   return (
@@ -136,7 +131,7 @@ function PcLoadingsPopup({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded shadow-lg max-w-5xl w-full max-h-[90vh] flex flex-col"
+        className="bg-white rounded shadow-lg max-w-[95vw] max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between">
@@ -167,32 +162,73 @@ function PcLoadingsPopup({
               No SVD loadings available for this dataset yet.
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,360px)] gap-3 h-full">
-              <div className="min-w-0">
-                <HeatmapWidget
-                  data={heatmap}
-                  chrome={false}
-                  showControls
-                  showLegend
-                  showTooltip
-                  showDownload
-                  defaultPalette="ambsky"
-                  defaultClip={
-                    Math.max(...heatmap.values.flat().map((v) => Math.abs(v ?? 0))) || 1
-                  }
-                  defaultRowScale={false}
-                  defaultMaxHeight={14}
-                  defaultMaxWidth={14}
-                  defaultFitMode="squeeze"
-                  downloadFilenameStem={`pc${pc}-loadings`}
-                />
-              </div>
-              <GeneRowsTable
-                rows={geneRows}
-                caption={`${geneRows.length} probes · ordered by |loading| on PC${pc}`}
-                maxHeightClass="max-h-[70vh]"
-                geneHref={(r) => geneUrl({ ncbiId: r.geneNcbiId, geneId: r.geneId })}
-                probeHref={(r) => compositeSequenceUrl(r.designElementId)}
+            <div className="h-full min-w-0">
+              <HeatmapWidget
+                data={heatmap}
+                chrome={false}
+                showControls
+                showLegend
+                showTooltip
+                showDownload
+                defaultPalette="ambsky"
+                defaultClip={
+                  Math.max(...heatmap.values.flat().map((v) => Math.abs(v ?? 0))) || 1
+                }
+                defaultRowScale={false}
+                defaultMaxHeight={22}
+                defaultMaxWidth={18}
+                rowLabelGutterWidth={260}
+                defaultFitMode="squeeze"
+                downloadFilenameStem={`pc${pc}-loadings`}
+                rowLabelTooltip={(i) => {
+                  const r = data?.rows[i];
+                  if (!r) return null;
+                  const gHref =
+                    r.geneNcbiId != null || r.geneId != null
+                      ? geneUrl({ ncbiId: r.geneNcbiId, geneId: r.geneId })
+                      : null;
+                  const pHref =
+                    r.designElementId != null
+                      ? compositeSequenceUrl(r.designElementId)
+                      : null;
+                  return (
+                    <div className="space-y-1">
+                      {r.geneSymbol ? (
+                        <div className="font-semibold text-slate-800">
+                          {r.geneSymbol}
+                        </div>
+                      ) : null}
+                      {r.geneOfficialName ? (
+                        <div className="text-slate-600">{r.geneOfficialName}</div>
+                      ) : null}
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        {r.designElementName ?? `probe ${r.designElementId ?? "?"}`}
+                      </div>
+                      <div className="flex gap-3 pt-1 text-[11px]">
+                        {gHref ? (
+                          <a
+                            href={gHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sky-700 hover:underline"
+                          >
+                            NCBI Gene ↗
+                          </a>
+                        ) : null}
+                        {pHref ? (
+                          <a
+                            href={pHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sky-700 hover:underline"
+                          >
+                            Gemma probe ↗
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                }}
               />
             </div>
           )}

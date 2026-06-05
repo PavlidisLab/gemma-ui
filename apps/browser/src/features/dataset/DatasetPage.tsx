@@ -25,7 +25,6 @@ import { HeatmapWidget } from "@gemma/heatmap";
 import type { HeatmapData } from "@gemma/heatmap";
 import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
-import { GeneRowsTable, type GeneRow } from "@gemma/diagnostics";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { gemmaUrl, geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
 import type {
@@ -1402,19 +1401,6 @@ function ResultSetHeatmap({
     return buildDeHeatmap(q.data);
   }, [q.data]);
 
-  const geneRows = useMemo<GeneRow[]>(() => {
-    const levels = q.data?.geneExpressionLevels ?? [];
-    return levels.map((lvl, i) => ({
-      index: i + 1,
-      geneSymbol: lvl.geneOfficialSymbol,
-      geneOfficialName: lvl.geneOfficialName,
-      geneNcbiId: lvl.geneNcbiId,
-      geneId: lvl.geneId,
-      designElementId: lvl.vectors?.[0]?.designElementId,
-      designElementName: lvl.vectors?.[0]?.designElementName,
-    }));
-  }, [q.data]);
-
   if (q.isLoading) {
     return (
       <div className="mt-2 px-2 py-3 border border-slate-200 rounded text-xs text-slate-500 italic">
@@ -1448,34 +1434,92 @@ function ResultSetHeatmap({
   ]
     .filter(Boolean)
     .join("__");
+  // Per-row info producer used both by the heatmap tooltip and the
+  // (now-retired) side table. Reads straight from q.data so it stays
+  // in sync with row order in the heatmap.
+  const rowInfo = (i: number) => {
+    const lvl = q.data?.geneExpressionLevels?.[i];
+    if (!lvl) return null;
+    const vec = lvl.vectors?.[0];
+    return {
+      symbol: lvl.geneOfficialSymbol ?? null,
+      officialName: lvl.geneOfficialName ?? null,
+      ncbiHref:
+        lvl.geneNcbiId != null || lvl.geneId != null
+          ? geneUrl({ ncbiId: lvl.geneNcbiId, geneId: lvl.geneId })
+          : null,
+      probeName: vec?.designElementName ?? null,
+      probeHref:
+        vec?.designElementId != null
+          ? compositeSequenceUrl(vec.designElementId)
+          : null,
+    };
+  };
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,320px)] gap-3 items-start">
-      <div className="min-w-0">
-        <HeatmapWidget
-          data={data}
-          title={contrastLabel}
-          caption={caption}
-          defaultRowScale
-          defaultControlsOpen={false}
-          // DE result sets typically have a handful of samples (5–30)
-          // and 50 genes. We want the matrix dense, not poster-sized;
-          // the legacy Gemma popup paints cells ~14×11px which lets a
-          // 50×18 matrix fit on a ~400px-wide pane alongside legible row
-          // labels. Match that proportion as the minimum-target footprint.
-          // Curators can still pull the Cell H / Cell W sliders to grow
-          // the matrix from the Options popover.
-          defaultFitMode="expand"
-          defaultMaxWidth={14}
-          defaultMaxHeight={11}
-          downloadFilenameStem={downloadStem}
-        />
-      </div>
-      <GeneRowsTable
-        rows={geneRows}
-        caption={`${geneRows.length} genes · same row order as the heatmap`}
-        maxHeightClass="max-h-[480px]"
-        geneHref={(r) => geneUrl({ ncbiId: r.geneNcbiId, geneId: r.geneId })}
-        probeHref={(r) => compositeSequenceUrl(r.designElementId)}
+    <div className="min-w-0">
+      <HeatmapWidget
+        data={data}
+        title={contrastLabel}
+        caption={caption}
+        // DE values (esp. row-scaled) are signed around zero — pin
+        // the palette to diverging despite the project-wide
+        // sequential default the widget switched to 2026-05-27.
+        defaultPalette="ambsky"
+        defaultRowScale
+        defaultControlsOpen={false}
+        // DE result sets typically have a handful of samples (5–30)
+        // and 50 genes. We want the matrix dense, not poster-sized;
+        // the legacy Gemma popup paints cells ~14×11px which lets a
+        // 50×18 matrix fit on a ~400px-wide pane alongside legible row
+        // labels. Match that proportion as the minimum-target footprint.
+        // Curators can still pull the Cell H / Cell W sliders to grow
+        // the matrix from the Options popover.
+        defaultFitMode="expand"
+        defaultMaxWidth={14}
+        defaultMaxHeight={18}
+        rowLabelGutterWidth={300}
+        downloadFilenameStem={downloadStem}
+        rowLabelTooltip={(i) => {
+          const r = rowInfo(i);
+          if (!r) return null;
+          return (
+            <div className="space-y-1">
+              {r.symbol ? (
+                <div className="font-semibold text-slate-800">{r.symbol}</div>
+              ) : null}
+              {r.officialName ? (
+                <div className="text-slate-600">{r.officialName}</div>
+              ) : null}
+              {r.probeName ? (
+                <div className="text-[10px] text-slate-500 font-mono">
+                  {r.probeName}
+                </div>
+              ) : null}
+              <div className="flex gap-3 pt-1 text-[11px]">
+                {r.ncbiHref ? (
+                  <a
+                    href={r.ncbiHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-700 hover:underline"
+                  >
+                    NCBI Gene ↗
+                  </a>
+                ) : null}
+                {r.probeHref ? (
+                  <a
+                    href={r.probeHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-700 hover:underline"
+                  >
+                    Gemma probe ↗
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          );
+        }}
       />
     </div>
   );
@@ -1505,9 +1549,13 @@ function buildDeHeatmap(response: DiffExpressionResponse): HeatmapData {
     }
   }
   const rowLabels: string[] = [];
+  const rowLabelColumns: string[][] = [];
   const values: (number | null)[][] = [];
   for (const lvl of levels) {
-    rowLabels.push(lvl.geneOfficialSymbol || String(lvl.geneNcbiId ?? "?"));
+    const sym = lvl.geneOfficialSymbol || String(lvl.geneNcbiId ?? "?");
+    const name = lvl.geneOfficialName ?? "";
+    rowLabels.push([sym, name].filter(Boolean).join(" · "));
+    rowLabelColumns.push([sym, name]);
     const vec = lvl.vectors?.[0]?.bioAssayExpressionLevels ?? {};
     values.push(
       colOrder.map((c) => {
@@ -1521,6 +1569,7 @@ function buildDeHeatmap(response: DiffExpressionResponse): HeatmapData {
   return {
     values,
     rowLabels,
+    rowLabelColumns,
     colLabels: colOrder,
   };
 }

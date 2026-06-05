@@ -168,7 +168,7 @@ export function CachesSection() {
           {filter ? "no matches" : "no caches reported"}
         </div>
       ) : (
-        <div className="flex-1 min-h-0 max-h-80 overflow-auto">
+        <div className="flex-1 min-h-0 overflow-auto">
           <table className="w-full text-[11px] tabular-nums">
             <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-500 dark:text-slate-400 sticky top-0">
               <tr>

@@ -832,6 +832,21 @@ export async function searchGoTerms(
   return r.data ?? [];
 }
 
+/** Normalise a GO term identifier into the CURIE form Gemma's
+ *  ``/goTerms/{termUri}/genes`` endpoint accepts. Inputs we see in
+ *  the wild:
+ *    - ``http://purl.obolibrary.org/obo/GO_0001889`` (from
+ *      ``/annotations/search``) → ``GO:0001889``
+ *    - ``GO_0001889`` → ``GO:0001889``
+ *    - ``GO:0001889`` (already CURIE) → unchanged
+ *  Tomcat rejects the full PURL form when URL-encoded into the
+ *  path (the double-encoded ``%2F`` slashes 400), so this MUST run
+ *  before ``encodeURIComponent``. */
+function toGoCurie(uri: string): string {
+  const m = uri.match(/GO[_:](\d+)\s*$/);
+  return m ? `GO:${m[1]}` : uri;
+}
+
 /** Genes annotated under a GO term. Paginated; ``totalElements``
  *  drives the "247 genes — refine or pick individually" hint. The
  *  caller's responsibility to pick individually rather than
@@ -858,9 +873,17 @@ export async function getGoTermGenes(
   const params: Params = { offset, limit };
   if (taxon) params.taxon = taxon;
   if (propagate) params.propagate = "true";
+  // Gemma's ``/goTerms/{termUri}/genes`` expects the CURIE form
+  // (``GO:0001889``), not the full OBO PURL. The ``/annotations/search``
+  // response gives us ``http://purl.obolibrary.org/obo/GO_0001889`` —
+  // if we encode that whole URL into the path Tomcat rejects with a
+  // 400 (refuses the deeply-encoded slashes). Convert PURL → CURIE
+  // before encoding; pass through any URI that's already in CURIE
+  // form.
+  const curie = toGoCurie(termUri);
   try {
     const r = await apiGet<PaginatedResponse<Gene>>(
-      `${BASE}/goTerms/${encodeURIComponent(termUri)}/genes`,
+      `${BASE}/goTerms/${encodeURIComponent(curie)}/genes`,
       { params, signal },
     );
     return {
