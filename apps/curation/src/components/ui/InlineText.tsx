@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
 
 /**
@@ -28,6 +29,10 @@ export function InlineText({
    *  the server-saved value). */
   dirty?: boolean;
 }) {
+  // Review-mode lock: ``<span role="button">`` bypasses ``fieldset
+  // disabled`` — gate the double-click affordance directly so the
+  // curator can read the value but not open the editor.
+  const readOnly = useIsReadOnly();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -71,22 +76,32 @@ export function InlineText({
 
   return (
     <span
-      role="button"
-      tabIndex={0}
-      onDoubleClick={() => setEditing(true)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setEditing(true);
-        }
-      }}
+      role={readOnly ? undefined : "button"}
+      tabIndex={readOnly ? undefined : 0}
+      onDoubleClick={readOnly ? undefined : () => setEditing(true)}
+      onKeyDown={
+        readOnly
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setEditing(true);
+              }
+            }
+      }
       className={cn(
-        "cursor-text hover:bg-blue-50 rounded px-1 -mx-1 select-none",
+        readOnly ? "rounded px-1 -mx-1 select-text" : "cursor-text hover:bg-blue-50 rounded px-1 -mx-1 select-none",
         !value && "text-slate-400 italic",
         dirty && "ring-1 ring-blue-300 bg-blue-50/70",
         className,
       )}
-      title={dirty ? "uncommitted edit · double-click to edit" : "double-click to edit"}
+      title={
+        readOnly
+          ? undefined
+          : dirty
+            ? "uncommitted edit · double-click to edit"
+            : "double-click to edit"
+      }
     >
       {value || placeholder || "(empty)"}
       {dirty ? (

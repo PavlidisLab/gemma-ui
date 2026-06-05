@@ -4090,6 +4090,18 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
         );
         return;
       }
+      // Confirmation gate: when the apply action carries a
+      // ``confirmMessage`` (today: factor-name-clash on
+      // ``calibration_factor_extra``), surface a confirm dialog
+      // before mutating. Per Cy 2026-06-05 — silent second-factor
+      // add was confusing; until we decide merge-vs-add semantics
+      // (Paul), curator confirms each. Plain ``window.confirm`` is
+      // ugly but unambiguous; swap for a styled dialog when the
+      // semantics are settled.
+      if (action.confirmMessage) {
+        const ok = window.confirm(action.confirmMessage);
+        if (!ok) return;
+      }
       setPreApplyDraftSnapshot(draft);
       applyDraft(action.mutate);
       requestAuditFocus(experimentId, finding.target_id);
@@ -4220,6 +4232,14 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               action.mutate &&
               draft
             ) {
+              // Same confirmation gate as the per-finding handleApply
+              // path above — surface confirmMessage before any silent
+              // mutate. Keeps the factor-name-clash guard consistent
+              // across both apply entry points.
+              if (action.confirmMessage) {
+                const ok = window.confirm(action.confirmMessage);
+                if (!ok) return;
+              }
               setPreApplyDraftSnapshot(draft);
               applyDraft(action.mutate);
               requestAuditFocus(experimentId, finding.target_id);

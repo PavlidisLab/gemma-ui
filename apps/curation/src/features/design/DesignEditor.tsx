@@ -183,9 +183,11 @@ export function DesignEditor({
     draft.factors.find((f) => f.id === effectiveSelected) ?? null;
 
   // Review-mode banner — surfaces *why* the tab is locked. The
-  // App-level fieldset+inert wrapper handles the actual interaction
-  // block; this is just the visible status line so a greyed-out
-  // chip strip doesn't read as a bug.
+  // App-level ``<fieldset disabled>`` wrapper handles interaction
+  // blocking for real form controls; span+role="button" widgets
+  // (CategoryPicker, OntologyTermPicker, EditableDescription) read
+  // ``useIsReadOnly()`` and self-gate. This banner is just the
+  // visible status line.
   const readOnly = useIsReadOnly();
 
   return (

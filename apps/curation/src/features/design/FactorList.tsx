@@ -9,6 +9,7 @@ import { guidelineForCategory } from "@/lib/guidelines";
 import { FACTOR_TEMPLATES, type FactorTemplate } from "./factorTemplates";
 import { AuditDot, GemmaMatchDot } from "@/features/audit/AuditDot";
 import { factorTarget } from "@/features/audit/targetIds";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import type {
   Factor,
   FactorType,
@@ -80,6 +81,12 @@ export function FactorList({
     useState<Factor | null>(null);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const templateMenuRef = useRef<HTMLDivElement | null>(null);
+  // Review-mode lock: only the mutating buttons + the type ``<select>``
+  // get disabled. Row-select (navigation), GuidelinePopup triggers
+  // (read-only help), and InlineText / CategoryPicker (which self-gate
+  // their open-editor affordance) stay clickable so the curator can
+  // navigate + read.
+  const readOnly = useIsReadOnly();
 
   // Convention: nuisance factors (block / batch) sort to the bottom
   // of the factor list, after biological factors. Mirrors the
@@ -127,6 +134,7 @@ export function FactorList({
             type="button"
             className="btn ghost"
             onClick={onAddFactor}
+            disabled={readOnly}
             title="Add a blank factor (you'll need to set its category)"
           >
             + factor
@@ -136,6 +144,7 @@ export function FactorList({
               type="button"
               className="btn ghost"
               onClick={() => setTemplateMenuOpen((o) => !o)}
+              disabled={readOnly}
               title="Insert a factor pre-filled for a common case (treatment, genotype, disease, …) — saves the category + predicate hunt"
               aria-haspopup="menu"
               aria-expanded={templateMenuOpen}
@@ -297,6 +306,7 @@ export function FactorList({
                         type: e.target.value as FactorType,
                       })
                     }
+                    disabled={readOnly}
                     className="text-xs border border-slate-300 rounded px-1 py-0.5 bg-white"
                   >
                     <option value="categorical">categorical</option>
@@ -329,12 +339,13 @@ export function FactorList({
                       <button
                         type="button"
                         onClick={() => onRevertFactor(f.id)}
+                        disabled={readOnly}
                         title={
                           isAdded
                             ? "discard this factor — it didn't exist on the saved baseline"
                             : "discard every uncommitted edit on this factor (name, category, type, description, all FVs) and restore from saved"
                         }
-                        className="text-[11px] text-slate-500 hover:text-rose-700 underline-offset-2 hover:underline px-1"
+                        className="text-[11px] text-slate-500 hover:text-rose-700 underline-offset-2 hover:underline px-1 disabled:hover:no-underline disabled:hover:text-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         revert
                       </button>
@@ -342,9 +353,10 @@ export function FactorList({
                     <button
                       type="button"
                       onClick={() => setFactorPendingDelete(f)}
+                      disabled={readOnly}
                       title={`Delete "${f.name || "(unnamed)"}"`}
                       aria-label={`Delete "${f.name || "(unnamed)"}"`}
-                      className="text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded p-1 transition-colors"
+                      className="text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded p-1 transition-colors disabled:hover:bg-transparent disabled:hover:text-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Trash2 size={14} />
                     </button>

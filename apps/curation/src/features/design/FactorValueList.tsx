@@ -1,5 +1,6 @@
 import { FactorValueCard } from "./FactorValueCard";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { BASELINE_GUIDELINE } from "@/lib/guidelines";
 import type { StatementTemplate } from "./statementTemplates";
 import type {
@@ -60,6 +61,13 @@ export function FactorValueList({
    *  saved design separately. */
   onRevertFv: (fvId: number, change: FvChange) => void;
 }) {
+  // Review-mode lock: wrap the mutation surface (FV cards + add
+  // buttons + per-card statement edits) in ``<fieldset disabled>``.
+  // ``GuidelinePopup`` / ``HelpPopup`` use span+role="button" so they
+  // bypass disabled and continue to fire — the curator can still
+  // read the baseline + predicate + per-category guidelines while
+  // editing is locked.
+  const readOnly = useIsReadOnly();
   const assigned = new Set<string>();
   factor.factor_values.forEach((fv) =>
     fv.biomaterial_short_names.forEach((sn) => assigned.add(sn)),
@@ -141,7 +149,13 @@ export function FactorValueList({
             <GuidelinePopup snippet={BASELINE_GUIDELINE} size="md" align="right" />
           </span>
           {compact ? null : (
-            <button className="btn" onClick={onAddFv}>+ value</button>
+            <button
+              className="btn"
+              onClick={onAddFv}
+              disabled={readOnly}
+            >
+              + value
+            </button>
           )}
         </div>
       </div>
@@ -156,7 +170,10 @@ export function FactorValueList({
           curator's eye should land on it before the
           treatment / experimental levels. Stable secondary order
           (server-side declaration) within each group. */}
-      <div className="p-2 space-y-2">
+      <fieldset
+        disabled={readOnly}
+        className="p-2 space-y-2 m-0 border-0"
+      >
       {[...factor.factor_values]
         .sort((a, b) =>
           a.is_baseline === b.is_baseline ? 0 : a.is_baseline ? -1 : 1,
@@ -213,7 +230,7 @@ export function FactorValueList({
           />
         );
       })}
-      </div>
+      </fieldset>
     </div>
   );
 }

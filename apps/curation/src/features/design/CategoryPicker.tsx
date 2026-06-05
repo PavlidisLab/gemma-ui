@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCategories } from "@/api/categories";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import type { OntologyTerm } from "@/features/experiment/types";
@@ -39,6 +40,11 @@ export function CategoryPicker({
 }) {
   const { data: categories } = useCategories();
   const list = categories ?? [];
+  // Review-mode lock: the curator can read but not open the editor.
+  // Span+role="button" widgets bypass ``fieldset disabled`` — gate
+  // the open-editor affordance directly so the parent doesn't need
+  // ``inert`` to keep the curator out.
+  const readOnly = useIsReadOnly();
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value?.label ?? "");
@@ -231,15 +237,19 @@ export function CategoryPicker({
   return (
     <span className="inline-flex items-center gap-1">
       <span
-        role="button"
-        tabIndex={0}
-        onDoubleClick={() => setEditing(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setEditing(true);
-          }
-        }}
+        role={readOnly ? undefined : "button"}
+        tabIndex={readOnly ? undefined : 0}
+        onDoubleClick={readOnly ? undefined : () => setEditing(true)}
+        onKeyDown={
+          readOnly
+            ? undefined
+            : (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setEditing(true);
+                }
+              }
+        }
         className={cn(
           "cursor-text hover:bg-blue-50 rounded px-1 -mx-1 select-none",
           // Green when URI-backed (matches Statement subject/object

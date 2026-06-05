@@ -6,6 +6,7 @@ import {
 import { useFindTerm, type TermCandidate } from "@/api/findTerm";
 import { ApiError } from "@/api/client";
 import { Spinner } from "@/components/ui/Spinner";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
@@ -91,7 +92,12 @@ export function OntologyTermPicker({
   // same backend as the rest of the UI. Temporary; drops when local
   // Gemma 2.0 ontology coverage matches staging.
   const { ontologyHost, ontologySplit } = useGemmaMode();
-  const [editing, setEditing] = useState(autoOpen);
+  // Review-mode lock: span+role="button" widgets bypass fieldset
+  // disabled. Gate the open-editor affordance directly so the
+  // parent doesn't need `inert` to keep the curator out of the
+  // editor.
+  const readOnly = useIsReadOnly();
+  const [editing, setEditing] = useState(autoOpen && !readOnly);
   const [uriEditing, setUriEditing] = useState(false);
   const [draft, setDraft] = useState(value?.label ?? "");
   const [highlight, setHighlight] = useState(0);
@@ -511,15 +517,19 @@ export function OntologyTermPicker({
   const isEmpty = !label;
   return (
     <span
-      role="button"
-      tabIndex={0}
-      onClick={() => setEditing(true)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setEditing(true);
-        }
-      }}
+      role={readOnly ? undefined : "button"}
+      tabIndex={readOnly ? undefined : 0}
+      onClick={readOnly ? undefined : () => setEditing(true)}
+      onKeyDown={
+        readOnly
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setEditing(true);
+              }
+            }
+      }
       className={cn(
         // Subject/object are the primary content of a statement.
         // Lifted to font-medium + a darker tone so they read as

@@ -86,6 +86,15 @@ export interface ApplyAction {
   /** Required when ``dispositionStatus === "dismissed"``. Pairs with
    *  the existing closed enum on the disposition PATCH. */
   dismissReason?: DismissReason;
+  /** When set, the caller MUST surface this message to the curator
+   *  and only run ``mutate`` after explicit confirmation. Used today
+   *  by ``calibration_factor_extra`` when an existing factor in the
+   *  draft shares the proposal's category but has a different FV
+   *  partition — silently adding a second factor with the same name
+   *  is confusing (Cy reported 2026-06-05). Until we decide whether
+   *  the right semantics is merge-FVs or add-second, the curator
+   *  confirms each case. */
+  confirmMessage?: string;
 }
 
 /** Resolve an apply action for a finding. Returns null only when
@@ -532,6 +541,22 @@ function resolveFactorCalibrationApply(
           }) to the design.`,
       successMessage: `Added factor "${proposal.category.label}". Commit the draft to save.`,
       mutate: (draft) => addFactorFromProposal(draft, proposal),
+      // On name clash, force the caller to confirm before mutating.
+      // Cy flagged 2026-06-05 that silent second-add was confusing.
+      // Until we decide between merge-FVs vs add-second semantics,
+      // every clash requires explicit curator OK.
+      ...(nameClash
+        ? {
+            confirmMessage:
+              `An existing factor "${proposal.category.label}" is already in the design ` +
+              `with a different FV partition.\n\n` +
+              `Clicking OK will add the agent's proposal as a SECOND factor ` +
+              `with the same category label (two "${proposal.category.label}" ` +
+              `factors in the design). This is rarely what you want — usually ` +
+              `you'd merge the new FVs into the existing factor by hand instead.\n\n` +
+              `Add the second factor anyway?`,
+          }
+        : {}),
       appliedFix: `add factor ${proposal.category.label}`,
     };
   }

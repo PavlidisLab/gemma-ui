@@ -8,6 +8,7 @@ import { HelpPopup } from "@/components/ui/HelpPopup";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { CategoryPicker } from "@/features/design/CategoryPicker";
 import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
   extractPaperMeta,
   pmidFromPaperSource,
@@ -1212,6 +1213,10 @@ function TagBar({
   experimentId: number | string;
 }) {
   const { draft, apply, diff } = useDesignDraft();
+  // Review-mode lock: only the "+ tag" + chip remove + ChipEditor
+  // mutate state. Expand/collapse, legend popup, and chip select
+  // stay live so the curator can still read.
+  const tagReadOnly = useIsReadOnly();
   const [adding, setAdding] = useState(false);
   // Set of tag ids that exist in the draft but not the saved server
   // state — these are uncommitted additions. Threaded down to the
@@ -1513,8 +1518,9 @@ function TagBar({
         <div className="flex items-center gap-1 pl-2 pt-0.5">
           <button
             type="button"
-            className="text-[11px] text-slate-500 hover:text-emerald-800 hover:bg-emerald-50 border border-dashed border-slate-300 hover:border-emerald-300 rounded px-1.5 py-0.5"
+            className="text-[11px] text-slate-500 hover:text-emerald-800 hover:bg-emerald-50 border border-dashed border-slate-300 hover:border-emerald-300 rounded px-1.5 py-0.5 disabled:opacity-50 disabled:hover:text-slate-500 disabled:hover:bg-transparent disabled:hover:border-slate-300 disabled:cursor-not-allowed"
             onClick={() => setAdding(true)}
+            disabled={tagReadOnly}
           >
             + tag
           </button>
@@ -2108,8 +2114,14 @@ function EditableDirectGroupChip({
   addedTagIds?: Set<number>;
 }) {
   const { draft, apply } = useDesignDraft();
+  const readOnly = useIsReadOnly();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  function beginEdit(tagId: number) {
+    if (readOnly) return;
+    setEditingId(tagId);
+  }
 
   function commitEdit(tag: Tag, cat: OntologyTerm, val: OntologyTerm) {
     if (!draft) return;
@@ -2168,11 +2180,17 @@ function EditableDirectGroupChip({
           isNew &&
             "ring-2 ring-amber-400 ring-offset-1 ring-offset-white shadow-[0_0_8px_-2px_rgba(251,191,36,0.7)] dark:ring-offset-slate-900",
         )}
-        onClick={protectedCategory ? undefined : () => setEditingId(tag.id)}
+        onClick={
+          protectedCategory || readOnly
+            ? undefined
+            : () => beginEdit(tag.id)
+        }
         title={
           (protectedCategory
             ? `${category.label}: ${tag.value.label} — load-time tag, can't be edited or removed`
-            : `${category.label}: ${tag.value.label} — click to edit`) +
+            : readOnly
+              ? `${category.label}: ${tag.value.label} — read-only in review mode`
+              : `${category.label}: ${tag.value.label} — click to edit`) +
           (tag.value.uri ? ` — ${shortenUri(tag.value.uri)}` : "")
         }
       >
@@ -2205,13 +2223,13 @@ function EditableDirectGroupChip({
         <AuditDot
           targetId={tagTarget(tag.category.label, tag.value.label)}
         />
-        {protectedCategory ? null : (
+        {protectedCategory || readOnly ? null : (
           <button
             type="button"
             className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-emerald-900 dark:text-emerald-300/70 dark:hover:bg-emerald-800 dark:hover:text-emerald-100"
             onClick={(e) => {
               e.stopPropagation();
-              setEditingId(tag.id);
+              beginEdit(tag.id);
             }}
             title="edit this tag (delete from the editor)"
             aria-label="edit tag"
@@ -2282,12 +2300,13 @@ function EditableDirectGroupChip({
                 key={tag.id}
                 data-audit-target={tagTarget(tag.category.label, tag.value.label)}
                 className={cn(
-                  "group inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 cursor-pointer hover:bg-emerald-100 dark:bg-emerald-900/40 dark:border-emerald-700/60 dark:hover:bg-emerald-800/50",
+                  "group inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:border-emerald-700/60 dark:hover:bg-emerald-800/50",
+                  readOnly ? "cursor-default" : "cursor-pointer",
                   tag.value.uri && ONTOLOGY_ANCHOR_CLS,
                   addedTagIds?.has(tag.id) &&
                     "ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-slate-900",
                 )}
-                onClick={() => setEditingId(tag.id)}
+                onClick={readOnly ? undefined : () => beginEdit(tag.id)}
                 title={
                   protectedCategory
                     ? "load-time tag, can't be removed"
@@ -2805,10 +2824,12 @@ function EditableDescription({
   value: string;
   onCommit: (next: string) => void;
 }) {
+  const readOnly = useIsReadOnly();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
 
   const beginEdit = () => {
+    if (readOnly) return;
     setDraft(value);
     setEditing(true);
   };

@@ -52,7 +52,14 @@ export function HelpPopup({
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // ``HTMLSpanElement`` rather than ``HTMLButtonElement`` because the
+  // trigger renders as ``<span role="button">`` — a real ``<button>``
+  // gets ``disabled`` by an ancestor ``<fieldset disabled>``, but
+  // HelpPopup is a pure read-only help affordance that should fire
+  // regardless of edit-mode context (Paul 2026-05-29: "curator
+  // guidelines aren't appearing on the design tab" was this gating
+  // bug). Span+role="button" bypasses fieldset disabled cleanly.
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const widthPx = size === "lg" ? 448 : size === "md" ? 384 : 288;
@@ -163,22 +170,29 @@ export function HelpPopup({
 
   return (
     <>
-      <button
+      <span
         ref={triggerRef}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((v) => !v);
+          }
+        }}
         className={
           triggerClassName ??
-          "inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 text-[10px] leading-none align-middle dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+          "inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 text-[10px] leading-none align-middle dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100 cursor-pointer"
         }
         title={trigger ? title : `Curation guidelines: ${title}`}
         aria-label={`help: ${title}`}
       >
         {trigger ?? "?"}
-      </button>
+      </span>
       {popover}
     </>
   );
