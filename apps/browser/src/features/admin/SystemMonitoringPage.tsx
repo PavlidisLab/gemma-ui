@@ -25,9 +25,8 @@
  */
 
 import { useState } from "react";
-import { ApiError } from "@/api/client";
 import { LoginModal } from "@/features/shared/LoginModal";
-import { useCacheList } from "./api";
+import { useMe } from "@/api/auth";
 import { HeaderSection } from "./sections/HeaderSection";
 import { JvmSection } from "./sections/JvmSection";
 import { HibernateSection } from "./sections/HibernateSection";
@@ -39,35 +38,31 @@ import { OntologiesSection } from "./sections/OntologiesSection";
 import { TicketsSection } from "./sections/TicketsSection";
 
 export function SystemMonitoringPage() {
-  const canary = useCacheList();
+  // Gate decision derives from the same /me signal the AppBar uses
+  // for the Administration link. Anonymous users (no me.data) get
+  // the LoginChallenge regardless of how any given /admin/* endpoint
+  // happens to respond locally — keeps page visibility and link
+  // visibility in lockstep.
+  const me = useMe();
 
-  const authError =
-    canary.error instanceof ApiError &&
-    (canary.error.status === 401 || canary.error.status === 403);
-
-  // First-mount loading state: don't flash the gate (or the
-  // dashboard) before we know which to show. Hold a centered
-  // loading until the canary settles.
-  const initialLoading = canary.isPending && !canary.data && !canary.error;
-
-  if (initialLoading) {
+  if (me.isPending && !me.data) {
     return <CenteredLoading />;
   }
 
-  if (authError) {
-    return <LoginChallenge status={(canary.error as ApiError).status} />;
+  if (!me.data) {
+    return <LoginChallenge />;
   }
 
   return (
     <div className="mx-auto w-full max-w-[1800px] px-4 py-4 space-y-3">
       <HeaderSection />
-      {/* Top tier: JVM / Hibernate / Caches. Capped at 28rem so the
-          Caches table (the only intrinsically-tall member) scrolls
-          inside its card instead of stretching the other two. The
-          SectionCard body flexes to fill the remaining card height;
-          see ``SectionCard`` + ``CachesSection``'s ``flex-1
-          min-h-0`` table wrapper. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 [&>*]:max-h-[28rem]">
+      {/* Top tier: JVM / Hibernate / Caches. Fixed 22rem so every
+          card has the same height and the row reads as a coherent
+          strip. Caches scrolls inside (its table wrapper uses
+          ``flex-1`` to fill the card body); Hibernate / JVM keep
+          some empty space below their content but the trailing
+          slack is small. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 [&>*]:h-[22rem]">
         <JvmSection />
         <HibernateSection />
         <CachesSection />
@@ -102,7 +97,7 @@ function CenteredLoading() {
  * lands the auth-keyed queries (including this page's canary)
  * invalidate and the dashboard reveals itself.
  */
-function LoginChallenge({ status }: { status: number }) {
+function LoginChallenge() {
   const [open, setOpen] = useState(false);
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-4">
@@ -139,9 +134,6 @@ function LoginChallenge({ status }: { status: number }) {
           Sign in
         </button>
 
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-          /admin/caches → HTTP {status}
-        </div>
       </div>
       <LoginModal open={open} onClose={() => setOpen(false)} />
     </div>

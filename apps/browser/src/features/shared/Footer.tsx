@@ -15,6 +15,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { apiGet, ApiError } from "@/api/client";
+import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
 
 /** Compact relative-time formatter ("3m ago", "2h ago"). Pure;
@@ -73,6 +74,7 @@ function useServerInfo() {
 }
 
 export function Footer() {
+  const me = useMe();
   const target = typeof __GEMMA_TARGET__ === "string" ? __GEMMA_TARGET__ : "";
   const host = (() => {
     try {
@@ -205,9 +207,11 @@ export function Footer() {
         <a href={curationUrl()} className="hover:underline">
           Curation
         </a>
-        <Link to="/admin/system" className="hover:underline">
-          Administration
-        </Link>
+        {me.data ? (
+          <Link to="/admin/system" className="hover:underline">
+            Administration
+          </Link>
+        ) : null}
         <span className="opacity-40" aria-hidden>·</span>
         <ExtLink href="https://pavlidislab.github.io/Gemma/">Docs</ExtLink>
         <ExtLink href="https://gemma.msl.ubc.ca/resources/restapidocs/">

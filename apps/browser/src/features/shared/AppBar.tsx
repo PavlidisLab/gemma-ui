@@ -39,10 +39,10 @@ export function AppBar() {
             curator role flag once /me exposes one — for now it's
             visible to everyone per Paul 2026-05-26. */}
         <ExternalNavTab href={curationUrl()}>Curation</ExternalNavTab>
-        {/* Administration — admin-only in the final product. The
-            existing /admin/system page handles its own 401/403, so
-            the route is safe to expose unconditionally for now. */}
-        <NavTab to="/admin/system">Administration</NavTab>
+        {/* Administration — hidden when anonymous so curious URL
+            probes don't even see the link. Logged-in non-admins
+            still see it; the page's own LoginChallenge handles them. */}
+        {user ? <NavTab to="/admin/system">Administration</NavTab> : null}
       </nav>
 
       {onBrowser ? null : (
