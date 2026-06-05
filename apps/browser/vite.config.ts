@@ -78,6 +78,16 @@ export default defineConfig(({ mode }) => {
       // 5183 to leave 5173 to the curation app (default Vite port) so
       // both can run in parallel without the auto-bump dance.
       port: 5183,
+      // Polling fallback for the watcher. Docker-on-macOS bind-mounts
+      // don't deliver inotify events from host edits, so HMR misses
+      // workspace-package source changes (the @gemma/* aliases point
+      // outside the app root). Flip on with ``VITE_USE_POLLING=1`` in
+      // the docker-compose env; left off by default so direct-on-host
+      // dev doesn't pay the CPU cost.
+      watch:
+        env.VITE_USE_POLLING === "1"
+          ? { usePolling: true, interval: 500 }
+          : undefined,
       proxy: {
         "/rest": {
           target: GEMMA_TARGET,

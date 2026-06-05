@@ -139,6 +139,11 @@ services:
       GEMMA_LOCAL_API_URL: ${GEMMA_LOCAL_API_URL:-http://local-api:8000}
       GEMMA_PROPOSER_URL: http://proposer:8000
       VITE_GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
+      # Vite watcher fallback — bind-mounts on Docker-on-macOS don't
+      # deliver inotify events from the host, so HMR misses workspace
+      # package edits (@gemma/heatmap, @gemma/diagnostics, …) without
+      # this. See apps/curation/vite.config.ts ``server.watch``.
+      VITE_USE_POLLING: "1"
     extra_hosts:
       # Docker Desktop auto-adds host.docker.internal; on Linux
       # Docker the host-gateway alias is needed explicitly.
@@ -173,6 +178,11 @@ services:
       # via the env var when standing up against the in-stack
       # gemma-rest container or a remote target.
       GEMMA_BASE_URL: ${GEMMA_BROWSER_BACKEND:-http://host.docker.internal:8080}
+      # Vite watcher fallback — bind-mounts on Docker-on-macOS don't
+      # deliver inotify events from the host, so HMR misses workspace
+      # package edits (@gemma/heatmap, @gemma/diagnostics, …) without
+      # this. See apps/browser/vite.config.ts ``server.watch``.
+      VITE_USE_POLLING: "1"
     extra_hosts:
       # Docker Desktop auto-adds host.docker.internal; on Linux
       # Docker the host-gateway alias is needed explicitly so the
