@@ -6,9 +6,10 @@ const KEY = ["categories"] as const;
 
 /**
  * Fetch the canonical list of factor / statement categories Gemma
- * accepts. Today this is served by the mock at
- * `/rest/v2/categories`; once the real Gemma side ships an endpoint
- * (see TODO-gemma-api.md) the URL stays the same.
+ * accepts. Served by `/rest/v2/categories`, which on real Gemma
+ * 302-redirects to `/datasets/categories` (RootWebService alias).
+ * Same URL as the curation mock, so the call site doesn't care
+ * which one it's hitting.
  *
  * The list is functionally immutable per session — its source
  * (`EFO.factor.categories.txt` in the Gemma java repo) only

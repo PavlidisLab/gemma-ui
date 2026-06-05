@@ -1685,10 +1685,10 @@ function PlatformLine({
 /**
  * Publish button. Flipping an experiment public is destructive in
  * the "everyone can see this now" sense — gate behind a
- * ConfirmModal. The mutation hits the mock's
- * ``POST /rest/v2/datasets/{id}/publish`` endpoint; once wired
- * against real Gemma the same surface should work (subject to the
- * REST gap noted in TODO §14).
+ * ConfirmModal. The mutation hits ``POST /rest/v2/datasets/{id}/publish``
+ * (same URL as the curation mock; real Gemma exposes the
+ * read-side `isPublic` on the EE VO so the disabled-when-public
+ * branch below works against either).
  *
  * Disabled when:
  *   - there are uncommitted draft changes (commit first),

@@ -42,7 +42,7 @@ export function HistoryPanel({ experimentId }: { experimentId: number | string }
   } = useAuditEvents(experimentId, { compact, excludeEmpty });
   // Real Gemma's audit trail (full DWR-only view) lives at the
   // canonical web URL — link out for context the REST surface
-  // can't provide. Documented in TODO-gemma-api §13.
+  // can't provide today.
   const fullHistoryUrl = experimentAuditTrailUrl(experimentId);
 
   // Soft-fail sentinel from the hook: this experiment id isn't in

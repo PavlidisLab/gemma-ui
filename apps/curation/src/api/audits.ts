@@ -75,8 +75,9 @@ export function useAuditsForExperiment(
   });
 }
 
-/** Cross-experiment inbox list. Fed into the audit-inbox surface
- *  (still TODO; the route works now). */
+/** Cross-experiment inbox list. Backed by `/rest/v2/audits`
+ *  (paginated response with offset/limit/totalElements). The
+ *  inbox UI surface that consumes it is still TODO. */
 export function useAuditsInbox() {
   return useQuery({
     queryKey: KEY.inbox(),

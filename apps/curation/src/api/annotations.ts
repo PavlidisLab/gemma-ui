@@ -2,9 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "./client";
 
 /**
- * One typeahead candidate. Shape matches what we want from Gemma's
- * `/annotations/search` (with a `usage_count` field that the real
- * endpoint doesn't currently expose — see TODO-gemma-api.md).
+ * One typeahead candidate. Shape mirrors what the curation mock /
+ * adapter emits — snake_case fields that the design-tab pickers
+ * consume directly. Gemma's `/annotations/search` carries
+ * `usageCount` (camelCase) on the wire; whichever adapter feeds
+ * this hook is responsible for translating to the snake_case shape
+ * declared here. The 2026-05-xx "endpoint doesn't expose
+ * usage_count" TODO is stale — the field is exposed, just under a
+ * different name on the wire.
  */
 export interface AnnotationCandidate {
   label: string;
