@@ -12,3 +12,8 @@ dist
 *.tsbuildinfo
 coverage/
 .claude/
+
+# Playwright run artifacts — local-only, regenerated each run.
+screenshots/
+test-results/
+playwright-report/
