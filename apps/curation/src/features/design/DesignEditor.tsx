@@ -14,6 +14,7 @@ import {
   onAuditFocusTarget,
 } from "@/lib/scrollToAuditTarget";
 import {
+  addCollectionOfMaterialFactor,
   addFactor,
   addFactorFromTemplate,
   addFactorValue,
@@ -480,29 +481,57 @@ function ExperimentDecisionsSection({
               name="split-decision"
               checked={splitOn !== null}
               onChange={() => {
-                // Default to the first factor when toggling on.
-                const firstId = draft.factors[0]?.id ?? null;
+                // When toggling on, default to the first existing
+                // factor. When no factors exist yet, mark the
+                // decision with a placeholder ID of 0 so the
+                // dropdown / create-button block renders; the
+                // curator picks an actual factor (or hits the
+                // create button) before save.
+                const firstId = draft.factors[0]?.id ?? 0;
                 setFields(firstId, rationale);
               }}
-              disabled={draft.factors.length === 0}
             />
             <span>Split on factor</span>
           </label>
           {splitOn !== null ? (
-            <select
-              className="text-[12px] border border-slate-300 dark:border-slate-700 rounded px-1 py-0.5 bg-white dark:bg-slate-900"
-              value={splitOn}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setFields(Number.isFinite(v) ? v : null, rationale);
-              }}
-            >
-              {draft.factors.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name || f.category.label || `factor ${f.id}`}
-                </option>
-              ))}
-            </select>
+            <>
+              {draft.factors.length > 0 ? (
+                <select
+                  className="text-[12px] border border-slate-300 dark:border-slate-700 rounded px-1 py-0.5 bg-white dark:bg-slate-900"
+                  value={splitOn}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setFields(Number.isFinite(v) ? v : null, rationale);
+                  }}
+                >
+                  {draft.factors.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name || f.category.label || `factor ${f.id}`}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-[11px] italic text-slate-500">
+                  no factors yet — create one below
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const { design: dWithFactor, factorId } =
+                    addCollectionOfMaterialFactor(draft);
+                  onApply({
+                    ...dWithFactor,
+                    should_split_on_factor_id: factorId,
+                    should_split_rationale: rationale,
+                  });
+                }}
+                className="text-[11px] px-2 py-0.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50"
+                title="Create a new collection of material factor, append it to the design, and select it as the split axis. Populate the factor values from the factor card below."
+              >
+                + create &quot;collection of material&quot; factor
+              </button>
+            </>
           ) : null}
         </div>
         <textarea

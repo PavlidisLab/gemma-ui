@@ -120,6 +120,39 @@ export function addFactor(design: Design): { design: Design; factorId: number } 
   };
 }
 
+/** Create a pre-typed ``collection of material`` factor and append
+ *  it to the design. Convenience wrapper around ``addFactor`` for
+ *  the experiment-wide split flow: when the curator wants to split
+ *  on a sample-grouping axis that doesn't exist as a factor yet,
+ *  the natural Gemma category for "which slice of this preboarding
+ *  does each sample belong to" is ``collection of material`` (EFO).
+ *  The curator populates FVs separately from the factor card.
+ *
+ *  Returns the new design plus the newly-allocated factor id so the
+ *  caller can set ``should_split_on_factor_id`` to it in the same
+ *  apply call.
+ */
+export function addCollectionOfMaterialFactor(
+  design: Design,
+): { design: Design; factorId: number } {
+  const id = nextFactorId(design);
+  const newFactor: Factor = {
+    id,
+    name: "collection of material",
+    category: {
+      label: "collection of material",
+      uri: "http://www.ebi.ac.uk/efo/EFO_0005066",
+    },
+    description: "",
+    type: "categorical",
+    factor_values: [],
+  };
+  return {
+    design: { ...design, factors: [...design.factors, newFactor] },
+    factorId: id,
+  };
+}
+
 /**
  * Promote a per-sample biomaterial characteristic into a continuous
  * factor. Mirrors a feature in the legacy Gemma UI: when a dataset
