@@ -217,6 +217,11 @@ export function DesignEditor({
           onSelectFactor={(factorId) => setSelectedFactorId(factorId)}
         />
       ) : null}
+      <ExperimentDecisionsSection
+        draft={draft}
+        readOnly={readOnly}
+        onApply={apply}
+      />
       <FactorList
         factors={draft.factors}
         selectedId={effectiveSelected}
@@ -377,5 +382,143 @@ export function DesignEditor({
       )}
       </div>
     </div>
+  );
+}
+
+
+/** Experiment-wide curator decisions section. Sits below the
+ *  audit/proposal controls (in the sidebar) and above the per-factor
+ *  list. Today it carries the split-recommendation toggle; future
+ *  experiment-wide decisions (subset / merge-with / shipping
+ *  verdict) go here too.
+ *
+ *  ``should_split_on_factor_id`` semantics:
+ *  - ``null`` / undefined: no decision recorded
+ *  - ``-1``: curator explicitly asserted "do NOT split"
+ *  - positive int: split on the factor with this id
+ *
+ *  Captures the 2026-06-06 cy gap: GSE319237 had multiple
+ *  experimental arms loaded as a single preboarding; the curator
+ *  needed a way to record "this should be split along factor X" but
+ *  there was no UI surface.
+ */
+function ExperimentDecisionsSection({
+  draft,
+  readOnly,
+  onApply,
+}: {
+  draft: Design;
+  readOnly: boolean;
+  onApply: (next: Design | ((d: Design) => Design)) => void;
+}) {
+  const factorId = draft.should_split_on_factor_id ?? null;
+  const rationale = draft.should_split_rationale ?? "";
+  const decisionMade = factorId !== null;
+  const splitOn = factorId !== null && factorId > 0 ? factorId : null;
+  const explicitlyDoNotSplit = factorId === -1;
+
+  const setFields = (
+    nextFactorId: number | null,
+    nextRationale: string,
+  ) => {
+    onApply({
+      ...draft,
+      should_split_on_factor_id: nextFactorId,
+      should_split_rationale: nextRationale,
+    });
+  };
+
+  return (
+    <details
+      className="rounded border border-slate-300 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-700 open:shadow-sm"
+      open={decisionMade}
+    >
+      <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-200 flex items-center gap-2">
+        <span>Experiment-wide decisions</span>
+        {decisionMade ? (
+          <span className="text-[10px] uppercase tracking-wide rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200 px-2 py-0.5">
+            {explicitlyDoNotSplit
+              ? "no-split asserted"
+              : "split recommended"}
+          </span>
+        ) : (
+          <span className="text-[10px] text-slate-400">
+            none recorded
+          </span>
+        )}
+      </summary>
+      <fieldset disabled={readOnly} className="px-3 pb-3 pt-1 space-y-2">
+        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+          Recommend a split when this preboarding bundles multiple
+          distinct experiments that should ship as separate Gemma
+          subseries. The chosen factor's FV partition becomes the
+          split axis. Use <strong>do not split</strong> to override an
+          upstream agent recommendation.
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="split-decision"
+              checked={!decisionMade}
+              onChange={() => setFields(null, "")}
+            />
+            <span>No decision</span>
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="split-decision"
+              checked={explicitlyDoNotSplit}
+              onChange={() => setFields(-1, rationale)}
+            />
+            <span>Do not split</span>
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="split-decision"
+              checked={splitOn !== null}
+              onChange={() => {
+                // Default to the first factor when toggling on.
+                const firstId = draft.factors[0]?.id ?? null;
+                setFields(firstId, rationale);
+              }}
+              disabled={draft.factors.length === 0}
+            />
+            <span>Split on factor</span>
+          </label>
+          {splitOn !== null ? (
+            <select
+              className="text-[12px] border border-slate-300 dark:border-slate-700 rounded px-1 py-0.5 bg-white dark:bg-slate-900"
+              value={splitOn}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setFields(Number.isFinite(v) ? v : null, rationale);
+              }}
+            >
+              {draft.factors.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name || f.category.label || `factor ${f.id}`}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
+        <textarea
+          className="w-full text-[12px] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 min-h-[3.5rem]"
+          placeholder={
+            decisionMade
+              ? "Rationale (optional): why this split / no-split?"
+              : "Select a decision above to record rationale."
+          }
+          value={rationale}
+          disabled={!decisionMade}
+          onChange={(e) =>
+            setFields(factorId, e.target.value)
+          }
+        />
+      </fieldset>
+    </details>
   );
 }

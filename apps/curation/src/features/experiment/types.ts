@@ -164,6 +164,18 @@ export interface Design {
   biomaterials: Biomaterial[];
   tags: Tag[];
   external_source?: ExternalSource | null;
+  /** Curator split recommendation. ``null`` = no decision recorded.
+   *  ``-1`` = curator asserted "do NOT split" (overrides any agent
+   *  recommendation). Positive int = curator asserts "split on the
+   *  factor with this id"; the FV partition becomes the split axis.
+   *  Captures experiment-wide decisions that don't belong on any one
+   *  factor — e.g. GSE319237's multi-arm load that should have
+   *  shipped as N subseries split along the dominant experimental
+   *  axis. */
+  should_split_on_factor_id?: number | null;
+  /** Curator notes explaining the split decision. Free text. Empty
+   *  when no decision recorded or the curator declined to comment. */
+  should_split_rationale?: string;
   // Read-side metadata copied from Gemma at import time. Drives
   // the experiment-banner display.
   title?: string;
