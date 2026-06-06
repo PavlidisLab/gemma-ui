@@ -4259,6 +4259,7 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
             // the floor since the structural payload supersedes it.
             const isStructuralOnly =
               finding.issue_code === "calibration_factor_extra" ||
+              finding.issue_code === "augmentation_factor_extra" ||
               finding.issue_code === "calibration_factor_gold_only_miss" ||
               finding.issue_code === "calibration_agent_extra" ||
               finding.issue_code === "calibration_gold_only_miss";

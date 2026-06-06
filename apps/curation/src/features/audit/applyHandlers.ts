@@ -447,13 +447,17 @@ function resolveFactorCalibrationApply(
 
   if (
     code !== "calibration_factor_extra" &&
+    code !== "augmentation_factor_extra" &&
     code !== "calibration_factor_gold_only_miss"
   ) {
     return null;
   }
 
-  // calibration_factor_extra — add the agent's factor to the draft.
-  if (code === "calibration_factor_extra") {
+  // *_factor_extra — add the agent's factor to the draft.
+  if (
+    code === "calibration_factor_extra" ||
+    code === "augmentation_factor_extra"
+  ) {
     const cp = report?.evidence?.comparison_proposal ?? null;
     // Pull a label hint from the rationale's first backticked token
     // so older audits without agent_target_index still resolve.

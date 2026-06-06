@@ -77,8 +77,6 @@ import { actionLabels, findingActionShape } from "./actionLabels";
 import { parseTargetId, slug } from "./targetIds";
 import type { FactorProposal } from "@/api/types";
 import { useAudit } from "./AuditContext";
-import { useDesignDraft } from "@/features/design/DesignDraftContext";
-import { applyProposalToDesign } from "@/features/design/mutations";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
 import {
@@ -798,7 +796,6 @@ export function FindingDetailsEditor({
 }) {
   const toast = useToast();
   const { experimentId } = useAudit();
-  const { apply: applyDraft } = useDesignDraft();
   // Click-to-locate: jump to the matching factor / FV in the Design
   // tab. Fires the same focus event the "Apply & focus" buttons use
   // — Shell switches tabs + scrolls + ring-flashes the row.
@@ -1307,45 +1304,16 @@ export function FindingDetailsEditor({
       agentFactor?.category?.label || labelHint || "";
     const categoryUri = agentFactor?.category?.uri ?? null;
     const fvs = agentFactor?.factor_values ?? [];
+    // The draft mutation is owned by the parent's onSave structural-
+    // only branch (AuditSidebarPanel) — it runs ``action.mutate`` =
+    // ``addFactorFromProposal`` via the same ``ApplyAction`` the
+    // legacy compact-card path uses, which carries the name-clash
+    // confirmation gate (commit 8b1d747) + the alreadyApplied
+    // idempotency check. Doing the apply here too caused a single
+    // Agree click to append the factor twice (found 2026-06-06 on
+    // GSE319683/91664 + ticket 21: ``calibration:factor_extra:
+    // stimulation`` added two stimulation factors).
     const runApply = (notes: string) => {
-      if (agentFactor) {
-        applyDraft((current) =>
-          applyProposalToDesign(current, [], [
-            {
-              category: agentFactor.category,
-              name_in_design:
-                agentFactor.name_in_design ||
-                agentFactor.category?.label ||
-                "new factor",
-              factor_type:
-                (agentFactor.factor_type as
-                  | "categorical"
-                  | "continuous"
-                  | undefined) ?? "categorical",
-              baseline_relevance:
-                agentFactor.baseline_relevance ?? undefined,
-              baseline_relevance_reason:
-                agentFactor.baseline_relevance_reason ?? undefined,
-              factor_values: (agentFactor.factor_values ?? []).map(
-                (fv) => ({
-                  free_text_label: fv.free_text_label ?? "",
-                  is_baseline: !!fv.is_baseline,
-                  numeric_value: fv.numeric_value ?? null,
-                  statements: (fv.statements ?? []).map((s) => ({
-                    category: s.category ?? null,
-                    subject: s.subject ?? { label: "" },
-                    predicate: s.predicate ?? null,
-                    object: s.object ?? null,
-                  })),
-                  biomaterial_short_names: [
-                    ...(fv.biomaterial_short_names ?? []),
-                  ],
-                }),
-              ),
-            },
-          ]),
-        );
-      }
       dispatchSave("proposal", notes.trim() || undefined);
     };
     return (
