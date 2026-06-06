@@ -511,6 +511,8 @@ function SidebarHeader({
     finalizedBy,
     finalize,
     reopen,
+    resetAllDispositions,
+    resetAllDispositionsSaving,
     finalizeSaving,
     reopenSaving,
     setDisposition,
@@ -1033,6 +1035,41 @@ function SidebarHeader({
             <span className="text-[10px] text-slate-500 dark:text-slate-400">
               by <span className="font-mono">{finalizedBy}</span>
             </span>
+          ) : null}
+          {lifecycleAvailable ? (
+            <button
+              type="button"
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    "Reset every disposition on this " +
+                      copy.noun +
+                      "? Findings stay; status goes back to pending so you can re-disposition. Design draft is NOT reset — discard the draft separately if needed.",
+                  )
+                ) {
+                  return;
+                }
+                await resetAllDispositions();
+                toast.show(
+                  "Dispositions cleared. Findings are pending again.",
+                  { kind: "info" },
+                );
+              }}
+              disabled={resetAllDispositionsSaving}
+              title={
+                "Bulk-clear every disposition on this " +
+                copy.noun +
+                ". Use when iterating on a calibration/augmentation package."
+              }
+              className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded font-medium",
+                resetAllDispositionsSaving
+                  ? "bg-slate-200 text-slate-500 cursor-progress"
+                  : "bg-amber-200 text-amber-900 hover:bg-amber-300 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/60",
+              )}
+            >
+              {resetAllDispositionsSaving ? "resetting…" : "Reset all"}
+            </button>
           ) : null}
           {lifecycleAvailable ? (
             isFinalized ? (

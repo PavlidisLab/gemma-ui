@@ -192,6 +192,40 @@ export function useFinalizeAudit(experimentId: number | string) {
   });
 }
 
+/** Bulk-clear every disposition on an audit so the curator can
+ *  re-disposition from scratch. Use case: iterating on an
+ *  augmentation / calibration package where the curator already
+ *  actioned findings and hit a UI or wire-schema issue mid-flow.
+ *  Returns the audit with empty dispositions reflected and the
+ *  count of rows deleted. Does NOT roll back design mutations
+ *  the curator made in response to those dispositions — the
+ *  draft carries those; discard the draft separately to reset
+ *  the design. */
+export function useResetAuditDispositions(
+  experimentId: number | string,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ auditId }: { auditId: string }) =>
+      api.post<{
+        audit_id: string;
+        n_deleted: number;
+        audit: AuditReport;
+      }>(`/rest/v2/audits/${auditId}/reset-dispositions`, {}),
+    onSuccess: (refreshed) => {
+      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+      qc.invalidateQueries({
+        queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
+      });
+      qc.invalidateQueries({ queryKey: KEY.inbox() });
+      if (refreshed.audit_id) {
+        qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed.audit);
+      }
+    },
+  });
+}
+
+
 /** Reopen a finalized audit so the curator can keep dispositioning
  *  without losing the prior triage state. */
 export function useReopenAudit(experimentId: number | string) {

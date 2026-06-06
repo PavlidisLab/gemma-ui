@@ -10,6 +10,7 @@ import {
 import {
   useAuditsForExperiment,
   useFinalizeAudit,
+  useResetAuditDispositions,
   usePatchDisposition,
   useReopenAudit,
 } from "@/api/audits";
@@ -142,10 +143,19 @@ interface AuditContextValue {
   /** Reopen a finalized audit so the curator can keep dispositioning.
    *  No-op + reject if no audit loaded or not finalized. */
   reopen: () => Promise<void>;
+  /** Bulk-clear every disposition on this audit so the curator can
+   *  re-disposition from scratch. Use case: iterating on an
+   *  augmentation / calibration package where the curator already
+   *  actioned findings and hit a UI or wire-schema issue. Does NOT
+   *  roll back design mutations — the draft carries those; discard
+   *  the draft separately to reset the design. */
+  resetAllDispositions: () => Promise<void>;
   /** True while a finalize POST is in flight. */
   finalizeSaving: boolean;
   /** True while a reopen POST is in flight. */
   reopenSaving: boolean;
+  /** True while a reset-dispositions POST is in flight. */
+  resetAllDispositionsSaving: boolean;
 
   /** Disposition writer. Branches on whether the current report is
    *  a live (server-backed) audit or an in-memory override. Returns
@@ -255,6 +265,7 @@ export function AuditProvider({
   const patchDisposition = usePatchDisposition(experimentId);
   const finalizeAudit = useFinalizeAudit(experimentId);
   const reopenAudit = useReopenAudit(experimentId);
+  const resetDispositions = useResetAuditDispositions(experimentId);
 
   const [override, setOverride] = useState<AuditReport | null>(null);
   const [activeFindingKey, setActiveFindingKey] = useState<string | null>(null);
@@ -444,6 +455,11 @@ export function AuditProvider({
       reviewer,
     });
   }, [report, reviewer, reopenAudit]);
+  const resetAllDispositions = useCallback(async () => {
+    if (!report || !report.audit_id) return;
+    if (isOverrideReport(report)) return;
+    await resetDispositions.mutateAsync({ auditId: report.audit_id });
+  }, [report, resetDispositions]);
 
   const value: AuditContextValue = {
     kind,
@@ -467,6 +483,8 @@ export function AuditProvider({
     finalizedBy: report?.finalized_by ?? null,
     finalize,
     reopen,
+    resetAllDispositions,
+    resetAllDispositionsSaving: resetDispositions.isPending,
     finalizeSaving: finalizeAudit.isPending,
     reopenSaving: reopenAudit.isPending,
     setDisposition,
