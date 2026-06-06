@@ -213,14 +213,20 @@ export function useResetAuditDispositions(
         audit: AuditReport;
       }>(`/rest/v2/audits/${auditId}/reset-dispositions`, {}),
     onSuccess: (refreshed) => {
-      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
-      qc.invalidateQueries({
-        queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
-      });
-      qc.invalidateQueries({ queryKey: KEY.inbox() });
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed.audit);
       }
+      // Force a refetch (not just an invalidate-on-next-mount): the
+      // sidebar reads ``report`` from the list-query, and stale
+      // dispositions there will keep Apply All hidden because the
+      // filter sees prior accepts. ``refetchQueries`` triggers an
+      // immediate network roundtrip so the cleared state lands
+      // before the next render.
+      qc.refetchQueries({ queryKey: KEY.byExperiment(experimentId) });
+      qc.refetchQueries({
+        queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
+      });
+      qc.invalidateQueries({ queryKey: KEY.inbox() });
     },
   });
 }
