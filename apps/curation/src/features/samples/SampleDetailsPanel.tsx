@@ -549,6 +549,20 @@ function SampleTable({
     const out = new Set<number>();
     if (design.biomaterials.length <= 1) return out;
     for (const { factor, index } of fvByBmPerFactor) {
+      // Curation-in-progress exemption (2026-06-06): a factor that
+      // has zero FVs - or whose FVs together cover zero samples -
+      // is a factor the curator just added and hasn't populated
+      // yet, not a constant signal. Hiding it under "hide constant"
+      // makes the new factor invisible exactly when the curator
+      // most needs to see it (to populate). Skip the constancy
+      // check for these so the column always renders.
+      const totalAssigned = factor.factor_values.reduce(
+        (n, fv) => n + (fv.biomaterial_short_names?.length ?? 0),
+        0,
+      );
+      if (factor.factor_values.length === 0 || totalAssigned === 0) {
+        continue;
+      }
       let first: number | null | undefined;
       let allSame = true;
       for (const b of design.biomaterials) {
