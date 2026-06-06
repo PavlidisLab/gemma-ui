@@ -227,6 +227,94 @@ function extractOverlayFromProposalsResponse(
  * server can stamp it into the history log. Mock auth — the real
  * Gemma side will pull from the bearer/session.
  */
+/** Defensive tag-shape normaliser. local_api validates that every
+ *  tag has ``{id, category: {label, uri}, value: {label, uri}}`` —
+ *  the canonical Tag shape. Some upstream paths (AgentProposalTag
+ *  pass-through, audit-side proposal-card flows that haven't been
+ *  fully canonicalised yet) can drop a flat-shape entry into
+ *  ``design.tags`` where ``category`` and ``value`` are plain strings
+ *  and the URI sits in a separate ``value_uri`` field. The save then
+ *  422s on PUT. Cy hit this 2026-06-06 on GSE319237 with a
+ *  ``disease model: ischemic stroke`` tag.
+ *
+ *  Rather than chasing every producer (there are several), wrap every
+ *  save in a normaliser that coerces flat-shape tags to canonical
+ *  form. Idempotent — already-canonical tags pass through unchanged.
+ */
+function normaliseDesignForSave(design: Design): Design {
+  const existingIds = new Set<number>();
+  for (const t of design.tags ?? []) {
+    const tId = (t as { id?: unknown }).id;
+    if (typeof tId === "number") existingIds.add(tId);
+  }
+  let nextSyntheticId = 1;
+  while (existingIds.has(nextSyntheticId)) nextSyntheticId++;
+  const out: Design = {
+    ...design,
+    tags: (design.tags ?? []).map((raw) => {
+      const t = raw as Record<string, unknown>;
+      const cat = t.category;
+      const val = t.value;
+      let normalizedCategory: { label: string; uri: string | null };
+      if (typeof cat === "string") {
+        normalizedCategory = {
+          label: cat,
+          uri:
+            typeof t.category_uri === "string" ? t.category_uri : null,
+        };
+      } else if (cat && typeof cat === "object") {
+        const c = cat as Record<string, unknown>;
+        normalizedCategory = {
+          label: typeof c.label === "string" ? c.label : "",
+          uri: typeof c.uri === "string" ? c.uri : null,
+        };
+      } else {
+        normalizedCategory = { label: "", uri: null };
+      }
+      let normalizedValue: { label: string; uri: string | null };
+      if (typeof val === "string") {
+        normalizedValue = {
+          label: val,
+          uri:
+            typeof t.value_uri === "string" ? t.value_uri : null,
+        };
+      } else if (val && typeof val === "object") {
+        const v = val as Record<string, unknown>;
+        normalizedValue = {
+          label: typeof v.label === "string" ? v.label : "",
+          uri: typeof v.uri === "string" ? v.uri : null,
+        };
+      } else {
+        normalizedValue = { label: "", uri: null };
+      }
+      let id = (t as { id?: unknown }).id;
+      if (typeof id !== "number") {
+        while (existingIds.has(nextSyntheticId)) nextSyntheticId++;
+        id = nextSyntheticId++;
+        existingIds.add(id);
+      }
+      return {
+        id,
+        category: normalizedCategory,
+        value: normalizedValue,
+        inferred: Boolean(
+          (t as { inferred?: unknown }).inferred,
+        ),
+        inferred_source:
+          typeof t.inferred_source === "string"
+            ? t.inferred_source
+            : "",
+        evidence_code:
+          typeof t.evidence_code === "string"
+            ? t.evidence_code
+            : "IC",
+      } as Design["tags"][number];
+    }),
+  };
+  return out;
+}
+
+
 export function useUpdateDesign(experimentId: number | string, reviewer = "") {
   const qc = useQueryClient();
   return useMutation({
@@ -236,7 +324,7 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
         : "";
       return api.put<Design>(
         `/rest/v2/datasets/${experimentId}/design${params}`,
-        design,
+        normaliseDesignForSave(design),
       );
     },
     onSuccess: (server) => {
