@@ -10,23 +10,37 @@ export interface FvLabelInput {
   id: number;
   free_text_label?: string | null;
   is_baseline?: boolean;
+  /** Source-of-truth assignment list. Used to surface "no samples"
+   *  warnings in the picker so the curator notices empty FVs. */
+  biomaterial_short_names?: string[];
 }
 
 /** Build the visible text for an FV ``<option>``.
  *
- *  Two FVs in the same factor can share a ``free_text_label`` —
- *  e.g. the curator just split an existing cohort with a new FV
- *  whose label hasn't been disambiguated yet (saw 2026-06-06 on
- *  GSE319237: two "Igf1-Egfp transgenic" FVs for the EGFP+ / EGFP-
- *  sort). Without intervention the dropdown renders both options
- *  identically and the curator can't pick one over the other.
+ *  Three nudges baked in:
  *
- *  Policy: when a non-empty label appears more than once in
- *  ``allFvs``, append ``(id N)`` to every matching option so each
- *  is uniquely identifiable. Singletons render clean.
+ *  1. **Disambiguation.** Two FVs in the same factor can share a
+ *     ``free_text_label`` (saw 2026-06-06 on GSE319237: two
+ *     "Igf1-Egfp transgenic" FVs for the EGFP+/EGFP- sort).
+ *     When a non-empty label appears more than once in ``allFvs``,
+ *     append ``(id N)`` to every matching option so each is uniquely
+ *     identifiable. Singletons render clean.
+ *
+ *  2. **Sample count.** Append ``(n=K)`` showing how many
+ *     biomaterials are assigned to this FV. Gives the curator a
+ *     fast read of partition balance during picking.
+ *
+ *  3. **Empty-FV warning.** When ``biomaterial_short_names`` is
+ *     empty (and the input carries the field at all — undefined is
+ *     treated as "we don't know, skip the warning"), prefix with
+ *     ``⚠ no samples — ``. A factor value with no assignments is
+ *     almost always a curation oversight (curator added a new level
+ *     but didn't reassign any sample to it yet); surfacing it in
+ *     every picker the FV appears in keeps the gap visible.
  *
  *  Empty labels fall back to ``FV {id}`` (existing behaviour) and
- *  are intrinsically id-unique so no extra suffix is needed.
+ *  are intrinsically id-unique so no extra disambiguation suffix is
+ *  needed.
  *
  *  ``· baseline`` is appended last regardless.
  */
@@ -43,6 +57,14 @@ export function fvDisplayLabel(
       if (dupes > 1) break;
     }
     if (dupes > 1) out = `${base} (id ${fv.id})`;
+  }
+  if (fv.biomaterial_short_names !== undefined) {
+    const n = fv.biomaterial_short_names.length;
+    if (n === 0) {
+      out = `⚠ no samples — ${out}`;
+    } else {
+      out = `${out} (n=${n})`;
+    }
   }
   return fv.is_baseline ? `${out} · baseline` : out;
 }

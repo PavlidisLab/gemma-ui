@@ -260,10 +260,22 @@ export function FactorValueCard({
             signal, not metadata.
           */}
           <span
-            className="text-xs text-slate-400"
-            title={`FV id ${fv.id}`}
+            className={
+              fv.biomaterial_short_names.length === 0
+                ? "text-xs font-semibold text-rose-700 dark:text-rose-400"
+                : "text-xs text-slate-400"
+            }
+            title={
+              fv.biomaterial_short_names.length === 0
+                ? `FV id ${fv.id} — no samples assigned. This factor value will not appear in any analysis; assign at least one sample or delete this FV.`
+                : `FV id ${fv.id}`
+            }
           >
-            {fv.biomaterial_short_names.length} samples
+            {fv.biomaterial_short_names.length === 0 ? (
+              <span aria-hidden className="mr-0.5">⚠</span>
+            ) : null}
+            {fv.biomaterial_short_names.length} sample
+            {fv.biomaterial_short_names.length === 1 ? "" : "s"}
             {bmsChanged && before ? (
               <span
                 className="ml-1 text-amber-700"
