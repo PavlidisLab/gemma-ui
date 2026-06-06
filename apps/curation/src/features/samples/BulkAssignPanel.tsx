@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Biomaterial, Factor } from "@/features/experiment/types";
+import { fvDisplayLabel } from "@/features/samples/fvLabels";
 
 /**
  * Bulk-assign panel — pick a single biomaterial-characteristic key,
@@ -151,8 +152,7 @@ export function BulkAssignPanel({
                       <option value="">(skip)</option>
                       {factor.factor_values.map((fv) => (
                         <option key={fv.id} value={fv.id}>
-                          {fv.free_text_label || `FV ${fv.id}`}
-                          {fv.is_baseline ? " · baseline" : ""}
+                          {fvDisplayLabel(fv, factor.factor_values)}
                         </option>
                       ))}
                     </select>

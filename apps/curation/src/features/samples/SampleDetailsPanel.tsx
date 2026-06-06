@@ -16,6 +16,7 @@ import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { InlineFvPicker } from "@/components/ui/InlineFvPicker";
 import { useStickyState, useSessionState } from "@/lib/useStickyState";
 import { useEscape } from "@/lib/useEscape";
+import { fvDisplayLabel } from "@/features/samples/fvLabels";
 import type {
   Biomaterial,
   Design,
@@ -2358,8 +2359,7 @@ function FvSelect({
       </option>
       {factor.factor_values.map((fv) => (
         <option key={fv.id} value={fv.id}>
-          {fv.free_text_label || `FV ${fv.id}`}
-          {fv.is_baseline ? " · baseline" : ""}
+          {fvDisplayLabel(fv, factor.factor_values)}
         </option>
       ))}
     </select>
@@ -2660,8 +2660,7 @@ function BulkActionBar({
         </option>
         {factorFvOptions.map((fv) => (
           <option key={fv.id} value={fv.id}>
-            {fv.free_text_label || `FV ${fv.id}`}
-            {fv.is_baseline ? " · baseline" : ""}
+            {fvDisplayLabel(fv, factorFvOptions)}
           </option>
         ))}
       </select>
