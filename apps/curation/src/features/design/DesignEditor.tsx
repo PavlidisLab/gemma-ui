@@ -34,7 +34,9 @@ import {
   toggleBaseline,
 } from "./mutations";
 import { validateDesign } from "@/features/experiment/types";
-import type { Design, Statement } from "@/features/experiment/types";
+import type {
+  Design, Statement, SubsetRecommendation,
+} from "@/features/experiment/types";
 
 /**
  * Owner of the design-editing surface for the **design tab**.
@@ -547,7 +549,183 @@ function ExperimentDecisionsSection({
             setFields(factorId, e.target.value)
           }
         />
+
+        <SubsetRecommendationsBlock
+          draft={draft}
+          onApply={onApply}
+        />
       </fieldset>
     </details>
+  );
+}
+
+/** Subset recommendations block — orthogonal to the split decision
+ *  above. Splitting is specialized; subsetting is routine. Each
+ *  card carries one analysis-subset suggestion (seeded by the agent
+ *  or added by the curator); the curator dispositions accept /
+ *  reject. Accepted entries propagate downstream as advisory facts
+ *  about analysis scope.
+ *
+ *  Today this is read/write through ``Design.subset_recommendations``
+ *  (a list of ``SubsetRecommendation`` objects); the agent-side
+ *  importer seeds the list from gestalt ``split_recommendations`` of
+ *  kind ``dea_subset`` / ``factor_partial_coverage``.
+ */
+function SubsetRecommendationsBlock({
+  draft,
+  onApply,
+}: {
+  draft: Design;
+  onApply: (next: Design | ((d: Design) => Design)) => void;
+}) {
+  const recs = draft.subset_recommendations ?? [];
+  const pending = recs.filter((r) => r.status === "agent_recommended");
+  const accepted = recs.filter((r) => r.status === "accepted");
+  const rejected = recs.filter((r) => r.status === "rejected");
+
+  const setStatus = (
+    id: string,
+    status: "accepted" | "rejected" | "agent_recommended",
+  ) => {
+    onApply((d) => ({
+      ...d,
+      subset_recommendations: (d.subset_recommendations ?? []).map((r) =>
+        r.id === id ? { ...r, status } : r,
+      ),
+    }));
+  };
+
+  const setRationale = (id: string, rationale: string) => {
+    onApply((d) => ({
+      ...d,
+      subset_recommendations: (d.subset_recommendations ?? []).map((r) =>
+        r.id === id ? { ...r, rationale } : r,
+      ),
+    }));
+  };
+
+  const factorName = (id: number | null | undefined): string => {
+    if (id == null) return "(no factor)";
+    const f = draft.factors.find((f) => f.id === id);
+    return f?.name || f?.category?.label || `factor ${id}`;
+  };
+
+  if (recs.length === 0) {
+    return (
+      <div className="border-t border-slate-200 dark:border-slate-700 pt-2 mt-2">
+        <div className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+          Subset recommendations
+        </div>
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-1">
+          None recorded. The agent will seed any DEA-subset or
+          partial-coverage recommendations here on next import.
+        </div>
+      </div>
+    );
+  }
+
+  const renderCard = (r: SubsetRecommendation) => {
+    const factorLabel = factorName(r.by_factor_id);
+    const levelLabels = r.level_labels.join(", ");
+    const isAccepted = r.status === "accepted";
+    const isRejected = r.status === "rejected";
+    const isPending = r.status === "agent_recommended";
+    const accent = isAccepted
+      ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
+      : isRejected
+        ? "border-slate-400 bg-slate-100 dark:bg-slate-900/40 opacity-70"
+        : "border-amber-400 bg-amber-50 dark:bg-amber-900/20";
+    return (
+      <div
+        key={r.id}
+        className={`rounded border ${accent} px-2 py-1.5 text-[11px] space-y-1`}
+      >
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="font-medium text-slate-700 dark:text-slate-200">
+            Subset by <em>{factorLabel}</em>
+          </span>
+          {levelLabels ? (
+            <span className="text-slate-600 dark:text-slate-300">
+              → {levelLabels}
+            </span>
+          ) : null}
+          <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-500">
+            {r.source} · {r.status}
+          </span>
+        </div>
+        <textarea
+          className="w-full text-[11px] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 min-h-[2.5rem]"
+          placeholder="Rationale"
+          value={r.rationale}
+          onChange={(e) => setRationale(r.id, e.target.value)}
+        />
+        <div className="flex items-center gap-2">
+          {isPending ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setStatus(r.id, "accepted")}
+                className="text-[11px] px-2 py-0.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50"
+              >
+                Accept
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatus(r.id, "rejected")}
+                className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                Reject
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setStatus(r.id, "agent_recommended")}
+              className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              title="Revert to pending."
+            >
+              Undo ({r.status})
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="border-t border-slate-200 dark:border-slate-700 pt-2 mt-2 space-y-2">
+      <div className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+        Subset recommendations
+      </div>
+      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+        Subsetting is routine — accepted subsets propagate downstream
+        (DEA, future agent runs). Factors whose coverage aligns with
+        an accepted subset are NOT split flags.
+      </div>
+      {pending.length > 0 ? (
+        <div className="space-y-1">
+          <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+            Pending ({pending.length})
+          </div>
+          {pending.map(renderCard)}
+        </div>
+      ) : null}
+      {accepted.length > 0 ? (
+        <div className="space-y-1">
+          <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+            Accepted ({accepted.length})
+          </div>
+          {accepted.map(renderCard)}
+        </div>
+      ) : null}
+      {rejected.length > 0 ? (
+        <div className="space-y-1">
+          <div className="text-[11px] font-semibold text-slate-500">
+            Rejected ({rejected.length})
+          </div>
+          {rejected.map(renderCard)}
+        </div>
+      ) : null}
+    </div>
   );
 }

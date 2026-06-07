@@ -157,6 +157,34 @@ export interface Publication {
   title: string;
 }
 
+/** Subset recommendations are advisory curator-asserted facts about
+ *  analysis scope. See ``Design.subset_recommendations`` for the
+ *  lifecycle. */
+export interface SubsetRecommendation {
+  id: string;
+  /** Factor that scopes the subset (id of the ``Factor`` in the
+   *  design). ``null`` when the recommendation references a concept
+   *  that isn't yet a factor — the rationale field is the only
+   *  anchor in that case. */
+  by_factor_id?: number | null;
+  /** FV ``free_text_label`` strings within ``by_factor_id`` that
+   *  define the subset. Analysis restricted to samples whose
+   *  ``by_factor_id`` FV is in this list. */
+  level_labels: string[];
+  /** Curator rationale or, for ``agent_recommended`` entries, the
+   *  agent's rationale from the gestalt split_recommendation. */
+  rationale: string;
+  /** Lifecycle state.
+   *  - ``agent_recommended`` — agent suggested; pending curator.
+   *  - ``accepted`` — curator agreed; downstream tools respect.
+   *  - ``rejected`` — curator declined; preserved as a no-vote. */
+  status: "agent_recommended" | "accepted" | "rejected";
+  /** Provenance. */
+  source: "agent" | "curator";
+  /** Source agent run id, for agent-recommended entries. */
+  source_run_id?: string;
+}
+
 export interface Design {
   experiment_id: number;
   experiment_short_name: string;
@@ -176,6 +204,20 @@ export interface Design {
   /** Curator notes explaining the split decision. Free text. Empty
    *  when no decision recorded or the curator declined to comment. */
   should_split_rationale?: string;
+  /** Subset recommendations — orthogonal to the split decision above.
+   *  Splitting is specialized (creates N sub-experiments); subsetting
+   *  is routine (curators do it to resolve confounds or restrict
+   *  analysis to one tissue / arm). Seeded by the agent's gestalt
+   *  ``split_recommendations`` of kind ``dea_subset`` or
+   *  ``factor_partial_coverage``; curator accepts / rejects each one
+   *  and may add their own.
+   *
+   *  Accepted entries propagate downstream — the DEA pipeline reads
+   *  them to restrict analysis scope, and future agent runs use them
+   *  to decide whether a partial-coverage factor is expected (aligned
+   *  with an accepted subset) or a split flag.
+   */
+  subset_recommendations?: SubsetRecommendation[];
   // Read-side metadata copied from Gemma at import time. Drives
   // the experiment-banner display.
   title?: string;
