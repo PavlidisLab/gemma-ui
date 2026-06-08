@@ -182,6 +182,7 @@ const TARGET_KIND_ORDER: AuditTargetKind[] = [
   "factor",
   "fv",
   "tag",
+  "characteristic",
   "assignment",
   "statement",
 ];
@@ -191,6 +192,7 @@ const TARGET_KIND_LABEL: Record<AuditTargetKind, string> = {
   factor: "Factor",
   fv: "Factor value",
   tag: "Tag",
+  characteristic: "Characteristic",
   assignment: "Sample assignment",
   statement: "Statement",
 };

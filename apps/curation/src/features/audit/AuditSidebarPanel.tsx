@@ -1462,6 +1462,7 @@ const TARGET_KIND_ORDER: AuditTargetKind[] = [
   "factor",
   "fv",
   "tag",
+  "characteristic",
   "assignment",
   "statement",
 ];
@@ -1471,6 +1472,7 @@ const TARGET_KIND_LABEL: Record<AuditTargetKind, string> = {
   factor: "Factor",
   fv: "FV",
   tag: "Tag",
+  characteristic: "Characteristic",
   assignment: "Assignment",
   statement: "Statement",
 };
@@ -2105,12 +2107,13 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
   // One source of truth for both render order and section headers —
   // adding a new AuditTargetKind only touches this list.
   const GROUPS: { kind: AuditTargetKind; header: string }[] = [
-    { kind: "factor",     header: "Design — factors" },
-    { kind: "fv",         header: "Design — factor values" },
-    { kind: "tag",        header: "Tags" },
-    { kind: "assignment", header: "Sample assignments" },
-    { kind: "statement",  header: "Statements" },
-    { kind: "experiment", header: "Experiment" },
+    { kind: "factor",         header: "Design — factors" },
+    { kind: "fv",             header: "Design — factor values" },
+    { kind: "tag",            header: "Tags" },
+    { kind: "characteristic", header: "Characteristics" },
+    { kind: "assignment",     header: "Sample assignments" },
+    { kind: "statement",      header: "Statements" },
+    { kind: "experiment",     header: "Experiment" },
   ];
 
   const visibleRenames = renames.filter(

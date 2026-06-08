@@ -74,6 +74,29 @@ export function findingActionShape(finding: AuditFinding): ActionShape {
   if (code === "calibration_factor_match") {
     return finding.severity === "ok" ? "match" : "change";
   }
+  // Entity-frame proposer (agents-repo commit 923b663). Mirrors the
+  // calibration_* shapes but framed as "agent proposes X against the
+  // existing design" rather than "calibration delta vs gold":
+  //   *_proposed_new           → add    (agent proposes a new element)
+  //   *_proposed_match_*       → match  (agent's proposal matches design)
+  //   *_partition_mismatch     → change (matched category, levels diverge)
+  //   *_design_missing_from_agent → match (recall gap; curator confirms
+  //                              the design's call is correct — "remove"
+  //                              would read as "drop it from the design",
+  //                              the opposite of what the curator does)
+  //   characteristic_proposed_replacement → change (cleaner value
+  //                              supersedes one raw BM column)
+  //   characteristic_proposed_merge       → change (consolidates
+  //                              multiple raw BM columns into one)
+  if (code === "factor_proposed_new") return "add";
+  if (code === "factor_proposed_match_with_design") return "match";
+  if (code === "factor_proposed_match_partition_mismatch") return "change";
+  if (code === "factor_design_missing_from_agent") return "match";
+  if (code === "tag_proposed_new") return "add";
+  if (code === "tag_proposed_match_with_design") return "match";
+  if (code === "tag_design_missing_from_agent") return "match";
+  if (code === "characteristic_proposed_replacement") return "change";
+  if (code === "characteristic_proposed_merge") return "change";
   return "change";
 }
 

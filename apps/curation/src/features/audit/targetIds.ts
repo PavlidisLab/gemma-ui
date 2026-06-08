@@ -64,6 +64,15 @@ export type ParsedTargetId =
   | { kind: "factor"; factorSlug: string }
   | { kind: "fv"; factorSlug: string; fvSlug: string }
   | { kind: "tag"; categorySlug: string; valueSlug: string }
+  /** Entity-frame proposer characteristic finding. ``axes`` is the
+   *  list of raw BM column slugs the agent's proposal targets — one
+   *  element for ``characteristic_proposed_replacement`` (single-
+   *  column supersession), two-or-more for
+   *  ``characteristic_proposed_merge`` (multi-column merge). Canonical
+   *  formatter mirror of agents-side
+   *  ``agents/audit/target_ids.py::characteristic_target``: axes are
+   *  sorted + ``+``-joined in the wire id. */
+  | { kind: "characteristic"; axes: string[] }
   | { kind: "assignment"; biomaterialShortName: string }
   | { kind: "statement"; raw: string }; // Phase 2 — opaque for now
 
@@ -94,6 +103,14 @@ export function parseTargetId(targetId: string): ParsedTargetId | null {
         categorySlug: rest.slice(0, slash),
         valueSlug: rest.slice(slash + 1),
       };
+    }
+    case "characteristic": {
+      // Single slug → 1-element axes list (replacement).
+      // `+`-joined slugs → multi-axis merge. Empty rest is rejected so
+      // a malformed `characteristic:` id falls through to null instead
+      // of producing a `{ axes: [""] }` that anchors to nothing.
+      if (!rest) return null;
+      return { kind: "characteristic", axes: rest.split("+") };
     }
     case "assignment":
       return { kind: "assignment", biomaterialShortName: rest };

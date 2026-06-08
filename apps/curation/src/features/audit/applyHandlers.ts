@@ -986,6 +986,12 @@ function focusTooltip(parsed: ParsedTargetId): string {
       return "open the design tab, select the parent factor, and scroll to this FV";
     case "tag":
       return "open the overview tab and scroll to this tag";
+    case "characteristic":
+      // Entity-frame proposer characteristic finding — anchors to the
+      // raw BM column(s) the agent proposes to clean / merge. No
+      // dedicated tab yet; the overview tab carries the characteristics
+      // block, so route there.
+      return "open the overview tab and scroll to the source characteristic column(s)";
     case "assignment":
       return "open the samples tab and scroll to this sample";
     case "experiment":

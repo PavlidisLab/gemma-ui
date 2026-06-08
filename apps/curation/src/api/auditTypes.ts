@@ -21,6 +21,7 @@ export type AuditTargetKind =
   | "factor"
   | "fv"
   | "tag"
+  | "characteristic"
   | "assignment"
   | "statement";
 
