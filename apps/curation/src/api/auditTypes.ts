@@ -424,7 +424,18 @@ export interface PartitionMismatchPayload {
  *  ``strength`` drives the header label, ``rationale`` the Judge
  *  one-liner. */
 export interface AttachedDefenderVerdict {
-  side: "agent_extra" | "agent_missed_gold";
+  /** Producer label: legacy calibration-defender uses
+   *  ``agent_extra`` / ``agent_missed_gold``; the 2026-05-22 unified
+   *  justification swap (shared/justification.py) adds
+   *  ``defender`` / ``arbiter`` / ``boss``. Forward-compat string
+   *  fallback covers any future producer. */
+  side:
+    | "agent_extra"
+    | "agent_missed_gold"
+    | "defender"
+    | "arbiter"
+    | "boss"
+    | (string & {});
   verdict:
     // Tag side (original six, AUDIT_DEFENDER_VERDICT_HANDOFF.md).
     | "agent_miss_genuine"
@@ -473,6 +484,10 @@ export interface AttachedDefenderVerdict {
    *
    *  ``undefined`` on packages predating the arbiter prompt swap. */
   mode?: "rule" | "judgment" | "meta" | "escape";
+  /** Producer confidence in the verdict — ``high`` / ``medium`` /
+   *  ``low``. Added by the unified justification shared/justification.py
+   *  schema (2026-05-22). Omitted on older producers. */
+  confidence?: string;
 }
 
 export interface AuditScope {

@@ -35,6 +35,7 @@ import type { useAuditStream } from "@/api/auditStream";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import sampleReport from "./fixtures/sample_audit_report.json";
 import { useAudit, findingKey } from "./AuditContext";
+import { ComparisonFactorCard } from "./ComparisonFactorCard";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
   experimentTarget,
@@ -2198,7 +2199,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
             Alternate factor — proposed a different categorization
           </div>
           {visibleRenames.map((f) => (
-            <CompactFindingCard
+            <ComparisonFactorCard
               key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
               finding={f}
             />
@@ -2354,6 +2355,11 @@ function isMatchFinding(f: AuditFinding): boolean {
  *  code — that one isn't classified here because it doesn't share
  *  the ``factor_match`` family. */
 function isRenameMatch(f: AuditFinding): boolean {
+  // Dedicated rename code (calibration package v11+, agents-repo
+  // 2026-06-08 entity-frame finding_generator). Same-factor-different-
+  // category, always routes through the dedicated rename card.
+  if (f.issue_code === "calibration_factor_rename") return true;
+  // Legacy: severity-driven on the generic match code.
   return (
     f.issue_code === "calibration_factor_match" && f.severity !== "ok"
   );
