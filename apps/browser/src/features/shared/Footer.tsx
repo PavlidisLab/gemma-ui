@@ -202,12 +202,12 @@ export function Footer() {
       <span className="ml-auto inline-flex items-center gap-3 flex-wrap">
         {/* App-level surfaces. Render in the footer so the home page
             (which hides the AppBar) still has a way into Curation +
-            Administration. TODO: gate Administration on an admin
-            role flag once /me carries one — Paul 2026-05-26. */}
+            Administration. Administration is gated on GROUP_ADMIN
+            authority (exposed on /me by gemma-rest 4a9605c23f). */}
         <a href={curationUrl()} className="hover:underline">
           Curation
         </a>
-        {me.data ? (
+        {me.data?.authorities?.includes("GROUP_ADMIN") ? (
           <Link to="/admin/system" className="hover:underline">
             Administration
           </Link>

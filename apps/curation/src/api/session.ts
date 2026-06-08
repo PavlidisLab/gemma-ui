@@ -18,6 +18,12 @@ export interface User {
   username: string;
   full_name: string;
   email: string;
+  /** Spring Security authority names from gemma-rest (e.g.
+   *  ``["GROUP_ADMIN", "GROUP_USER"]``). Exposed on /me as of
+   *  gemma-rest commit 4a9605c23f (2026-06-07). Used by the
+   *  AppHeader Administration tab visibility gate. May be undefined
+   *  on responses from older Gemma versions. */
+  authorities?: string[];
 }
 
 interface LoginResponse {
@@ -55,7 +61,11 @@ function normalizeUser(u: unknown): User | null {
     "";
   const email =
     (typeof r.email === "string" && r.email) || "";
-  return { username, full_name: fullName, email };
+  const authoritiesRaw = r.authorities;
+  const authorities = Array.isArray(authoritiesRaw)
+    ? authoritiesRaw.filter((a): a is string => typeof a === "string")
+    : undefined;
+  return { username, full_name: fullName, email, authorities };
 }
 
 const STORAGE_KEY = "gemma-curation-session";
@@ -95,6 +105,11 @@ const LOCAL_MODE_USER: User = {
   username: "local-curator",
   full_name: "Local Curator",
   email: "",
+  /** Local mode bypasses auth entirely, so grant the synthetic user
+   *  admin authority — keeps the AppHeader Administration tab visible
+   *  during local-mode dev so the dev sees the same chrome a real
+   *  admin sees. */
+  authorities: ["GROUP_ADMIN", "GROUP_USER"],
 };
 
 /** Hook for the current user. ``data`` is the user when logged

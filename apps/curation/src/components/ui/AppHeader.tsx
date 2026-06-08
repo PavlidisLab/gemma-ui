@@ -14,17 +14,17 @@
  *   - Curation → in-app link to the curator dashboard (active)
  *   - Administration → cross-app link to the admin surface
  *
- * Admin gating: the Administration tab is unconditionally visible
- * during the unification rollout. In the final product it will be
- * gated on an admin role flag that ``/me`` doesn't yet expose; see
- * the TODO below — wire ``user.is_admin`` (or equivalent) when the
- * backend adds the field.
+ * Admin gating: the Administration tab is gated on the
+ * ``GROUP_ADMIN`` authority exposed on ``/me`` (gemma-rest
+ * 4a9605c23f, 2026-06-07). Hidden for non-admins; the browser app's
+ * SystemMonitoringPage handles the case where someone gets to the
+ * URL directly anyway.
  */
 import { type ReactNode, useEffect, useState } from "react";
 import { ModeChip } from "@/components/ui/ModeChip";
 import { HealthChip } from "@/components/ui/HealthChip";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
-import { useLogout } from "@/api/session";
+import { useLogout, useMe } from "@/api/session";
 import { navigate } from "@/routes";
 import { browserUrl, adminUrl } from "@/lib/appLinks";
 
@@ -38,6 +38,8 @@ export function AppHeader({
   children?: ReactNode;
 }) {
   const logout = useLogout();
+  const me = useMe();
+  const isAdmin = me.data?.authorities?.includes("GROUP_ADMIN") ?? false;
   return (
     <header className="flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 shrink-0">
       {/* Brand + section title. Clicking returns to the curator
@@ -77,9 +79,9 @@ export function AppHeader({
           Paul 2026-05-27. */}
       <nav className="flex items-center gap-1">
         <ExternalNavTab href={browserUrl("/browser")}>Browse</ExternalNavTab>
-        {/* TODO: gate on user.is_admin once /me exposes a role
-            flag. Visible to everyone for now per Paul 2026-05-26. */}
-        <ExternalNavTab href={adminUrl()}>Administration</ExternalNavTab>
+        {isAdmin ? (
+          <ExternalNavTab href={adminUrl()}>Administration</ExternalNavTab>
+        ) : null}
       </nav>
 
       <div className="flex items-center gap-3 text-xs text-stone-700 dark:text-slate-300 shrink-0">

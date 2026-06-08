@@ -39,10 +39,13 @@ export function AppBar() {
             curator role flag once /me exposes one — for now it's
             visible to everyone per Paul 2026-05-26. */}
         <ExternalNavTab href={curationUrl()}>Curation</ExternalNavTab>
-        {/* Administration — hidden when anonymous so curious URL
-            probes don't even see the link. Logged-in non-admins
-            still see it; the page's own LoginChallenge handles them. */}
-        {user ? <NavTab to="/admin/system">Administration</NavTab> : null}
+        {/* Administration — gated on GROUP_ADMIN authority (exposed
+            on /me as of gemma-rest 4a9605c23f). Hidden for anonymous
+            users AND for logged-in non-admins; SystemMonitoringPage's
+            own gate still handles direct URL probes either way. */}
+        {user?.authorities?.includes("GROUP_ADMIN") ? (
+          <NavTab to="/admin/system">Administration</NavTab>
+        ) : null}
       </nav>
 
       {onBrowser ? null : (

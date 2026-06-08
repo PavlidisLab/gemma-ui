@@ -34,7 +34,12 @@ export interface LoginRequest {
 export interface LoginUser {
   userName?: string | null;
   email?: string | null;
-  groups?: string[] | null;
+  /** Spring Security authority names — e.g. ``["GROUP_ADMIN",
+   *  "GROUP_USER"]`` plus any per-UserGroup authority the server
+   *  appends. Populated by ``RootWebService.UserValueObject`` (see
+   *  gemma-rest commit 4a9605c23f, 2026-06-07). Used by the
+   *  Administration nav-tab visibility gate in AppBar / Footer. */
+  authorities?: string[] | null;
   /** Tolerate the wider Gemma User shape (id, fullName, etc.) — we
    *  only care about the few fields the AppBar surfaces. */
   [k: string]: unknown;
