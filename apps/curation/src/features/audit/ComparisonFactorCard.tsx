@@ -2,11 +2,11 @@
  * ComparisonFactorCard — modular, compact, side-by-side factor display
  * for calibration findings. Replaces FindingDetailsEditor's per-element
  * editor for findings whose primary curator question is "what's the
- * difference between Gemma's curation and the agent's proposal?".
+ * difference between Polished Gemma's curation and the agent's proposal?".
  *
  * Per HANDOFF_2026-06-08_FACTOR_DISPLAY_BASELINE_COMPARATOR.md the goal
  * is ONE factor display that works across (rename / extra / miss /
- * match) variants and across comparator sources (Gemma / curator /
+ * match) variants and across comparator sources (Polished Gemma / curator /
  * agent / preboard / none). v1 of this file handles rename specifically
  * with the structure generalized so extending to other codes is
  * config-only, no new components.
@@ -17,7 +17,7 @@
  *
  * - **No per-FV decision buttons.** ONE accept / dismiss / park per
  *   card. Per-row pick buttons were the noise the editor produced.
- * - **Side-by-side two-column layout.** LEFT = baseline (Gemma current
+ * - **Side-by-side two-column layout.** LEFT = baseline (Polished Gemma current
  *   by default), RIGHT = comparator (agent proposal here). Curator's
  *   eye lands on what differs.
  * - **Full statements on each side.** Subject — predicate — object
@@ -81,12 +81,12 @@ const Term: FvTermRenderer = ({ label, uri, variant }) => {
  *  at. Either side may be null (e.g. an extra finding has no baseline
  *  factor; a miss finding has no comparator). */
 export interface FactorSide {
-  /** Column header label — "Gemma" / "Agent" / "Cyan" / "Preboard". */
+  /** Column header label — "Polished Gemma" / "Agent" / "Cyan" / "Preboard". */
   label: string;
   /** Provenance hint — rendered as a small subtitle under the label
    *  (e.g. "current curation" / "proposed" / "polished gold"). */
   source: string;
-  /** The factor itself. Mixed type because Gemma-side carries the
+  /** The factor itself. Mixed type because Polished Gemma-side carries the
    *  full ``Factor`` shape (with category URIs and FV ids from the DB)
    *  whereas the agent comparison-proposal side carries
    *  ``FactorProposal`` (no DB ids; richer statement structure). */
@@ -293,7 +293,7 @@ export interface ComparisonFactorCardProps {
   title?: React.ReactNode;
 }
 
-/** The card itself. Pulls baseline (Gemma) from the design and
+/** The card itself. Pulls baseline (Polished Gemma) from the design and
  *  comparator (agent) from the comparison_proposal, then renders the
  *  side-by-side layout. */
 export function ComparisonFactorCard({
@@ -308,7 +308,7 @@ export function ComparisonFactorCard({
   const dispo = dispositionByTarget.get(finding.target_id) ?? null;
   const status = dispo?.status ?? "pending";
 
-  // LEFT = baseline = Gemma (current design's factor at gold_target_index).
+  // LEFT = baseline = Polished Gemma (current design's factor at gold_target_index).
   // RIGHT = comparator = Agent (comparison_proposal factor at agent_target_index).
   const leftFactor: Factor | null = useMemo(() => {
     const ix = finding.gold_target_index;
@@ -425,7 +425,7 @@ export function ComparisonFactorCard({
       </div>
       <JudgeRow verdict={finding.defender_verdict ?? null} />
       <CategoryPair
-        leftLabel="Gemma"
+        leftLabel="Polished Gemma"
         leftCategory={leftCategory}
         rightLabel="Agent"
         rightCategory={rightCategory}
@@ -433,7 +433,7 @@ export function ComparisonFactorCard({
       {pairs.length > 0 ? (
         <div className="rounded border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/30">
           <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 px-1.5 py-1 border-b border-slate-200 dark:border-slate-700 text-[9px] uppercase tracking-wide text-slate-400">
-            <span>Gemma (current)</span>
+            <span>Polished Gemma (current)</span>
             <span>&nbsp;</span>
             <span>Agent (proposed)</span>
           </div>

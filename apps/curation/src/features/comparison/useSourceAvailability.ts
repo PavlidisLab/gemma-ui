@@ -262,6 +262,21 @@ export function useSourceUniverse(
               : "no preboard snapshot stored for this experiment",
             comingSoon: false,
           };
+    } else if (s === "live") {
+      // ``live`` is unified-only — there's no legacy probe. When the
+      // unified endpoint hasn't been deployed, treat live as
+      // unavailable so the chip strip falls through to other
+      // sources rather than rendering a broken option.
+      const available = usingUnified && unifiedHas("live");
+      availability[s] = available
+        ? { available: true, reason: "", comingSoon: false }
+        : {
+            available: false,
+            reason: versions.isLoading
+              ? "checking…"
+              : "no live curation state available for this experiment",
+            comingSoon: false,
+          };
     } else if (s === "agent_proposal") {
       // Unified mode: present iff ANY agent_proposal row exists. The
       // chip dropdown today picks "the latest" implicitly via the

@@ -6,6 +6,7 @@ import {
   type FlowKind,
   type Source,
 } from "./sources";
+import { useSourceUniverse, usePolishedCuratorList } from "./useSourceAvailability";
 import { experimentRoute, navigate, parseRoute } from "../../routes";
 
 /** Comparison-view chip state. Mirrors the URL ``?base=`` /
@@ -39,7 +40,20 @@ export function useChipState(args: {
   ticketContext?: string;
 }): ChipState {
   const { experimentId, flow, tab, groupContext, ticketContext } = args;
-  const defaults = defaultSlots(flow);
+  // Pass availability + polished curators to defaultSlots so the
+  // default baseline falls through ("polished -> live -> preboard")
+  // based on what's actually loaded for this experiment, instead of
+  // sticking on an unavailable `preboard` and leaving the chip
+  // strip showing "Gemma preboard" as the anchor. Per Paul
+  // 2026-06-08: chip strip showed "Gemma preboard" for the v6 pack
+  // even though the unified /curation-versions endpoint reported
+  // no preboard.
+  const universe = useSourceUniverse(experimentId);
+  const polishedCurators = usePolishedCuratorList(experimentId);
+  const defaults = defaultSlots(flow, {
+    polishedCurators,
+    availability: universe.availability,
+  });
 
   const [route, setRoute] = useState(() => parseRoute());
 
