@@ -83,6 +83,14 @@ export function sourceLabel(s: Source): string {
   if (s === "agent_proposal") return "agent original proposal";
   if (isPolishedSource(s)) {
     const curator = polishedCuratorOf(s);
+    // Consensus-producer rows are routed through the polished
+    // channel until step 3b drops the Source enum (2026-06-08).
+    // Their tokens are slugified consensus:<id> → polished:consensus_<id>;
+    // unslug back to the canonical "consensus:<id>" form for display
+    // so the chip reads honestly.
+    if (curator.startsWith("consensus_")) {
+      return curator.replace(/^consensus_/, "consensus:");
+    }
     return `${titleCaseCurator(curator)} polished`;
   }
   return s;

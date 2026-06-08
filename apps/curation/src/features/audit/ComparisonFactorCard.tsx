@@ -291,6 +291,20 @@ export interface ComparisonFactorCardProps {
    *  the rename payload. Caller overrides for extra / miss / match
    *  variants. */
   title?: React.ReactNode;
+  /** Column header label for the LEFT (baseline) side. When
+   *  omitted, falls back to the chip strip's currently-selected
+   *  baseline source label. When the chip strip has no opinion
+   *  either, falls back to "Baseline".
+   *
+   *  Per memory project-curation-overlay-model (2026-06-08): the
+   *  card doesn't know which curation is on which side; that's
+   *  the chip strip's job. The card's role is to render
+   *  "baseline vs comparator with delta on the right" given
+   *  whatever the chip strip selected. */
+  leftLabel?: string;
+  /** Column header label for the RIGHT (comparator) side. Same
+   *  semantics as `leftLabel`. */
+  rightLabel?: string;
 }
 
 /** The card itself. Pulls baseline (Polished Gemma) from the design and
@@ -299,11 +313,23 @@ export interface ComparisonFactorCardProps {
 export function ComparisonFactorCard({
   finding,
   title,
+  leftLabel: leftLabelProp,
+  rightLabel: rightLabelProp,
 }: ComparisonFactorCardProps) {
   const { report, experimentId, setDisposition, dispositionByTarget } =
     useAudit();
   const { data: design } = useDesign(experimentId);
   const [busy, setBusy] = useState(false);
+
+  // Labels: prop > chip-strip selection > generic fallback.
+  // Reading chip-strip selection requires the flow context the
+  // experiment-shell sets — defer that wiring to the proper Source-
+  // enum elimination (step 3b). For now: prop wins; generic fallback
+  // when no prop. This keeps the card structurally honest (labels
+  // come from outside, not hardcoded "POLISHED GEMMA") without
+  // taking on the deeper Source-type refactor in this commit.
+  const leftLabel = leftLabelProp ?? "Baseline";
+  const rightLabel = rightLabelProp ?? "Comparator";
 
   const dispo = dispositionByTarget.get(finding.target_id) ?? null;
   const status = dispo?.status ?? "pending";
@@ -434,17 +460,17 @@ export function ComparisonFactorCard({
       </div>
       <JudgeRow verdict={finding.defender_verdict ?? null} />
       <CategoryPair
-        leftLabel="Polished Gemma"
+        leftLabel={leftLabel}
         leftCategory={leftCategory}
-        rightLabel="Agent"
+        rightLabel={rightLabel}
         rightCategory={rightCategory}
       />
       {pairs.length > 0 ? (
         <div className="rounded border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/30">
           <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 px-1.5 py-1 border-b border-slate-200 dark:border-slate-700 text-[9px] uppercase tracking-wide text-slate-400">
-            <span>Polished Gemma (current)</span>
+            <span>{leftLabel}</span>
             <span>&nbsp;</span>
-            <span>Agent (proposed)</span>
+            <span>{rightLabel}</span>
           </div>
           {pairs.map((p, i) => (
             <FvPairRow key={i} pair={p} />

@@ -36,6 +36,9 @@ import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import sampleReport from "./fixtures/sample_audit_report.json";
 import { useAudit, findingKey } from "./AuditContext";
 import { ComparisonFactorCard } from "./ComparisonFactorCard";
+import { useFlow } from "@/features/comparison/FlowContext";
+import { useChipState } from "@/features/comparison/useChipState";
+import { sourceLabel } from "@/features/comparison/sources";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
   experimentTarget,
@@ -1976,7 +1979,15 @@ function subsumedFvChildren(
 
 
 function FindingList({ findings }: { findings: AuditFinding[] }) {
-  const { kind, dispositionByTarget, report } = useAudit();
+  const { kind, dispositionByTarget, report, experimentId } = useAudit();
+  // Chip-strip selection drives the ComparisonFactorCard's column
+  // labels (LEFT = baseline source, RIGHT = comparator source). Per
+  // memory project-curation-overlay-model: the card doesn't know
+  // which curation lives on which side — the chip strip does.
+  const flow = useFlow();
+  const chip = useChipState({ experimentId, flow });
+  const baselineLabel = sourceLabel(chip.baseline);
+  const comparatorLabel = sourceLabel(chip.comparator);
   // Single flat list, sorted by severity then target_kind. The full
   // report view groups by target_kind (it has the room); in the
   // narrow sidebar a single severity-sorted list scans faster — most
@@ -2202,6 +2213,8 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
             <ComparisonFactorCard
               key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
               finding={f}
+              leftLabel={baselineLabel}
+              rightLabel={comparatorLabel}
             />
           ))}
         </div>

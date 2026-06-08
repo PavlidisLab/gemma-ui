@@ -216,12 +216,29 @@ export function useSourceUniverse(
   const usingUnified = unified != null;
 
   // Polished-curator enumeration: prefer the unified endpoint's
-  // curator_polish rows when available. Falls back to the dedicated
-  // /polished probe otherwise.
+  // curator_polish AND consensus rows when available. Falls back
+  // to the dedicated /polished probe otherwise.
+  //
+  // Per memory project-curation-overlay-model (2026-06-08): polished
+  // gold isn't architecturally special — consensus and curator_polish
+  // are both "a named curation overlay". The chip-strip's
+  // `polished:<name>` token is the existing carrier for this slot;
+  // until the larger Source-enum elimination (step 3b, deferred) is
+  // done, we route consensus rows through it too so they surface as
+  // selectable baselines. The token is a slug of the producer
+  // (`consensus:strict_cy_am` → `consensus_strict_cy_am`) so the
+  // existing URL/state machinery doesn't choke on the embedded `:`.
+  function _producerSlug(producer: string): string {
+    return producer.replace(/[^a-zA-Z0-9_-]+/g, "_");
+  }
   const polishedCurators: string[] = usingUnified
     ? unified.items
-        .filter((v) => v.kind === "curator_polish")
-        .map((v) => v.producer)
+        .filter(
+          (v) => v.kind === "curator_polish" || v.kind === "consensus",
+        )
+        .map((v) =>
+          v.kind === "consensus" ? _producerSlug(v.producer) : v.producer,
+        )
     : (polished.data ?? []);
 
   // The dynamic enumeration. System sources first (stable order:
