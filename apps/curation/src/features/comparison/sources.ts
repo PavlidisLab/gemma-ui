@@ -63,7 +63,13 @@ function titleCaseCurator(name: string): string {
  *  username dynamically, no hand-maintained label map. */
 export function sourceLabel(s: Source): string {
   if (s === "empty") return "(empty)";
-  if (s === "preboard") return "Gemma";
+  // Was "Gemma" — misleading: preboard is the GEO-only pre-curation
+  // snapshot, not the live Gemma curation state. Per Paul 2026-06-08
+  // (chip-strip showed "Gemma / Gemma" with no agent option, and the
+  // baseline was actually the preboard). "Gemma preboard" distinguishes
+  // from live Gemma / polished sets once the unified curation-versions
+  // model lands. See HANDOFF_2026-06-08_UNIFIED_CURATION_VERSIONS.md.
+  if (s === "preboard") return "Gemma preboard";
   if (s === "agent_proposal") return "agent original proposal";
   if (isPolishedSource(s)) {
     const curator = polishedCuratorOf(s);
