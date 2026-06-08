@@ -97,6 +97,15 @@ export function findingActionShape(finding: AuditFinding): ActionShape {
   if (code === "tag_design_missing_from_agent") return "match";
   if (code === "characteristic_proposed_replacement") return "change";
   if (code === "characteristic_proposed_merge") return "change";
+  // Boss-dropped findings (post-boss pack provenance): the agent
+  // proposed the entity, the boss said drop. The finding surfaces
+  // the drop so the curator can confirm or override.
+  //   "adopt" -> confirm the boss's drop (entity stays out)
+  //   "keep"  -> override; agent's original proposal stands
+  // The "remove" chip pair ("remove" / "don't remove") fits cleanly.
+  if (code === "factor_dropped_by_boss") return "remove";
+  if (code === "tag_dropped_by_boss") return "remove";
+  if (code === "characteristic_dropped_by_boss") return "remove";
   return "change";
 }
 
