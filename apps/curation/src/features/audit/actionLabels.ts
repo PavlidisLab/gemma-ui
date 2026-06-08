@@ -91,6 +91,11 @@ export function findingActionShape(finding: AuditFinding): ActionShape {
   if (code === "factor_proposed_new") return "add";
   if (code === "factor_proposed_match_with_design") return "match";
   if (code === "factor_proposed_match_partition_mismatch") return "change";
+  // Same factor (by sample partition) with disagreeing category:
+  // accept = keep the existing curation's category; reject = switch
+  // to the agent's. "change" reads better than "match" because
+  // there's a real either/or rather than a confirmation.
+  if (code === "factor_proposed_match_category_mismatch") return "change";
   if (code === "factor_design_missing_from_agent") return "match";
   if (code === "tag_proposed_new") return "add";
   if (code === "tag_proposed_match_with_design") return "match";
