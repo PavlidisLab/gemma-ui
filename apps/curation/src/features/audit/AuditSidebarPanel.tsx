@@ -2325,6 +2325,14 @@ function isMatchFinding(f: AuditFinding): boolean {
   // reflects the agent's proposed change. Render as a compact match
   // row so the curator skips them by default.
   if (f.issue_code === "already_in_baseline") return f.severity === "ok";
+  // calibration_factor_match_near goes through ComparisonFactorCard
+  // (the dedicated side-by-side render), NOT the generic
+  // CompactFindingCard match-row. Per Paul 2026-06-08: the editor's
+  // "Everyone agrees" computation is structurally wrong when the
+  // agent's factor has more FVs than gold's (4 vs 2 in GSE93824);
+  // the side-by-side card shows the divergence honestly. Routed via
+  // isRenameMatch below.
+  if (f.issue_code === "calibration_factor_match_near") return false;
   const v = factorMatchVariant(f.issue_code);
   if (v === "exact") return true;
   if (v === "near") return true;
@@ -2359,6 +2367,14 @@ function isRenameMatch(f: AuditFinding): boolean {
   // 2026-06-08 entity-frame finding_generator). Same-factor-different-
   // category, always routes through the dedicated rename card.
   if (f.issue_code === "calibration_factor_rename") return true;
+  // Partition-mismatch flavor (agent split / collapsed gold's FVs)
+  // also routes through the dedicated side-by-side card per
+  // [[feedback-comparison-factor-card-canonical]] — same data shape
+  // (rename payload + agent/gold target indexes), different title
+  // and rationale framing handled inside ComparisonFactorCard.
+  // Without this route the editor's "Everyone agrees" computation
+  // hides the FV-count divergence (Paul 2026-06-08 GSE93824).
+  if (f.issue_code === "calibration_factor_match_near") return true;
   // Legacy: severity-driven on the generic match code.
   return (
     f.issue_code === "calibration_factor_match" && f.severity !== "ok"

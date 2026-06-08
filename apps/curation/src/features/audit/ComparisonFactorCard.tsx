@@ -354,6 +354,15 @@ export function ComparisonFactorCard({
             <span className="font-mono">{rightCategory?.label ?? "?"}</span>
           </span>
         )
+      : finding.issue_code === "calibration_factor_match_near"
+        ? (
+            <span className="text-[12px] font-semibold">
+              Partition mismatch: <span className="font-mono">{leftCategory?.label ?? "?"}</span>
+              <span className="text-slate-400 font-normal text-[11px] ml-1">
+                ({rightFactor?.factor_values?.length ?? "?"} vs {leftFactor?.factor_values?.length ?? "?"} levels)
+              </span>
+            </span>
+          )
       : finding.issue_code === "calibration_factor_extra"
         ? (
             <span className="text-[12px] font-semibold">
