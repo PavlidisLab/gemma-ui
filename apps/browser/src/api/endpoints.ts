@@ -989,7 +989,9 @@ export interface HeatmapWireResponse {
   datasetId: number;
   datasetShortName?: string;
   matrix: {
-    values: Array<Array<number | null>>;
+    // Gemma seems to be returning missing values as string "NaN"s when serializing
+    // so we have to accept strings too
+    values: Array<Array<number | string | null>>;
     encoding?: string;
     rowsCount: number;
     colsCount: number;
