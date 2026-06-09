@@ -27,6 +27,62 @@ interface CurationVersionListResponse {
   total: number;
 }
 
+/** One row from the unified /curations endpoint — full payload
+ *  shape (design + tags + provenance). Mirrors the agents-side
+ *  Curation Pydantic model. */
+export interface CurationRow {
+  curation_id: string;
+  experiment_id: number;
+  producer: string;
+  source_kind: string;
+  label: string;
+  design: Record<string, unknown>;
+  tags: unknown[];
+  bm_characteristic_overlay?: Record<string, unknown> | null;
+  created_at?: string | null;
+  parent_curation_ids?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+interface CurationListResp {
+  items: CurationRow[];
+  total: number;
+}
+
+/** Fetch the full curations list (with payloads) for an
+ *  experiment. Step 3b of the 2026-06-08 unified-curation-versions
+ *  reframe: chip strip + card render against THIS list, with
+ *  labels coming from each row's `label` / `producer + source_kind`.
+ *
+ *  Returns empty list on 404 (instance without the unified
+ *  endpoint deployed) so callers can fall back to the legacy
+ *  Source-enum dropdown without a hard error. */
+export function useCurations(experimentId: number | string) {
+  return useQuery({
+    enabled: Boolean(experimentId),
+    queryKey: ["curations", experimentId] as const,
+    staleTime: 30_000,
+    queryFn: async (): Promise<CurationRow[]> => {
+      try {
+        const raw = await api.get<CurationListResp>(
+          `/rest/v2/datasets/${experimentId}/curations`,
+        );
+        return raw?.items ?? [];
+      } catch (e: unknown) {
+        if (
+          e &&
+          typeof e === "object" &&
+          "status" in e &&
+          (e as { status: number }).status === 404
+        ) {
+          return [];
+        }
+        throw e;
+      }
+    },
+  });
+}
+
 /** Fetch the unified curation-versions list for an experiment.
  *  Returns ``null`` on 404 (endpoint not yet deployed on this
  *  local_api / Gemma instance) so callers can route to the legacy

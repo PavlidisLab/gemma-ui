@@ -90,12 +90,26 @@ describe("defaults", () => {
       });
   });
 
-  it("review falls back to preboard baseline when no polished pack is loaded", () => {
+  it("review falls back to live baseline (then preboard) when no polished pack is loaded", () => {
+    // 2026-06-08: defaults now prefer `live` over `preboard` when
+    // no availability map is supplied. Without an availability
+    // hint defaultSlots treats live as available and picks it.
     expect(defaultSlots("review")).toEqual({
-      baseline: "preboard",
+      baseline: "live",
       comparator: "agent_proposal",
     });
     expect(defaultSlots("review", { polishedCurators: [] })).toEqual({
+      baseline: "live",
+      comparator: "agent_proposal",
+    });
+    // When live is explicitly unavailable, defaults fall through
+    // to preboard (the prior behaviour).
+    expect(
+      defaultSlots("review", {
+        polishedCurators: [],
+        availability: { live: { available: false } },
+      }),
+    ).toEqual({
       baseline: "preboard",
       comparator: "agent_proposal",
     });
@@ -128,10 +142,22 @@ describe("parseSource", () => {
     expect(parseSource("polished:jordan-doe")).toBe("polished:jordan-doe");
   });
 
-  it("returns null on unknown tokens", () => {
-    expect(parseSource("xyz")).toBeNull();
-    expect(parseSource("polished:")).toBeNull();
+  it("treats any non-empty string as a valid opaque curation_id (step 3b)", () => {
+    // 2026-06-08 step 3b: parseSource accepts any non-empty
+    // string as a Source (the new opaque curation_id type).
+    // Unknown tokens — UUIDs from the unified curation table,
+    // future producer kinds, anything the local_api emits — all
+    // resolve to themselves. Labels come from the /curations
+    // lookup at render time.
+    expect(parseSource("xyz")).toBe("xyz");
+    expect(parseSource("550e8400-e29b-41d4-a716-446655440000"))
+      .toBe("550e8400-e29b-41d4-a716-446655440000");
+    expect(parseSource("polished:")).toBe("polished:");
+  });
+
+  it("returns null on empty / null / undefined", () => {
     expect(parseSource("")).toBeNull();
+    expect(parseSource("   ")).toBeNull();
     expect(parseSource(null)).toBeNull();
     expect(parseSource(undefined)).toBeNull();
   });
@@ -163,8 +189,41 @@ describe("polished helpers", () => {
 describe("sourceLabel", () => {
   it("labels system sources", () => {
     expect(sourceLabel("empty")).toBe("(empty)");
-    expect(sourceLabel("preboard")).toBe("Gemma");
+    // 2026-06-08: preboard relabeled "Gemma preboard" (was
+    // "Gemma" — misleading because the preboard is the GEO-only
+    // pre-curation snapshot, not Gemma's live curation state).
+    expect(sourceLabel("preboard")).toBe("Gemma preboard");
+    expect(sourceLabel("live")).toBe("Gemma (live)");
     expect(sourceLabel("agent_proposal")).toBe("agent original proposal");
+  });
+
+  it("uses the curation row's label when available (step 3b)", () => {
+    // Opaque curation_id resolves via the /curations list when
+    // passed in.
+    const curations = [
+      {
+        curation_id: "uuid-abc-123",
+        label: "Strict consensus (cy+am)",
+        producer: "consensus:strict_cy_am",
+        source_kind: "consensus",
+      },
+    ];
+    expect(sourceLabel("uuid-abc-123", curations))
+      .toBe("Strict consensus (cy+am)");
+    // Falls back to "${producer} (${source_kind})" when label
+    // is empty.
+    const curationsNoLabel = [
+      {
+        curation_id: "uuid-xyz",
+        label: "",
+        producer: "agent:run-42",
+        source_kind: "agent_proposal",
+      },
+    ];
+    expect(sourceLabel("uuid-xyz", curationsNoLabel))
+      .toBe("agent:run-42 (agent_proposal)");
+    // Unknown id falls through to legacy enum path.
+    expect(sourceLabel("preboard", curations)).toBe("Gemma preboard");
   });
 
   it("title-cases the curator name for polished sources", () => {

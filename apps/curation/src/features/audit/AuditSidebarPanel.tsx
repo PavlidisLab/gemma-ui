@@ -39,6 +39,7 @@ import { ComparisonFactorCard } from "./ComparisonFactorCard";
 import { useFlow } from "@/features/comparison/FlowContext";
 import { useChipState } from "@/features/comparison/useChipState";
 import { sourceLabel } from "@/features/comparison/sources";
+import { useCurations } from "@/features/comparison/useSourceAvailability";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
   experimentTarget,
@@ -1984,10 +1985,16 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
   // labels (LEFT = baseline source, RIGHT = comparator source). Per
   // memory project-curation-overlay-model: the card doesn't know
   // which curation lives on which side — the chip strip does.
+  // Step 3b: labels resolve against the unified /curations list
+  // when the source is an opaque curation_id; legacy literal IDs
+  // (preboard / live / agent_proposal / polished:*) still resolve
+  // via the enum-based fallback inside sourceLabel.
   const flow = useFlow();
   const chip = useChipState({ experimentId, flow });
-  const baselineLabel = sourceLabel(chip.baseline);
-  const comparatorLabel = sourceLabel(chip.comparator);
+  const curationsQuery = useCurations(experimentId);
+  const curations = curationsQuery.data ?? [];
+  const baselineLabel = sourceLabel(chip.baseline, curations);
+  const comparatorLabel = sourceLabel(chip.comparator, curations);
   // Single flat list, sorted by severity then target_kind. The full
   // report view groups by target_kind (it has the room); in the
   // narrow sidebar a single severity-sorted list scans faster — most
