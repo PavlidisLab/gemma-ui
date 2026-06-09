@@ -73,7 +73,12 @@ import { verdictToStructureDetails } from "./dispositionSave";
 import { consequentHint, type ConsequentHintState } from "./consequentHint";
 import { firstBacktick, trimRationaleBoilerplate } from "./rationaleText";
 import { findingLean, type DefenderLean } from "./defenderLean";
-import { actionLabels, findingActionShape } from "./actionLabels";
+import {
+  acceptLabel,
+  actionLabels,
+  findingActionShape,
+  type ActionShape,
+} from "./actionLabels";
 import { parseTargetId, slug } from "./targetIds";
 import type { FactorProposal } from "@/api/types";
 import { useAudit } from "./AuditContext";
@@ -1106,7 +1111,12 @@ export function FindingDetailsEditor({
     // "accept" reads "adopt <proposer>'s <directionPhrase>" so the
     // curator still sees WHICH direction they're adopting.
     const keepLabel = actionLbls.keep;
-    const acceptLabel = `${actionLbls.adopt} ${identities.proposer}'s ${directionPhrase}`;
+    // Partition-mismatch is always a "change" shape so the
+    // possessive form ("adopt Auditor's …") reads correctly. We
+    // append the direction phrase by hand here rather than going
+    // through acceptLabel() because the directional cue belongs
+    // only on this specific finding type.
+    const acceptButtonLabel = `${actionLbls.adopt} ${identities.proposer}'s ${directionPhrase}`;
     const acceptTitle = isAgentFiner
       ? `Use the finer factor-value partition ${identities.proposer} proposed.`
       : `Use the simpler factor-value partition ${identities.proposer} proposed.`;
@@ -1157,7 +1167,7 @@ export function FindingDetailsEditor({
             disease factor in the GSE28300 example has 3 levels in
             one factor, not "across 2 factors". */}
         <div className="space-y-1">
-          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+          <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
             <span className="text-slate-600 dark:text-slate-300">
               <strong>{identities.proposer}</strong> {agentVerb}
             </span>
@@ -1170,7 +1180,7 @@ export function FindingDetailsEditor({
               </span>
             </span>
           </div>
-          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+          <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
             <span className="text-slate-600 dark:text-slate-300">
               <strong>{identities.goldCurator}</strong>
               {goldVerb ? ` ${goldVerb}` : null}
@@ -1265,7 +1275,7 @@ export function FindingDetailsEditor({
             {
               key: "accept",
               kind: leanKinds.accept,
-              label: acceptLabel,
+              label: acceptButtonLabel,
               onClick: () => dispatchSave("proposal"),
               title: acceptTitle,
             },
@@ -1537,9 +1547,11 @@ export function FindingDetailsEditor({
 
         {/* Comparator-row lines — same labeled-identity shape the
             disagreement blocks use, so curators read both surfaces
-            with the same convention. */}
-        <div className="space-y-1.5">
-          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+            with the same convention. Tight 5rem gutter (was 8rem) and
+            the category chip sits inline next to "Current 🔍" so the
+            FV chips below can fit on one line at 11px. */}
+        <div className="space-y-1">
+          <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
             <span className="text-slate-600 dark:text-slate-300">
               <strong>{identities.proposer}</strong> {proposerVerb}
             </span>
@@ -1547,8 +1559,8 @@ export function FindingDetailsEditor({
               (proposes removing — no entry)
             </span>
           </div>
-          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
-            <span className="text-slate-600 dark:text-slate-300">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px]">
+            <span className="text-slate-600 dark:text-slate-300 whitespace-nowrap">
               <strong>{identities.goldCurator}</strong>
               {goldVerb ? ` ${goldVerb}` : null}
               <button
@@ -1556,12 +1568,12 @@ export function FindingDetailsEditor({
                 onClick={onLocateCurrent}
                 title="show in Design tab"
                 aria-label="locate in design"
-                className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
+                className="ml-1 align-baseline text-[10px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
               >
                 🔍
               </button>
             </span>
-            <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+            <span className="flex items-baseline gap-x-1.5">
               {goldTagParts ? (
                 // Tag removal — render category + value as two
                 // separate ontology chips so each can resolve to
@@ -1570,7 +1582,7 @@ export function FindingDetailsEditor({
                   <Term
                     uri={goldTagParts.category.uri}
                     asLink={false}
-                    className="!whitespace-normal break-words"
+                    className="!whitespace-nowrap"
                   >
                     {goldTagParts.category.label}
                   </Term>
@@ -1580,7 +1592,7 @@ export function FindingDetailsEditor({
                   <Term
                     uri={goldTagParts.value.uri}
                     asLink={false}
-                    className="!whitespace-normal break-words"
+                    className="!whitespace-nowrap"
                   >
                     {goldTagParts.value.label}
                   </Term>
@@ -1589,7 +1601,7 @@ export function FindingDetailsEditor({
                 <Term
                   uri={categoryUri}
                   asLink={false}
-                  className="!whitespace-normal break-words"
+                  className="!whitespace-nowrap"
                 >
                   {currentTermLabel}
                 </Term>
@@ -1602,63 +1614,61 @@ export function FindingDetailsEditor({
           </div>
 
           {/* Per-FV rows for the gold side — each FV on its own line
-              in S - P - O shape so the curator can read a multi-FV
-              factor (e.g. cell line with 4 cell-line subtypes)
-              without the labels colliding into an inline wrap. */}
+              in S - P - O shape. Indented minimally under the
+              category chip (pl-3) rather than under a full 5rem
+              identity gutter, and at 11px with nowrap so most rows
+              fit a single line. */}
           {removalFvRows && removalFvRows.length > 0 ? (
-            <div className="grid grid-cols-[8rem_1fr] gap-x-2 gap-y-1 items-baseline text-[12px]">
-              <span aria-hidden />
-              <div className="space-y-1">
-                {removalFvRows.map((fv) => (
-                  <div
-                    key={fv.key}
-                    className="flex flex-wrap items-baseline gap-x-1.5"
+            <div className="pl-3 space-y-0.5 text-[11px]">
+              {removalFvRows.map((fv) => (
+                <div
+                  key={fv.key}
+                  className="flex items-baseline gap-x-1.5 whitespace-nowrap"
+                >
+                  <Term
+                    uri={fv.subject.uri}
+                    asLink={false}
+                    className="!whitespace-nowrap"
                   >
-                    <Term
-                      uri={fv.subject.uri}
-                      asLink={false}
-                      className="!whitespace-normal break-words"
-                    >
-                      {fv.subject.label}
-                    </Term>
-                    {fv.predicate ? (
-                      <>
-                        <span className="text-slate-400 dark:text-slate-500">
-                          {" - "}
-                        </span>
-                        <span
-                          className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
-                          title={fv.predicate.uri || undefined}
-                        >
-                          {fv.predicate.label}
-                        </span>
-                      </>
-                    ) : null}
-                    {fv.object ? (
-                      <>
-                        <span className="text-slate-400 dark:text-slate-500">
-                          {" - "}
-                        </span>
-                        <Term
-                          uri={fv.object.uri}
-                          asLink={false}
-                          className="!whitespace-normal break-words"
-                        >
-                          {fv.object.label}
-                        </Term>
-                      </>
-                    ) : null}
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                      ({fv.count})
-                    </span>
-                    {fv.isBaseline ? (
-                      <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 ml-0.5">
-                        ★ baseline
+                    {fv.subject.label}
+                  </Term>
+                  {fv.predicate ? (
+                    <>
+                      <span className="text-slate-400 dark:text-slate-500">
+                        {" - "}
                       </span>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
+                      <span
+                        className="text-[10px] text-slate-500 dark:text-slate-200 font-mono whitespace-nowrap"
+                        title={fv.predicate.uri || undefined}
+                      >
+                        {fv.predicate.label}
+                      </span>
+                    </>
+                  ) : null}
+                  {fv.object ? (
+                    <>
+                      <span className="text-slate-400 dark:text-slate-500">
+                        {" - "}
+                      </span>
+                      <Term
+                        uri={fv.object.uri}
+                        asLink={false}
+                        className="!whitespace-nowrap"
+                      >
+                        {fv.object.label}
+                      </Term>
+                    </>
+                  ) : null}
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                    ({fv.count})
+                  </span>
+                  {fv.isBaseline ? (
+                    <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 ml-0.5">
+                      ★ baseline
+                    </span>
+                  ) : null}
+                </div>
+              ))}
             </div>
           ) : null}
         </div>
@@ -1684,7 +1694,7 @@ export function FindingDetailsEditor({
             {
               key: "remove",
               kind: leanKinds.accept,
-              label: `${actionLbls.adopt} ${identities.proposer}'s`,
+              label: acceptLabel(actionShape, identities.proposer),
               onClick: () => dispatchSave("proposal"),
             },
           ]}
@@ -1876,6 +1886,7 @@ export function FindingDetailsEditor({
             editCategory={firstBacktick(finding.rationale) ?? null}
             leanKinds={leanKinds}
             actionLbls={actionLbls}
+            actionShape={actionShape}
             judgeText={judgeForBlock}
             judgeCitation={judgeCitationForBlock}
             onPick={(pick) => {
@@ -1985,7 +1996,7 @@ export function FindingDetailsEditor({
                 {
                   key: "accept",
                   kind: leanKinds.accept,
-                  label: `${actionLbls.adopt} ${identities.proposer}'s`,
+                  label: acceptLabel(actionShape, identities.proposer),
                   onClick: () => dispatchSave("proposal"),
                   title: `Take ${identities.proposer}'s value on every disagreement.`,
                 },
@@ -3204,6 +3215,7 @@ function DisagreementBlock({
   editCategory,
   leanKinds,
   actionLbls,
+  actionShape,
   judgeText,
   judgeCitation,
 }: {
@@ -3240,6 +3252,11 @@ function DisagreementBlock({
    *  row exactly — both rows derive from the same finding-level
    *  action shape (see ./actionLabels.ts). Per Paul 2026-05-21. */
   actionLbls: { keep: string; adopt: string };
+  /** Action shape — same finding-level shape the parent computes.
+   *  Threaded so the accept button can suppress the possessive
+   *  suffix when shape is "remove" / "match" (per Paul 2026-06-08,
+   *  the "remove Auditor's" hanging-possessive bug). */
+  actionShape: ActionShape;
   /** Optional "Judge:" rationale to render INSIDE this FV block.
    *  Threaded from the parent on near-match findings (Paul 2026-05-21
    *  redesign — GSE93824 case): the factor-card-level
@@ -3327,7 +3344,12 @@ function DisagreementBlock({
   // `keepLabelFor(identities.goldCurator)` ("keep current" /
   // "keep amanda's") — those didn't carry the action verb.
   const keepLabel = actionLbls.keep;
-  const adoptLabel = actionLbls.adopt;
+  // For action shapes where the accept verb stands on its own
+  // ("remove" / "confirm"), the trailing "<Proposer>'s" was reading
+  // as a hanging possessive ("remove Auditor's"). Use the helper
+  // so the suffix only appears for add/change actions where it
+  // makes grammatical sense.
+  const adoptLabel = acceptLabel(actionShape, identities.proposer);
 
   return (
     <div
@@ -3409,7 +3431,7 @@ function DisagreementBlock({
           onClick={() => onPick("proposal")}
           tone="accept"
         >
-          {adoptLabel} {identities.proposer}'s
+          {adoptLabel}
         </PickButton>
         {hasReferenceCtx ? (
           <PickButton
@@ -3539,13 +3561,13 @@ function TagDetailBlock({
   const goldVerb = currentlyVerb(identities.goldCurator);
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]">
+      <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
         <span className="text-slate-600 dark:text-slate-300">
           <strong>{identities.proposer}</strong> says
         </span>
         {renderSide("proposal")}
       </div>
-      <div className="grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]">
+      <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
         <span className="text-slate-600 dark:text-slate-300">
           <strong>{identities.goldCurator}</strong>
           {goldVerb ? ` ${goldVerb}` : null}
@@ -3665,7 +3687,7 @@ function ComparatorLine({
   return (
     <div
       className={cn(
-        "grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]",
+        "grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]",
         picked && "rounded bg-blue-50 dark:bg-blue-900/30 px-1 py-0.5",
       )}
     >

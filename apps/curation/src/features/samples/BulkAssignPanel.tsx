@@ -152,7 +152,9 @@ export function BulkAssignPanel({
                       <option value="">(skip)</option>
                       {factor.factor_values.map((fv) => (
                         <option key={fv.id} value={fv.id}>
-                          {fvDisplayLabel(fv, factor.factor_values)}
+                          {fvDisplayLabel(fv, factor.factor_values, {
+                            compact: fv.id === target,
+                          })}
                         </option>
                       ))}
                     </select>

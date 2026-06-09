@@ -84,11 +84,16 @@ export function FvDisplayRow({
   const objUri = head?.object?.uri ?? null;
   const n = fv.biomaterial_short_names?.length ?? 0;
   return (
-    <div className={cx("text-[12px]", className)}>
-      <div className="flex flex-wrap items-baseline gap-x-1.5">
+    <div className={cx("text-[11px]", className)}>
+      {/* Single-line flex (no wrap) so paired FvDisplayRows align
+          vertically across rows in side-by-side comparator surfaces
+          — the trailing `(n)` count + baseline glyph stay on the
+          row instead of breaking onto a second line for FVs that
+          happen to be slightly wider than their siblings. */}
+      <div className="flex items-baseline gap-x-1.5">
         {leading}
         {indexLabel != null ? (
-          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 w-20 shrink-0">
+          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 w-10 shrink-0">
             FV {indexLabel}
           </span>
         ) : null}
@@ -133,9 +138,10 @@ export function FvDisplayRow({
         {trailing}
       </div>
       {/* Multi-statement: stack the remaining statements as indented
-          sublines, each rendering as Subj - Pred - Obj. */}
+          sublines, each rendering as Subj - Pred - Obj. Indent matches
+          the FV-N gutter (w-10 + gap-1.5 ≈ 2.875rem). */}
       {rest.length > 0 ? (
-        <div className="pl-[5.25rem] mt-0.5 space-y-0.5">
+        <div className="pl-[2.875rem] mt-0.5 space-y-0.5">
           {rest.map((s, i) => (
             <ExtraStatementLine
               key={i}
@@ -163,7 +169,7 @@ function ExtraStatementLine({
   const objLabel = statement.object?.label?.trim() ?? "";
   const objUri = statement.object?.uri ?? null;
   return (
-    <div className="flex flex-wrap items-baseline gap-x-1.5 text-[11px]">
+    <div className="flex items-baseline gap-x-1.5 text-[11px]">
       {subjLabel
         ? termRenderer({ label: subjLabel, uri: subjUri })
         : null}

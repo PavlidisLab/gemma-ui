@@ -2305,8 +2305,9 @@ function FvSelect({
   isMixed?: boolean;
   /** CSS color for the cell background — assigned by the parent
    *  panel from the per-column first-seen-value index. Parent skips
-   *  ontology / mixed / unassigned / empty so the four state
-   *  classes below stay load-bearing. */
+   *  mixed / unassigned so the amber / rose state classes stay
+   *  visible; assigned cells (ontology-backed or free-text) always
+   *  get a per-value tint. */
   valueTint?: string;
   onChange: (fvId: number) => void;
 }) {
@@ -2330,13 +2331,12 @@ function FvSelect({
       ? "border-rose-300 text-rose-700"
       : isOntologyBacked
         // "Anchored in an ontology" cue — see ONTOLOGY_ANCHOR_CLS.
-        ? `border-emerald-300 text-emerald-900 bg-emerald-50 ${ONTOLOGY_ANCHOR_CLS_PL2}`
+        // Border + text colour carry the cue; the per-value tint
+        // below overrides the emerald bg so distinct FVs in the
+        // same column read as distinct colours.
+        ? `border-emerald-300 text-emerald-900 ${ONTOLOGY_ANCHOR_CLS_PL2}`
         : "border-slate-300 text-slate-800";
-  // The parent passes `valueTint` already gated on (not mixed, not
-  // unassigned, not ontology-backed) — no extra check needed here.
-  // We only clear it on ontology-backed cells so the emerald
-  // bookmark + bg stays untinted.
-  const tint = isOntologyBacked ? undefined : valueTint;
+  const tint = valueTint;
   // For unassigned / mixed cells there's no FV with statements to
   // unpack; a plain native ``title`` is fine. For populated cells
   // (ontology-backed OR free-text-assigned) we render a rich
@@ -2373,7 +2373,14 @@ function FvSelect({
       </option>
       {factor.factor_values.map((fv) => (
         <option key={fv.id} value={fv.id}>
-          {fvDisplayLabel(fv, factor.factor_values)}
+          {/* Compact the currently-selected option so the closed
+              cell (which always shows the selected option's text)
+              doesn't repeat `(n=K)` on every row. Other options in
+              the open dropdown keep the count so the curator can
+              compare partition sizes. */}
+          {fvDisplayLabel(fv, factor.factor_values, {
+            compact: fv.id === currentFvId,
+          })}
         </option>
       ))}
     </select>
@@ -2674,7 +2681,9 @@ function BulkActionBar({
         </option>
         {factorFvOptions.map((fv) => (
           <option key={fv.id} value={fv.id}>
-            {fvDisplayLabel(fv, factorFvOptions)}
+            {fvDisplayLabel(fv, factorFvOptions, {
+              compact: fv.id === fvId,
+            })}
           </option>
         ))}
       </select>

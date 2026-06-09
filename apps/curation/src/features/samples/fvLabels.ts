@@ -28,7 +28,12 @@ export interface FvLabelInput {
  *
  *  2. **Sample count.** Append ``(n=K)`` showing how many
  *     biomaterials are assigned to this FV. Gives the curator a
- *     fast read of partition balance during picking.
+ *     fast read of partition balance during picking. Suppressed
+ *     when ``opts.compact`` is set — used for the currently-
+ *     selected option in a native ``<select>`` so the closed cell
+ *     doesn't repeat the same ``(n=K)`` on every row of the same
+ *     FV. Other options in the open dropdown still carry the
+ *     count so the curator can compare partition sizes.
  *
  *  3. **Empty-FV warning.** When ``biomaterial_short_names`` is
  *     empty (and the input carries the field at all — undefined is
@@ -47,6 +52,7 @@ export interface FvLabelInput {
 export function fvDisplayLabel(
   fv: FvLabelInput,
   allFvs: FvLabelInput[],
+  opts?: { compact?: boolean },
 ): string {
   const base = fv.free_text_label || `FV ${fv.id}`;
   let out = base;
@@ -62,7 +68,7 @@ export function fvDisplayLabel(
     const n = fv.biomaterial_short_names.length;
     if (n === 0) {
       out = `⚠ no samples — ${out}`;
-    } else {
+    } else if (!opts?.compact) {
       out = `${out} (n=${n})`;
     }
   }
