@@ -148,7 +148,26 @@ export function usePatchDisposition(experimentId: number | string) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
       qc.invalidateQueries({ queryKey: KEY.inbox() });
+      invalidateChipCalibrationReport(qc, experimentId);
     },
+  });
+}
+
+/** Invalidate the ``["chip-calibration-report", experimentId]`` cache
+ *  used by ``useCalibrationAuditReport`` (features/comparison/useChipDiff.ts).
+ *  That hook holds the override report ChipOverrideMount feeds into the
+ *  AuditProvider when the chip strip is in ``polished-vs-agent_proposal``
+ *  mode. Without this invalidation the override stays at the pre-mutation
+ *  report shape after a PATCH / finalize / reopen / reset succeeds — the
+ *  sidebar reads ``dispositionByTarget`` off the stale override, so action
+ *  buttons don't grey + the card doesn't fade even though the server state
+ *  is up-to-date. Caught 2026-06-09 on the v15 calibration pack. */
+function invalidateChipCalibrationReport(
+  qc: ReturnType<typeof useQueryClient>,
+  experimentId: number | string,
+) {
+  qc.invalidateQueries({
+    queryKey: ["chip-calibration-report", experimentId],
   });
 }
 
@@ -188,6 +207,7 @@ export function useFinalizeAudit(experimentId: number | string) {
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
+      invalidateChipCalibrationReport(qc, experimentId);
     },
   });
 }
@@ -227,6 +247,7 @@ export function useResetAuditDispositions(
         queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
       });
       qc.invalidateQueries({ queryKey: KEY.inbox() });
+      invalidateChipCalibrationReport(qc, experimentId);
     },
   });
 }
@@ -256,6 +277,7 @@ export function useReopenAudit(experimentId: number | string) {
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
+      invalidateChipCalibrationReport(qc, experimentId);
     },
   });
 }
