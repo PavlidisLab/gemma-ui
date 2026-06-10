@@ -20,6 +20,7 @@ import {
 import { platformPageUrl } from "@/lib/gemmaUrls";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
+import { augmentInferredFromFactors } from "./augmentFactorTags";
 import { shortenUri } from "@/lib/curie";
 import { cn } from "@/lib/cn";
 import { ONTOLOGY_ANCHOR_CLS } from "@/lib/ontologyAnchor";
@@ -1291,9 +1292,24 @@ function TagBar({
   // organism part. The biomaterials carry the full set; we walk
   // them and build a synth chip per category that captures every
   // distinct value across the cohort.
+  //
+  // Then layer the FV-projected synth chips from ``draft.factors``:
+  // one chip per factor with the factor's FV labels comma-joined as
+  // the value. Used to come from agents-side
+  // ``import_from_gemma.py`` step 4a; that synthesis was retired on
+  // 2026-06-10 (handoff
+  // ``HANDOFF_2026-06-10_REMOVE_FV_TAG_PROJECTION.md``) because it
+  // inflated eval F1 baselines as a factor-as-tag projection
+  // artifact. The UI re-synthesises locally so the downstream dedup
+  // (FV-synth wins over direct EE tags for the same category) keeps
+  // working without any further changes here.
   const augmentedTags = useMemo(
-    () => augmentInferredFromBiomaterials(tags, biomaterials),
-    [tags, biomaterials],
+    () =>
+      augmentInferredFromFactors(
+        augmentInferredFromBiomaterials(tags, biomaterials),
+        draft?.factors ?? [],
+      ),
+    [tags, biomaterials, draft?.factors],
   );
 
   // Drop block / batch tags here — they're nuisance variables
