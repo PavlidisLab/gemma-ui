@@ -192,19 +192,33 @@ export function DesignEditor({
   // ``useIsReadOnly()`` and self-gate. This banner is just the
   // visible status line.
   const readOnly = useIsReadOnly();
+  const { usingBaseline, baselineLabel, baselineSourceKind } = useDesignDraft();
 
   return (
     <div className="space-y-4">
       {readOnly ? (
         <div
-          className="rounded border border-slate-300 bg-slate-100/60 px-3 py-2 text-[12px] text-slate-600 dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-300"
+          className="rounded border border-amber-300 bg-amber-50/60 px-3 py-2 text-[12px] text-amber-800 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-200"
           role="status"
         >
           <span className="font-semibold uppercase tracking-wide text-[10px] mr-2">
             Read-only
           </span>
-          no calibration / ticket context — open this experiment via a
-          package to take action on the design
+          {usingBaseline ? (
+            <>
+              you're viewing{" "}
+              <span className="font-mono">{baselineLabel ?? baselineSourceKind ?? "this curation"}</span>
+              {" "}— edits write to the local pack, so editing while
+              viewing this baseline is locked. Switch the baseline
+              chip to the editable target (consensus / your polished
+              row) to edit.
+            </>
+          ) : (
+            <>
+              no calibration / ticket context — open this experiment
+              via a package to take action on the design
+            </>
+          )}
         </div>
       ) : null}
       <div className="space-y-4">

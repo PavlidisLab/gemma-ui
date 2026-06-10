@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { FlowKind } from "./sources";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
 
 /** App-level flow context — surfaces whether the ticket the
  *  curator is working under was provisioned as a curation batch
@@ -29,18 +30,45 @@ export function useFlow(): FlowKind {
 /** Returns ``true`` when the curator should be prevented from
  *  mutating server state.
  *
- *  Rule (Paul 2026-06-02): in our offline method-evaluation work,
- *  the point is to converge on polished gold — whatever sits on
- *  the left chip is editable. The curator can pick any baseline and
- *  refine it; the gate is implicit in what writes the chosen
- *  baseline supports server-side. We don't lock the UI in offline
- *  mode.
+ *  Rule (Paul 2026-06-08, after the chip-baseline rewire): edits
+ *  always write to ``/datasets/{id}/design`` — the local store
+ *  the calibration pack POSTed its consensus design into. If the
+ *  chip strip is showing a DIFFERENT curation (Live Gemma, a
+ *  preboard snapshot, the agent's proposal) and we let the curator
+ *  edit, they'd silently overwrite the local pack content with the
+ *  baseline's content + their edits. Lock editing in that case.
  *
- *  Kept as a hook for forward-compat: when this code lands behind
- *  a real Gemma session that distinguishes viewer permissions
- *  (e.g. anonymous read-only access to a public ticket), the gate
- *  can be reintroduced here without changing the call sites.
+ *  Editable baselines: ``consensus`` (rooted in /design), the
+ *  curator's own polished row (``curator_polish``, content matches
+ *  what's writable), and the legacy fallback (no chip baseline
+ *  resolved — page is using ``useDesign(experimentId)`` directly,
+ *  i.e. the local /design store). All other source_kinds are
+ *  read-only.
+ *
+ *  Returns ``false`` when the DesignDraftProvider isn't mounted —
+ *  callers outside the experiment shell (login page, inboxes)
+ *  shouldn't need the gate, and a missing provider is the legacy
+ *  no-op behaviour.
  */
+const _EDITABLE_BASELINE_KINDS = new Set([
+  "consensus",
+  "curator_polish",
+]);
+
 export function useIsReadOnly(): boolean {
-  return false;
+  // Defensive: the hook may be called outside the experiment shell
+  // where DesignDraftProvider isn't mounted (e.g. login page tests).
+  // useContext on a null context returns null, so check explicitly
+  // rather than throwing.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  let draft: ReturnType<typeof useDesignDraft> | null;
+  try {
+    draft = useDesignDraft();
+  } catch {
+    return false;
+  }
+  if (!draft.usingBaseline) return false;
+  const kind = draft.baselineSourceKind;
+  if (kind && _EDITABLE_BASELINE_KINDS.has(kind)) return false;
+  return true;
 }

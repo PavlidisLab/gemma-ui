@@ -46,6 +46,12 @@ import type { Factor } from "@/features/experiment/types";
 
 import { useAudit } from "./AuditContext";
 import { useDesign } from "@/api/design";
+import {
+  useCurations,
+  type CurationRow,
+} from "@/features/comparison/useSourceAvailability";
+import type { Source } from "@/features/comparison/sources";
+import { resolveCuration } from "@/features/comparison/resolveCuration";
 
 const Term: FvTermRenderer = ({ label, uri, variant }) => {
   if (variant === "predicate") {
@@ -285,6 +291,116 @@ function JudgeRow({
   );
 }
 
+// resolveCuration moved to features/comparison/resolveCuration.ts so
+// DesignDraftContext can import it without picking up this file's
+// transitive deps. Re-exported from there.
+
+/** Gather FV-subject URIs (lowercased) for similarity scoring.
+ *  We look at the statement subject because that's where the real
+ *  perturbation identity lives — "C5ar1 [mouse]" vs "APP [human]"
+ *  is the discriminator between two genotype factors that share
+ *  the same category URI (EFO_0000513) and a shared `wild type
+ *  genotype` FV. Falls back to FV free-text labels when no URIs. */
+function _factorSubjectKey(f: Factor | FactorProposal | null): Set<string> {
+  if (!f) return new Set();
+  const out = new Set<string>();
+  for (const fv of f.factor_values ?? []) {
+    const stmts = (fv as { statements?: Array<{ subject?: { uri?: string | null; label?: string | null } }> })
+      .statements ?? [];
+    for (const s of stmts) {
+      const u = (s.subject?.uri ?? "").trim().toLowerCase();
+      if (u) out.add(`uri:${u}`);
+      else {
+        const l = (s.subject?.label ?? "").trim().toLowerCase();
+        if (l) out.add(`lbl:${l}`);
+      }
+    }
+    const free = ((fv as { free_text_label?: string }).free_text_label ?? "")
+      .trim().toLowerCase();
+    if (free) out.add(`fv:${free}`);
+  }
+  return out;
+}
+
+function _jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 0;
+  let inter = 0;
+  for (const v of a) if (b.has(v)) inter += 1;
+  const union = a.size + b.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+/** Find the factor inside a curation's design that the finding is
+ *  pointing at. When the curation is the one whose factors the
+ *  finding's index was originally computed against (consensus
+ *  polished for the gold side; agent_proposal for the agent side),
+ *  the index is authoritative. Otherwise we match by category URI
+ *  first, then by case-insensitive label, returning null when no
+ *  factor in that curation lines up — the card renders the side as
+ *  empty so the curator sees "(not in <source>)".
+ *
+ *  Multi-factor-same-category disambiguation: when more than one
+ *  candidate factor in the curation matches by category, we score
+ *  each candidate by FV-subject-URI Jaccard overlap with the
+ *  owning factor (the finding's anchor) and pick the highest
+ *  scorer. GSE93824 has two `genotype` factors in live (C5aR1 KO
+ *  + hAPP transgene); a naive first-match would render the wrong
+ *  one. The BaselineDriftSection surfaces the runner-up factors
+ *  separately so neither gets silently dropped. */
+function findFactorInCuration(
+  curation: CurationRow | null,
+  category: { uri: string | null; label: string | null } | null,
+  preferIndex: number | null,
+  indexIsAuthoritative: boolean,
+  anchor: Factor | FactorProposal | null = null,
+): Factor | null {
+  if (!curation) return null;
+  const design = curation.design as { factors?: Factor[] } | undefined;
+  const factors = design?.factors;
+  if (!Array.isArray(factors) || factors.length === 0) return null;
+  if (
+    indexIsAuthoritative &&
+    preferIndex != null &&
+    preferIndex >= 0 &&
+    factors[preferIndex]
+  ) {
+    return factors[preferIndex];
+  }
+  if (!category) return null;
+
+  // Collect category-matching candidates (URI preferred, label
+  // fallback) — preserve original-index order so ties break by
+  // first occurrence rather than at random.
+  const candidates: Factor[] = [];
+  if (category.uri) {
+    for (const f of factors) {
+      if (f.category?.uri === category.uri) candidates.push(f);
+    }
+  }
+  if (candidates.length === 0 && category.label) {
+    const lc = category.label.toLowerCase();
+    for (const f of factors) {
+      if ((f.category?.label ?? "").toLowerCase() === lc) candidates.push(f);
+    }
+  }
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // Score by FV-subject Jaccard against the anchor (the original
+  // owning factor). Higher is better; ties keep first-seen order.
+  const anchorKey = _factorSubjectKey(anchor);
+  let best = candidates[0];
+  let bestScore = -1;
+  for (const c of candidates) {
+    const score = _jaccard(anchorKey, _factorSubjectKey(c));
+    if (score > bestScore) {
+      best = c;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 export interface ComparisonFactorCardProps {
   finding: AuditFinding;
   /** Custom title — defaults to a rename-style framing built from
@@ -305,6 +421,32 @@ export interface ComparisonFactorCardProps {
   /** Column header label for the RIGHT (comparator) side. Same
    *  semantics as `leftLabel`. */
   rightLabel?: string;
+  /** Chip-strip baseline source token. When provided, the LEFT
+   *  factor is sourced from this curation (looked up in the unified
+   *  /curations list). When absent, the card falls back to
+   *  useDesign(experimentId).factors[gold_target_index] — preserves
+   *  pre-step-3b behaviour for any caller that hasn't been wired
+   *  through yet. */
+  baselineSource?: Source;
+  /** Chip-strip comparator source token. Same semantics as
+   *  baselineSource: when provided, the RIGHT factor is sourced from
+   *  this curation; when absent, falls back to
+   *  report.evidence.comparison_proposal.factors[agent_target_index]. */
+  comparatorSource?: Source;
+  /** Force the LEFT factor to a specific value, bypassing
+   *  baselineSource resolution. Used by the synthetic baseline-drift
+   *  cards in AuditSidebarPanel that surface factors present in the
+   *  chip baseline but absent from the audit-time consensus gold —
+   *  the card has no AuditFinding to source from but should render
+   *  with the same layout for visual consistency. */
+  leftFactorOverride?: Factor | null;
+  /** Same for the RIGHT factor. Synthetic drift cards pass null to
+   *  produce "(no factor)" on the right. */
+  rightFactorOverride?: Factor | FactorProposal | null;
+  /** Suppress the Accept / Dismiss / Park button row. Used by the
+   *  synthetic drift cards — there's no AuditFinding to dispatch a
+   *  disposition against, so action buttons would be a dead end. */
+  readOnly?: boolean;
 }
 
 /** The card itself. Pulls baseline (Polished Gemma) from the design and
@@ -315,40 +457,137 @@ export function ComparisonFactorCard({
   title,
   leftLabel: leftLabelProp,
   rightLabel: rightLabelProp,
+  baselineSource,
+  comparatorSource,
+  leftFactorOverride,
+  rightFactorOverride,
+  readOnly,
 }: ComparisonFactorCardProps) {
   const { report, experimentId, setDisposition, dispositionByTarget } =
     useAudit();
   const { data: design } = useDesign(experimentId);
+  const curationsQuery = useCurations(experimentId);
+  const curations = curationsQuery.data ?? [];
   const [busy, setBusy] = useState(false);
 
-  // Labels: prop > chip-strip selection > generic fallback.
-  // Reading chip-strip selection requires the flow context the
-  // experiment-shell sets — defer that wiring to the proper Source-
-  // enum elimination (step 3b). For now: prop wins; generic fallback
-  // when no prop. This keeps the card structurally honest (labels
-  // come from outside, not hardcoded "POLISHED GEMMA") without
-  // taking on the deeper Source-type refactor in this commit.
+  // Labels: prop > generic fallback. The actual chip-strip-driven
+  // labels resolve via the sourceLabel helper in the panel layer;
+  // the card just renders whatever string the caller hands it.
   const leftLabel = leftLabelProp ?? "Baseline";
   const rightLabel = rightLabelProp ?? "Comparator";
 
   const dispo = dispositionByTarget.get(finding.target_id) ?? null;
   const status = dispo?.status ?? "pending";
 
-  // LEFT = baseline = Polished Gemma (current design's factor at gold_target_index).
-  // RIGHT = comparator = Agent (comparison_proposal factor at agent_target_index).
-  const leftFactor: Factor | null = useMemo(() => {
+  // Resolve the OWNING factors first — the consensus-polished factor
+  // at gold_target_index and the agent_proposal factor at
+  // agent_target_index. These are always reachable regardless of
+  // chip-strip selection; their categories give us the URI/label
+  // hint to find the same factor in any non-owning curation the
+  // user picks.
+  const owningGoldFactor: Factor | null = useMemo(() => {
     const ix = finding.gold_target_index;
     if (ix == null) return null;
-    return design?.factors?.[ix] ?? null;
-  }, [finding.gold_target_index, design]);
+    const consensus = curations.find((c) => c.source_kind === "consensus");
+    const fromCuration = consensus
+      ? ((consensus.design as { factors?: Factor[] } | undefined)?.factors ?? null)
+      : null;
+    return fromCuration?.[ix] ?? design?.factors?.[ix] ?? null;
+  }, [curations, design, finding.gold_target_index]);
 
-  const rightFactor: FactorProposal | null = useMemo(() => {
+  const owningAgentFactor: Factor | FactorProposal | null = useMemo(() => {
     const ix = finding.agent_target_index;
     if (ix == null) return null;
-    return (
-      report?.evidence?.comparison_proposal?.factors?.[ix] ?? null
-    );
+    return report?.evidence?.comparison_proposal?.factors?.[ix] ?? null;
   }, [finding.agent_target_index, report]);
+
+  // Category hint for non-owning curations. Prefer the gold side
+  // (URI-grounded against the polished consensus), fall back to the
+  // agent side. Both sides may be null on findings that don't carry
+  // a paired factor.
+  const findingCategory = useMemo(() => {
+    const gc = owningGoldFactor?.category;
+    if (gc && (gc.label || gc.uri)) {
+      return { label: gc.label ?? null, uri: gc.uri ?? null };
+    }
+    const ac = owningAgentFactor?.category;
+    if (ac && (ac.label || ac.uri)) {
+      return { label: ac.label ?? null, uri: ac.uri ?? null };
+    }
+    return null;
+  }, [owningGoldFactor, owningAgentFactor]);
+
+  // LEFT = baseline. When baselineSource is set, route through the
+  // unified /curations list — that's what the chip strip selected.
+  // When absent (legacy callers), fall back to the live design at
+  // the finding's gold_target_index (pre-step-3b behaviour).
+  // Explicit override (synthetic drift cards) wins over both.
+  const leftFactor: Factor | null = useMemo(() => {
+    if (leftFactorOverride !== undefined) return leftFactorOverride;
+    if (baselineSource !== undefined) {
+      const curation = resolveCuration(baselineSource, curations);
+      // gold_target_index was computed against the consensus polished
+      // gold that owns the finding. Authoritative only when the
+      // baseline curation is that same consensus row.
+      const indexIsAuth = curation?.source_kind === "consensus";
+      // anchor = the original gold-side factor (consensus row,
+      // resolved via gold_target_index). When the baseline curation
+      // has multiple factors with the same category URI
+      // (GSE93824 live has 2 genotype factors), findFactorInCuration
+      // scores candidates by FV-subject Jaccard against this anchor
+      // and picks the closest — otherwise the function falls back to
+      // first-match, which silently picks the wrong factor.
+      return findFactorInCuration(
+        curation,
+        findingCategory,
+        finding.gold_target_index ?? null,
+        indexIsAuth,
+        owningGoldFactor,
+      );
+    }
+    return owningGoldFactor;
+  }, [
+    leftFactorOverride,
+    baselineSource,
+    curations,
+    findingCategory,
+    finding.gold_target_index,
+    owningGoldFactor,
+  ]);
+
+  // RIGHT = comparator. Same routing: when comparatorSource is set,
+  // pull from the unified /curations row that matches. When absent,
+  // fall back to the agent's comparison_proposal at agent_target_index.
+  // Explicit override (synthetic drift cards) wins over both.
+  const rightFactor: Factor | FactorProposal | null = useMemo(() => {
+    if (rightFactorOverride !== undefined) return rightFactorOverride;
+    if (comparatorSource !== undefined) {
+      const curation = resolveCuration(comparatorSource, curations);
+      // agent_target_index was computed against the agent_proposal
+      // that owns the finding. Authoritative only when comparator
+      // resolves to an agent_proposal row.
+      const indexIsAuth = curation?.source_kind === "agent_proposal";
+      // anchor = the agent's original factor for FV-Jaccard
+      // disambiguation when the comparator curation has multiple
+      // factors with the same category URI (see leftFactor's
+      // comment for the GSE93824 motivating case).
+      return findFactorInCuration(
+        curation,
+        findingCategory,
+        finding.agent_target_index ?? null,
+        indexIsAuth,
+        owningAgentFactor,
+      );
+    }
+    return owningAgentFactor;
+  }, [
+    rightFactorOverride,
+    comparatorSource,
+    curations,
+    findingCategory,
+    finding.agent_target_index,
+    owningAgentFactor,
+  ]);
 
   const leftCategory = leftFactor
     ? {
@@ -485,32 +724,34 @@ export function ComparisonFactorCard({
           {finding.proposer_defense}
         </div>
       ) : null}
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => dispatch("accepted")}
-          className="text-[11px] px-2 py-0.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {acceptLabel}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => dispatch("dismissed", { dismissReason: "wont_fix" })}
-          className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
-        >
-          {dismissLabel}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => dispatch("needs_more_info")}
-          className="text-[11px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700 disabled:opacity-50"
-        >
-          Park
-        </button>
-      </div>
+      {readOnly ? null : (
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => dispatch("accepted")}
+            className="text-[11px] px-2 py-0.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {acceptLabel}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => dispatch("dismissed", { dismissReason: "wont_fix" })}
+            className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
+          >
+            {dismissLabel}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => dispatch("needs_more_info")}
+            className="text-[11px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700 disabled:opacity-50"
+          >
+            Park
+          </button>
+        </div>
+      )}
     </div>
   );
 }

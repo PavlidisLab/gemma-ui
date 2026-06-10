@@ -1490,35 +1490,15 @@ export function FindingDetailsEditor({
       };
     })();
     const categoryUri = goldFactor?.category?.uri ?? null;
-    // Per-FV row data for the removal card's gold side. Each FV
-    // gets its own row (S - P - O shape, predicate + object
-    // omitted when empty) below the "you have" line so multi-FV
-    // factors like cell-line don't crush into an unreadable
-    // wrap of long labels. The subject falls back to the FV's
-    // free_text_label when there's no structured statement
-    // attached (the curation-style "label-only" FV shape).
-    const removalFvRows =
+    // Gold-side FVs render via the shared FvDisplayRow per FV. That
+    // gives us multi-statement stacking (head + indented rest sublines)
+    // out of the box — earlier shape collected only `statements[0]` into
+    // an intermediate `removalFvRows` array and rendered inline, which
+    // silently dropped statements[1:] for combined-treatment / multi-
+    // statement FVs.
+    const removalFvList =
       goldFactor && goldFactor.factor_values.length > 0
-        ? goldFactor.factor_values.map((fv) => {
-            const st = fv.statements?.[0] as unknown as Statement | undefined;
-            const subjLabel =
-              st?.subject?.label?.trim() ||
-              fv.free_text_label?.trim() ||
-              `FV ${fv.id}`;
-            const subjUri = st?.subject?.uri ?? null;
-            const predLabel = st?.predicate?.label?.trim() ?? "";
-            const predUri = st?.predicate?.uri ?? null;
-            const objLabel = st?.object?.label?.trim() ?? "";
-            const objUri = st?.object?.uri ?? null;
-            return {
-              key: fv.id,
-              subject: { label: subjLabel, uri: subjUri },
-              predicate: predLabel ? { label: predLabel, uri: predUri } : null,
-              object: objLabel ? { label: objLabel, uri: objUri } : null,
-              count: fv.biomaterial_short_names?.length ?? 0,
-              isBaseline: !!fv.is_baseline,
-            };
-          })
+        ? goldFactor.factor_values
         : null;
     // The tag/factor being voted on. For tags it's a single
     // category:value chip; for factor removals it's the category
@@ -1614,60 +1594,16 @@ export function FindingDetailsEditor({
           </div>
 
           {/* Per-FV rows for the gold side — each FV on its own line
-              in S - P - O shape. Indented minimally under the
-              category chip (pl-3) rather than under a full 5rem
-              identity gutter, and at 11px with nowrap so most rows
-              fit a single line. */}
-          {removalFvRows && removalFvRows.length > 0 ? (
-            <div className="pl-3 space-y-0.5 text-[11px]">
-              {removalFvRows.map((fv) => (
-                <div
-                  key={fv.key}
-                  className="flex items-baseline gap-x-1.5 whitespace-nowrap"
-                >
-                  <Term
-                    uri={fv.subject.uri}
-                    asLink={false}
-                    className="!whitespace-nowrap"
-                  >
-                    {fv.subject.label}
-                  </Term>
-                  {fv.predicate ? (
-                    <>
-                      <span className="text-slate-400 dark:text-slate-500">
-                        {" - "}
-                      </span>
-                      <span
-                        className="text-[10px] text-slate-500 dark:text-slate-200 font-mono whitespace-nowrap"
-                        title={fv.predicate.uri || undefined}
-                      >
-                        {fv.predicate.label}
-                      </span>
-                    </>
-                  ) : null}
-                  {fv.object ? (
-                    <>
-                      <span className="text-slate-400 dark:text-slate-500">
-                        {" - "}
-                      </span>
-                      <Term
-                        uri={fv.object.uri}
-                        asLink={false}
-                        className="!whitespace-nowrap"
-                      >
-                        {fv.object.label}
-                      </Term>
-                    </>
-                  ) : null}
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                    ({fv.count})
-                  </span>
-                  {fv.isBaseline ? (
-                    <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 ml-0.5">
-                      ★ baseline
-                    </span>
-                  ) : null}
-                </div>
+              via the shared FvDisplayRow renderer (Subj · Pred · Obj
+              head, indented sublines for any statements[1:]). */}
+          {removalFvList && removalFvList.length > 0 ? (
+            <div className="pl-3 space-y-0.5">
+              {removalFvList.map((fv) => (
+                <FvDisplayRow
+                  key={fv.id}
+                  fv={fv}
+                  termRenderer={editorTermRenderer}
+                />
               ))}
             </div>
           ) : null}

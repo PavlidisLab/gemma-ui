@@ -12,6 +12,9 @@ import { useDesign, useUpdateDesign } from "@/api/design";
 import { ApiError } from "@/api/client";
 import { diffDesign, type DesignDiff } from "./diff";
 import type { Design } from "@/features/experiment/types";
+import { useCurations } from "@/features/comparison/useSourceAvailability";
+import type { Source } from "@/features/comparison/sources";
+import { resolveCuration } from "@/features/comparison/resolveCuration";
 
 /**
  * Make sure every Statement carries a category before round-tripping
@@ -165,6 +168,27 @@ export interface DesignDraftValue {
    *  was away. UI surfaces this as a "we discarded a stale draft"
    *  notice so the curator knows. */
   staleCacheDiscarded: boolean;
+  /** True when ``saved`` was sourced from the chip-strip baseline
+   *  curation (the unified /curations row) rather than the local
+   *  /datasets/{id}/design endpoint. Drives edit-gating: edits
+   *  always write back to /design, so showing the curator a
+   *  non-local baseline + letting them edit would silently
+   *  overwrite the local pack with the baseline's content + the
+   *  edits. Per Paul 2026-06-08 ("for comparing we can do what we
+   *  want, but we have to be careful about what we are editing"). */
+  usingBaseline: boolean;
+  /** When ``usingBaseline`` is true: the source_kind of the
+   *  curation row the page is rendered against ("live" /
+   *  "preboard" / "consensus" / "curator_polish" / "agent_proposal").
+   *  Null when ``usingBaseline`` is false. Used by ``useIsReadOnly``
+   *  to decide whether the baseline is editable in the local
+   *  /design model. */
+  baselineSourceKind: string | null;
+  /** When ``usingBaseline`` is true: the human-facing label of the
+   *  curation row (e.g. "Live Gemma" / "consensus:strict_cy_am").
+   *  Surfaced in the read-only banner so the curator knows why
+   *  editing is locked. */
+  baselineLabel: string | null;
 }
 
 const DesignDraftContext = createContext<DesignDraftValue | null>(null);
@@ -191,14 +215,78 @@ const EMPTY_DIFF: DesignDiff = {
 export function DesignDraftProvider({
   experimentId,
   reviewer = "",
+  baselineSource,
   children,
 }: {
   experimentId: number | string;
   reviewer?: string;
+  /** Chip-strip baseline token. When set, the provider sources
+   *  ``saved`` from the matching row in the unified /curations
+   *  list — so the WHOLE PAGE reflects the chip selection, not
+   *  just the audit-sidebar comparison cards. When unset (or no
+   *  curation matches), falls back to ``useDesign(experimentId)``
+   *  — the curator's editable local design (pre-step-3b behaviour).
+   *
+   *  Per Paul 2026-06-08 ("yes everywhere"): the chip strip is the
+   *  source of truth for what the page renders against. GSE93824
+   *  showed the disconnect — live had 3 factors, the page showed
+   *  2, because the main FactorList read from useDesign rather
+   *  than from the unified /curations row the chip strip
+   *  resolved to. */
+  baselineSource?: Source;
   children: ReactNode;
 }) {
-  const { data: saved, isLoading, error } = useDesign(experimentId);
+  const localDesign = useDesign(experimentId);
+  const curationsQuery = useCurations(experimentId);
+  const curations = curationsQuery.data ?? [];
   const updater = useUpdateDesign(experimentId, reviewer);
+
+  // Resolve the chip baseline to a curation row (when one is set).
+  // When the lookup hits, that row's design takes over from the
+  // local /design endpoint — every consumer of useDesignDraft now
+  // sees the chip-selected baseline.
+  const baselineCuration = useMemo(
+    () => (baselineSource ? resolveCuration(baselineSource, curations) : null),
+    [baselineSource, curations],
+  );
+
+  const savedFromBaseline = useMemo<Design | null>(() => {
+    if (!baselineCuration) return null;
+    const d = baselineCuration.design as unknown as Design | undefined;
+    if (!d || typeof d !== "object") return null;
+    // The /curations response is auto-snakeified by the API
+    // client, so the shape lines up with the Design type already.
+    // Inject experiment_id when the row's design payload omits
+    // it (older agent-proposal payloads sometimes do).
+    const eidNumeric = typeof experimentId === "number"
+      ? experimentId
+      : Number.parseInt(String(experimentId), 10);
+    return {
+      ...d,
+      experiment_id: d.experiment_id ?? (Number.isFinite(eidNumeric) ? eidNumeric : (d as Design).experiment_id),
+    };
+  }, [baselineCuration, experimentId]);
+
+  // Effective saved design: the chip-selected curation when one is
+  // resolved; the local /design endpoint otherwise. ``isLoading`` /
+  // ``error`` track whichever source is in play so the UI's
+  // loading + error states stay accurate.
+  const usingBaseline = savedFromBaseline !== null;
+  const saved = usingBaseline ? savedFromBaseline : localDesign.data;
+  const isLoading = usingBaseline ? curationsQuery.isLoading : localDesign.isLoading;
+  const error = usingBaseline ? (curationsQuery.error as Error | null) : localDesign.error;
+
+  // Defensive write gate. Mirrors useIsReadOnly's rule (edits are
+  // only safe when the page is rendering against the local /design
+  // target — consensus, curator_polish, or the legacy fallback).
+  // Duplicated here so the provider's own commit/apply paths
+  // refuse writes regardless of whether the UI components honor
+  // useIsReadOnly. Cheaper than auditing every input for a
+  // disabled prop.
+  const _EDITABLE_KINDS = new Set(["consensus", "curator_polish"]);
+  const providerReadOnly =
+    usingBaseline &&
+    !(baselineCuration?.source_kind && _EDITABLE_KINDS.has(baselineCuration.source_kind));
 
   const [draft, setDraft] = useState<Design | null>(null);
   const [staleCacheDiscarded, setStaleCacheDiscarded] = useState(false);
@@ -276,6 +364,11 @@ export function DesignDraftProvider({
       // can read ``saving`` from the context to disable inputs and
       // surface the saving state to the curator.
       if (updater.isPending) return;
+      // Defensive read-only gate (see providerReadOnly above): when
+      // the page is rendering against a non-local baseline (Live
+      // Gemma / preboard / agent proposal), apply is a no-op so
+      // stray edits from non-honoring consumers can't accumulate.
+      if (providerReadOnly) return;
       if (typeof next === "function") {
         // Functional form: compose against the *current* draft inside
         // React's setState batch. This is what bulk callers use so
@@ -289,17 +382,23 @@ export function DesignDraftProvider({
       // Any user action acknowledges the stale-draft notice.
       setStaleCacheDiscarded(false);
     },
-    [updater.isPending],
+    [updater.isPending, providerReadOnly],
   );
   const commit = useCallback(() => {
     if (!draft) return;
+    // Defensive: never POST writes against /design when the page is
+    // viewing a non-local baseline. A commit here would overwrite
+    // the local pack's design with the baseline content + any stray
+    // edits — exactly the silent-clobber scenario Paul flagged
+    // 2026-06-08 ("we have to be careful about what we are editing").
+    if (providerReadOnly) return;
     updater.mutate(normalizeForCommit(draft), {
       onSuccess: (server) => {
         setDraft(server);
         clearCachedDraft(experimentId);
       },
     });
-  }, [draft, updater, experimentId]);
+  }, [draft, updater, experimentId, providerReadOnly]);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
     clearCachedDraft(experimentId);
@@ -337,6 +436,9 @@ export function DesignDraftProvider({
     isLoading,
     loadError: error ? (error as Error).message : null,
     staleCacheDiscarded,
+    usingBaseline,
+    baselineSourceKind: baselineCuration?.source_kind ?? null,
+    baselineLabel: baselineCuration?.label ?? null,
   };
 
   return (

@@ -127,3 +127,27 @@ export function actionLabels(shape: ActionShape): {
   // change (default)
   return { keep: "don't change", adopt: "adopt" };
 }
+
+/** Full accept-button text including a possessive suffix when it
+ *  reads naturally. The legacy pattern was
+ *  ``${actionLbls.adopt} ${identities.proposer}'s`` everywhere,
+ *  but for a REMOVE action that renders as ``remove Auditor's`` —
+ *  a hanging possessive with nothing for it to modify (the curator
+ *  isn't removing something OF the auditor's; they're removing the
+ *  existing tag that the auditor proposed should go).
+ *
+ *  Rule (Paul 2026-06-08):
+ *    add / change → "<verb> <Proposer>'s"  (adopt Auditor's, add Auditor's)
+ *    remove       → "<verb>"               ("remove" alone)
+ *    match        → "<verb>"               ("confirm" alone)
+ *
+ *  Use this helper instead of inlining the template at call sites.
+ */
+export function acceptLabel(
+  shape: ActionShape,
+  proposerIdentity: string,
+): string {
+  const lbls = actionLabels(shape);
+  if (shape === "remove" || shape === "match") return lbls.adopt;
+  return `${lbls.adopt} ${proposerIdentity}'s`;
+}

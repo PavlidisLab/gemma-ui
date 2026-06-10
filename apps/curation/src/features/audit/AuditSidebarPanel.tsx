@@ -36,10 +36,15 @@ import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
 import sampleReport from "./fixtures/sample_audit_report.json";
 import { useAudit, findingKey } from "./AuditContext";
 import { ComparisonFactorCard } from "./ComparisonFactorCard";
+import { resolveCuration } from "@/features/comparison/resolveCuration";
 import { useFlow } from "@/features/comparison/FlowContext";
 import { useChipState } from "@/features/comparison/useChipState";
-import { sourceLabel } from "@/features/comparison/sources";
-import { useCurations } from "@/features/comparison/useSourceAvailability";
+import { sourceLabel, type Source } from "@/features/comparison/sources";
+import {
+  useCurations,
+  type CurationRow,
+} from "@/features/comparison/useSourceAvailability";
+import type { Factor } from "@/features/experiment/types";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
   experimentTarget,
@@ -210,7 +215,6 @@ import {
 } from "./AuditReportView";
 import { dedupeSubtaskDecisions } from "./subtaskDecisions";
 import { normalizeWikiUrl } from "@/lib/guidelines";
-import { HelpPopup } from "@/components/ui/HelpPopup";
 import {
   factorMatchVariant,
   isCloseFactorMatch,
@@ -1978,6 +1982,14 @@ function subsumedFvChildren(
   return out;
 }
 
+/** Section-header className shared by every "Tags / Characteristics /
+ *  Design — factors / Alternate factor / Confirmed matches / Factors
+ *  the audit didn't see" header inside FindingList. Reads as an actual
+ *  heading (12px, slate-700 bold, bottom border) rather than the
+ *  earlier 10px low-contrast caption that was smaller than the card
+ *  bodies it labelled. */
+const SECTION_HEADER_CLS =
+  "text-xs uppercase tracking-wider font-bold text-slate-700 dark:text-slate-200 px-1 pt-2 pb-1 border-b border-slate-200 dark:border-slate-700 mb-1";
 
 function FindingList({ findings }: { findings: AuditFinding[] }) {
   const { kind, dispositionByTarget, report, experimentId } = useAudit();
@@ -2213,7 +2225,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
       />
       {visibleRenames.length > 0 ? (
         <div className="space-y-1.5">
-          <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
+          <div className={SECTION_HEADER_CLS}>
             Alternate factor — proposed a different categorization
           </div>
           {visibleRenames.map((f) => (
@@ -2222,10 +2234,20 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
               finding={f}
               leftLabel={baselineLabel}
               rightLabel={comparatorLabel}
+              baselineSource={chip.baseline}
+              comparatorSource={chip.comparator}
             />
           ))}
         </div>
       ) : null}
+      <BaselineDriftSection
+        curations={curations}
+        baselineSource={chip.baseline}
+        comparatorSource={chip.comparator}
+        baselineLabel={baselineLabel}
+        comparatorLabel={comparatorLabel}
+      />
+
       {GROUPS.map(({ kind, header }) => {
         const items = groupedActionable.get(kind) ?? [];
         const matchesForKind = visibleMatches.filter(
@@ -2234,7 +2256,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
         if (items.length === 0 && matchesForKind.length === 0) return null;
         return (
           <div key={kind} className="space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
+            <div className={SECTION_HEADER_CLS}>
               {header}
             </div>
             {items.map((f) => (
@@ -2269,7 +2291,7 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
         if (orphan.length === 0) return null;
         return (
           <div className="space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 px-1">
+            <div className={SECTION_HEADER_CLS}>
               Confirmed matches
             </div>
             {orphan.map((f) => (
@@ -2305,6 +2327,203 @@ function FindingList({ findings }: { findings: AuditFinding[] }) {
             />
           ))
         : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Baseline-drift section — synthetic read-only cards for factors the
+// chip-strip baseline carries that the audit-time consensus gold does
+// NOT. Without these the curator can't see the gap (a "Live Gemma"
+// baseline with two genotype factors silently shows only the one the
+// audit knew about, because the auditor's findings list is closed
+// under the gold it scored against).
+//
+// Per Paul 2026-06-08 ("that needs to be surfaced in this ui as a gap
+// on the left"). Pairs with the (a) backend fix that makes the
+// `live` curation row reflect upstream Gemma instead of echoing the
+// polished pack.
+// ---------------------------------------------------------------------------
+
+/** Canonical factor signature for "same factor across curations".
+ *
+ *  Multi-factor-same-category designs (GSE93824 has TWO genotype
+ *  factors — one for the AD transgene, one for the C5aR1 knockout)
+ *  defeat a category-URI-only signature: both live factors and the
+ *  single consensus factor all carry EFO_0000513, so a URI compare
+ *  silently collapses the hAPP genotype into the C5aR1 one. We
+ *  also key on the lowercased sorted FV free-text label set, which
+ *  IS distinct across the two genotypes (wild-type FV is shared
+ *  but the perturbation FVs differ).
+ *
+ *  Returns the empty string when both URI/label and FV labels are
+ *  missing; such factors are filtered out rather than treated as
+ *  "extra" — we'd just generate noise. */
+function _factorSignature(f: Factor): string {
+  const cat = (f.category?.uri ?? "").trim()
+    || (f.category?.label ?? "").trim().toLowerCase();
+  const fvLabels = (f.factor_values ?? [])
+    .map((fv) => (fv.free_text_label ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .sort();
+  if (!cat && fvLabels.length === 0) return "";
+  return `${cat}|${fvLabels.join("␟")}`;
+}
+
+/** Extract the factor array from a CurationRow's design payload.
+ *  The unified /curations response is post-snakeify so factors live
+ *  under `.factors` (composeDesign isn't applied — these are the
+ *  raw producer designs). */
+function _factorsOf(curation: CurationRow | null): Factor[] {
+  if (!curation) return [];
+  const factors = (curation.design as { factors?: Factor[] } | undefined)
+    ?.factors;
+  return Array.isArray(factors) ? factors : [];
+}
+
+/** Nuisance factors Gemma's loader populates from data files
+ *  (block / batch / sequencing batch / lane / library prep) are
+ *  expected to differ between the polished gold (which strips
+ *  them) and the live curation (which carries them). They are NOT
+ *  a curator-actionable gap — filter from the drift section so
+ *  the cards stay focused on factors the curator actually decides.
+ *
+ *  Mirrors the canonical out-of-scope list in
+ *  ``build_curation_pack._AGENT_OUT_OF_SCOPE_FACTOR_NAMES`` and the
+ *  existing block/batch filters in FactorList / SampleDetailsPanel
+ *  / PrePublishChecklist. */
+function _isNuisanceFactor(f: Factor): boolean {
+  const cat = (f.category?.label ?? "").trim().toLowerCase();
+  const name = (f.name ?? "").trim().toLowerCase();
+  const NUISANCE = new Set([
+    "block",
+    "batch",
+    "sequencing batch",
+    "sequencing run",
+    "lane",
+    "library prep",
+  ]);
+  return NUISANCE.has(cat) || NUISANCE.has(name);
+}
+
+/** Synthesize a placeholder AuditFinding the read-only card can
+ *  consume. Only the fields ComparisonFactorCard reads when
+ *  readOnly + leftFactorOverride are set need realistic values;
+ *  everything else is filled with neutral defaults so the runtime
+ *  doesn't trip on optional accessors. */
+function _driftFinding(
+  factor: Factor,
+  index: number,
+): AuditFinding {
+  const slug = `baseline_drift:${index}:${factor.id ?? "noid"}`;
+  return {
+    target_kind: "factor",
+    target_id: slug,
+    severity: "minor",
+    issue_code: "baseline_drift",
+    rationale: "",
+    citation: "",
+    citation_url: "",
+    suggested_fix: "",
+    proposer_suggestion: "",
+  } as unknown as AuditFinding;
+}
+
+function BaselineDriftSection({
+  curations,
+  baselineSource,
+  comparatorSource,
+  baselineLabel,
+  comparatorLabel,
+}: {
+  curations: readonly CurationRow[];
+  baselineSource: Source;
+  comparatorSource: Source;
+  baselineLabel: string;
+  comparatorLabel: string;
+}) {
+  // Surface factors visible in EITHER chip slot that the audit
+  // never knew about. The audit's findings list is closed under
+  // (consensus polished ∪ agent_proposal) — those are the two
+  // designs the audit ran over. Any factor in the chip baseline or
+  // comparator that isn't in either of those is silently dropped
+  // from the comparison cards. Render one read-only card per such
+  // factor so the curator sees the gap.
+  //
+  // GSE93824 (2026-06-08): the live curation has TWO genotype
+  // factors (C5aR1 KO + hAPP transgene). The audit-time consensus
+  // had only the C5aR1 one; the audit-time agent proposal collapsed
+  // both into a single 4-level genotype. The hAPP factor is
+  // therefore visible only when the chip points at "live", on
+  // either slot — surface it here.
+  const drifts = useMemo(() => {
+    if (curations.length === 0) {
+      return [] as Array<{ factor: Factor; side: "baseline" | "comparator" }>;
+    }
+    const consensus =
+      curations.find((c) => c.source_kind === "consensus") ?? null;
+    const agentProposal =
+      curations.find((c) => c.source_kind === "agent_proposal") ?? null;
+    const auditedSigs = new Set<string>([
+      ..._factorsOf(consensus).map(_factorSignature),
+      ..._factorsOf(agentProposal).map(_factorSignature),
+    ]);
+
+    const out: Array<{ factor: Factor; side: "baseline" | "comparator" }> = [];
+    const seen = new Set<string>(); // dedup when both chips point at the same source
+
+    function collect(source: Source, side: "baseline" | "comparator") {
+      const cur = resolveCuration(source, curations);
+      if (!cur) return;
+      // Skip when this chip slot IS one of the audit-time sources
+      // — by construction every factor is already in auditedSigs.
+      if (
+        cur.source_kind === "consensus" ||
+        cur.source_kind === "agent_proposal"
+      ) {
+        return;
+      }
+      for (const f of _factorsOf(cur)) {
+        if (_isNuisanceFactor(f)) continue;
+        const sig = _factorSignature(f);
+        if (sig === "" || auditedSigs.has(sig) || seen.has(sig)) continue;
+        seen.add(sig);
+        out.push({ factor: f, side });
+      }
+    }
+    collect(baselineSource, "baseline");
+    collect(comparatorSource, "comparator");
+    return out;
+  }, [curations, baselineSource, comparatorSource]);
+
+  if (drifts.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300 px-1 pt-2 pb-1 border-b border-amber-200 dark:border-amber-700 mb-1">
+        Factors the audit didn't see ({drifts.length})
+      </div>
+      {drifts.map(({ factor: f, side }, i) => {
+        const label = side === "baseline" ? baselineLabel : comparatorLabel;
+        return (
+          <ComparisonFactorCard
+            key={`baseline-drift:${side}:${f.id ?? i}`}
+            finding={_driftFinding(f, i)}
+            leftLabel={side === "baseline" ? label : ""}
+            rightLabel={side === "comparator" ? label : ""}
+            leftFactorOverride={side === "baseline" ? f : null}
+            rightFactorOverride={side === "comparator" ? f : null}
+            readOnly
+            title={
+              <span className="text-[12px] font-semibold">
+                Extra factor in {label}:{" "}
+                <span className="font-mono">
+                  {f.category?.label ?? f.name ?? "(uncategorised)"}
+                </span>
+              </span>
+            }
+          />
+        );
+      })}
     </div>
   );
 }
@@ -3468,7 +3687,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   SeverityBadge above — one colored square does
                   both severity colour AND action symbol. No
                   separate inline glyph here. */}
-              <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 mr-1">
+              <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 mr-1">
                 {findingActionLabel(finding)}
               </span>
               <JudgeStrengthGlyph finding={finding} />
@@ -3576,6 +3795,28 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // tag isn't in the current draft, the agent's
                   // suggested term carries the ontology binding).
                   valUri = valUri ?? finding.proposer_term?.uri ?? null;
+                  // Final fallback — label-based lookup against draft.tags.
+                  // Fires when the target_id-slug path didn't parse (e.g.
+                  // ``calibration:miss:cat/val`` for
+                  // ``calibration_gold_only_miss``: the agent's tag-removal
+                  // finding builder doesn't emit ``proposer_term``, so the
+                  // URI was being dropped even though the tag IS in the
+                  // gold design with a grounded URI. Parity fix vs the
+                  // ``calibration_agent_extra`` case (Add tag), which
+                  // recovered the URI via the proposer_term branch above.
+                  if (!valUri || !catUri) {
+                    const matchedByLabel = draft?.tags?.find(
+                      (t) =>
+                        (t.category?.label ?? "").trim().toLowerCase() ===
+                          (catLabel ?? "").trim().toLowerCase() &&
+                        (t.value?.label ?? "").trim().toLowerCase() ===
+                          (valLabel ?? "").trim().toLowerCase(),
+                    );
+                    if (matchedByLabel) {
+                      catUri = catUri ?? matchedByLabel.category?.uri ?? null;
+                      valUri = valUri ?? matchedByLabel.value?.uri ?? null;
+                    }
+                  }
                   // Value-first ordering (harmonized with ProposalReview-
                   // Card's TagReviewCard, 2026-05-24): the resolved term
                   // is the load-bearing identity; the category is
@@ -3624,34 +3865,36 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             </>
           ) : (
             <>
-              <span className="font-mono text-[10px] text-slate-600 dark:text-slate-400 mr-1">
-                {TARGET_KIND_LABEL[finding.target_kind]}
-                {finding.proposer_term?.label
-                  ? `: ${finding.proposer_term.label}`
-                  : ""}
-              </span>
-              <IssueCodeBadge issueCode={finding.issue_code} />
-              <DebateBadgeChip
-                badge={finding.debate_badge}
-                defenderVerdict={finding.defender_verdict}
-              />
-              <span
-                className={cn(
-                  "block text-[11px] text-slate-700 dark:text-slate-200",
-                  open ? "" : "line-clamp-2",
-                )}
-              >
-                <RationaleWithTagChips
-                  text={rewriteCalibrationRationale(
-                    finding.issue_code,
-                    splitRationaleTrail(
-                      trimRationaleBoilerplate(finding.rationale),
-                    ).summary,
-                  )}
-                  draftTags={draft?.tags ?? []}
-                  proposerTerm={finding.proposer_term}
-                />
-                <ReasoningTrailButton rationale={finding.rationale} />
+              {/* Title row — unified with the editor-branch shape above:
+                  action label at text-sm semibold, em-dash, proposer
+                  term as a chip, issue-code + debate badges right-
+                  aligned. Rationale stays accessible via the chevron /
+                  AgentSuggestionPanel below; not shown inline so the
+                  collapsed card stays a single visual line (matching
+                  the tag / factor cards). */}
+              <span className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 mr-1">
+                  {findingActionLabel(finding)}
+                </span>
+                {finding.proposer_term?.label ? (
+                  <>
+                    <span className="text-slate-400 dark:text-slate-500">—</span>
+                    <Term
+                      uri={finding.proposer_term.uri ?? null}
+                      asLink={false}
+                      className="!whitespace-normal break-words"
+                    >
+                      {finding.proposer_term.label}
+                    </Term>
+                  </>
+                ) : null}
+                <span className="ml-auto inline-flex items-baseline gap-1">
+                  <IssueCodeBadge issueCode={finding.issue_code} />
+                  <DebateBadgeChip
+                    badge={finding.debate_badge}
+                    defenderVerdict={finding.defender_verdict}
+                  />
+                </span>
               </span>
               <FactorReplacementHint finding={finding} report={report} />
             </>
@@ -3665,14 +3908,16 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             the justification under the proposal". */}
       </div>
 
-      {/* Action row first — the editor + verdict buttons (the
-          curator's primary surface). Collapses with the card. */}
-      {cardOpen ? <FindingActionRow finding={finding} /> : null}
+      {/* Auditor-details toggle + panel render BEFORE the action row
+          (Paul 2026-06-09: "the text content should be above the
+          disposition buttons"). The justification is what the curator
+          reads before deciding; surfacing it above the verdict buttons
+          puts the read-then-act flow in document order. */}
 
-      {/* In-body agent-details toggle. Sits below the editor as a
-          subtle text affordance — clicking expands the
-          justification panel underneath. Disabled (reads "no
-          details") when the finding has nothing to expand. */}
+      {/* In-body agent-details toggle. Subtle text affordance —
+          clicking expands the justification panel underneath. Disabled
+          (reads "no details") when the finding has nothing to
+          expand. */}
       {cardOpen ? (
         <div className="pl-1">
           <button
@@ -3773,6 +4018,12 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           <InlineSubtaskReasoning finding={finding} report={report} />
         </div>
       ) : null}
+
+      {/* Action row last — the editor + verdict buttons (the
+          curator's act-on-it surface). Comes AFTER the auditor
+          details so the curator reads the justification then drops
+          straight onto the buttons. Collapses with the card. */}
+      {cardOpen ? <FindingActionRow finding={finding} /> : null}
     </div>
   );
 }
@@ -3951,11 +4202,24 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // Review-mode lock — same gate as ``ActionRow`` in
   // FindingDetailsEditor. Curator can read the finding cards but
   // can't act on them without a calibration / ticket context.
+  // The per-card banner is bordered + amber so the lock state reads
+  // as a real status, not a passing caption (Paul 2026-06-09: the
+  // earlier 10px italic slate-400 line was easy to miss).
   const readOnly = useIsReadOnly();
+  const { baselineLabel } = useDesignDraft();
   if (readOnly) {
     return (
-      <div className="pt-1 text-[11px] text-slate-400 italic dark:text-slate-500">
-        read-only — open via a calibration package to take action
+      <div
+        className="mt-1 rounded border border-amber-300 bg-amber-50/70 px-2 py-1 text-[11px] text-amber-900 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-200"
+        role="status"
+      >
+        <span className="font-semibold uppercase tracking-wide text-[10px] mr-1.5">
+          Read-only
+        </span>
+        viewing{" "}
+        <span className="font-mono">{baselineLabel ?? "this baseline"}</span>
+        {" "}— switch the chip-strip baseline to consensus or your polished
+        row to act on findings.
       </div>
     );
   }
@@ -4897,165 +5161,6 @@ function DispositionNoteRow({
  *  recognisable, otherwise return input untouched. Brother knows
  *  about both and is going to tighten the rationale templates
  *  agent-side; these regexes are the bridge until that lands. */
-/** Rewrite the two calibration question-form rationales into direct
- *  curator-facing statements. The agent emits "Should X be removed?"
- *  / "Should we add X?" — we replace those with actionable copy that
- *  spells out who is proposing what. Falls back to the original text
- *  when the pattern doesn't match (future agent wording changes,
- *  non-calibration codes, etc.). */
-function rewriteCalibrationRationale(
-  issueCode: string,
-  rationale: string,
-): string {
-  const tok = firstBacktick(rationale);
-  if (tok) {
-    if (issueCode === "calibration_gold_only_miss") {
-      return `Proposed removing \`${tok}\` (not in the proposal).`;
-    }
-    if (issueCode === "calibration_agent_extra") {
-      return `Proposed adding \`${tok}\`. Do you agree?`;
-    }
-    if (issueCode === "calibration_match") {
-      return `Proposal and existing curation both have \`${tok}\`. Is this correct?`;
-    }
-  }
-  return rationale;
-}
-
-/** Inline "Reasoning ▸" link that pops the agent's full reasoning
- *  trail. Renders nothing when the rationale carries no trail
- *  marker. Popover aligns right + sized small so it sits next to
- *  the trigger instead of swallowing the suggestion block beneath. */
-/** Inline rationale renderer that rewrites backticked
- *  ``category: value`` tokens as compact Term chips so the curator
- *  reads ontology-resolved identities, not raw mono text.
- *
- *  URI resolution order (per Paul 2026-05-25 — "tag proposals are
- *  never free text"):
- *    1. ``finding.proposer_term`` — the agent's structured proposed
- *       term; always carries a URI for tag proposals. Matched to
- *       the rationale's backtick value when the labels agree.
- *    2. ``draft.tags`` lookup — picks up a URI when the tag already
- *       lives on the experiment's design.
- *    3. Free-text styling — last-ditch when neither hit. Should be
- *       rare on real audit data; flag the finding to bro if it
- *       fires often.
- *
- *  Backticked tokens without a "category: value" colon fall through
- *  to monospace text — same as the unchanged fallback for
- *  identifiers / single-word values. */
-function RationaleWithTagChips({
-  text,
-  draftTags,
-  proposerTerm,
-}: {
-  text: string;
-  draftTags: ReadonlyArray<import("@/features/experiment/types").Tag>;
-  proposerTerm?: import("@/api/auditTypes").AuditFinding["proposer_term"];
-}) {
-  if (!text) return null;
-  // Split on backticked tokens; preserve the surrounding plain text.
-  const parts: Array<{ kind: "text"; value: string } | { kind: "tok"; value: string }> = [];
-  const re = /`([^`]+)`/g;
-  let lastIdx = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > lastIdx) {
-      parts.push({ kind: "text", value: text.slice(lastIdx, m.index) });
-    }
-    parts.push({ kind: "tok", value: m[1] });
-    lastIdx = m.index + m[0].length;
-  }
-  if (lastIdx < text.length) {
-    parts.push({ kind: "text", value: text.slice(lastIdx) });
-  }
-  const norm = (s: string | null | undefined) =>
-    (s || "").toLowerCase().trim();
-  return (
-    <>
-      {parts.map((p, i) => {
-        if (p.kind === "text") return <span key={i}>{p.value}</span>;
-        const colon = p.value.indexOf(":");
-        if (colon === -1) {
-          return (
-            <span key={i} className="font-mono">
-              {p.value}
-            </span>
-          );
-        }
-        const catLabel = p.value.slice(0, colon).trim();
-        const valLabel = p.value.slice(colon + 1).trim();
-        const matched = draftTags.find(
-          (t) =>
-            norm(t.category?.label) === norm(catLabel) &&
-            norm(t.value?.label) === norm(valLabel),
-        );
-        const catUri = matched?.category?.uri ?? null;
-        // proposer_term carries the agent's structured pick — use
-        // its URI when the rationale value matches its label and the
-        // draft-tags lookup didn't find one (the common
-        // ``missing_tag`` case: the tag IS the agent's proposal and
-        // therefore won't be in the draft yet).
-        const proposerMatches =
-          !!proposerTerm &&
-          !!proposerTerm.uri &&
-          norm(proposerTerm.label) === norm(valLabel);
-        const valUri =
-          matched?.value?.uri ??
-          (proposerMatches ? proposerTerm!.uri : null);
-        return (
-          <span
-            key={i}
-            className="inline-flex items-baseline gap-x-1 mx-0.5 align-baseline"
-          >
-            <Term
-              uri={valUri}
-              asLink={false}
-              className="!whitespace-normal break-words"
-            >
-              {valLabel}
-            </Term>
-            <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              in
-            </span>
-            <Term
-              uri={catUri}
-              asLink={false}
-              className="italic opacity-80 !whitespace-normal break-words"
-            >
-              {catLabel}
-            </Term>
-          </span>
-        );
-      })}
-    </>
-  );
-}
-
-function ReasoningTrailButton({ rationale }: { rationale: string }) {
-  const { trail } = splitRationaleTrail(trimRationaleBoilerplate(rationale));
-  if (!trail) return null;
-  return (
-    <span className="ml-1 inline-block align-middle">
-      <HelpPopup
-        title="Agent reasoning trail"
-        size="md"
-        align="right"
-        trigger={
-          <span className="inline-flex items-baseline gap-1">
-            Reasoning <span className="text-xs leading-none">▸</span>
-          </span>
-        }
-        triggerClassName="ml-1 text-[11px] uppercase tracking-wide text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-200 hover:underline align-middle"
-      >
-        <div className="text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
-          {trail}
-        </div>
-      </HelpPopup>
-    </span>
-  );
-}
-
 /** Pull the factor label out of a `calibration_factor_*` finding's
  *  rationale. The agent emits the label as the first backticked token
  *  in the question form (e.g. "Remove factor `treatment`?", "Is factor

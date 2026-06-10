@@ -1,4 +1,5 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState, type ReactNode } from "react";
+import { useActiveBaselineSource } from "@/features/comparison/useActiveBaselineSource";
 import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { PreboardingDetailPage } from "@/features/preboarding/PreboardingDetailPage";
@@ -217,11 +218,20 @@ export default function App() {
           the page (audit panel, banner, etc.) reflected the new id.
           Same principle as ``Shell``'s implicit per-experiment
           local state — the key forces a clean slate.
+
+          DesignDraftProvider sits above FlowProvider in the tree
+          (FlowProvider is mounted inside Shell), so it can't read
+          chip state directly. The thin ChipBaselineResolver layer
+          pre-computes the active baseline source (URL + flow
+          defaults) and passes it in — making the whole page render
+          against whatever the chip strip selected, per Paul
+          2026-06-08 ("yes everywhere").
         */}
-        <DesignDraftProvider
-          key={route.id}
+        <ChipBaselineResolver
           experimentId={route.id}
           reviewer={reviewer}
+          urlBaseline={route.kind === "experiment" ? route.baselineSource : undefined}
+          ticketContext={route.ticketContext}
         >
           <Shell
             experimentId={route.id}
@@ -231,9 +241,50 @@ export default function App() {
             groupContext={route.groupContext}
             ticketContext={route.ticketContext}
           />
-        </DesignDraftProvider>
+        </ChipBaselineResolver>
       </ProposalReviewProvider>
     </ToastProvider>
+  );
+}
+
+/** Pre-resolves the chip-strip baseline source and mounts the
+ *  DesignDraftProvider with it. DesignDraftProvider lives above
+ *  FlowProvider so it can't call useChipState directly; this
+ *  resolver does the same READ calculation
+ *  (URL ?base= → defaultSlots) at App level. The chip strip itself
+ *  (inside Shell, below FlowProvider) handles writes via
+ *  useChipState — URL is the single source of truth so both calls
+ *  agree by construction. */
+function ChipBaselineResolver({
+  experimentId,
+  reviewer,
+  urlBaseline,
+  ticketContext,
+  children,
+}: {
+  experimentId: number | string;
+  reviewer: string;
+  urlBaseline: import("@/features/comparison/sources").Source | undefined;
+  ticketContext: string | undefined;
+  children: ReactNode;
+}) {
+  const ticketIdNumeric = ticketContext
+    ? Number.parseInt(ticketContext, 10)
+    : null;
+  const baselineSource = useActiveBaselineSource({
+    experimentId,
+    urlBaseline,
+    ticketIdNumeric: Number.isFinite(ticketIdNumeric) ? ticketIdNumeric : null,
+  });
+  return (
+    <DesignDraftProvider
+      key={experimentId}
+      experimentId={experimentId}
+      reviewer={reviewer}
+      baselineSource={baselineSource}
+    >
+      {children}
+    </DesignDraftProvider>
   );
 }
 
