@@ -2030,22 +2030,54 @@ function AgreementSummary({
     }
   }
   const fvIndices = Array.from(byFv.keys()).sort((a, b) => a - b);
-  const items: string[] = [];
-  for (const r of factorRows) {
-    items.push(`${r.rowLabel.toLowerCase()} · ${r.proposal.label}`);
-  }
-  for (const idx of fvIndices) {
-    const meta = fvMeta.get(idx);
-    const sampleHint = meta ? ` (${meta.agentSampleCount})` : "";
-    items.push(`FV ${idx + 1}${sampleHint}`);
-  }
-  if (items.length === 0) return null;
+  if (fvIndices.length === 0 && factorRows.length === 0) return null;
+  // Factor-level agreements (e.g. shared category) stay inline.
+  const factorChips = factorRows.map(
+    (r) => `${r.rowLabel.toLowerCase()} · ${r.proposal.label}`,
+  );
   return (
-    <div className="text-[11px] text-slate-600 dark:text-slate-400 italic">
-      <span className="text-emerald-600 dark:text-emerald-400 font-bold not-italic mr-1">
-        ✓
-      </span>
-      Everyone agrees: {items.join(" · ")}
+    <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+      <div className="italic">
+        <span className="text-emerald-600 dark:text-emerald-400 font-bold not-italic mr-1">
+          ✓
+        </span>
+        Everyone agrees:
+        {factorChips.length > 0 ? (
+          <span className="ml-1">{factorChips.join(" · ")}</span>
+        ) : null}
+      </div>
+      {/* Per-agreed-FV detail — Paul 2026-06-11: "all factor values
+          should be shown — 'Everyone agrees: ... FV 2 (6)' is not
+          good enough." Spell out the proposal labels for each agreed
+          row so the curator sees the actual content of the FV they're
+          not being asked to act on, not just the index. */}
+      {fvIndices.length > 0 ? (
+        <ul className="mt-0.5 pl-4 space-y-0.5">
+          {fvIndices.map((idx) => {
+            const meta = fvMeta.get(idx);
+            const sampleHint = meta ? ` (${meta.agentSampleCount})` : "";
+            const fvRows = byFv.get(idx) ?? [];
+            return (
+              <li key={idx} className="flex items-baseline gap-x-1 flex-wrap">
+                <span className="text-amber-700 dark:text-amber-400 font-semibold not-italic">
+                  FV {idx + 1}
+                </span>
+                <span className="text-slate-400 dark:text-slate-500">
+                  {sampleHint}
+                </span>
+                <span className="text-slate-400 dark:text-slate-500">·</span>
+                <span className="font-mono italic">
+                  {fvRows
+                    .map((r) =>
+                      r.proposal.label || "—",
+                    )
+                    .join(" · ")}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   );
 }

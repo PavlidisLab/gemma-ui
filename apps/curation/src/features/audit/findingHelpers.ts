@@ -22,6 +22,7 @@ import {
   resolveAgentFactor,
   resolveGoldFactor,
 } from "./factorMatch";
+import { isActionPrefixRationale } from "./auditorDetails";
 import { SEVERITY_RANK, TARGET_KIND_LABEL } from "./auditPresentation";
 import { parseTargetId } from "./targetIds";
 
@@ -335,43 +336,55 @@ export function subsumedFvChildren(
 // Short "why" caption for the collapsed card header
 // ---------------------------------------------------------------------------
 
-/** One-line "why was this proposed?" caption for the collapsed finding
- *  card. Picks the most curator-readable source available:
+/** Short inline "why was this proposed?" caption — sits next to the
+ *  finding title on the SAME line. Picks the most curator-readable
+ *  source available:
  *
- *    1. `finding.suggested_fix` — already a one-line action verb in
+ *    1. `finding.suggested_fix` — already a short action verb in
  *       most cases ("Add the agent's tag"); the agent emits this
- *       deliberately as a short summary.
- *    2. First sentence of `finding.rationale`, capped at ~80 chars
- *       — the audit judge's actual reasoning, trimmed so it fits on
- *       a single line next to the title.
- *    3. First sentence of `finding.proposer_defense`, same cap — the
- *       agent's positive case for its alternate.
- *    4. `null` when nothing usable is available — caller hides the
- *       caption row entirely rather than rendering an empty italic.
+ *       deliberately as a one-liner.
+ *    2. First clause / phrase of `finding.rationale` (cut at the
+ *       first comma, semicolon, period, or newline) capped at ~50
+ *       chars — the audit judge's reasoning, trimmed hard so it
+ *       fits beside the title without wrapping.
+ *    3. Same trim on `finding.proposer_defense`.
+ *    4. `null` when nothing usable is available — caller skips the
+ *       inline span.
  *
  *  Per Paul 2026-06-11: "it would be EXTREMELY helpful to have a
  *  one-line summary of WHY the proposal is made; 'Agent didn't
- *  propose', 'Redundant', …" */
+ *  propose', 'Redundant', …" and (follow-up): "keep the text on the
+ *  same line as the title and shorten it." Agent-side `suggested_fix`
+ *  quality varies; the bro-side handoff to write more curator-readable
+ *  one-liners is open. */
 export function findingShortRationale(finding: AuditFinding): string | null {
-  const max = 90;
-  const oneLine = (s: string | null | undefined): string => {
+  const max = 50;
+  const trim = (s: string | null | undefined): string => {
     if (!s) return "";
     const trimmed = s.trim();
     if (!trimmed) return "";
-    // First sentence — period followed by space, or first newline.
-    const sentenceEnd = trimmed.search(/\.\s|[\r\n]/);
-    const head = sentenceEnd > 0 ? trimmed.slice(0, sentenceEnd) : trimmed;
+    // Skip strings that just restate the action verb from the title
+    // ("Add tag ...", "Remove factor ...", etc.) — those are pure
+    // redundancy next to the `findingActionLabel`. Paul 2026-06-11:
+    // "now it says 'add tag' etc. twice!"
+    if (isActionPrefixRationale(trimmed)) return "";
+    // Cut at the first clause boundary — comma / semicolon / period /
+    // newline. Yields the leading noun-phrase / verb-phrase rather
+    // than a full sentence.
+    const clauseEnd = trimmed.search(/[,;.\r\n]/);
+    const head = clauseEnd > 0 ? trimmed.slice(0, clauseEnd) : trimmed;
     if (head.length <= max) return head;
-    // Truncate on a word boundary near the cap.
+    // Hard cap with word-boundary backoff when the clause is still
+    // longer than the inline budget.
     const cut = head.slice(0, max);
     const lastSpace = cut.lastIndexOf(" ");
     return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut) + "…";
   };
-  const fix = oneLine(finding.suggested_fix);
+  const fix = trim(finding.suggested_fix);
   if (fix) return fix;
-  const rationale = oneLine(finding.rationale);
+  const rationale = trim(finding.rationale);
   if (rationale) return rationale;
-  const defense = oneLine(finding.proposer_defense);
+  const defense = trim(finding.proposer_defense);
   if (defense) return defense;
   return null;
 }

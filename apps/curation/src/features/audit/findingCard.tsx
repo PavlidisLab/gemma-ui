@@ -540,8 +540,18 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // ProposalReviewCard's TagReviewCard): the resolved
                   // term is the load-bearing identity; the category is
                   // qualifying context.
+                  // Value-chip only. The category lives one row down
+                  // (or is already in the FACTOR chip / TAGS section
+                  // header), so repeating "<value> IN <category>" in
+                  // the title was pure noise — Paul 2026-06-11: "it
+                  // shouldn't say 'in disease model' — the CATEGORY is
+                  // disease model." Hover surfaces the category for
+                  // disambiguation in case two tags share a value.
                   return (
-                    <span className="inline-flex items-baseline gap-x-1 mr-1 min-w-0">
+                    <span
+                      className="inline-flex items-baseline gap-x-1 mr-1 min-w-0"
+                      title={catLabel ? `category: ${catLabel}` : undefined}
+                    >
                       <span className="text-slate-500 dark:text-slate-400">
                         —
                       </span>
@@ -551,16 +561,6 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                         className="!whitespace-normal break-words"
                       >
                         {valLabel}
-                      </Term>
-                      <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                        in
-                      </span>
-                      <Term
-                        uri={catUri}
-                        asLink={false}
-                        className="italic opacity-80 !whitespace-normal break-words"
-                      >
-                        {catLabel}
                       </Term>
                     </span>
                   );
@@ -580,6 +580,9 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   </span>
                 );
               })()}
+              {cardOpen ? null : (
+                <FindingShortRationale finding={finding} />
+              )}
               <PairedFindingBadge finding={finding} />
               <ConsequentsBadges finding={finding} />
               <ProposerFlagsChips flags={finding.proposer_flags} />
@@ -588,9 +591,6 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 defenderVerdict={finding.defender_verdict}
               />
               <FactorDescriptionSubtitle finding={finding} report={report} />
-              {cardOpen ? null : (
-                <FindingShortRationale finding={finding} />
-              )}
             </>
           ) : (
             <>
@@ -619,6 +619,9 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                     </Term>
                   </>
                 ) : null}
+                {cardOpen ? null : (
+                  <FindingShortRationale finding={finding} />
+                )}
                 <span className="ml-auto inline-flex items-baseline gap-1">
                   <IssueCodeBadge issueCode={finding.issue_code} />
                   <DebateBadgeChip
@@ -629,9 +632,6 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
               </span>
               <FactorReplacementHint finding={finding} report={report} />
               <FactorDescriptionSubtitle finding={finding} report={report} />
-              {cardOpen ? null : (
-                <FindingShortRationale finding={finding} />
-              )}
             </>
           )}
         </span>
@@ -749,18 +749,20 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   );
 }
 
-/** Italic one-line "why" caption that surfaces under the collapsed
- *  card header — pulls from `suggested_fix` / `rationale` /
- *  `proposer_defense` in that order via `findingShortRationale()`.
- *  Renders nothing when there's no usable source. Per Paul 2026-06-11
- *  handoff: collapsed cards previously read as "title + chips" with
- *  no inline reason; the WHY was buried behind "auditor details ▸". */
+/** Inline one-line "why" caption that sits BESIDE the card title —
+ *  pulls from `suggested_fix` / `rationale` / `proposer_defense` in
+ *  that order via `findingShortRationale()`, trimmed at the first
+ *  clause boundary and capped at ~50 chars so it doesn't push the
+ *  right-aligned chips to a second line. Hover surfaces the full
+ *  text. Renders nothing when no source is usable. Per Paul
+ *  2026-06-11: "keep the text on the same line as the title and
+ *  shorten it." */
 function FindingShortRationale({ finding }: { finding: AuditFinding }) {
   const summary = findingShortRationale(finding);
   if (!summary) return null;
   return (
     <span
-      className="block text-[11px] italic text-slate-500 dark:text-slate-400 mt-0.5 leading-snug"
+      className="text-[11px] italic text-slate-500 dark:text-slate-400 truncate min-w-0"
       title={
         finding.rationale ||
         finding.suggested_fix ||
@@ -768,6 +770,7 @@ function FindingShortRationale({ finding }: { finding: AuditFinding }) {
         undefined
       }
     >
+      <span className="text-slate-400 dark:text-slate-500 mr-1">·</span>
       {summary}
     </span>
   );
