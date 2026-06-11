@@ -35,11 +35,20 @@ export function fillStatementCategoriesFromParent(d: Design): Design {
       ...f,
       factor_values: f.factor_values.map((fv) => ({
         ...fv,
-        statements: fv.statements.map((s) =>
-          s.category
-            ? s
-            : { ...s, category: f.category ? { ...f.category } : null },
-        ),
+        statements: fv.statements.map((s) => {
+          // `composeStatement` ALWAYS hands us a `category` object,
+          // possibly with `{ label: "", uri: null }` when the wire
+          // payload didn't carry one. The earlier `s.category ? s :
+          // ...` check passed those through untouched and the
+          // validator kept flagging "N statements missing category"
+          // post-commit (Paul 2026-06-11 follow-up). Treat
+          // missing-OR-empty-label the same — both inherit from the
+          // parent factor.
+          const hasCategoryLabel = !!s.category?.label?.trim();
+          if (hasCategoryLabel) return s;
+          if (!f.category?.label) return s;
+          return { ...s, category: { ...f.category } };
+        }),
       })),
     })),
   };
