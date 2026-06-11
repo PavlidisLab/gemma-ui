@@ -94,7 +94,6 @@ export function ExperimentBanner({
   loadedAt,
   loadedBy,
   externalSource,
-  publications,
   activeTab,
   onTabChange,
   notesOpen,
@@ -126,13 +125,6 @@ export function ExperimentBanner({
   /** Where the dataset came from — GEO, CELLxGENE, ArrayExpress,
    *  etc. ``null`` for direct uploads. */
   externalSource: ExternalSource | null;
-  /** Publications linked to this experiment (from the design's
-   *  ``publications`` field, populated at ingest time from the GEO
-   *  MINiML ``<Pubmed-ID>`` tag). Rendered as a chip per publication
-   *  in the banner action row, linking out to PubMed. Empty / null
-   *  when no publication is linked (legitimately unpublished or the
-   *  ingest missed it). */
-  publications?: { pubmed_id?: string; doi?: string; title?: string; citation?: string }[];
   activeTab: TabId;
   onTabChange: (id: TabId) => void;
   notesOpen: boolean;
@@ -219,36 +211,6 @@ export function ExperimentBanner({
             >
               view on Gemma ↗
             </a>
-            {/* Publication chips — one per linked publication. Until
-             *  2026-06-11 the design.json's publication payload was
-             *  silently dropped on import (camelCase key collision:
-             *  pack-builder wrote `pubMedId`, Pydantic alias is
-             *  `pubmedId`). After the eval-side fix, every GSE with
-             *  a PMID in its preboarding renders here. */}
-            {(publications ?? [])
-              .filter((p) => (p.pubmed_id ?? "").trim() || (p.doi ?? "").trim())
-              .slice(0, 3)
-              .map((p, i) => {
-                const pmid = (p.pubmed_id ?? "").trim();
-                const doi = (p.doi ?? "").trim();
-                const href = pmid
-                  ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`
-                  : `https://doi.org/${doi}`;
-                const label = pmid ? `PMID ${pmid}` : `DOI ${doi}`;
-                const title = p.title || p.citation || (pmid ? `open PMID ${pmid} on PubMed` : `open DOI on doi.org`);
-                return (
-                  <a
-                    key={`${pmid || doi}-${i}`}
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-700 hover:underline"
-                    title={title}
-                  >
-                    {label} ↗
-                  </a>
-                );
-              })}
             {/* Compact "Loaded …" pill. The raw loadedAt string from
                 Gemma's REST is an ISO with microseconds + timezone
                 (e.g. "2026-04-16 07:32:35.224000+00:00") — render
