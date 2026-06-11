@@ -411,6 +411,7 @@ export function HeatmapWidget({
     ? {
         display: 'flex',
         flexDirection: 'column',
+        minWidth: 0,
         maxWidth: '100%',
         background: BG,
         border: `1px solid ${BORDER}`,
@@ -420,7 +421,12 @@ export function HeatmapWidget({
         fontFamily: 'Helvetica, Arial, sans-serif',
         color: TEXT,
       }
-    : { fontFamily: 'Helvetica, Arial, sans-serif', color: TEXT };
+    : {
+        minWidth: 0,
+        maxWidth: '100%',
+        fontFamily: 'Helvetica, Arial, sans-serif',
+        color: TEXT,
+      };
 
   return (
     <div ref={rootRef} className={className} style={{ ...cardStyle, ...style }}>
