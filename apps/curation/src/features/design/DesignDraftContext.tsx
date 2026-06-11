@@ -267,26 +267,51 @@ export function DesignDraftProvider({
     };
   }, [baselineCuration, experimentId]);
 
-  // Effective saved design: the chip-selected curation when one is
-  // resolved; the local /design endpoint otherwise. ``isLoading`` /
-  // ``error`` track whichever source is in play so the UI's
-  // loading + error states stay accurate.
+  // Editable baseline kinds — the chip targets a curation row whose
+  // payload is, by convention, a snapshot of the local /design at
+  // pack-import time. PUT /design is the canonical write surface;
+  // the curation row is a frozen view created by setup.py.
+  const _EDITABLE_KINDS = new Set(["consensus", "curator_polish"]);
   const usingBaseline = savedFromBaseline !== null;
-  const saved = usingBaseline ? savedFromBaseline : localDesign.data;
-  const isLoading = usingBaseline ? curationsQuery.isLoading : localDesign.isLoading;
-  const error = usingBaseline ? (curationsQuery.error as Error | null) : localDesign.error;
+  const baselineIsEditable =
+    usingBaseline &&
+    !!(baselineCuration?.source_kind &&
+       _EDITABLE_KINDS.has(baselineCuration.source_kind));
+
+  // Effective saved design.
+  //
+  // - Non-editable chip baseline (live / preboard / agent_proposal /
+  //   curator_polish for another curator): ``saved`` reads from the
+  //   curation row payload. The page renders against a frozen
+  //   snapshot — read-only by ``useIsReadOnly``.
+  // - Editable chip baseline (consensus / curator_polish for *this*
+  //   curator) OR no chip baseline at all: ``saved`` reads from
+  //   ``/design``. The chip is a NAMED VIEW of /design content,
+  //   initialized equal at pack-import time, and the curator's
+  //   commits update /design — so the saved-state must track /design,
+  //   not the frozen curation-row snapshot. Without this, after a
+  //   successful commit the curation row stays stale, ``diff`` stays
+  //   dirty against the snapshot, and the CommitBar never clears.
+  const saved =
+    usingBaseline && !baselineIsEditable
+      ? savedFromBaseline
+      : localDesign.data;
+  const isLoading =
+    usingBaseline && !baselineIsEditable
+      ? curationsQuery.isLoading
+      : localDesign.isLoading;
+  const error =
+    usingBaseline && !baselineIsEditable
+      ? (curationsQuery.error as Error | null)
+      : localDesign.error;
 
   // Defensive write gate. Mirrors useIsReadOnly's rule (edits are
-  // only safe when the page is rendering against the local /design
-  // target — consensus, curator_polish, or the legacy fallback).
-  // Duplicated here so the provider's own commit/apply paths
-  // refuse writes regardless of whether the UI components honor
-  // useIsReadOnly. Cheaper than auditing every input for a
-  // disabled prop.
-  const _EDITABLE_KINDS = new Set(["consensus", "curator_polish"]);
-  const providerReadOnly =
-    usingBaseline &&
-    !(baselineCuration?.source_kind && _EDITABLE_KINDS.has(baselineCuration.source_kind));
+  // only safe when the page's saved-state is rooted in the local
+  // /design target). Duplicated here so the provider's own commit/
+  // apply paths refuse writes regardless of whether the UI
+  // components honor useIsReadOnly. Cheaper than auditing every
+  // input for a disabled prop.
+  const providerReadOnly = usingBaseline && !baselineIsEditable;
 
   const [draft, setDraft] = useState<Design | null>(null);
   const [staleCacheDiscarded, setStaleCacheDiscarded] = useState(false);
