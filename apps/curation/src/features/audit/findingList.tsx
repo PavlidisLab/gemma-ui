@@ -494,6 +494,18 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
         <div className="space-y-1.5">
           <div className={SECTION_HEADER_CLS}>
             Alternate factor — proposed a different categorization
+            {curationsQuery.isLoading ? (
+              // /curations is the slow path (~10s on Paul's GSE93824
+              // walkthrough — server-side bottleneck, UIB perf
+              // handoff 2026-06-11). Without an explicit "loading"
+              // signal here, every rename card renders with "?"
+              // placeholders that read as "data missing" rather than
+              // "data en route".
+              <span className="ml-2 text-[10px] normal-case tracking-normal font-normal italic text-slate-500 dark:text-slate-400">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-400 dark:bg-amber-500 mr-1 animate-pulse align-middle" />
+                loading comparison data…
+              </span>
+            ) : null}
           </div>
           {visibleRenames.map((f) => (
             <ComparisonFactorCard

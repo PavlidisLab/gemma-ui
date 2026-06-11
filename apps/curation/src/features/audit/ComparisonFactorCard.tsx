@@ -607,6 +607,33 @@ export function ComparisonFactorCard({
     [leftFactor, rightFactor],
   );
 
+  // /curations is slow (~10s in Paul's GSE93824 walkthrough — server-
+  // side bottleneck, see UIB perf handoff 2026-06-11). When it's still
+  // in flight, the card resolves leftFactor/rightFactor to null and
+  // the title falls through to "?" placeholders that read as "data
+  // missing" rather than "data loading". Detect the actual loading
+  // condition (curations still fetching AND no explicit factor
+  // overrides driving the card) and swap the placeholders for a
+  // skeleton + "loading…" caption so curators see progress.
+  const factorsAreLoading =
+    curationsQuery.isLoading &&
+    leftFactorOverride === undefined &&
+    rightFactorOverride === undefined &&
+    !leftFactor &&
+    !rightFactor;
+  const skeleton = (
+    <span
+      className="inline-block align-middle h-3 w-24 rounded bg-slate-200/80 dark:bg-slate-700/70 animate-pulse"
+      aria-label="loading"
+    />
+  );
+  const ph = (
+    label: string | null | undefined,
+  ): React.ReactNode => {
+    if (label) return label;
+    return factorsAreLoading ? skeleton : "?";
+  };
+
   // Default title: "Rename `left.category` → `right.category`" for
   // rename, generic verb-tagged for other codes (callers can override).
   const derivedTitle =
@@ -614,35 +641,35 @@ export function ComparisonFactorCard({
     (finding.issue_code === "calibration_factor_rename"
       ? (
           <span className="text-[12px] font-semibold">
-            Rename factor: <span className="font-mono">{leftCategory?.label ?? "?"}</span>
+            Rename factor: <span className="font-mono">{ph(leftCategory?.label)}</span>
             <span className="text-slate-400"> → </span>
-            <span className="font-mono">{rightCategory?.label ?? "?"}</span>
+            <span className="font-mono">{ph(rightCategory?.label)}</span>
           </span>
         )
       : finding.issue_code === "calibration_factor_match_near"
         ? (
             <span className="text-[12px] font-semibold">
-              Partition mismatch: <span className="font-mono">{leftCategory?.label ?? "?"}</span>
+              Partition mismatch: <span className="font-mono">{ph(leftCategory?.label)}</span>
               <span className="text-slate-400 font-normal text-[11px] ml-1">
-                ({rightFactor?.factor_values?.length ?? "?"} vs {leftFactor?.factor_values?.length ?? "?"} levels)
+                ({rightFactor?.factor_values?.length ?? (factorsAreLoading ? "…" : "?")} vs {leftFactor?.factor_values?.length ?? (factorsAreLoading ? "…" : "?")} levels)
               </span>
             </span>
           )
       : finding.issue_code === "calibration_factor_extra"
         ? (
             <span className="text-[12px] font-semibold">
-              Add factor: <span className="font-mono">{rightCategory?.label ?? "?"}</span>
+              Add factor: <span className="font-mono">{ph(rightCategory?.label)}</span>
             </span>
           )
         : finding.issue_code === "calibration_factor_gold_only_miss"
           ? (
               <span className="text-[12px] font-semibold">
-                Remove factor: <span className="font-mono">{leftCategory?.label ?? "?"}</span>
+                Remove factor: <span className="font-mono">{ph(leftCategory?.label)}</span>
               </span>
             )
           : (
               <span className="text-[12px] font-semibold">
-                {(leftCategory?.label || rightCategory?.label) ?? "(factor)"}
+                {(leftCategory?.label || rightCategory?.label) ?? (factorsAreLoading ? skeleton : "(factor)")}
               </span>
             ));
 
