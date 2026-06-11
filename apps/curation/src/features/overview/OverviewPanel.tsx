@@ -3339,7 +3339,19 @@ function PublicationRow({
       {onDelete ? (
         <button
           type="button"
-          onClick={onDelete}
+          onClick={() => {
+            // Confirm before removing — publications are intentionally
+            // surfaced by the curator (via the agent or by hand) and
+            // an accidental click on the × shouldn't drop the link
+            // silently. The next mutation re-renders the row so the
+            // curator sees the result immediately. Paul 2026-06-11.
+            const what =
+              displayTitle ||
+              (publication.pubmed_id ? `PMID ${publication.pubmed_id}` : "this publication");
+            if (window.confirm(`Remove “${what}” from this experiment?`)) {
+              onDelete();
+            }
+          }}
           className="text-rose-700 hover:text-rose-900 text-xs"
           title="remove this publication"
         >
