@@ -11,6 +11,40 @@ const KEY = {
   byExperiment: (experimentId: number | string) => ["design", experimentId] as const,
 };
 
+/** Fill in `statement.category` from the parent factor's `category`
+ *  whenever it's null on the wire. The server's design endpoint
+ *  doesn't persist statement-level categories — they're inherited
+ *  from the parent factor at composition time and on commit-side
+ *  normalisation — so the round-trip returns null categories even
+ *  when the curator's last commit sent them explicitly. Filling
+ *  them client-side at every Design boundary (read + commit
+ *  response) keeps the validator from flagging "N statements
+ *  missing category" on freshly-fetched data and keeps the commit
+ *  bar from re-firing immediately after a successful PUT.
+ *  Idempotent — already-filled statements pass through unchanged.
+ *
+ *  Paul 2026-06-10: "commit still doesn't seem to work, at least,
+ *  the ui doesn't show that it's been committed". The bar was
+ *  showing because of the inherited-category warning, then not
+ *  going away after commit because the server response still had
+ *  the same nulls. */
+export function fillStatementCategoriesFromParent(d: Design): Design {
+  return {
+    ...d,
+    factors: d.factors.map((f) => ({
+      ...f,
+      factor_values: f.factor_values.map((fv) => ({
+        ...fv,
+        statements: fv.statements.map((s) =>
+          s.category
+            ? s
+            : { ...s, category: f.category ? { ...f.category } : null },
+        ),
+      })),
+    })),
+  };
+}
+
 /** Per bro's `STATUS_CURATION_TO_GEMMA_2_0.md` §2 reply: compose the
  *  curation `Design` client-side from Gemma 2.0's canonical
  *  `/datasets/{id}/design` + the latest curation-proposal overlay,
@@ -31,7 +65,7 @@ export async function fetchDesignSnapshot(
     fetchLatestProposalOverlay(experimentId),
     fetchDatasetMeta(experimentId),
   ]);
-  return composeCurationDesign(
+  const composed = composeCurationDesign(
     g2,
     experimentId,
     datasetMeta.short_name ?? "",
@@ -45,6 +79,7 @@ export async function fetchDesignSnapshot(
       : null,
     datasetMeta,
   );
+  return fillStatementCategoriesFromParent(composed);
 }
 
 /** Fetch a curator's polished Design for an experiment from
@@ -318,14 +353,20 @@ function normaliseDesignForSave(design: Design): Design {
 export function useUpdateDesign(experimentId: number | string, reviewer = "") {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (design: Design) => {
+    mutationFn: async (design: Design) => {
       const params = reviewer
         ? `?reviewer=${encodeURIComponent(reviewer)}`
         : "";
-      return api.put<Design>(
+      const server = await api.put<Design>(
         `/rest/v2/datasets/${experimentId}/design${params}`,
         normaliseDesignForSave(design),
       );
+      // Server doesn't persist statement.category — fill it from the
+      // parent factor on the way back so the cache + DesignDraftContext
+      // see the same normalised shape that just went out, instead of
+      // round-tripped nulls. Mirrors the read-side normalisation in
+      // fetchDesignSnapshot.
+      return fillStatementCategoriesFromParent(server);
     },
     onSuccess: (server) => {
       qc.setQueryData(KEY.byExperiment(experimentId), server);

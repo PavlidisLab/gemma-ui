@@ -914,18 +914,23 @@ export function removeAppliedProposalFromDesign(
     return savedTagKeys.has(k);
   });
 
+  // Dedup key = `${name}||${categoryKey}`. categoryKey is URI-first
+  // (via factorKey) so two proposals with the same name + label but
+  // distinct category URIs (multi-factor-same-category designs)
+  // don't collapse to the same bucket. The original label-only
+  // version mis-removed the wrong factor on accept.
   const proposalFactorKeys = new Set(
     proposalFactors.map((f) =>
-      `${(f.name_in_design || f.category.label || "").toLowerCase()}||${(
-        f.category.label || ""
-      ).toLowerCase()}`,
+      `${(f.name_in_design || f.category.label || "").toLowerCase()}||${factorKey(
+        f.category,
+      )}`,
     ),
   );
   const savedFactorIds = new Set((saved?.factors ?? []).map((f) => f.id));
   const remainingFactors = (design.factors ?? []).filter((f) => {
-    const k = `${(f.name || f.category.label || "").toLowerCase()}||${(
-      f.category.label || ""
-    ).toLowerCase()}`;
+    const k = `${(f.name || f.category.label || "").toLowerCase()}||${factorKey(
+      f.category,
+    )}`;
     if (!proposalFactorKeys.has(k)) return true;
     // Pre-existing factor (id present in saved) — don't remove even
     // if the name happens to match the proposal.

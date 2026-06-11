@@ -13,6 +13,12 @@ import type {
 } from "@/api/auditTypes";
 import type { SubtaskDecision } from "@/api/types";
 import { dedupeSubtaskDecisions } from "./subtaskDecisions";
+import {
+  SEVERITY_RANK,
+  TARGET_KIND_ORDER,
+  severityRowBgCls,
+  severityTextCls,
+} from "./auditPresentation";
 
 /**
  * Pure-presentation view of an `AuditReport`. Takes a fully-loaded
@@ -177,16 +183,10 @@ function SeverityCount({
 // Findings — grouped by target_kind, sorted within by severity
 // ---------------------------------------------------------------------------
 
-const TARGET_KIND_ORDER: AuditTargetKind[] = [
-  "experiment",
-  "factor",
-  "fv",
-  "tag",
-  "characteristic",
-  "assignment",
-  "statement",
-];
-
+// AuditReportView keeps its own TARGET_KIND_LABEL because the verbose
+// surface uses long-form labels ("Experiment-wide" / "Factor value" /
+// "Sample assignment") rather than the sidebar's compact ones. Sort
+// order + rank tables come from the shared `auditPresentation` module.
 const TARGET_KIND_LABEL: Record<AuditTargetKind, string> = {
   experiment: "Experiment-wide",
   factor: "Factor",
@@ -195,13 +195,6 @@ const TARGET_KIND_LABEL: Record<AuditTargetKind, string> = {
   characteristic: "Characteristic",
   assignment: "Sample assignment",
   statement: "Statement",
-};
-
-const SEVERITY_RANK: Record<Severity, number> = {
-  blocker: 0,
-  major: 1,
-  minor: 2,
-  ok: 3,
 };
 
 function FindingsList({
@@ -354,7 +347,7 @@ function FindingCard({
     <div
       className={cn(
         "px-3 py-2.5 space-y-2",
-        severityRowCls(finding.severity),
+        severityRowBgCls(finding.severity),
         currentDisposition === "dismissed" && "opacity-60",
       )}
     >
@@ -734,32 +727,6 @@ export function SubtaskDecisionRow({ decision }: { decision: SubtaskDecision }) 
  *  shape upstream (subject URI when the FV is itself an ontology
  *  term) rather than papering it over here.
  */
-function severityTextCls(s: Severity): string {
-  switch (s) {
-    case "blocker":
-      return "text-rose-700";
-    case "major":
-      return "text-amber-700";
-    case "minor":
-      return "text-slate-600";
-    case "ok":
-      return "text-emerald-700";
-  }
-}
-
-function severityRowCls(s: Severity): string {
-  switch (s) {
-    case "blocker":
-      return "bg-rose-50/40";
-    case "major":
-      return "bg-amber-50/40";
-    case "minor":
-      return "";
-    case "ok":
-      return "bg-emerald-50/30";
-  }
-}
-
 function formatTimestamp(iso: string): string {
   if (!iso) return "";
   try {

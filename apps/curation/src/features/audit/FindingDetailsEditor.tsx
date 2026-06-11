@@ -38,6 +38,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
+import { sameOntologyTerm } from "@/lib/ontologyTerm";
 import { useToast } from "@/components/ui/Toast";
 import { Term } from "@/components/ui/Term";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
@@ -526,16 +527,15 @@ function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
   // factor reference data).
   const matchedTag =
     design?.tags?.find((t) => {
+      // Category-side is label-only — `agentCategory` is a parsed
+      // string from the target_id / rationale tail with no URI.
       const sameCategory =
         lc(t.category?.label) === lc(agentCategory);
       if (!sameCategory) return false;
-      const sameValueLabel =
-        lc(t.value?.label) === lc(valueProposal.label);
-      if (sameValueLabel) return true;
-      if (valueProposal.uri && t.value?.uri) {
-        return t.value.uri === valueProposal.uri;
-      }
-      return false;
+      // Value-side carries a URI on `valueProposal` when proposer_term
+      // is populated. Prefer URI identity over label so two distinct
+      // ontology terms that share a label can't collide.
+      return sameOntologyTerm(t.value ?? null, valueProposal);
     }) ?? null;
 
   const categoryCurrently: SideValue = matchedTag

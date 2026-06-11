@@ -22,8 +22,8 @@ import type {
   CurationReviewKind,
   DismissReason,
   DispositionStatus,
-  Severity,
 } from "@/api/auditTypes";
+import { SEVERITY_RANK } from "./auditPresentation";
 
 /**
  * Per-experiment audit state.
@@ -55,12 +55,6 @@ import type {
  *  state reconciles. The branch is detected by audit_id prefix
  *  (`synth-…` for the dev synth path).
  */
-const SEVERITY_RANK: Record<Severity, number> = {
-  blocker: 0,
-  major: 1,
-  minor: 2,
-  ok: 3,
-};
 
 interface AuditContextValue {
   /** Discriminator for the review-kind this provider is wrapping —
