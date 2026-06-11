@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
+import { usePubmedMetadata } from "@/api/pubmed";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -3255,22 +3256,44 @@ function PublicationRow({
   onDelete?: () => void;
 }) {
   const [abstractOpen, setAbstractOpen] = useState(false);
+  // Fetch live PubMed metadata when the local row lacks a title.
+  // The local API only persists what was on the GEO MINiML
+  // ``<Pubmed-ID>`` tag (just the PMID); title / citation /
+  // authors are pulled from NCBI esummary on-demand. usePubmedMetadata
+  // is a no-op when pubmed_id is empty.
+  const needsFetch =
+    !publication.title?.trim() && !publication.citation?.trim();
+  const { data: pubmedMeta, isLoading: pubmedLoading } = usePubmedMetadata(
+    needsFetch ? publication.pubmed_id : undefined,
+  );
+  const displayTitle =
+    publication.title?.trim() ||
+    pubmedMeta?.title ||
+    publication.citation?.trim() ||
+    "";
+  const displayCitation =
+    publication.citation?.trim() || pubmedMeta?.citation || "";
+  const effectiveDoi = publication.doi?.trim() || pubmedMeta?.doi || "";
   const pmidUrl = publication.pubmed_id
     ? `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(publication.pubmed_id)}/`
     : null;
-  const doiUrl = publication.doi
-    ? `https://doi.org/${encodeURIComponent(publication.doi)}`
+  const doiUrl = effectiveDoi
+    ? `https://doi.org/${encodeURIComponent(effectiveDoi)}`
     : null;
   return (
     <li className="flex items-start gap-2">
       <div className="flex-1 min-w-0">
         <div className="font-medium text-slate-800 leading-snug">
-          {publication.title || publication.citation || (
+          {displayTitle ? (
+            displayTitle
+          ) : pubmedLoading ? (
+            <span className="italic text-slate-400">fetching from PubMed…</span>
+          ) : (
             <span className="italic text-slate-400">(metadata not fetched yet)</span>
           )}
         </div>
-        {publication.citation && publication.title ? (
-          <div className="text-slate-500 italic">{publication.citation}</div>
+        {displayCitation && displayTitle && displayCitation !== displayTitle ? (
+          <div className="text-slate-500 italic">{displayCitation}</div>
         ) : null}
         <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
           {pmidUrl ? (
@@ -3290,7 +3313,7 @@ function PublicationRow({
               rel="noopener noreferrer"
               className="text-blue-700 hover:underline font-mono"
             >
-              {shortenUri(`https://doi.org/${publication.doi}`)} ↗
+              {shortenUri(`https://doi.org/${effectiveDoi}`)} ↗
             </a>
           ) : null}
           {abstract ? (
@@ -3306,7 +3329,7 @@ function PublicationRow({
         </div>
         {abstract && abstractOpen ? (
           <AbstractModal
-            title={publication.title || publication.citation || ""}
+            title={displayTitle || ""}
             excerpt={abstract}
             tone="annotated"
             onClose={() => setAbstractOpen(false)}
