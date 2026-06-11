@@ -25,6 +25,7 @@ import {
   loadDispositions,
   loadFeedback,
   loadNotes,
+  onProposalStateReset,
   saveDispositions,
   saveFeedback,
   saveNotes,
@@ -144,6 +145,21 @@ export function ProposalSidebarPanel({
   useEffect(() => {
     saveFeedback(experimentId, proposalId, feedback);
   }, [experimentId, proposalId, feedback]);
+
+  // Listen for cross-surface resets dispatched by the commit-undo and
+  // per-finding-undo paths. The LS layer is already wiped by the
+  // caller; this listener flushes the matching in-memory state so the
+  // proposal cards reflect the rollback without the curator having to
+  // remount the panel. Per Paul 2026-06-10: undo had been leaving
+  // proposal cards stuck on retained/rejected.
+  useEffect(() => {
+    return onProposalStateReset((targetExperimentId) => {
+      if (targetExperimentId !== String(experimentId)) return;
+      setDispositions(new Map());
+      setNotes(new Map());
+      setFeedback("");
+    });
+  }, [experimentId]);
 
   const setOne = (key: string, d: ProposalDisposition) => {
     setDispositions((prev) => {

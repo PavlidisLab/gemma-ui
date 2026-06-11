@@ -148,6 +148,10 @@ export interface FactorValueProposal {
 export interface FactorProposal {
   category: OntologyTerm;
   name_in_design: string;
+  /** ≤80-char LLM-emitted summary of what the factor encodes, used
+   *  as a subtitle in factor headers. Optional; may be empty. Per
+   *  UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md. */
+  description?: string;
   /** ``"categorical"`` (default) or ``"continuous"``. Continuous
    *  factors emit one FV per distinct numeric measurement, with
    *  ``numeric_value`` populated and ``is_baseline=false`` on every

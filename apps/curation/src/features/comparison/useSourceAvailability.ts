@@ -287,14 +287,24 @@ export function useSourceUniverse(
   function _producerSlug(producer: string): string {
     return producer.replace(/[^a-zA-Z0-9_-]+/g, "_");
   }
+  // Dedupe by slug — the unified list can carry multiple rows per
+  // producer (one per curation snapshot / audit pass), but the chip
+  // dropdown's Source token is producer-scoped, so collapsing N
+  // identical tokens into one is the correct behaviour. Without this
+  // the dropdown rendered the same `consensus:strict_consensus` row
+  // ~15 times.
   const polishedCurators: string[] = usingUnified
-    ? unified.items
-        .filter(
-          (v) => v.kind === "curator_polish" || v.kind === "consensus",
-        )
-        .map((v) =>
-          v.kind === "consensus" ? _producerSlug(v.producer) : v.producer,
-        )
+    ? Array.from(
+        new Set(
+          unified.items
+            .filter(
+              (v) => v.kind === "curator_polish" || v.kind === "consensus",
+            )
+            .map((v) =>
+              v.kind === "consensus" ? _producerSlug(v.producer) : v.producer,
+            ),
+        ),
+      )
     : (polished.data ?? []);
 
   // The dynamic enumeration. System sources first (stable order:

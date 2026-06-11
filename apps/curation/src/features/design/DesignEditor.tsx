@@ -7,6 +7,7 @@ import { FactorValueList } from "./FactorValueList";
 import { SampleAssignmentPreview } from "./SampleAssignmentPreview";
 import { ValidatorBanner } from "./ValidatorBanner";
 import { useDesignDraft } from "./DesignDraftContext";
+import { useAudit } from "@/features/audit/AuditContext";
 import { indexChanges } from "./diff";
 import { parseTargetId, slug } from "@/features/audit/targetIds";
 import {
@@ -194,6 +195,25 @@ export function DesignEditor({
   const readOnly = useIsReadOnly();
   const { usingBaseline, baselineLabel, baselineSourceKind } = useDesignDraft();
 
+  // Pull the LLM-emitted ≤80-char `description` for the selected
+  // factor out of the audit report's comparison_proposal — matched
+  // by `name_in_design` against the draft factor's name. Empty when
+  // there's no matching proposal (no audit running, fresh factor
+  // added in the draft, name drift since proposal time, etc.) and
+  // FactorValueList suppresses the subtitle row in that case. Per
+  // UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md.
+  const { report } = useAudit();
+  const factorDescription = useMemo<string | undefined>(() => {
+    if (!selectedFactor?.name) return undefined;
+    const target = selectedFactor.name.trim().toLowerCase();
+    const proposals = report?.evidence?.comparison_proposal?.factors ?? [];
+    const match = proposals.find(
+      (f) => (f.name_in_design ?? "").trim().toLowerCase() === target,
+    );
+    const desc = match?.description?.trim();
+    return desc ? desc : undefined;
+  }, [report, selectedFactor?.name]);
+
   return (
     <div className="space-y-4">
       {readOnly ? (
@@ -324,6 +344,7 @@ export function DesignEditor({
           <>
             <FactorValueList
               factor={selectedFactor}
+              factorDescription={factorDescription}
               totalBiomaterials={draft.biomaterials.length}
               changesByFvId={changes.byFv.get(selectedFactor.id) ?? null}
               onFvLabelChange={(fvId, label) =>

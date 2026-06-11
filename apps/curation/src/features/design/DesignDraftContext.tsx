@@ -15,6 +15,10 @@ import type { Design } from "@/features/experiment/types";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
 import type { Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
+import {
+  clearAllProposalStateForExperiment,
+  notifyProposalStateReset,
+} from "@/features/proposal/proposalDispositions";
 
 /**
  * Make sure every Statement carries a category before round-tripping
@@ -427,6 +431,14 @@ export function DesignDraftProvider({
   const discard = useCallback(() => {
     setDraft(saved ?? null);
     clearCachedDraft(experimentId);
+    // Roll the proposal-review surface back in lockstep with the
+    // design draft — without this the Accept-all / per-element
+    // retain/reject state on the proposal cards stayed "retained" /
+    // "rejected" after the curator hit undo, leaving the cards
+    // visually out of sync with the freshly-reset draft (Paul
+    // 2026-06-10).
+    clearAllProposalStateForExperiment(experimentId);
+    notifyProposalStateReset(experimentId);
     setStaleCacheDiscarded(false);
     updater.reset();
   }, [saved, updater, experimentId]);

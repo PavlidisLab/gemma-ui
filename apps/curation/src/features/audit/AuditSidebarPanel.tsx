@@ -33,6 +33,10 @@ import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useDesign } from "@/api/design";
 import type { useAuditStream } from "@/api/auditStream";
 import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
+import {
+  clearAllProposalStateForExperiment,
+  notifyProposalStateReset,
+} from "@/features/proposal/proposalDispositions";
 import sampleReport from "./fixtures/sample_audit_report.json";
 import { useAudit, findingKey } from "./AuditContext";
 import { ComparisonFactorCard } from "./ComparisonFactorCard";
@@ -3297,6 +3301,50 @@ function FactorRenameFvPairs({ pairs }: { pairs: import("@/api/auditTypes").FvPa
  *  those will sort adjacently in the finding list and this hint becomes
  *  redundant (the helper renders nothing when no non-exact proposed
  *  factors exist). */
+/** Subtitle line under the outer finding-card header — surfaces the
+ *  LLM-emitted ≤80-char `description` from the matching
+ *  ``FactorProposal`` in ``report.evidence.comparison_proposal.factors``.
+ *  Lookup: ``agent_target_index`` first (authoritative for findings
+ *  the comparison-proposal owns), then ``name_in_design`` match against
+ *  the finding's gold-side factor name (covers cross-curation cases
+ *  where the index isn't aligned). Renders nothing when the description
+ *  is empty or absent. Per
+ *  UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md. */
+function FactorDescriptionSubtitle({
+  finding,
+  report,
+}: {
+  finding: AuditFinding;
+  report: AuditReport | null;
+}) {
+  if (finding.target_kind !== "factor") return null;
+  const cp = report?.evidence?.comparison_proposal;
+  const factors = cp?.factors ?? [];
+  let description: string | undefined;
+  if (
+    finding.agent_target_index != null &&
+    finding.agent_target_index >= 0 &&
+    factors[finding.agent_target_index]
+  ) {
+    description = factors[finding.agent_target_index]?.description;
+  }
+  if (!description) {
+    const tok = firstBacktick(finding.rationale)?.toLowerCase();
+    if (tok) {
+      const byName = factors.find(
+        (f) => f.name_in_design?.toLowerCase() === tok,
+      );
+      description = byName?.description;
+    }
+  }
+  if (!description || !description.trim()) return null;
+  return (
+    <span className="block text-[11px] italic text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+      {description.trim()}
+    </span>
+  );
+}
+
 function FactorReplacementHint({
   finding,
   report,
@@ -3687,7 +3735,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   SeverityBadge above — one colored square does
                   both severity colour AND action symbol. No
                   separate inline glyph here. */}
-              <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 mr-1">
+              <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mr-1">
                 {findingActionLabel(finding)}
               </span>
               <JudgeStrengthGlyph finding={finding} />
@@ -3850,8 +3898,9 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 const subj = findingSubjectLabel(finding, report, draft ?? null);
                 if (!subj) return null;
                 return (
-                  <span className="text-[11px] text-slate-600 dark:text-slate-300 mr-1 truncate">
-                    — <span className="font-mono">{subj}</span>
+                  <span className="text-sm text-slate-800 dark:text-slate-100 mr-1 truncate">
+                    <span className="text-slate-400 dark:text-slate-500">— </span>
+                    <span className="font-mono font-semibold">{subj}</span>
                   </span>
                 );
               })()}
@@ -3862,6 +3911,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 badge={finding.debate_badge}
                 defenderVerdict={finding.defender_verdict}
               />
+              <FactorDescriptionSubtitle finding={finding} report={report} />
             </>
           ) : (
             <>
@@ -3873,7 +3923,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   collapsed card stays a single visual line (matching
                   the tag / factor cards). */}
               <span className="flex items-baseline gap-1.5 flex-wrap">
-                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 mr-1">
+                <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mr-1">
                   {findingActionLabel(finding)}
                 </span>
                 {finding.proposer_term?.label ? (
@@ -3897,6 +3947,7 @@ function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 </span>
               </span>
               <FactorReplacementHint finding={finding} report={report} />
+              <FactorDescriptionSubtitle finding={finding} report={report} />
             </>
           )}
         </span>
@@ -4689,6 +4740,15 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
               applyDraft(() => snap);
             }
             patch("pending");
+            // Roll proposal-review state back in lockstep with the
+            // draft + disposition (Paul 2026-06-10): a per-finding
+            // undo had been leaving the proposal cards stuck on
+            // their retained/rejected dispositions, which read as
+            // "this proposal is still resolved" even though the
+            // matching draft mutation + audit disposition were
+            // reverted.
+            clearAllProposalStateForExperiment(experimentId);
+            notifyProposalStateReset(experimentId);
           }}
         />
       ) : (
@@ -4928,6 +4988,12 @@ function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 applyDraft(() => snap);
               }
               patch("pending");
+              // Mirror the editor-card path: drop the per-experiment
+              // proposal-review LS state and broadcast the in-memory
+              // reset so the proposal cards roll back in lockstep
+              // (Paul 2026-06-10).
+              clearAllProposalStateForExperiment(experimentId);
+              notifyProposalStateReset(experimentId);
             }}
             disabled={dispositionSaving}
             className="text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline ml-auto dark:text-slate-400 dark:hover:text-slate-100"

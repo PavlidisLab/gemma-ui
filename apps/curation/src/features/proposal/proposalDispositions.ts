@@ -181,3 +181,82 @@ export function clearDispositionsForExperiment(experimentId: number | string): v
     // ignore
   }
 }
+
+/** Drop the entire proposal-review localStorage footprint (dispositions
+ *  + notes + feedback) for one experiment. Used by the commit-undo and
+ *  per-finding-undo paths so curator state across surfaces stays
+ *  coherent: rolling back the design draft / a disposition while
+ *  leaving the proposal cards stuck on "retained" / "rejected" was
+ *  the bug Paul flagged 2026-06-10. */
+export function clearAllProposalStateForExperiment(
+  experimentId: number | string,
+): void {
+  const prefixes = [
+    `${LS_PREFIX}:${experimentId}:`,
+    `${LS_NOTES_PREFIX}:${experimentId}:`,
+    `${LS_FEEDBACK_PREFIX}:${experimentId}:`,
+  ];
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && prefixes.some((p) => k.startsWith(p))) toRemove.push(k);
+    }
+    for (const k of toRemove) window.localStorage.removeItem(k);
+  } catch {
+    // ignore
+  }
+}
+
+/** Window-level event bus the in-memory React state in
+ *  ``ProposalSidebarPanel`` subscribes to. Undo paths in the design
+ *  editor + audit sidebar dispatch this so the panel can flush its
+ *  in-memory dispositions/notes/feedback without each undo site
+ *  having to know which proposal id is currently mounted. */
+const PROPOSAL_STATE_RESET_EVENT = "gemma:proposal-state-reset";
+
+interface ProposalStateResetDetail {
+  experimentId: string;
+}
+
+export function notifyProposalStateReset(
+  experimentId: number | string,
+): void {
+  try {
+    const detail: ProposalStateResetDetail = {
+      experimentId: String(experimentId),
+    };
+    window.dispatchEvent(
+      new CustomEvent(PROPOSAL_STATE_RESET_EVENT, { detail }),
+    );
+  } catch {
+    // SSR / no-window — listeners are React effects, so a missing
+    // dispatch just means no in-memory reset; LS was already wiped
+    // by the caller.
+  }
+}
+
+/** Subscribe to proposal-state-reset broadcasts. ``handler`` fires
+ *  with the experimentId the reset targets; the listener decides
+ *  whether the event matches its own scope. Returns an unsubscribe
+ *  function suitable for a ``useEffect`` cleanup. */
+export function onProposalStateReset(
+  handler: (experimentId: string) => void,
+): () => void {
+  const fn = (e: Event) => {
+    const detail = (e as CustomEvent<ProposalStateResetDetail>).detail;
+    if (detail?.experimentId) handler(detail.experimentId);
+  };
+  try {
+    window.addEventListener(PROPOSAL_STATE_RESET_EVENT, fn);
+  } catch {
+    return () => {};
+  }
+  return () => {
+    try {
+      window.removeEventListener(PROPOSAL_STATE_RESET_EVENT, fn);
+    } catch {
+      // ignore
+    }
+  };
+}
