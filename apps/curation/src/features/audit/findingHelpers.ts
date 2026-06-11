@@ -330,3 +330,48 @@ export function subsumedFvChildren(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Short "why" caption for the collapsed card header
+// ---------------------------------------------------------------------------
+
+/** One-line "why was this proposed?" caption for the collapsed finding
+ *  card. Picks the most curator-readable source available:
+ *
+ *    1. `finding.suggested_fix` — already a one-line action verb in
+ *       most cases ("Add the agent's tag"); the agent emits this
+ *       deliberately as a short summary.
+ *    2. First sentence of `finding.rationale`, capped at ~80 chars
+ *       — the audit judge's actual reasoning, trimmed so it fits on
+ *       a single line next to the title.
+ *    3. First sentence of `finding.proposer_defense`, same cap — the
+ *       agent's positive case for its alternate.
+ *    4. `null` when nothing usable is available — caller hides the
+ *       caption row entirely rather than rendering an empty italic.
+ *
+ *  Per Paul 2026-06-11: "it would be EXTREMELY helpful to have a
+ *  one-line summary of WHY the proposal is made; 'Agent didn't
+ *  propose', 'Redundant', …" */
+export function findingShortRationale(finding: AuditFinding): string | null {
+  const max = 90;
+  const oneLine = (s: string | null | undefined): string => {
+    if (!s) return "";
+    const trimmed = s.trim();
+    if (!trimmed) return "";
+    // First sentence — period followed by space, or first newline.
+    const sentenceEnd = trimmed.search(/\.\s|[\r\n]/);
+    const head = sentenceEnd > 0 ? trimmed.slice(0, sentenceEnd) : trimmed;
+    if (head.length <= max) return head;
+    // Truncate on a word boundary near the cap.
+    const cut = head.slice(0, max);
+    const lastSpace = cut.lastIndexOf(" ");
+    return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut) + "…";
+  };
+  const fix = oneLine(finding.suggested_fix);
+  if (fix) return fix;
+  const rationale = oneLine(finding.rationale);
+  if (rationale) return rationale;
+  const defense = oneLine(finding.proposer_defense);
+  if (defense) return defense;
+  return null;
+}

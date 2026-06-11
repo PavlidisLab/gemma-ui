@@ -1915,6 +1915,25 @@ export function FindingDetailsEditor({
                     } satisfies ActionButton,
                   ]
                 : []
+            : actionShape === "match"
+              ? [
+                  // Match findings: keep + adopt collapse to the same
+                  // "confirm" verb (both sides already agree). Render
+                  // ONE Confirm-all button instead of two identical
+                  // ones — Paul 2026-06-11: "having 'confirm' and
+                  // 'confirm' on every card is dumb." Acts as the
+                  // factor-level "overall" the curator wants: fills
+                  // any un-picked per-FV blocks with the same verdict.
+                  {
+                    key: "confirm",
+                    kind: "primary-accept" as const,
+                    label: "Confirm all",
+                    onClick: () => dispatchSave("proposal"),
+                    title:
+                      `Confirm every FV — auditor's claim and current curation already agree. ` +
+                      `Skips the per-FV walkthrough.`,
+                  } satisfies ActionButton,
+                ]
             : [
                 {
                   key: "keep",
@@ -3353,22 +3372,44 @@ function DisagreementBlock({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
-        <PickButton
-          active={blockPick === "currently"}
-          recommended={leanKinds.keep === "primary-keep"}
-          onClick={() => onPick("currently")}
-          tone="keep"
-        >
-          {keepLabel}
-        </PickButton>
-        <PickButton
-          active={blockPick === "proposal"}
-          recommended={leanKinds.accept === "primary-accept"}
-          onClick={() => onPick("proposal")}
-          tone="accept"
-        >
-          {adoptLabel}
-        </PickButton>
+        {actionShape === "match" ? (
+          // Match findings — auditor's claim and current row already
+          // agree, so both keep/adopt labels resolve to "confirm".
+          // Rendering both was Paul's "having 'confirm' and 'confirm'
+          // on every card is dumb" (2026-06-11): two buttons doing
+          // the same thing under different colours. Collapse to a
+          // single Confirm that records the agreement. The outer
+          // Agree button on FindingActionRow already serves as the
+          // factor-level "confirm all" when the curator wants to
+          // skip the per-FV walkthrough.
+          <PickButton
+            active={blockPick === "proposal" || blockPick === "currently"}
+            recommended={true}
+            onClick={() => onPick("proposal")}
+            tone="accept"
+          >
+            Confirm
+          </PickButton>
+        ) : (
+          <>
+            <PickButton
+              active={blockPick === "currently"}
+              recommended={leanKinds.keep === "primary-keep"}
+              onClick={() => onPick("currently")}
+              tone="keep"
+            >
+              {keepLabel}
+            </PickButton>
+            <PickButton
+              active={blockPick === "proposal"}
+              recommended={leanKinds.accept === "primary-accept"}
+              onClick={() => onPick("proposal")}
+              tone="accept"
+            >
+              {adoptLabel}
+            </PickButton>
+          </>
+        )}
         {hasReferenceCtx ? (
           <PickButton
             active={blockPick === "reference"}

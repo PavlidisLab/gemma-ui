@@ -20,6 +20,7 @@ import {
   assignmentTarget,
 } from "./targetIds";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
+import { useStickyState } from "@/lib/useStickyState";
 import { resolveApplyAction, type ApplyAction } from "./applyHandlers";
 import { registerAppliedBatch } from "./appliedBatches";
 import { severityTextCls } from "./auditPresentation";
@@ -132,13 +133,16 @@ export function AuditSidebarPanel({
     useAudit();
   const copy = KIND_COPY[kind];
   const { draft } = useDesignDraft();
-  // Panel-level card-expansion baseline. Proposals default to
-  // ``"expanded"`` (curator reads agent's proposal as primary
-  // content); audits default to ``"collapsed"`` (1-line headers, opt
-  // into bodies). Curator can cycle through three states from the
-  // header button below.
-  const [panelExpansion, setPanelExpansion] = useState<PanelExpansion>(
-    kind === "proposal" ? "expanded" : "collapsed",
+  // Panel-level card-expansion baseline. Default = "collapsed"
+  // (one-line headers; curator opts into bodies). Persisted per
+  // (kind, experimentId) via localStorage so a curator working
+  // through 100 GSEs gets their last setting back when they reopen
+  // an experiment they've already visited. Paul 2026-06-11: "default
+  // to this view (collapsed) — but remember user's last setting for
+  // the experiment."
+  const [panelExpansion, setPanelExpansion] = useStickyState<PanelExpansion>(
+    `audit.panelExpansion.${kind}.${experimentId}`,
+    "collapsed",
   );
   function cyclePanelExpansion(): void {
     setPanelExpansion((prev) =>

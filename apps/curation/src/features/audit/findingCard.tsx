@@ -77,6 +77,7 @@ import {
 import {
   findingActionGlyph,
   findingActionLabel,
+  findingShortRationale,
   findingSubjectLabel,
   isMatchFinding,
   subsumedFvChildren,
@@ -587,6 +588,9 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 defenderVerdict={finding.defender_verdict}
               />
               <FactorDescriptionSubtitle finding={finding} report={report} />
+              {cardOpen ? null : (
+                <FindingShortRationale finding={finding} />
+              )}
             </>
           ) : (
             <>
@@ -625,6 +629,9 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
               </span>
               <FactorReplacementHint finding={finding} report={report} />
               <FactorDescriptionSubtitle finding={finding} report={report} />
+              {cardOpen ? null : (
+                <FindingShortRationale finding={finding} />
+              )}
             </>
           )}
         </span>
@@ -739,6 +746,30 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           straight onto the buttons. Collapses with the card. */}
       {cardOpen ? <FindingActionRow finding={finding} /> : null}
     </div>
+  );
+}
+
+/** Italic one-line "why" caption that surfaces under the collapsed
+ *  card header — pulls from `suggested_fix` / `rationale` /
+ *  `proposer_defense` in that order via `findingShortRationale()`.
+ *  Renders nothing when there's no usable source. Per Paul 2026-06-11
+ *  handoff: collapsed cards previously read as "title + chips" with
+ *  no inline reason; the WHY was buried behind "auditor details ▸". */
+function FindingShortRationale({ finding }: { finding: AuditFinding }) {
+  const summary = findingShortRationale(finding);
+  if (!summary) return null;
+  return (
+    <span
+      className="block text-[11px] italic text-slate-500 dark:text-slate-400 mt-0.5 leading-snug"
+      title={
+        finding.rationale ||
+        finding.suggested_fix ||
+        finding.proposer_defense ||
+        undefined
+      }
+    >
+      {summary}
+    </span>
   );
 }
 
