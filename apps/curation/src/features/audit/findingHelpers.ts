@@ -359,6 +359,17 @@ export function subsumedFvChildren(
  *  one-liners is open. */
 export function findingShortRationale(finding: AuditFinding): string | null {
   const max = 50;
+  // Per-issue-code curated copy — short, curator-readable phrases for
+  // the situations where the wire-side rationale is too verbose or
+  // says something off-pitch. Paul 2026-06-11: "The remove tag ones
+  // should say 'Agent did not propose'." Lands BEFORE the heuristic
+  // sources below so the curated copy always wins.
+  if (
+    finding.issue_code === "calibration_gold_only_miss" ||
+    finding.issue_code === "calibration_factor_gold_only_miss"
+  ) {
+    return "Agent did not propose";
+  }
   const trim = (s: string | null | undefined): string => {
     if (!s) return "";
     const trimmed = s.trim();
