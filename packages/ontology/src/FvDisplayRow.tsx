@@ -78,10 +78,23 @@ export function FvDisplayRow({
     fv.free_text_label?.trim() ||
     "") as string;
   const subjUri = head?.subject?.uri ?? null;
-  const predLabel = head?.predicate?.label?.trim() ?? "";
-  const predUri = head?.predicate?.uri ?? null;
-  const objLabel = head?.object?.label?.trim() ?? "";
-  const objUri = head?.object?.uri ?? null;
+  // Partition `rest` into the head-subject siblings (collapse into a
+  // stacked P/O column under the head's subject — mirrors the design
+  // editor's `CompactStatementGroup` so curators don't read the same
+  // subject chip twice) and everything else (a different subject, or
+  // a free-text label that doesn't match — render as full sub-row).
+  // Paul 2026-06-11: "the subject needn't be repeated if it is the
+  // same."
+  const headSubjectKey = subjectKey(head?.subject ?? null);
+  const headSiblings: FvDisplayStatement[] = [];
+  const otherRest: FvDisplayStatement[] = [];
+  for (const s of rest) {
+    if (headSubjectKey && subjectKey(s.subject ?? null) === headSubjectKey) {
+      headSiblings.push(s);
+    } else {
+      otherRest.push(s);
+    }
+  }
   const n = fv.biomaterial_short_names?.length ?? 0;
   return (
     <div className={cx("text-[11px]", className)}>
@@ -102,25 +115,34 @@ export function FvDisplayRow({
         ) : (
           <span className="italic text-slate-400">(blank)</span>
         )}
-        {predLabel ? (
-          <>
-            <span className="text-slate-400 dark:text-slate-500"> - </span>
-            <span
-              className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
-              title={predUri || undefined}
-            >
-              {predLabel}
-            </span>
-          </>
+        {/* Predicate/object column. When the FV has multiple
+            statements sharing the head subject, stack each pair as
+            its own row underneath the head pair — the subject chip on
+            the left stays single, predicates line up vertically. */}
+        {head && headSiblings.length > 0 ? (
+          <div className="flex flex-col gap-y-0.5 min-w-0">
+            <StatementPredicateObject
+              statement={head}
+              termRenderer={termRenderer}
+            />
+            {headSiblings.map((s, i) => (
+              <StatementPredicateObject
+                key={i}
+                statement={s}
+                termRenderer={termRenderer}
+              />
+            ))}
+          </div>
+        ) : head ? (
+          // Single-statement (or no siblings) — keep the original
+          // inline pred/obj rendering so the (n) + baseline glyph
+          // stay on the same row.
+          <StatementPredicateObject
+            statement={head}
+            termRenderer={termRenderer}
+            inline
+          />
         ) : null}
-        {objLabel
-          ? (
-            <>
-              <span className="text-slate-400 dark:text-slate-500"> - </span>
-              {termRenderer({ label: objLabel, uri: objUri })}
-            </>
-          )
-          : null}
         {fv.is_baseline ? (
           <span
             className="text-amber-600 dark:text-amber-400 leading-none ml-0.5"
@@ -137,12 +159,13 @@ export function FvDisplayRow({
         ) : null}
         {trailing}
       </div>
-      {/* Multi-statement: stack the remaining statements as indented
-          sublines, each rendering as Subj - Pred - Obj. Indent matches
-          the FV-N gutter (w-10 + gap-1.5 ≈ 2.875rem). */}
-      {rest.length > 0 ? (
+      {/* Sub-rows for statements whose subject differs from the head
+          (rare — multi-subject FVs). Each renders as a full Subj -
+          Pred - Obj sub-line, indented to align with the head's
+          subject column (w-10 FV-gutter + gap-1.5 ≈ 2.875rem). */}
+      {otherRest.length > 0 ? (
         <div className="pl-[2.875rem] mt-0.5 space-y-0.5">
-          {rest.map((s, i) => (
+          {otherRest.map((s, i) => (
             <ExtraStatementLine
               key={i}
               statement={s}
@@ -151,6 +174,65 @@ export function FvDisplayRow({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Stable subject identity for "same subject across statements"
+ *  grouping. URI wins when both sides carry one; falls back to the
+ *  case-insensitive trimmed label. Returns empty string when both
+ *  are missing — callers skip the grouping path in that case. */
+function subjectKey(subject: FvDisplayTerm | null): string {
+  if (!subject) return "";
+  const uri = (subject.uri ?? "").trim();
+  if (uri) return `uri:${uri}`;
+  const label = (subject.label ?? "").trim().toLowerCase();
+  return label ? `lbl:${label}` : "";
+}
+
+/** One predicate-object pair render — reused by both the head's
+ *  inline form and the stacked-siblings column. `inline` keeps it
+ *  inside the parent flex row (no wrapper); the column form wraps
+ *  it in its own flex row. */
+function StatementPredicateObject({
+  statement,
+  termRenderer,
+  inline = false,
+}: {
+  statement: FvDisplayStatement;
+  termRenderer: FvTermRenderer;
+  inline?: boolean;
+}): JSX.Element | null {
+  const predLabel = statement.predicate?.label?.trim() ?? "";
+  const predUri = statement.predicate?.uri ?? null;
+  const objLabel = statement.object?.label?.trim() ?? "";
+  const objUri = statement.object?.uri ?? null;
+  if (!predLabel && !objLabel) return null;
+  const content = (
+    <>
+      {predLabel ? (
+        <>
+          <span className="text-slate-400 dark:text-slate-500"> - </span>
+          <span
+            className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+            title={predUri || undefined}
+          >
+            {predLabel}
+          </span>
+        </>
+      ) : null}
+      {objLabel ? (
+        <>
+          <span className="text-slate-400 dark:text-slate-500"> - </span>
+          {termRenderer({ label: objLabel, uri: objUri })}
+        </>
+      ) : null}
+    </>
+  );
+  if (inline) return content;
+  return (
+    <div className="flex items-baseline gap-x-1.5">
+      {content}
     </div>
   );
 }
