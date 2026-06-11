@@ -621,6 +621,7 @@ function Shell({
         loadedAt={draft?.loaded_at ?? ""}
         loadedBy={draft?.loaded_by ?? ""}
         externalSource={externalSource}
+        publications={draft?.publications}
         activeTab={activeTab}
         groupContext={groupContext}
         ticketContext={ticketContext}
