@@ -7,6 +7,7 @@
  */
 
 import { niceTicks, fmtPct } from "./math";
+import { useContainerSize } from "./useContainerSize";
 
 const ACCENT = "#2563eb";
 const ACCENT_HOVER = "#1d4ed8";
@@ -26,8 +27,9 @@ export function ScreeChart({
   onBarClick?: (pc: number) => void;
 }) {
   const shown = variances.slice(0, MAX_SCREE_BARS);
-  const W = 220;
-  const H = 180;
+  const { ref, width, height } = useContainerSize<SVGSVGElement>();
+  const W = width > 0 ? width : 220;
+  const H = height > 0 ? height : 180;
   const padL = 26;
   const padR = 6;
   const padT = 8;
@@ -40,9 +42,10 @@ export function ScreeChart({
   const yTicks = niceTicks(0, max, 4);
   return (
     <svg
+      ref={ref}
       viewBox={`0 0 ${W} ${H}`}
       className="w-full h-full"
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
     >
       <rect x={0} y={0} width={W} height={H} fill="#ffffff" />
       {yTicks.map((t) => {

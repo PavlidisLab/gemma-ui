@@ -5,6 +5,7 @@
  */
 
 import { truncate } from "./math";
+import { useContainerSize } from "./useContainerSize";
 
 const PC_COLORS = ["#1e3a8a", "#3b82f6", "#93c5fd"]; // blue-900 / 500 / 300
 const TEXT = "#1f2937";
@@ -19,8 +20,9 @@ export interface PcFactorBarRow {
 }
 
 export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: number }) {
-  const W = 220;
-  const H = 180;
+  const { ref, width, height } = useContainerSize<SVGSVGElement>();
+  const W = width > 0 ? width : 220;
+  const H = height > 0 ? height : 180;
   const padL = 22;
   const padR = 6;
   const padT = 8;
@@ -35,9 +37,10 @@ export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: num
 
   return (
     <svg
+      ref={ref}
       viewBox={`0 0 ${W} ${H}`}
       className="w-full h-full"
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
     >
       <rect x={0} y={0} width={W} height={H} fill="#ffffff" />
       {yTicks.map((t) => (
