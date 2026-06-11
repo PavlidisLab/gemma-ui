@@ -52,26 +52,52 @@ export function ChipStrip({
   // chips stay selectable so the curator can audit / compare freely.
   const baselineLocked = flow === "edit";
 
-  // Mode pill: reflects whether the design tab is editable. The
-  // baseline drives writability — ``preboard`` is Gemma's live state
-  // (the actual writable target) so edits land. Any other baseline
-  // is a snapshot (polished:cy, empty, etc.) and the tab is locked
-  // to its content. Flow no longer controls this directly; the
-  // chip-strip baseline does. Per Paul 2026-06-02 framework.
-  const isEditable = baseline === "preboard";
-  const modePill = isEditable ? (
+  // Mode pill: reflects what the curator can actually do on this
+  // page. Three states (Paul 2026-06-11 handoff #4 — the previous
+  // "Curation mode" / "Review mode" pair conflated editability and
+  // proposal-review context):
+  //
+  //   - "Editing local design" — chip baseline is editable (`preboard`,
+  //     or a curation row whose source_kind is `consensus` /
+  //     `curator_polish`). Commits go to /design. Amber tone.
+  //   - "Reviewing proposal" — same editability AND the comparator
+  //     points at `agent_proposal`. Curator can disposition findings
+  //     and edit the design in parallel. Sky tone.
+  //   - "Read-only" — baseline is a non-editable snapshot (live,
+  //     another curator's polish, frozen agent_proposal as baseline).
+  //     No commits, no dispositions. Slate tone.
+  // Editability derived from the chip-strip baseline directly. Mirrors
+  // EDITABLE_KINDS in DesignDraftContext (consensus / curator_polish)
+  // plus `preboard` which routes to /design as Gemma's live target.
+  // `live` is the upstream Gemma's frozen view — explicitly NOT
+  // editable (commits would be silent overwrites). `agent_proposal`
+  // as a baseline is a frozen proposer snapshot — same exclusion.
+  const baselineIsEditable =
+    baseline === "preboard" ||
+    baseline.startsWith("polished:consensus_") ||
+    baseline.startsWith("polished:curator_polish_");
+  const isReviewingProposal =
+    baselineIsEditable && comparator === "agent_proposal";
+  const modePill = !baselineIsEditable ? (
     <span
-      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:border-amber-500 dark:text-amber-100"
-      title="Editing Gemma's current design. Factor/tag edits land in Gemma; accept/reject on the right are live."
+      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-slate-400 bg-slate-100 text-slate-800 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 cursor-help"
+      title="Baseline is a non-editable snapshot — design tab is locked, dispositions disabled. Flip baseline to your own polish or Gemma to edit."
     >
-      Curation mode
+      Read-only
+    </span>
+  ) : isReviewingProposal ? (
+    <span
+      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-sky-400 bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:border-sky-500 dark:text-sky-100"
+      title="Reviewing the agent's proposal against an editable baseline. Disposition findings on the right; commits land on /design."
+    >
+      Reviewing proposal
     </span>
   ) : (
     <span
-      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-sky-400 bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:border-sky-500 dark:text-sky-100 cursor-help"
-      title="Baseline is a snapshot, not Gemma's live state — design tab is locked to display the snapshot. Flip baseline to Gemma to edit."
+      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:border-amber-500 dark:text-amber-100"
+      title="Editing the local design. Factor/tag edits land in /design on commit."
     >
-      Review mode
+      Editing local design
     </span>
   );
 
@@ -396,3 +422,4 @@ function menuItemTooltip(
   if (!avail.available) return avail.reason;
   return undefined;
 }
+

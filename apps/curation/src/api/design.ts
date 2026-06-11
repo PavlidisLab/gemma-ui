@@ -374,6 +374,20 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
       qc.invalidateQueries({ queryKey: ["audit-events", experimentId] });
+      // Audit + proposal lists also need to refetch — their findings'
+      // rationale text references the design we just changed (e.g.
+      // "X factor needs a baseline" warning persists in audit cards
+      // even after the curator commits the baseline fix). Without
+      // invalidating these, per-card warnings stay stale until a hard
+      // refresh. Paul 2026-06-11 review-workflow handoff #7.
+      //
+      // Broad invalidation (prefix-only) mirrors the precedent in
+      // `api/datasets.ts:181` — the alternative is enumerating every
+      // (experiment, status) tuple in the proposals KEY shape, which
+      // is fragile. The refetch is cheap; staleTime keeps the rest of
+      // the app from re-fetching unrelated experiments.
+      qc.invalidateQueries({ queryKey: ["audits"] });
+      qc.invalidateQueries({ queryKey: ["proposals"] });
     },
   });
 }

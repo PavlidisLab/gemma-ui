@@ -71,10 +71,15 @@ const KIND_COPY: Record<
     nounPlural: "audits",
     headerLabel: "Audit",
     emptyBody: "No audits on this experiment yet.",
-    closeButtonLabel: "Close audit",
-    closeConfirmHeader: "Close this audit?",
-    closedToast: "Audit closed.",
-    reopenedToast: "Audit reopened — dispositions editable again.",
+    // Relabelled per Paul 2026-06-11 review-workflow handoff #3:
+    // "Close audit" read as "close the panel" — curators didn't
+    // realise it was the terminal "I'm done reviewing this GSE"
+    // milestone. "Finalize review" matches the curator's mental
+    // model and pairs with Reopen.
+    closeButtonLabel: "Finalize review",
+    closeConfirmHeader: "Finalize this review?",
+    closedToast: "Review finalized.",
+    reopenedToast: "Review reopened — dispositions editable again.",
     idleStreamLabel: "no audit running",
   },
   proposal: {
@@ -83,19 +88,15 @@ const KIND_COPY: Record<
     nounPlural: "proposals",
     headerLabel: "Proposal",
     emptyBody: "No proposals on this experiment yet.",
-    // Reframed per Paul 2026-05-25 round 2: "Submit review"
-    // confused two ideas — the per-finding verdicts (which already
-    // stream to the curator's state continuously) and the curator's
-    // "I'm done with this proposal as a curation aid" milestone.
-    // The button is only the milestone; the agent reads the
-    // dispositions from local_api when it next runs, so there's
-    // nothing being "submitted to" anyone at click time. Matches
-    // the audit-kind "Close audit" lifecycle pair.
-    closeButtonLabel: "Close",
-    closeConfirmHeader: "Close this proposal review?",
-    closedToast: "Proposal review closed.",
-    reopenedToast:
-      "Proposal review reopened — dispositions editable again.",
+    // Matches the audit-kind "Finalize review" lifecycle pair (Paul
+    // 2026-06-11 handoff #3). The button is the milestone "I'm
+    // done with this proposal as a curation aid"; the agent reads
+    // the dispositions from local_api when it next runs, so there's
+    // nothing being "submitted to" anyone at click time.
+    closeButtonLabel: "Finalize review",
+    closeConfirmHeader: "Finalize this review?",
+    closedToast: "Review finalized.",
+    reopenedToast: "Review reopened — dispositions editable again.",
     idleStreamLabel: "no proposal review running",
   },
 };
