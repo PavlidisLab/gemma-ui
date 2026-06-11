@@ -351,7 +351,11 @@ export function isProtectedTagCategory(
 
 /** Like ``factorRequiresBaseline`` but stricter — returns ``false``
  *  for soft-baseline categories (cell line) so commit / publish
- *  gates don't block on them. The warning surface still uses
+ *  gates don't block on them. Also returns false for "no-contrast"
+ *  factors — a single FV or an empty FV list has nothing to
+ *  baseline against, so blocking commit on baseline-count would
+ *  just nag the curator to pick a baseline for a factor that
+ *  carries no comparison. The warning surface still uses
  *  ``factorRequiresBaseline``, so the curator sees the bullet in
  *  the ValidatorBanner; this just controls whether they can keep
  *  moving. */
@@ -359,6 +363,12 @@ export function factorBaselineBlocksCommit(
   factor: Factor | null | undefined,
 ): boolean {
   if (!factorRequiresBaseline(factor)) return false;
+  // No-contrast factors: ≤1 FV means there's no comparison to be
+  // made, so the baseline concept doesn't apply. Continuous +
+  // ontology-no-baseline categories are already filtered by
+  // factorRequiresBaseline above; this catches the structural case.
+  const fvCount = factor?.factor_values?.length ?? 0;
+  if (fvCount <= 1) return false;
   const k = (factor?.category?.label || "").trim().toLowerCase();
   return !SOFT_BASELINE_CATEGORIES.has(k);
 }
