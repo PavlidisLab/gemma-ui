@@ -498,7 +498,7 @@ export function buildFactorRows(
   return { rows, fvMeta };
 }
 
-function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
+export function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
   // Recognised prefixes:
   //   - ``calibration:<bucket>:<category>/<value>`` — real calibration
   //     finding from the agent-audit pipeline.
@@ -542,28 +542,38 @@ function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
     uri: term?.uri ?? null,
   };
 
-  // Look up the gold side from the local design's tags by
-  // (category, value) match — case-insensitive, plus URI match
-  // when both sides carry one. For agent_extra findings the
-  // expected outcome is no-match (gold doesn't have the proposed
-  // tag) → explicit empty SideValue so the agreement check
-  // registers the disagreement. For match findings the lookup
-  // succeeds and rowAgreement collapses to true.
-  // Reference (Gemma) lookup deferred — no separate Gemma
-  // snapshot of tags is stored locally today (same constraint as
-  // factor reference data).
+  // Look up the gold side from the local design's tags. URI-FIRST:
+  // when the auditor's value carries a URI and a design tag carries
+  // the same URI, that's the same tag regardless of which category
+  // label the curator filed it under. Categories drift on this
+  // surface — e.g. "disease" (EFO:0000408) and "disease model" are
+  // both used for the same MONDO disease term. The pre-2026-06-12
+  // lookup required category-label equality and silently dropped
+  // tags whose categories differed, surfacing as "no entry" in the
+  // Current column even when the tag was present. Per Paul: GSE87700
+  // ``disease model: fetal alcohol spectrum disorder MONDO:0000408``
+  // was matched against design tag ``disease: fetal alcohol spectrum
+  // disorder MONDO:0000408`` — the URIs agree, the category labels
+  // don't, lookup should succeed.
+  //
+  // Match order:
+  //   1. Value URI exact match (the identity-bearing field).
+  //   2. (category-label, value-label) case-insensitive both — for
+  //      legacy / free-text tags where neither side carries a URI.
+  const lookupTags = design?.tags ?? [];
   const matchedTag =
-    design?.tags?.find((t) => {
-      // Category-side is label-only — `agentCategory` is a parsed
-      // string from the target_id / rationale tail with no URI.
-      const sameCategory =
-        lc(t.category?.label) === lc(agentCategory);
-      if (!sameCategory) return false;
-      // Value-side carries a URI on `valueProposal` when proposer_term
-      // is populated. Prefer URI identity over label so two distinct
-      // ontology terms that share a label can't collide.
-      return sameOntologyTerm(t.value ?? null, valueProposal);
-    }) ?? null;
+    (valueProposal.uri
+      ? lookupTags.find(
+          (t) =>
+            !!t.value?.uri && t.value.uri === valueProposal.uri,
+        )
+      : null) ??
+    lookupTags.find(
+      (t) =>
+        lc(t.category?.label) === lc(agentCategory) &&
+        sameOntologyTerm(t.value ?? null, valueProposal),
+    ) ??
+    null;
 
   const categoryCurrently: SideValue = matchedTag
     ? {
