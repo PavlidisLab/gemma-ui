@@ -2075,18 +2075,26 @@ function TicketMemberRow({
           {target.display_name || "(no title)"}
         </span>
         {target.status ? (
-          <span
-            className={cn(
-              "text-[9px] uppercase tracking-wide shrink-0",
+          // Status disc — same visual language as the set-navigator
+          // popover. Per Paul 2026-06-11: "we used to have little
+          // circles." The earlier uppercase text label drifted from
+          // the set-navigator's disc convention.
+          <StatusDisc
+            tone={
               target.status === "DONE"
-                ? "text-emerald-700 dark:text-emerald-400"
+                ? "done"
                 : target.status === "UNDERWAY"
-                  ? "text-amber-700 dark:text-amber-400"
-                  : "text-slate-500 dark:text-slate-400",
-            )}
-          >
-            {target.status === "NOT_DONE" ? "todo" : target.status.toLowerCase()}
-          </span>
+                  ? "draft"
+                  : "untouched"
+            }
+            title={
+              target.status === "DONE"
+                ? "done"
+                : target.status === "UNDERWAY"
+                  ? "in progress"
+                  : "todo"
+            }
+          />
         ) : null}
       </button>
     </li>

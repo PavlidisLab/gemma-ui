@@ -131,6 +131,28 @@ export interface AuditFinding {
    *  characteristics. Rendered as blockquotes. Empty on older
    *  reports or when no specific quote grounds the suggestion. */
   supporting_evidence?: FindingEvidence[];
+  /** True when the judge ran but no paper excerpts could be
+   *  anchored to this finding (legacy pack predating the
+   *  ``paper_excerpts`` proposer schema, biolit miss, OA-PDF lookup
+   *  failure, character-budget exhaustion, etc.). Distinct from
+   *  "``supporting_evidence`` happened to be empty" — when this is
+   *  ``true`` the UI renders a muted "no paper excerpt emitted —
+   *  judge rationale above is un-grounded" caption so the curator
+   *  can see WHY the evidence box is empty. When ``false`` (or
+   *  absent) and ``supporting_evidence`` is also empty, the finding
+   *  has no rationale to ground in the first place (structural-only
+   *  findings like ``calibration_factor_gold_only_miss``) and the
+   *  UI shows nothing.
+   *
+   *  Shipped 2026-06-12 by bro per
+   *  ``UIB_HANDOFF_2026_06_11_AGENT_PARAPHRASE_FALLBACK.md`` /
+   *  ``HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md``.
+   *  Replaces the legacy synthetic ``supporting_evidence`` entry
+   *  whose ``location`` was the literal "AGENT-PARAPHRASE FALLBACK
+   *  (PAPER_EXCERPTS NOT EMITTED)"; the UI's old string-match
+   *  suppression is retained as a fallback for transcripts archived
+   *  pre-flag. */
+  paper_excerpts_unavailable?: boolean;
   /** Structured statement(s) for the proposer's pick — populated
    *  on FV / factor-shape findings so the UI can render the same
    *  ``StatementGlyph`` (S-P-O three-disc visualisation) the

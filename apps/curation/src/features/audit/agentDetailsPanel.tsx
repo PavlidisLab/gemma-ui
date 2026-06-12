@@ -50,6 +50,7 @@ import { findingLean, leanSuggestionLabel } from "./defenderLean";
 import { parsePrefixedNote } from "./dispositionEdit";
 import { isNearMatchFinding } from "./factorMatch";
 import { verdictStrength } from "./auditPresentation";
+import { findingEvidenceRender } from "./paperExcerptsCaption";
 import { trimRationaleBoilerplate } from "./rationaleText";
 import { dedupeSubtaskDecisions } from "./subtaskDecisions";
 import { SubtaskDecisionRow } from "./AuditReportView";
@@ -382,13 +383,38 @@ export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
           {judge.text}
         </div>
       ) : null}
-      {evidence.length > 0 ? (
-        <div className="space-y-1">
-          {evidence.map((ev, i) => (
-            <FindingEvidenceBlock key={i} evidence={ev} />
-          ))}
-        </div>
-      ) : null}
+      {(() => {
+        // Render decision routed through the pure helper so the
+        // three-state contract (blockquotes / muted_caption / nothing)
+        // stays unit-testable. See ./paperExcerptsCaption.ts +
+        // bro's HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md
+        // for the table.
+        const render = findingEvidenceRender(finding);
+        if (render === "blockquotes") {
+          return (
+            <div className="space-y-1">
+              {evidence.map((ev, i) => (
+                <FindingEvidenceBlock key={i} evidence={ev} />
+              ))}
+            </div>
+          );
+        }
+        if (render === "muted_caption") {
+          return (
+            <div
+              className="text-[10px] italic text-slate-500 dark:text-slate-400 leading-snug pl-2 border-l-2 border-slate-300 dark:border-slate-600"
+              title={
+                "The judge ran but no paper excerpts could be anchored to " +
+                "this finding. The Judge rationale above is the only source. " +
+                "Treat as un-grounded — verify against the paper before acting."
+              }
+            >
+              no paper excerpt emitted — judge rationale above is un-grounded
+            </div>
+          );
+        }
+        return null;
+      })()}
       {/* Legacy text-only proposals (older audits with no structured
           term / statements / defense / evidence) still surface as a
           last-resort signal so the curator doesn't lose that data.
@@ -490,6 +516,30 @@ export function FindingEvidenceBlock({
     evidence.highlights ?? [],
   );
   const quote = (evidence.quote || "").trim();
+  // Agent-paraphrase fallback — the agent had no real paper excerpts
+  // and emitted a paraphrase of its own judge text as evidence. That
+  // duplicates the Judge row verbatim and adds zero curator signal.
+  // Collapse to a one-line muted note so the absence is honest
+  // without the redundant block. Per Paul 2026-06-11.
+  const location = (evidence.location || "").trim();
+  const isParaphraseFallback =
+    location.toUpperCase().includes("AGENT-PARAPHRASE FALLBACK") ||
+    location.toUpperCase().includes("PAPER_EXCERPTS NOT EMITTED") ||
+    /^\(agent paraphrase\)/i.test(quote);
+  if (isParaphraseFallback) {
+    return (
+      <div
+        className="text-[10px] italic text-slate-500 dark:text-slate-400 leading-snug pl-2 border-l-2 border-slate-300 dark:border-slate-600"
+        title={
+          "Agent did not emit a paper excerpt for this finding. The judge's " +
+          "rationale above is the only source. Treat as un-grounded — verify " +
+          "against the paper before acting."
+        }
+      >
+        no paper excerpt emitted — judge rationale above is un-grounded
+      </div>
+    );
+  }
   // Only show the expander when context adds value beyond the anchor
   // sentence — empty contexts and contexts that just are the quote
   // don't warrant the affordance.

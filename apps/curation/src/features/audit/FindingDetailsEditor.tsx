@@ -35,7 +35,7 @@
  * null and the "match Gemma" button is suppressed.
  */
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { sameOntologyTerm } from "@/lib/ontologyTerm";
@@ -59,6 +59,7 @@ import type {
 import type {
   Design,
   Factor,
+  FactorValue,
   Statement,
 } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
@@ -268,6 +269,20 @@ interface Row {
 interface FvMeta {
   agentSampleCount: number;
   goldSampleCount: number | null;
+  /** Extra current-side statements beyond ``statements[0]`` — the
+   *  comparator row builder pairs the agent's single proposed
+   *  statement against gold's ``statements[0]``, but a curated FV
+   *  often carries multiple statements (subject + dose, role +
+   *  modifier, etc.). The disagreement block renders these as
+   *  "(also: S - P - O)" hints beneath the main Current line so
+   *  the curator sees gold's full structure. Per Paul 2026-06-11
+   *  (FV 4 dexamethasone case — only the first of two statements
+   *  was rendering). */
+  goldExtraStatements?: Array<{
+    subject: SideValue;
+    predicate: SideValue;
+    object: SideValue;
+  }>;
 }
 
 interface BuildResult {
@@ -278,7 +293,7 @@ interface BuildResult {
 function pairAgentGoldFv(
   agentFactor: FactorValueProposal,
   gold: Factor | null,
-): { biomaterial_short_names: string[] } | null {
+): FactorValue | null {
   if (!gold) return null;
   const agentBms = new Set(agentFactor.biomaterial_short_names ?? []);
   for (const goldFv of gold.factor_values) {
@@ -291,9 +306,7 @@ function pairAgentGoldFv(
         break;
       }
     }
-    if (allIn) {
-      return { biomaterial_short_names: goldFv.biomaterial_short_names ?? [] };
-    }
+    if (allIn) return goldFv;
   }
   return null;
 }
@@ -385,11 +398,25 @@ export function buildFactorRows(
 
   agent.factor_values.forEach((fv, fvIdx) => {
     const pairedGoldFv = pairAgentGoldFv(fv, gold);
+    // Gold-side statements beyond ``[0]`` — surface as "(also: …)"
+    // lines in the disagreement block so the curator sees the full
+    // current structure even when the comparator row builder only
+    // pairs against ``statements[0]``.
+    const goldExtraStatements = pairedGoldFv
+      ? (pairedGoldFv.statements ?? []).slice(1).map((st) => ({
+          subject: statementPart(st, "subject"),
+          predicate: statementPart(st, "predicate"),
+          object: statementPart(st, "object"),
+        }))
+      : [];
     fvMeta.set(fvIdx, {
       agentSampleCount: fv.biomaterial_short_names?.length ?? 0,
       goldSampleCount: pairedGoldFv
-        ? pairedGoldFv.biomaterial_short_names.length
+        ? (pairedGoldFv.biomaterial_short_names ?? []).length
         : null,
+      goldExtraStatements: goldExtraStatements.length
+        ? goldExtraStatements
+        : undefined,
     });
 
     // Reference statement parts — pair the agent FV to its
@@ -1873,10 +1900,23 @@ export function FindingDetailsEditor({
         disabled={currentDisposition !== "pending"}
         buttons={
           auditorSaysExactlyRight
-            ? // Auditor says exactly right — nothing to act on.
-              // ``showEscapeHatches`` below also flips off so the
-              // whole row collapses.
-              []
+            ? // Auditor says exactly right — the curator's verdict is
+              // still a real disposition (accept / reject / park).
+              // Per Paul 2026-06-11 on TAG MATCH cards: "should be
+              // agree and reject" — the earlier "no buttons" branch
+              // left curators with only Reject/Park, which felt
+              // lopsided. Agree records acceptance without mutating
+              // the draft (there's nothing to mutate on a match).
+              [
+                {
+                  key: "agree",
+                  kind: "primary-accept" as const,
+                  label: "Agree",
+                  onClick: () => dispatchSave("proposal"),
+                  title:
+                    `Agree with ${identities.proposer}: this is the right curation as-is.`,
+                } satisfies ActionButton,
+              ]
             : isTagAddFinding
               ? [
                   {
@@ -1988,14 +2028,13 @@ export function FindingDetailsEditor({
         onDismiss={onDismiss}
         onPark={onPark}
         onUndo={currentDisposition !== "pending" ? onUndo : undefined}
-        // Hide Dismiss / Park for exact matches with no actionable
-        // delta — the proposal is identical to current, so there's
-        // literally nothing to dismiss or park. Other no-actionable
-        // cases (close match where the agent flagged something
-        // subtle, calibration_match tags) keep the escape hatches
-        // so the curator can flag the finding as wrong. Per Paul
-        // 2026-05-21.
-        showEscapeHatches={!auditorSaysExactlyRight}
+        // Reject + Park stay available on every finding — including
+        // exact matches and close matches. Paul 2026-06-11: "reject
+        // should be an option, even if the proposal is 'close'." The
+        // earlier gate ("nothing to dismiss") was wrong: the curator
+        // may still disagree that the auditor's match assessment is
+        // correct, and Reject is how they say so.
+        showEscapeHatches={true}
         hideDismiss={isTagAddFinding}
       />
       )}
@@ -2006,6 +2045,103 @@ export function FindingDetailsEditor({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+/** Subject-shared statement group used by AgreementSummary so multiple
+ *  statements on the same subject ("APP has_genotype Overexpression"
+ *  + "APP has_genotype V717F, KM670/671NL, E22G") collapse to one
+ *  subject chip with the predicate/object pairs stacked beneath.
+ *  Eye reads the subject ONCE, then walks the list. Per Paul
+ *  2026-06-12 GSE93824 genotype walkthrough — the prior render
+ *  repeated the subject on every line and made the inconsistent
+ *  agent-side labelling (same URI, two different display strings)
+ *  jump out as visual noise. */
+function AgreementStatementGroup({
+  subject,
+  entries,
+}: {
+  subject: SideValue;
+  entries: Array<{ predicate: SideValue; object: SideValue }>;
+}) {
+  if (!subject.label && entries.length === 0) return null;
+  // CSS grid with three columns (subject / predicate / object) so
+  // the predicates stack into a single visual column and the eye
+  // can scan them. The subject column sizes to its widest content
+  // (the row 0 chip), and ``⤷`` continuation rows occupy the same
+  // column width, which is what makes the predicate column line up
+  // vertically. Per Paul 2026-06-12: "you could make the
+  // has_genotype align vertically."
+  return (
+    <span
+      className="grid items-baseline gap-x-1.5 gap-y-0.5 min-w-0"
+      style={{ gridTemplateColumns: "max-content max-content 1fr" }}
+    >
+      {entries.map((e, i) => (
+        <Fragment key={`e-${i}`}>
+          {/* Subject column. Row 0: the canonical subject chip.
+              Row 1+: a small ⤷ glyph anchored to the subject column
+              so the predicate column starts at the same x on every
+              row. */}
+          <span className="inline-flex items-baseline">
+            {i === 0 ? (
+              <Term
+                uri={subject.uri ?? null}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                {subject.label}
+              </Term>
+            ) : (
+              <span
+                className="text-slate-400 dark:text-slate-500 pl-1"
+                aria-hidden
+                title={subject.label}
+              >
+                ⤷
+              </span>
+            )}
+          </span>
+          {/* Predicate column — same vertical x across every row. */}
+          <span className="inline-flex items-baseline">
+            {e.predicate.label ? (
+              <>
+                <span
+                  className="text-slate-400 dark:text-slate-500 mr-1"
+                  aria-hidden
+                >
+                  -
+                </span>
+                <span
+                  className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+                  title={e.predicate.uri || undefined}
+                >
+                  {e.predicate.label}
+                </span>
+                <span
+                  className="text-slate-400 dark:text-slate-500 ml-1"
+                  aria-hidden
+                >
+                  -
+                </span>
+              </>
+            ) : null}
+          </span>
+          {/* Object column — fills the remaining width. */}
+          <span className="inline-flex items-baseline flex-wrap min-w-0">
+            {e.object.label ? (
+              <Term
+                uri={e.object.uri ?? null}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                {e.object.label}
+              </Term>
+            ) : null}
+          </span>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
 
 function AgreementSummary({
   rows,
@@ -2057,22 +2193,98 @@ function AgreementSummary({
             const meta = fvMeta.get(idx);
             const sampleHint = meta ? ` (${meta.agentSampleCount})` : "";
             const fvRows = byFv.get(idx) ?? [];
+            const extras = meta?.goldExtraStatements ?? [];
+            const subj = fvRows.find((r) => r.rowLabel === "Subject")
+              ?.proposal;
+            const pred = fvRows.find((r) => r.rowLabel === "Predicate")
+              ?.proposal;
+            const obj = fvRows.find((r) => r.rowLabel === "Object")?.proposal;
+            // Collect every statement on this FV (primary + extras),
+            // then group by subject URI/label so the eye can read
+            // "subject X has predicates A, B, C" instead of repeating
+            // the same subject chip every line. Paul 2026-06-12 on
+            // GSE93824 genotype: "the label should be the same for the
+            // same ontology term (gene) NCBI:gene:351, do you know
+            // why it isn't?" Producer ships different display strings
+            // ("APP" vs "APP [human] amyloid beta (A4) precursor
+            // protein") for the same URI; collapsing them here picks
+            // the SHORTER label as the visual stand-in so the
+            // comparison reads cleanly. (Producer canonicalisation is
+            // out for a separate handoff.)
+            const allStatements: Array<{
+              subject: SideValue;
+              predicate: SideValue;
+              object: SideValue;
+            }> = [];
+            if (subj?.label || pred?.label || obj?.label) {
+              allStatements.push({
+                subject: subj ?? { label: "", uri: null },
+                predicate: pred ?? { label: "", uri: null },
+                object: obj ?? { label: "", uri: null },
+              });
+            }
+            for (const e of extras) allStatements.push(e);
+            // Group by subject identity. Two statements share a group
+            // when their subject URIs match (URI-first) or, when URIs
+            // are absent on both sides, their lowercased labels match.
+            type StmtGroup = {
+              subject: SideValue;
+              entries: Array<{ predicate: SideValue; object: SideValue }>;
+            };
+            const groups: StmtGroup[] = [];
+            for (const s of allStatements) {
+              const existing = groups.find((g) =>
+                sameOntologyTerm(g.subject, s.subject),
+              );
+              if (existing) {
+                // Same subject — prefer the shorter label (the canonical
+                // short form is almost always the cleaner read).
+                if (
+                  s.subject.label &&
+                  s.subject.label.length < existing.subject.label.length
+                ) {
+                  existing.subject = s.subject;
+                }
+                existing.entries.push({
+                  predicate: s.predicate,
+                  object: s.object,
+                });
+              } else {
+                groups.push({
+                  subject: s.subject,
+                  entries: [{ predicate: s.predicate, object: s.object }],
+                });
+              }
+            }
             return (
-              <li key={idx} className="flex items-baseline gap-x-1 flex-wrap">
-                <span className="text-amber-700 dark:text-amber-400 font-semibold not-italic">
-                  FV {idx + 1}
-                </span>
-                <span className="text-slate-400 dark:text-slate-500">
-                  {sampleHint}
-                </span>
-                <span className="text-slate-400 dark:text-slate-500">·</span>
-                <span className="font-mono italic">
-                  {fvRows
-                    .map((r) =>
-                      r.proposal.label || "—",
-                    )
-                    .join(" · ")}
-                </span>
+              <li key={idx} className="flex flex-col gap-y-0.5">
+                {groups.map((g, gix) => (
+                  <div
+                    key={`g-${gix}`}
+                    className={cn(
+                      "flex items-baseline gap-x-1.5 flex-wrap",
+                      gix > 0 && "pl-12",
+                    )}
+                  >
+                    {gix === 0 ? (
+                      <>
+                        <span className="text-amber-700 dark:text-amber-400 font-semibold not-italic shrink-0">
+                          FV {idx + 1}
+                        </span>
+                        <span className="text-slate-400 dark:text-slate-500 shrink-0">
+                          {sampleHint}
+                        </span>
+                        <span className="text-slate-400 dark:text-slate-500 shrink-0">
+                          ·
+                        </span>
+                      </>
+                    ) : null}
+                    <AgreementStatementGroup
+                      subject={g.subject}
+                      entries={g.entries}
+                    />
+                  </div>
+                ))}
               </li>
             );
           })}
@@ -3182,6 +3394,73 @@ function NearMatchExplainer({ finding }: { finding: AuditFinding }) {
   );
 }
 
+/** Renders a single extra current-side statement (statements[1+])
+ *  inline beneath the main Current comparator line. The row builder
+ *  pairs the agent's one proposed statement against gold's
+ *  ``statements[0]``; this surfaces the remaining ones so the curator
+ *  sees the full current structure (e.g. dexamethasone FV with both
+ *  a "delivered at dose · 100 nmol/kg" and a "has modifier · …"
+ *  statement). Per Paul 2026-06-11. */
+function ExtraCurrentStatement({
+  extra,
+}: {
+  extra: {
+    subject: SideValue;
+    predicate: SideValue;
+    object: SideValue;
+  };
+}) {
+  const parts: Array<{ kind: "subject" | "predicate" | "object"; value: SideValue }> = [];
+  if (extra.subject.label) parts.push({ kind: "subject", value: extra.subject });
+  if (extra.predicate.label) parts.push({ kind: "predicate", value: extra.predicate });
+  if (extra.object.label) parts.push({ kind: "object", value: extra.object });
+  if (parts.length === 0) return null;
+  return (
+    <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
+      <span />
+      <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+        {parts.map((p, i) => {
+          const sep =
+            i === 0 ? null : (
+              <span
+                key={`sep-${i}`}
+                className="text-slate-400 dark:text-slate-500"
+                aria-hidden
+              >
+                {" - "}
+              </span>
+            );
+          if (p.kind === "predicate") {
+            return (
+              <span key={`p-${i}`} className="inline-flex items-baseline">
+                {sep}
+                <span
+                  className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+                  title={p.value.uri || undefined}
+                >
+                  {p.value.label}
+                </span>
+              </span>
+            );
+          }
+          return (
+            <span key={`p-${i}`} className="inline-flex items-baseline">
+              {sep}
+              <Term
+                uri={p.value.uri ?? null}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                {p.value.label}
+              </Term>
+            </span>
+          );
+        })}
+      </span>
+    </div>
+  );
+}
+
 /** One block per *statement*. Takes one or more rows that share an
  *  FV+statement (or the single Category row). Renders:
  *   - Header: "FV N · X samples" (or "Category")
@@ -3393,6 +3672,15 @@ function DisagreementBlock({
         picked={blockPick === "currently"}
         onLocate={onLocateCurrent}
       />
+      {/* Extra current-side statements beyond ``statements[0]`` — a
+          curated FV often layers multiple statements (subject + dose,
+          role + modifier, etc.) but the row builder only pairs against
+          the first. Surface the rest here as "(also: S - P - O)" hints
+          so the curator sees the full current structure. Per Paul
+          2026-06-11. */}
+      {meta?.goldExtraStatements?.map((extra, ix) => (
+        <ExtraCurrentStatement key={`extra-${ix}`} extra={extra} />
+      ))}
       {hasReferenceCtx ? (
         <ComparatorLine
           who={identities.reference}

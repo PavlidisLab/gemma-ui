@@ -22,6 +22,9 @@ import {
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { useStickyState } from "@/lib/useStickyState";
 import { resolveApplyAction, type ApplyAction } from "./applyHandlers";
+import { usePatchTicketTarget } from "@/api/tickets";
+import { parseRoute } from "@/routes";
+import { ticketTargetPatchForFinalize } from "./finalizeTicketSync";
 import { registerAppliedBatch } from "./appliedBatches";
 import { severityTextCls } from "./auditPresentation";
 import { isAgentExtraIssue } from "@/api/auditTypes";
@@ -397,6 +400,7 @@ function SidebarHeader({
   const { summary, scope } = report;
   const {
     kind,
+    experimentId,
     isFinalized,
     finalizedAt,
     finalizedBy,
@@ -420,6 +424,29 @@ function SidebarHeader({
   const [confirmClose, setConfirmClose] = useState(false);
   const [applyAllRunning, setApplyAllRunning] = useState(false);
   const { apply: applyDraft, draft } = useDesignDraft();
+  // Ticket-target status sync on Finalize — when the curator closes
+  // the review for an experiment that lives on a ticket, flip that
+  // ticket-target's status to DONE so the popover + dashboard reflect
+  // the finished work. Paul 2026-06-11: "this isn't updating … we used
+  // to have little circles" — the ticket-member popover was still
+  // showing TODO on a finalized experiment.
+  // Resolve the ticket-patch decision purely off (experimentId, route)
+  // via the ``ticketTargetPatchForFinalize`` helper so the call site
+  // can't accidentally lose ``experimentId`` from scope. The helper
+  // returns ``null`` when no patch should fire; we still need a
+  // numeric ``ticketIdForPatch`` to register ``usePatchTicketTarget``
+  // (the hook can't be conditional). Pass 0 when no ticket — the
+  // helper guards against that ever turning into a real patch call.
+  const parsedRoute = parseRoute();
+  const routeTicket =
+    parsedRoute.kind === "experiment" ? parsedRoute.ticketContext : undefined;
+  const finalizeTicketPatch = ticketTargetPatchForFinalize({
+    experimentId,
+    ticketContext: routeTicket,
+  });
+  const patchTicketTarget = usePatchTicketTarget(
+    finalizeTicketPatch?.ticketId ?? 0,
+  );
 
   // Pending findings warning gating: not a hard gate. Curators may
   // close even with pending non-ok findings, but we surface the
@@ -541,10 +568,18 @@ function SidebarHeader({
     }
   }
 
-  // Override (synth / fixture) reports have no audit_id on the
-  // server, so the close button is a no-op there. Hide it instead
-  // of rendering a button that does nothing.
-  const lifecycleAvailable = !hasOverride && !!report.audit_id;
+  // Gate lifecycle buttons on a real ``audit_id`` regardless of
+  // override state. Two override flavours exist:
+  //   - Synth / fixture overrides (``adaptFixture`` /
+  //     ``synthesizeFromDraft`` / chip-diff structural synthesis):
+  //     ``audit_id`` is null → buttons stay hidden.
+  //   - Calibration-audit overrides (chip-strip ``polished vs
+  //     agent_proposal`` mounts the REAL ``curation_review`` row via
+  //     ``useCalibrationAuditReport``): ``audit_id`` is set → buttons
+  //     should work. Per Paul 2026-06-11: he couldn't find the
+  //     Finalize button on a polished-vs-agent comparison surface
+  //     where the override IS the live audit.
+  const lifecycleAvailable = !!report.audit_id;
 
   async function handleClose(
     notes: string,
@@ -659,6 +694,26 @@ function SidebarHeader({
         }
       }
       await finalize(notes || undefined);
+      // Flip the ticket-target status to DONE so the ticket member
+      // popover + dashboard reflect this experiment as finished.
+      // Best-effort and isolated — the audit itself is already
+      // finalized; a failed PATCH here shouldn't undo that, block the
+      // success toast, OR surface an error message. The outer
+      // try/catch belongs to the finalize call, not this follow-up.
+      // ``finalizeTicketPatch`` was resolved at the top of the
+      // component via the pure helper, so this site can't accidentally
+      // lose ``experimentId`` from scope (the 2026-06-11 regression).
+      try {
+        if (finalizeTicketPatch) {
+          await patchTicketTarget.mutateAsync({
+            target_type: finalizeTicketPatch.target_type,
+            target_id: finalizeTicketPatch.target_id,
+            patch: { status: finalizeTicketPatch.status },
+          });
+        }
+      } catch {
+        // Swallowed.
+      }
       toast.show(copy.closedToast, "success");
       setConfirmClose(false);
     } catch (err) {

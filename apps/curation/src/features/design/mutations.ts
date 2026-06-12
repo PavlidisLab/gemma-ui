@@ -767,6 +767,7 @@ export function applyProposalToDesign(
   proposalFactors: {
     category: { label: string; uri?: string | null };
     name_in_design: string;
+    description?: string;
     factor_type?: "categorical" | "continuous";
     baseline_relevance?: "required" | "not_applicable" | "uncertain";
     baseline_relevance_reason?: string;
@@ -837,7 +838,10 @@ export function applyProposalToDesign(
       id: factorId,
       name: p.name_in_design || p.category.label,
       category: { label: p.category.label, uri: p.category.uri ?? null },
-      description: "",
+      // Per Paul 2026-06-11: the agent's ≤80-char `description` (which
+      // renders as the proposal card's subtitle) was being dropped at
+      // accept, forcing the curator to re-type it. Carry it across.
+      description: (p.description ?? "").trim(),
       type: p.factor_type === "continuous" ? "continuous" : "categorical",
       baseline_relevance: p.baseline_relevance,
       baseline_relevance_reason: p.baseline_relevance_reason,

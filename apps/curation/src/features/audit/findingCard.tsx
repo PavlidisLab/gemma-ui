@@ -536,25 +536,39 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                         null;
                     }
                   }
-                  // Value-first ordering (harmonized with
-                  // ProposalReviewCard's TagReviewCard): the resolved
-                  // term is the load-bearing identity; the category is
-                  // qualifying context.
-                  // Value-chip only. The category lives one row down
-                  // (or is already in the FACTOR chip / TAGS section
-                  // header), so repeating "<value> IN <category>" in
-                  // the title was pure noise — Paul 2026-06-11: "it
-                  // shouldn't say 'in disease model' — the CATEGORY is
-                  // disease model." Hover surfaces the category for
-                  // disambiguation in case two tags share a value.
+                  // Render as ``<category> : <value>`` — matches the
+                  // agent's emit format ("disease model: Alzheimer
+                  // disease") and the proposer-review surface. The
+                  // category is shown as a muted italic chip and the
+                  // value as the main Term chip so the eye still lands
+                  // on the resolved term, but the category isn't
+                  // hidden behind a hover. Per Paul 2026-06-12: "the
+                  // category should be shown here in the title —
+                  // there is currently no way to see it." Earlier
+                  // 2026-06-11 critique was specifically against the
+                  // "<value> IN <category>" phrasing; ``cat : val`` is
+                  // the established convention (TagReviewCard,
+                  // ProposalSidebarPanel) and isn't subject to that
+                  // critique.
                   return (
-                    <span
-                      className="inline-flex items-baseline gap-x-1 mr-1 min-w-0"
-                      title={catLabel ? `category: ${catLabel}` : undefined}
-                    >
+                    <span className="inline-flex items-baseline gap-x-1 mr-1 min-w-0">
                       <span className="text-slate-500 dark:text-slate-400">
                         —
                       </span>
+                      {catLabel ? (
+                        <>
+                          <Term
+                            uri={catUri}
+                            asLink={false}
+                            className="!whitespace-normal break-words italic opacity-80"
+                          >
+                            {catLabel}
+                          </Term>
+                          <span className="text-slate-400 dark:text-slate-500">
+                            :
+                          </span>
+                        </>
+                      ) : null}
                       <Term
                         uri={valUri}
                         asLink={false}

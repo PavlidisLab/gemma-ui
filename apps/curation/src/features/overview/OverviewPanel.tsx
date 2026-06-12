@@ -1371,26 +1371,61 @@ function TagBar({
     if (t.inferred_source === "FactorValue") return 2;
     return 3;
   };
+  // Effective URI: prefer the tag's own ``value.uri``; fall back to
+  // the biomaterial characteristic URI lookup (synth tags built by
+  // ``augmentInferredFromBiomaterials`` ship with null URIs because
+  // the augmenter doesn't carry them; the URI is recovered at chip-
+  // render time via ``splitTagValues``). Without this fallback,
+  // dedup-by-URI misses the case where two synth tags built from
+  // different BM characteristic columns map to the same ontology
+  // term — Paul 2026-06-12: "redundant terms should be hidden; this
+  // is coming from two separate biomaterial char columns"
+  // (``BioSource: microglial cell CL:0000129`` +
+  // ``organism part: microglial cell CL:0000129``).
+  const effectiveUri = (t: Tag): string | null => {
+    if (t.value.uri) return t.value.uri;
+    const catKey = (t.category.label || "").trim().toLowerCase();
+    const valKey = (t.value.label || "").trim().toLowerCase();
+    return charUriLookup.get(`${catKey}|${valKey}`) ?? null;
+  };
+  // Canonical-category preference: when two tags in the same row
+  // resolve to the same effective URI, prefer the one whose category
+  // is a canonical Gemma category over a GEO-imported one. Lower
+  // rank wins.
+  const CANONICAL_SAMPLE_SOURCE_CATEGORIES = new Set([
+    "organism part",
+    "cell type",
+    "cell line",
+  ]);
+  const categoryRank = (t: Tag): number => {
+    const k = (t.category.label || "").trim().toLowerCase();
+    if (CANONICAL_SAMPLE_SOURCE_CATEGORIES.has(k)) return 0;
+    return 1;
+  };
   // Build "URI exists for (group, label)" lookup so the free-text
   // pass can drop chips that share their label with a URI-bearing
   // sibling in the same row.
   const uriBearingByGroupLabel = new Set<string>();
   for (const t of [...direct, ...inferred]) {
-    if (t.value.uri && (t.value.label || "").trim().length > 0) {
+    if (effectiveUri(t) && (t.value.label || "").trim().length > 0) {
       uriBearingByGroupLabel.add(`${groupKeyOf(t)}|${valLabelLc(t)}`);
     }
   }
-  // First pass: dedup by URI within each row. Lower sourceRank
-  // wins (direct > biomaterial > FV). Free-text chips (no URI)
-  // sail through here; the next pass handles them.
+  // First pass: dedup by effective URI within each row. Sort so the
+  // preferred winner lands first: source rank ascending (direct >
+  // biomaterial > FV), then canonical category ascending (canonical
+  // Gemma > GEO-imported).
   const seenUriKeys = new Set<string>();
-  const allSorted = [...direct, ...inferred].sort(
-    (a, b) => sourceRank(a) - sourceRank(b),
-  );
+  const allSorted = [...direct, ...inferred].sort((a, b) => {
+    const s = sourceRank(a) - sourceRank(b);
+    if (s !== 0) return s;
+    return categoryRank(a) - categoryRank(b);
+  });
   const afterUriDedup: Tag[] = [];
   for (const t of allSorted) {
-    if (t.value.uri) {
-      const key = `${groupKeyOf(t)}|${t.value.uri}`;
+    const uri = effectiveUri(t);
+    if (uri) {
+      const key = `${groupKeyOf(t)}|${uri}`;
       if (seenUriKeys.has(key)) continue;
       seenUriKeys.add(key);
     }
@@ -1399,7 +1434,7 @@ function TagBar({
   // Second pass: drop free-text chips whose label is already
   // covered by a URI-bearing chip in the same row.
   const dedupedAll = afterUriDedup.filter((t) => {
-    if (t.value.uri) return true; // URI chip — keep
+    if (effectiveUri(t)) return true; // URI chip — keep
     const k = `${groupKeyOf(t)}|${valLabelLc(t)}`;
     return !uriBearingByGroupLabel.has(k);
   });

@@ -10,6 +10,7 @@ import {
   MetadataBadge,
   summariseDataset,
 } from "./MetadataBadge";
+import { AgentConsideredPanel } from "./AgentConsideredPanel";
 import {
   TriageBadge,
   designChipFor,
@@ -239,6 +240,14 @@ export function ProposalSidebarPanel({
           <MetadataBadge summary={datasetSummary} />
         </div>
       ) : null}
+      {/* Quiet "agent considered but didn't propose" panel — surfaces
+          constant BM characteristics the resolver chain inspected but
+          couldn't ground. Stays hidden when the proposal carries no
+          considered-records. Per
+          UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md. */}
+      <AgentConsideredPanel
+        agentConsidered={proposal.evidence?.agent_considered}
+      />
       <DecisionsStrip proposal={proposal} />
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300">

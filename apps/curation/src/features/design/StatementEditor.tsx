@@ -123,21 +123,18 @@ export function StatementEditor({
         {/*
           Predicate select. When a predicate is picked it recedes to
           near-text styling so subject + object carry the visual
-          weight. When empty it needs to read as a *control*, not a
-          label — the prior italic-grey "(no predicate)" looked like
-          a hint and confused curators ("where do I click to add the
-          object?"). Solution: when empty, render a dashed-border
-          chip labelled "+ predicate" that visibly invites a click.
-          ``text-sm`` matches the surrounding statement text so the
-          predicate doesn't visually shrink between the subject and
-          object terms.
+          weight. When empty it matches the object placeholder's
+          dashed/italic chip — same affordance language as the
+          neighbouring object slot so an unfilled statement reads as
+          "fill in predicate, then object" rather than one loud
+          control next to a quiet placeholder.
         */}
         <select
           className={
             "text-sm rounded px-1 py-0 cursor-pointer max-w-[14rem] " +
             (statement.predicate
               ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
-              : "border border-dashed border-slate-400 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:border-slate-500 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")
+              : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
           }
           value={statement.predicate?.uri ?? ""}
           onChange={(e) => {
@@ -156,7 +153,7 @@ export function StatementEditor({
             }
           }}
         >
-          <option value="">(no predicate)</option>
+          <option value="">predicate</option>
           {PREDICATES.map((p) => (
             <option key={p.uri} value={p.uri}>
               {p.label}
@@ -382,12 +379,12 @@ function InlinePredicateObjectPair({
       <select
         className={
           // Same chrome as the singleton StatementEditor — recedes
-          // when populated, dashed-border affordance when empty so
-          // curators see it as a control.
+          // when populated, dashed/italic placeholder chip matching
+          // the object slot when empty.
           "text-[11px] rounded px-0.5 py-0 cursor-pointer " +
           (statement.predicate
             ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
-            : "border border-dashed border-slate-400 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:border-slate-500 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")
+            : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
         }
         value={statement.predicate?.uri ?? ""}
         onChange={(e) => {
@@ -403,7 +400,7 @@ function InlinePredicateObjectPair({
           }
         }}
       >
-        <option value="">(no predicate)</option>
+        <option value="">predicate</option>
         {PREDICATES.map((p) => (
           <option key={p.uri} value={p.uri}>
             {p.label}

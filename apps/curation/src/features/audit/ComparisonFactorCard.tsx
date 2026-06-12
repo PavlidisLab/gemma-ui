@@ -33,7 +33,8 @@
  *   right source for each prop.
  */
 
-import { useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
+import { PanelExpansionContext } from "./findingCard";
 import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
 
 import type {
@@ -52,6 +53,7 @@ import {
 } from "@/features/comparison/useSourceAvailability";
 import type { Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
+import { shortenUri } from "@/lib/curie";
 
 const Term: FvTermRenderer = ({ label, uri, variant }) => {
   if (variant === "predicate") {
@@ -75,8 +77,14 @@ const Term: FvTermRenderer = ({ label, uri, variant }) => {
     >
       <span>{label}</span>
       {uri ? (
+        // Render the URI as a proper CURIE ("EFO:0000513") via the
+        // shared ``shortenUri`` helper, mirroring the convention used
+        // everywhere else in the audit + design surfaces. The previous
+        // bare last-segment split produced the underscore form
+        // ("EFO_0000513") which read as a malformed ID. Per Paul
+        // 2026-06-12.
         <span className="text-[9px] font-mono text-emerald-700/70 dark:text-emerald-300/70">
-          {uri.split(/[\/#:]/).filter(Boolean).pop()}
+          {shortenUri(uri)}
         </span>
       ) : null}
     </span>
@@ -469,6 +477,17 @@ export function ComparisonFactorCard({
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const [busy, setBusy] = useState(false);
+  // Card-level collapse — matches the chevron/collapse contract on
+  // ``CompactFindingCard`` so a curator's "collapse all" button at
+  // the top of the sidebar reaches these cards too. Per Paul
+  // 2026-06-12: the partition-mismatch / rename cards were rendering
+  // with no chevron, so they couldn't be collapsed alongside the rest
+  // of the factor cards.
+  const panelExpansion = useContext(PanelExpansionContext);
+  const [cardOpen, setCardOpen] = useState(panelExpansion !== "collapsed");
+  useEffect(() => {
+    setCardOpen(panelExpansion !== "collapsed");
+  }, [panelExpansion]);
 
   // Labels: prop > generic fallback. The actual chip-strip-driven
   // labels resolve via the sourceLabel helper in the panel layer;
@@ -718,67 +737,95 @@ export function ComparisonFactorCard({
 
   return (
     <div className={`rounded border ${sevPalette} px-2.5 py-2 space-y-2`}>
-      <div className="flex items-baseline gap-2">
+      <div
+        role="button"
+        tabIndex={0}
+        className="flex items-baseline gap-1.5 cursor-pointer"
+        onClick={() => setCardOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setCardOpen((v) => !v);
+          }
+        }}
+        title={cardOpen ? "collapse card" : "expand card"}
+      >
+        {/* Chevron mirrors CompactFindingCard ("⌄" open, "›" closed). */}
+        <button
+          type="button"
+          aria-label={cardOpen ? "collapse card" : "expand card"}
+          onClick={(e) => {
+            e.stopPropagation();
+            setCardOpen((v) => !v);
+          }}
+          className="text-2xl leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 px-1 -mt-1 font-bold"
+        >
+          {cardOpen ? "⌄" : "›"}
+        </button>
         {derivedTitle}
         <span className="text-[9px] uppercase tracking-wide text-slate-400 ml-auto">
           {status === "pending" ? "open" : status}
         </span>
       </div>
-      <JudgeRow verdict={finding.defender_verdict ?? null} />
-      <CategoryPair
-        leftLabel={leftLabel}
-        leftCategory={leftCategory}
-        rightLabel={rightLabel}
-        rightCategory={rightCategory}
-      />
-      {pairs.length > 0 ? (
-        <div className="rounded border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/30">
-          <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 px-1.5 py-1 border-b border-slate-200 dark:border-slate-700 text-[9px] uppercase tracking-wide text-slate-400">
-            <span>{leftLabel}</span>
-            <span>&nbsp;</span>
-            <span>{rightLabel}</span>
-          </div>
-          {pairs.map((p, i) => (
-            <FvPairRow key={i} pair={p} />
-          ))}
-        </div>
+      {cardOpen ? (
+        <>
+          <JudgeRow verdict={finding.defender_verdict ?? null} />
+          <CategoryPair
+            leftLabel={leftLabel}
+            leftCategory={leftCategory}
+            rightLabel={rightLabel}
+            rightCategory={rightCategory}
+          />
+          {pairs.length > 0 ? (
+            <div className="rounded border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/30">
+              <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 px-1.5 py-1 border-b border-slate-200 dark:border-slate-700 text-[9px] uppercase tracking-wide text-slate-400">
+                <span>{leftLabel}</span>
+                <span>&nbsp;</span>
+                <span>{rightLabel}</span>
+              </div>
+              {pairs.map((p, i) => (
+                <FvPairRow key={i} pair={p} />
+              ))}
+            </div>
+          ) : null}
+          {finding.proposer_defense ? (
+            <div className="text-[11px] text-slate-600 dark:text-slate-300 italic">
+              <span className="font-semibold not-italic text-slate-700 dark:text-slate-200">
+                Agent says:{" "}
+              </span>
+              {finding.proposer_defense}
+            </div>
+          ) : null}
+          {readOnly ? null : (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => dispatch("accepted")}
+                className="text-[11px] px-2 py-0.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {acceptLabel}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => dispatch("dismissed", { dismissReason: "wont_fix" })}
+                className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
+              >
+                {dismissLabel}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => dispatch("needs_more_info")}
+                className="text-[11px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700 disabled:opacity-50"
+              >
+                Park
+              </button>
+            </div>
+          )}
+        </>
       ) : null}
-      {finding.proposer_defense ? (
-        <div className="text-[11px] text-slate-600 dark:text-slate-300 italic">
-          <span className="font-semibold not-italic text-slate-700 dark:text-slate-200">
-            Agent says:{" "}
-          </span>
-          {finding.proposer_defense}
-        </div>
-      ) : null}
-      {readOnly ? null : (
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => dispatch("accepted")}
-            className="text-[11px] px-2 py-0.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {acceptLabel}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => dispatch("dismissed", { dismissReason: "wont_fix" })}
-            className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
-          >
-            {dismissLabel}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => dispatch("needs_more_info")}
-            className="text-[11px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700 disabled:opacity-50"
-          >
-            Park
-          </button>
-        </div>
-      )}
     </div>
   );
 }

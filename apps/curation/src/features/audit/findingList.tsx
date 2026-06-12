@@ -357,17 +357,19 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   // regardless of severity.
   const isActionable = (f: AuditFinding): boolean => {
     if (isMatchFinding(f)) return false;
-    if (isRenameMatch(f)) return false;
+    // Rename / partition-mismatch findings ARE factor decisions — keep
+    // them in the actionable bucket so they group under the
+    // "Design — factors" section alongside other factor findings.
+    // The renderer in the factor block below routes them through
+    // ``ComparisonFactorCard`` instead of ``CompactFindingCard``. Per
+    // Paul 2026-06-12: the old dedicated "Alternate factor" section
+    // was visually orphaned from the regular factor decisions.
+    if (isRenameMatch(f)) return true;
     if (f.severity !== "ok") return true;
     const a = resolveApplyAction(f);
     return !!a && a.mutates;
   };
   const actionable = sorted.filter(isActionable);
-  // Rename matches render as a diff card in their own section above the
-  // other actionable findings — the arbiter judged them as same-factor-
-  // different-label, so the curator's job is one focused decision per
-  // pair ("which label is right?"), not a scan of two unrelated cards.
-  const renames = sorted.filter(isRenameMatch);
   // Match findings render as compact green-check rows, visible by
   // default — same affordance as exact-match factors in the
   // DesignComparisonPanel. Curator can still expand to disagree.
@@ -419,16 +421,11 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
     { kind: "experiment",     header: "Experiment" },
   ];
 
-  const visibleRenames = renames.filter(
-    (f) => !suppression.isSubsumedByParentFactor(f),
-  );
-
   // Section-visibility precompute — used both by the renderers below
   // and by the empty-state detector at the foot of this view.
   // `hasAnyVisible` covers every section that would normally surface a
-  // finding card (renames, per-kind actionable + matches, orphan
-  // matches, ok-toggle), so when it's false the body would otherwise
-  // be silent.
+  // finding card (per-kind actionable + matches, orphan matches,
+  // ok-toggle), so when it's false the body would otherwise be silent.
   const hasGroupContent = GROUPS.some(({ kind: k }) => {
     const items = groupedActionable.get(k) ?? [];
     const matchesForKind = visibleMatches.filter((m) => m.target_kind === k);
@@ -439,7 +436,6 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
     (m) => !knownKindsForOrphan.has(m.target_kind),
   );
   const hasAnyVisible =
-    visibleRenames.length > 0 ||
     hasGroupContent ||
     orphanMatches.length > 0 ||
     visibleOk.length > 0;
@@ -490,35 +486,13 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
         evidence={report?.evidence ?? null}
         nothingBelow={!hasAnyVisible}
       />
-      {visibleRenames.length > 0 ? (
-        <div className="space-y-1.5">
-          <div className={SECTION_HEADER_CLS}>
-            Alternate factor — proposed a different categorization
-            {curationsQuery.isLoading ? (
-              // /curations is the slow path (~10s on Paul's GSE93824
-              // walkthrough — server-side bottleneck, UIB perf
-              // handoff 2026-06-11). Without an explicit "loading"
-              // signal here, every rename card renders with "?"
-              // placeholders that read as "data missing" rather than
-              // "data en route".
-              <span className="ml-2 text-[10px] normal-case tracking-normal font-normal italic text-slate-500 dark:text-slate-400">
-                <span className="inline-block w-2 h-2 rounded-full bg-amber-400 dark:bg-amber-500 mr-1 animate-pulse align-middle" />
-                loading comparison data…
-              </span>
-            ) : null}
-          </div>
-          {visibleRenames.map((f) => (
-            <ComparisonFactorCard
-              key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
-              finding={f}
-              leftLabel={baselineLabel}
-              rightLabel={comparatorLabel}
-              baselineSource={chip.baseline}
-              comparatorSource={chip.comparator}
-            />
-          ))}
-        </div>
-      ) : null}
+      {/* Rename / partition-mismatch findings used to render in a
+          dedicated "Alternate factor" section above the regular factor
+          group. Per Paul 2026-06-12: those are factor findings too —
+          surface them in the same "Design — factors" block as
+          everything else. The factor-group renderer below picks them
+          out via ``isRenameMatch`` and routes them through
+          ``ComparisonFactorCard`` rather than ``CompactFindingCard``. */}
       <BaselineDriftSection
         curations={curations}
         baselineSource={chip.baseline}
@@ -533,15 +507,42 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
           (m) => m.target_kind === groupKind,
         );
         if (items.length === 0 && matchesForKind.length === 0) return null;
+        // Loading caption — only worth surfacing on the factor group
+        // because that's where the rename / partition-mismatch cards
+        // live (they're the cards that depend on the slow /curations
+        // payload). Stays out of every other section header.
+        const showLoadingCaption =
+          groupKind === "factor" &&
+          curationsQuery.isLoading &&
+          items.some((f) => isRenameMatch(f));
         return (
           <div key={groupKind} className="space-y-1.5">
-            <div className={SECTION_HEADER_CLS}>{header}</div>
-            {items.map((f) => (
-              <CompactFindingCard
-                key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
-                finding={f}
-              />
-            ))}
+            <div className={SECTION_HEADER_CLS}>
+              {header}
+              {showLoadingCaption ? (
+                <span className="ml-2 text-[10px] normal-case tracking-normal font-normal italic text-slate-500 dark:text-slate-400">
+                  <span className="inline-block w-2 h-2 rounded-full bg-amber-400 dark:bg-amber-500 mr-1 animate-pulse align-middle" />
+                  loading comparison data…
+                </span>
+              ) : null}
+            </div>
+            {items.map((f) =>
+              isRenameMatch(f) ? (
+                <ComparisonFactorCard
+                  key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+                  finding={f}
+                  leftLabel={baselineLabel}
+                  rightLabel={comparatorLabel}
+                  baselineSource={chip.baseline}
+                  comparatorSource={chip.comparator}
+                />
+              ) : (
+                <CompactFindingCard
+                  key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+                  finding={f}
+                />
+              ),
+            )}
             {/* Match findings for this target_kind render INSIDE the
                 kind's group (tail position), so tag matches live under
                 TAGS, factor matches under DESIGN — FACTORS, etc. Same

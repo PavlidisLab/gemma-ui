@@ -206,6 +206,33 @@ export interface FactorProposal {
 // that still import from `./types`.
 export type { SubtaskDecision } from "./justification";
 
+/** One constant-BM-characteristic the proposer's deterministic
+ *  refine-tags pass considered but did NOT emit as a tag. Surfaces
+ *  in the UI so the curator isn't blind to why an obvious free-text
+ *  BM column (e.g. `strain: TALLYHO`) didn't make it onto the
+ *  proposed tag list. Wire shape per
+ *  UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md. */
+export interface ConstantKeyConsidered {
+  key: string;
+  value: string;
+  n_samples: number;
+  /** "missed" — resolver chain ran but couldn't ground the value to
+   *  an ontology URI (free-text BM, no matching resolver). Only
+   *  "missed" surfaces here today; "resolved" cases ship as actual
+   *  tag proposals. */
+  resolver_result: "missed" | "resolved";
+  /** Curator-readable one-liner explaining the suppression. */
+  reason: string;
+}
+
+/** "What the agent looked at but didn't propose" — quiet curator
+ *  signal. Not a finding (no disposition, no accept/dismiss). Lives
+ *  on the proposal evidence envelope so the curator sees the agent's
+ *  inspection scope alongside paper / preboarding excerpts. */
+export interface AgentConsidered {
+  constant_keys?: ConstantKeyConsidered[];
+}
+
 export interface ProposalEvidence {
   preboarding_excerpt: string;
   paper_source: string | null;
@@ -215,6 +242,10 @@ export interface ProposalEvidence {
   /** Per-decision provenance from the new sub-agent chain. Absent
    *  on proposals submitted by the legacy single-shot pipeline. */
   subtask_decisions?: SubtaskDecision[];
+  /** Things the agent inspected but chose NOT to surface as a
+   *  proposal. Wire shape per
+   *  ``UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md``. */
+  agent_considered?: AgentConsidered;
 }
 
 export interface Proposal {

@@ -51,7 +51,7 @@ import {
   setFactorFields,
   setFvLabel,
 } from "@/features/design/mutations";
-import { parseTargetId, type ParsedTargetId } from "./targetIds";
+import { parseTargetId, slug, type ParsedTargetId } from "./targetIds";
 
 export interface ApplyAction {
   /** Whether the action mutates the design draft (true) or just
@@ -201,7 +201,46 @@ function resolveProposalApply(
   design: Design | null,
 ): ApplyAction | null {
   const aa = finding.apply_action;
-  if (!aa || aa.kind !== "add_tag") return null;
+  if (!aa) return null;
+  // ``remove_tag`` (entity-frame proposer, 2026-06-07+) — agent says
+  // "remove the finding's target tag". Pair with the slug-shaped
+  // target_id (``tag:<cat-slug>/<val-slug>``) to find the design
+  // tag and remove by id. Falls through to null when the target_id
+  // doesn't parse OR no design tag matches the slugs (caller's
+  // chain takes over — calibration branch handles the same shape
+  // as a fallback when no structured apply_action ships).
+  if (aa.kind === "remove_tag") {
+    const slugMatch = finding.target_id.match(/^tag:([^/]+)\/(.+)$/);
+    if (!slugMatch || !design) return null;
+    const [, categorySlug, valueSlug] = slugMatch;
+    const target = (design.tags ?? []).find(
+      (t) =>
+        slug(t.category?.label) === categorySlug &&
+        slug(t.value?.label) === valueSlug,
+    );
+    if (!target) {
+      return {
+        mutates: false,
+        label: "✓ Already removed",
+        tooltip:
+          `No tag matches "${categorySlug} / ${valueSlug}" on the current ` +
+          `draft. Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    if (isProtectedTagCategory(target.category?.label)) return null;
+    const catLabel = target.category?.label ?? categorySlug;
+    const valLabel = target.value?.label ?? valueSlug;
+    return {
+      mutates: true,
+      label: "Agree (remove) →",
+      tooltip: `Agree → remove tag "${catLabel}: ${valLabel}" from the design.`,
+      successMessage: `Removed tag "${catLabel}: ${valLabel}". Commit the draft to save.`,
+      mutate: (draft) => removeTagById(draft, target.id),
+      appliedFix: `remove ${catLabel}: ${valLabel}`,
+    };
+  }
+  if (aa.kind !== "add_tag") return null;
   const action = aa as Extract<typeof aa, { kind: "add_tag" }>;
   const categoryLabel = (action.new_category || "").trim();
   const valueLabel = (action.new_value || "").trim();
@@ -294,6 +333,53 @@ function resolveCalibrationApply(
         appliedFix: `remove tag #${tagId}`,
       };
     }
+    // Entity-frame proposer (2026-06-07+) emits slugged
+    // ``tag:<category-slug>/<value-slug>`` target_ids — mirrors
+    // ``tag_target()`` in
+    // ``gemma_curation_agents/agents/audit/target_ids.py``. The
+    // numeric-id branch above doesn't catch these, and the
+    // calibration-prefix parser only handles ``calibration:miss:…``,
+    // so the resolver chain previously fell through to focus-only
+    // and the "remove" button did nothing. Look up the matching tag
+    // by slug (handles "cell-type" vs "cell type" label drift via
+    // ``slug()``'s whitespace-collapse) and remove by id.
+    const slugMatch = finding.target_id.match(/^tag:([^/]+)\/(.+)$/);
+    if (slugMatch && design) {
+      const [, categorySlug, valueSlug] = slugMatch;
+      const target = (design.tags ?? []).find(
+        (t) =>
+          slug(t.category?.label) === categorySlug &&
+          slug(t.value?.label) === valueSlug,
+      );
+      if (target && !isProtectedTagCategory(target.category?.label)) {
+        const catLabel = target.category?.label ?? categorySlug;
+        const valLabel = target.value?.label ?? valueSlug;
+        return {
+          mutates: true,
+          label: "Agree (remove) →",
+          tooltip:
+            `Agree → remove tag "${catLabel}: ${valLabel}" from the design ` +
+            `(existing curation had it; agent did not propose it).`,
+          successMessage:
+            `Removed tag "${catLabel}: ${valLabel}". Commit the draft to save.`,
+          mutate: (draft) => removeTagById(draft, target.id),
+          appliedFix: `remove ${catLabel}: ${valLabel}`,
+        };
+      }
+      // Slug parses but no matching tag on the draft → idempotent
+      // "already removed" so the curator can disposition without a
+      // dangling Apply click.
+      if (!target) {
+        return {
+          mutates: false,
+          label: "✓ Already removed",
+          tooltip:
+            `No tag matches "${categorySlug} / ${valueSlug}" on the current ` +
+            `draft. Agree to disposition without re-applying.`,
+          successMessage: "",
+        };
+      }
+    }
   }
 
   const t = parseCalibrationTargetId(finding.target_id);
@@ -374,17 +460,21 @@ function resolveCalibrationApply(
   if (isProtectedTagCategory(t.category)) {
     return null;
   }
-  // Idempotency: tag already gone from the design → "Already
-  // removed". Inverse of the agent_extra add-side check; same
-  // rationale (see HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS
-  // §3).
-  const stillPresent = (design?.tags ?? []).some(
+  // Idempotency + lookup: the agent's target_id slugs the labels
+  // (whitespace → "-"), but the design tag's labels are the
+  // curator's free-text — "border-associated macrophage" (space)
+  // vs "border-associated-macrophage" (slug). A bare lowercase+trim
+  // compare missed those cases and the "remove" button silently
+  // no-op'd. Look up the gold tag by slug so space-vs-dash drift
+  // resolves uniformly; remove by id once found. Per Paul 2026-06-11.
+  const targetCategorySlug = slug(t.category);
+  const targetValueSlug = slug(t.value);
+  const goldTag = (design?.tags ?? []).find(
     (tag) =>
-      tag.category.label.toLowerCase().trim() ===
-        t.category.toLowerCase().trim() &&
-      tag.value.label.toLowerCase().trim() === t.value.toLowerCase().trim(),
+      slug(tag.category?.label) === targetCategorySlug &&
+      slug(tag.value?.label) === targetValueSlug,
   );
-  if (!stillPresent && design) {
+  if (!goldTag && design) {
     return {
       mutates: false,
       label: "✓ Already removed",
@@ -394,16 +484,20 @@ function resolveCalibrationApply(
       successMessage: "",
     };
   }
+  const catLabel = goldTag?.category?.label ?? t.category;
+  const valLabel = goldTag?.value?.label ?? t.value;
   const tooltip =
-    `Agree → remove tag "${t.category}: ${t.value}" from the design.`;
+    `Agree → remove tag "${catLabel}: ${valLabel}" from the design.`;
   return {
     mutates: true,
     label: "Agree (remove) →",
     tooltip,
     successMessage:
-      `Removed tag "${t.category}: ${t.value}". Commit the draft to save.`,
-    mutate: (draft) => removeTagByLabels(draft, t.category, t.value),
-    appliedFix: `remove ${t.category}: ${t.value}`,
+      `Removed tag "${catLabel}: ${valLabel}". Commit the draft to save.`,
+    mutate: goldTag
+      ? (draft) => removeTagById(draft, goldTag.id)
+      : (draft) => removeTagByLabels(draft, t.category, t.value),
+    appliedFix: `remove ${catLabel}: ${valLabel}`,
   };
 }
 
@@ -877,8 +971,18 @@ function addFactorFromProposal(
       label: proposal.category.label,
       uri: proposal.category.uri ?? null,
     },
-    description: "",
+    // Carry the agent's ≤80-char ``description`` (the subtitle the
+    // proposal card surfaces — "Lipopolysaccharide (LPS) vs vehicle
+    // control") onto the new factor so the curator doesn't have to
+    // re-type it after Agree. Paul 2026-06-11: he saw the description
+    // on the card, clicked Agree, and the resulting factor landed with
+    // an empty description — the subtitle was being dropped at the
+    // mutator boundary. Empty string when the proposal didn't carry one
+    // (older audits, structural-only adds).
+    description: (proposal.description ?? "").trim(),
     type: proposal.factor_type === "continuous" ? "continuous" : "categorical",
+    baseline_relevance: proposal.baseline_relevance,
+    baseline_relevance_reason: proposal.baseline_relevance_reason,
     factor_values,
   };
   return { ...design, factors: [...(design.factors ?? []), newFactor] };
@@ -944,12 +1048,18 @@ function removeTagByLabels(
   valueLabel: string,
 ): Design {
   if (isProtectedTagCategory(categoryLabel)) return design;
+  // Compare by slug so the same target_id-shaped labels (whitespace
+  // collapsed to "-") still match design tags with the curator's
+  // original spacing. ``labelEq``'s bare lowercase+trim wasn't enough
+  // — see Paul 2026-06-11 (the "remove doesn't remove" walkthrough).
+  const catSlug = slug(categoryLabel);
+  const valSlug = slug(valueLabel);
   return {
     ...design,
     tags: (design.tags ?? []).filter(
       (t) =>
-        !labelEq(t.category?.label, categoryLabel) ||
-        !labelEq(t.value?.label, valueLabel),
+        slug(t.category?.label) !== catSlug ||
+        slug(t.value?.label) !== valSlug,
     ),
   };
 }

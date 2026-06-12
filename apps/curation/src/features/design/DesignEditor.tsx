@@ -159,32 +159,17 @@ export function DesignEditor({
     });
   }, [draft]);
 
-  // Order matters: ``draft === null`` is a transient state during
-  // a "Reset experiment" refetch (react-query flips ``isFetching``,
-  // not ``isLoading``, on a refetch). Show "loading" rather than
-  // a confusing "unknown" error in that window.
-  if (loadError) {
-    return (
-      <div className="card p-4 text-sm text-rose-700">
-        couldn't load design for experiment {experimentId}: {loadError}
-        <p className="mt-1 text-slate-500 text-[11px]">
-          Local server not seeded? Restart with{" "}
-          <code>./run_mock.sh</code> — it auto-seeds GSE277245.1 on
-          first start.
-        </p>
-      </div>
-    );
-  }
-  if (isLoading || !draft) {
-    return (
-      <div className="card p-4 text-sm text-slate-500">loading design…</div>
-    );
-  }
-
+  // ---- Hooks must come BEFORE any early return (Rules of Hooks).
+  // The loading / loadError guards below conditionally render but
+  // never short-circuit hook calls — see 2026-06-11 crash where the
+  // ``useIsReadOnly`` / ``useDesignDraft`` / ``useAudit`` / ``useMemo``
+  // calls sat below the ``if (isLoading || !draft) return …`` guard
+  // and broke React's hook-order check the moment ``draft`` flipped
+  // from null to loaded.
   const effectiveSelected =
-    selectedFactorId ?? draft.factors[0]?.id ?? null;
+    selectedFactorId ?? draft?.factors[0]?.id ?? null;
   const selectedFactor =
-    draft.factors.find((f) => f.id === effectiveSelected) ?? null;
+    draft?.factors.find((f) => f.id === effectiveSelected) ?? null;
 
   // Review-mode banner — surfaces *why* the tab is locked. The
   // App-level ``<fieldset disabled>`` wrapper handles interaction
@@ -213,6 +198,30 @@ export function DesignEditor({
     const desc = match?.description?.trim();
     return desc ? desc : undefined;
   }, [report, selectedFactor?.name]);
+
+  // ---- Render-time early returns. Hook order is fixed above so
+  // these guards are safe.
+  // Order matters: ``draft === null`` is a transient state during
+  // a "Reset experiment" refetch (react-query flips ``isFetching``,
+  // not ``isLoading``, on a refetch). Show "loading" rather than
+  // a confusing "unknown" error in that window.
+  if (loadError) {
+    return (
+      <div className="card p-4 text-sm text-rose-700">
+        couldn't load design for experiment {experimentId}: {loadError}
+        <p className="mt-1 text-slate-500 text-[11px]">
+          Local server not seeded? Restart with{" "}
+          <code>./run_mock.sh</code> — it auto-seeds GSE277245.1 on
+          first start.
+        </p>
+      </div>
+    );
+  }
+  if (isLoading || !draft) {
+    return (
+      <div className="card p-4 text-sm text-slate-500">loading design…</div>
+    );
+  }
 
   return (
     <div className="space-y-4">
