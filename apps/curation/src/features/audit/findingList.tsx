@@ -36,7 +36,11 @@ import { resolveApplyAction } from "./applyHandlers";
 import { CompactFindingCard } from "./findingCard";
 import { ComparisonFactorCard } from "./ComparisonFactorCard";
 import { OrientationProse } from "@/components/ui/OrientationProse";
-import { readCommentaryString } from "@/api/pipelineCommentary";
+import {
+  readCommentaryString,
+  readEscalationRequests,
+} from "@/api/pipelineCommentary";
+import { EscalationBanner } from "./EscalationBanner";
 
 // ---------------------------------------------------------------------------
 // Section header — shared className for the per-kind dividers
@@ -474,6 +478,13 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
 
   return (
     <div className="space-y-3">
+      {/* Escalation banner — agent's curator-follow-up requests.
+          Renders above the orientation prose because escalations are
+          blockers (per handoff Q2); summary is orientation. Suppresses
+          when neither side carries entries. */}
+      <EscalationBanner
+        escalations={readEscalationRequests(report?.evidence)}
+      />
       {/* Orchestrator orientation prose — generic top-of-panel slot.
           Reads through the dual-state adapter: prefers the canonical
           Proposal-side field, falls back to the AuditEvidence mirror.
