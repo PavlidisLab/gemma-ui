@@ -41,6 +41,7 @@ import {
   readEscalationRequests,
 } from "@/api/pipelineCommentary";
 import { EscalationBanner } from "./EscalationBanner";
+import { PipelineAuditTrail } from "./PipelineAuditTrail";
 
 // ---------------------------------------------------------------------------
 // Section header — shared className for the per-kind dividers
@@ -642,6 +643,13 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
             />
           ))
         : null}
+      {/* Pipeline audit trail — v5 supervisor's narrative of what the
+          orchestrator did. Renders at the bottom of the panel (sibling
+          to CollapsibleSubtaskAnalysis on AuditReportView). Reads via
+          the dual-state adapter; suppresses when both sides are empty. */}
+      <PipelineAuditTrail
+        text={readCommentaryString(report?.evidence, "experiment_notes")}
+      />
     </div>
   );
 }
