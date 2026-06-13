@@ -583,8 +583,14 @@ export function DesignComparisonPanel({
           ...factorLabels,
           ...findingLabels,
         ]);
+        // High-confidence filter moved INTO CollapsibleSubtaskAnalysis
+        // as an opt-in toggle (off by default) per Paul 2026-06-13
+        // ("Paul wants ALL commentary visible") and
+        // handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md. The
+        // IIFE keeps the target_id-based dedup (factor cards already
+        // surface their factor-scoped subtasks inline; experiment-
+        // level subtasks live here).
         const globalDecisions = cp.evidence!.subtask_decisions!.filter((d) => {
-          if (d.confidence === "high") return false;
           const t = (d.target_id || "").toLowerCase();
           // Factor-pair subtasks (S2i_confounding_check etc.) target
           // two factors at once: `factor_pair:treatment|disease model`.
@@ -641,29 +647,64 @@ function CollapsibleSubtaskAnalysis({
   decisions: SubtaskDecision[];
 }) {
   const [open, setOpen] = useState(false);
+  // High-confidence toggle — off by default per handoff lean:
+  // "I lean toward the toggle so the default surface stays clean".
+  // High-confidence decisions are the noisy "agent had no concerns"
+  // rows; curators opt in when they want full pipeline visibility.
+  // Per ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
+  const [includeHigh, setIncludeHigh] = useState(false);
+  const highCount = decisions.filter((d) => d.confidence === "high").length;
+  const visible = includeHigh
+    ? decisions
+    : decisions.filter((d) => d.confidence !== "high");
+  // Suppress the entire block when there's nothing to show even with
+  // the toggle off — old packages with only high-confidence decisions
+  // would otherwise render an empty disclosure.
+  if (visible.length === 0 && highCount === 0) return null;
   return (
     <div className="px-3 py-2 space-y-1">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1"
-        title={
-          open
-            ? "hide the agent's per-subtask reasoning"
-            : "show the agent's per-subtask reasoning (S1 / S3 / S11 / etc)"
-        }
-      >
-        <span aria-hidden>{open ? "▾" : "▸"}</span>
-        <span>
-          Subtask analysis
-          <span className="ml-1 normal-case font-normal text-slate-400">
-            ({decisions.length} {decisions.length === 1 ? "row" : "rows"})
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 inline-flex items-center gap-1"
+          title={
+            open
+              ? "hide the agent's per-subtask reasoning"
+              : "show the agent's per-subtask reasoning (S1 / S3 / S11 / etc)"
+          }
+        >
+          <span aria-hidden>{open ? "▾" : "▸"}</span>
+          <span>
+            Subtask analysis
+            <span className="ml-1 normal-case font-normal text-slate-400">
+              ({visible.length} {visible.length === 1 ? "row" : "rows"})
+            </span>
           </span>
-        </span>
-      </button>
+        </button>
+        {open && highCount > 0 ? (
+          <label
+            className="inline-flex items-baseline gap-1 text-[10px] text-slate-500 dark:text-slate-400 cursor-pointer select-none"
+            title="Include the agent's confident decisions (typically S-passes that found no issue)"
+          >
+            <input
+              type="checkbox"
+              checked={includeHigh}
+              onChange={(e) => setIncludeHigh(e.target.checked)}
+              className="h-3 w-3 align-middle accent-slate-500"
+            />
+            <span>
+              include high-confidence
+              <span className="ml-0.5 normal-case font-normal text-slate-400">
+                (+{highCount})
+              </span>
+            </span>
+          </label>
+        ) : null}
+      </div>
       {open ? (
         <div className="space-y-1 pt-0.5">
-          {decisions.map((d, i) => (
+          {visible.map((d, i) => (
             <SubtaskDecisionRow key={i} decision={d} />
           ))}
         </div>
