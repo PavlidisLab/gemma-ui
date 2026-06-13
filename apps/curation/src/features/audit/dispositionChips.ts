@@ -19,6 +19,7 @@
  */
 
 import type { DialogChip } from "./DismissDialog";
+import type { AuditFinding } from "@/api/auditTypes";
 
 // ---------------------------------------------------------------------------
 // Generic chip sets — used when the finding isn't a calibration code
@@ -129,6 +130,27 @@ export const CAL_EXTRA_ACCEPT_CHIPS: DialogChip[] = [
   { key: "other",           label: "Other",            help: "add a note" },
 ];
 
+// Tag-target dismiss vocab — generic dismissals PLUS the two
+// tag-shape-specific chips (`not_sample_applicable` / "Subset only" +
+// `redundant_with_bm_source` / "Redundant"). Used for tag-target
+// findings that aren't `calibration_agent_extra` (which has its own
+// `CAL_EXTRA_TAG_DISMISS_CHIPS` set above). Per Paul 2026-06-12: "a
+// disposition for a tag like 'Only applies to some samples' would be
+// more helpful than 'weak evidence' or 'out of scope'." Server-side
+// gate for both chips widened from `{calibration_agent_extra}` to
+// any tag-target finding per bro's 2026-06-12 schema update; safe to
+// surface here without 422 risk.
+export const TAG_DISMISS_CHIPS: DialogChip[] = [
+  { key: "not_sample_applicable",  label: "Subset only",        help: "applies to only a subset of profiled samples (e.g., case half of a case/control study)" },
+  { key: "redundant_with_bm_source", label: "Redundant",        help: "the term is already captured elsewhere — by a biomaterial characteristic, a fully-covering factor value, or another tag" },
+  { key: "weak_evidence",       label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
+  { key: "redundant",           label: "Redundant (other)",  help: "finding duplicates an issue already noted elsewhere" },
+  { key: "out_of_scope",        label: "Out of scope",       help: "valid finding but outside this curation pass" },
+  { key: "accepted_elsewhere",  label: "Accepted elsewhere", help: "the change was already made via a different finding" },
+  { key: "wont_fix",            label: "Won't fix",          help: "acknowledged but intentionally not acted on" },
+  { key: "other",               label: "Other",              help: "doesn't fit the above — add a note" },
+];
+
 // ---------------------------------------------------------------------------
 // Per-issue-code chip routers — pick the right set for the finding
 // ---------------------------------------------------------------------------
@@ -139,8 +161,16 @@ export const CAL_EXTRA_ACCEPT_CHIPS: DialogChip[] = [
  *  to the generic DISMISS_CHIPS / ACCEPT_CHIPS, which is how amanda
  *  ended up routing 19/20 v7b factor-gold-miss dismisses through
  *  `weak_evidence` (the closest-feeling chip in the wrong vocab) —
- *  see CALIBRATION_CHIP_GAP_HANDOFF.md, "Discoverability ask". */
-export function dismissChipsFor(issueCode: string): DialogChip[] {
+ *  see CALIBRATION_CHIP_GAP_HANDOFF.md, "Discoverability ask".
+ *
+ *  Tag-target findings outside ``calibration_agent_extra`` route to
+ *  ``TAG_DISMISS_CHIPS`` — the generic vocab plus "Subset only" and
+ *  "Redundant" (server-side gate widened 2026-06-12 per
+ *  UIB_HANDOFF_2026_06_12_DISMISS_REASON_GATE_WIDEN.md). */
+export function dismissChipsFor(
+  finding: Pick<AuditFinding, "issue_code" | "target_kind">,
+): DialogChip[] {
+  const issueCode = finding.issue_code;
   if (
     issueCode === "calibration_gold_only_miss" ||
     issueCode === "calibration_factor_gold_only_miss"
@@ -150,6 +180,7 @@ export function dismissChipsFor(issueCode: string): DialogChip[] {
     return CAL_EXTRA_TAG_DISMISS_CHIPS;
   if (issueCode === "calibration_factor_extra")
     return CAL_EXTRA_FACTOR_DISMISS_CHIPS;
+  if (finding.target_kind === "tag") return TAG_DISMISS_CHIPS;
   return DISMISS_CHIPS;
 }
 

@@ -152,7 +152,7 @@ export function ExperimentBanner({
 
   return (
     <section className="bg-white border-b border-slate-200">
-      <div className="mx-auto w-full max-w-[1800px] px-4 py-3 flex gap-4 flex-wrap items-start">
+      <div className="mx-auto w-full px-4 py-3 flex gap-4 flex-wrap items-start">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
             <ShortNameEditor
@@ -290,7 +290,7 @@ export function ExperimentBanner({
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[1800px] px-4">
+      <div className="mx-auto w-full px-4">
         <nav className="flex items-center gap-1 -mb-px overflow-x-auto">
           <ExperimentTabs activeTab={activeTab} onTabChange={onTabChange} />
         </nav>
