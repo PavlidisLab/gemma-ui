@@ -545,15 +545,30 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
             )}
             {/* Match findings for this target_kind render INSIDE the
                 kind's group (tail position), so tag matches live under
-                TAGS, factor matches under DESIGN — FACTORS, etc. Same
-                CompactFindingCard template as actionable findings —
-                the badge picker handles ≈/✓ visual difference. */}
-            {matchesForKind.map((f) => (
-              <CompactFindingCard
-                key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
-                finding={f}
-              />
-            ))}
+                TAGS, factor matches under DESIGN — FACTORS, etc.
+                Factor matches route through ``ComparisonFactorCard``
+                so the side-by-side body lands here too (Paul
+                2026-06-12: "I thought we were moving to a side-by-
+                side comparison"); tag matches keep the compact
+                green-check row since there's no two-column shape
+                worth rendering for a single category:value pair. */}
+            {matchesForKind.map((f) =>
+              f.target_kind === "factor" ? (
+                <ComparisonFactorCard
+                  key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+                  finding={f}
+                  leftLabel={baselineLabel}
+                  rightLabel={comparatorLabel}
+                  baselineSource={chip.baseline}
+                  comparatorSource={chip.comparator}
+                />
+              ) : (
+                <CompactFindingCard
+                  key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
+                  finding={f}
+                />
+              ),
+            )}
           </div>
         );
       })}
@@ -730,10 +745,49 @@ function BaselineDriftSection({
       curations.find((c) => c.source_kind === "consensus") ?? null;
     const agentProposal =
       curations.find((c) => c.source_kind === "agent_proposal") ?? null;
+    const consensusFactors = _factorsOf(consensus);
+    const agentFactors = _factorsOf(agentProposal);
     const auditedSigs = new Set<string>([
-      ..._factorsOf(consensus).map(_factorSignature),
-      ..._factorsOf(agentProposal).map(_factorSignature),
+      ...consensusFactors.map(_factorSignature),
+      ...agentFactors.map(_factorSignature),
     ]);
+
+    // Per-category budget: how many factors of a given category URI
+    // does the audit already cover? The strict signature
+    // (cat + FV-label-set) misses when the live curator and the agent
+    // describe the same FV with different free-text labels — e.g.
+    // GSE37811 treatment factor where live's FVs read
+    // "BRM014 - delivered for duration - 3 d" while the agent emits
+    // "brm014 - delivered at dose - 100 nM - delivered for duration -
+    // 72 h". Same factor, same EFO:0000727 category, near-match card
+    // already paired them — but signature mismatch leaks them into
+    // "Factors the audit didn't see" as a phantom extra. Count
+    // budget per category preserves the GSE93824 multi-of-same-
+    // category drift (2 live genotype factors vs 1 in consensus →
+    // budget=1 covers the C5aR1, second consumes nothing and
+    // surfaces as drift).
+    const catCount = (factors: Factor[]) => {
+      const m = new Map<string, number>();
+      for (const f of factors) {
+        const c = (f.category?.uri ?? "").trim();
+        if (!c) continue;
+        m.set(c, (m.get(c) ?? 0) + 1);
+      }
+      return m;
+    };
+    const consensusCatCount = catCount(consensusFactors);
+    const agentCatCount = catCount(agentFactors);
+    const auditedCatCap = new Map<string, number>();
+    const cats = new Set<string>([
+      ...consensusCatCount.keys(),
+      ...agentCatCount.keys(),
+    ]);
+    for (const c of cats) {
+      auditedCatCap.set(
+        c,
+        Math.max(consensusCatCount.get(c) ?? 0, agentCatCount.get(c) ?? 0),
+      );
+    }
 
     const out: Array<{ factor: Factor; side: "baseline" | "comparator" }> = [];
     const seen = new Set<string>(); // dedup when both chips point at the same source
@@ -749,10 +803,20 @@ function BaselineDriftSection({
       ) {
         return;
       }
+      // Per-side budget so baseline and comparator each get the full
+      // audit-covered allowance — chip baseline=live and comparator=live
+      // shouldn't double-charge.
+      const catBudget = new Map(auditedCatCap);
       for (const f of _factorsOf(cur)) {
         if (_isNuisanceFactor(f)) continue;
         const sig = _factorSignature(f);
-        if (sig === "" || auditedSigs.has(sig) || seen.has(sig)) continue;
+        if (sig === "" || seen.has(sig)) continue;
+        if (auditedSigs.has(sig)) continue;
+        const cat = (f.category?.uri ?? "").trim();
+        if (cat && (catBudget.get(cat) ?? 0) > 0) {
+          catBudget.set(cat, (catBudget.get(cat) ?? 0) - 1);
+          continue;
+        }
         seen.add(sig);
         out.push({ factor: f, side });
       }
