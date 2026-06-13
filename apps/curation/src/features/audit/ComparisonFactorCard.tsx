@@ -38,10 +38,17 @@ import { PanelExpansionContext } from "./findingCard";
 import { type FvTermRenderer } from "@gemma/ontology";
 
 import type {
+  ArbiterVerdict,
   AuditFinding,
+  AuditReport,
   AttachedDefenderVerdict,
+  BossPassVerdict,
   DismissReason,
 } from "@/api/auditTypes";
+import {
+  findArbiterForFinding,
+  findBossForFinding,
+} from "@/api/pipelineCommentary";
 import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
@@ -160,6 +167,114 @@ function JudgeRow({
         ) : null}
       </div>
       <div className="italic opacity-90 mt-0.5">{verdict.rationale}</div>
+    </div>
+  );
+}
+
+/** Per-finding judge chain: defender → arbiter → boss. Renders up to
+ *  three stacked tiers, one per producer, each as a coloured tile
+ *  with its verdict label + rationale prose.
+ *
+ *  Lookup: ``defender_verdict`` rides on the finding directly
+ *  (existing wire field). ``arbiter`` / ``boss`` rows are looked up
+ *  in ``report.evidence.arbiter_verdicts`` /
+ *  ``report.evidence.boss_verdicts`` by the targeting tuple
+ *  ``(target_kind, side, target_category, target_value)`` — see
+ *  ``findArbiterForFinding`` / ``findBossForFinding``.
+ *
+ *  Old packages (no arbiter / boss rows) render identically to the
+ *  pre-2026-06-13 single-defender ``JudgeRow``. Per
+ *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+function JudgeChain({
+  finding,
+  report,
+}: {
+  finding: AuditFinding;
+  report: AuditReport | null;
+}): JSX.Element | null {
+  const defender = finding.defender_verdict ?? null;
+  const arbiter = findArbiterForFinding(report, finding);
+  const boss = findBossForFinding(report, finding);
+  const anyContent =
+    (defender && defender.rationale?.trim()) ||
+    (arbiter && arbiter.rationale?.trim()) ||
+    (boss && (boss.rationale?.trim() || boss.arbiter_rationale?.trim()));
+  if (!anyContent) return null;
+  return (
+    <div className="space-y-1">
+      <JudgeRow verdict={defender} />
+      <ArbiterTile arbiter={arbiter} />
+      <BossTile boss={boss} />
+    </div>
+  );
+}
+
+/** Arbiter tier — emerald palette to visually distinguish from the
+ *  defender's blue and the boss's purple. Same layout shape as
+ *  ``JudgeRow`` so the chain reads as one coherent stack. */
+function ArbiterTile({
+  arbiter,
+}: {
+  arbiter: ArbiterVerdict | null;
+}): JSX.Element | null {
+  if (!arbiter || !arbiter.rationale?.trim()) return null;
+  return (
+    <div className="rounded border px-2 py-1 text-[11px] leading-snug border-emerald-300/70 bg-emerald-50/60 text-emerald-900 dark:border-emerald-700/60 dark:bg-emerald-900/15 dark:text-emerald-100">
+      <div className="flex items-baseline gap-1.5 flex-wrap">
+        <span className="font-semibold uppercase tracking-wide text-[9px]">
+          arbiter
+        </span>
+        <span className="font-mono text-[10px]">{arbiter.verdict}</span>
+        {arbiter.mode ? (
+          <span className="text-[9px] opacity-70">· {arbiter.mode}</span>
+        ) : null}
+        {arbiter.confidence ? (
+          <span className="text-[9px] opacity-70">
+            · {arbiter.confidence}
+          </span>
+        ) : null}
+      </div>
+      <div className="italic opacity-90 mt-0.5">{arbiter.rationale}</div>
+    </div>
+  );
+}
+
+/** Boss tier — purple palette (matches the existing boss-side
+ *  treatment in ``JudgeRow``). Carries ``arbiter_rationale`` as a
+ *  quoted "prior call" subline so the curator can see the boss's
+ *  view of the arbiter's call without cross-indexing the arbiter
+ *  tile above. */
+function BossTile({
+  boss,
+}: {
+  boss: BossPassVerdict | null;
+}): JSX.Element | null {
+  if (!boss || (!boss.rationale?.trim() && !boss.arbiter_rationale?.trim())) {
+    return null;
+  }
+  return (
+    <div className="rounded border px-2 py-1 text-[11px] leading-snug border-purple-300/70 bg-purple-50/60 text-purple-900 dark:border-purple-700/60 dark:bg-purple-900/15 dark:text-purple-100">
+      <div className="flex items-baseline gap-1.5 flex-wrap">
+        <span className="font-semibold uppercase tracking-wide text-[9px]">
+          boss
+        </span>
+        <span className="font-mono text-[10px]">{boss.verdict}</span>
+        {boss.mode ? (
+          <span className="text-[9px] opacity-70">· {boss.mode}</span>
+        ) : null}
+        {boss.confidence ? (
+          <span className="text-[9px] opacity-70">· {boss.confidence}</span>
+        ) : null}
+      </div>
+      {boss.arbiter_rationale?.trim() ? (
+        <div className="text-[10px] opacity-75 mt-0.5">
+          <span className="font-semibold">Prior arbiter: </span>
+          <span className="italic">{boss.arbiter_rationale}</span>
+        </div>
+      ) : null}
+      {boss.rationale?.trim() ? (
+        <div className="italic opacity-90 mt-0.5">{boss.rationale}</div>
+      ) : null}
     </div>
   );
 }
@@ -789,7 +904,12 @@ export function ComparisonFactorCard({
       </div>
       {cardOpen ? (
         <>
-          <JudgeRow verdict={finding.defender_verdict ?? null} />
+          {/* Per-finding judge chain — defender + arbiter + boss
+              when each tier has rationale to show. JudgeChain itself
+              suppresses when ALL three tiers are empty so old packages
+              render identically. Per
+              ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */}
+          <JudgeChain finding={finding} report={report} />
           {/* Body — switched 2026-06-12 from the inline CategoryPair +
               FvPairRow loop to the shared FactorComparisonGrid so
               this surface and FindingDetailsEditor (next-up
