@@ -237,9 +237,11 @@ export function ProposalSidebarPanel({
     // index.css overrode the dark sky tint. Per Paul 2026-05-21.
     <div className="p-2 space-y-2 rounded-lg border border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/40">
       {/* Orchestrator orientation prose — generic top-of-panel slot.
-          Suppresses when the proposal carries no
-          ``experiment_summary``. Per
-          ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */}
+          Reads directly from ``proposal.experiment_summary`` — the
+          Proposal IS the canonical location for the field; no
+          AuditEvidence fallback applies on this surface. Per
+          ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``
+          and ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */}
       <OrientationProse text={proposal.experiment_summary ?? null} />
       {datasetSummary && datasetSummary.nSamples > 0 ? (
         <div className="px-1 pb-1.5 border-b border-sky-200 dark:border-sky-800">

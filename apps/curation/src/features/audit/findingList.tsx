@@ -36,6 +36,7 @@ import { resolveApplyAction } from "./applyHandlers";
 import { CompactFindingCard } from "./findingCard";
 import { ComparisonFactorCard } from "./ComparisonFactorCard";
 import { OrientationProse } from "@/components/ui/OrientationProse";
+import { readCommentaryString } from "@/api/pipelineCommentary";
 
 // ---------------------------------------------------------------------------
 // Section header — shared className for the per-kind dividers
@@ -474,10 +475,14 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   return (
     <div className="space-y-3">
       {/* Orchestrator orientation prose — generic top-of-panel slot.
-          Suppresses itself when the evidence carries no
-          ``experiment_summary``, so old packages render identically.
-          Per ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */}
-      <OrientationProse text={report?.evidence?.experiment_summary ?? null} />
+          Reads through the dual-state adapter: prefers the canonical
+          Proposal-side field, falls back to the AuditEvidence mirror.
+          Suppresses itself when both sides are empty. Per
+          ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``
+          and ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */}
+      <OrientationProse
+        text={readCommentaryString(report?.evidence, "experiment_summary")}
+      />
       {/* Summary header — always visible. Frames the body content
           ("N findings — X open, Y already triaged, Z noted") so a
           fully-triaged or judge-only-noted review reads as
