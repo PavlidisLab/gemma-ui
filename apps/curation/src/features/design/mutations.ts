@@ -18,6 +18,10 @@ import type {
   Statement,
   Tag,
 } from "@/features/experiment/types";
+import type {
+  FactorProposal,
+  FactorValueProposal,
+} from "@/api/types";
 import { baselineFor, HAS_ROLE_PREDICATE } from "./baselineForCategory";
 import { factorFromTemplate, type FactorTemplate } from "./factorTemplates";
 import { templatesFor } from "./statementTemplates";
@@ -1305,4 +1309,381 @@ export function assignRemainingBiomaterials(
         : fv,
     ),
   }));
+}
+
+/**
+ * Adopt an agent's near-match factor proposal into an existing gold
+ * factor — the curator's "Alt is better" button on a
+ * ``calibration_factor_match_near`` finding.
+ *
+ * Near-match means the agent and gold share the same partition (every
+ * agent FV's biomaterial set lines up 1:1 with a gold FV's), but the
+ * labels / statements / URIs differ. The mutator keeps the gold
+ * factor's identity (id, name, biomaterial assignments) and overwrites
+ * its category + each FV's label + statements with the agent's
+ * version. New FV ids stay stable for FVs whose biomaterial set
+ * matches an existing gold FV; FVs without a partition match get
+ * fresh ids.
+ *
+ * Preserved on every FV: ``biomaterial_short_names`` (the partition is
+ * already correct by definition of "near match") and ``id`` (so
+ * downstream references to the FV stay intact).
+ *
+ * Replaced from the agent's proposal: ``category`` (factor-level),
+ * ``free_text_label``, ``is_baseline``, ``numeric_value``,
+ * ``statements`` (with ontology terms resolved from the agent's
+ * proposal).
+ *
+ * Wired by ``ComparisonFactorCard``'s Accept handler for
+ * ``calibration_factor_match_near`` findings — bro 2026-06-12 ship:
+ * "Accept doesn't do anything; should swap the gold factor for the
+ * agent's alt".
+ */
+export function adoptNearMatchAgentFactor(
+  design: Design,
+  agentFactor: FactorProposal,
+): Design {
+  // Locate the factor in the WRITABLE design (not a chip-strip
+  // baseline that may be a non-writable curation). Match by category
+  // URI when present (most reliable; survives label drift), fall
+  // back to case-insensitive label. Without this lookup-by-content
+  // step the earlier "match by goldFactorId" path silently no-op'd
+  // when the chip strip was showing a curation whose ids don't line
+  // up with the local draft (Paul 2026-06-12: "I see the message
+  // accepted the alts but the factor doesn't get updated").
+  const agentCatUri = agentFactor.category?.uri ?? null;
+  const agentCatLabel = (agentFactor.category?.label ?? "")
+    .trim()
+    .toLowerCase();
+  const factor = design.factors.find((f) => {
+    if (agentCatUri && f.category?.uri && f.category.uri === agentCatUri) {
+      return true;
+    }
+    return (
+      !!agentCatLabel &&
+      (f.category?.label ?? "").trim().toLowerCase() === agentCatLabel
+    );
+  });
+  if (!factor) return design;
+  const goldFactorId = factor.id;
+
+  // Map biomaterial-set → existing gold FV id so the same partition
+  // keeps its id (downstream refs survive). FVs in the agent's
+  // proposal whose partition doesn't match any gold FV get a fresh
+  // id from ``nextFvId``.
+  const goldFvByBmKey = new Map<string, FactorValue>();
+  for (const gfv of factor.factor_values) {
+    goldFvByBmKey.set(bmKey(gfv.biomaterial_short_names), gfv);
+  }
+
+  let freshId = nextFvId(design);
+
+  const nextFactorValues: FactorValue[] = agentFactor.factor_values.map(
+    (afv) => {
+      const key = bmKey(afv.biomaterial_short_names);
+      const goldMatch = goldFvByBmKey.get(key);
+      return mergeAgentFvIntoGold(
+        afv,
+        goldMatch ?? null,
+        goldMatch ? goldMatch.id : freshId++,
+      );
+    },
+  );
+
+  const updated: Factor = {
+    ...factor,
+    // Prefer the agent's human-readable ``name_in_design`` over the
+    // gold's name. The agent's whole point is "I have a better
+    // shape", and that includes the curator-facing label. Falls back
+    // to the gold's name when the agent didn't supply one. Per Paul
+    // 2026-06-12: "the name of the factor: doesn't the agent suggest
+    // one? I mean a human-readable one".
+    name: (agentFactor.name_in_design || factor.name || "").trim(),
+    category: {
+      label: agentFactor.category.label,
+      uri: agentFactor.category.uri ?? null,
+    },
+    // ``description`` rides along if the agent supplied one — same
+    // convention as ``applyProposalToDesign``.
+    description: (agentFactor.description ?? factor.description ?? "").trim(),
+    factor_values: nextFactorValues,
+  };
+
+  return {
+    ...design,
+    factors: design.factors.map((f) =>
+      f.id === goldFactorId ? updated : f,
+    ),
+  };
+}
+
+function bmKey(names: readonly string[]): string {
+  return [...names].sort().join("");
+}
+
+function mergeAgentFvIntoGold(
+  agent: FactorValueProposal,
+  _gold: FactorValue | null,
+  id: number,
+): FactorValue {
+  const statements: Statement[] = (agent.statements ?? []).map((st) => ({
+    category: st.category
+      ? {
+          label: st.category.label,
+          uri: st.category.uri ?? null,
+        }
+      : { label: "", uri: null },
+    subject: st.subject
+      ? {
+          label: st.subject.label,
+          uri: st.subject.uri ?? null,
+        }
+      : { label: "", uri: null },
+    predicate: st.predicate
+      ? {
+          label: st.predicate.label,
+          uri: st.predicate.uri ?? null,
+        }
+      : null,
+    object: st.object
+      ? {
+          label: st.object.label,
+          uri: st.object.uri ?? null,
+        }
+      : null,
+  }));
+
+  return {
+    id,
+    // Use the agent's own concise label (e.g. "kanamycin") rather
+    // than auto-generating a long comma-joined summary from every
+    // statement. Per Paul 2026-06-12: "good lord, the name is even
+    // longer now" / "I called it 'antibiotic cocktail PND 14-21'" —
+    // long labels are noise; the agent's label or the curator's
+    // manual label is what they want.
+    free_text_label: agent.free_text_label,
+    is_baseline: agent.is_baseline,
+    numeric_value: agent.numeric_value ?? null,
+    statements,
+    biomaterial_short_names: [...agent.biomaterial_short_names],
+  };
+}
+
+/**
+ * Merge an agent's near-match factor proposal INTO the gold factor —
+ * the curator's "+ Merge" button on a ``calibration_factor_match_near``
+ * finding. Unlike ``adoptNearMatchAgentFactor`` (which replaces gold's
+ * content with agent's), this takes the UNION of statements per
+ * paired FV.
+ *
+ * Motivating case (Paul 2026-06-12, GSE near-match): gold's FV2 had
+ * "<drug> · delivered at dose · <dose>" statements for each drug;
+ * agent's FV2 had "<drug> · delivered for duration · <duration>" for
+ * the same drugs. Both are useful curation content. "Alt is better"
+ * would drop the doses; "Keep" would drop the durations. The merge
+ * keeps both.
+ *
+ * Dedupe rule: full S-P-O signature (subject URI || label, predicate
+ * URI || label, object URI || label, all lowercased + trimmed). Two
+ * statements that say the same thing collapse to one. Two statements
+ * with the same subject but different predicates BOTH survive — that's
+ * the win in the motivating case.
+ *
+ * Preserved on every FV: ``id``, ``free_text_label`` (kept from gold —
+ * the curator isn't relabelling), ``is_baseline``, ``numeric_value``.
+ * Factor-level ``category`` stays as gold's; agent and gold share it
+ * by definition of near-match.
+ *
+ * FVs that exist on the agent but have no biomaterial-set partner on
+ * gold are appended as new FVs (rare on a near-match — the partition
+ * is by definition aligned — but defensive).
+ */
+export function mergeNearMatchAgentFactor(
+  design: Design,
+  agentFactor: FactorProposal,
+): Design {
+  const agentCatUri = agentFactor.category?.uri ?? null;
+  const agentCatLabel = (agentFactor.category?.label ?? "")
+    .trim()
+    .toLowerCase();
+  const factor = design.factors.find((f) => {
+    if (agentCatUri && f.category?.uri && f.category.uri === agentCatUri) {
+      return true;
+    }
+    return (
+      !!agentCatLabel &&
+      (f.category?.label ?? "").trim().toLowerCase() === agentCatLabel
+    );
+  });
+  if (!factor) return design;
+  const goldFactorId = factor.id;
+
+  // Map biomaterial-set → existing gold FV so the per-FV merge runs
+  // against the right partner. Unmatched agent FVs append at the end.
+  const goldFvByBmKey = new Map<string, FactorValue>();
+  for (const gfv of factor.factor_values) {
+    goldFvByBmKey.set(bmKey(gfv.biomaterial_short_names), gfv);
+  }
+  const claimedGoldIds = new Set<number>();
+  let freshId = nextFvId(design);
+
+  const merged: FactorValue[] = [];
+
+  // Pass 1: every gold FV keeps its slot (preserves order + ids). If
+  // a paired agent FV exists, merge its statements in. The merge
+  // normalises each merged-in agent statement's ``category`` to
+  // match the gold-side statement with the same subject — so
+  // ``groupStatementsBySubject`` (which buckets by category+subject)
+  // collapses them into one compact "subject + stacked P/O pairs"
+  // row in the design-tab renderer instead of 2N flat rows. Paul
+  // 2026-06-12: "we treat it as if it was two statements about the
+  // subject like you did, but it's more compact".
+  const factorCategoryFallback = factor.category ?? null;
+  for (const gfv of factor.factor_values) {
+    const key = bmKey(gfv.biomaterial_short_names);
+    const agentMatch = agentFactor.factor_values.find(
+      (afv) => bmKey(afv.biomaterial_short_names) === key,
+    );
+    if (!agentMatch) {
+      merged.push(gfv);
+      continue;
+    }
+    claimedGoldIds.add(gfv.id);
+    const nextStatements = unionStatements(
+      gfv.statements,
+      agentMatch.statements,
+      factorCategoryFallback,
+    );
+    // Preserve gold's ``free_text_label`` on merge — it's the
+    // current state, possibly the curator's manual rename (Paul
+    // 2026-06-12: "I called it 'antibiotic cocktail PND 14-21'").
+    // Auto-regenerating from statements ballooned the title into
+    // a 10-phrase comma list.
+    merged.push({
+      ...gfv,
+      statements: nextStatements,
+    });
+  }
+
+  // Pass 2: agent FVs whose biomaterial set didn't pair with any
+  // gold FV — append as new FVs with fresh ids. Defensive; on a real
+  // near-match the partition aligns.
+  for (const afv of agentFactor.factor_values) {
+    const key = bmKey(afv.biomaterial_short_names);
+    const gold = goldFvByBmKey.get(key);
+    if (gold && claimedGoldIds.has(gold.id)) continue;
+    merged.push(mergeAgentFvIntoGold(afv, null, freshId++));
+  }
+
+  const updated: Factor = {
+    ...factor,
+    // Same name-adoption rule as ``adoptNearMatchAgentFactor``: the
+    // agent's ``name_in_design`` is the human-readable label the
+    // curator opted into by clicking Merge.
+    name: (agentFactor.name_in_design || factor.name || "").trim(),
+    factor_values: merged,
+  };
+
+  return {
+    ...design,
+    factors: design.factors.map((f) =>
+      f.id === goldFactorId ? updated : f,
+    ),
+  };
+}
+
+/** Union two statement lists, deduping by full S-P-O signature
+ *  (subject/predicate/object URI when present, label otherwise; all
+ *  lowercased). Gold-side entries win on collision (the curator's
+ *  original wording survives).
+ *
+ *  Gemma's wire model is a single statement carrying multiple
+ *  (predicate, object) pairs per subject; the UI flattens that to
+ *  many ``Statement`` rows sharing ``(category, subject)``, and
+ *  ``CompactStatementGroup`` / ``groupStatementsBySubject`` collapse
+ *  them back to one visual row at render time. Crucially, the
+ *  grouper buckets by ``(category, subject)`` — so for the merge to
+ *  read as one compact row instead of 2N flat ones, each merged-in
+ *  agent statement has to land in the same bucket as its gold
+ *  counterpart.
+ *
+ *  Strategy: for every agent statement, find a gold statement with
+ *  the same subject and copy ITS category onto the agent statement.
+ *  Falls back to ``factorCategoryFallback`` (the owning factor's
+ *  category) when no same-subject gold statement exists — every
+ *  merged statement still ends up with a category that aligns with
+ *  the factor's identity, and the grouper collapses across the
+ *  whole FV cleanly. */
+function unionStatements(
+  gold: readonly Statement[],
+  agentProposal: readonly { subject?: { label?: string; uri?: string | null } | null; predicate?: { label?: string; uri?: string | null } | null; object?: { label?: string; uri?: string | null } | null; category?: { label?: string; uri?: string | null } | null }[],
+  factorCategoryFallback: OntologyTerm | null = null,
+): Statement[] {
+  const sig = (
+    s: {
+      subject?: { label?: string; uri?: string | null } | null;
+      predicate?: { label?: string; uri?: string | null } | null;
+      object?: { label?: string; uri?: string | null } | null;
+    },
+  ): string => {
+    const part = (t?: { label?: string; uri?: string | null } | null) =>
+      ((t?.uri || t?.label) ?? "").trim().toLowerCase();
+    return `${part(s.subject)}|${part(s.predicate)}|${part(s.object)}`;
+  };
+  const subjKey = (
+    s: { subject?: { label?: string; uri?: string | null } | null },
+  ): string => {
+    const t = s.subject;
+    return ((t?.uri || t?.label) ?? "").trim().toLowerCase();
+  };
+  // Pre-index gold's categories by subject so each merged-in agent
+  // statement can inherit the same (category, subject) bucket key.
+  const goldCategoryBySubject = new Map<string, OntologyTerm>();
+  for (const g of gold) {
+    const k = subjKey(g);
+    if (!k || goldCategoryBySubject.has(k)) continue;
+    if (g.category && (g.category.label || g.category.uri)) {
+      goldCategoryBySubject.set(k, g.category);
+    }
+  }
+  const seen = new Set<string>();
+  const out: Statement[] = [];
+  for (const g of gold) {
+    const k = sig(g);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(g);
+  }
+  for (const a of agentProposal) {
+    const k = sig(a);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    // Category inheritance: prefer the gold side's category for this
+    // subject (so paired statements bucket together), then the
+    // factor-level fallback, then whatever the agent shipped, then
+    // empty.
+    const agentSubjKey = subjKey(a);
+    const inheritedCategory =
+      (agentSubjKey ? goldCategoryBySubject.get(agentSubjKey) : null) ??
+      factorCategoryFallback ??
+      (a.category
+        ? { label: a.category.label ?? "", uri: a.category.uri ?? null }
+        : { label: "", uri: null });
+    out.push({
+      category: {
+        label: inheritedCategory.label ?? "",
+        uri: inheritedCategory.uri ?? null,
+      },
+      subject: a.subject
+        ? { label: a.subject.label ?? "", uri: a.subject.uri ?? null }
+        : { label: "", uri: null },
+      predicate: a.predicate
+        ? { label: a.predicate.label ?? "", uri: a.predicate.uri ?? null }
+        : null,
+      object: a.object
+        ? { label: a.object.label ?? "", uri: a.object.uri ?? null }
+        : null,
+    });
+  }
+  return out;
 }

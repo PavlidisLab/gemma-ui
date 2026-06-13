@@ -626,12 +626,17 @@ function CompactStatementRow({
 }
 
 /** Compact-mode rendering for a group of statements that share the
- *  same (category, subject). Mirrors `StatementGroupEditor`'s
- *  layout but read-only — subject chip on the left, each
- *  statement's `predicate - object` pair stacked in a column to
- *  the right. So a Srsf1 FV with two has_genotype statements
- *  collapses to one subject + two stacked P/O rows instead of
- *  repeating the (long) subject twice. Per Paul 2026-05-21. */
+ *  same (category, subject). Mirrors Gemma's multi-PO statement
+ *  shape (one subject, many predicate-object pairs) visually —
+ *  subject chip on the left, each P/O pair inline next to it on the
+ *  SAME row, wrapping only when the row overflows. So a Srsf1 FV
+ *  with two has_genotype statements collapses to
+ *  ``Srsf1 - has_genotype - WT - has_genotype - KO`` on one line;
+ *  long rows wrap naturally via ``flex-wrap``. Per Paul:
+ *
+ *    2026-05-21 — subject shouldn't be repeated when shared.
+ *    2026-06-12 — "they can be shown on the same row, at least in
+ *                 the compact view". */
 function CompactStatementGroup({
   statements,
 }: {
@@ -650,48 +655,47 @@ function CompactStatementGroup({
       >
         {subj?.label || "(blank)"}
       </Term>
-      <div className="flex flex-col gap-1 min-w-0">
-        {statements.map((s, i) => {
-          const pred = s.predicate;
-          const obj = s.object;
-          const hasPred = !!pred?.label?.trim();
-          const hasObj = !!obj?.label?.trim();
-          return (
-            <div
-              key={i}
-              className="flex flex-wrap items-baseline gap-x-1.5"
-            >
-              {hasPred ? (
-                <>
-                  <span className="text-slate-400 dark:text-slate-500">
-                    {" - "}
-                  </span>
-                  <span
-                    className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
-                    title={pred?.uri || undefined}
-                  >
-                    {pred?.label}
-                  </span>
-                </>
-              ) : null}
-              {hasObj ? (
-                <>
-                  <span className="text-slate-400 dark:text-slate-500">
-                    {" - "}
-                  </span>
-                  <Term
-                    uri={obj?.uri ?? null}
-                    asLink={false}
-                    className="!whitespace-normal break-words"
-                  >
-                    {obj?.label}
-                  </Term>
-                </>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+      {statements.map((s, i) => {
+        const pred = s.predicate;
+        const obj = s.object;
+        const hasPred = !!pred?.label?.trim();
+        const hasObj = !!obj?.label?.trim();
+        if (!hasPred && !hasObj) return null;
+        return (
+          <span
+            key={i}
+            className="inline-flex items-baseline gap-x-1.5 flex-wrap"
+          >
+            {hasPred ? (
+              <>
+                <span className="text-slate-400 dark:text-slate-500">
+                  {" - "}
+                </span>
+                <span
+                  className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+                  title={pred?.uri || undefined}
+                >
+                  {pred?.label}
+                </span>
+              </>
+            ) : null}
+            {hasObj ? (
+              <>
+                <span className="text-slate-400 dark:text-slate-500">
+                  {" - "}
+                </span>
+                <Term
+                  uri={obj?.uri ?? null}
+                  asLink={false}
+                  className="!whitespace-normal break-words"
+                >
+                  {obj?.label}
+                </Term>
+              </>
+            ) : null}
+          </span>
+        );
+      })}
     </div>
   );
 }
