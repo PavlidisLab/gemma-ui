@@ -1,6 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { FlowKind } from "./sources";
-import { useDesignDraft } from "@/features/design/DesignDraftContext";
 
 /** App-level flow context — surfaces whether the ticket the
  *  curator is working under was provisioned as a curation batch
@@ -30,45 +29,18 @@ export function useFlow(): FlowKind {
 /** Returns ``true`` when the curator should be prevented from
  *  mutating server state.
  *
- *  Rule (Paul 2026-06-08, after the chip-baseline rewire): edits
- *  always write to ``/datasets/{id}/design`` — the local store
- *  the calibration pack POSTed its consensus design into. If the
- *  chip strip is showing a DIFFERENT curation (Live Gemma, a
- *  preboard snapshot, the agent's proposal) and we let the curator
- *  edit, they'd silently overwrite the local pack content with the
- *  baseline's content + their edits. Lock editing in that case.
+ *  History — Paul installed a chip-strip-baseline read-only gate on
+ *  2026-06-08 to prevent silent overwrites when viewing a non-
+ *  editable baseline (Live Gemma / preboard / agent_proposal). On
+ *  2026-06-12 Paul reversed that rule: "and make it not read only
+ *  for gottsake". The gate now returns ``false`` unconditionally;
+ *  the only callers that still see ``true`` are the ones that opt
+ *  in via an explicit prop on a per-card basis (e.g. synthetic
+ *  drift cards passing ``readOnly``).
  *
- *  Editable baselines: ``consensus`` (rooted in /design), the
- *  curator's own polished row (``curator_polish``, content matches
- *  what's writable), and the legacy fallback (no chip baseline
- *  resolved — page is using ``useDesign(experimentId)`` directly,
- *  i.e. the local /design store). All other source_kinds are
- *  read-only.
- *
- *  Returns ``false`` when the DesignDraftProvider isn't mounted —
- *  callers outside the experiment shell (login page, inboxes)
- *  shouldn't need the gate, and a missing provider is the legacy
- *  no-op behaviour.
- */
-const _EDITABLE_BASELINE_KINDS = new Set([
-  "consensus",
-  "curator_polish",
-]);
-
+ *  If the silent-overwrite concern resurfaces, the right fix is on
+ *  the WRITE path — refuse to PATCH when the visible baseline isn't
+ *  the writable store — not blanket-gating the UI. */
 export function useIsReadOnly(): boolean {
-  // Defensive: the hook may be called outside the experiment shell
-  // where DesignDraftProvider isn't mounted (e.g. login page tests).
-  // useContext on a null context returns null, so check explicitly
-  // rather than throwing.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  let draft: ReturnType<typeof useDesignDraft> | null;
-  try {
-    draft = useDesignDraft();
-  } catch {
-    return false;
-  }
-  if (!draft.usingBaseline) return false;
-  const kind = draft.baselineSourceKind;
-  if (kind && _EDITABLE_BASELINE_KINDS.has(kind)) return false;
-  return true;
+  return false;
 }

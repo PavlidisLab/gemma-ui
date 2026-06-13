@@ -871,19 +871,49 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // status, not a passing caption.
   const readOnly = useIsReadOnly();
   const { baselineLabel } = useDesignDraft();
+  // Hoisted from below so the read-only path can pass it to the
+  // editor without re-deriving — same value, same source.
+  const readOnlyDisposition =
+    dispositionByTarget.get(finding.target_id)?.status ?? "pending";
   if (readOnly) {
+    // Read-only path: the curator can't ACT on the finding, but they
+    // should still SEE the same factor / FV comparison the editable
+    // path shows — otherwise the card collapses to a bare amber
+    // banner with no content under the title (Paul 2026-06-12: "why
+    // can't I see the factors as usual?"). Render the structured
+    // editor below the banner; its internal ``ActionRow`` already
+    // suppresses the verdict buttons via its own ``useIsReadOnly``
+    // check, so the result is "comparison visible, buttons gone".
+    // Handlers are no-ops because the editor won't call them while
+    // its ActionRow is suppressed.
+    const noop = () => {};
+    const noopAsync = async () => {};
+    const editorRenders = findingHasStructuredContent(finding, report, draft);
     return (
-      <div
-        className="mt-1 rounded border border-amber-300 bg-amber-50/70 px-2 py-1 text-[11px] text-amber-900 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-200"
-        role="status"
-      >
-        <span className="font-semibold uppercase tracking-wide text-[10px] mr-1.5">
-          Read-only
-        </span>
-        viewing{" "}
-        <span className="font-mono">{baselineLabel ?? "this baseline"}</span>{" "}
-        — switch the chip-strip baseline to consensus or your polished row
-        to act on findings.
+      <div className="pl-1.5 pt-2 space-y-1.5">
+        <div
+          className="rounded border border-amber-300 bg-amber-50/70 px-2 py-1 text-[11px] text-amber-900 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-200"
+          role="status"
+        >
+          <span className="font-semibold uppercase tracking-wide text-[10px] mr-1.5">
+            Read-only
+          </span>
+          viewing{" "}
+          <span className="font-mono">{baselineLabel ?? "this baseline"}</span>
+          {" "}— switch the chip-strip baseline to consensus or your polished
+          row to act on findings.
+        </div>
+        {editorRenders ? (
+          <FindingDetailsEditor
+            finding={finding}
+            report={report}
+            design={draft}
+            currentDisposition={readOnlyDisposition}
+            onSave={noopAsync}
+            onDismiss={noop}
+            onPark={noop}
+          />
+        ) : null}
       </div>
     );
   }
@@ -1643,7 +1673,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             return (
               <DismissDialog
                 mode="dismiss"
-                chips={dismissChipsFor(finding.issue_code)}
+                chips={dismissChipsFor(finding)}
                 finding={finding}
                 targetId={finding.target_id}
                 anchor={dismissBtnRef.current}

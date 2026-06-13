@@ -128,7 +128,13 @@ export function sourceLabel(
   // from live Gemma / polished sets once the unified curation-versions
   // model lands. See HANDOFF_2026-06-08_UNIFIED_CURATION_VERSIONS.md.
   if (s === "preboard") return "Gemma preboard";
-  if (s === "live") return "Gemma (live)";
+  // "Gemma" without a "(live)" qualifier — the chip strip fetches a
+  // snapshot, not a live stream, and curators read "live" as real-
+  // time which isn't accurate. Agent should supply a friendlier name
+  // via the /curations row's ``label`` field; this fallback fires
+  // only when ``label`` is empty (pre-step-3b enum path). Per Paul
+  // 2026-06-12.
+  if (s === "live") return "Gemma";
   if (s === "agent_proposal") return "agent original proposal";
   if (isPolishedSource(s)) {
     const curator = polishedCuratorOf(s);

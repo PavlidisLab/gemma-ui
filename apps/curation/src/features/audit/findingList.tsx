@@ -35,6 +35,7 @@ import { isMatchFinding, isRenameMatch } from "./findingHelpers";
 import { resolveApplyAction } from "./applyHandlers";
 import { CompactFindingCard } from "./findingCard";
 import { ComparisonFactorCard } from "./ComparisonFactorCard";
+import { OrientationProse } from "@/components/ui/OrientationProse";
 
 // ---------------------------------------------------------------------------
 // Section header — shared className for the per-kind dividers
@@ -472,6 +473,11 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
 
   return (
     <div className="space-y-3">
+      {/* Orchestrator orientation prose — generic top-of-panel slot.
+          Suppresses itself when the evidence carries no
+          ``experiment_summary``, so old packages render identically.
+          Per ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */}
+      <OrientationProse text={report?.evidence?.experiment_summary ?? null} />
       {/* Summary header — always visible. Frames the body content
           ("N findings — X open, Y already triaged, Z noted") so a
           fully-triaged or judge-only-noted review reads as

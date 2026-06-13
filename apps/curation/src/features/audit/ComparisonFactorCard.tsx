@@ -35,18 +35,25 @@
 
 import { useContext, useEffect, useMemo, useState } from "react";
 import { PanelExpansionContext } from "./findingCard";
-import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
+import { type FvTermRenderer } from "@gemma/ontology";
 
 import type {
   AuditFinding,
   AttachedDefenderVerdict,
   DismissReason,
 } from "@/api/auditTypes";
-import type { FactorProposal, FactorValueProposal } from "@/api/types";
+import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
 import { useAudit } from "./AuditContext";
 import { useDesign } from "@/api/design";
+import { useIsReadOnly } from "@/features/comparison/FlowContext";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import {
+  adoptNearMatchAgentFactor,
+  mergeNearMatchAgentFactor,
+} from "@/features/design/mutations";
+import { useToast } from "@/components/ui/Toast";
 import {
   useCurations,
   type CurationRow,
@@ -54,6 +61,21 @@ import {
 import type { Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
 import { shortenUri } from "@/lib/curie";
+import {
+  FactorComparisonGrid,
+  pairFvs as sharedPairFvs,
+  type FactorComparisonPair,
+} from "./factorComparison/FactorComparisonGrid";
+import {
+  factorPairForFinding,
+  fvPairsViaMapping,
+} from "./factorComparison/mappingPairing";
+import {
+  findingActionGlyph,
+  findingActionLabel,
+} from "./findingHelpers";
+import { MatchBadge, SeverityBadge } from "./findingBadges";
+import { displaySeverity } from "./auditPresentation";
 
 const Term: FvTermRenderer = ({ label, uri, variant }) => {
   if (variant === "predicate") {
@@ -107,169 +129,12 @@ export interface FactorSide {
   factor: Factor | FactorProposal | null;
 }
 
-/** Each FV pair: an LEFT FV (baseline side) optionally paired with a
- *  RIGHT FV (comparator side). Either may be null when the partition
- *  doesn't align. */
-interface PairedFv {
-  left: Factor["factor_values"][number] | FactorValueProposal | null;
-  right: Factor["factor_values"][number] | FactorValueProposal | null;
-  /** Quick visual indicator: "same" (labels match), "drift" (labels
-   *  differ), "left_only", "right_only". */
-  status: "same" | "drift" | "left_only" | "right_only";
-}
-
-function fvLabel(
-  fv: Factor["factor_values"][number] | FactorValueProposal | null,
-): string {
-  if (!fv) return "";
-  return (fv.free_text_label || "").trim().toLowerCase();
-}
-
-function fvBms(
-  fv: Factor["factor_values"][number] | FactorValueProposal | null,
-): Set<string> {
-  if (!fv) return new Set();
-  return new Set(fv.biomaterial_short_names ?? []);
-}
-
-/** Pair FVs across baseline + comparator factors. Strategy:
- *  1. Bijective match by biomaterial-set overlap (Jaccard ≥ 0.5).
- *  2. Any unmatched on either side render as left_only / right_only. */
-function pairFvs(
-  leftFactor: FactorSide["factor"],
-  rightFactor: FactorSide["factor"],
-): PairedFv[] {
-  const leftFvs = leftFactor?.factor_values ?? [];
-  const rightFvs = rightFactor?.factor_values ?? [];
-  const claimedRight = new Set<number>();
-  const pairs: PairedFv[] = [];
-  for (const l of leftFvs) {
-    const lBms = fvBms(l);
-    let bestIx = -1;
-    let bestJ = 0;
-    for (let ix = 0; ix < rightFvs.length; ix++) {
-      if (claimedRight.has(ix)) continue;
-      const rBms = fvBms(rightFvs[ix]);
-      const inter = [...lBms].filter((b) => rBms.has(b)).length;
-      const union = new Set([...lBms, ...rBms]).size;
-      const j = union > 0 ? inter / union : 0;
-      if (j > bestJ) {
-        bestJ = j;
-        bestIx = ix;
-      }
-    }
-    if (bestIx >= 0 && bestJ >= 0.5) {
-      claimedRight.add(bestIx);
-      const r = rightFvs[bestIx];
-      const status =
-        fvLabel(l) === fvLabel(r) && fvLabel(l) !== "" ? "same" : "drift";
-      pairs.push({ left: l, right: r, status });
-    } else {
-      pairs.push({ left: l, right: null, status: "left_only" });
-    }
-  }
-  for (let ix = 0; ix < rightFvs.length; ix++) {
-    if (!claimedRight.has(ix)) {
-      pairs.push({ left: null, right: rightFvs[ix], status: "right_only" });
-    }
-  }
-  return pairs;
-}
-
-function statusGlyph(status: PairedFv["status"]): {
-  ch: string;
-  cls: string;
-  title: string;
-} {
-  switch (status) {
-    case "same":
-      return { ch: "=", cls: "text-emerald-600 dark:text-emerald-400", title: "labels match" };
-    case "drift":
-      return { ch: "≈", cls: "text-amber-600 dark:text-amber-400", title: "paired by sample partition; labels differ" };
-    case "left_only":
-      return { ch: "−", cls: "text-amber-600 dark:text-amber-400", title: "baseline-only (no comparator counterpart)" };
-    case "right_only":
-      return { ch: "+", cls: "text-amber-600 dark:text-amber-400", title: "comparator-only (no baseline counterpart)" };
-  }
-}
-
-/** Category chip pair — baseline category vs comparator category, with
- *  URI tags. Free-text categories (no URI) render with a "free-text"
- *  visual cue so the curator sees the agent skipped ontology grounding. */
-function CategoryPair({
-  leftLabel,
-  leftCategory,
-  rightLabel,
-  rightCategory,
-}: {
-  leftLabel: string;
-  leftCategory: { label: string | null; uri: string | null } | null;
-  rightLabel: string;
-  rightCategory: { label: string | null; uri: string | null } | null;
-}) {
-  const showCategoryRow = !!(leftCategory?.label || rightCategory?.label);
-  if (!showCategoryRow) return null;
-  return (
-    <div className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-2 items-baseline text-[11px] py-1 px-1.5 rounded bg-slate-50/60 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700">
-      <span className="text-[9px] uppercase tracking-wide text-slate-400">
-        {leftLabel}
-      </span>
-      <span>
-        {leftCategory?.label ? (
-          <Term
-            label={leftCategory.label}
-            uri={leftCategory.uri ?? null}
-          />
-        ) : (
-          <em className="text-slate-400">(no factor)</em>
-        )}
-      </span>
-      <span className="text-[9px] uppercase tracking-wide text-slate-400 pl-2 border-l border-slate-200 dark:border-slate-700">
-        {rightLabel}
-      </span>
-      <span>
-        {rightCategory?.label ? (
-          <Term
-            label={rightCategory.label}
-            uri={rightCategory.uri ?? null}
-          />
-        ) : (
-          <em className="text-slate-400">(no factor)</em>
-        )}
-      </span>
-    </div>
-  );
-}
-
-/** Per-FV side-by-side row. One row per paired (left, right) FV. */
-function FvPairRow({ pair }: { pair: PairedFv }) {
-  const g = statusGlyph(pair.status);
-  return (
-    <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-baseline text-[11px] px-1.5 py-1 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-      <div className="min-w-0">
-        {pair.left ? (
-          <FvDisplayRow fv={pair.left} termRenderer={Term} />
-        ) : (
-          <em className="text-slate-400">(no FV)</em>
-        )}
-      </div>
-      <span
-        className={`${g.cls} text-center select-none`}
-        title={g.title}
-        aria-label={pair.status}
-      >
-        {g.ch}
-      </span>
-      <div className="min-w-0">
-        {pair.right ? (
-          <FvDisplayRow fv={pair.right} termRenderer={Term} />
-        ) : (
-          <em className="text-slate-400">(no FV)</em>
-        )}
-      </div>
-    </div>
-  );
-}
+// PairedFv / pairFvs / fvLabel / fvBms / statusGlyph / CategoryPair /
+// FvPairRow extracted 2026-06-12 to
+// ``./factorComparison/FactorComparisonGrid.tsx`` so the shared grid
+// primitive is the canonical home for the side-by-side render. The
+// same module re-exports ``pairFvs`` so callers don't have to keep a
+// local duplicate.
 
 function JudgeRow({
   verdict,
@@ -469,7 +334,7 @@ export function ComparisonFactorCard({
   comparatorSource,
   leftFactorOverride,
   rightFactorOverride,
-  readOnly,
+  readOnly: readOnlyProp,
 }: ComparisonFactorCardProps) {
   const { report, experimentId, setDisposition, dispositionByTarget } =
     useAudit();
@@ -477,6 +342,16 @@ export function ComparisonFactorCard({
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const [busy, setBusy] = useState(false);
+  // Chip-strip read-only state — OR'd with the prop so callers can
+  // still force read-only on synthetic baseline-drift cards via the
+  // existing prop, but the card auto-detects when the chip strip is
+  // viewing a non-editable baseline (Live Gemma / preboard / etc.)
+  // and suppresses the action buttons without the caller having to
+  // thread the flag through every render site.
+  const chipReadOnly = useIsReadOnly();
+  const readOnly = readOnlyProp || chipReadOnly;
+  const { apply: applyDraft } = useDesignDraft();
+  const toast = useToast();
   // Card-level collapse — matches the chevron/collapse contract on
   // ``CompactFindingCard`` so a curator's "collapse all" button at
   // the top of the sidebar reaches these cards too. Per Paul
@@ -621,10 +496,20 @@ export function ComparisonFactorCard({
       }
     : null;
 
-  const pairs = useMemo(
-    () => pairFvs(leftFactor, rightFactor),
-    [leftFactor, rightFactor],
-  );
+  // Pair derivation — prefer the wire's authoritative ``mapping.fv_pairs``
+  // when present (bro's 2026-06-12 alignment ship), fall through to the
+  // legacy biomaterial-Jaccard ``pairFvs`` heuristic otherwise. The
+  // mapping path uses the finding's ``gold_target_index`` /
+  // ``agent_target_index`` to find the owning factor pair, then walks
+  // its FV pairs. Old packages without ``mapping`` see no change.
+  const pairs = useMemo<FactorComparisonPair[]>(() => {
+    const factorPair = factorPairForFinding(report, finding);
+    if (factorPair) {
+      const mapped = fvPairsViaMapping(report, factorPair, leftFactor, rightFactor);
+      if (mapped) return mapped;
+    }
+    return sharedPairFvs(leftFactor, rightFactor);
+  }, [report, finding, leftFactor, rightFactor]);
 
   // /curations is slow (~10s in Paul's GSE93824 walkthrough — server-
   // side bottleneck, see UIB perf handoff 2026-06-11). When it's still
@@ -653,44 +538,79 @@ export function ComparisonFactorCard({
     return factorsAreLoading ? skeleton : "?";
   };
 
-  // Default title: "Rename `left.category` → `right.category`" for
-  // rename, generic verb-tagged for other codes (callers can override).
-  const derivedTitle =
-    title ??
-    (finding.issue_code === "calibration_factor_rename"
-      ? (
-          <span className="text-[12px] font-semibold">
-            Rename factor: <span className="font-mono">{ph(leftCategory?.label)}</span>
-            <span className="text-slate-400"> → </span>
-            <span className="font-mono">{ph(rightCategory?.label)}</span>
+  // Per-issue subject (what the action acts on). The badge + uppercase
+  // verb come from the shared helpers below so this surface reads with
+  // the same pattern as CompactFindingCard.
+  const subjectNode: React.ReactNode = (() => {
+    const code = finding.issue_code;
+    if (code === "calibration_factor_rename") {
+      return (
+        <>
+          <span className="font-mono">{ph(leftCategory?.label)}</span>
+          <span className="text-slate-400"> → </span>
+          <span className="font-mono">{ph(rightCategory?.label)}</span>
+        </>
+      );
+    }
+    if (code === "calibration_factor_match_near") {
+      return (
+        <>
+          <span className="font-mono">{ph(leftCategory?.label)}</span>
+          <span className="text-slate-400 font-normal text-[11px] ml-1">
+            (
+            {rightFactor?.factor_values?.length ??
+              (factorsAreLoading ? "…" : "?")}{" "}
+            vs{" "}
+            {leftFactor?.factor_values?.length ??
+              (factorsAreLoading ? "…" : "?")}{" "}
+            levels)
           </span>
-        )
-      : finding.issue_code === "calibration_factor_match_near"
-        ? (
-            <span className="text-[12px] font-semibold">
-              Partition mismatch: <span className="font-mono">{ph(leftCategory?.label)}</span>
-              <span className="text-slate-400 font-normal text-[11px] ml-1">
-                ({rightFactor?.factor_values?.length ?? (factorsAreLoading ? "…" : "?")} vs {leftFactor?.factor_values?.length ?? (factorsAreLoading ? "…" : "?")} levels)
-              </span>
-            </span>
-          )
-      : finding.issue_code === "calibration_factor_extra"
-        ? (
-            <span className="text-[12px] font-semibold">
-              Add factor: <span className="font-mono">{ph(rightCategory?.label)}</span>
-            </span>
-          )
-        : finding.issue_code === "calibration_factor_gold_only_miss"
-          ? (
-              <span className="text-[12px] font-semibold">
-                Remove factor: <span className="font-mono">{ph(leftCategory?.label)}</span>
-              </span>
-            )
-          : (
-              <span className="text-[12px] font-semibold">
-                {(leftCategory?.label || rightCategory?.label) ?? (factorsAreLoading ? skeleton : "(factor)")}
-              </span>
-            ));
+        </>
+      );
+    }
+    if (code === "calibration_factor_extra") {
+      return <span className="font-mono">{ph(rightCategory?.label)}</span>;
+    }
+    if (code === "calibration_factor_gold_only_miss") {
+      return <span className="font-mono">{ph(leftCategory?.label)}</span>;
+    }
+    return (
+      <span className="font-mono">
+        {leftCategory?.label ||
+          rightCategory?.label ||
+          (factorsAreLoading ? skeleton : "(factor)")}
+      </span>
+    );
+  })();
+
+  // Title now follows the CompactFindingCard pattern — left-edge badge
+  // (Match ≈ / ✓ or Severity-with-action-glyph Δ), UPPERCASE action
+  // label, em-dash, then the per-issue subject. Per Paul 2026-06-12:
+  // "the title of the card should follow the same pattern as the
+  // other cards." Caller can still override via the ``title`` prop.
+  const matchBadge = <MatchBadge finding={finding} />;
+  const derivedTitle =
+    title ?? (
+      <span className="inline-flex items-baseline gap-1.5 min-w-0">
+        {/* MatchBadge returns null for non-match codes; fall back to
+            SeverityBadge with the action glyph (Δ / + / − / etc.) so
+            partition_mismatch and extra / gold_only_miss cards still
+            get a left-edge glyph. */}
+        {matchBadge ?? (
+          <SeverityBadge
+            severity={displaySeverity(finding)}
+            glyph={findingActionGlyph(finding)}
+          />
+        )}
+        <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+          {findingActionLabel(finding)}
+        </span>
+        <span className="text-slate-400 dark:text-slate-500">—</span>
+        <span className="text-[12px] font-semibold min-w-0 truncate">
+          {subjectNode}
+        </span>
+      </span>
+    );
 
   async function dispatch(
     next: "accepted" | "dismissed" | "needs_more_info",
@@ -698,7 +618,88 @@ export function ComparisonFactorCard({
   ) {
     setBusy(true);
     try {
-      await setDisposition(finding.target_id, next, extras);
+      // Auto-resolve: any disposition the curator takes on a
+      // ComparisonFactorCard is a terminal action (Accept = adopted /
+      // Merge = applied / Keep = dismissed / Park = needs more info).
+      // None expect follow-up work, so stamp ``resolvedAt`` for the
+      // accepted path so the card lands in the resolved bucket rather
+      // than the parked one. Paul 2026-06-12: "after merge the card
+      // should be resolved (or any other disposition)".
+      const resolvedExtras =
+        next === "accepted"
+          ? { ...extras, resolvedAt: new Date().toISOString() }
+          : extras;
+      await setDisposition(finding.target_id, next, resolvedExtras);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Near-match accept actually mutates the draft — overwrite the
+  // gold factor's category + per-FV labels / statements with the
+  // agent's version while preserving the partition (biomaterial
+  // assignments) and factor id. Paul 2026-06-12 ("as it stands,
+  // accept doesn't do anything") — the disposition PATCH on its
+  // own was a no-op for the curator's visible state. Other issue
+  // codes (rename / extra / miss) keep the existing PATCH-only
+  // path; their structural applies live elsewhere.
+  const isNearMatch =
+    finding.issue_code === "calibration_factor_match_near";
+
+  async function dispatchNearMatchMerge(): Promise<void> {
+    // Curator's "+ Merge" — take the union of both sides' per-FV
+    // statements (dedupe by full S-P-O signature). Motivating case
+    // (Paul 2026-06-12): gold had per-drug doses, agent had per-
+    // drug durations — both useful, neither replaceable. Merge
+    // keeps both.
+    const agentFactor = rightFactor as FactorProposal | null;
+    if (!agentFactor) {
+      toast.show(
+        "Couldn't merge — agent factor unresolved.",
+        "danger",
+        4000,
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      applyDraft((d) => mergeNearMatchAgentFactor(d, agentFactor));
+      await setDisposition(finding.target_id, "accepted", {
+        resolvedAt: new Date().toISOString(),
+      });
+      toast.show(
+        "Merged the agent's statements into the existing factor.",
+        "success",
+        3000,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function dispatchNearMatchAccept(): Promise<void> {
+    // ``rightFactor`` is the agent's proposed alternative. The
+    // mutator finds the matching factor inside the writable draft
+    // by category URI / label — leftFactor's id can't be trusted
+    // since it may come from a non-writable chip-strip baseline
+    // (Gemma / preboard) whose ids don't line up with the local
+    // /design store. Per Paul 2026-06-12.
+    const agentFactor = rightFactor as FactorProposal | null;
+    if (!agentFactor) {
+      toast.show(
+        "Couldn't adopt the alternative — agent factor unresolved.",
+        "danger",
+        4000,
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      applyDraft((d) => adoptNearMatchAgentFactor(d, agentFactor));
+      await setDisposition(finding.target_id, "accepted", {
+        resolvedAt: new Date().toISOString(),
+      });
+      toast.show("Adopted the agent's alternative.", "success", 3000);
     } finally {
       setBusy(false);
     }
@@ -706,7 +707,11 @@ export function ComparisonFactorCard({
 
   // Action labels follow the action shape — for renames, accept =
   // "adopt rename" (curator takes the agent's category), dismiss =
-  // "keep current". Modularizable per issue_code.
+  // "keep current". Modularizable per issue_code. Near-match reads
+  // "Alt is better" / "Keep" per Paul 2026-06-12 — the agent's
+  // alt isn't a category swap (rename) or a structural add/remove,
+  // it's "the agent's variant of the same factor is better than
+  // gold's", which the labels make explicit.
   const acceptLabel =
     finding.issue_code === "calibration_factor_rename"
       ? "Adopt rename"
@@ -714,7 +719,9 @@ export function ComparisonFactorCard({
         ? "Add factor"
         : finding.issue_code === "calibration_factor_gold_only_miss"
           ? "Remove factor"
-          : "Accept";
+          : isNearMatch
+            ? "Alt is better"
+            : "Accept";
   const dismissLabel =
     finding.issue_code === "calibration_factor_rename"
       ? "Keep current"
@@ -722,13 +729,24 @@ export function ComparisonFactorCard({
         ? "Don't add"
         : finding.issue_code === "calibration_factor_gold_only_miss"
           ? "Keep current"
-          : "Dismiss";
+          : isNearMatch
+            ? "Keep"
+            : "Dismiss";
 
+  // Dispositioned cards (accepted / dismissed / parked) recede the
+  // same way ``CompactFindingCard`` does — opacity-40 with a hover
+  // restore — so they sit quietly in the list and the curator's eye
+  // lands on the still-open ones. Paul 2026-06-12: "it says
+  // 'accepted' but it's not greyed like others".
+  const dispositioned = status !== "pending";
+  const dispositionFade = dispositioned
+    ? "opacity-40 hover:opacity-90 transition-opacity"
+    : "";
   const sevPalette =
     status === "accepted"
       ? "border-emerald-400/70 bg-emerald-50/30 dark:bg-emerald-900/10"
       : status === "dismissed"
-        ? "border-slate-400/70 bg-slate-50/30 dark:bg-slate-900/10 opacity-70"
+        ? "border-slate-400/70 bg-slate-50/30 dark:bg-slate-900/10"
         : finding.severity === "ok"
           ? "border-emerald-300/70 bg-white dark:border-emerald-700/40 dark:bg-slate-900/40"
           : finding.severity === "major" || finding.severity === "blocker"
@@ -736,7 +754,7 @@ export function ComparisonFactorCard({
             : "border-slate-300/70 bg-white dark:border-slate-700 dark:bg-slate-900/40";
 
   return (
-    <div className={`rounded border ${sevPalette} px-2.5 py-2 space-y-2`}>
+    <div className={`rounded border ${sevPalette} ${dispositionFade} px-2.5 py-2 space-y-2`}>
       <div
         role="button"
         tabIndex={0}
@@ -763,31 +781,31 @@ export function ComparisonFactorCard({
           {cardOpen ? "⌄" : "›"}
         </button>
         {derivedTitle}
-        <span className="text-[9px] uppercase tracking-wide text-slate-400 ml-auto">
-          {status === "pending" ? "open" : status}
-        </span>
+        {status === "pending" ? (
+          <span className="text-[9px] uppercase tracking-wide text-slate-400 ml-auto">
+            open
+          </span>
+        ) : null}
       </div>
       {cardOpen ? (
         <>
           <JudgeRow verdict={finding.defender_verdict ?? null} />
-          <CategoryPair
-            leftLabel={leftLabel}
-            leftCategory={leftCategory}
-            rightLabel={rightLabel}
-            rightCategory={rightCategory}
+          {/* Body — switched 2026-06-12 from the inline CategoryPair +
+              FvPairRow loop to the shared FactorComparisonGrid so
+              this surface and FindingDetailsEditor (next-up
+              migration) render the comparison the same way. Adds
+              "FV N" labels per row + per-row sample counts (free via
+              FvDisplayRow's indexLabel) that the inline version
+              didn't surface. ``loading`` flag carries the
+              factorsAreLoading branch the inline version inlined as
+              skeleton placeholders. */}
+          <FactorComparisonGrid
+            leftHeader={{ label: leftLabel, category: leftCategory }}
+            rightHeader={{ label: rightLabel, category: rightCategory }}
+            pairs={pairs}
+            termRenderer={Term}
+            loading={factorsAreLoading}
           />
-          {pairs.length > 0 ? (
-            <div className="rounded border border-slate-200 dark:border-slate-700 bg-white/40 dark:bg-slate-900/30">
-              <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 px-1.5 py-1 border-b border-slate-200 dark:border-slate-700 text-[9px] uppercase tracking-wide text-slate-400">
-                <span>{leftLabel}</span>
-                <span>&nbsp;</span>
-                <span>{rightLabel}</span>
-              </div>
-              {pairs.map((p, i) => (
-                <FvPairRow key={i} pair={p} />
-              ))}
-            </div>
-          ) : null}
           {finding.proposer_defense ? (
             <div className="text-[11px] text-slate-600 dark:text-slate-300 italic">
               <span className="font-semibold not-italic text-slate-700 dark:text-slate-200">
@@ -796,16 +814,46 @@ export function ComparisonFactorCard({
               {finding.proposer_defense}
             </div>
           ) : null}
-          {readOnly ? null : (
+          {readOnly ? null : status !== "pending" ? (
+            // Dispositioned — opacity-40 fade on the wrapper is the
+            // visual cue (matches CompactFindingCard). No status pill
+            // (Paul 2026-06-12: "others don't say 'accepted' — I don't
+            // think we need that") — just a tiny undo link so a
+            // misclick is reversible.
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => dispatch("needs_more_info")}
+              className="text-[10px] text-slate-500 hover:text-slate-800 underline underline-offset-2 dark:text-slate-400 dark:hover:text-slate-100 disabled:opacity-50"
+              title="Revert this card to pending and edit the disposition"
+            >
+              undo
+            </button>
+          ) : (
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => dispatch("accepted")}
+                onClick={() =>
+                  isNearMatch
+                    ? dispatchNearMatchAccept()
+                    : dispatch("accepted")
+                }
                 className="text-[11px] px-2 py-0.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {acceptLabel}
               </button>
+              {isNearMatch ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => dispatchNearMatchMerge()}
+                  title="Keep both sides' statements — dedupes identical S-P-O; otherwise both survive."
+                  className="text-[11px] px-2 py-0.5 rounded font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  + Merge
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={busy}

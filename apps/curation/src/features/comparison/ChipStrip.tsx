@@ -52,43 +52,24 @@ export function ChipStrip({
   // chips stay selectable so the curator can audit / compare freely.
   const baselineLocked = flow === "edit";
 
-  // Mode pill: reflects what the curator can actually do on this
-  // page. Three states (Paul 2026-06-11 handoff #4 — the previous
-  // "Curation mode" / "Review mode" pair conflated editability and
-  // proposal-review context):
+  // Mode pill — two states now that the 2026-06-08 read-only gate
+  // is gone (Paul 2026-06-12, "make it not read only for gottsake"):
   //
-  //   - "Editing local design" — chip baseline is editable (`preboard`,
-  //     or a curation row whose source_kind is `consensus` /
-  //     `curator_polish`). Commits go to /design. Amber tone.
-  //   - "Reviewing proposal" — same editability AND the comparator
-  //     points at `agent_proposal`. Curator can disposition findings
-  //     and edit the design in parallel. Sky tone.
-  //   - "Read-only" — baseline is a non-editable snapshot (live,
-  //     another curator's polish, frozen agent_proposal as baseline).
-  //     No commits, no dispositions. Slate tone.
-  // Editability derived from the chip-strip baseline directly. Mirrors
-  // EDITABLE_KINDS in DesignDraftContext (consensus / curator_polish)
-  // plus `preboard` which routes to /design as Gemma's live target.
-  // `live` is the upstream Gemma's frozen view — explicitly NOT
-  // editable (commits would be silent overwrites). `agent_proposal`
-  // as a baseline is a frozen proposer snapshot — same exclusion.
-  const baselineIsEditable =
-    baseline === "preboard" ||
-    baseline.startsWith("polished:consensus_") ||
-    baseline.startsWith("polished:curator_polish_");
-  const isReviewingProposal =
-    baselineIsEditable && comparator === "agent_proposal";
-  const modePill = !baselineIsEditable ? (
-    <span
-      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-slate-400 bg-slate-100 text-slate-800 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 cursor-help"
-      title="Baseline is a non-editable snapshot — design tab is locked, dispositions disabled. Flip baseline to your own polish or Gemma to edit."
-    >
-      Read-only
-    </span>
-  ) : isReviewingProposal ? (
+  //   - "Reviewing proposal" — comparator points at the agent's
+  //     proposal. Curator dispositions findings on the right; commits
+  //     land on /design. Sky tone.
+  //   - "Editing local design" — default. Commits land on /design
+  //     regardless of which baseline the chip strip shows. Amber tone.
+  //
+  // The earlier "Read-only" pill (rendered when baseline was a non-
+  // editable snapshot like live / another curator's polish) is gone.
+  // Silent-overwrite protection moves to the write path if it's ever
+  // wanted back; the UI no longer second-guesses the curator.
+  const isReviewingProposal = comparator === "agent_proposal";
+  const modePill = isReviewingProposal ? (
     <span
       className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-sky-400 bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:border-sky-500 dark:text-sky-100"
-      title="Reviewing the agent's proposal against an editable baseline. Disposition findings on the right; commits land on /design."
+      title="Reviewing the agent's proposal. Disposition findings on the right; commits land on /design."
     >
       Reviewing proposal
     </span>

@@ -193,7 +193,11 @@ describe("sourceLabel", () => {
     // "Gemma" — misleading because the preboard is the GEO-only
     // pre-curation snapshot, not Gemma's live curation state).
     expect(sourceLabel("preboard")).toBe("Gemma preboard");
-    expect(sourceLabel("live")).toBe("Gemma (live)");
+    // 2026-06-12: dropped "(live)" qualifier — chip strip fetches a
+    // snapshot, not a stream; the label was misleading. Agent's
+    // /curations ``label`` field is the canonical name source; this
+    // fallback only fires when label is empty.
+    expect(sourceLabel("live")).toBe("Gemma");
     expect(sourceLabel("agent_proposal")).toBe("agent original proposal");
   });
 
