@@ -346,10 +346,19 @@ function resolveCalibrationApply(
     const slugMatch = finding.target_id.match(/^tag:([^/]+)\/(.+)$/);
     if (slugMatch && design) {
       const [, categorySlug, valueSlug] = slugMatch;
+      // Same permissive fallback as the calibration:miss branch
+      // below — strict slug match first, then alphanumeric-only key
+      // (Paul 2026-06-12 remove-tag walkthrough).
+      const normalize = (s: string | null | undefined) =>
+        (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+      const catKey = normalize(categorySlug);
+      const valKey = normalize(valueSlug);
       const target = (design.tags ?? []).find(
         (t) =>
-          slug(t.category?.label) === categorySlug &&
-          slug(t.value?.label) === valueSlug,
+          (slug(t.category?.label) === categorySlug &&
+            slug(t.value?.label) === valueSlug) ||
+          (normalize(t.category?.label) === catKey &&
+            normalize(t.value?.label) === valKey),
       );
       if (target && !isProtectedTagCategory(target.category?.label)) {
         const catLabel = target.category?.label ?? categorySlug;
@@ -467,12 +476,29 @@ function resolveCalibrationApply(
   // compare missed those cases and the "remove" button silently
   // no-op'd. Look up the gold tag by slug so space-vs-dash drift
   // resolves uniformly; remove by id once found. Per Paul 2026-06-11.
+  //
+  // Permissive fallback (Paul 2026-06-12 — "I clicked remove tag and
+  // nothing happened"): when the strict slug match misses, fall back
+  // to a key that ignores ALL non-alphanumeric characters
+  // ("developmental_stage" / "developmental stage" / "developmental-
+  // stage" all collapse to "developmentalstage"). The slug() function
+  // only handles whitespace → dash, so underscores in a target_id and
+  // spaces in a design tag's label still failed strict match. After
+  // the loose key matches, the card emits the right mutator instead
+  // of the misleading "Already removed" idempotent path that left the
+  // tag in place but resolved the card.
   const targetCategorySlug = slug(t.category);
   const targetValueSlug = slug(t.value);
+  const normalize = (s: string | null | undefined) =>
+    (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const targetCategoryKey = normalize(t.category);
+  const targetValueKey = normalize(t.value);
   const goldTag = (design?.tags ?? []).find(
     (tag) =>
-      slug(tag.category?.label) === targetCategorySlug &&
-      slug(tag.value?.label) === targetValueSlug,
+      (slug(tag.category?.label) === targetCategorySlug &&
+        slug(tag.value?.label) === targetValueSlug) ||
+      (normalize(tag.category?.label) === targetCategoryKey &&
+        normalize(tag.value?.label) === targetValueKey),
   );
   if (!goldTag && design) {
     return {

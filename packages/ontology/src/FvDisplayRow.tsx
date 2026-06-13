@@ -74,10 +74,16 @@ export function FvDisplayRow({
   // Subject label falls back to the FV's free-text label so a
   // statement that ships only a URI (no subject.label) doesn't blank
   // out the row.
-  const subjLabel = (head?.subject?.label?.trim() ||
-    fv.free_text_label?.trim() ||
-    "") as string;
+  // Name slot and subject slot are independent columns — no cross-
+  // promotion. When the FV has a ``free_text_label``, render it in
+  // the name slot; when it doesn't, the name slot is empty. Same for
+  // the subject — render what the statement carries (or empty if the
+  // statement's subject is blank). Per Paul 2026-06-13: "I want the
+  // name shown, don't promote anything, if it's blank (it's not a
+  // prefix!)".
+  const subjLabel = head?.subject?.label?.trim() ?? "";
   const subjUri = head?.subject?.uri ?? null;
+  const fvName = (fv.free_text_label ?? "").trim();
   // Partition `rest` into the head-subject siblings (collapse into a
   // stacked P/O column under the head's subject — mirrors the design
   // editor's `CompactStatementGroup` so curators don't read the same
@@ -110,11 +116,22 @@ export function FvDisplayRow({
             FV {indexLabel}
           </span>
         ) : null}
+        {fvName ? (
+          <span
+            className="text-[11px] italic text-slate-700 dark:text-slate-200 font-medium"
+            title="Factor value name"
+          >
+            {fvName}
+          </span>
+        ) : null}
         {subjLabel ? (
           termRenderer({ label: subjLabel, uri: subjUri })
-        ) : (
+        ) : !fvName ? (
+          // Only show the "(blank)" placeholder when the WHOLE row
+          // is empty — when fvName is present the row already reads
+          // as a named FV, even if the statement carries no subject.
           <span className="italic text-slate-400">(blank)</span>
-        )}
+        ) : null}
         {/* Predicate/object column. When the FV has multiple
             statements sharing the head subject, stack each pair as
             its own row underneath the head pair — the subject chip on
@@ -160,17 +177,40 @@ export function FvDisplayRow({
         {trailing}
       </div>
       {/* Sub-rows for statements whose subject differs from the head
-          (rare — multi-subject FVs). Each renders as a full Subj -
-          Pred - Obj sub-line, indented to align with the head's
-          subject column (w-10 FV-gutter + gap-1.5 ≈ 2.875rem). */}
+          (rare — multi-subject FVs). Each row mirrors the head's
+          flex-row layout: a leading-slot spacer (only when the head
+          has one) + an empty ``FV N``-width gutter + the statement
+          itself. This way the subject chip on the extra row lands in
+          the SAME column as the head's subject chip — vertically
+          aligned regardless of how wide the FV-N label rendered or
+          whether a leading glyph is present. Per Paul 2026-06-13:
+          "you should be aligning the two statements so they are
+          vertically aligned". */}
       {otherRest.length > 0 ? (
-        <div className="pl-[2.875rem] mt-0.5 space-y-0.5">
+        <div className="mt-0.5 space-y-0.5">
           {otherRest.map((s, i) => (
-            <ExtraStatementLine
+            <div
               key={i}
-              statement={s}
-              termRenderer={termRenderer}
-            />
+              className="flex items-baseline gap-x-1.5"
+            >
+              {/* Leading-slot spacer — only present (and only sized)
+                  when the head row has a leading element, so the
+                  subject column lines up across head + extras. We
+                  approximate the leading width with a ``1ch``
+                  spacer to match the typical glyph slot used by
+                  ``FvStatusGlyph`` in side-by-side surfaces; when
+                  no leading is supplied, the spacer collapses. */}
+              {leading != null ? (
+                <span aria-hidden className="inline-block w-[1ch] shrink-0" />
+              ) : null}
+              {indexLabel != null ? (
+                <span aria-hidden className="w-10 shrink-0" />
+              ) : null}
+              <ExtraStatementLine
+                statement={s}
+                termRenderer={termRenderer}
+              />
+            </div>
           ))}
         </div>
       ) : null}

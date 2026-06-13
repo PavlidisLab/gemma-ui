@@ -872,22 +872,41 @@ export function FindingDetailsEditor({
   // search for the term would be handy"). Non-magnifying-glass
   // affordance — Paul's hate-list.
   const [findTermLabel, setFindTermLabel] = useState<string | null>(null);
+  // Resolution map populated when the curator picks an ontology term
+  // from the inline lookup. Keyed by lowercased trimmed free-text
+  // label; value is the picked OntologyTerm. Used by
+  // ``editorTermRenderer`` to display the resolved chip in place of
+  // the original free-text + find link, and consumed at apply time
+  // (see ``substituteFreeTextInFactor`` below) so the curator's
+  // resolution actually rides the Agree mutation. Paul 2026-06-13:
+  // "accepting something doesn't change it" — the picker was
+  // browse-only; now it writes through to the agent's proposal in
+  // memory + the visual chip.
+  const [resolvedTerms, setResolvedTerms] = useState<
+    Map<string, import("@/features/experiment/types").OntologyTerm>
+  >(new Map());
   // Editor-scoped term renderer — same as the module-level
   // ``renderEditorTerm`` but adds a small ``find ▸`` button next
-  // to free-text (URI-less) subject / object terms. Predicates and
-  // resolved terms get the bare chip.
+  // to free-text (URI-less) subject / object terms. When the curator
+  // has already resolved this label via the inline picker, render
+  // the resolved chip (URI-grounded) and suppress the find link.
   const editorTermRenderer: FvTermRenderer = ({ label, uri, variant }) => {
     const isPredicate = variant === "predicate";
-    const isFree = !uri && !isPredicate;
+    const lookupKey = label.trim().toLowerCase();
+    const resolved =
+      !uri && !isPredicate ? resolvedTerms.get(lookupKey) : null;
+    const effLabel = resolved?.label ?? label;
+    const effUri = resolved?.uri ?? uri;
+    const isFree = !effUri && !isPredicate;
     return (
       <span className="inline-flex items-baseline gap-1">
         <Term
-          uri={uri}
+          uri={effUri}
           asLink={false}
           variant={isPredicate ? "predicate" : "default"}
           className="!whitespace-normal break-words"
         >
-          {label}
+          {effLabel}
         </Term>
         {isFree ? (
           <button
@@ -905,6 +924,55 @@ export function FindingDetailsEditor({
       </span>
     );
   };
+
+  /** Mutate every free-text term slot inside the agent's proposed
+   *  factor whose label matches ``oldLabel`` (case-insensitive,
+   *  trimmed) and whose URI is empty, substituting in the picked
+   *  ``newTerm``. Side-effect on the in-memory ``FactorProposal`` so
+   *  ``resolveApplyAction``'s ``mutate`` picks up the resolution at
+   *  Agree time without needing a new plumbing path. Single-session
+   *  scope — a refetch of ``/audit`` clears it. */
+  function substituteFreeTextInFactor(
+    factor: import("@/api/types").FactorProposal | null,
+    oldLabel: string,
+    newTerm: import("@/features/experiment/types").OntologyTerm,
+  ): void {
+    if (!factor) return;
+    const key = oldLabel.trim().toLowerCase();
+    for (const fv of factor.factor_values ?? []) {
+      for (const stmt of fv.statements ?? []) {
+        const slots: Array<"subject" | "predicate" | "object"> = [
+          "subject",
+          "predicate",
+          "object",
+        ];
+        for (const slot of slots) {
+          const t = stmt[slot];
+          if (!t) continue;
+          if (!t.uri && (t.label ?? "").trim().toLowerCase() === key) {
+            t.label = newTerm.label;
+            t.uri = newTerm.uri ?? null;
+          }
+        }
+      }
+    }
+  }
+
+  /** Wire a picked ontology term back to the editor state + the
+   *  agent's proposal blob. Called from ``FreeTextLookup`` on commit
+   *  with a non-null URI. */
+  function handleTermResolved(
+    oldLabel: string,
+    newTerm: import("@/features/experiment/types").OntologyTerm,
+    factor: import("@/api/types").FactorProposal | null,
+  ): void {
+    setResolvedTerms((prev) => {
+      const m = new Map(prev);
+      m.set(oldLabel.trim().toLowerCase(), newTerm);
+      return m;
+    });
+    substituteFreeTextInFactor(factor, oldLabel, newTerm);
+  }
 
   const disagreementRows = rows.filter((r) => !r.allAgree);
   const agreementRows = rows.filter((r) => r.allAgree);
@@ -1389,8 +1457,23 @@ export function FindingDetailsEditor({
           </span>
         </div>
 
+        {/* Lookup panel mounts ABOVE the FV list so it sits near the
+            card header rather than buried below 7+ rows. Paul
+            2026-06-13: "the search opens below the field" — the
+            picker was rendering at the end of the card body, far
+            from the find click. */}
+        {findTermLabel ? (
+          <FreeTextLookup
+            label={findTermLabel}
+            onClose={() => setFindTermLabel(null)}
+            onResolved={(oldLabel, newTerm) =>
+              handleTermResolved(oldLabel, newTerm, agentFactor)
+            }
+          />
+        ) : null}
+
         {fvs.length > 0 ? (
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {fvs.map((fv, i) => (
               <FvDisplayRow
                 key={i}
@@ -1400,13 +1483,6 @@ export function FindingDetailsEditor({
               />
             ))}
           </div>
-        ) : null}
-
-        {findTermLabel ? (
-          <FreeTextLookup
-            label={findTermLabel}
-            onClose={() => setFindTermLabel(null)}
-          />
         ) : null}
 
         {rejectPromptOpen ? (
@@ -1634,7 +1710,7 @@ export function FindingDetailsEditor({
               via the shared FvDisplayRow renderer (Subj · Pred · Obj
               head, indented sublines for any statements[1:]). */}
           {removalFvList && removalFvList.length > 0 ? (
-            <div className="pl-3 space-y-0.5">
+            <div className="pl-3 space-y-1.5">
               {removalFvList.map((fv) => (
                 <FvDisplayRow
                   key={fv.id}
@@ -4246,15 +4322,22 @@ function ConsequentHintBanner({
 }
 
 /** Mounts the OntologyTermPicker pre-filled with a free-text label
- *  the curator clicked "find ▸" on. Browse-only for v1: commit just
- *  closes; a follow-up will route the resolved term back into the
- *  agent's proposed FV so it rides the Apply. Per Paul 2026-05-25. */
+ *  the curator clicked "find ▸" on. When the curator picks a term
+ *  with a URI, ``onResolved`` fires with the picked term so the
+ *  parent can stash the resolution + mutate the agent's proposal
+ *  so Agree applies the URI. Picks without a URI (free-text commits)
+ *  fall through to ``onClose`` only — there's nothing to resolve. */
 function FreeTextLookup({
   label,
   onClose,
+  onResolved,
 }: {
   label: string;
   onClose: () => void;
+  onResolved?: (
+    oldLabel: string,
+    newTerm: import("@/features/experiment/types").OntologyTerm,
+  ) => void;
 }) {
   return (
     <div className="rounded border border-blue-300 dark:border-blue-700 bg-blue-50/60 dark:bg-blue-900/15 p-2 space-y-1.5">
@@ -4275,10 +4358,10 @@ function FreeTextLookup({
         value={{ label, uri: null }}
         category={null}
         autoOpen
-        onCommit={() => {
-          // Browse-only — v1 doesn't apply the resolved term back
-          // to the agent's proposed FV. Just dismiss; the curator
-          // saw what they came to see.
+        onCommit={(next) => {
+          if (next && next.uri && onResolved) {
+            onResolved(label, next);
+          }
           onClose();
         }}
       />
