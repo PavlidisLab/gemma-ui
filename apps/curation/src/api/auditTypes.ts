@@ -296,6 +296,14 @@ export interface AuditFinding {
    *  ``resolveCalibrationApply`` branch in ``applyHandlers.ts``
    *  already covers via target_id parsing). */
   apply_action?: ApplyActionPayload | null;
+  /** Direct alignment classification from the graph-alignment
+   *  Mapping (bro's ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_
+   *  ALIGNMENT_RENDER.md``, shipped 2026-06-12). When present, the
+   *  card renderer prefers this over walking the issue_code matcher
+   *  — same verbs / glyphs / badges, more direct lookup. Paired with
+   *  the legacy ``issue_code`` for back-compat on packages that
+   *  pre-date the field. */
+  alignment_kind?: AlignmentKind | null;
 }
 
 /** Structured agent-side "Agree mutates X" descriptor. Discriminated
@@ -512,6 +520,108 @@ export interface AttachedDefenderVerdict {
   confidence?: string;
 }
 
+/**
+ * Graph-alignment Mapping + scoring shipped 2026-06-12 per bro's
+ * ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_ALIGNMENT_RENDER.md``.
+ *
+ * The Mapping carries the structured alignment between two annotation
+ * sets (today: agent proposal vs polished gold). Indices reference
+ * the existing ``comparison_proposal.factors`` / ``.tags`` shapes —
+ * no element-shape change, just a new way to index the pairing over
+ * them. Findings continue to ship as before; ``alignment_kind`` on
+ * the finding is the direct lookup the card renderer prefers over
+ * walking the Mapping.
+ *
+ * UI posture is render-the-fields: when the wire carries
+ * ``mapping`` / ``alignment_kind`` / ``scoring``, prefer them; when
+ * absent (old packages), fall through to the existing chip-strip /
+ * Jaccard / issue_code heuristics. Migration is additive.
+ */
+export type AlignmentKind =
+  | "exact"
+  | "near"
+  | "partition_mismatch"
+  | "extra"
+  | "gold_only_miss";
+
+export interface AlignmentFactorPairFeatures {
+  score: number;
+  category_label: number;
+  fv_partition: number;
+  uri_overlap: number;
+  /** Present when the gray-band LLM judge fired. */
+  llm_judge?: number;
+}
+
+/** One paired factor (a_idx into AnnotationSet A's ``factors[]``,
+ *  b_idx into B's). ``kind`` constrains to the pair-shapes the
+ *  alignment matcher emits — ``extra`` / ``gold_only_miss`` live on
+ *  the unmatched lists below. */
+export interface AlignmentFactorPair {
+  a_idx: number;
+  b_idx: number;
+  /** Similarity score in [0, 1]. */
+  score: number;
+  kind: "exact" | "near" | "partition_mismatch";
+  features: AlignmentFactorPairFeatures;
+}
+
+/** One paired FV inside a paired factor. ``factor_pair`` keys back to
+ *  the owning ``AlignmentFactorPair`` (a_factor_idx, b_factor_idx).
+ *  ``kind`` only ever ``"exact"`` / ``"near"`` — partition_mismatch
+ *  lives at the factor level. */
+export interface AlignmentFvPair {
+  factor_pair: [number, number];
+  a_fv_idx: number;
+  b_fv_idx: number;
+  score: number;
+  kind: "exact" | "near";
+}
+
+export interface AlignmentTagPairFeatures {
+  category_match: number;
+  value_match: number;
+}
+
+export interface AlignmentTagPair {
+  a_idx: number;
+  b_idx: number;
+  score: number;
+  kind: "exact" | "near";
+  features: AlignmentTagPairFeatures;
+}
+
+/** Top-level alignment blob on ``AuditReport.evidence`` /
+ *  ``audit_dict``. Indices reference the existing
+ *  ``comparison_proposal.factors[i]`` / ``.tags[i]`` shapes. Self-
+ *  describing thresholds let the UI render tooltip / disclosure copy
+ *  without compiling them in. */
+export interface AlignmentMapping {
+  factor_pairs: AlignmentFactorPair[];
+  fv_pairs: AlignmentFvPair[];
+  tag_pairs: AlignmentTagPair[];
+  unmatched_a_factors: number[];
+  unmatched_b_factors: number[];
+  unmatched_a_tags: number[];
+  unmatched_b_tags: number[];
+  factor_threshold: number;
+  tag_threshold: number;
+  exact_threshold: number;
+  partition_match_threshold: number;
+}
+
+/** Per-GSE scoring rollup on ``AuditReport.evidence`` /
+ *  ``audit_dict.scoring``. Batch-level rollup is sum(tp), sum(fp),
+ *  sum(fn) across the GSEs in the package — one-liner consumer. */
+export interface AlignmentScoring {
+  factor_tp: number;
+  factor_fp: number;
+  factor_fn: number;
+  tag_tp: number;
+  tag_fp: number;
+  tag_fn: number;
+}
+
 export interface AuditScope {
   include: AuditScopeItem[];
 }
@@ -530,6 +640,32 @@ export interface AuditEvidence {
    *  run didn't use ``--debate-design`` or the sidecar file is missing.
    *  Factors not in this list were silently approved. */
   design_debate_transcripts?: DesignDebateEntry[];
+  /** Structured graph-alignment Mapping between the two annotation
+   *  sets compared in this audit (today: agent proposal vs polished
+   *  gold). When present, the UI prefers ``mapping.factor_pairs[i]``
+   *  / ``mapping.fv_pairs[i]`` for pair derivation over the legacy
+   *  chip-strip Jaccard heuristics. Indices reference the existing
+   *  ``comparison_proposal.factors[i]`` / ``.tags[i]`` shapes —
+   *  the wire ships the alignment over them, not new element shapes.
+   *  ``null`` / ``undefined`` on packages predating the 2026-06-12
+   *  ship; UI falls through to the legacy fallback. */
+  mapping?: AlignmentMapping | null;
+  /** Per-GSE scoring rollup — factor + tag tp / fp / fn. Rendered as
+   *  a small summary pill in the audit-sidebar header next to the
+   *  verdict. Batch-level rollup across multiple GSEs is sum(tp) /
+   *  sum(fp) / sum(fn). ``null`` / ``undefined`` on older packages. */
+  scoring?: AlignmentScoring | null;
+  /** Curator-facing prose paragraph from the orchestrator — what
+   *  the agent observed, any intervention it ran, what the final
+   *  design + tags look like. Renders as orientation prose at the
+   *  top of the audit / proposal panel via ``OrientationProse``
+   *  (``components/ui/OrientationProse.tsx``). Slot is render-the-
+   *  string; no domain coupling. Empty / null / undefined on
+   *  packages predating the orchestrator v5 wire and on
+   *  tags-only audits — the renderer suppresses entirely in that
+   *  case. Per
+   *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */
+  experiment_summary?: string | null;
 }
 
 export interface AuditSummary {

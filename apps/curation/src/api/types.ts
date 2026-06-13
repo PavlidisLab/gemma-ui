@@ -264,6 +264,14 @@ export interface Proposal {
   subtask_decisions?: SubtaskDecision[];
   /** Top-level Boss verdict. Stub-only on today's payloads. */
   boss_verdict?: import("./justification").BossVerdict | null;
+  /** Curator-facing prose paragraph from the orchestrator — what
+   *  the agent observed, any intervention it ran, what the final
+   *  design + tags look like. Mirrors ``AuditEvidence.experiment_
+   *  summary``; renders via ``OrientationProse`` at the top of
+   *  ``ProposalReviewCard``. Empty / null / undefined on packages
+   *  predating orchestrator v5 — renderer suppresses. Per
+   *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */
+  experiment_summary?: string | null;
 }
 
 export interface CuratorCheckboxes {

@@ -47,6 +47,22 @@ export function findingActionLabel(finding: AuditFinding): string {
   // recommendation reads more cleanly when the action is stated
   // directly. The leading glyph (rendered by the caller) carries the
   // +/− / Δ semantics.
+  //
+  // Alignment-kind early-out (bro's wire ship 2026-06-12): when the
+  // finding carries a structured ``alignment_kind`` from the graph-
+  // alignment Mapping, prefer it — same verbs, more direct lookup
+  // than walking ``issue_code``. Tag vs factor disambiguation falls
+  // back to ``target_kind`` since the alignment enum is shared. Old
+  // packages without the field fall through to the issue_code path.
+  const ak = finding.alignment_kind;
+  if (ak) {
+    const isTag = finding.target_kind === "tag";
+    if (ak === "exact") return isTag ? "Tag match" : "Factor match";
+    if (ak === "near") return isTag ? "Tag near-match" : "Factor near-match";
+    if (ak === "partition_mismatch") return "Modify factor values";
+    if (ak === "extra") return isTag ? "Add tag" : "Add factor";
+    if (ak === "gold_only_miss") return isTag ? "Remove tag" : "Remove factor";
+  }
   const code = finding.issue_code;
   if (code === "calibration_factor_extra") return "Add factor";
   if (code === "calibration_agent_extra") return "Add tag";
@@ -75,6 +91,15 @@ export function findingActionLabel(finding: AuditFinding): string {
  *    Δ modify partition (split / combine)
  *    no glyph for matches (the OK / NEAR badge carries status). */
 export function findingActionGlyph(finding: AuditFinding): string | null {
+  // Alignment-kind early-out — same glyph vocabulary as the
+  // issue_code branch below, just keyed off the structured field
+  // when present. ``exact`` / ``near`` carry no glyph (the badge
+  // covers status).
+  const ak = finding.alignment_kind;
+  if (ak === "extra") return "+";
+  if (ak === "gold_only_miss") return "−";
+  if (ak === "partition_mismatch") return "Δ";
+  if (ak === "exact" || ak === "near") return null;
   const code = finding.issue_code;
   if (code === "calibration_factor_extra") return "+";
   if (code === "calibration_agent_extra") return "+";
