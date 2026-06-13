@@ -269,8 +269,12 @@ export async function buildSetExport(
 }
 
 /** Gzip a UTF-8 string using the browser-native CompressionStream.
- *  No third-party dep. Returns a Blob suitable for download. */
-async function gzipJson(text: string): Promise<Blob> {
+ *  No third-party dep. Returns a Blob suitable for download.
+ *
+ *  Exported so other surfaces (ticket export, future bundle-shaped
+ *  downloads) can reuse the same compression + download pipeline
+ *  without duplicating the CompressionStream dance. */
+export async function gzipJson(text: string): Promise<Blob> {
   const stream = new Blob([text], { type: "application/json" })
     .stream()
     .pipeThrough(new CompressionStream("gzip"));
@@ -278,8 +282,10 @@ async function gzipJson(text: string): Promise<Blob> {
   return new Blob([compressed], { type: "application/gzip" });
 }
 
-/** Slugify a set name for use as the download filename's stem. */
-function slugify(s: string): string {
+/** Slugify a set name for use as the download filename's stem.
+ *  Exported so ticket / cross-experiment exports reuse the same
+ *  ASCII-clean filename rules. */
+export function slugify(s: string): string {
   return s
     .toLowerCase()
     .replace(/[^a-z0-9]+/gu, "-")
@@ -287,8 +293,10 @@ function slugify(s: string): string {
     .slice(0, 60) || "set";
 }
 
-/** Trigger a browser download for the given Blob + filename. */
-function triggerDownload(blob: Blob, filename: string): void {
+/** Trigger a browser download for the given Blob + filename.
+ *  Exported so other download paths (ticket export, etc.) reuse the
+ *  same revoke-on-next-tick Safari workaround. */
+export function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

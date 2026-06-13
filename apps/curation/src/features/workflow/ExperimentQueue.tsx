@@ -18,7 +18,12 @@ import { PipelineStatusRow, type BadgeTone } from "./PipelineStatusRow";
 import { useMe } from "@/api/session";
 import { useToast } from "@/components/ui/Toast";
 import { exportSetAsGzip } from "./exportSet";
-import type { Group } from "@/api/workflowTypes";
+import type {
+  ExperimentPipelineStatus,
+  Group,
+  PipelineStep,
+  StepStatus,
+} from "@/api/workflowTypes";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
 import { useMyTickets } from "@/api/tickets";
 import { taskKindHeaderLabel } from "./nextTask";
@@ -49,18 +54,75 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 // Quick filters
 // ---------------------------------------------------------------------------
 
-type QuickFilter =
-  | "all"
-  | "troubled"
-  | "needs_attention"
-  | "not_public";
+/**
+ * Progress-state filters that mirror the ticket-page Started /
+ * Finished / Not started / All chips. Derived client-side from the
+ * pipeline track step statuses on each row's
+ * ``ExperimentPipelineStatus`` rather than the legacy server-side
+ * ``troubled`` / ``needs_attention`` / ``is_public`` query params
+ * (those are quality flags, not progress signals — different axis,
+ * the curator's "where am I in the work" question keys off step
+ * state).
+ *
+ * State derivation (10 steps: 5 analysis + 5 curation):
+ *   - **Not started** — every step is ``not_run`` or ``na`` (no work
+ *     yet, or steps that don't apply to this dataset).
+ *   - **Finished**    — every step is ``ok`` or ``na`` (every
+ *     applicable step is done).
+ *   - **Started**     — anywhere in between — at least one step has
+ *     left ``not_run`` but not every step has reached ``ok``.
+ *     ``needs_attention`` / ``failed`` / ``in_progress`` all count
+ *     as "started, more to do".
+ *   - **All**         — no filter.
+ *
+ * Filter runs client-side on the rows the server returned (the
+ * /datasets endpoint doesn't carry a "step-state aggregate" query
+ * param yet — flag if curators hit pagination edge cases where a
+ * page is mostly hidden after filtering).
+ */
+type QuickFilter = "all" | "started" | "finished" | "not_started";
 
-const QUICK_FILTERS: { id: QuickFilter; label: string; serverFilter?: string }[] = [
-  { id: "all",             label: "All" },
-  { id: "troubled",        label: "Troubled",       serverFilter: "troubled=true" },
-  { id: "needs_attention", label: "Needs attention", serverFilter: "needs_attention=true" },
-  { id: "not_public",      label: "Not public",     serverFilter: "is_public=false" },
+const QUICK_FILTERS: { id: QuickFilter; label: string }[] = [
+  { id: "all",         label: "All" },
+  { id: "started",     label: "Started" },
+  { id: "finished",    label: "Finished" },
+  { id: "not_started", label: "Not started" },
 ];
+
+type PipelineState = "not_started" | "started" | "finished";
+
+/** Walk every step in both the analysis and curation tracks and
+ *  reduce to one progress state. ``undefined`` status (no bulk row
+ *  yet) is treated as "not_started" so a row not yet covered by
+ *  the bulk fetch doesn't accidentally read as Finished. */
+function derivePipelineState(
+  status: ExperimentPipelineStatus | undefined,
+): PipelineState {
+  if (!status) return "not_started";
+  const steps: PipelineStep[] = [
+    status.analysis.missing_value_analysis,
+    status.analysis.batch_info,
+    status.analysis.preprocessing,
+    status.analysis.dea,
+    status.analysis.diagnostics,
+    status.curation.design,
+    status.curation.tags,
+    status.curation.outlier_review,
+    status.curation.batch_decision,
+    status.curation.audit,
+  ];
+  let anyStarted = false;
+  let allFinished = true;
+  for (const step of steps) {
+    const st: StepStatus = step.status;
+    if (st === "na") continue; // n/a steps don't count for either gate.
+    if (st !== "not_run") anyStarted = true;
+    if (st !== "ok") allFinished = false;
+  }
+  if (allFinished && anyStarted) return "finished";
+  if (anyStarted) return "started";
+  return "not_started";
+}
 
 // ---------------------------------------------------------------------------
 // Filter / sort bar
@@ -442,21 +504,31 @@ export function ExperimentQueue({
     return group.member_ids.join(",");
   }, [experimentIds, groupId, group]);
 
-  const filterStr = QUICK_FILTERS.find((f) => f.id === activeFilter)?.serverFilter;
-
   const { data: page, isLoading, isFetching } = useDatasetsPaginated({
     query: search.trim() || undefined,
-    filter: filterStr,
     sort,
     limit: PAGE_SIZE,
     offset,
     ids: scopeIds,
   });
 
-  const rows = page?.data ?? [];
+  const allRows = page?.data ?? [];
   const total = page?.total_elements ?? 0;
 
-  const { data: statusMap = {} } = usePipelineStatusBulk(rows.map((r) => r.id));
+  const { data: statusMap = {} } = usePipelineStatusBulk(allRows.map((r) => r.id));
+
+  // Apply the progress-state filter client-side on the rows the
+  // server returned. The /datasets endpoint doesn't carry a step-
+  // state aggregate query param, so this happens after the fetch.
+  // Empty results are honest — the bottom-of-list "no experiments
+  // match" caption fires when the filter clears the whole page.
+  const rows = useMemo(() => {
+    if (activeFilter === "all") return allRows;
+    return allRows.filter((d) => {
+      const state = derivePipelineState(statusMap[String(d.id)]);
+      return state === activeFilter;
+    });
+  }, [activeFilter, allRows, statusMap]);
 
   // Curator-side signals layered onto each row. Both are cheap:
   // - ``dirtyDraftIds``: one localStorage scan (no network). Keyed

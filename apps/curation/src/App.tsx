@@ -179,10 +179,12 @@ export default function App() {
 
   if (route.kind === "ticket") {
     return (
-      <TicketDetailPage
-        ticketId={route.ticketId}
-        reviewer={fullName || reviewer}
-      />
+      <ToastProvider>
+        <TicketDetailPage
+          ticketId={route.ticketId}
+          reviewer={fullName || reviewer}
+        />
+      </ToastProvider>
     );
   }
 
@@ -676,7 +678,7 @@ function Shell({
 
       {staleCacheDiscarded ? (
         <div className="bg-amber-50 border-b border-amber-200 dark:bg-amber-950/40 dark:border-amber-900">
-          <div className="mx-auto w-full max-w-[1800px] px-4 py-2 text-xs text-amber-900 flex items-center gap-2 dark:text-amber-200">
+          <div className="mx-auto w-full px-4 py-2 text-xs text-amber-900 flex items-center gap-2 dark:text-amber-200">
             <span className="font-semibold">Stale draft discarded.</span>
             <span>
               You had unsaved changes from a previous session, but the
@@ -910,8 +912,13 @@ function MainGrid({
   // Sidebar width. Default 320 = Tailwind's old ``lg:w-80``. Curators
   // who want more room for the v2 ProposalCard's verify-N or edit
   // affordances drag the left edge wider; persists via localStorage.
+  // Max bumped 2026-06-12 from 1200 → 1600 so the proposal-review
+  // panel can host the side-by-side ComparisonFactorCard layout on
+  // wide displays without horizontal scroll in the comparator
+  // columns. Per Paul: "the review panel needs to be as wide as
+  // possible (reasonable) to fit the side-by-side."
   const SIDEBAR_MIN = 240;
-  const SIDEBAR_MAX = 1200;
+  const SIDEBAR_MAX = 1600;
   const SIDEBAR_DEFAULT = 320;
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
@@ -970,7 +977,17 @@ function MainGrid({
         setSidebarView("audit");
       }}
     >
-      <main className="mx-auto w-full max-w-[1800px] px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
+      {/* Workspace shell — drop the 1800px cap so the proposal-review
+          panel can sit close to the viewport edge on wide displays.
+          ``px-4`` keeps a small visual gutter on the left + right;
+          the right rail's own draggable resizer caps the panel
+          width inside that space. Landing / inboxes still use the
+          1800px cap (those are text-column surfaces; an ultra-wide
+          column of cards reads worse than a contained one). Per
+          Paul 2026-06-12: "the portal should fill the horizontal
+          width; the proposal tab should be right at the right-side
+          of the window, or at least closer." */}
+      <main className="mx-auto w-full px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
         {/* Review-mode lock scope, per Paul 2026-05-29: "all we
             need to block is editing of the factors and tags."
             Sample-table sorting, guideline popups, expand/collapse,

@@ -24,6 +24,9 @@ import { Spinner } from "@gemma/ui";
 import { ExperimentQueue } from "@/features/workflow/ExperimentQueue";
 import type { BadgeTone } from "@/features/workflow/PipelineStatusRow";
 import { TriageView } from "@/features/triage/TriageView";
+import { useMe } from "@/api/session";
+import { useToast } from "@/components/ui/Toast";
+import { exportTicketAsGzip } from "./exportTicket";
 
 export function TicketDetailPage({
   ticketId,
@@ -137,9 +140,12 @@ function TicketDetailBody({
             </>
           ) : null}
         </div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-          {ticket.title}
-        </h1>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+            {ticket.title}
+          </h1>
+          <TicketActionsBar ticket={ticket} ticketId={ticketId} />
+        </div>
         {ticket.body ? (
           <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line max-w-3xl">
             {ticket.body}
@@ -574,6 +580,192 @@ function CloseTicketConfirm({
               {busy ? "Working…" : action.nextStage!.actionLabel}
             </button>
           ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Header-level action cluster on the ticket detail page. Always
+ *  visible (regardless of ticket type or completion state) so the
+ *  curator can:
+ *
+ *   - **Export** — bundle every ``EXPRESSION_EXPERIMENT`` target on
+ *     this ticket into a gzipped JSON snapshot of its composed Design
+ *     + latest review row. Mirrors the workflow-page Set export so
+ *     downstream consumers can use one reader.
+ *   - **Close ticket** — PATCH state=RESOLVED. Confirmation prompt so
+ *     a misclick mid-flow doesn't drop work off the dashboard. The
+ *     PRELOAD-specific "Close & start curation" wizard remains in
+ *     ``NextActionBar`` for the rich follow-up path; this is the
+ *     plain "I'm done" close used by every other ticket type.
+ *
+ *  Hidden on RESOLVED / CANCELLED tickets — those are read-only. */
+function TicketActionsBar({
+  ticket,
+  ticketId,
+}: {
+  ticket: Ticket;
+  ticketId: number;
+}) {
+  const { data: me } = useMe();
+  const toast = useToast();
+  const patch = usePatchTicket(ticketId);
+  const [exporting, setExporting] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
+
+  const isClosed = ticket.state === "RESOLVED" || ticket.state === "CANCELLED";
+  const eeTargetCount = ticket.targets.filter(
+    (t) => t.target_type === "EXPRESSION_EXPERIMENT",
+  ).length;
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const curator = me?.username || me?.full_name || "unknown";
+      const bundle = await exportTicketAsGzip(ticket, curator);
+      const ok = bundle.experiments.filter((e) => !e.error).length;
+      const failed = bundle.experiments.length - ok;
+      const skipped = bundle.skipped.length;
+      const parts = [`${ok} experiment${ok === 1 ? "" : "s"}`];
+      if (failed > 0) parts.push(`${failed} failed`);
+      if (skipped > 0) parts.push(`${skipped} skipped`);
+      toast.show(
+        `Exported ${parts.join(", ")}.`,
+        failed > 0 ? "warn" : "success",
+        5000,
+      );
+    } catch (err) {
+      toast.show(
+        `Export failed: ${(err as Error).message || String(err)}`,
+        "danger",
+        6000,
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleClose() {
+    try {
+      await patch.mutateAsync({ state: "RESOLVED" });
+      setConfirmingClose(false);
+      toast.show(`Ticket #${ticketId} closed.`, "success");
+      navigate("#/");
+    } catch (err) {
+      toast.show(
+        `Couldn't close ticket: ${(err as Error).message || String(err)}`,
+        "danger",
+        6000,
+      );
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <button
+        type="button"
+        onClick={handleExport}
+        disabled={exporting || eeTargetCount === 0}
+        title={
+          eeTargetCount === 0
+            ? "No experiment targets on this ticket to export."
+            : `Download a gzipped JSON snapshot of the current curation for all ${eeTargetCount} experiment${eeTargetCount === 1 ? "" : "s"} on this ticket.`
+        }
+        className={
+          exporting
+            ? "shrink-0 text-xs font-medium px-3 py-1.5 rounded-md bg-blue-200 text-blue-700 cursor-progress"
+            : "shrink-0 text-xs font-medium px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 shadow-sm disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed"
+        }
+      >
+        {exporting ? "Exporting…" : "Export"}
+      </button>
+      {isClosed ? null : (
+        <button
+          type="button"
+          onClick={() => setConfirmingClose(true)}
+          disabled={patch.isPending}
+          title="Resolve this ticket. The targets stay in the system; only the ticket closes. The dashboard hides resolved tickets by default."
+          className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {patch.isPending ? "Closing…" : "Close ticket"}
+        </button>
+      )}
+      {confirmingClose ? (
+        <SimpleCloseConfirm
+          ticketId={ticketId}
+          busy={patch.isPending}
+          onCancel={() => setConfirmingClose(false)}
+          onConfirm={handleClose}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** Minimal close-confirm modal used by the header-level Close ticket
+ *  button. Distinct from ``CloseTicketConfirm`` (which offers the
+ *  PRELOAD "Close & start curation" wizard); this one is just
+ *  cancel + close. */
+function SimpleCloseConfirm({
+  ticketId,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  ticketId: number;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/40 dark:bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={busy ? undefined : onCancel}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="simple-close-title"
+        className="card max-w-md w-full shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+          <h2
+            id="simple-close-title"
+            className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+          >
+            Close ticket #{ticketId}?
+          </h2>
+        </div>
+        <div className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 space-y-2">
+          <p>
+            The ticket will be marked RESOLVED and drop off the
+            dashboard's open-tickets view. Reopen later by switching
+            the dashboard filter to All / Completed.
+          </p>
+          <p className="text-slate-600 dark:text-slate-400">
+            Targets stay in the system; only the ticket closes.
+          </p>
+        </div>
+        <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 flex-wrap">
+          <button
+            type="button"
+            className="btn ghost text-xs"
+            onClick={onCancel}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn text-xs"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? "Closing…" : "Close ticket"}
+          </button>
         </div>
       </div>
     </div>

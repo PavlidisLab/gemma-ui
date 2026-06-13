@@ -14,6 +14,8 @@
  * and the 404-fallback ImportPrompt, but no curator-facing UI calls
  * it directly any more.
  */
+import { useEffect, useState } from "react";
+
 import {
   useMyTickets,
   ticketTypeLabel,
@@ -27,6 +29,68 @@ import { navigate } from "@/routes";
 import { cn } from "@/lib/cn";
 import { AppHeader } from "@/components/ui/AppHeader";
 
+/** Dashboard ticket-list filter. Maps to a (state, progress)
+ *  predicate on each Ticket. ``all`` includes RESOLVED + CANCELLED;
+ *  the other three filter within the open universe. */
+type DashboardFilter = "all" | "not_started" | "started" | "completed";
+
+const FILTER_OPTIONS: { id: DashboardFilter; label: string; title: string }[] = [
+  { id: "all",         label: "All",         title: "Every ticket — open, in-progress, completed, cancelled." },
+  { id: "not_started", label: "Not started", title: "Open tickets where no target has been touched yet." },
+  { id: "started",     label: "Started",     title: "Open or in-progress tickets where some targets are done or underway." },
+  { id: "completed",   label: "Completed",   title: "Resolved tickets, plus any open ticket whose targets are all done." },
+];
+
+const FILTER_STORAGE_KEY = "curator_dashboard.ticket_filter";
+
+function isDashboardFilter(v: string | null): v is DashboardFilter {
+  return v === "all" || v === "not_started" || v === "started" || v === "completed";
+}
+
+/** Read the persisted filter from URL ``?filter=`` (wins) or fallback
+ *  to localStorage, then default ``all``. Dashboard is
+ *  cross-experiment so a single key — no per-experiment scoping
+ *  needed. */
+function readInitialFilter(): DashboardFilter {
+  if (typeof window === "undefined") return "all";
+  try {
+    const hash = window.location.hash;
+    const q = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const params = new URLSearchParams(q);
+    const fromUrl = params.get("filter");
+    if (isDashboardFilter(fromUrl)) return fromUrl;
+    const fromStore = window.localStorage.getItem(FILTER_STORAGE_KEY);
+    if (isDashboardFilter(fromStore)) return fromStore;
+  } catch {
+    // Fall through to default.
+  }
+  return "all";
+}
+
+/** Apply the (state, progress) predicate for a dashboard filter to
+ *  a single ticket. Reads progress from target counts so a backend
+ *  that doesn't flip state OPEN→IN_PROGRESS still groups correctly. */
+function ticketMatchesFilter(ticket: Ticket, filter: DashboardFilter): boolean {
+  const n = ticket.targets.length;
+  const nDone = ticket.targets.filter((t) => t.status === "DONE").length;
+  const nUnderway = ticket.targets.filter(
+    (t) => t.status === "UNDERWAY",
+  ).length;
+  const isClosedState =
+    ticket.state === "RESOLVED" || ticket.state === "CANCELLED";
+  const allDone = n > 0 && nDone === n;
+  switch (filter) {
+    case "all":
+      return true;
+    case "not_started":
+      return !isClosedState && nDone === 0 && nUnderway === 0;
+    case "started":
+      return !isClosedState && (nDone > 0 || nUnderway > 0) && !allDone;
+    case "completed":
+      return isClosedState || allDone;
+  }
+}
+
 export function CuratorDashboard({
   reviewer,
   onSelect,
@@ -34,13 +98,64 @@ export function CuratorDashboard({
   reviewer: string;
   onSelect: (experimentId: number | string) => void;
 }) {
-  const { data: tickets, isLoading: ticketsLoading } = useMyTickets();
-  const sortedTickets = (tickets ?? []).slice().sort((a, b) => {
+  const [filter, setFilter] = useState<DashboardFilter>(() =>
+    readInitialFilter(),
+  );
+
+  // Persist filter selection to URL + localStorage. URL wins on
+  // bookmarks; localStorage is the soft default for a fresh tab.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FILTER_STORAGE_KEY, filter);
+      const hash = window.location.hash || "#/";
+      const [path, queryStr] = hash.split("?");
+      const params = new URLSearchParams(queryStr ?? "");
+      if (filter === "all") params.delete("filter");
+      else params.set("filter", filter);
+      const next = params.toString();
+      const newHash = next ? `${path}?${next}` : path;
+      if (newHash !== hash) {
+        window.history.replaceState(null, "", newHash);
+      }
+    } catch {
+      // Best-effort — no fallback needed; the state's still live in
+      // React.
+    }
+  }, [filter]);
+
+  // Need RESOLVED/CANCELLED in the fetched list when the curator
+  // wants to see them — otherwise the open-only filter on the hook
+  // hides every completed ticket. Two states need closed tickets:
+  // "all" and "completed".
+  const includeClosed = filter === "all" || filter === "completed";
+  const { data: tickets, isLoading: ticketsLoading } = useMyTickets({
+    includeClosed,
+  });
+
+  // Apply the chip filter, then sort by priority + recency.
+  const filteredTickets = (tickets ?? []).filter((t) =>
+    ticketMatchesFilter(t, filter),
+  );
+  const sortedTickets = filteredTickets.slice().sort((a, b) => {
     const pa = ticketPriorityRank(a.priority);
     const pb = ticketPriorityRank(b.priority);
     if (pa !== pb) return pa - pb;
     return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
   });
+
+  // Per-filter counts for the chip labels. Always computed over the
+  // most-inclusive fetch we have on hand — when the curator's on a
+  // filter that didn't fetch closed tickets, the "completed" count
+  // chip still shows zero. That's an honest under-count rather than
+  // a guess; flipping to "All" or "Completed" updates the chip
+  // labels.
+  const totalForLabel = tickets ?? [];
+  const counts: Record<DashboardFilter, number> = {
+    all: totalForLabel.length,
+    not_started: totalForLabel.filter((t) => ticketMatchesFilter(t, "not_started")).length,
+    started: totalForLabel.filter((t) => ticketMatchesFilter(t, "started")).length,
+    completed: totalForLabel.filter((t) => ticketMatchesFilter(t, "completed")).length,
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 dark:text-slate-100">
@@ -112,16 +227,59 @@ export function CuratorDashboard({
                 ? "loading…"
                 : sortedTickets.length === 0
                   ? "—"
-                  : `(${sortedTickets.length} open)`}
+                  : `(${sortedTickets.length})`}
             </span>
           </header>
+          {/* Filter chips — completed / started / not started / all.
+              Reuses the same chip palette as the workflow page's
+              FilterBar (active = blue-600 fill, inactive = neutral
+              slate) so curators read one visual idiom across
+              ticket-list + experiment-list. Filter persists via
+              ``?filter=`` on the dashboard URL + localStorage
+              fallback. */}
+          <div className="flex items-center gap-1 flex-wrap mb-3 text-xs">
+            {FILTER_OPTIONS.map((opt) => {
+              const active = filter === opt.id;
+              const count = counts[opt.id];
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setFilter(opt.id)}
+                  title={opt.title}
+                  className={cn(
+                    "px-2.5 py-1 rounded-full transition-colors",
+                    active
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700",
+                  )}
+                >
+                  {opt.label}
+                  <span
+                    className={cn(
+                      "ml-1.5 tabular-nums",
+                      active ? "text-blue-100" : "text-slate-400 dark:text-slate-500",
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
           {ticketsLoading ? (
             <div className="card p-6 text-sm text-slate-500 italic">
               loading tickets…
             </div>
           ) : sortedTickets.length === 0 ? (
             <div className="card p-6 text-sm text-slate-500">
-              No open tickets.
+              {filter === "all"
+                ? "No tickets."
+                : filter === "completed"
+                  ? "No completed tickets."
+                  : filter === "started"
+                    ? "No tickets in progress."
+                    : "No open tickets waiting to start."}
             </div>
           ) : (
             <ul className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -353,13 +511,18 @@ function PriorityPill({ priority }: { priority: TicketPriority }) {
 }
 
 function StatePill({ state }: { state: TicketState }) {
-  if (state === "RESOLVED" || state === "CANCELLED") return null;
+  // Resolved + cancelled tickets get a muted pill so the curator can
+  // see at a glance which cards are closed when browsing the
+  // Completed / All filters. Open + in-progress lean into emerald
+  // / blue so the active work stands out.
   const palette: Record<TicketState, string> = {
     OPEN: "bg-emerald-100 text-emerald-900 border-emerald-400 dark:bg-emerald-900/40 dark:text-emerald-100 dark:border-emerald-600",
     IN_PROGRESS:
       "bg-blue-100 text-blue-900 border-blue-400 dark:bg-blue-900/40 dark:text-blue-100 dark:border-blue-600",
-    RESOLVED: "",
-    CANCELLED: "",
+    RESOLVED:
+      "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600",
+    CANCELLED:
+      "bg-slate-100 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-600",
   };
   return (
     <span
