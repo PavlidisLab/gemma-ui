@@ -11,6 +11,7 @@ import {
   summariseDataset,
 } from "./MetadataBadge";
 import { AgentConsideredPanel } from "./AgentConsideredPanel";
+import { OrientationProse } from "@/components/ui/OrientationProse";
 import {
   TriageBadge,
   designChipFor,
@@ -235,6 +236,11 @@ export function ProposalSidebarPanel({
     // ``card`` class — the global ``html.dark .card`` rule in
     // index.css overrode the dark sky tint. Per Paul 2026-05-21.
     <div className="p-2 space-y-2 rounded-lg border border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/40">
+      {/* Orchestrator orientation prose — generic top-of-panel slot.
+          Suppresses when the proposal carries no
+          ``experiment_summary``. Per
+          ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */}
+      <OrientationProse text={proposal.experiment_summary ?? null} />
       {datasetSummary && datasetSummary.nSamples > 0 ? (
         <div className="px-1 pb-1.5 border-b border-sky-200 dark:border-sky-800">
           <MetadataBadge summary={datasetSummary} />
