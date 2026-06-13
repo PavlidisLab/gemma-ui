@@ -666,6 +666,121 @@ export interface AuditEvidence {
    *  case. Per
    *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */
   experiment_summary?: string | null;
+  /** v5 supervisor's audit-trail prose — narrative of what the
+   *  orchestrator observed, intervened on, deferred. ≥150 chars
+   *  when populated. Empty / null on legacy packages. Rendered as
+   *  a collapsible "Pipeline audit trail" section at the bottom
+   *  of the findings list. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
+   *
+   *  Dual-state: canonical source is
+   *  ``comparison_proposal.experiment_notes`` (see ``Proposal``
+   *  in ``api/types.ts``); this field is the back-compat mirror
+   *  per agents-side commit ``5d6e069``. UIB readers should
+   *  prefer the proposal-side field and fall through to this one
+   *  via the recommended adapter. */
+  experiment_notes?: string | null;
+  /** v5 curator-follow-up requests — the agent flagging things
+   *  it couldn't proceed without (paper fetch, ontology fix,
+   *  strain resolver gap, …). Each ``EscalationRequest`` carries
+   *  a ``blocks_correction`` flag; ``true`` entries render as
+   *  loud red chips in the top-of-panel banner because they're
+   *  hard blockers, ``false`` entries render amber. Suppressed
+   *  entirely when empty. Same dual-state rule as
+   *  ``experiment_notes`` — canonical on Proposal. */
+  escalation_requests?: EscalationRequest[];
+  /** v5 supervisor's headline assessment (1-2 line summary of the
+   *  whole run). Optional dual-state mirror; canonical on
+   *  Proposal. Today's render targets are not yet defined — the
+   *  field rides for forward-compat. */
+  overall_assessment?: string | null;
+  /** Schema-discriminator stamped by the agent build process,
+   *  format ``agents@<short-sha>/<schema-tag>``. Lets the UI
+   *  skip / quarantine payloads whose shape it doesn't
+   *  understand. Mirrored on ``comparison_proposal.agent_version``
+   *  (canonical) and ``AuditReport.agent_version`` (top-level). */
+  agent_version?: string | null;
+  /** Every arbiter row that ran on this audit, full rationale.
+   *  Targeting key is ``(target_kind, side, target_category,
+   *  target_value)``; ``target_value`` is empty for factor-level
+   *  rows. UIB looks up the matching arbiter row per finding to
+   *  render the per-finding judge-chain (defender → arbiter →
+   *  boss). Empty on packages predating commit ``c784824`` and
+   *  on legacy runs that didn't ship an arbiter pass. */
+  arbiter_verdicts?: ArbiterVerdict[];
+  /** Every boss row that re-adjudicated an arbiter call. Same
+   *  targeting-key shape as ``arbiter_verdicts``. Each row carries
+   *  ``arbiter_rationale`` as a pass-through so the curator can
+   *  read the boss's view of the prior call without cross-
+   *  indexing. Empty on packages that didn't run a boss pass.
+   *
+   *  Named ``BossPassVerdict`` (not ``BossVerdict``) to
+   *  disambiguate from the existing proposal-wide
+   *  ``BossVerdict`` in ``./justification.ts``, which is a
+   *  different concept (overall conclusion on a proposal vs.
+   *  per-row arbitration here). */
+  boss_verdicts?: BossPassVerdict[];
+}
+
+/** One arbiter row from the calibration-batch judge pass.
+ *  Targeting key matches the per-finding lookup used by
+ *  ``ComparisonFactorCard``'s judge-chain renderer. Field names
+ *  mirror agents-side ``ArbiterVerdict`` (snake_case after the
+ *  wire-boundary transform). Per
+ *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+export interface ArbiterVerdict {
+  gse: string;
+  target_kind: string;
+  side: string;
+  target_category: string;
+  /** Empty for factor-level rows (factor-level verdicts target
+   *  the factor category, not a specific FV). */
+  target_value: string;
+  target_uri: string;
+  verdict: string;
+  mode: string;
+  citation: string;
+  /** Curator-visible explanation; 215-300 chars typical. */
+  rationale: string;
+  confidence: string;
+}
+
+/** One boss row that re-adjudicated an arbiter call. ``rationale``
+ *  carries the boss's own ruling; ``arbiter_rationale`` carries
+ *  the prior arbiter call so the curator can read the chain
+ *  without cross-indexing.
+ *
+ *  Named ``BossPassVerdict`` (not ``BossVerdict``) to avoid
+ *  colliding with the existing ``BossVerdict`` in
+ *  ``./justification.ts`` which describes a proposal-wide
+ *  conclusion (split / collapse / rebalance recommendations) —
+ *  different scope, different fields. */
+export interface BossPassVerdict {
+  gse: string;
+  target_kind: string;
+  side: string;
+  target_category: string;
+  target_value: string;
+  target_uri: string;
+  verdict: string;
+  mode: string;
+  citation: string;
+  arbiter_rationale: string;
+  rationale: string;
+  confidence: string;
+}
+
+/** v5 curator-follow-up request. ``kind`` discriminates the
+ *  category of follow-up; ``blocks_correction: true`` signals
+ *  the agent can't proceed without this input (render in red).
+ *  ``aggregation_key`` lets the UI bucket similar escalations
+ *  across runs. */
+export interface EscalationRequest {
+  kind: string;
+  rationale: string;
+  suggested_action: string;
+  blocks_correction: boolean;
+  aggregation_key: string;
 }
 
 export interface AuditSummary {
@@ -985,6 +1100,15 @@ export interface AuditReport {
   findings: AuditFinding[];
   evidence: AuditEvidence;
   summary: AuditSummary;
+  /** Schema-discriminator stamped by the agent build process,
+   *  format ``agents@<short-sha>/<schema-tag>``. Lets the UI
+   *  skip / quarantine payloads whose shape it doesn't
+   *  understand. Mirrored on
+   *  ``evidence.comparison_proposal.agent_version`` and
+   *  ``evidence.agent_version``; this top-level slot is the
+   *  primary reading point for the discriminator. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+  agent_version?: string | null;
   /** Latest curator disposition per finding (keyed by `target_id`).
    *  Empty on a freshly-produced report; populated by the read
    *  endpoints after PATCH calls. */

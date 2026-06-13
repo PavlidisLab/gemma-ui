@@ -266,12 +266,38 @@ export interface Proposal {
   boss_verdict?: import("./justification").BossVerdict | null;
   /** Curator-facing prose paragraph from the orchestrator — what
    *  the agent observed, any intervention it ran, what the final
-   *  design + tags look like. Mirrors ``AuditEvidence.experiment_
-   *  summary``; renders via ``OrientationProse`` at the top of
-   *  ``ProposalReviewCard``. Empty / null / undefined on packages
-   *  predating orchestrator v5 — renderer suppresses. Per
-   *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */
+   *  design + tags look like. Renders via ``OrientationProse`` at
+   *  the top of ``ProposalReviewCard``. Per
+   *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``.
+   *
+   *  Dual-state per agents-side commit ``5d6e069``: THIS field is
+   *  canonical. ``AuditEvidence.experiment_summary`` is a back-
+   *  compat mirror; UIB readers should prefer Proposal-side and
+   *  fall through to the mirror. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
   experiment_summary?: string | null;
+  /** v5 supervisor's audit-trail prose — narrative of what the
+   *  orchestrator observed, intervened on, deferred. Canonical
+   *  source; mirrored to ``AuditEvidence.experiment_notes`` for
+   *  back-compat. Rendered as a collapsible "Pipeline audit
+   *  trail" section at the bottom of the findings list. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+  experiment_notes?: string | null;
+  /** v5 curator-follow-up requests. Canonical source; mirrored
+   *  to ``AuditEvidence.escalation_requests``. Each entry carries
+   *  ``blocks_correction`` — true entries render loud red,
+   *  false entries amber. Suppressed when empty. */
+  escalation_requests?: import("./auditTypes").EscalationRequest[];
+  /** v5 supervisor's headline assessment (1-2 line summary).
+   *  Canonical source; mirrored to
+   *  ``AuditEvidence.overall_assessment``. Render target not yet
+   *  defined; rides for forward-compat. */
+  overall_assessment?: string | null;
+  /** Schema-discriminator stamped by the agent build process,
+   *  format ``agents@<short-sha>/<schema-tag>``. Canonical
+   *  source; mirrored to ``AuditEvidence.agent_version`` and
+   *  ``AuditReport.agent_version``. */
+  agent_version?: string | null;
 }
 
 export interface CuratorCheckboxes {
