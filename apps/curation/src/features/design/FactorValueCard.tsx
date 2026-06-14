@@ -182,7 +182,13 @@ export function FactorValueCard({
               !!onlyStmt.subject?.uri &&
               (onlyStmt.subject.label || "").trim().toLowerCase() === fvLabel &&
               !!fvLabel;
-            if (redundant) {
+            // Redundant-label suppression only fires in the open editor.
+            // In compact mode the statement row ALSO hides the subject
+            // label (``hideSubjectLabel`` below), so hiding the header
+            // here too would leave just the CURIE on the row — Paul
+            // 2026-06-14 caught this on the biological_sex / PATO card.
+            // Keep the FV label visible in compact mode no matter what.
+            if (redundant && !compact) {
               // Render nothing — the statement chip below carries the
               // label + CURIE. Keeps the FV card compact.
               return null;
