@@ -87,42 +87,44 @@ describe("dismissChipsFor — calibration routing (unchanged)", () => {
 });
 
 describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
-  it("routes TAG MATCH (calibration_match) to TAG_DISMISS_CHIPS so 'Subset only' is reachable", () => {
+  // 2026-06-14 chip-vocab restructure (per Paul + bro's open-enum
+  // wire). The previous "everything-tag routes to TAG_DISMISS_CHIPS"
+  // assumption was too coarse — match findings need "not a match"
+  // chips, add/remove findings need their own asymmetric chip sets.
+  // The tests below pin the new per-code routing.
+  it("routes TAG MATCH (calibration_match) to FACTOR_MATCH_DISMISS_CHIPS — 'not a match' framing", () => {
     const chips = dismissChipsFor(
       mkFinding({ issue_code: "calibration_match", target_kind: "tag" }),
     );
-    expect(chips).toBe(TAG_DISMISS_CHIPS);
-    expect(chips.map((c) => c.key)).toContain("not_sample_applicable");
-    expect(chips.map((c) => c.key)).toContain("redundant_with_bm_source");
+    expect(chips.map((c) => c.key)).toContain("category_mismatch");
+    expect(chips.map((c) => c.key)).toContain("partition_mismatch");
   });
 
-  it("routes entity-frame tag_proposed_match_with_design to TAG_DISMISS_CHIPS", () => {
+  it("routes entity-frame tag_proposed_match_with_design to FACTOR_MATCH_DISMISS_CHIPS", () => {
     const chips = dismissChipsFor(
       mkFinding({
         issue_code: "tag_proposed_match_with_design",
         target_kind: "tag",
       }),
     );
-    expect(chips).toBe(TAG_DISMISS_CHIPS);
+    expect(chips.map((c) => c.key)).toContain("category_mismatch");
   });
 
-  it("routes entity-frame tag_proposed_new to TAG_DISMISS_CHIPS", () => {
-    expect(
-      dismissChipsFor(
-        mkFinding({ issue_code: "tag_proposed_new", target_kind: "tag" }),
-      ),
-    ).toBe(TAG_DISMISS_CHIPS);
+  it("routes entity-frame tag_proposed_new to CAL_EXTRA_TAG_DISMISS_CHIPS — 'don't add tag' framing", () => {
+    const chips = dismissChipsFor(
+      mkFinding({ issue_code: "tag_proposed_new", target_kind: "tag" }),
+    );
+    expect(chips.map((c) => c.key)).toContain("not_sample_applicable");
   });
 
-  it("routes entity-frame tag_design_missing_from_agent to TAG_DISMISS_CHIPS", () => {
-    expect(
-      dismissChipsFor(
-        mkFinding({
-          issue_code: "tag_design_missing_from_agent",
-          target_kind: "tag",
-        }),
-      ),
-    ).toBe(TAG_DISMISS_CHIPS);
+  it("routes entity-frame tag_design_missing_from_agent to CAL_MISS_DISMISS_CHIPS — 'don't remove tag' framing", () => {
+    const chips = dismissChipsFor(
+      mkFinding({
+        issue_code: "tag_design_missing_from_agent",
+        target_kind: "tag",
+      }),
+    );
+    expect(chips.map((c) => c.key)).toContain("agent_real_miss");
   });
 
   it("routes unknown tag-target issue codes to TAG_DISMISS_CHIPS (forward-compat)", () => {

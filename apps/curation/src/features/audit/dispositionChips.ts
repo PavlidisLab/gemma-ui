@@ -77,11 +77,21 @@ export const NOT_SURE_CHIPS: DialogChip[] = [
 // chip-gap by case-count across curators (~50 cases pre-landing;
 // see CALIBRATION_CHIP_GAP_HANDOFF.md). Used for both tag and
 // factor gold-miss findings (server gate accepts both).
+// 2026-06-14 vocab expansion per Paul + the bro 1 open-enum wire:
+// "Structure correct, FVs wrong" and "Wrong partition, factor right"
+// reflect what curators actually say when they disagree with a
+// remove-factor proposal. These join the existing
+// `agent_real_miss` / `missed_evidence` chips; agent-side gates are
+// now permissive (`DismissReason: str`, see
+// `handoffs/CHIP_VOCAB_BRO1_LANDED_2026_06_14.md`), so new slugs ship
+// without coordination.
 export const CAL_MISS_DISMISS_CHIPS: DialogChip[] = [
-  { key: "agent_real_miss", label: "Agent missed it",  help: "the curator's gold tag is well-supported; agent's omission was an error" },
-  { key: "missed_evidence", label: "Missed evidence",  help: "agent overlooked supporting evidence in the paper/data" },
-  { key: "borderline",      label: "Borderline",       help: "close call — could reasonably go either way" },
-  { key: "other",           label: "Other",            help: "add a note" },
+  { key: "agent_real_miss",            label: "Factor needed",         help: "the factor + its FVs are correct; agent should have proposed it" },
+  { key: "structure_correct_fvs_wrong", label: "Structure correct, FVs wrong", help: "the factor category is right but the FV labels / values need fixing — don't remove" },
+  { key: "wrong_partition",            label: "Wrong partition",       help: "the factor exists but the sample assignment to FVs is wrong — don't remove" },
+  { key: "missed_evidence",            label: "Missed evidence",       help: "agent overlooked supporting evidence in the paper/data" },
+  { key: "borderline",                 label: "Borderline",            help: "close call — could reasonably go either way" },
+  { key: "other",                      label: "Other",                 help: "add a note" },
 ];
 // For calibration_*_gold_only_miss: "Accept (remove)" means curator
 // thinks gold is wrong (agent TN). Chips explain WHY.
@@ -115,11 +125,40 @@ export const CAL_EXTRA_TAG_DISMISS_CHIPS: DialogChip[] = [
 // new `not_sample_applicable` / `redundant_with_bm_source` chips
 // don't apply — factor values define their sample groupings
 // explicitly, and BM-source redundancy is a tag concept.
+// 2026-06-14 vocab expansion per Paul. "Already covered", "Wrong
+// shape", "FVs wrong" reflect the dominant reasons curators decline
+// to add a proposed factor — going beyond "no evidence" / "out of
+// scope" which both undershoot the real reasoning. Open-enum on the
+// wire means new slugs ship without an agent-side PR.
 export const CAL_EXTRA_FACTOR_DISMISS_CHIPS: DialogChip[] = [
+  { key: "already_covered", label: "Already covered",  help: "an existing factor / tag / characteristic already captures this" },
+  { key: "wrong_shape",     label: "Wrong shape",      help: "the axis is real but the agent's partition / FV breakdown doesn't match the experiment" },
+  { key: "fvs_wrong",       label: "FVs wrong",        help: "would add but the FV labels need work — want a redo, not as-is" },
   { key: "no_evidence",     label: "No evidence",      help: "no supporting evidence in the paper/data" },
   { key: "out_of_scope",    label: "Out of scope",     help: "outside the scope of this factor category" },
   { key: "borderline",      label: "Borderline",       help: "close call — could reasonably go either way" },
   { key: "other",           label: "Other",            help: "add a note" },
+];
+
+// Factor match disagree — "the agent says match, I say not." These
+// cards already say "Confirm" / "Not a match" (per the 2026-06-14
+// button-label refactor); the chips name the WHY for the not-a-match.
+export const FACTOR_MATCH_DISMISS_CHIPS: DialogChip[] = [
+  { key: "category_mismatch",  label: "Different category", help: "agent and the gold factor name different things" },
+  { key: "partition_mismatch", label: "Different partition", help: "same category, different sample groupings" },
+  { key: "synonym_only",       label: "Synonym, not same",  help: "labels are close but not semantically equivalent" },
+  { key: "borderline",         label: "Borderline",         help: "close call" },
+  { key: "other",              label: "Other",              help: "add a note" },
+];
+
+// Factor partition-mismatch ("Modify FVs") disagree — curator
+// thinks the existing partition is correct OR wants a merge instead
+// of a structural rewrite.
+export const FACTOR_PARTITION_DISMISS_CHIPS: DialogChip[] = [
+  { key: "current_partition_correct", label: "Current partition correct", help: "agent's proposed partition is wrong" },
+  { key: "merge_instead",             label: "Want merge instead",       help: "adopt the agent's FVs into the existing factor without overwriting structure" },
+  { key: "borderline",                label: "Borderline",               help: "close call" },
+  { key: "other",                     label: "Other",                    help: "add a note" },
 ];
 // For calibration_agent_extra: "Accept (add)" means curator agrees
 // with agent (agent TP). Chips explain WHY.
@@ -171,15 +210,47 @@ export function dismissChipsFor(
   finding: Pick<AuditFinding, "issue_code" | "target_kind">,
 ): DialogChip[] {
   const issueCode = finding.issue_code;
+  // Remove-factor / remove-tag: curator disagrees with the removal.
   if (
     issueCode === "calibration_gold_only_miss" ||
-    issueCode === "calibration_factor_gold_only_miss"
+    issueCode === "calibration_factor_gold_only_miss" ||
+    // Entity-frame mirror of gold_only_miss — same disagree-with-
+    // removal framing.
+    issueCode === "factor_design_missing_from_agent" ||
+    issueCode === "tag_design_missing_from_agent"
   )
     return CAL_MISS_DISMISS_CHIPS;
-  if (issueCode === "calibration_agent_extra")
+  // Add-factor / add-tag: curator disagrees with the addition.
+  if (
+    issueCode === "calibration_agent_extra" ||
+    issueCode === "tag_proposed_new" ||
+    issueCode === "missing_tag"
+  )
     return CAL_EXTRA_TAG_DISMISS_CHIPS;
-  if (issueCode === "calibration_factor_extra")
+  if (
+    issueCode === "calibration_factor_extra" ||
+    issueCode === "augmentation_factor_extra" ||
+    issueCode === "factor_proposed_new"
+  )
     return CAL_EXTRA_FACTOR_DISMISS_CHIPS;
+  // Match disagree — "not a match" path on factor match cards.
+  if (
+    issueCode === "calibration_factor_match_exact" ||
+    issueCode === "calibration_factor_match_near" ||
+    issueCode === "calibration_factor_match" ||
+    issueCode === "calibration_match" ||
+    issueCode === "factor_proposed_match_with_design" ||
+    issueCode === "tag_proposed_match_with_design"
+  )
+    return FACTOR_MATCH_DISMISS_CHIPS;
+  // Partition-mismatch disagree — "don't modify" path.
+  if (
+    issueCode === "calibration_factor_partition_mismatch" ||
+    issueCode === "factor_proposed_match_partition_mismatch" ||
+    issueCode === "factor_proposed_match_category_mismatch" ||
+    issueCode === "calibration_factor_rename"
+  )
+    return FACTOR_PARTITION_DISMISS_CHIPS;
   if (finding.target_kind === "tag") return TAG_DISMISS_CHIPS;
   return DISMISS_CHIPS;
 }
@@ -187,12 +258,18 @@ export function dismissChipsFor(
 export function acceptChipsFor(issueCode: string): DialogChip[] {
   if (
     issueCode === "calibration_gold_only_miss" ||
-    issueCode === "calibration_factor_gold_only_miss"
+    issueCode === "calibration_factor_gold_only_miss" ||
+    issueCode === "factor_design_missing_from_agent" ||
+    issueCode === "tag_design_missing_from_agent"
   )
     return CAL_MISS_ACCEPT_CHIPS;
   if (
     issueCode === "calibration_agent_extra" ||
-    issueCode === "calibration_factor_extra"
+    issueCode === "calibration_factor_extra" ||
+    issueCode === "augmentation_factor_extra" ||
+    issueCode === "factor_proposed_new" ||
+    issueCode === "tag_proposed_new" ||
+    issueCode === "missing_tag"
   )
     return CAL_EXTRA_ACCEPT_CHIPS;
   return ACCEPT_CHIPS;
