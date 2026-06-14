@@ -618,9 +618,22 @@ export function toggleBaseline(
           // Turning off: just flip the flag, keep statements.
           return { ...fv, is_baseline: false };
         }
-        // Turning on. If the FV already carries a baseline term
-        // (curator set one manually), don't touch the statements.
-        if (fvHasBaselineStatement(fv) || !tpl) {
+        // Turning on. If the FV already carries any non-empty
+        // statement the curator authored, just flip the flag — don't
+        // append a "has role: control" line on top of their work.
+        // Paul 2026-06-14: "setting this to baseline caused another
+        // factor value to be inserted." Earlier rule only checked for
+        // the canonical baseline-term LABELS; biological-sex
+        // ``female`` (PATO:0000383) didn't match those, so the
+        // injection fired anyway and left the curator with a spurious
+        // ``female has role control`` row alongside their original.
+        const hasRealStatement = fv.statements.some(
+          (s) =>
+            (s.subject?.label || "").trim() ||
+            (s.predicate?.label || "").trim() ||
+            (s.object?.label || "").trim(),
+        );
+        if (hasRealStatement || fvHasBaselineStatement(fv) || !tpl) {
           return { ...fv, is_baseline: true };
         }
         // Inject the canonical baseline statement.

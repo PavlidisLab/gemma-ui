@@ -34,15 +34,12 @@ import { useStickyState } from "@/lib/useStickyState";
 
 /** Default page size + user-settable picker options.
  *
- *  Paul 2026-06-14 originally asked for a 200 default — but the
- *  local_api ``/rest/v2/datasets`` endpoint hard-caps ``limit`` at
- *  100 (FastAPI pydantic validator: ``less_than_equal: 100``).
- *  Anything above trips a 422 and the rows query returns empty,
- *  which is exactly the "no experiments shown at all no matter
- *  what" symptom Paul flagged. Capping options at the server max
- *  for now; bumping the cap is filed as a bro-side handoff. */
-const PAGE_SIZE_DEFAULT = 100;
-const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+ *  Paul 2026-06-14 asked for a 200 default ("typical ticket fits in
+ *  one page"). Bro 1 raised the ``/rest/v2/datasets`` cap from 100
+ *  to 1000 in response to ``handoffs/DATASETS_LIMIT_CAP_2026_06_14.md``,
+ *  so we ship the 200 default + headroom in the picker. */
+const PAGE_SIZE_DEFAULT = 200;
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500, 1000] as const;
 
 // ---------------------------------------------------------------------------
 // Sort selector

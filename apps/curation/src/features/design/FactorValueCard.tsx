@@ -592,14 +592,29 @@ function CompactStatementRow({
   statement: FactorValue["statements"][number];
   hideSubjectLabel?: boolean;
 }) {
+  const cat = statement.category;
   const subj = statement.subject;
   const pred = statement.predicate;
   const obj = statement.object;
+  const hasCat = !!cat?.label?.trim();
   const hasPred = !!pred?.label?.trim();
   const hasObj = !!obj?.label?.trim();
   const subjUri = subj?.uri ?? null;
   return (
     <div className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]">
+      {/* Category chip leads the row so the compact view reads as a
+          full statement triple — Paul 2026-06-14: "the full statement
+          should be shown, like in the review panel." Hidden when the
+          statement carries no category (rare, but the type allows). */}
+      {hasCat ? (
+        <Term
+          uri={cat?.uri ?? null}
+          asLink={false}
+          className="!whitespace-normal break-words"
+        >
+          {cat!.label!}
+        </Term>
+      ) : null}
       {hideSubjectLabel ? (
         subjUri ? (
           <CurieLink

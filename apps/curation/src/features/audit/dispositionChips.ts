@@ -151,6 +151,20 @@ export const FACTOR_MATCH_DISMISS_CHIPS: DialogChip[] = [
   { key: "other",              label: "Other",              help: "add a note" },
 ];
 
+// Tag match disagree — same "Not a match" framing but with a
+// tag-flavoured why. "Different partition" doesn't apply (tags don't
+// have FV partitions); the right tag-side analog is "doesn't apply
+// to all samples." Paul 2026-06-14: "i thought we agreed on reject
+// causes like 'doesn't apply to all samples' — 'different partitions'
+// doesn't make sense for tag."
+export const TAG_MATCH_DISMISS_CHIPS: DialogChip[] = [
+  { key: "category_mismatch",     label: "Different category",      help: "agent and the gold tag name different things" },
+  { key: "not_sample_applicable", label: "Doesn't apply to all samples", help: "tag is partial — applies only to a subset of profiled samples" },
+  { key: "synonym_only",          label: "Synonym, not same",       help: "labels are close but not semantically equivalent" },
+  { key: "borderline",            label: "Borderline",              help: "close call" },
+  { key: "other",                 label: "Other",                   help: "add a note" },
+];
+
 // Factor partition-mismatch ("Modify FVs") disagree — curator
 // thinks the existing partition is correct OR wants a merge instead
 // of a structural rewrite.
@@ -233,16 +247,22 @@ export function dismissChipsFor(
     issueCode === "factor_proposed_new"
   )
     return CAL_EXTRA_FACTOR_DISMISS_CHIPS;
-  // Match disagree — "not a match" path on factor match cards.
+  // Match disagree — "not a match" path. Factor-match codes get the
+  // factor-flavoured set ("Different partition" is meaningful here);
+  // tag-match codes get the tag-flavoured set where the partition
+  // chip is replaced with "Doesn't apply to all samples."
   if (
     issueCode === "calibration_factor_match_exact" ||
     issueCode === "calibration_factor_match_near" ||
     issueCode === "calibration_factor_match" ||
-    issueCode === "calibration_match" ||
-    issueCode === "factor_proposed_match_with_design" ||
-    issueCode === "tag_proposed_match_with_design"
+    issueCode === "factor_proposed_match_with_design"
   )
     return FACTOR_MATCH_DISMISS_CHIPS;
+  if (
+    issueCode === "calibration_match" ||
+    issueCode === "tag_proposed_match_with_design"
+  )
+    return TAG_MATCH_DISMISS_CHIPS;
   // Partition-mismatch disagree — "don't modify" path.
   if (
     issueCode === "calibration_factor_partition_mismatch" ||

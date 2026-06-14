@@ -92,15 +92,19 @@ describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
   // assumption was too coarse — match findings need "not a match"
   // chips, add/remove findings need their own asymmetric chip sets.
   // The tests below pin the new per-code routing.
-  it("routes TAG MATCH (calibration_match) to FACTOR_MATCH_DISMISS_CHIPS — 'not a match' framing", () => {
+  it("routes TAG MATCH (calibration_match) to TAG_MATCH_DISMISS_CHIPS — 'not a match' framing with sample-applicability chip", () => {
     const chips = dismissChipsFor(
       mkFinding({ issue_code: "calibration_match", target_kind: "tag" }),
     );
     expect(chips.map((c) => c.key)).toContain("category_mismatch");
-    expect(chips.map((c) => c.key)).toContain("partition_mismatch");
+    // Tag matches get the sample-applicability chip, NOT the
+    // partition chip (partitions are a factor concept). Paul
+    // 2026-06-14.
+    expect(chips.map((c) => c.key)).toContain("not_sample_applicable");
+    expect(chips.map((c) => c.key)).not.toContain("partition_mismatch");
   });
 
-  it("routes entity-frame tag_proposed_match_with_design to FACTOR_MATCH_DISMISS_CHIPS", () => {
+  it("routes entity-frame tag_proposed_match_with_design to TAG_MATCH_DISMISS_CHIPS", () => {
     const chips = dismissChipsFor(
       mkFinding({
         issue_code: "tag_proposed_match_with_design",
