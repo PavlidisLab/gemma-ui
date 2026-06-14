@@ -1,6 +1,38 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+// Inline localStorage polyfill so the tests run in the default
+// (node) vitest env without the jsdom dependency. Stores key/value
+// pairs in a Map; matches the bits of the Web Storage API the
+// proposalDispositions module actually uses.
+beforeAll(() => {
+  if (typeof window === "undefined") {
+    const store = new Map<string, string>();
+    const ls = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+      clear: () => store.clear(),
+      get length() {
+        return store.size;
+      },
+      key: (i: number) => Array.from(store.keys())[i] ?? null,
+    };
+    (globalThis as typeof globalThis & { window?: typeof globalThis }).window =
+      globalThis as never;
+    (globalThis as typeof globalThis & { localStorage?: typeof ls }).localStorage = ls;
+    (globalThis as { window: { localStorage: typeof ls } }).window.localStorage =
+      ls;
+  }
+});
 import {
+  clearAllProposalStateForExperiment,
   factorElementKey,
+  loadDispositions,
+  loadFeedback,
+  loadNotes,
+  saveDispositions,
+  saveFeedback,
+  saveNotes,
   tagElementKey,
 } from "./proposalDispositions";
 
@@ -137,5 +169,107 @@ describe("tagElementKey — URI-anchored stable identity", () => {
       value: { uri: "v:1" },
     });
     expect(k1).toBe(k2);
+  });
+});
+
+describe("loadDispositions / saveDispositions — LS roundtrip", () => {
+  // Vitest jsdom env supplies a window.localStorage; we still
+  // clear between tests so state doesn't leak.
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it("roundtrips a single disposition entry", () => {
+    const m = new Map([["factor:p1:uri:efo:001", "retained" as const]]);
+    saveDispositions(1, "p1", m);
+    const back = loadDispositions(1, "p1");
+    expect(back.get("factor:p1:uri:efo:001")).toBe("retained");
+  });
+
+  it("returns an empty Map for an unknown (experiment, proposal)", () => {
+    expect(loadDispositions(1, "missing").size).toBe(0);
+  });
+
+  it("isolates dispositions across proposal ids", () => {
+    saveDispositions(1, "p1", new Map([["x", "retained" as const]]));
+    saveDispositions(1, "p2", new Map([["x", "rejected" as const]]));
+    expect(loadDispositions(1, "p1").get("x")).toBe("retained");
+    expect(loadDispositions(1, "p2").get("x")).toBe("rejected");
+  });
+
+  it("isolates dispositions across experiment ids", () => {
+    saveDispositions(1, "p1", new Map([["x", "retained" as const]]));
+    saveDispositions(2, "p1", new Map([["x", "parked" as const]]));
+    expect(loadDispositions(1, "p1").get("x")).toBe("retained");
+    expect(loadDispositions(2, "p1").get("x")).toBe("parked");
+  });
+
+  it("an empty Map clears the underlying LS entry", () => {
+    saveDispositions(1, "p1", new Map([["x", "retained" as const]]));
+    saveDispositions(1, "p1", new Map());
+    expect(loadDispositions(1, "p1").size).toBe(0);
+  });
+
+  it("survives ill-formed LS content (corrupted JSON) without throwing", () => {
+    window.localStorage.setItem(
+      "gemma-proposal-dispositions.v2:1:p1",
+      "{not json",
+    );
+    expect(loadDispositions(1, "p1").size).toBe(0);
+  });
+});
+
+describe("loadNotes / saveNotes — LS roundtrip", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it("roundtrips a notes entry", () => {
+    saveNotes(1, "p1", new Map([["factor:p1:uri:x", "looks suspicious"]]));
+    const back = loadNotes(1, "p1");
+    expect(back.get("factor:p1:uri:x")).toBe("looks suspicious");
+  });
+
+  it("isolates notes across proposal ids", () => {
+    saveNotes(1, "p1", new Map([["x", "for p1"]]));
+    saveNotes(1, "p2", new Map([["x", "for p2"]]));
+    expect(loadNotes(1, "p1").get("x")).toBe("for p1");
+    expect(loadNotes(1, "p2").get("x")).toBe("for p2");
+  });
+});
+
+describe("loadFeedback / saveFeedback — single string per proposal", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it("roundtrips a feedback string", () => {
+    saveFeedback(1, "p1", "great catch on the genotype factor");
+    expect(loadFeedback(1, "p1")).toBe("great catch on the genotype factor");
+  });
+
+  it("returns empty string when missing", () => {
+    expect(loadFeedback(1, "missing")).toBe("");
+  });
+});
+
+describe("clearAllProposalStateForExperiment", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it("clears dispositions, notes, and feedback for the experiment across all proposals", () => {
+    saveDispositions(1, "p1", new Map([["x", "retained" as const]]));
+    saveDispositions(1, "p2", new Map([["x", "rejected" as const]]));
+    saveNotes(1, "p1", new Map([["x", "n1"]]));
+    saveFeedback(1, "p1", "fb");
+    clearAllProposalStateForExperiment(1);
+    expect(loadDispositions(1, "p1").size).toBe(0);
+    expect(loadDispositions(1, "p2").size).toBe(0);
+    expect(loadNotes(1, "p1").size).toBe(0);
+    expect(loadFeedback(1, "p1")).toBe("");
+  });
+
+  it("does NOT clear state for other experiments", () => {
+    saveDispositions(1, "p1", new Map([["x", "retained" as const]]));
+    saveDispositions(2, "p1", new Map([["x", "retained" as const]]));
+    clearAllProposalStateForExperiment(1);
+    expect(loadDispositions(2, "p1").get("x")).toBe("retained");
   });
 });
