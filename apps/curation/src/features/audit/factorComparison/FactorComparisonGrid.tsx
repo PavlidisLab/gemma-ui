@@ -69,6 +69,14 @@ export interface FactorComparisonHeaderSide {
 export interface FactorComparisonGridProps {
   leftHeader: FactorComparisonHeaderSide;
   rightHeader: FactorComparisonHeaderSide;
+  /** Optional locate-in-Design-tab handler for the LEFT column.
+   *  When supplied AND the left side has a real category (not the
+   *  "(no factor)" placeholder), the header renders a small 🔍
+   *  button next to the column label that triggers it. Mirrors the
+   *  affordance FindingDetailsEditor's removal-only card already
+   *  carries on the "Current" row. Paul 2026-06-14: factors should
+   *  get the same affordance. */
+  onLeftLocate?: () => void;
   /** Paired FVs, in render order. Empty list → "(no factor values)" */
   pairs: FactorComparisonPair[];
   /** Term renderer threaded into ``FvDisplayRow``. Same primitive
@@ -173,6 +181,7 @@ export function FactorComparisonGrid({
   renderPerFvAction,
   renderFooter,
   loading,
+  onLeftLocate,
 }: FactorComparisonGridProps): JSX.Element {
   // Header: column labels + factor category chip pair. Same shape on
   // both surfaces — moving it into the grid means we have one
@@ -186,8 +195,19 @@ export function FactorComparisonGrid({
           "[label-l] auto [chip-l] 1fr [glyph] auto [label-r] auto [chip-r] 1fr [action] auto",
       }}
     >
-      <span className="text-[9px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      <span className="text-[9px] uppercase tracking-wide text-slate-400 dark:text-slate-500 inline-flex items-baseline gap-1">
         {leftHeader.label}
+        {onLeftLocate && leftHeader.category?.label ? (
+          <button
+            type="button"
+            onClick={onLeftLocate}
+            title="show in Design tab"
+            aria-label="locate in design"
+            className="text-[10px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
+          >
+            🔍
+          </button>
+        ) : null}
       </span>
       <span className="min-w-0">
         <CategoryChip

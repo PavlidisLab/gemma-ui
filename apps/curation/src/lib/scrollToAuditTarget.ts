@@ -152,7 +152,20 @@ export function focusByAuditTarget(targetId: string): boolean {
   const el = document.querySelector<HTMLElement>(
     `[data-audit-target="${safe}"]`,
   );
-  if (!el) return false;
+  if (!el) {
+    // Diagnostic signal — silent no-op was the reason Paul's
+    // "magnifying glasses don't do anything" report 2026-06-14 had
+    // no console trace. Common cause: the target's owning chip
+    // group is collapsed (Multi-tag groups in OverviewPanel are
+    // collapsed by default), so the data-audit-target element isn't
+    // in the DOM yet. Surface the miss so the next time it
+    // happens we have a smoking gun.
+    console.warn(
+      "focusByAuditTarget: no element with data-audit-target=%s — chip group may be collapsed, or the target_id slug doesn't match the stamped attribute",
+      targetId,
+    );
+    return false;
+  }
   flashFocus(el);
   return true;
 }

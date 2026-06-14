@@ -890,6 +890,15 @@ export function ComparisonFactorCard({
             pairs={pairs}
             termRenderer={Term}
             loading={factorsAreLoading}
+            onLeftLocate={
+              leftFactor && leftFactor.category?.label
+                ? () =>
+                    requestAuditFocus(
+                      experimentId,
+                      factorTarget(leftFactor.category!.label!),
+                    )
+                : undefined
+            }
           />
           {finding.proposer_defense ? (
             <div className="text-[11px] text-slate-600 dark:text-slate-300 italic">
