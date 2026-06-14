@@ -1845,6 +1845,7 @@ export function TicketContextChip({
   // 2026-06-14 called "not that useful." The chip itself is now a
   // direct back-link to the ticket detail page (no popover trigger);
   // the popover hangs off the counter / ▾ glyph instead.
+  const currentTarget = idx >= 0 ? expTargets[idx] : null;
   const prevTarget = idx > 0 ? expTargets[idx - 1] : null;
   const nextTarget = idx >= 0 && idx < total - 1 ? expTargets[idx + 1] : null;
   function navigateTo(targetId: number): void {
@@ -1921,6 +1922,7 @@ export function TicketContextChip({
       >
         ›
       </button>
+      <TicketTargetStatusDot status={currentTarget?.status ?? null} />
       {open ? (
         <TicketNavigatorPopover
           ticketId={ticketId}
@@ -1932,6 +1934,30 @@ export function TicketContextChip({
         />
       ) : null}
     </span>
+  );
+}
+
+/** Tiny coloured circle conveying the current experiment's status on
+ *  the ticket. Compact form-factor — fits in the header nav cluster
+ *  next to ‹ N/M ›. Tooltip carries the human-readable label. */
+function TicketTargetStatusDot({
+  status,
+}: {
+  status: "NOT_DONE" | "UNDERWAY" | "DONE" | null | undefined;
+}) {
+  if (!status) return null;
+  const map = {
+    NOT_DONE: { cls: "bg-slate-400 dark:bg-slate-500", label: "Not started" },
+    UNDERWAY: { cls: "bg-amber-500", label: "Started" },
+    DONE: { cls: "bg-emerald-500", label: "Done" },
+  } as const;
+  const m = map[status];
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${m.cls}`}
+      title={`This experiment's status on the ticket: ${m.label}`}
+      aria-label={m.label}
+    />
   );
 }
 
