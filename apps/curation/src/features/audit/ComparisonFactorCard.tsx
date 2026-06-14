@@ -374,15 +374,44 @@ export function ComparisonFactorCard({
   // chip-strip selection; their categories give us the URI/label
   // hint to find the same factor in any non-owning curation the
   // user picks.
+  // Resolve the owning gold curation. Preference order:
+  //   1. ``finding.gold_curation_id`` — the canonical handle bro 1
+  //      ships post-2026-06-14. Routes through ``resolveCuration``'s
+  //      direct curation_id lookup (same as a chip-strip selection).
+  //   2. First-consensus fallback — the pre-2026-06-14 behaviour, kept
+  //      so old calibration packages that don't carry the new field
+  //      still render. Per
+  //      ``handoffs/GOLD_CURATION_ID_LANDED_2026_06_14.md``.
+  const owningGoldCuration: CurationRow | null = useMemo(() => {
+    if (finding.gold_curation_id) {
+      const byId = resolveCuration(
+        finding.gold_curation_id as Source,
+        curations,
+      );
+      if (byId) return byId;
+    }
+    return curations.find((c) => c.source_kind === "consensus") ?? null;
+  }, [curations, finding.gold_curation_id]);
+
   const owningGoldFactor: Factor | null = useMemo(() => {
     const ix = finding.gold_target_index;
     if (ix == null) return null;
-    const consensus = curations.find((c) => c.source_kind === "consensus");
-    const fromCuration = consensus
-      ? ((consensus.design as { factors?: Factor[] } | undefined)?.factors ?? null)
-      : null;
+    const fromCuration =
+      (owningGoldCuration?.design as { factors?: Factor[] } | undefined)
+        ?.factors ?? null;
     return fromCuration?.[ix] ?? design?.factors?.[ix] ?? null;
-  }, [curations, design, finding.gold_target_index]);
+  }, [owningGoldCuration, design, finding.gold_target_index]);
+
+  // Bro 1's caveat: the agent stamps the consensus ROW it identified
+  // as the gold, but the row's ``design_payload`` may be empty if the
+  // live Gemma design was edited without re-saving to the consensus
+  // curation. Detect that specific shape so the "(not in …)"
+  // annotation can be more useful when it fires.
+  const owningRowExistsButEmpty =
+    !!finding.gold_curation_id &&
+    !!owningGoldCuration &&
+    finding.gold_target_index != null &&
+    !owningGoldFactor;
 
   const owningAgentFactor: Factor | FactorProposal | null = useMemo(() => {
     const ix = finding.agent_target_index;
@@ -622,9 +651,15 @@ export function ComparisonFactorCard({
         {matchedButMissingFromBaseline ? (
           <span
             className="text-[10px] italic text-amber-700 dark:text-amber-300"
-            title={`The match was computed against the agent's authoritative gold; ${leftLabel} doesn't carry this factor.`}
+            title={
+              owningRowExistsButEmpty
+                ? `Agent compared against ${leftLabel}, but its saved design payload is empty — the agent likely read the live design state. Re-save to refresh.`
+                : `The match was computed against the agent's authoritative gold; ${leftLabel} doesn't carry this factor.`
+            }
           >
-            (not in {leftLabel})
+            {owningRowExistsButEmpty
+              ? `(${leftLabel} design empty — re-save?)`
+              : `(not in ${leftLabel})`}
           </span>
         ) : null}
         <span className="text-slate-400 dark:text-slate-500">—</span>

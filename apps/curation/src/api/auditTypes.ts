@@ -215,6 +215,16 @@ export interface AuditFinding {
    *  definition) and on older builders. Agents-repo commit
    *  ``3868a09``; HANDOFF_2026-05-18_GOLD_TARGET_INDEX.md. */
   gold_target_index?: number | null;
+  /** Opaque ``curation_id`` of the gold curation row the agent
+   *  compared against — disambiguates ``gold_target_index`` when an
+   *  experiment carries multiple consensus rows (strict_consensus /
+   *  strict_cy_am / …). Stamped on every finding whose
+   *  ``gold_target_index`` is non-null per
+   *  ``handoffs/GOLD_CURATION_ID_LANDED_2026_06_14.md`` (agents SHA
+   *  ``9a0faec``). Null on old packages, on findings built from a
+   *  live-Gemma fetch, and on ``calibration_factor_extra`` (no gold
+   *  counterpart). Wire field: ``goldCurationId`` (camelCase). */
+  gold_curation_id?: string | null;
   /** Cross-reference UUID stamped on both halves of a demoted
    *  same-category factor match. When the builder demotes a
    *  partition-mismatched same-label pair into
