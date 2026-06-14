@@ -225,18 +225,17 @@ function isOverrideReport(r: AuditReport | null): boolean {
   if (r.audit_id && r.audit_id.startsWith(SYNTH_AUDIT_ID_PREFIX)) return true;
   if (r.audit_id == null && typeof r.model === "string"
       && r.model.startsWith("chip-diff:")) return true;
-  // Defensive fallback: any non-persisted report (audit_id == null)
-  // routes through the in-memory override path so the UI counts at
-  // least track curator clicks. Without this, calibration packages
-  // / dev runs that come down without audit_id silently swallow
-  // every disposition (the live PATCH branch warns + returns), and
-  // "3 pending" stays "3 pending" forever. Paul 2026-06-14: "I've
-  // already resolved all three. 0 are pending" — the click was
-  // landing on a null-audit_id report. Filing a bro-side handoff to
-  // ensure /rest/v2/datasets/{id}/proposals populates audit_id; this
-  // fallback keeps the UI honest in the meantime.
-  if (r.audit_id == null) return true;
   return false;
+  // 2026-06-14: an "any null audit_id → override" branch lived here
+  // briefly. Pulled after bro 1 verified the wire ships ``auditId``
+  // (camelCase) populated, the UI's snakeify converts it to
+  // ``audit_id``, and ``report.audit_id`` is never null on a real
+  // proposal-review report. The fallback was masking whatever
+  // downstream bug actually caused Paul's "3 pending stays 3 pending"
+  // symptom; the next instance should land in the live-PATCH branch
+  // and surface via the DevTools Network tab, not the in-memory
+  // override (which doesn't persist). See
+  // ``handoffs/AUDIT_ID_CLARIFICATION_2026_06_14.md``.
 }
 
 export function AuditProvider({

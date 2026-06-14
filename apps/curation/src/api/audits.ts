@@ -115,7 +115,25 @@ export function usePatchDisposition(experimentId: number | string) {
       auditId: string;
       patch: AuditFindingDispositionPatch;
     }) => api.patch<AuditReport>(`/rest/v2/audits/${auditId}`, patch),
-    onSuccess: (refreshed) => {
+    onSuccess: (refreshed, vars) => {
+      // Smoking-gun trace per the 2026-06-14 "3 pending stays 3
+      // pending" investigation. If the PATCH returns a report whose
+      // dispositions list lacks the target_id we just sent, the
+      // server didn't persist (or the read path returned stale state)
+      // — surface that immediately rather than waiting for a second
+      // round of "the counts aren't updating" reports.
+      const patched = refreshed.dispositions?.find(
+        (d) => d.target_id === vars.patch.target_id,
+      );
+      if (!patched) {
+        console.warn(
+          "patchDisposition.onSuccess: refreshed report missing the just-PATCHed target_id (target_id=%s, audit_id=%s, status=%s, dispositions=%d) — server response didn't persist or returned stale rows",
+          vars.patch.target_id,
+          vars.auditId,
+          vars.patch.status,
+          refreshed.dispositions?.length ?? 0,
+        );
+      }
       // Per-experiment list lives in TWO caches keyed by kind: the
       // audit list at ``["audits", "by-experiment", X]`` and the
       // proposal-review list at ``["curation-reviews", "proposal",
