@@ -917,12 +917,31 @@ function BaselineDriftSection({
     // category drift (2 live genotype factors vs 1 in consensus →
     // budget=1 covers the C5aR1, second consumes nothing and
     // surfaces as drift).
+    // Category keys for budget purposes: BOTH URI (when present) and
+     // lower-cased label (when present). A factor contributes one
+     // budget ticket under each of its keys; consuming a factor only
+     // needs to find ONE matching key. This handles the asymmetric-URI
+     // case where one side has a URI and the other doesn't —
+     // GSE9904 2026-06-14: live's `biological sex` (no URI) vs agent's
+     // `biological sex PATO:0000047` would otherwise live in two
+     // disjoint buckets and never reconcile. Match-on-either-key keeps
+     // the multi-of-same-category invariant (GSE93824's two genotype
+     // factors) because we count by factor, not by key — a second
+     // same-category factor finds depleted budget under either key.
+    const catKeys = (f: Factor): string[] => {
+      const u = (f.category?.uri ?? "").trim();
+      const l = (f.category?.label ?? "").trim().toLowerCase();
+      const out: string[] = [];
+      if (u) out.push(u);
+      if (l) out.push(l);
+      return out;
+    };
     const catCount = (factors: Factor[]) => {
       const m = new Map<string, number>();
       for (const f of factors) {
-        const c = (f.category?.uri ?? "").trim();
-        if (!c) continue;
-        m.set(c, (m.get(c) ?? 0) + 1);
+        for (const k of catKeys(f)) {
+          m.set(k, (m.get(k) ?? 0) + 1);
+        }
       }
       return m;
     };
@@ -963,9 +982,16 @@ function BaselineDriftSection({
         const sig = _factorSignature(f);
         if (sig === "" || seen.has(sig)) continue;
         if (auditedSigs.has(sig)) continue;
-        const cat = (f.category?.uri ?? "").trim();
-        if (cat && (catBudget.get(cat) ?? 0) > 0) {
-          catBudget.set(cat, (catBudget.get(cat) ?? 0) - 1);
+        const keys = catKeys(f);
+        const anyHit = keys.some((k) => (catBudget.get(k) ?? 0) > 0);
+        if (anyHit) {
+          // Decrement under every key this factor exposes so a second
+          // same-category factor sees the depleted budget regardless of
+          // which key it indexes by.
+          for (const k of keys) {
+            const n = catBudget.get(k) ?? 0;
+            if (n > 0) catBudget.set(k, n - 1);
+          }
           continue;
         }
         seen.add(sig);

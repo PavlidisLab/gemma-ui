@@ -186,16 +186,23 @@ export function StatementEditor({
         </>
       ) : null}
 
+      {/* Statement delete — sits inline with the statement's S-P-O
+          row, not right-edge-floated. Paul 2026-06-14: the
+          ``ml-auto`` floated it to the same column as the FV-level
+          Delete, so the two looked like duplicate buttons. Icon
+          shape ("×") instead of a "Delete" pill so it doesn't
+          compete with the larger FV-level Delete either. */}
       <button
         type="button"
-        className="text-[10px] px-1.5 py-0.5 rounded border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 ml-auto dark:border-rose-700 dark:text-rose-300 dark:bg-slate-800 dark:hover:bg-rose-900/30"
+        className="text-[12px] leading-none w-5 h-5 rounded text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-900/30 inline-flex items-center justify-center"
         onClick={() => {
           if (hasContent) setConfirming(true);
           else onDelete();
         }}
         title="Delete this statement"
+        aria-label="delete statement"
       >
-        Delete
+        ×
       </button>
 
       <ConfirmModal

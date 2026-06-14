@@ -6,6 +6,7 @@ import {
 import { cn } from "@/lib/cn";
 import { agentPalette, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
+import { JsonViewer } from "@/components/ui/JsonViewer";
 
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import type { useAuditStream } from "@/api/auditStream";
@@ -424,6 +425,12 @@ function SidebarHeader({
   const toast = useToast();
   const [confirmClose, setConfirmClose] = useState(false);
   const [applyAllRunning, setApplyAllRunning] = useState(false);
+  // "View raw JSON" affordance (Paul 2026-06-14) — opens an inline
+  // syntax-coloured + searchable tree of the current report's
+  // structured payload. Placed in the proposal/audit header strip
+  // next to the agent identity pill so it's discoverable without
+  // leaving the curation surface.
+  const [rawViewerOpen, setRawViewerOpen] = useState(false);
   const { apply: applyDraft, draft, diff: draftDiff } = useDesignDraft();
   // Ticket-target status sync on Finalize — when the curator closes
   // the review for an experiment that lives on a ticket, flip that
@@ -887,6 +894,19 @@ function SidebarHeader({
             </span>
           );
         })() : null}
+        {/* View raw JSON — opens an inline tree viewer for the
+            current report (findings + evidence + dispositions +
+            audit_dict mapping/scoring + everything else on the
+            wire). Pinned next to the agent identity since that's
+            where the eye looks first for "what produced this". */}
+        <button
+          type="button"
+          onClick={() => setRawViewerOpen(true)}
+          className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-mono"
+          title="View the raw JSON for this proposal / audit — searchable, collapsible tree."
+        >
+          {"{ }"} raw
+        </button>
         {/* Audit switcher — appears only when the experiment has more
          *  than one audit (dual-agent review path). Lets the curator
          *  flip between e.g. hybrid and oneshot calibration packages
@@ -1134,6 +1154,17 @@ function SidebarHeader({
           />
         </div>
       ) : null}
+      <JsonViewer
+        open={rawViewerOpen}
+        onClose={() => setRawViewerOpen(false)}
+        title={`Raw ${copy.noun.toLowerCase()} payload`}
+        subtitle={
+          report.model
+            ? `${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`
+            : undefined
+        }
+        data={report}
+      />
     </div>
   );
 }
