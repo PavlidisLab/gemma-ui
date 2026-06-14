@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./client";
+import { curieToUrl } from "@/lib/curie";
 
 /**
  * One typeahead candidate. Shape mirrors what the curation mock /
@@ -101,4 +102,183 @@ export function useAnnotationSearch(
     staleTime: 1000 * 60 * 5,
     enabled,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Per-URI term lookup — used by the inline ``CuriePopover`` so curators
+// can verify the term without leaving the page. Hits Gemma's
+// ``/annotations/term`` endpoint (routed via the existing
+// ``/rest/v2/annotations/*`` proxy split). OLS is a separate hook
+// that the popover invokes only on explicit click — per Paul
+// 2026-06-13: "fallback to OLS: require another click".
+// ---------------------------------------------------------------------------
+
+/** Minimal term-detail shape consumed by the CuriePopover. Source-
+ *  agnostic — Gemma and OLS map to it via the two adapters below. */
+export interface AnnotationTermDetail {
+  uri: string;
+  label: string;
+  definition: string;
+  /** ``rdfs:label`` of each direct parent class. Empty list when the
+   *  source didn't provide hierarchy. */
+  parents: string[];
+  /** Ontology short name (e.g. ``efo``, ``uberon``, ``mondo``) when
+   *  the source identifies it. Empty when unknown. */
+  ontology: string;
+  /** Where the row came from — useful for the popover's footer pill
+   *  so curators know whether they're looking at Gemma's cached view
+   *  or a fresh OLS hit. */
+  source: "gemma" | "ols";
+  /** Canonical resolver URL — the curator can click "open in OBO" /
+   *  "open in OLS" to verify on the upstream page. */
+  canonicalUrl: string | null;
+}
+
+const GEMMA_TERM_KEY = (uri: string | null) =>
+  ["annotations-term-gemma", uri ?? ""] as const;
+
+/** Fetch a term's detail from Gemma's ``/annotations/term`` endpoint.
+ *  Returns ``null`` when the URI is empty or Gemma doesn't know the
+ *  term — caller falls through to the OLS lookup on explicit
+ *  curator click. */
+export function useGemmaTerm(uri: string | null | undefined) {
+  return useQuery<AnnotationTermDetail | null>({
+    queryKey: GEMMA_TERM_KEY(uri ?? null),
+    queryFn: async () => {
+      if (!uri) return null;
+      const params = new URLSearchParams({ uri });
+      try {
+        const raw = await api.get<unknown>(
+          `/rest/v2/annotations/term?${params.toString()}`,
+        );
+        return parseGemmaTerm(raw, uri);
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 1000 * 60 * 60, // 1h — term definitions barely move
+    enabled: !!uri,
+  });
+}
+
+function parseGemmaTerm(
+  raw: unknown,
+  uri: string,
+): AnnotationTermDetail | null {
+  if (!raw || typeof raw !== "object") return null;
+  // Gemma envelope strip: payload may live under ``.data`` per the
+  // ``ResponseDataObject<T>`` shape the client unwraps.
+  const root = (raw as { data?: unknown }).data ?? raw;
+  if (!root || typeof root !== "object") return null;
+  const r = root as Record<string, unknown>;
+  const label =
+    (r.label as string) ??
+    (r.value as string) ??
+    (r.name as string) ??
+    "";
+  const definition =
+    (r.definition as string) ??
+    (r.description as string) ??
+    "";
+  const parentsRaw = (r.parents ?? r.parent_labels ?? []) as unknown[];
+  const parents = Array.isArray(parentsRaw)
+    ? parentsRaw
+        .map((p) =>
+          typeof p === "string"
+            ? p
+            : (p as { label?: string }).label ?? "",
+        )
+        .filter((s): s is string => !!s)
+    : [];
+  const ontology =
+    typeof r.ontology === "string"
+      ? r.ontology
+      : typeof r.ontology_short === "string"
+        ? (r.ontology_short as string)
+        : "";
+  if (!label && !definition && parents.length === 0) return null;
+  return {
+    uri,
+    label,
+    definition,
+    parents,
+    ontology,
+    source: "gemma",
+    canonicalUrl: curieToUrl(uri),
+  };
+}
+
+const OLS_TERM_KEY = (uri: string | null) =>
+  ["annotations-term-ols", uri ?? ""] as const;
+
+/** Fetch a term's detail from EBI's Ontology Lookup Service (OLS4).
+ *  Disabled by default — the popover only enables this query when the
+ *  curator clicks "Fetch from OLS" (per Paul 2026-06-13). Single hit
+ *  against the OLS4 search endpoint with a strict-iri filter — that
+ *  lets the resolver find the term across every ontology it indexes
+ *  without us having to guess which ontology the URI belongs to. */
+export function useOlsTerm(
+  uri: string | null | undefined,
+  enabled: boolean,
+) {
+  return useQuery<AnnotationTermDetail | null>({
+    queryKey: OLS_TERM_KEY(uri ?? null),
+    queryFn: async () => {
+      if (!uri) return null;
+      // Resolve CURIEs to full URLs before querying OLS — OLS keys
+      // on IRI, not CURIE.
+      const iri = curieToUrl(uri) ?? uri;
+      const params = new URLSearchParams({
+        iri,
+        rows: "1",
+        fieldList: "label,description,short_form,ontology_name",
+      });
+      const url = `https://www.ebi.ac.uk/ols4/api/terms?${params.toString()}`;
+      try {
+        const resp = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!resp.ok) return null;
+        const json = await resp.json();
+        return parseOlsTerm(json, uri);
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 1000 * 60 * 60,
+    enabled: !!uri && enabled,
+  });
+}
+
+function parseOlsTerm(
+  json: unknown,
+  uri: string,
+): AnnotationTermDetail | null {
+  if (!json || typeof json !== "object") return null;
+  const root = json as { _embedded?: { terms?: unknown[] } };
+  const terms = root._embedded?.terms ?? [];
+  if (!Array.isArray(terms) || terms.length === 0) return null;
+  const t = terms[0] as Record<string, unknown>;
+  const label =
+    typeof t.label === "string"
+      ? t.label
+      : Array.isArray(t.label)
+        ? (t.label[0] as string)
+        : "";
+  const descArr = t.description as unknown;
+  const definition = Array.isArray(descArr)
+    ? (descArr[0] as string)
+    : typeof descArr === "string"
+      ? descArr
+      : "";
+  const ontology =
+    typeof t.ontology_name === "string" ? (t.ontology_name as string) : "";
+  if (!label && !definition) return null;
+  return {
+    uri,
+    label,
+    definition,
+    parents: [],
+    ontology,
+    source: "ols",
+    canonicalUrl: `https://www.ebi.ac.uk/ols4/search?q=${encodeURIComponent(uri)}`,
+  };
 }

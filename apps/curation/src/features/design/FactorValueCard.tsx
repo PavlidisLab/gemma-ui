@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { InlineText } from "@/components/ui/InlineText";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { Term } from "@/components/ui/Term";
-import { shortenUri } from "@/lib/curie";
 import {
   StatementEditor,
   StatementGroupEditor,
@@ -578,16 +578,10 @@ function CompactStatementRow({
     <div className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]">
       {hideSubjectLabel ? (
         subjUri ? (
-          <a
-            href={subjUri}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400 hover:underline"
-            title={subjUri}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {shortenUri(subjUri)}
-          </a>
+          <CurieLink
+            uri={subjUri}
+            className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer bg-transparent border-0 p-0"
+          />
         ) : null
       ) : (
         <Term

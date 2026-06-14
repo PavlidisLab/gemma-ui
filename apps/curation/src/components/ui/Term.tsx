@@ -1,6 +1,7 @@
 import { cn } from "@/lib/cn";
-import { curieToUrl, shortenUri } from "@/lib/curie";
+import { curieToUrl } from "@/lib/curie";
 import type { ReactNode } from "react";
+import { CurieLink } from "./CurieLink";
 
 /**
  * One ontology term, rendered as an inline chip.
@@ -63,67 +64,34 @@ export function Term({
   const isLink = asLink && !!uri && effectiveVariant !== "free";
   const tooltipUri = uri || undefined;
 
-  // CURIE-as-link: when the outer chip is NOT itself a link
-  // (asLink={false} sites — audit editor for inline edits, FV-cell
-  // pickers, etc.) the small ``EFO:0005263`` portion still becomes
-  // its own clickable link to the OBO URL. ``stopPropagation`` keeps
-  // a click on the CURIE from also firing the parent card's
-  // expand / collapse / disposition handlers. Skip the inner anchor
-  // when the outer chip IS already a link — nested ``<a>`` is
-  // invalid HTML and the outer anchor handles the click anyway. Per
-  // Paul 2026-06-13: "I want these little things to have a way to
-  // actually navigate to the URL — but it has to play nice with
-  // other clicks".
-  const curieElement = uri ? (
-    isLink ? (
-      <span
-        className="text-slate-400 ml-1 font-mono text-[10px] whitespace-nowrap"
-        title={tooltipUri}
-      >
-        {shortenUri(uri)}
-      </span>
-    ) : (
+  // CURIE inline → ALWAYS opens the modular CuriePopover (label /
+  // definition / parents from Gemma; explicit "Fetch from OLS"
+  // button when Gemma doesn't know the term). ``CurieLink`` stops
+  // click bubbling so the surrounding card / row / cell doesn't
+  // react. Per Paul 2026-06-13: "make sure this is a modular item
+  // that shows up for all places ontology terms go".
+  //
+  // The outer chip is a span (not an anchor) so the popover-button
+  // inside is valid HTML. When ``asLink`` is set, the LABEL portion
+  // wraps in its own ``<a>`` — clicking the term name still opens
+  // the OBO page in a new tab, but clicking the small CURIE opens
+  // the inline popover instead. Two distinct click-targets, no
+  // nested anchors.
+  const labelNode =
+    isLink && uri ? (
       <a
         href={curieToUrl(uri) ?? uri}
         target="_blank"
         rel="noopener noreferrer"
         title={tooltipUri}
         onClick={(e) => e.stopPropagation()}
-        className="text-slate-400 hover:text-slate-200 ml-1 font-mono text-[10px] whitespace-nowrap no-underline hover:underline"
+        className="no-underline hover:underline"
       >
-        {shortenUri(uri)}
+        {children}
       </a>
-    )
-  ) : null;
-
-  const inner = (
-    <>
-      {children}
-      {curieElement}
-    </>
-  );
-
-  if (isLink) {
-    return (
-      <a
-        href={curieToUrl(uri) ?? uri!}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={tooltipUri}
-        className={cn(
-          "term",
-          effectiveVariant !== "default" && effectiveVariant,
-          "no-underline hover:underline",
-          className,
-        )}
-        // Stop click bubbling so a Term inside a clickable card row
-        // doesn't double-fire the row's handler.
-        onClick={(e) => e.stopPropagation()}
-      >
-        {inner}
-      </a>
+    ) : (
+      children
     );
-  }
 
   return (
     <span
@@ -134,7 +102,12 @@ export function Term({
       )}
       title={tooltipUri}
     >
-      {inner}
+      {labelNode}
+      {uri ? (
+        <span className="ml-1">
+          <CurieLink uri={uri} title={tooltipUri} />
+        </span>
+      ) : null}
     </span>
   );
 }

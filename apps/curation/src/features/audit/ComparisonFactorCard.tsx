@@ -60,7 +60,7 @@ import {
 } from "@/features/comparison/useSourceAvailability";
 import type { Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
-import { shortenUri } from "@/lib/curie";
+import { CurieLink } from "@/components/ui/CurieLink";
 import {
   FactorComparisonGrid,
   pairFvs as sharedPairFvs,
@@ -99,15 +99,14 @@ const Term: FvTermRenderer = ({ label, uri, variant }) => {
     >
       <span>{label}</span>
       {uri ? (
-        // Render the URI as a proper CURIE ("EFO:0000513") via the
-        // shared ``shortenUri`` helper, mirroring the convention used
-        // everywhere else in the audit + design surfaces. The previous
-        // bare last-segment split produced the underscore form
-        // ("EFO_0000513") which read as a malformed ID. Per Paul
-        // 2026-06-12.
-        <span className="text-[9px] font-mono text-emerald-700/70 dark:text-emerald-300/70">
-          {shortenUri(uri)}
-        </span>
+        // CURIE rendered via the modular ``CurieLink`` so clicks open
+        // the inline term-detail popover (Gemma / OLS). Per Paul
+        // 2026-06-13. The popover stops click bubbling so the
+        // surrounding card doesn't react.
+        <CurieLink
+          uri={uri}
+          className="text-[9px] font-mono text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
+        />
       ) : null}
     </span>
   );

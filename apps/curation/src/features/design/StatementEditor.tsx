@@ -2,8 +2,8 @@ import { useState } from "react";
 import { CategoryPicker } from "./CategoryPicker";
 import { OntologyTermPicker } from "./OntologyTermPicker";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
-import { shortenUri } from "@/lib/curie";
 import { PREDICATE_GUIDELINE } from "@/lib/guidelines";
 import type { OntologyTerm, Statement } from "@/features/experiment/types";
 
@@ -114,8 +114,8 @@ export function StatementEditor({
         }
       />
       {statement.subject.uri ? (
-        <span className="text-slate-400 text-[10px]">
-          {shortenUri(statement.subject.uri)}
+        <span className="text-[10px]">
+          <CurieLink uri={statement.subject.uri} />
         </span>
       ) : null}
 
@@ -179,8 +179,8 @@ export function StatementEditor({
             }
           />
           {statement.object?.uri ? (
-            <span className="text-slate-400 text-[10px]">
-              {shortenUri(statement.object.uri)}
+            <span className="text-[10px]">
+              <CurieLink uri={statement.object.uri} />
             </span>
           ) : null}
         </>
@@ -327,8 +327,8 @@ export function StatementGroupEditor({
           onCommit={setSharedSubject}
         />
         {head.subject.uri ? (
-          <span className="text-slate-400 text-[10px]">
-            {shortenUri(head.subject.uri)}
+          <span className="text-[10px]">
+            <CurieLink uri={head.subject.uri} />
           </span>
         ) : null}
       </div>
@@ -419,8 +419,8 @@ function InlinePredicateObjectPair({
             onCommit={(next) => onChange({ ...statement, object: next })}
           />
           {statement.object?.uri ? (
-            <span className="text-slate-400 text-[10px]">
-              {shortenUri(statement.object.uri)}
+            <span className="text-[10px]">
+              <CurieLink uri={statement.object.uri} />
             </span>
           ) : null}
         </>

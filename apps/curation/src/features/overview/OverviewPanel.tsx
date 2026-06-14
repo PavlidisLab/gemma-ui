@@ -4,6 +4,7 @@ import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
 import { usePubmedMetadata } from "@/api/pubmed";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -2367,16 +2368,10 @@ function EditableDirectGroupChip({
               >
                 <span>{tag.value.label || "(blank)"}</span>
                 {tag.value.uri ? (
-                  <a
-                    href={tag.value.uri}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    title={`${tag.value.uri} (opens in new tab)`}
-                    className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap"
-                  >
-                    {shortenUri(tag.value.uri)}
-                  </a>
+                  <CurieLink
+                    uri={tag.value.uri}
+                    className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
+                  />
                 ) : null}
                 <AuditDot
                   targetId={tagTarget(tag.category.label, tag.value.label)}
