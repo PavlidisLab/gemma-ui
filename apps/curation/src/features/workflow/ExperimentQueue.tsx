@@ -30,8 +30,16 @@ import { taskKindHeaderLabel } from "./nextTask";
 import { SetProgressBar } from "@/components/ui/SetProgressBar";
 import { progressFromGroup } from "./setProgress";
 import { cn } from "@/lib/cn";
+import { useStickyState } from "@/lib/useStickyState";
 
-const PAGE_SIZE = 50;
+/** Default page size — set high enough that the typical ticket
+ *  (≤200 members) fits in one page, so the curator doesn't see a
+ *  partial slice on a fresh view. Paul 2026-06-14: "I wish I could
+ *  say pages weren't necessary — maybe we should put that feature
+ *  off, and just extend what you have now to have a user-settable
+ *  number per page, with a default of 200." */
+const PAGE_SIZE_DEFAULT = 200;
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
 
 // ---------------------------------------------------------------------------
 // Sort selector
@@ -136,6 +144,12 @@ function FilterBar({
   sort,
   onSort,
   counts,
+  pageSize,
+  onPageSize,
+  total,
+  offset,
+  onPrev,
+  onNext,
 }: {
   active: QuickFilter;
   onChange: (f: QuickFilter) => void;
@@ -150,7 +164,20 @@ function FilterBar({
    *  chips emptied the list silently. Counts make the filter
    *  effect legible. */
   counts: Record<QuickFilter, number>;
+  /** Page-size dropdown — Paul 2026-06-14: "extend what you have now
+   *  to have a user-settable number per page, with a default of 200."
+   *  Persisted in localStorage via useStickyState upstream. */
+  pageSize: number;
+  onPageSize: (n: number) => void;
+  /** Pagination state — surfaced inline so it sits at the TOP of the
+   *  list (was below the rows; Paul wanted it up here). */
+  total: number;
+  offset: number;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + pageSize, total);
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex-wrap bg-white dark:bg-slate-900 sticky top-0 z-10">
       <input
@@ -187,10 +214,55 @@ function FilterBar({
           );
         })}
       </div>
+      {/* Pagination + page-size — sits at the top per Paul 2026-06-14
+          ("the page navigation should be at the top"). Hidden when
+          the whole list fits in one page since there's nothing to
+          paginate. */}
+      {total > pageSize ? (
+        <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300">
+          <button
+            type="button"
+            onClick={onPrev}
+            disabled={offset === 0}
+            title="Previous page"
+            className="px-1 font-bold text-[14px] leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            ‹
+          </button>
+          <span className="tabular-nums">
+            {from}–{to} of {total}
+          </span>
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={to >= total}
+            title="Next page"
+            className="px-1 font-bold text-[14px] leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            ›
+          </button>
+        </span>
+      ) : (
+        <span className="ml-auto text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+          {total} {total === 1 ? "experiment" : "experiments"}
+        </span>
+      )}
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        title="Page size"
+        className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      >
+        {PAGE_SIZE_OPTIONS.map((n) => (
+          <option key={n} value={n}>
+            {n}/page
+          </option>
+        ))}
+      </select>
       <select
         value={sort}
         onChange={(e) => onSort(e.target.value as SortKey)}
-        className="ml-auto text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
       >
         {SORT_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
@@ -202,49 +274,9 @@ function FilterBar({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Pagination bar
-// ---------------------------------------------------------------------------
-
-function PaginationBar({
-  offset,
-  limit,
-  total,
-  onPrev,
-  onNext,
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  onPrev: () => void;
-  onNext: () => void;
-}) {
-  const from = total === 0 ? 0 : offset + 1;
-  const to = Math.min(offset + limit, total);
-  return (
-    <div className="flex items-center justify-between px-4 py-2 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-500 dark:text-slate-400 shrink-0">
-      <span>
-        {from}–{to} of {total.toLocaleString()}
-      </span>
-      <div className="flex items-center gap-1">
-        <button
-          disabled={offset === 0}
-          onClick={onPrev}
-          className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-        >
-          ‹ Prev
-        </button>
-        <button
-          disabled={offset + limit >= total}
-          onClick={onNext}
-          className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-        >
-          Next ›
-        </button>
-      </div>
-    </div>
-  );
-}
+// Pagination moved into FilterBar 2026-06-14 — the standalone
+// ``PaginationBar`` is gone. The "‹ N–M of TOTAL ›" cluster lives at
+// the top-right of the filter row.
 
 // ---------------------------------------------------------------------------
 // Export-Set button
@@ -507,6 +539,10 @@ export function ExperimentQueue({
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("-lastUpdated");
   const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useStickyState<number>(
+    "experimentQueue.pageSize",
+    PAGE_SIZE_DEFAULT,
+  );
 
   // ``includeSummaries`` so the header progress bar can roll up
   // per-member audit_status without an extra round trip.
@@ -527,7 +563,7 @@ export function ExperimentQueue({
   const { data: page, isLoading, isFetching } = useDatasetsPaginated({
     query: search.trim() || undefined,
     sort,
-    limit: PAGE_SIZE,
+    limit: pageSize,
     offset,
     ids: scopeIds,
   });
@@ -589,18 +625,27 @@ export function ExperimentQueue({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFilter, allRows, statusMap, ticketTargetStatusById]);
 
-  // Per-filter counts for the chip labels. Surfaced on the chips so
-  // a curator-with-1-experiment ticket can SEE that 3 of 4 buckets
-  // are empty, rather than perceiving the filter as broken when most
-  // chips empty the list silently.
+  // Per-filter counts for the chip labels. In a ticket context the
+  // counts come from the ticket's target list (ALL targets, not just
+  // the rows on the current page) so "Started (12)" actually means
+  // "12 across the whole ticket", not "12 of the 50 visible." Paul
+  // 2026-06-14: "this is showing the page view, not the total."
+  // Outside ticket context (group / global queue), fall back to
+  // counting over the visible page — the only signal available.
   const filterCounts = useMemo<Record<QuickFilter, number>>(() => {
     const counts: Record<QuickFilter, number> = {
-      all: allRows.length,
+      all: 0,
       started: 0,
       finished: 0,
       not_started: 0,
     };
-    for (const d of allRows) counts[stateFor(d.id)] += 1;
+    if (ticketTargetStatusById.size > 0) {
+      for (const state of ticketTargetStatusById.values()) counts[state] += 1;
+      counts.all = ticketTargetStatusById.size;
+    } else {
+      counts.all = allRows.length;
+      for (const d of allRows) counts[stateFor(d.id)] += 1;
+    }
     return counts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allRows, statusMap, ticketTargetStatusById]);
@@ -703,6 +748,15 @@ export function ExperimentQueue({
         sort={sort}
         onSort={changeSort}
         counts={filterCounts}
+        pageSize={pageSize}
+        onPageSize={(n) => {
+          setPageSize(n);
+          setOffset(0);
+        }}
+        total={total}
+        offset={offset}
+        onPrev={() => setOffset((o) => Math.max(0, o - pageSize))}
+        onNext={() => setOffset((o) => o + pageSize)}
       />
 
       {/* Row list */}
@@ -737,16 +791,8 @@ export function ExperimentQueue({
         ))}
       </div>
 
-      {/* Pagination */}
-      {total > 0 && (
-        <PaginationBar
-          offset={offset}
-          limit={PAGE_SIZE}
-          total={total}
-          onPrev={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-          onNext={() => setOffset((o) => o + PAGE_SIZE)}
-        />
-      )}
+      {/* Pagination moved to the top per Paul 2026-06-14 — see the
+          inline cluster in FilterBar above. */}
     </div>
   );
 }
