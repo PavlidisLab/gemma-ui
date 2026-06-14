@@ -65,6 +65,7 @@ import { resolveCuration } from "@/features/comparison/resolveCuration";
 import { CurieLink } from "@/components/ui/CurieLink";
 import {
   FactorComparisonGrid,
+  continuousValuesFrom,
   pairFvs as sharedPairFvs,
   type FactorComparisonPair,
 } from "./factorComparison/FactorComparisonGrid";
@@ -682,7 +683,7 @@ export function ComparisonFactorCard({
     );
 
   async function dispatch(
-    next: "accepted" | "dismissed" | "needs_more_info",
+    next: "accepted" | "dismissed" | "needs_more_info" | "pending",
     extras?: { dismissReason?: DismissReason; notes?: string },
   ) {
     setBusy(true);
@@ -890,6 +891,50 @@ export function ComparisonFactorCard({
             pairs={pairs}
             termRenderer={Term}
             loading={factorsAreLoading}
+            // Continuous-mode swap: when either side declares
+            // factor_type=continuous, the index-by-index pair grid is
+            // the wrong shape — Gemma's gold has one FV per
+            // measurement (40 for GSE9904 age) while the agent
+            // dedups to unique values (28), and the labelled rows
+            // misalign. The ContinuousStrip puts both sides on a
+            // shared numeric axis so agreement reads visually
+            // (filled = live dot, ring = agent dot, emerald ring =
+            // matched value).
+            continuous={(() => {
+              // Schema vocabulary clash: gold-side FactorD names the
+              // field ``type`` (camelCase identity, stays ``type``
+              // after client.ts snakeification); agent-side
+              // FactorProposal names it ``factor_type`` (snakeified
+              // from ``factorType``). Read both so a continuous
+              // factor on either side flips the body to the strip.
+              const lAny = leftFactor as {
+                factor_type?: string;
+                type?: string;
+              } | null;
+              const rAny = rightFactor as {
+                factor_type?: string;
+                type?: string;
+              } | null;
+              const lType = lAny?.factor_type ?? lAny?.type;
+              const rType = rAny?.factor_type ?? rAny?.type;
+              if (lType !== "continuous" && rType !== "continuous") {
+                return undefined;
+              }
+              return {
+                left: continuousValuesFrom(
+                  (leftFactor as { factor_values?: unknown[] } | null)
+                    ?.factor_values as Parameters<
+                    typeof continuousValuesFrom
+                  >[0],
+                ),
+                right: continuousValuesFrom(
+                  (rightFactor as { factor_values?: unknown[] } | null)
+                    ?.factor_values as Parameters<
+                    typeof continuousValuesFrom
+                  >[0],
+                ),
+              };
+            })()}
             onLeftLocate={
               leftFactor && leftFactor.category?.label
                 ? () =>
@@ -942,11 +987,14 @@ export function ComparisonFactorCard({
             // visual cue (matches CompactFindingCard). No status pill
             // (Paul 2026-06-12: "others don't say 'accepted' — I don't
             // think we need that") — just a tiny undo link so a
-            // misclick is reversible.
+            // misclick is reversible. Dispatches ``pending`` so the
+            // card returns to the action row; the earlier
+            // ``needs_more_info`` dispatch 422'd because that status
+            // requires a ``not_sure_reason`` (Paul 2026-06-14).
             <button
               type="button"
               disabled={busy}
-              onClick={() => dispatch("needs_more_info")}
+              onClick={() => dispatch("pending")}
               className="text-[10px] text-slate-500 hover:text-slate-800 underline underline-offset-2 dark:text-slate-400 dark:hover:text-slate-100 disabled:opacity-50"
               title="Revert this card to pending and edit the disposition"
             >
