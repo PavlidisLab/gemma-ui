@@ -1897,21 +1897,27 @@ export function TicketContextChip({
       >
         ›
       </button>
-      {/* Dropdown trigger — its own button now, separate from the
-          counter. Paul 2026-06-14: "the drop-down has to be its own
-          thing." */}
+      {/* Dropdown trigger — its own bordered chip, visually peer to
+          the back-link chip on the left. Paul 2026-06-14: "the box
+          for going back to the ticket has to be separate from the
+          one for the dropdown." Same violet palette so the two
+          boxes read as a pair of ticket affordances, distinct from
+          each other but obviously related. */}
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "px-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700/40 cursor-pointer",
-          open && "bg-slate-200/80 dark:bg-slate-700/60 text-slate-900 dark:text-slate-100",
+          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer",
+          "border-violet-300 bg-violet-100 text-violet-800",
+          "hover:bg-violet-200",
+          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
+          open && "ring-2 ring-offset-1 ring-violet-400/50",
         )}
         title="Show ticket members"
         aria-label="ticket members"
       >
-        ▾
+        <span aria-hidden>▾</span>
       </button>
       {/* Current target's status — Paul 2026-06-14: "its current
           status in the ticket should be visible (started, closed…)." */}
@@ -2077,11 +2083,19 @@ function TicketNavigatorPopover({
             </a>
           </span>
         </div>
-        {/* Position caption removed — counter + ‹ › buttons next to
-            the header chip cover the same ground. The "Open ticket
-            ↗" link inside this popover is also redundant now that
-            the chip itself is a back-link, but kept for the
-            keyboard-only path. */}
+        {/* Progress indication — Paul 2026-06-14: the popover should
+            still surface the curator's position in the ticket.
+            Dropped the "[ and ] keys to navigate" tail since those
+            are now click affordances next to the chip. */}
+        {targets.length > 0 ? (
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+            {currentIdx >= 0
+              ? `${currentIdx + 1} of ${targets.length}`
+              : `not on ticket · ${targets.length} member${
+                  targets.length === 1 ? "" : "s"
+                }`}
+          </div>
+        ) : null}
       </div>
       <div className="p-2 border-b border-slate-100 dark:border-slate-700">
         <input
