@@ -63,17 +63,43 @@ export function Term({
   const isLink = asLink && !!uri && effectiveVariant !== "free";
   const tooltipUri = uri || undefined;
 
+  // CURIE-as-link: when the outer chip is NOT itself a link
+  // (asLink={false} sites — audit editor for inline edits, FV-cell
+  // pickers, etc.) the small ``EFO:0005263`` portion still becomes
+  // its own clickable link to the OBO URL. ``stopPropagation`` keeps
+  // a click on the CURIE from also firing the parent card's
+  // expand / collapse / disposition handlers. Skip the inner anchor
+  // when the outer chip IS already a link — nested ``<a>`` is
+  // invalid HTML and the outer anchor handles the click anyway. Per
+  // Paul 2026-06-13: "I want these little things to have a way to
+  // actually navigate to the URL — but it has to play nice with
+  // other clicks".
+  const curieElement = uri ? (
+    isLink ? (
+      <span
+        className="text-slate-400 ml-1 font-mono text-[10px] whitespace-nowrap"
+        title={tooltipUri}
+      >
+        {shortenUri(uri)}
+      </span>
+    ) : (
+      <a
+        href={curieToUrl(uri) ?? uri}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={tooltipUri}
+        onClick={(e) => e.stopPropagation()}
+        className="text-slate-400 hover:text-slate-200 ml-1 font-mono text-[10px] whitespace-nowrap no-underline hover:underline"
+      >
+        {shortenUri(uri)}
+      </a>
+    )
+  ) : null;
+
   const inner = (
     <>
       {children}
-      {uri ? (
-        <span
-          className="text-slate-400 ml-1 font-mono text-[10px] whitespace-nowrap"
-          title={tooltipUri}
-        >
-          {shortenUri(uri)}
-        </span>
-      ) : null}
+      {curieElement}
     </>
   );
 
