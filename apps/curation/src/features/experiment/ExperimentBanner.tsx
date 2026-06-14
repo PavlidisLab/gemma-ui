@@ -1840,32 +1840,78 @@ export function TicketContextChip({
   const chipLabel =
     ticket.title.length > 32 ? `${ticket.title.slice(0, 32)}…` : ticket.title;
 
+  // Prev / next navigation around the position counter — replaces
+  // the popover-only "[ and ] keys to navigate" hint, which Paul
+  // 2026-06-14 called "not that useful." The chip itself is now a
+  // direct back-link to the ticket detail page (no popover trigger);
+  // the popover hangs off the counter / ▾ glyph instead.
+  const currentTarget = idx >= 0 ? expTargets[idx] : null;
+  const prevTarget = idx > 0 ? expTargets[idx - 1] : null;
+  const nextTarget = idx >= 0 && idx < total - 1 ? expTargets[idx + 1] : null;
+  function navigateTo(targetId: number): void {
+    navigate(`#/experiments/${targetId}?ticket=${ticketId}`);
+  }
   return (
-    <span ref={wrapRef} className="relative inline-flex items-center gap-1 text-[11px]">
+    <span ref={wrapRef} className="relative inline-flex items-center gap-1.5 text-[11px]">
+      {/* Chip = direct back-link to ticket detail. */}
+      <a
+        href={`#/tickets/${ticketId}`}
+        className={cn(
+          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer no-underline",
+          "border-violet-300 bg-violet-100 text-violet-800",
+          "hover:bg-violet-200 hover:no-underline",
+          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
+          "max-w-[20rem]",
+        )}
+        title={`Back to ticket: ${ticket.title}`}
+      >
+        <span aria-hidden>←</span>
+        <span className="truncate">Ticket: {chipLabel}</span>
+      </a>
+      {/* prev / counter+popover / next nav cluster. Counter is the
+          popover trigger; flanking buttons walk the target list one
+          step at a time. */}
+      <button
+        type="button"
+        onClick={() => prevTarget && navigateTo(prevTarget.target_id)}
+        disabled={!prevTarget}
+        title="Previous member (also: [ key)"
+        aria-label="previous member"
+        className="text-[14px] font-bold leading-none text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:text-slate-100 dark:disabled:text-slate-600 px-0.5"
+      >
+        ‹
+      </button>
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer",
-          "border-violet-300 bg-violet-100 text-violet-800",
-          "hover:bg-violet-200",
-          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
-          open && "ring-2 ring-offset-1 ring-violet-400/50",
+          "font-mono tabular-nums px-1 py-0 rounded text-slate-700 dark:text-slate-200",
+          "hover:bg-slate-200/60 dark:hover:bg-slate-700/40 cursor-pointer",
+          open && "bg-slate-200/80 dark:bg-slate-700/60",
         )}
-        title={`${ticket.title} — click to see ticket members`}
+        title="Show ticket members"
       >
-        <span>Ticket: {chipLabel}</span>
-        <span className="text-[10px] text-violet-700/70 dark:text-violet-300/70 tabular-nums">
-          {total}
-        </span>
-        <span className="text-violet-700/70 dark:text-violet-300/70" aria-hidden>
+        {idx >= 0 ? idx + 1 : "?"}/{total}{" "}
+        <span aria-hidden className="text-slate-400 dark:text-slate-500">
           ▾
         </span>
       </button>
-      <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300">
-        {idx >= 0 ? idx + 1 : "?"}/{total}
-      </span>
+      <button
+        type="button"
+        onClick={() => nextTarget && navigateTo(nextTarget.target_id)}
+        disabled={!nextTarget}
+        title="Next member (also: ] key)"
+        aria-label="next member"
+        className="text-[14px] font-bold leading-none text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:text-slate-100 dark:disabled:text-slate-600 px-0.5"
+      >
+        ›
+      </button>
+      {/* Current target's status — Paul 2026-06-14: "its current
+          status in the ticket should be visible (started, closed…)." */}
+      {currentTarget?.status ? (
+        <TicketTargetStatusPill status={currentTarget.status} />
+      ) : null}
       {open ? (
         <TicketNavigatorPopover
           ticketId={ticketId}
@@ -1876,6 +1922,40 @@ export function TicketContextChip({
           onClose={() => setOpen(false)}
         />
       ) : null}
+    </span>
+  );
+}
+
+/** Small pill rendering a ticket target's current status — surfaces
+ *  the curator's progress on THIS experiment within the ticket
+ *  (NOT_DONE / UNDERWAY / DONE) inline next to the ticket nav
+ *  cluster. */
+function TicketTargetStatusPill({
+  status,
+}: {
+  status: "NOT_DONE" | "UNDERWAY" | "DONE";
+}) {
+  const map = {
+    NOT_DONE: {
+      label: "Not started",
+      cls: "border-slate-300 text-slate-600 bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:bg-slate-800",
+    },
+    UNDERWAY: {
+      label: "Started",
+      cls: "border-amber-300 text-amber-800 bg-amber-50 dark:border-amber-700 dark:text-amber-200 dark:bg-amber-900/30",
+    },
+    DONE: {
+      label: "Done",
+      cls: "border-emerald-300 text-emerald-800 bg-emerald-50 dark:border-emerald-700 dark:text-emerald-200 dark:bg-emerald-900/30",
+    },
+  } as const;
+  const m = map[status];
+  return (
+    <span
+      className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border ${m.cls}`}
+      title={`This experiment's status on the ticket: ${m.label}`}
+    >
+      {m.label}
     </span>
   );
 }
@@ -1991,15 +2071,11 @@ function TicketNavigatorPopover({
             </a>
           </span>
         </div>
-        {targets.length > 0 ? (
-          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
-            {currentIdx >= 0
-              ? `${currentIdx + 1} of ${targets.length}  ·  [ and ] keys to navigate`
-              : `not on ticket · ${targets.length} member${
-                  targets.length === 1 ? "" : "s"
-                }`}
-          </div>
-        ) : null}
+        {/* Position caption removed — counter + ‹ › buttons next to
+            the header chip cover the same ground. The "Open ticket
+            ↗" link inside this popover is also redundant now that
+            the chip itself is a back-link, but kept for the
+            keyboard-only path. */}
       </div>
       <div className="p-2 border-b border-slate-100 dark:border-slate-700">
         <input
