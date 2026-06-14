@@ -29,6 +29,7 @@ export function FactorValueCard({
   onLabelChange,
   onToggleBaseline,
   onDelete,
+  onDuplicate,
   onAddStatement,
   onAddSiblingStatement,
   onAddStatementFromTemplate,
@@ -50,6 +51,11 @@ export function FactorValueCard({
   onLabelChange: (label: string) => void;
   onToggleBaseline: () => void;
   onDelete: () => void;
+  /** Optional clone affordance — when wired, the FV header surfaces a
+   *  "Duplicate" button. Clone semantics: copy label + statements,
+   *  clear sample assignment + baseline (per
+   *  ``duplicateFactorValue`` in mutations.ts). Paul 2026-06-14. */
+  onDuplicate?: () => void;
   onAddStatement: () => void;
   /** Append a statement that inherits the seed's category + subject
    *  (predicate / object blank). Used by the "+ sibling" action in
@@ -300,7 +306,7 @@ export function FactorValueCard({
             <button
               type="button"
               onClick={onRevert}
-              className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-700 hover:text-rose-700 underline-offset-2 hover:underline dark:text-amber-400 dark:hover:text-rose-400"
+              className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50"
               title={
                 change.kind === "added"
                   ? "discard this FV — it didn't exist on the saved baseline"
@@ -309,8 +315,8 @@ export function FactorValueCard({
                     : "discard your edits to this FV (label, baseline, statements, sample assignments) and restore from saved"
               }
             >
-              <span aria-hidden className="text-[12px] leading-none">↺</span>
-              revert
+              <span aria-hidden className="text-[11px] leading-none">↺</span>
+              Undo
             </button>
           ) : null}
         </div>
@@ -322,21 +328,33 @@ export function FactorValueCard({
               {onAssignRemaining && (remainingCount ?? 0) > 0 ? (
                 <button
                   type="button"
-                  className="btn ghost text-xs text-indigo-700"
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:border-indigo-700 dark:text-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50"
                   onClick={onAssignRemaining}
                   title={`Assign all ${remainingCount} unassigned sample(s) to this FV`}
                 >
-                  assign remaining {remainingCount}
+                  Assign remaining {remainingCount}
+                </button>
+              ) : null}
+              {onDuplicate ? (
+                <button
+                  type="button"
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"
+                  onClick={onDuplicate}
+                  title="Duplicate this FV — copies label + statements, clears sample assignment"
+                >
+                  Duplicate
                 </button>
               ) : null}
               <button
-                className="btn ghost text-xs text-rose-700"
+                type="button"
+                className="text-[10px] px-1.5 py-0.5 rounded border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 dark:border-rose-700 dark:text-rose-300 dark:bg-slate-800 dark:hover:bg-rose-900/30"
                 onClick={() => {
                   if (hasContent) setConfirming(true);
                   else onDelete();
                 }}
+                title="Delete this FV"
               >
-                delete FV
+                Delete
               </button>
             </>
           )}
@@ -499,7 +517,7 @@ export function FactorValueCard({
                 fv.statements.length === 1 ? "" : "s"
               }.`
         }
-        confirmLabel="delete FV"
+        confirmLabel="Delete"
         onConfirm={() => {
           onDelete();
           setConfirming(false);

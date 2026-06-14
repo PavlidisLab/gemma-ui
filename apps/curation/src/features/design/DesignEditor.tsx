@@ -25,6 +25,8 @@ import {
   assignRemainingBiomaterials,
   deleteFactor,
   deleteFactorValue,
+  duplicateFactorValue,
+  findDuplicateFactorPairs,
   deleteStatement,
   reassignSamples,
   revertFactor,
@@ -107,6 +109,15 @@ export function DesignEditor({
 
   const validation = useMemo(
     () => (draft ? validateDesign(draft) : null),
+    [draft],
+  );
+
+  // Perfect-duplicate factor detection (Paul 2026-06-14): equality
+  // keys on the statement-set, NOT FV labels. Surface as a soft
+  // warning above the FactorList so the curator notices before they
+  // commit a redundant pair.
+  const duplicatePairs = useMemo(
+    () => (draft ? findDuplicateFactorPairs(draft) : []),
     [draft],
   );
 
@@ -263,6 +274,43 @@ export function DesignEditor({
           onSelectFactor={(factorId) => setSelectedFactorId(factorId)}
         />
       ) : null}
+      {duplicatePairs.length > 0 ? (
+        <div className="text-[11px] rounded border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1.5 mb-2 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100">
+          <span className="font-semibold">
+            {duplicatePairs.length === 1
+              ? "Duplicate factor"
+              : `${duplicatePairs.length} duplicate factor pairs`}
+            :{" "}
+          </span>
+          {duplicatePairs.slice(0, 3).map((p, i) => (
+            <span key={`${p.a.id}-${p.b.id}`}>
+              {i > 0 ? "; " : ""}
+              <button
+                type="button"
+                onClick={() => setSelectedFactorId(p.a.id)}
+                className="underline underline-offset-2 hover:text-amber-700"
+              >
+                {p.a.category.label || `factor ${p.a.id}`}
+              </button>
+              {" ≡ "}
+              <button
+                type="button"
+                onClick={() => setSelectedFactorId(p.b.id)}
+                className="underline underline-offset-2 hover:text-amber-700"
+              >
+                {p.b.category.label || `factor ${p.b.id}`}
+              </button>
+            </span>
+          ))}
+          {duplicatePairs.length > 3 ? (
+            <span className="italic"> · and more</span>
+          ) : null}
+          <div className="text-[10px] italic mt-0.5 text-amber-800 dark:text-amber-200">
+            Equality is by statement-set (FV labels can differ). Delete
+            or edit one of each pair before committing.
+          </div>
+        </div>
+      ) : null}
       <ExperimentDecisionsSection
         draft={draft}
         readOnly={readOnly}
@@ -366,6 +414,14 @@ export function DesignEditor({
               onDeleteFv={(fvId) =>
                 apply(deleteFactorValue(draft, selectedFactor.id, fvId))
               }
+              onDuplicateFv={(fvId) => {
+                const result = duplicateFactorValue(
+                  draft,
+                  selectedFactor.id,
+                  fvId,
+                );
+                if (result) apply(result.design);
+              }}
               onAddStatement={(fvId) =>
                 apply(addStatement(draft, selectedFactor.id, fvId))
               }

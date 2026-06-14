@@ -187,13 +187,15 @@ export function StatementEditor({
       ) : null}
 
       <button
-        className="btn ghost text-xs text-rose-700 ml-auto"
+        type="button"
+        className="text-[10px] px-1.5 py-0.5 rounded border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 ml-auto dark:border-rose-700 dark:text-rose-300 dark:bg-slate-800 dark:hover:bg-rose-900/30"
         onClick={() => {
           if (hasContent) setConfirming(true);
           else onDelete();
         }}
+        title="Delete this statement"
       >
-        remove
+        Delete
       </button>
 
       <ConfirmModal
@@ -208,7 +210,7 @@ export function StatementEditor({
             .filter(Boolean)
             .join(" · ")
         }
-        confirmLabel="remove"
+        confirmLabel="Delete"
         onConfirm={() => {
           onDelete();
           setConfirming(false);

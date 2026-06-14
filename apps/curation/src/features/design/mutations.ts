@@ -104,24 +104,161 @@ function nextFactorId(design: Design): number {
  * factor's id so the caller can auto-select it.
  *
  * Defaults: blank name, blank category (curator fills it in via the
- * picker), categorical type, no factor values yet. The validator
- * will surface "no factor values" once the curator starts looking
- * at it.
+ * picker), categorical type, **two blank FVs** (one baseline + one
+ * non-baseline). The seed FVs save the curator from having to add
+ * them manually in the common case — categorical factors are almost
+ * always binary or higher partition. Paul 2026-06-14: a new factor
+ * "still needs at least two factor values" by definition.
+ *
+ * If a category is known at creation time use ``addFactorFromTemplate``
+ * instead — that path seeds canonical FV labels from
+ * ``FACTOR_TEMPLATES`` (vehicle/drug, wild type/knockout, …).
  */
 export function addFactor(design: Design): { design: Design; factorId: number } {
   const id = nextFactorId(design);
+  const fvIdStart =
+    design.factors.flatMap((f) => f.factor_values).reduce(
+      (m, fv) => Math.max(m, fv.id),
+      0,
+    ) + 1;
   const newFactor: Factor = {
     id,
     name: "",
     category: { label: "", uri: null },
     description: "",
     type: "categorical",
-    factor_values: [],
+    factor_values: [
+      {
+        id: fvIdStart,
+        free_text_label: "",
+        is_baseline: true,
+        biomaterial_short_names: [],
+        statements: [],
+      },
+      {
+        id: fvIdStart + 1,
+        free_text_label: "",
+        is_baseline: false,
+        biomaterial_short_names: [],
+        statements: [],
+      },
+    ],
   };
   return {
     design: { ...design, factors: [...design.factors, newFactor] },
     factorId: id,
   };
+}
+
+/** Statement-set signature for a factor — used to flag perfect
+ *  duplicate factors. Two factors are considered "perfect duplicates"
+ *  when their FVs share the exact same statement triples (category /
+ *  subject / predicate / object on URI when present, label otherwise)
+ *  regardless of curator-typed FV labels. Paul 2026-06-14: "the
+ *  statements define equality for this purpose."
+ *
+ *  The signature is deterministic across FV order — statements are
+ *  sorted within each FV, FV signatures are sorted within the factor —
+ *  so reordering doesn't break the match. Empty / FV-less factors
+ *  return an empty signature; two such factors are NOT flagged as
+ *  duplicates of each other (no information to compare yet).
+ */
+export function factorStatementSignature(factor: Factor): string {
+  const part = (
+    t: { label?: string | null; uri?: string | null } | null | undefined,
+  ): string =>
+    t ? t.uri || (t.label || "").toLowerCase().trim() : "";
+  const stKey = (s: Statement): string =>
+    [part(s.category), part(s.subject), part(s.predicate), part(s.object)].join(
+      "|",
+    );
+  const fvKey = (fv: FactorValue): string => {
+    const stmts = fv.statements.map(stKey).sort().join(";");
+    return stmts;
+  };
+  // Drop empty-statement FVs from the signature so a curator who's
+  // just added a blank seed FV doesn't trigger spurious duplicate
+  // matches against any other factor that also has a blank seed FV.
+  const fvs = factor.factor_values
+    .map(fvKey)
+    .filter((k) => k.length > 0)
+    .sort();
+  return fvs.join("//");
+}
+
+/** Find perfect-duplicate factor pairs in the design (statement-set
+ *  equality). Returns each pair only once, keyed by the lower
+ *  factor.id so the UI can dedup. */
+export function findDuplicateFactorPairs(
+  design: Design,
+): Array<{ a: Factor; b: Factor; signature: string }> {
+  const sigByFactor = new Map<number, string>();
+  for (const f of design.factors) {
+    const sig = factorStatementSignature(f);
+    if (sig) sigByFactor.set(f.id, sig);
+  }
+  const buckets = new Map<string, Factor[]>();
+  for (const f of design.factors) {
+    const sig = sigByFactor.get(f.id);
+    if (!sig) continue;
+    const arr = buckets.get(sig) ?? [];
+    arr.push(f);
+    buckets.set(sig, arr);
+  }
+  const pairs: Array<{ a: Factor; b: Factor; signature: string }> = [];
+  for (const [sig, arr] of buckets) {
+    if (arr.length < 2) continue;
+    arr.sort((x, y) => x.id - y.id);
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        pairs.push({ a: arr[i], b: arr[j], signature: sig });
+      }
+    }
+  }
+  return pairs;
+}
+
+/** Duplicate an existing FV inside its factor. The clone keeps the
+ *  label / statements / baseline flag of the source but clears
+ *  ``biomaterial_short_names`` — duplicating an FV onto the same
+ *  partition would double-assign samples, which the validator
+ *  rejects, and the more common intent is "start from a similar FV
+ *  and edit the differences." Returns the new design plus the clone's
+ *  id so the caller can auto-select it for editing. */
+export function duplicateFactorValue(
+  design: Design,
+  factorId: number,
+  fvId: number,
+): { design: Design; fvId: number } | null {
+  const factor = design.factors.find((f) => f.id === factorId);
+  if (!factor) return null;
+  const src = factor.factor_values.find((fv) => fv.id === fvId);
+  if (!src) return null;
+  const nextFvId =
+    design.factors
+      .flatMap((f) => f.factor_values)
+      .reduce((m, fv) => Math.max(m, fv.id), 0) + 1;
+  const labelSuffix = src.free_text_label ? `${src.free_text_label} (copy)` : "";
+  const clone: FactorValue = {
+    id: nextFvId,
+    free_text_label: labelSuffix,
+    // A copy can never inherit baseline-ness — there's exactly one
+    // baseline per factor, the source is already it.
+    is_baseline: false,
+    biomaterial_short_names: [],
+    statements: src.statements.map((s) => ({
+      category: s.category ? { ...s.category } : null,
+      subject: { ...s.subject },
+      predicate: s.predicate ? { ...s.predicate } : null,
+      object: s.object ? { ...s.object } : null,
+    })),
+  };
+  const nextFactors = design.factors.map((f) =>
+    f.id === factorId
+      ? { ...f, factor_values: [...f.factor_values, clone] }
+      : f,
+  );
+  return { design: { ...design, factors: nextFactors }, fvId: nextFvId };
 }
 
 /** Create a pre-typed ``collection of material`` factor and append

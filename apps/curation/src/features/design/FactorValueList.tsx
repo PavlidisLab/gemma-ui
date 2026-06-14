@@ -19,6 +19,7 @@ export function FactorValueList({
   onToggleBaseline,
   onAddFv,
   onDeleteFv,
+  onDuplicateFv,
   onAddStatement,
   onAddSiblingStatement,
   onAddStatementFromTemplate,
@@ -52,6 +53,9 @@ export function FactorValueList({
   onToggleBaseline: (fvId: number) => void;
   onAddFv: () => void;
   onDeleteFv: (fvId: number) => void;
+  /** Duplicate an FV inside this factor. Optional — when absent the
+   *  Duplicate button doesn't render. */
+  onDuplicateFv?: (fvId: number) => void;
   onAddStatement: (fvId: number) => void;
   /** "+ sibling" within a StatementGroupEditor — seed the new
    *  statement with the source's category + subject. */
@@ -202,6 +206,9 @@ export function FactorValueList({
             onLabelChange={(label) => onFvLabelChange(fv.id, label)}
             onToggleBaseline={() => onToggleBaseline(fv.id)}
             onDelete={() => onDeleteFv(fv.id)}
+            onDuplicate={
+              onDuplicateFv ? () => onDuplicateFv(fv.id) : undefined
+            }
             onAddStatement={() => onAddStatement(fv.id)}
             onAddSiblingStatement={(seed) =>
               onAddSiblingStatement(fv.id, seed)
