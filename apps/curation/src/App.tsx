@@ -572,7 +572,7 @@ function Shell({
   if (draftLoading && !draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext}>
+        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
           <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
             /
           </span>
@@ -625,7 +625,7 @@ function Shell({
   if (isThin && draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext}>
+        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
           <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
             /
           </span>
@@ -671,7 +671,7 @@ function Shell({
   return (
     <FlowProvider flow={flow}>
     <div className="min-h-screen flex flex-col">
-      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} />
+      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} />
       <TopBar
         experimentId={experimentId}
         experimentShortName={shortName}

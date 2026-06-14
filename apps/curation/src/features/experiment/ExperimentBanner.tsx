@@ -99,7 +99,7 @@ export function ExperimentBanner({
   notesOpen,
   onToggleNotes,
   groupContext,
-  ticketContext,
+  ticketContext: _ticketContext,
   commitBar,
 }: {
   experimentId: number | string;
@@ -248,12 +248,12 @@ export function ExperimentBanner({
              three set chips PLUS a separate paginator for "the active
              one", with the same data echoed twice. Open the active
              chip to navigate. */}
-          {ticketContext ? (
-            <TicketContextChip
-              experimentId={experimentId}
-              ticketContext={ticketContext}
-            />
-          ) : null}
+          {/* TicketContextChip moved 2026-06-14 — Paul: "would it make
+             sense to consolidate this so that the breadcrumb is also
+             the drop-down ui?" The same component now mounts in
+             AppHeader next to the Dashboard button, doubling as the
+             back-affordance + the member-popover trigger. Was a
+             separate violet pill here. */}
           <ExperimentGroupChips
             experimentId={experimentId}
             groupContext={groupContext}
@@ -1797,7 +1797,7 @@ export function TopBar(_props: {
  *  within the ticket's targets ("3/20"), with prev/next arrows
  *  walking the target list — same workflow as the group navigator
  *  for sets. */
-function TicketContextChip({
+export function TicketContextChip({
   experimentId,
   ticketContext,
 }: {
