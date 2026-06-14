@@ -47,6 +47,11 @@ const CURIE_TO_URL_PREFIX: Record<string, string> = {
 export function curieToUrl(uri: string | null | undefined): string | null {
   if (!uri) return null;
   if (/^https?:\/\//i.test(uri)) return uri;
+  // NCBI gene CURIEs carry two colons (``NCBI:gene:948``) so the
+  // generic single-colon split below misses them. Route to the
+  // canonical NCBI Gene page when the shape matches.
+  const ncbi = ncbiGeneIdFromUri(uri);
+  if (ncbi) return ncbiGeneUrl(ncbi);
   const m = uri.match(/^([A-Za-z][A-Za-z0-9]*):(.+)$/);
   if (m) {
     const prefix = CURIE_TO_URL_PREFIX[m[1]];
@@ -54,6 +59,30 @@ export function curieToUrl(uri: string | null | undefined): string | null {
     return `https://www.ebi.ac.uk/ols4/search?q=${encodeURIComponent(uri)}`;
   }
   return uri;
+}
+
+/** Extract the Entrez Gene ID from any of the URI / CURIE shapes
+ *  curation surfaces produce for NCBI genes:
+ *    - ``http://identifiers.org/ncbigene/948``
+ *    - ``.../record/ncbi_gene/948`` (Pavlab commons)
+ *    - ``NCBI:gene:948`` (display CURIE)
+ *    - ``ncbigene:948``
+ *  Returns ``null`` for any other shape so callers can fall through
+ *  to the ontology lookup path. */
+export function ncbiGeneIdFromUri(
+  uri: string | null | undefined,
+): string | null {
+  if (!uri) return null;
+  const fromPath = uri.match(/ncbi_?gene\/(\d+)(?:[/?#].*)?$/i);
+  if (fromPath) return fromPath[1];
+  const fromCurie =
+    uri.match(/^NCBI:gene:(\d+)$/i) || uri.match(/^ncbigene:(\d+)$/i);
+  if (fromCurie) return fromCurie[1];
+  return null;
+}
+
+export function ncbiGeneUrl(geneId: string): string {
+  return `https://www.ncbi.nlm.nih.gov/gene/${geneId}`;
 }
 
 export function shortenUri(uri: string | null | undefined): string {

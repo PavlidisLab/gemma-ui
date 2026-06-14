@@ -21,8 +21,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useGemmaTerm, useOlsTerm } from "@/api/annotations";
-import { curieToUrl, shortenUri } from "@/lib/curie";
+import { useGemmaTerm, useNcbiGene, useOlsTerm } from "@/api/annotations";
+import { curieToUrl, ncbiGeneIdFromUri, shortenUri } from "@/lib/curie";
 
 export interface CuriePopoverProps {
   uri: string;
@@ -32,9 +32,15 @@ export interface CuriePopoverProps {
 }
 
 export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
+  // NCBI gene URIs bypass Gemma + OLS entirely — they're not in OLS,
+  // and Gemma's term endpoint returns nothing for them today. Hit
+  // E-utilities directly so the curator sees gene symbol +
+  // description + organism the first time the popover opens.
+  const isNcbiGene = !!ncbiGeneIdFromUri(uri);
   const [olsRequested, setOlsRequested] = useState(false);
-  const gemma = useGemmaTerm(uri);
-  const ols = useOlsTerm(uri, olsRequested);
+  const gemma = useGemmaTerm(isNcbiGene ? null : uri);
+  const ols = useOlsTerm(isNcbiGene ? null : uri, olsRequested);
+  const ncbi = useNcbiGene(isNcbiGene ? uri : null);
 
   const gemmaDone = !gemma.isLoading;
   const gemmaHit = !!gemma.data;
@@ -42,8 +48,13 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // Falls back to Gemma's result whenever both are present and OLS
   // wasn't requested (so we don't surprise the curator by switching
   // sources after they didn't ask).
-  const detail = olsRequested && ols.data ? ols.data : gemma.data ?? null;
-  const showOlsCta = gemmaDone && !gemmaHit && !olsRequested;
+  const detail = isNcbiGene
+    ? ncbi.data ?? null
+    : olsRequested && ols.data
+      ? ols.data
+      : gemma.data ?? null;
+  const showOlsCta = !isNcbiGene && gemmaDone && !gemmaHit && !olsRequested;
+  const primaryLoading = isNcbiGene ? ncbi.isLoading : gemma.isLoading;
 
   // Position: below the chip if there's room, else above. Width
   // capped so the popover doesn't blow up on a wide screen.
@@ -120,8 +131,8 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
           </button>
         </div>
 
-        {gemma.isLoading ? (
-          <Loading />
+        {primaryLoading ? (
+          <Loading source={isNcbiGene ? "ncbi" : undefined} />
         ) : detail ? (
           <Body detail={detail} />
         ) : showOlsCta ? (
@@ -140,11 +151,15 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   );
 }
 
-function Loading({ source }: { source?: "ols" }) {
+function Loading({ source }: { source?: "ols" | "ncbi" }) {
+  const label =
+    source === "ols"
+      ? "Fetching from OLS…"
+      : source === "ncbi"
+        ? "Fetching from NCBI…"
+        : "Looking up…";
   return (
-    <div className="text-slate-500 dark:text-slate-400 italic">
-      {source === "ols" ? "Fetching from OLS…" : "Looking up…"}
-    </div>
+    <div className="text-slate-500 dark:text-slate-400 italic">{label}</div>
   );
 }
 
@@ -178,10 +193,16 @@ function Body({
           className={
             detail.source === "ols"
               ? "text-[9px] uppercase tracking-wide text-indigo-700 dark:text-indigo-300"
-              : "text-[9px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+              : detail.source === "ncbi"
+                ? "text-[9px] uppercase tracking-wide text-amber-700 dark:text-amber-300"
+                : "text-[9px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
           }
         >
-          {detail.source === "ols" ? "from OLS" : "from Gemma"}
+          {detail.source === "ols"
+            ? "from OLS"
+            : detail.source === "ncbi"
+              ? "from NCBI"
+              : "from Gemma"}
         </span>
         {detail.canonicalUrl ? (
           <a
@@ -191,7 +212,7 @@ function Body({
             onClick={(e) => e.stopPropagation()}
             className="ml-auto text-[10px] text-blue-700 hover:underline dark:text-blue-300"
           >
-            open in OBO ↗
+            {detail.source === "ncbi" ? "open in NCBI Gene ↗" : "open in OBO ↗"}
           </a>
         ) : null}
       </div>

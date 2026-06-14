@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./client";
-import { curieToUrl } from "@/lib/curie";
+import { curieToUrl, ncbiGeneIdFromUri, ncbiGeneUrl } from "@/lib/curie";
 
 /**
  * One typeahead candidate. Shape mirrors what the curation mock /
@@ -126,9 +126,9 @@ export interface AnnotationTermDetail {
    *  the source identifies it. Empty when unknown. */
   ontology: string;
   /** Where the row came from — useful for the popover's footer pill
-   *  so curators know whether they're looking at Gemma's cached view
-   *  or a fresh OLS hit. */
-  source: "gemma" | "ols";
+   *  so curators know whether they're looking at Gemma's cached view,
+   *  a fresh OLS hit, or NCBI Gene metadata. */
+  source: "gemma" | "ols" | "ncbi";
   /** Canonical resolver URL — the curator can click "open in OBO" /
    *  "open in OLS" to verify on the upstream page. */
   canonicalUrl: string | null;
@@ -246,6 +246,90 @@ export function useOlsTerm(
     staleTime: 1000 * 60 * 60,
     enabled: !!uri && enabled,
   });
+}
+
+// ---------------------------------------------------------------------------
+// NCBI Gene lookup. NCBI gene URIs (``ncbigene/948`` / ``NCBI:gene:948``)
+// don't live in OLS, so the popover routes them to NCBI E-utilities
+// instead. No API key needed for moderate browser-side use; the
+// ``esummary`` endpoint sends CORS headers that allow direct fetches.
+// ---------------------------------------------------------------------------
+
+const NCBI_GENE_KEY = (geneId: string | null) =>
+  ["annotations-term-ncbi-gene", geneId ?? ""] as const;
+
+/** Fetch a gene's summary record from NCBI E-utilities. Auto-enabled
+ *  whenever the URI matches a known NCBI gene shape (per
+ *  ``ncbiGeneIdFromUri``) — OLS doesn't index NCBI Gene, so there's
+ *  nothing to gate behind a curator click for this source. */
+export function useNcbiGene(uri: string | null | undefined) {
+  const geneId = ncbiGeneIdFromUri(uri);
+  return useQuery<AnnotationTermDetail | null>({
+    queryKey: NCBI_GENE_KEY(geneId),
+    queryFn: async () => {
+      if (!geneId || !uri) return null;
+      const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=gene&id=${encodeURIComponent(geneId)}&retmode=json`;
+      try {
+        const resp = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!resp.ok) return null;
+        const json = await resp.json();
+        return parseNcbiGene(json, uri, geneId);
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 1000 * 60 * 60,
+    enabled: !!geneId,
+  });
+}
+
+function parseNcbiGene(
+  json: unknown,
+  uri: string,
+  geneId: string,
+): AnnotationTermDetail | null {
+  if (!json || typeof json !== "object") return null;
+  const result = (json as { result?: Record<string, unknown> }).result;
+  if (!result || typeof result !== "object") return null;
+  const rec = result[geneId];
+  if (!rec || typeof rec !== "object") return null;
+  const r = rec as Record<string, unknown>;
+  // ``error`` is surfaced inline when the id doesn't exist.
+  if (typeof r.error === "string" && r.error) return null;
+  const symbol = typeof r.name === "string" ? r.name : "";
+  const description =
+    typeof r.description === "string" ? r.description : "";
+  const summary = typeof r.summary === "string" ? r.summary : "";
+  const aliases =
+    typeof r.otheraliases === "string" && r.otheraliases.trim()
+      ? r.otheraliases
+      : "";
+  const organism =
+    r.organism && typeof r.organism === "object"
+      ? ((r.organism as Record<string, unknown>).scientificname as string) ?? ""
+      : "";
+  // Compose label as ``SYMBOL — full name``; falls back to whichever
+  // half is present.
+  const label = [symbol, description].filter(Boolean).join(" — ");
+  // Definition prefers NCBI's curated summary; falls back to the
+  // organism + alias list so the popover still says something useful
+  // for genes that don't have a written summary yet.
+  const defParts: string[] = [];
+  if (summary) defParts.push(summary);
+  else if (description) defParts.push(description);
+  if (organism) defParts.push(`Organism: ${organism}.`);
+  if (aliases) defParts.push(`Also known as: ${aliases}.`);
+  const definition = defParts.join(" ");
+  if (!label && !definition) return null;
+  return {
+    uri,
+    label,
+    definition,
+    parents: [],
+    ontology: "NCBI Gene",
+    source: "ncbi",
+    canonicalUrl: ncbiGeneUrl(geneId),
+  };
 }
 
 function parseOlsTerm(
