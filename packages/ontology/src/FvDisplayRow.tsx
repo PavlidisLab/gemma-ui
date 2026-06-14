@@ -104,6 +104,38 @@ export function FvDisplayRow({
   const n = fv.biomaterial_short_names?.length ?? 0;
   return (
     <div className={cx("text-[11px]", className)}>
+      {/* Optional FV-name caption — rendered ABOVE the chip row so
+          the statement chips line up cleanly across LEFT/RIGHT
+          panes in side-by-side comparator surfaces regardless of
+          how wide the FV name is. Paul 2026-06-13: "why can't you
+          make things line up well" — before this split, long FV
+          names like "reference substance role with calorie
+          restricted" forced the chip row to wrap and broke the
+          left/right alignment. Suppresses when no FV name is
+          present (single-row layout, no extra vertical space). */}
+      {fvName ? (
+        <div
+          className={cx(
+            "flex items-baseline gap-x-1.5",
+            // Mirror the leading + FV-N gutter of the chip row below
+            // so the caption hangs in the column to the RIGHT of the
+            // FV-index label, aligned with the first chip.
+          )}
+        >
+          {leading != null ? (
+            <span aria-hidden className="inline-block w-[1ch] shrink-0" />
+          ) : null}
+          {indexLabel != null ? (
+            <span aria-hidden className="w-10 shrink-0" />
+          ) : null}
+          <span
+            className="text-[11px] italic text-slate-700 dark:text-slate-200 font-medium leading-snug"
+            title="Factor value name"
+          >
+            {fvName}
+          </span>
+        </div>
+      ) : null}
       {/* Single-line flex (no wrap) so paired FvDisplayRows align
           vertically across rows in side-by-side comparator surfaces
           — the trailing `(n)` count + baseline glyph stay on the
@@ -114,14 +146,6 @@ export function FvDisplayRow({
         {indexLabel != null ? (
           <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 w-10 shrink-0">
             FV {indexLabel}
-          </span>
-        ) : null}
-        {fvName ? (
-          <span
-            className="text-[11px] italic text-slate-700 dark:text-slate-200 font-medium"
-            title="Factor value name"
-          >
-            {fvName}
           </span>
         ) : null}
         {subjLabel ? (
