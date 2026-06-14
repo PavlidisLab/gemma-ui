@@ -157,6 +157,17 @@ export interface DesignDraftValue {
   apply: (next: Design | ((current: Design) => Design)) => void;
   commit: () => void;
   discard: () => void;
+  /** Pop the last ``apply()`` off the undo stack and restore the
+   *  prior draft. Bound to Cmd+Z / Ctrl+Z by the App-level
+   *  KeyboardShortcuts component. No-op when ``canUndo`` is false.
+   *  Paul 2026-06-14: "how about binding undo key to last action". */
+  undo: () => void;
+  /** Re-apply the last undone state. Bound to Cmd+Shift+Z / Ctrl+Y.
+   *  No-op when ``canRedo`` is false (the redo stack clears on every
+   *  fresh ``apply()`` so the curator can't redo into a stale branch). */
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   /** Force-reload the draft from the next ``saved`` refetch.
    *  Clears the localStorage cache + nulls the in-memory draft so
    *  the loader effect re-seeds from server. Used by destructive
@@ -329,6 +340,18 @@ export function DesignDraftProvider({
 
   const [draft, setDraft] = useState<Design | null>(null);
   const [staleCacheDiscarded, setStaleCacheDiscarded] = useState(false);
+  // Undo / redo stacks for the design draft. Snapshot-based:
+  // every ``apply()`` pushes the *prior* draft onto undoStack and
+  // clears redoStack (so a fresh edit invalidates any redo branch).
+  // Undo pops undoStack onto redoStack and restores the popped
+  // value as the live draft. Stack depth capped to MAX_UNDO so
+  // long-running sessions don't grow without bound. ``commit()``
+  // and ``discard()`` both clear both stacks — once the curator's
+  // intent has been confirmed (or discarded outright), there's
+  // nothing intermediate worth restoring.
+  const MAX_UNDO = 50;
+  const [undoStack, setUndoStack] = useState<Design[]>([]);
+  const [redoStack, setRedoStack] = useState<Design[]>([]);
   // Remember the last `saved` value we observed so we can tell, when
   // it changes, whether the draft was clean against the previous
   // saved. The naive check (NEW saved vs current draft) wrongly
@@ -425,15 +448,59 @@ export function DesignDraftProvider({
         // that a loop of `apply((d) => mutate(d, ...))` chains
         // correctly — the value form would close over a stale draft
         // and only the last write would survive.
-        setDraft((current) => (current ? next(current) : null));
+        setDraft((current) => {
+          if (!current) return null;
+          // Push the PRIOR draft onto the undo stack so Cmd+Z can
+          // restore it. Identity-equal shortcut so an apply() that
+          // returns the same object reference (e.g. a no-op reducer)
+          // doesn't pollute the stack with phantom snapshots.
+          const computed = next(current);
+          if (computed !== current) {
+            setUndoStack((s) => [...s, current].slice(-MAX_UNDO));
+            setRedoStack([]);
+          }
+          return computed;
+        });
       } else {
-        setDraft(next);
+        setDraft((current) => {
+          if (current && current !== next) {
+            setUndoStack((s) => [...s, current].slice(-MAX_UNDO));
+            setRedoStack([]);
+          }
+          return next;
+        });
       }
       // Any user action acknowledges the stale-draft notice.
       setStaleCacheDiscarded(false);
     },
     [updater.isPending],
   );
+
+  const undo = useCallback(() => {
+    if (updater.isPending) return;
+    setUndoStack((s) => {
+      if (s.length === 0) return s;
+      const prior = s[s.length - 1];
+      setDraft((current) => {
+        if (current) setRedoStack((r) => [...r, current].slice(-MAX_UNDO));
+        return prior;
+      });
+      return s.slice(0, -1);
+    });
+  }, [updater.isPending]);
+
+  const redo = useCallback(() => {
+    if (updater.isPending) return;
+    setRedoStack((r) => {
+      if (r.length === 0) return r;
+      const next = r[r.length - 1];
+      setDraft((current) => {
+        if (current) setUndoStack((s) => [...s, current].slice(-MAX_UNDO));
+        return next;
+      });
+      return r.slice(0, -1);
+    });
+  }, [updater.isPending]);
   const commit = useCallback(() => {
     if (!draft) return;
     // Never POST writes against /design when the page is viewing a
@@ -457,11 +524,17 @@ export function DesignDraftProvider({
       onSuccess: (server) => {
         setDraft(server);
         clearCachedDraft(experimentId);
+        // Commit lands a clean checkpoint — every prior intermediate
+        // state is uninteresting now. Same for discard below.
+        setUndoStack([]);
+        setRedoStack([]);
       },
     });
   }, [draft, updater, experimentId, providerReadOnly, toast]);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
+    setUndoStack([]);
+    setRedoStack([]);
     clearCachedDraft(experimentId);
     // Roll the proposal-review surface back in lockstep with the
     // design draft — without this the Accept-all / per-element
@@ -515,6 +588,10 @@ export function DesignDraftProvider({
     apply,
     commit,
     discard,
+    undo,
+    redo,
+    canUndo: undoStack.length > 0,
+    canRedo: redoStack.length > 0,
     reload,
     saving: updater.isPending,
     saveError: updater.isError ? (updater.error as Error).message : null,

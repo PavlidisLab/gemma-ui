@@ -334,7 +334,63 @@ function Shell({
     setNotesOpen(next.notesOpen);
   }, [initialTab]);
 
-  const { draft, isLoading: draftLoading, loadError, staleCacheDiscarded, diff } = useDesignDraft();
+  const {
+    draft,
+    isLoading: draftLoading,
+    loadError,
+    staleCacheDiscarded,
+    diff,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useDesignDraft();
+
+  // Global undo / redo bindings — Cmd+Z (Mac) / Ctrl+Z (others) for
+  // undo; Cmd+Shift+Z / Ctrl+Y for redo. Skipped when focus is on a
+  // text-editable element so the browser's native undo still works
+  // inside textareas / inputs / contenteditable. Paul 2026-06-14:
+  // "how about binding undo key to last action."
+  useEffect(() => {
+    function isEditableTarget(el: EventTarget | null): boolean {
+      if (!(el instanceof HTMLElement)) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      if (tag === "TEXTAREA") return true;
+      if (tag === "INPUT") {
+        const t = (el as HTMLInputElement).type;
+        // Allow undo through for non-text inputs (checkbox, radio,
+        // button, etc.) — the browser doesn't own undo there.
+        return ![
+          "checkbox",
+          "radio",
+          "button",
+          "submit",
+          "reset",
+          "range",
+          "color",
+        ].includes(t);
+      }
+      return false;
+    }
+    function onKey(e: KeyboardEvent) {
+      const cmd = e.metaKey || e.ctrlKey;
+      if (!cmd) return;
+      const key = e.key.toLowerCase();
+      const isUndo = key === "z" && !e.shiftKey;
+      const isRedo = (key === "z" && e.shiftKey) || key === "y";
+      if (!isUndo && !isRedo) return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      if (isUndo) {
+        if (canUndo) undo();
+      } else if (isRedo) {
+        if (canRedo) redo();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo, canUndo, canRedo]);
 
   // ``flow`` drives the review-mode lock. Source of truth: the
   // active Ticket's ``flow`` field — Paul 2026-05-27, "[mode should
