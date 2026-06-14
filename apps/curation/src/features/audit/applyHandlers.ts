@@ -583,15 +583,24 @@ function resolveFactorCalibrationApply(
   if (
     code !== "calibration_factor_extra" &&
     code !== "augmentation_factor_extra" &&
-    code !== "calibration_factor_gold_only_miss"
+    code !== "calibration_factor_gold_only_miss" &&
+    code !== "factor_proposed_new"
   ) {
     return null;
   }
 
-  // *_factor_extra — add the agent's factor to the draft.
+  // *_factor_extra / factor_proposed_new — add the agent's factor to
+  // the draft. ``factor_proposed_new`` is the entity-frame proposer
+  // analog of ``calibration_factor_extra``: same resolver path (find
+  // the agent factor via agent_target_index → comparison_proposal),
+  // same idempotency check, same mutator. Without this branch the
+  // proposal-side Agree button records the disposition but never
+  // mutates the draft — the curator clicks Agree, the card greys, and
+  // the factor never appears in Design setup. Paul 2026-06-14.
   if (
     code === "calibration_factor_extra" ||
-    code === "augmentation_factor_extra"
+    code === "augmentation_factor_extra" ||
+    code === "factor_proposed_new"
   ) {
     const cp = report?.evidence?.comparison_proposal ?? null;
     // Pull a label hint from the rationale's first backticked token
