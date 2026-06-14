@@ -17,11 +17,12 @@ beforeAll(() => {
       },
       key: (i: number) => Array.from(store.keys())[i] ?? null,
     };
-    (globalThis as typeof globalThis & { window?: typeof globalThis }).window =
-      globalThis as never;
-    (globalThis as typeof globalThis & { localStorage?: typeof ls }).localStorage = ls;
-    (globalThis as { window: { localStorage: typeof ls } }).window.localStorage =
-      ls;
+    const g = globalThis as unknown as {
+      window?: { localStorage: typeof ls };
+      localStorage?: typeof ls;
+    };
+    g.window = { localStorage: ls };
+    g.localStorage = ls;
   }
 });
 import {

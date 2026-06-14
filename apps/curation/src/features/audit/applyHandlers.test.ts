@@ -287,3 +287,150 @@ describe("resolveApplyAction — REJECT / no-op cases", () => {
     expect(d.tags).toHaveLength(1);
   });
 });
+
+describe("resolveApplyAction — CONTINUOUS FACTOR add (Paul 2026-06-13)", () => {
+  // The agent ships continuous-factor proposals as ONE placeholder FV
+  // with empty biomaterials + null numeric_value. The old apply path
+  // added the placeholder verbatim — one empty FV, no per-sample
+  // population, invisible to the curator. New path: detect the
+  // placeholder shape, walk biomaterial.characteristics for a matching
+  // key (case + punctuation tolerant), promote via
+  // addContinuousFactorFromCharacteristic so the resulting factor has
+  // one FV per BM carrying that characteristic.
+
+  const baseDesign = (
+    overrides: Partial<Design> = {},
+  ): Design =>
+    ({
+      experiment_id: 1,
+      experiment_short_name: "GSE",
+      factors: [],
+      biomaterials: [
+        {
+          short_name: "S1",
+          name: "S1",
+          characteristics: { timepoint: "0h" },
+        },
+        {
+          short_name: "S2",
+          name: "S2",
+          characteristics: { timepoint: "12h" },
+        },
+        {
+          short_name: "S3",
+          name: "S3",
+          characteristics: { timepoint: "24h" },
+        },
+      ],
+      tags: [],
+      ...overrides,
+    }) as Design;
+
+  const continuousFinding = (): AuditFinding =>
+    ({
+      target_kind: "factor",
+      target_id: "calibration:factor_extra:timepoint",
+      severity: "minor",
+      issue_code: "calibration_factor_extra",
+      rationale: "Agent proposes continuous factor `timepoint`.",
+      citation: "",
+      citation_url: "",
+      suggested_fix: "",
+      proposer_suggestion: "",
+      agent_target_index: 0,
+    }) as unknown as AuditFinding;
+
+  const continuousReport = () =>
+    ({
+      audit_id: "a1",
+      experiment_id: 1,
+      experiment_short_name: "GSE",
+      audited_at: "",
+      model: null,
+      scope: { include: [] },
+      findings: [continuousFinding()],
+      evidence: {
+        preboarding_excerpt: "",
+        paper_source: null,
+        paper_excerpt: "",
+        comparison_proposal: {
+          factors: [
+            {
+              category: {
+                label: "timepoint",
+                uri: "http://www.ebi.ac.uk/efo/EFO_0000724",
+              },
+              name_in_design: "timepoint",
+              factor_type: "continuous",
+              factor_values: [
+                {
+                  // The placeholder shape — empty biomaterials, no
+                  // numeric value.
+                  free_text_label: "<continuous, populated from characteristic>",
+                  is_baseline: false,
+                  statements: [],
+                  biomaterial_short_names: [],
+                  numeric_value: null,
+                },
+              ],
+            },
+          ],
+          tags: [],
+        },
+      },
+      summary: { n_blocker: 0, n_major: 0, n_minor: 0, n_ok: 0, overall_verdict: "passes" },
+      dispositions: [],
+    }) as never;
+
+  it("recognises the placeholder shape + returns a mutating ApplyAction", () => {
+    const d = baseDesign();
+    const a = resolveApplyAction(continuousFinding(), {
+      design: d,
+      report: continuousReport(),
+    });
+    expect(a).not.toBeNull();
+    expect(a?.mutates).toBe(true);
+    expect(a?.mutate).toBeDefined();
+  });
+
+  it("running the mutator promotes the placeholder to one FV per sample", () => {
+    const d = baseDesign();
+    const a = resolveApplyAction(continuousFinding(), {
+      design: d,
+      report: continuousReport(),
+    });
+    const next = a?.mutate!(d) as Design;
+    // The new factor exists.
+    const factor = (next.factors ?? []).find(
+      (f) => f.category.label === "timepoint",
+    );
+    expect(factor).toBeDefined();
+    // One FV per biomaterial carrying the characteristic.
+    expect(factor!.factor_values.length).toBe(3);
+    expect(factor!.factor_values.map((fv) => fv.free_text_label).sort()).toEqual(
+      ["0h", "12h", "24h"],
+    );
+    // Marked continuous.
+    expect(factor!.type).toBe("continuous");
+  });
+
+  it("falls back to generic add when no matching characteristic exists", () => {
+    // Strip the characteristic; the proposal can't be promoted.
+    const d = baseDesign({
+      biomaterials: [
+        { short_name: "S1", name: "S1", characteristics: {} },
+      ],
+    });
+    const a = resolveApplyAction(continuousFinding(), {
+      design: d,
+      report: continuousReport(),
+    });
+    const next = a?.mutate!(d) as Design;
+    // Factor still added — better than dropping the click. The
+    // curator can re-bind from the design editor.
+    const factor = (next.factors ?? []).find(
+      (f) => f.category.label === "timepoint",
+    );
+    expect(factor).toBeDefined();
+  });
+});

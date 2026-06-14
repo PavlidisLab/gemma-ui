@@ -48,6 +48,7 @@ import {
   resolveGoldFactor,
 } from "./factorMatch";
 import {
+  addContinuousFactorFromCharacteristic,
   setFactorFields,
   setFvLabel,
 } from "@/features/design/mutations";
@@ -958,10 +959,82 @@ function replaceFactorWithProposal(
  *  proposal. Mirrors the retired ``proposalFactorsToDesignFactors``
  *  on the audit side — same id-allocation strategy (next-after-max)
  *  and same baseline-inference rule. Curator-asserted (IC). */
+/** Walk ``design.biomaterials[].characteristics`` looking for a key
+ *  that matches the agent's continuous-factor proposal. Match order:
+ *  exact match → case-insensitive → fuzzy (alphanumeric-only collapse,
+ *  so "time point" / "time_point" / "timepoint" all match a "timepoint"
+ *  proposal). Returns the actual key string from the design (preserves
+ *  the curator-facing casing / spacing) so the caller can pass it
+ *  straight to ``addContinuousFactorFromCharacteristic``. */
+function resolveContinuousCharacteristicKey(
+  design: Design,
+  proposalCategory: string,
+): string | null {
+  const allKeys = new Set<string>();
+  for (const bm of design.biomaterials ?? []) {
+    for (const k of Object.keys(bm.characteristics ?? {})) allKeys.add(k);
+  }
+  if (allKeys.has(proposalCategory)) return proposalCategory;
+  const targetLc = proposalCategory.trim().toLowerCase();
+  for (const k of allKeys) {
+    if (k.trim().toLowerCase() === targetLc) return k;
+  }
+  const loose = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const targetLoose = loose(proposalCategory);
+  for (const k of allKeys) {
+    if (loose(k) === targetLoose) return k;
+  }
+  return null;
+}
+
 function addFactorFromProposal(
   design: Design,
   proposal: FactorProposal,
 ): Design {
+  // Continuous-factor branch: the agent ships ONE placeholder FV
+  // ("<continuous, populated from characteristic>") with empty
+  // biomaterials + null numeric_value. Blindly adding it produces a
+  // single-empty-FV factor that's invisible to the curator and breaks
+  // the sample table. Per Paul 2026-06-13: "accepting the agent's
+  // suggestion for a continuous factor fails to do anything".
+  //
+  // Promote to per-sample FVs via ``addContinuousFactorFromCharacteristic``:
+  // walks ``design.biomaterials[i].characteristics`` for a key matching
+  // the factor's category (case-insensitive; underscore/space tolerant)
+  // and emits one FV per BM carrying that characteristic.
+  if (proposal.factor_type === "continuous") {
+    const fvs = proposal.factor_values ?? [];
+    const placeholderOnly =
+      fvs.length === 0 ||
+      (fvs.length === 1 &&
+        (fvs[0].biomaterial_short_names ?? []).length === 0);
+    if (placeholderOnly) {
+      const characteristicKey = resolveContinuousCharacteristicKey(
+        design,
+        proposal.category.label,
+      );
+      if (characteristicKey) {
+        const { design: next } = addContinuousFactorFromCharacteristic(
+          design,
+          characteristicKey,
+          {
+            name: proposal.name_in_design || proposal.category.label,
+            category: {
+              label: proposal.category.label,
+              uri: proposal.category.uri ?? null,
+            },
+          },
+        );
+        return next;
+      }
+      // Couldn't find a matching characteristic — fall through to the
+      // generic add (still better than dropping the curator's click
+      // silently). The factor lands with the placeholder FV; the
+      // curator can rename / re-bind from the design editor.
+    }
+  }
+
   const nextFactorId =
     (design.factors ?? []).reduce((m, f) => Math.max(m, f.id), 0) + 1;
   let nextFvId =

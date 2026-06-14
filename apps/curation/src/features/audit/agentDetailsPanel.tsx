@@ -49,6 +49,8 @@ import {
 import { findingLean, leanSuggestionLabel } from "./defenderLean";
 import { parsePrefixedNote } from "./dispositionEdit";
 import { isNearMatchFinding } from "./factorMatch";
+import { useAudit } from "./AuditContext";
+import { JudgeChain } from "./JudgeChain";
 import { verdictStrength } from "./auditPresentation";
 import { findingEvidenceRender } from "./paperExcerptsCaption";
 import { trimRationaleBoilerplate } from "./rationaleText";
@@ -229,6 +231,7 @@ export function InlineSubtaskReasoning({
  *     distinguishes "agent ran but had nothing to add" from
  *     "renderer dropped the field". */
 export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
+  const { report } = useAudit();
   const verdictFix = shortFixForVerdict(finding.defender_verdict);
   // For calibration triplet codes the collapsed header already states
   // the action ("does not propose X", "proposes adding X", "both have
@@ -383,6 +386,16 @@ export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
           {judge.text}
         </div>
       ) : null}
+      {/* Full judge chain — defender + arbiter + boss tiles when the
+          report carries the 2026-06-13 wire fields. Renders nothing
+          when every tier is empty (older packages), so the one-line
+          Judge row above stays the canonical render for legacy
+          payloads. Per Paul 2026-06-13 "Read both rationales below" —
+          the prompt promised arbiter/boss tiles that only existed
+          inside ComparisonFactorCard. Now they render on every card
+          surface ``AgentSuggestionPanel`` reaches (tag + factor cards
+          alike). */}
+      <JudgeChain finding={finding} report={report} />
       {(() => {
         // Render decision routed through the pure helper so the
         // three-state contract (blockquotes / muted_caption / nothing)
