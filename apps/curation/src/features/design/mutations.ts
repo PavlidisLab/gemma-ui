@@ -1796,9 +1796,54 @@ function unionStatements(
       goldCategoryBySubject.set(k, g.category);
     }
   }
+  // "Stub" = a statement that's just a subject (no predicate, no
+  // object). On merge, a gold stub should be REPLACED by an agent
+  // statement that shares the same subject and adds predicate/object
+  // — otherwise the curator ends up with two rows about the same
+  // subject (one bare, one fully-formed) and the "merge" reads as a
+  // duplicate add. Paul 2026-06-14: "I tried it and I think I got
+  // two statements instead of merging them (the agent added the
+  // 'has role reference subject role' and I wanted to accept that)."
+  const isStub = (s: {
+    predicate?: { label?: string | null; uri?: string | null } | null;
+    object?: { label?: string | null; uri?: string | null } | null;
+  }): boolean => {
+    const hasPred =
+      !!((s.predicate?.uri || s.predicate?.label) ?? "").trim();
+    const hasObj = !!((s.object?.uri || s.object?.label) ?? "").trim();
+    return !hasPred && !hasObj;
+  };
+  // Index gold stubs by subject so we can drop them in favour of a
+  // richer agent statement with the same subject. Each stub is
+  // dropped at most once.
+  const goldStubBySubject = new Map<string, number>();
+  for (let i = 0; i < gold.length; i++) {
+    const g = gold[i];
+    if (!isStub(g)) continue;
+    const k = subjKey(g);
+    if (!k || goldStubBySubject.has(k)) continue;
+    goldStubBySubject.set(k, i);
+  }
+  // Walk agent statements first to figure out which gold stubs get
+  // replaced. An agent statement replaces a stub when it shares the
+  // subject AND is itself richer than a stub (has predicate or
+  // object).
+  const goldStubsReplaced = new Set<number>();
+  for (const a of agentProposal) {
+    if (isStub(a)) continue;
+    const k = subjKey(a);
+    if (!k) continue;
+    const stubIdx = goldStubBySubject.get(k);
+    if (stubIdx == null) continue;
+    if (goldStubsReplaced.has(stubIdx)) continue;
+    goldStubsReplaced.add(stubIdx);
+  }
+
   const seen = new Set<string>();
   const out: Statement[] = [];
-  for (const g of gold) {
+  for (let i = 0; i < gold.length; i++) {
+    if (goldStubsReplaced.has(i)) continue;
+    const g = gold[i];
     const k = sig(g);
     if (seen.has(k)) continue;
     seen.add(k);

@@ -533,6 +533,39 @@ export function ComparisonFactorCard({
       }
     : null;
 
+  // Would clicking Merge actually change the gold factor? True iff at
+  // least one agent FV (paired by biomaterial set) carries a statement
+  // that's not already in its gold counterpart by S-P-O signature.
+  // Drives the Merge button's visibility — Paul 2026-06-14: "if there
+  // is no difference at all, then it's not going to say 'merge'."
+  const mergeWouldAddSomething = useMemo<boolean>(() => {
+    if (!leftFactor || !rightFactor) return false;
+    const sig = (s: {
+      subject?: { label?: string | null; uri?: string | null } | null;
+      predicate?: { label?: string | null; uri?: string | null } | null;
+      object?: { label?: string | null; uri?: string | null } | null;
+    }): string => {
+      const part = (
+        t?: { label?: string | null; uri?: string | null } | null,
+      ): string => ((t?.uri || t?.label) ?? "").trim().toLowerCase();
+      return `${part(s.subject)}|${part(s.predicate)}|${part(s.object)}`;
+    };
+    const bmKey = (xs: readonly string[]) => [...xs].sort().join("|");
+    const goldByBm = new Map<string, (typeof leftFactor.factor_values)[number]>();
+    for (const gfv of leftFactor.factor_values) {
+      goldByBm.set(bmKey(gfv.biomaterial_short_names), gfv);
+    }
+    for (const afv of rightFactor.factor_values ?? []) {
+      const gfv = goldByBm.get(bmKey(afv.biomaterial_short_names));
+      if (!gfv) return true; // agent FV doesn't pair → merge appends
+      const goldSigs = new Set(gfv.statements.map(sig));
+      for (const ast of afv.statements ?? []) {
+        if (!goldSigs.has(sig(ast))) return true;
+      }
+    }
+    return false;
+  }, [leftFactor, rightFactor]);
+
   // Pair derivation — prefer the wire's authoritative ``mapping.fv_pairs``
   // when present (bro's 2026-06-12 alignment ship), fall through to the
   // legacy biomaterial-Jaccard ``pairFvs`` heuristic otherwise. The
@@ -786,13 +819,12 @@ export function ComparisonFactorCard({
     }
   }
 
-  // Action labels follow the action shape — for renames, accept =
-  // "adopt rename" (curator takes the agent's category), dismiss =
-  // "keep current". Modularizable per issue_code. Near-match reads
-  // "Alt is better" / "Keep" per Paul 2026-06-12 — the agent's
-  // alt isn't a category swap (rename) or a structural add/remove,
-  // it's "the agent's variant of the same factor is better than
-  // gold's", which the labels make explicit.
+  // Action labels follow the action shape. Paul 2026-06-14:
+  // "It would be 'Proposal is better' 'Keep'." Default match /
+  // near-match cards read with that pair so the curator's choice
+  // names the OUTCOME, not the meta-stance. Code-specific verbs
+  // (Add factor / Remove factor / Adopt rename) stay for the
+  // structural-action codes.
   const acceptLabel =
     finding.issue_code === "calibration_factor_rename"
       ? "Adopt rename"
@@ -800,9 +832,7 @@ export function ComparisonFactorCard({
         ? "Add factor"
         : finding.issue_code === "calibration_factor_gold_only_miss"
           ? "Remove factor"
-          : isNearMatch
-            ? "Alt is better"
-            : "Accept";
+          : "Proposal is better";
   const dismissLabel =
     finding.issue_code === "calibration_factor_rename"
       ? "Keep current"
@@ -810,9 +840,7 @@ export function ComparisonFactorCard({
         ? "Don't add"
         : finding.issue_code === "calibration_factor_gold_only_miss"
           ? "Keep current"
-          : isNearMatch
-            ? "Keep"
-            : "Dismiss";
+          : "Keep";
 
   // Dispositioned cards (accepted / dismissed / parked) recede the
   // same way ``CompactFindingCard`` does — opacity-40 with a hover
@@ -1014,7 +1042,13 @@ export function ComparisonFactorCard({
               >
                 {acceptLabel}
               </button>
-              {isNearMatch ? (
+              {/* Merge button — only when near-match AND merging would
+                  actually change the gold factor (i.e. the agent has
+                  at least one statement that's not already in gold,
+                  including the "agent enriches a stub" case). Paul
+                  2026-06-14: "if there is no difference at all, then
+                  it's not going to say 'merge'." */}
+              {isNearMatch && mergeWouldAddSomething ? (
                 <button
                   type="button"
                   disabled={busy}
@@ -1033,14 +1067,21 @@ export function ComparisonFactorCard({
               >
                 {dismissLabel}
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => dispatch("needs_more_info")}
-                className="text-[11px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700 disabled:opacity-50"
-              >
-                Park
-              </button>
+              {/* Park button hidden 2026-06-14 (Paul: "hide the park
+                  button — everywhere"). Handler stays wired; flip the
+                  ``false`` gate to restore. Same pattern used in
+                  findingCard / FindingDetailsEditor. */}
+              {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
+              {false ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => dispatch("needs_more_info")}
+                  className="text-[11px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700 disabled:opacity-50"
+                >
+                  Park
+                </button>
+              ) : null}
             </div>
           )}
         </>
