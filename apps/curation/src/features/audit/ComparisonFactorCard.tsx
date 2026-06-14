@@ -301,8 +301,18 @@ export interface ComparisonFactorCardProps {
   rightFactorOverride?: Factor | FactorProposal | null;
   /** Suppress the Accept / Dismiss / Park button row. Used by the
    *  synthetic drift cards — there's no AuditFinding to dispatch a
-   *  disposition against, so action buttons would be a dead end. */
+   *  disposition against, so action buttons would be a dead end.
+   *  When ``onRemoveFactor`` / ``onKeepFactor`` are also wired the
+   *  card surfaces a simpler "Remove / Keep" pair instead — Paul
+   *  2026-06-14: drift cards still need an action affordance ("the
+   *  option to simply remove it should be there"). */
   readOnly?: boolean;
+  /** Drift-card action: remove the displayed factor from the design
+   *  draft. Renders a "Remove" button alongside Keep when set. */
+  onRemoveFactor?: () => void;
+  /** Drift-card action: keep the displayed factor as-is and hide
+   *  this card. Renders a "Keep" button alongside Remove when set. */
+  onKeepFactor?: () => void;
 }
 
 /** The card itself. Pulls baseline (Polished Gemma) from the design and
@@ -318,6 +328,8 @@ export function ComparisonFactorCard({
   leftFactorOverride,
   rightFactorOverride,
   readOnly: readOnlyProp,
+  onRemoveFactor,
+  onKeepFactor,
 }: ComparisonFactorCardProps) {
   const { report, experimentId, setDisposition, dispositionByTarget } =
     useAudit();
@@ -887,7 +899,36 @@ export function ComparisonFactorCard({
               {finding.proposer_defense}
             </div>
           ) : null}
-          {readOnly ? null : status !== "pending" ? (
+          {readOnly && (onRemoveFactor || onKeepFactor) ? (
+            // Drift-card action bar — surfaces Remove / Keep so the
+            // curator can act on factors the audit didn't see, instead
+            // of getting a read-only "FACTORS THE AUDIT DIDN'T SEE"
+            // panel that just stares back. Paul 2026-06-14.
+            <div className="flex items-center gap-1.5">
+              {onRemoveFactor ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onRemoveFactor}
+                  title="Drop this factor from the design draft."
+                  className="text-[11px] px-2 py-0.5 rounded font-medium bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              ) : null}
+              {onKeepFactor ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onKeepFactor}
+                  title="Keep the factor; hide this drift card."
+                  className="text-[11px] px-2 py-0.5 rounded font-medium border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50"
+                >
+                  Keep
+                </button>
+              ) : null}
+            </div>
+          ) : readOnly ? null : status !== "pending" ? (
             // Dispositioned — opacity-40 fade on the wrapper is the
             // visual cue (matches CompactFindingCard). No status pill
             // (Paul 2026-06-12: "others don't say 'accepted' — I don't

@@ -482,6 +482,7 @@ export function DesignDraftProvider({
       window.localStorage.removeItem(`samples.colOrder.${experimentId}`);
       window.localStorage.removeItem(`audit.panelExpansion.audit.${experimentId}`);
       window.localStorage.removeItem(`audit.panelExpansion.proposal.${experimentId}`);
+      window.localStorage.removeItem(`audit.driftDismiss.${experimentId}`);
       window.localStorage.removeItem(`notes:${experimentId}`);
     } catch {
       // ignore — best-effort, never fail discard

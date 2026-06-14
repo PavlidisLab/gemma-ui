@@ -11,7 +11,8 @@
  * "given a list of findings, organise + render".
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { deleteFactor } from "@/features/design/mutations";
 import type {
   AuditFinding,
   AuditReport,
@@ -597,6 +598,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
         comparatorSource={chip.comparator}
         baselineLabel={baselineLabel}
         comparatorLabel={comparatorLabel}
+        experimentId={experimentId}
       />
 
       {GROUPS.map(({ kind: groupKind, header }) => {
@@ -816,19 +818,63 @@ function _driftFinding(factor: Factor, index: number): AuditFinding {
   } as unknown as AuditFinding;
 }
 
+/** localStorage key for per-experiment-per-factor drift dismissals.
+ *  "Keep" on a drift card persists here so the dismissal survives a
+ *  reload. Cleared by the design draft's ``discard()`` plumbing per
+ *  the existing per-experiment LS hygiene contract. */
+function driftDismissKey(experimentId: number | string): string {
+  return `audit.driftDismiss.${experimentId}`;
+}
+function loadDriftDismissals(experimentId: number | string): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(driftDismissKey(experimentId));
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+function saveDriftDismissals(
+  experimentId: number | string,
+  ids: Set<string>,
+): void {
+  try {
+    window.localStorage.setItem(
+      driftDismissKey(experimentId),
+      JSON.stringify([...ids]),
+    );
+  } catch {
+    // best-effort
+  }
+}
+
 function BaselineDriftSection({
   curations,
   baselineSource,
   comparatorSource,
   baselineLabel,
   comparatorLabel,
+  experimentId,
 }: {
   curations: readonly CurationRow[];
   baselineSource: Source;
   comparatorSource: Source;
   baselineLabel: string;
   comparatorLabel: string;
+  experimentId: number | string;
 }) {
+  const { apply: applyDraft, draft } = useDesignDraft();
+  // Persisted per-(experiment, factor) dismissals so a "Keep" click
+  // survives reload. Keyed by factor signature (URI/label + FV
+  // labels) so a re-derived factor with the same shape stays
+  // dismissed even after a draft refresh.
+  const [dismissed, setDismissed] = useState<Set<string>>(() =>
+    loadDriftDismissals(experimentId),
+  );
+  useEffect(() => {
+    setDismissed(loadDriftDismissals(experimentId));
+  }, [experimentId]);
   // Surface factors visible in EITHER chip slot that the audit never
   // knew about. The audit's findings list is closed under (consensus
   // polished ∪ agent_proposal) — those are the two designs the audit
@@ -931,13 +977,48 @@ function BaselineDriftSection({
     return out;
   }, [curations, baselineSource, comparatorSource]);
 
-  if (drifts.length === 0) return null;
+  // Apply per-(experiment, factor) dismissals — "Keep" clicks land
+  // here, persisted in localStorage.
+  const visibleDrifts = drifts.filter(
+    (d) => !dismissed.has(_factorSignature(d.factor)),
+  );
+  if (visibleDrifts.length === 0) return null;
+
+  function handleRemove(factor: Factor): void {
+    if (!draft) return;
+    // The drift card's factor is from a non-draft curation (live
+    // Gemma, etc.). Try to find the matching factor in the draft by
+    // category URI + label; remove it if present. Otherwise no-op
+    // with a soft dismiss so the curator's intent is recorded.
+    const cat = (factor.category?.uri ?? "").trim();
+    const label = (factor.category?.label ?? "").trim().toLowerCase();
+    const match =
+      draft.factors.find(
+        (df) => cat && df.category?.uri === cat,
+      ) ??
+      draft.factors.find(
+        (df) => label && (df.category?.label ?? "").toLowerCase() === label,
+      );
+    if (match) {
+      applyDraft(deleteFactor(draft, match.id));
+    }
+    handleKeep(factor); // also dismiss the card so it doesn't linger
+  }
+  function handleKeep(factor: Factor): void {
+    const sig = _factorSignature(factor);
+    if (!sig) return;
+    const next = new Set(dismissed);
+    next.add(sig);
+    setDismissed(next);
+    saveDriftDismissals(experimentId, next);
+  }
+
   return (
     <div className="space-y-1.5">
       <div className="text-xs uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300 px-1 pt-2 pb-1 border-b border-amber-200 dark:border-amber-700 mb-1">
-        Factors the audit didn't see ({drifts.length})
+        Factors the audit didn't see ({visibleDrifts.length})
       </div>
-      {drifts.map(({ factor: f, side }, i) => {
+      {visibleDrifts.map(({ factor: f, side }, i) => {
         const label = side === "baseline" ? baselineLabel : comparatorLabel;
         return (
           <ComparisonFactorCard
@@ -948,6 +1029,8 @@ function BaselineDriftSection({
             leftFactorOverride={side === "baseline" ? f : null}
             rightFactorOverride={side === "comparator" ? f : null}
             readOnly
+            onRemoveFactor={() => handleRemove(f)}
+            onKeepFactor={() => handleKeep(f)}
             title={
               <span className="text-[12px] font-semibold">
                 Extra factor in {label}:{" "}
