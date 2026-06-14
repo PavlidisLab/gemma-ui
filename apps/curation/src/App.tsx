@@ -671,18 +671,25 @@ function Shell({
   return (
     <FlowProvider flow={flow}>
     <div className="min-h-screen flex flex-col">
-      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} />
+      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
+        {/* Chip strip folded into the header row 2026-06-14 per Paul:
+            "this could be fit on one row, saving screen space." Was a
+            separate row below with its own bg + border. The mode pill
+            ("REVIEWING PROPOSAL" / "Editing local design") was dropped
+            in the same pass — the chip pair itself communicates
+            "what am I comparing." */}
+        <ChipStrip
+          experimentId={experimentId}
+          flow={flow}
+          tab={tabIdToRouteTab(activeTab)}
+          groupContext={groupContext}
+          ticketContext={ticketContext}
+        />
+      </AppHeader>
       <TopBar
         experimentId={experimentId}
         experimentShortName={shortName}
         reviewer={fullName || reviewer}
-      />
-      <ChipStrip
-        experimentId={experimentId}
-        flow={flow}
-        tab={tabIdToRouteTab(activeTab)}
-        groupContext={groupContext}
-        ticketContext={ticketContext}
       />
       <ExperimentBanner
         experimentId={experimentId}

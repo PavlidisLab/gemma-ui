@@ -1881,22 +1881,12 @@ export function TicketContextChip({
       >
         ‹
       </button>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "font-mono tabular-nums px-1 py-0 rounded text-slate-700 dark:text-slate-200",
-          "hover:bg-slate-200/60 dark:hover:bg-slate-700/40 cursor-pointer",
-          open && "bg-slate-200/80 dark:bg-slate-700/60",
-        )}
-        title="Show ticket members"
+      <span
+        className="font-mono tabular-nums text-slate-700 dark:text-slate-200 select-none"
+        title={`Member ${idx >= 0 ? idx + 1 : "?"} of ${total}`}
       >
-        {idx >= 0 ? idx + 1 : "?"}/{total}{" "}
-        <span aria-hidden className="text-slate-400 dark:text-slate-500">
-          ▾
-        </span>
-      </button>
+        {idx >= 0 ? idx + 1 : "?"}/{total}
+      </span>
       <button
         type="button"
         onClick={() => nextTarget && navigateTo(nextTarget.target_id)}
@@ -1906,6 +1896,22 @@ export function TicketContextChip({
         className="text-[14px] font-bold leading-none text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:text-slate-100 dark:disabled:text-slate-600 px-0.5"
       >
         ›
+      </button>
+      {/* Dropdown trigger — its own button now, separate from the
+          counter. Paul 2026-06-14: "the drop-down has to be its own
+          thing." */}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "px-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700/40 cursor-pointer",
+          open && "bg-slate-200/80 dark:bg-slate-700/60 text-slate-900 dark:text-slate-100",
+        )}
+        title="Show ticket members"
+        aria-label="ticket members"
+      >
+        ▾
       </button>
       {/* Current target's status — Paul 2026-06-14: "its current
           status in the ticket should be visible (started, closed…)." */}

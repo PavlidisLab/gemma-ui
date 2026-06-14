@@ -52,44 +52,20 @@ export function ChipStrip({
   // chips stay selectable so the curator can audit / compare freely.
   const baselineLocked = flow === "edit";
 
-  // Mode pill — two states now that the 2026-06-08 read-only gate
-  // is gone (Paul 2026-06-12, "make it not read only for gottsake"):
-  //
-  //   - "Reviewing proposal" — comparator points at the agent's
-  //     proposal. Curator dispositions findings on the right; commits
-  //     land on /design. Sky tone.
-  //   - "Editing local design" — default. Commits land on /design
-  //     regardless of which baseline the chip strip shows. Amber tone.
-  //
-  // The earlier "Read-only" pill (rendered when baseline was a non-
-  // editable snapshot like live / another curator's polish) is gone.
-  // Silent-overwrite protection moves to the write path if it's ever
-  // wanted back; the UI no longer second-guesses the curator.
-  const isReviewingProposal = comparator === "agent_proposal";
-  const modePill = isReviewingProposal ? (
-    <span
-      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-sky-400 bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:border-sky-500 dark:text-sky-100"
-      title="Reviewing the agent's proposal. Disposition findings on the right; commits land on /design."
-    >
-      Reviewing proposal
-    </span>
-  ) : (
-    <span
-      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:border-amber-500 dark:text-amber-100"
-      title="Editing the local design. Factor/tag edits land in /design on commit."
-    >
-      Editing local design
-    </span>
-  );
-
+  // Mode pill ("Reviewing proposal" / "Editing local design") dropped
+  // 2026-06-14 per Paul: "Perhaps because the 'reviewing proposal'
+  // might not even be needed. It's just curation, what makes it
+  // special is what we're comparing to." The chip pair below already
+  // communicates the mode — the curator reads "BASELINE Gemma · AUDIT
+  // agent original proposal" and infers "I'm reviewing the agent's
+  // proposal" without a redundant pill.
 
   return (
     <div
-      className="w-full bg-slate-50 border-b border-slate-200 px-4 py-2 text-base flex items-center gap-4 dark:bg-slate-900/40 dark:border-slate-700"
+      className="inline-flex items-center gap-2 text-[11px]"
       role="region"
       aria-label="Comparison source selection"
     >
-      {modePill}
       {baselineLocked ? (
         <ChipLabel slotLabel="Baseline" value={baseline} />
       ) : (
