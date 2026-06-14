@@ -32,14 +32,17 @@ import { progressFromGroup } from "./setProgress";
 import { cn } from "@/lib/cn";
 import { useStickyState } from "@/lib/useStickyState";
 
-/** Default page size — set high enough that the typical ticket
- *  (≤200 members) fits in one page, so the curator doesn't see a
- *  partial slice on a fresh view. Paul 2026-06-14: "I wish I could
- *  say pages weren't necessary — maybe we should put that feature
- *  off, and just extend what you have now to have a user-settable
- *  number per page, with a default of 200." */
-const PAGE_SIZE_DEFAULT = 200;
-const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
+/** Default page size + user-settable picker options.
+ *
+ *  Paul 2026-06-14 originally asked for a 200 default — but the
+ *  local_api ``/rest/v2/datasets`` endpoint hard-caps ``limit`` at
+ *  100 (FastAPI pydantic validator: ``less_than_equal: 100``).
+ *  Anything above trips a 422 and the rows query returns empty,
+ *  which is exactly the "no experiments shown at all no matter
+ *  what" symptom Paul flagged. Capping options at the server max
+ *  for now; bumping the cap is filed as a bro-side handoff. */
+const PAGE_SIZE_DEFAULT = 100;
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
 // ---------------------------------------------------------------------------
 // Sort selector
@@ -539,9 +542,17 @@ export function ExperimentQueue({
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("-lastUpdated");
   const [offset, setOffset] = useState(0);
-  const [pageSize, setPageSize] = useStickyState<number>(
+  const [pageSizeRaw, setPageSize] = useStickyState<number>(
     "experimentQueue.pageSize",
     PAGE_SIZE_DEFAULT,
+  );
+  // Clamp against the server's max — curators who already wrote a
+  // larger value (e.g. the 200 default from the brief window before
+  // the cap was honored) would otherwise stay stuck on a 422-empty
+  // queue. Read-time clamp self-heals on the next setPageSize.
+  const pageSize = Math.min(
+    pageSizeRaw,
+    PAGE_SIZE_OPTIONS[PAGE_SIZE_OPTIONS.length - 1],
   );
 
   // ``includeSummaries`` so the header progress bar can roll up
