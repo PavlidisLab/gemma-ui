@@ -135,6 +135,7 @@ function FilterBar({
   onSearch,
   sort,
   onSort,
+  counts,
 }: {
   active: QuickFilter;
   onChange: (f: QuickFilter) => void;
@@ -142,6 +143,13 @@ function FilterBar({
   onSearch: (s: string) => void;
   sort: SortKey;
   onSort: (s: SortKey) => void;
+  /** Per-filter row count — visible on the chip so curators can see
+   *  the filter is doing something even when their ticket only
+   *  matches one bucket. Paul 2026-06-14: "these buttons don't do
+   *  anything" — they did, but with a 1-experiment ticket 3 of 4
+   *  chips emptied the list silently. Counts make the filter
+   *  effect legible. */
+  counts: Record<QuickFilter, number>;
 }) {
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex-wrap bg-white dark:bg-slate-900 sticky top-0 z-10">
@@ -153,19 +161,31 @@ function FilterBar({
         className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 w-52 focus:outline-none focus:ring-1 focus:ring-blue-500"
       />
       <div className="flex items-center gap-1 flex-wrap">
-        {QUICK_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => onChange(f.id)}
-            className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
-              active === f.id
-                ? "bg-blue-600 text-white"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+        {QUICK_FILTERS.map((f) => {
+          const n = counts[f.id];
+          return (
+            <button
+              key={f.id}
+              onClick={() => onChange(f.id)}
+              className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+                active === f.id
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+              }`}
+            >
+              {f.label}{" "}
+              <span
+                className={`text-[10px] ${
+                  active === f.id
+                    ? "text-blue-100"
+                    : "text-slate-400 dark:text-slate-500"
+                }`}
+              >
+                ({n})
+              </span>
+            </button>
+          );
+        })}
       </div>
       <select
         value={sort}
@@ -530,6 +550,24 @@ export function ExperimentQueue({
     });
   }, [activeFilter, allRows, statusMap]);
 
+  // Per-filter counts for the chip labels. Surfaced on the chips so
+  // a curator-with-1-experiment ticket can SEE that 3 of 4 buckets
+  // are empty, rather than perceiving the filter as broken when most
+  // chips empty the list silently.
+  const filterCounts = useMemo<Record<QuickFilter, number>>(() => {
+    const counts: Record<QuickFilter, number> = {
+      all: allRows.length,
+      started: 0,
+      finished: 0,
+      not_started: 0,
+    };
+    for (const d of allRows) {
+      const state = derivePipelineState(statusMap[String(d.id)]);
+      counts[state] += 1;
+    }
+    return counts;
+  }, [allRows, statusMap]);
+
   // Curator-side signals layered onto each row. Both are cheap:
   // - ``dirtyDraftIds``: one localStorage scan (no network). Keyed
   //   on the page's row list so it recomputes when the page
@@ -628,6 +666,7 @@ export function ExperimentQueue({
         onSearch={changeSearch}
         sort={sort}
         onSort={changeSort}
+        counts={filterCounts}
       />
 
       {/* Row list */}
