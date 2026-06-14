@@ -77,6 +77,7 @@ import {
   findingActionLabel,
 } from "./findingHelpers";
 import { MatchBadge, SeverityBadge } from "./findingBadges";
+import { isCloseFactorMatch, isExactFactorMatch } from "./factorMatch";
 import { displaySeverity } from "./auditPresentation";
 
 const Term: FvTermRenderer = ({ label, uri, variant }) => {
@@ -582,7 +583,26 @@ export function ComparisonFactorCard({
   // label, em-dash, then the per-issue subject. Per Paul 2026-06-12:
   // "the title of the card should follow the same pattern as the
   // other cards." Caller can still override via the ``title`` prop.
-  const matchBadge = <MatchBadge finding={finding} />;
+  //
+  // Match-vs-displayed-baseline guard: a match finding's issue_code
+  // is set against the gold the AGENT ran against, which may differ
+  // from the chip-strip's currently-selected baseline. When the
+  // displayed baseline doesn't carry the matched factor (leftFactor
+  // is null), the green ✓ + "MATCH" label misleads — the curator sees
+  // "match" but the LEFT column reads "(no factor)". Suppress the
+  // match badge in that case and fall back to the severity glyph;
+  // also annotate "(not in <baseline>)" after the action label so
+  // the curator knows the match assertion is against the authoritative
+  // gold, not the row they're viewing. Paul 2026-06-14.
+  const isMatchFindingCode =
+    isExactFactorMatch(finding) ||
+    isCloseFactorMatch(finding) ||
+    finding.issue_code === "calibration_match";
+  const matchedButMissingFromBaseline =
+    isMatchFindingCode && !leftFactor && !!rightFactor;
+  const matchBadge = matchedButMissingFromBaseline ? null : (
+    <MatchBadge finding={finding} />
+  );
   const derivedTitle =
     title ?? (
       <span className="inline-flex items-baseline gap-1.5 min-w-0">
@@ -599,6 +619,14 @@ export function ComparisonFactorCard({
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
           {findingActionLabel(finding)}
         </span>
+        {matchedButMissingFromBaseline ? (
+          <span
+            className="text-[10px] italic text-amber-700 dark:text-amber-300"
+            title={`The match was computed against the agent's authoritative gold; ${leftLabel} doesn't carry this factor.`}
+          >
+            (not in {leftLabel})
+          </span>
+        ) : null}
         <span className="text-slate-400 dark:text-slate-500">—</span>
         <span className="text-[12px] font-semibold min-w-0 truncate">
           {subjectNode}
