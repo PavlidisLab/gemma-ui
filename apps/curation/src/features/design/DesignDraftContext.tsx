@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useDesign, useUpdateDesign } from "@/api/design";
+import { useToast } from "@/components/ui/Toast";
 import { ApiError } from "@/api/client";
 import { diffDesign, type DesignDiff } from "./diff";
 import type { Design } from "@/features/experiment/types";
@@ -203,6 +204,14 @@ const EMPTY_DIFF: DesignDiff = {
   factorsRemoved: [],
   factorsChanged: [],
   tags: { added: [], removed: [], modified: [] },
+  metadata: {
+    biomaterialsModified: 0,
+    publicationsAdded: 0,
+    publicationsRemoved: 0,
+    shortNameChanged: false,
+    titleChanged: false,
+    descriptionChanged: false,
+  },
   totals: {
     addedFvs: 0,
     removedFvs: 0,
@@ -244,6 +253,7 @@ export function DesignDraftProvider({
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const updater = useUpdateDesign(experimentId, reviewer);
+  const toast = useToast();
 
   // Resolve the chip baseline to a curation row (when one is set).
   // When the lookup hits, that row's design takes over from the
@@ -393,11 +403,22 @@ export function DesignDraftProvider({
       // can read ``saving`` from the context to disable inputs and
       // surface the saving state to the curator.
       if (updater.isPending) return;
-      // Defensive read-only gate (see providerReadOnly above): when
-      // the page is rendering against a non-local baseline (Live
-      // Gemma / preboard / agent proposal), apply is a no-op so
-      // stray edits from non-honoring consumers can't accumulate.
-      if (providerReadOnly) return;
+      // Earlier (2026-06-08) this branch silently dropped apply() when
+      // ``providerReadOnly`` fired. That created the bug Paul reported
+      // 2026-06-13: deleting a factor while viewing a non-editable
+      // baseline (Live Gemma / preboard / agent_proposal) did nothing,
+      // the dirty flag never flipped, dependent surfaces (sample
+      // table) kept showing the deleted factor. The silent drop was
+      // out of sync with ``useIsReadOnly()`` (which returns ``false``
+      // unconditionally since 2026-06-12), so consumers happily fired
+      // the click and the mutation vanished.
+      //
+      // New posture: ALWAYS apply locally. Edits to the local draft
+      // are in-memory; they can't hurt anything until commit. The
+      // silent-overwrite concern from 2026-06-08 (committing a draft
+      // built from a baseline snapshot would overwrite /design) is
+      // handled at the commit() boundary, where we now toast instead
+      // of dropping.
       if (typeof next === "function") {
         // Functional form: compose against the *current* draft inside
         // React's setState batch. This is what bulk callers use so
@@ -411,23 +432,34 @@ export function DesignDraftProvider({
       // Any user action acknowledges the stale-draft notice.
       setStaleCacheDiscarded(false);
     },
-    [updater.isPending, providerReadOnly],
+    [updater.isPending],
   );
   const commit = useCallback(() => {
     if (!draft) return;
-    // Defensive: never POST writes against /design when the page is
-    // viewing a non-local baseline. A commit here would overwrite
-    // the local pack's design with the baseline content + any stray
-    // edits — exactly the silent-clobber scenario Paul flagged
-    // 2026-06-08 ("we have to be careful about what we are editing").
-    if (providerReadOnly) return;
+    // Never POST writes against /design when the page is viewing a
+    // non-local baseline. A commit here would overwrite the local
+    // pack's design with the baseline content + any stray edits —
+    // exactly the silent-clobber scenario Paul flagged 2026-06-08
+    // ("we have to be careful about what we are editing"). 2026-06-13
+    // change: surface a toast instead of dropping silently — the
+    // curator clicked Commit and deserves feedback on why it didn't
+    // land. They can switch the chip-strip baseline to consensus or
+    // their polished row and retry.
+    if (providerReadOnly) {
+      toast.show(
+        "Switch the chip-strip baseline to consensus or your polished row before committing — edits can't write to /design from a frozen baseline view.",
+        "danger",
+        7000,
+      );
+      return;
+    }
     updater.mutate(normalizeForCommit(draft), {
       onSuccess: (server) => {
         setDraft(server);
         clearCachedDraft(experimentId);
       },
     });
-  }, [draft, updater, experimentId, providerReadOnly]);
+  }, [draft, updater, experimentId, providerReadOnly, toast]);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
     clearCachedDraft(experimentId);
@@ -439,6 +471,21 @@ export function DesignDraftProvider({
     // 2026-06-10).
     clearAllProposalStateForExperiment(experimentId);
     notifyProposalStateReset(experimentId);
+    // Per-experiment localStorage hygiene: clear the orphan keys
+    // the 2026-06-13 continuity sweep identified. Each is a
+    // best-effort try/catch so a SecurityError on a private-mode
+    // tab doesn't break the discard. Other surfaces register their
+    // own clear logic via the proposal-state-reset notifier above
+    // (in-memory state); these are the LS-only side-effects that
+    // weren't wired anywhere.
+    try {
+      window.localStorage.removeItem(`samples.colOrder.${experimentId}`);
+      window.localStorage.removeItem(`audit.panelExpansion.audit.${experimentId}`);
+      window.localStorage.removeItem(`audit.panelExpansion.proposal.${experimentId}`);
+      window.localStorage.removeItem(`notes:${experimentId}`);
+    } catch {
+      // ignore — best-effort, never fail discard
+    }
     setStaleCacheDiscarded(false);
     updater.reset();
   }, [saved, updater, experimentId]);

@@ -59,6 +59,24 @@ export interface DesignDiff {
   factorsRemoved: Factor[];
   factorsChanged: FactorDiff[];
   tags: TagDiff;
+  /** Counts for non-factor/-tag mutations the editor surfaces
+   *  (banner short-name + title + description; per-sample name and
+   *  characteristics; publication list). Each is the number of
+   *  edited items, NOT a boolean — the commit bar can still surface
+   *  a per-row breakdown if desired. ``isDirty`` already folds
+   *  ``> 0`` of any of these into its OR-chain. Added 2026-06-13
+   *  per the continuity sweep — the prior diff ignored these
+   *  fields entirely, so curator edits to them never dirty the
+   *  draft, never persist to localStorage, and silently survive a
+   *  background ``/design`` refetch. */
+  metadata: {
+    biomaterialsModified: number;
+    publicationsAdded: number;
+    publicationsRemoved: number;
+    shortNameChanged: boolean;
+    titleChanged: boolean;
+    descriptionChanged: boolean;
+  };
   totals: {
     addedFvs: number;
     removedFvs: number;
@@ -78,6 +96,14 @@ const EMPTY_DIFF: DesignDiff = {
   factorsRemoved: [],
   factorsChanged: [],
   tags: { added: [], removed: [], modified: [] },
+  metadata: {
+    biomaterialsModified: 0,
+    publicationsAdded: 0,
+    publicationsRemoved: 0,
+    shortNameChanged: false,
+    titleChanged: false,
+    descriptionChanged: false,
+  },
   totals: {
     addedFvs: 0,
     removedFvs: 0,
@@ -164,6 +190,7 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
   }
 
   const tagDiff = diffTags(saved.tags ?? [], draft.tags ?? []);
+  const metadata = diffMetadata(saved, draft);
 
   const isDirty =
     factorsAdded.length > 0 ||
@@ -171,7 +198,13 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
     factorsChanged.length > 0 ||
     tagDiff.added.length > 0 ||
     tagDiff.removed.length > 0 ||
-    tagDiff.modified.length > 0;
+    tagDiff.modified.length > 0 ||
+    metadata.biomaterialsModified > 0 ||
+    metadata.publicationsAdded > 0 ||
+    metadata.publicationsRemoved > 0 ||
+    metadata.shortNameChanged ||
+    metadata.titleChanged ||
+    metadata.descriptionChanged;
 
   return {
     isDirty,
@@ -179,6 +212,7 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
     factorsRemoved,
     factorsChanged,
     tags: tagDiff,
+    metadata,
     totals: {
       addedFvs,
       removedFvs,
@@ -211,6 +245,120 @@ function diffTags(saved: Tag[], draft: Tag[]): TagDiff {
 
 function sameTag(a: Tag, b: Tag): boolean {
   return sameTerm(a.category, b.category) && sameTerm(a.value, b.value);
+}
+
+/** Diff the non-factor / non-tag fields the curator can edit. Counts:
+ *
+ *  - ``biomaterialsModified`` — number of biomaterials whose
+ *    ``name`` or ``characteristics`` (incl. ``characteristic_uris``)
+ *    differ between saved and draft. Keyed on ``short_name`` since
+ *    that's the stable id agents-side ships.
+ *  - ``publicationsAdded`` / ``publicationsRemoved`` — set diff
+ *    keyed on ``pubmed_id`` first, then ``doi``, then a stable
+ *    ``title|citation`` composite. (Publications without any of
+ *    these fall back to never-matching, which is conservative — a
+ *    truly-empty add reads as added, a truly-empty remove as
+ *    removed, and the curator's commit bar shows the count.)
+ *  - boolean ``Changed`` flags for ``experiment_short_name`` /
+ *    ``title`` / ``description`` — single-value scalars.
+ *
+ *  Per the 2026-06-13 continuity sweep: all five were silently
+ *  ignored by the prior diff so curator edits to them never
+ *  dirtied the draft. */
+function diffMetadata(saved: Design, draft: Design): DesignDiff["metadata"] {
+  // -- Biomaterials -----------------------------------------------
+  const savedBmByShort = new Map(
+    (saved.biomaterials ?? []).map((b) => [b.short_name, b]),
+  );
+  let biomaterialsModified = 0;
+  for (const dbm of draft.biomaterials ?? []) {
+    const sbm = savedBmByShort.get(dbm.short_name);
+    if (!sbm) {
+      // New biomaterial on draft (rare — biomaterials are usually
+      // server-allocated). Count as modified so the change surfaces.
+      biomaterialsModified++;
+      continue;
+    }
+    if (sbm.name !== dbm.name) {
+      biomaterialsModified++;
+      continue;
+    }
+    if (
+      !sameStringMap(sbm.characteristics ?? {}, dbm.characteristics ?? {})
+    ) {
+      biomaterialsModified++;
+      continue;
+    }
+    if (
+      !sameUriMap(
+        sbm.characteristic_uris ?? {},
+        dbm.characteristic_uris ?? {},
+      )
+    ) {
+      biomaterialsModified++;
+      continue;
+    }
+  }
+
+  // -- Publications -----------------------------------------------
+  const pubKey = (p: { pubmed_id?: string; doi?: string; title?: string; citation?: string }): string => {
+    const pmid = (p.pubmed_id ?? "").trim();
+    if (pmid) return `pmid:${pmid.toLowerCase()}`;
+    const doi = (p.doi ?? "").trim();
+    if (doi) return `doi:${doi.toLowerCase()}`;
+    return `tc:${(p.title ?? "").trim()}|${(p.citation ?? "").trim()}`;
+  };
+  const savedPubs = new Set((saved.publications ?? []).map(pubKey));
+  const draftPubs = new Set((draft.publications ?? []).map(pubKey));
+  let publicationsAdded = 0;
+  let publicationsRemoved = 0;
+  for (const k of draftPubs) if (!savedPubs.has(k)) publicationsAdded++;
+  for (const k of savedPubs) if (!draftPubs.has(k)) publicationsRemoved++;
+
+  // -- Scalars ----------------------------------------------------
+  const shortNameChanged =
+    (saved.experiment_short_name ?? "") !== (draft.experiment_short_name ?? "");
+  const titleChanged = (saved.title ?? "") !== (draft.title ?? "");
+  const descriptionChanged = (saved.description ?? "") !== (draft.description ?? "");
+
+  return {
+    biomaterialsModified,
+    publicationsAdded,
+    publicationsRemoved,
+    shortNameChanged,
+    titleChanged,
+    descriptionChanged,
+  };
+}
+
+function sameStringMap(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+function sameUriMap(
+  a: Record<string, { category_uri?: string | null; value_uri?: string | null }>,
+  b: Record<string, { category_uri?: string | null; value_uri?: string | null }>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    const av = a[k];
+    const bv = b[k];
+    if (!bv) return false;
+    if ((av.category_uri ?? null) !== (bv.category_uri ?? null)) return false;
+    if ((av.value_uri ?? null) !== (bv.value_uri ?? null)) return false;
+  }
+  return true;
 }
 
 function diffFactorValues(

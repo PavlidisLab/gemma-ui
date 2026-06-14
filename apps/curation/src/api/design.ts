@@ -397,6 +397,14 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
       // the app from re-fetching unrelated experiments.
       qc.invalidateQueries({ queryKey: ["audits"] });
       qc.invalidateQueries({ queryKey: ["proposals"] });
+      // The unified /curations row backs the chip-strip baseline view
+      // (Live Gemma / preboard / consensus). After a commit to
+      // /design, the chip-strip rendering of "consensus" or
+      // "curator_polish_<x>" stayed at the pre-commit snapshot until
+      // the next mount. Per the 2026-06-13 continuity sweep —
+      // memory'd in the code comment at the time but never
+      // invalidated.
+      qc.invalidateQueries({ queryKey: ["curations", experimentId] });
     },
   });
 }

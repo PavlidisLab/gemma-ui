@@ -49,6 +49,7 @@ import type {
 } from "@/api/types";
 import { useAudit } from "./AuditContext";
 import { useDesign } from "@/api/design";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { firstBacktick } from "./rationaleText";
 import {
   pickGoldFactor,
@@ -172,7 +173,13 @@ export function FvStatusGlyph({
  *  rename. */
 export function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   const { report, experimentId } = useAudit();
-  const { data: serverDesign } = useDesign(experimentId);
+  // Prefer the draft (curator's uncommitted edits) so a factor
+  // they just deleted / renamed doesn't ghost into the embed via a
+  // stale server design. Falls through to ``useDesign`` only when
+  // no draft is mounted. Per the 2026-06-13 continuity sweep.
+  const { draft } = useDesignDraft();
+  const { data: savedDesign } = useDesign(experimentId);
+  const serverDesign = draft ?? savedDesign;
   // Three label-source paths (most specific first):
   //   1. Structured `finding.rename` payload (calibration package v11+).
   //   2. Parsed rename rationale ("agent proposes `X` where Gemma has
@@ -529,7 +536,11 @@ export function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
  *  scanning the column. */
 export function GoldFactorMissEmbed({ finding }: { finding: AuditFinding }) {
   const { report, experimentId } = useAudit();
-  const { data: serverDesign } = useDesign(experimentId);
+  // Same draft-preference as RenameFactorEmbed above — see comment
+  // there. Per the 2026-06-13 continuity sweep.
+  const { draft } = useDesignDraft();
+  const { data: savedDesign } = useDesign(experimentId);
+  const serverDesign = draft ?? savedDesign;
   const cp = report?.evidence?.comparison_proposal ?? null;
 
   // Pull the gold factor's label from the rationale's first

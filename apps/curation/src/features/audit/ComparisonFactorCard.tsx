@@ -453,7 +453,15 @@ export function ComparisonFactorCard({
 }: ComparisonFactorCardProps) {
   const { report, experimentId, setDisposition, dispositionByTarget } =
     useAudit();
-  const { data: design } = useDesign(experimentId);
+  // Read from the draft (curator's uncommitted edits) rather than
+  // the saved server design — otherwise factor add / delete / rename
+  // edits the curator just made don't reflect in the chain card's
+  // own owning-factor lookups. Falls through to ``useDesign`` only
+  // when no draft is mounted (the component is rendered outside the
+  // experiment shell). Per the 2026-06-13 continuity sweep.
+  const { draft: draftDesign } = useDesignDraft();
+  const { data: serverDesign } = useDesign(experimentId);
+  const design = draftDesign ?? serverDesign;
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const [busy, setBusy] = useState(false);
@@ -466,6 +474,10 @@ export function ComparisonFactorCard({
   const chipReadOnly = useIsReadOnly();
   const readOnly = readOnlyProp || chipReadOnly;
   const { apply: applyDraft } = useDesignDraft();
+  // ``serverDesign`` is unused below but kept in the destructure
+  // above to clarify that we DELIBERATELY shadow the legacy
+  // useDesign-based read.
+  void serverDesign;
   const toast = useToast();
   // Card-level collapse — matches the chevron/collapse contract on
   // ``CompactFindingCard`` so a curator's "collapse all" button at

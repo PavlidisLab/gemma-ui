@@ -423,7 +423,7 @@ function SidebarHeader({
   const toast = useToast();
   const [confirmClose, setConfirmClose] = useState(false);
   const [applyAllRunning, setApplyAllRunning] = useState(false);
-  const { apply: applyDraft, draft } = useDesignDraft();
+  const { apply: applyDraft, draft, diff: draftDiff } = useDesignDraft();
   // Ticket-target status sync on Finalize — when the curator closes
   // the review for an experiment that lives on a ticket, flip that
   // ticket-target's status to DONE so the popover + dashboard reflect
@@ -595,6 +595,22 @@ function SidebarHeader({
         `${copy.Noun} is already closed — reopen it to keep editing.`,
         "info",
         4000,
+      );
+      setConfirmClose(false);
+      return;
+    }
+    // Dirty-draft guard (continuity sweep 2026-06-13): refuse to
+    // finalize when the design draft has uncommitted edits. Apply
+    // & focus and similar disposition paths queue draft mutations
+    // — if the curator closes the audit without committing, the
+    // mutations are stranded (machine restart, tab close, or
+    // cross-device handoff loses them). Surface as a toast so the
+    // curator can switch tabs and commit before retrying.
+    if (draftDiff?.isDirty) {
+      toast.show(
+        "Commit your design edits first — closing the review now would strand uncommitted draft changes.",
+        "danger",
+        7000,
       );
       setConfirmClose(false);
       return;

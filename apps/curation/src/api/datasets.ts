@@ -179,6 +179,13 @@ export function useImportFromGemma() {
       // accepted/rejected from a stale cache. Broad ``["proposals"]``
       // covers both per-experiment and cross-experiment listings.
       qc.invalidateQueries({ queryKey: ["proposals"] });
+      // Curations cache backs the chip-strip baseline view; on a
+      // re-import the underlying /curations rows almost certainly
+      // moved. Per the 2026-06-13 continuity sweep — same hole as
+      // ``useUpdateDesign``.
+      qc.invalidateQueries({
+        queryKey: ["curations", design.experiment_id],
+      });
     },
   });
 }
