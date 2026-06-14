@@ -192,11 +192,11 @@ export function ProposalSidebarPanel({
     setDispositions((prev) => {
       const next = new Map(prev);
       for (let i = 0; i < (proposal.factors?.length ?? 0); i++) {
-        const k = factorElementKey(proposalId, i);
+        const k = factorElementKey(proposalId, proposal.factors![i]);
         if (!next.has(k)) next.set(k, "retained");
       }
       for (let i = 0; i < (proposal.tags?.length ?? 0); i++) {
-        const k = tagElementKey(proposalId, i);
+        const k = tagElementKey(proposalId, proposal.tags![i]);
         if (!next.has(k)) next.set(k, "retained");
       }
       return next;
@@ -343,7 +343,10 @@ export function ProposalSidebarPanel({
             Design — factors
           </div>
           {proposal.factors.map((f, i) => {
-            const key = factorElementKey(proposalId, i);
+            const key = factorElementKey(proposalId, f);
+            // i kept in signature for symmetry with the tag map below;
+            // not used in the key (URI-anchored now).
+            void i;
             return (
               <FactorReviewCard
                 key={key}
@@ -374,7 +377,8 @@ export function ProposalSidebarPanel({
         <DecisionsStrip proposal={proposal} scope="tag" />
         {proposal.tags?.length ? (
           proposal.tags.map((t, i) => {
-            const key = tagElementKey(proposalId, i);
+            const key = tagElementKey(proposalId, t);
+            void i;
             return (
               <TagReviewCard
                 key={key}

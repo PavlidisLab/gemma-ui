@@ -36,16 +36,49 @@ export type ProposalDisposition =
  *  audit's ``target_id`` slug but scoped to one proposal. */
 export type ProposalElementKey = string;
 
-export function factorElementKey(proposalId: string, idx: number): ProposalElementKey {
-  return `factor:${proposalId}:${idx}`;
+/** Build a stable key from a proposed factor. Keys on category URI
+ *  when present (most stable across runs); falls back to a
+ *  normalised category label so a free-text-only factor still gets
+ *  a deterministic identity. NOT keyed on list index — the agent
+ *  can re-emit a proposal with re-ordered factors, and the prior
+ *  ``factor:<id>:0`` LS entry would silently target a different
+ *  factor (continuity sweep 2026-06-13). */
+export function factorElementKey(
+  proposalId: string,
+  factor: { category?: { uri?: string | null; label?: string | null } | null },
+): ProposalElementKey {
+  const uri = (factor.category?.uri ?? "").trim();
+  if (uri) return `factor:${proposalId}:uri:${uri.toLowerCase()}`;
+  const label = (factor.category?.label ?? "").trim().toLowerCase();
+  return `factor:${proposalId}:lbl:${label || "?"}`;
 }
 
-export function tagElementKey(proposalId: string, idx: number): ProposalElementKey {
-  return `tag:${proposalId}:${idx}`;
+/** Build a stable key from a proposed tag. Keys on the (category,
+ *  value) URI pair when present; falls back to lowercased label
+ *  composite. Same rationale as ``factorElementKey``. */
+export function tagElementKey(
+  proposalId: string,
+  tag: {
+    category?: { uri?: string | null; label?: string | null } | null;
+    value?: { uri?: string | null; label?: string | null } | null;
+  },
+): ProposalElementKey {
+  const cUri = (tag.category?.uri ?? "").trim();
+  const vUri = (tag.value?.uri ?? "").trim();
+  if (cUri && vUri) {
+    return `tag:${proposalId}:uri:${cUri.toLowerCase()}|${vUri.toLowerCase()}`;
+  }
+  const cLbl = (tag.category?.label ?? "").trim().toLowerCase();
+  const vLbl = (tag.value?.label ?? "").trim().toLowerCase();
+  return `tag:${proposalId}:lbl:${cLbl}|${vLbl}`;
 }
 
-const LS_PREFIX = "gemma-proposal-dispositions";
-const LS_NOTES_PREFIX = "gemma-proposal-disposition-notes";
+// Bumped 2026-06-13 from the index-keyed encoding to the URI-keyed
+// one above. Old LS entries silently roll off the next time the
+// curator dispositions; the index-based prefix wouldn't deserialize
+// into the new key shape anyway.
+const LS_PREFIX = "gemma-proposal-dispositions.v2";
+const LS_NOTES_PREFIX = "gemma-proposal-disposition-notes.v2";
 const LS_FEEDBACK_PREFIX = "gemma-proposal-feedback";
 
 function storageKey(experimentId: number | string, proposalId: string): string {
