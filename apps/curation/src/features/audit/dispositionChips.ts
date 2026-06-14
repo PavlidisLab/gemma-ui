@@ -147,6 +147,12 @@ export const FACTOR_MATCH_DISMISS_CHIPS: DialogChip[] = [
   { key: "category_mismatch",  label: "Different category", help: "agent and the gold factor name different things" },
   { key: "partition_mismatch", label: "Different partition", help: "same category, different sample groupings" },
   { key: "synonym_only",       label: "Synonym, not same",  help: "labels are close but not semantically equivalent" },
+  // Paul 2026-06-14: the "keep" decision has more than one shape —
+  // agent could be flat-out wrong OR agent could be close enough that
+  // the disagreement isn't load-bearing. Recording the distinction
+  // helps the calibration analytics tell "real curator-vs-agent
+  // disagreement" from "we landed somewhere different but it's fine."
+  { key: "agent_close_enough", label: "TMTOWTDI", help: "There's More Than One Way To Do It — agent's call was reasonable, but I'm keeping the current curation. Not a real disagreement; signals to calibration analytics that this was a legitimate-either-way call." },
   { key: "borderline",         label: "Borderline",         help: "close call" },
   { key: "other",              label: "Other",              help: "add a note" },
 ];
@@ -171,6 +177,7 @@ export const TAG_MATCH_DISMISS_CHIPS: DialogChip[] = [
 export const FACTOR_PARTITION_DISMISS_CHIPS: DialogChip[] = [
   { key: "current_partition_correct", label: "Current partition correct", help: "agent's proposed partition is wrong" },
   { key: "merge_instead",             label: "Want merge instead",       help: "adopt the agent's FVs into the existing factor without overwriting structure" },
+  { key: "agent_close_enough",        label: "TMTOWTDI",                 help: "There's More Than One Way To Do It — agent's partition is reasonable, but I'm keeping the current one. Not a real disagreement; signals to calibration analytics that this was a legitimate-either-way call." },
   { key: "borderline",                label: "Borderline",               help: "close call" },
   { key: "other",                     label: "Other",                    help: "add a note" },
 ];
