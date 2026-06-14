@@ -537,6 +537,47 @@ export function ExperimentQueue({
 
   const { data: statusMap = {} } = usePipelineStatusBulk(allRows.map((r) => r.id));
 
+  // Ticket-target-status lookup. In a ticket context, the ticket's
+  // ``targets[i].status`` (NOT_DONE / UNDERWAY / DONE) is the truth
+  // for what the CURATOR has done — independent of the dataset's
+  // pipeline-step status (which counts Gemma's pre-imported Design /
+  // Tags as already "ok"). Paul 2026-06-14 on tickets/45: header
+  // says "0/200 done · 200 not started" but the filter was showing
+  // Started (50) because every row's pipeline-step status carried
+  // pre-existing ✓Design / ✓Tags from Gemma. The ticket target
+  // status is the right signal here.
+  //
+  // ``useMyTickets`` is queried below; pull the matching ticket's
+  // targets up-front so the filter/count memos can read them.
+  const { data: tickets } = useMyTickets();
+  const ticketTargetStatusById = useMemo(() => {
+    const m = new Map<number, "not_started" | "started" | "finished">();
+    if (ticketId == null || !tickets) return m;
+    const ticket = tickets.find((t) => t.id === ticketId);
+    if (!ticket) return m;
+    for (const tgt of ticket.targets) {
+      if (tgt.target_type !== "EXPRESSION_EXPERIMENT") continue;
+      const mapped =
+        tgt.status === "DONE"
+          ? "finished"
+          : tgt.status === "UNDERWAY"
+            ? "started"
+            : "not_started";
+      m.set(tgt.target_id, mapped);
+    }
+    return m;
+  }, [tickets, ticketId]);
+
+  // Per-row progress state. In a ticket context, prefer the ticket's
+  // own target status (matches the header's done/not-started counts).
+  // Outside a ticket context, fall back to the pipeline-step heuristic.
+  const stateFor = (datasetId: number): PipelineState => {
+    if (ticketTargetStatusById.size > 0) {
+      return ticketTargetStatusById.get(datasetId) ?? "not_started";
+    }
+    return derivePipelineState(statusMap[String(datasetId)]);
+  };
+
   // Apply the progress-state filter client-side on the rows the
   // server returned. The /datasets endpoint doesn't carry a step-
   // state aggregate query param, so this happens after the fetch.
@@ -544,11 +585,9 @@ export function ExperimentQueue({
   // match" caption fires when the filter clears the whole page.
   const rows = useMemo(() => {
     if (activeFilter === "all") return allRows;
-    return allRows.filter((d) => {
-      const state = derivePipelineState(statusMap[String(d.id)]);
-      return state === activeFilter;
-    });
-  }, [activeFilter, allRows, statusMap]);
+    return allRows.filter((d) => stateFor(d.id) === activeFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter, allRows, statusMap, ticketTargetStatusById]);
 
   // Per-filter counts for the chip labels. Surfaced on the chips so
   // a curator-with-1-experiment ticket can SEE that 3 of 4 buckets
@@ -561,12 +600,10 @@ export function ExperimentQueue({
       finished: 0,
       not_started: 0,
     };
-    for (const d of allRows) {
-      const state = derivePipelineState(statusMap[String(d.id)]);
-      counts[state] += 1;
-    }
+    for (const d of allRows) counts[stateFor(d.id)] += 1;
     return counts;
-  }, [allRows, statusMap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allRows, statusMap, ticketTargetStatusById]);
 
   // Curator-side signals layered onto each row. Both are cheap:
   // - ``dirtyDraftIds``: one localStorage scan (no network). Keyed
@@ -575,10 +612,9 @@ export function ExperimentQueue({
   //   here (we're a persistent panel), so consider refining if
   //   curator commits a draft and expects the dot to flip without
   //   a route change.
-  // - ``tickets``: cached by useMyTickets's query, shared with the
-  //   curator dashboard.
+  // - ``tickets``: queried earlier (above the filter memos) so the
+  //   ticket-target status feeds the chip counts.
   const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), [rows]);
-  const { data: tickets } = useMyTickets();
 
   // For group-scoped views, the member_ids carry the prefix form
   // (`preboarding:1` vs bare `91188`). The /datasets rows ship the
