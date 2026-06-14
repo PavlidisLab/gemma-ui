@@ -150,13 +150,20 @@ export function BulkAssignPanel({
                       className="text-xs border border-slate-300 rounded px-1 py-0.5 bg-white"
                     >
                       <option value="">(skip)</option>
-                      {factor.factor_values.map((fv) => (
-                        <option key={fv.id} value={fv.id}>
-                          {fvDisplayLabel(fv, factor.factor_values, {
-                            compact: fv.id === target,
-                          })}
-                        </option>
-                      ))}
+                      {factor.factor_values.map((fv) => {
+                        const r = fvDisplayLabel(fv, factor.factor_values, {
+                          compact: fv.id === target,
+                        });
+                        return (
+                          <option
+                            key={fv.id}
+                            value={fv.id}
+                            title={r.title || undefined}
+                          >
+                            {r.text}
+                          </option>
+                        );
+                      })}
                     </select>
                   </td>
                 </tr>

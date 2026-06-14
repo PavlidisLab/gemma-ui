@@ -2371,18 +2371,20 @@ function FvSelect({
       <option value="" disabled>
         {isMixed ? "— mixed —" : "— unassigned —"}
       </option>
-      {factor.factor_values.map((fv) => (
-        <option key={fv.id} value={fv.id}>
-          {/* Compact the currently-selected option so the closed
-              cell (which always shows the selected option's text)
-              doesn't repeat `(n=K)` on every row. Other options in
-              the open dropdown keep the count so the curator can
-              compare partition sizes. */}
-          {fvDisplayLabel(fv, factor.factor_values, {
-            compact: fv.id === currentFvId,
-          })}
-        </option>
-      ))}
+      {factor.factor_values.map((fv) => {
+        const r = fvDisplayLabel(fv, factor.factor_values, {
+          compact: fv.id === currentFvId,
+        });
+        return (
+          <option
+            key={fv.id}
+            value={fv.id}
+            title={r.title || undefined}
+          >
+            {r.text}
+          </option>
+        );
+      })}
     </select>
   );
 
@@ -2679,13 +2681,20 @@ function BulkActionBar({
         <option value="">
           {isMixed ? "— mixed; pick to set all —" : "— unassigned —"}
         </option>
-        {factorFvOptions.map((fv) => (
-          <option key={fv.id} value={fv.id}>
-            {fvDisplayLabel(fv, factorFvOptions, {
-              compact: fv.id === fvId,
-            })}
-          </option>
-        ))}
+        {factorFvOptions.map((fv) => {
+          const r = fvDisplayLabel(fv, factorFvOptions, {
+            compact: fv.id === fvId,
+          });
+          return (
+            <option
+              key={fv.id}
+              value={fv.id}
+              title={r.title || undefined}
+            >
+              {r.text}
+            </option>
+          );
+        })}
       </select>
       {wouldChangeCount > 0 ? (
         <button

@@ -15,16 +15,19 @@ export interface FvLabelInput {
   biomaterial_short_names?: string[];
 }
 
-/** Build the visible text for an FV ``<option>``.
+/** Build the visible text + hover-tooltip for an FV ``<option>``.
  *
  *  Three nudges baked in:
  *
  *  1. **Disambiguation.** Two FVs in the same factor can share a
  *     ``free_text_label`` (saw 2026-06-06 on GSE319237: two
- *     "Igf1-Egfp transgenic" FVs for the EGFP+/EGFP- sort).
- *     When a non-empty label appears more than once in ``allFvs``,
- *     append ``(id N)`` to every matching option so each is uniquely
- *     identifiable. Singletons render clean.
+ *     "Igf1-Egfp transgenic" FVs for the EGFP+/EGFP- sort). When
+ *     a non-empty label appears more than once in ``allFvs``, the
+ *     id is surfaced on the option's ``title`` (tooltip) so the
+ *     curator can hover to disambiguate without the noisy
+ *     ``(id N)`` suffix invading the visible cell. Per Paul
+ *     2026-06-13: "only the actual label should be shown; if there
+ *     is extra information to be shown, put it in a tooltip."
  *
  *  2. **Sample count.** Append ``(n=K)`` showing how many
  *     biomaterials are assigned to this FV. Gives the curator a
@@ -44,25 +47,41 @@ export interface FvLabelInput {
  *     every picker the FV appears in keeps the gap visible.
  *
  *  Empty labels fall back to ``FV {id}`` (existing behaviour) and
- *  are intrinsically id-unique so no extra disambiguation suffix is
- *  needed.
+ *  are intrinsically id-unique so no disambiguation tooltip is
+ *  added in that case.
  *
  *  ``· baseline`` is appended last regardless.
  */
+export interface FvDisplayResult {
+  /** The visible cell / option text. */
+  text: string;
+  /** Hover tooltip — populated when the FV's label collides with
+   *  another in ``allFvs``; carries ``id N`` so the curator can
+   *  disambiguate. Empty string when no tooltip is needed (most
+   *  rows); callers can spread it directly into ``title=`` and
+   *  most browsers omit an empty title attribute. */
+  title: string;
+}
+
 export function fvDisplayLabel(
   fv: FvLabelInput,
   allFvs: FvLabelInput[],
   opts?: { compact?: boolean },
-): string {
+): FvDisplayResult {
   const base = fv.free_text_label || `FV ${fv.id}`;
   let out = base;
+  let title = "";
   if (fv.free_text_label) {
     let dupes = 0;
     for (const o of allFvs) {
       if ((o.free_text_label || "") === fv.free_text_label) dupes++;
       if (dupes > 1) break;
     }
-    if (dupes > 1) out = `${base} (id ${fv.id})`;
+    if (dupes > 1) {
+      // Disambiguation moves to the hover tooltip instead of the
+      // visible text (Paul 2026-06-13).
+      title = `id ${fv.id}`;
+    }
   }
   if (fv.biomaterial_short_names !== undefined) {
     const n = fv.biomaterial_short_names.length;
@@ -72,5 +91,6 @@ export function fvDisplayLabel(
       out = `${out} (n=${n})`;
     }
   }
-  return fv.is_baseline ? `${out} · baseline` : out;
+  if (fv.is_baseline) out = `${out} · baseline`;
+  return { text: out, title };
 }
