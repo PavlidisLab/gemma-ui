@@ -52,7 +52,12 @@ import {
   setFactorFields,
   setFvLabel,
 } from "@/features/design/mutations";
-import { parseTargetId, slug, type ParsedTargetId } from "./targetIds";
+import {
+  factorTarget,
+  parseTargetId,
+  slug,
+  type ParsedTargetId,
+} from "./targetIds";
 
 export interface ApplyAction {
   /** Whether the action mutates the design draft (true) or just
@@ -96,6 +101,15 @@ export interface ApplyAction {
    *  the right semantics is merge-FVs or add-second, the curator
    *  confirms each case. */
   confirmMessage?: string;
+  /** Override target for the post-apply focus jump. Defaults to
+   *  ``finding.target_id`` when the caller doesn't read this. Use
+   *  for factor-add applies where the finding's target_id might
+   *  point at gold / proposer space — the curator should land on
+   *  the NEW factor in the design tab so the FVs are visible. Paul
+   *  2026-06-13/14 flagged twice that accepting a proposed factor
+   *  failed to surface its FVs because the focus jump didn't land
+   *  on the just-added factor. */
+  focusTargetId?: string;
 }
 
 /** Resolve an apply action for a finding. Returns null only when
@@ -666,6 +680,12 @@ function resolveFactorCalibrationApply(
           }) to the design.`,
       successMessage: `Added factor "${proposal.category.label}". Commit the draft to save.`,
       mutate: (draft) => addFactorFromProposal(draft, proposal),
+      // Focus jumps to the just-added factor (target id derived from
+      // the proposal's category) regardless of what the finding's
+      // target_id points at on the gold / proposer side. Without this
+      // override the design tab opens collapsed on whatever the
+      // finding anchored to instead of the new factor, hiding its FVs.
+      focusTargetId: factorTarget(proposal.category.label),
       // On name clash, force the caller to confirm before mutating.
       // Cy flagged 2026-06-05 that silent second-add was confusing.
       // Until we decide between merge-FVs vs add-second semantics,

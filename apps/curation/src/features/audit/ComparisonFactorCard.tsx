@@ -46,6 +46,8 @@ import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
 import { useAudit } from "./AuditContext";
+import { factorTarget } from "./targetIds";
+import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { useDesign } from "@/api/design";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -656,6 +658,13 @@ export function ComparisonFactorCard({
     setBusy(true);
     try {
       applyDraft((d) => mergeNearMatchAgentFactor(d, agentFactor));
+      // Focus the merged factor in the design tab so the curator
+      // sees the new statements on the FVs without hunting. Same
+      // intent as the Agree-add path on calibration_factor_extra.
+      requestAuditFocus(
+        experimentId,
+        factorTarget(agentFactor.category.label),
+      );
       await setDisposition(finding.target_id, "accepted", {
         resolvedAt: new Date().toISOString(),
       });
@@ -688,6 +697,10 @@ export function ComparisonFactorCard({
     setBusy(true);
     try {
       applyDraft((d) => adoptNearMatchAgentFactor(d, agentFactor));
+      requestAuditFocus(
+        experimentId,
+        factorTarget(agentFactor.category.label),
+      );
       await setDisposition(finding.target_id, "accepted", {
         resolvedAt: new Date().toISOString(),
       });

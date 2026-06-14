@@ -22,6 +22,7 @@ import {
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { useStickyState } from "@/lib/useStickyState";
 import { resolveApplyAction, type ApplyAction } from "./applyHandlers";
+import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { usePatchTicketTarget } from "@/api/tickets";
 import { parseRoute } from "@/routes";
 import { ticketTargetPatchForFinalize } from "./finalizeTicketSync";
@@ -525,6 +526,16 @@ function SidebarHeader({
           for (const m of mutations) acc = m.mutate(acc);
           return acc;
         });
+        // Focus the first mutating finding's added element so the
+        // curator sees what changed. Prefer the action's
+        // ``focusTargetId`` (factor-add applies set this to the new
+        // factor's target so the design tab opens on its FVs);
+        // falls back to the finding's own target_id.
+        const head = mutating[0];
+        requestAuditFocus(
+          experimentId,
+          head.action.focusTargetId ?? head.finding.target_id,
+        );
       }
       const resolvedAt = new Date().toISOString();
       let mutated = 0;

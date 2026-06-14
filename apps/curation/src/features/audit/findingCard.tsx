@@ -1143,7 +1143,10 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
       }
       setPreApplyDraftSnapshot(draft);
       applyDraft(action.mutate);
-      requestAuditFocus(experimentId, finding.target_id);
+      requestAuditFocus(
+        experimentId,
+        action?.focusTargetId ?? finding.target_id,
+      );
       if (action.successMessage) {
         toast.show(action.successMessage, "success");
       }
@@ -1274,7 +1277,10 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               }
               setPreApplyDraftSnapshot(draft);
               applyDraft(action.mutate);
-              requestAuditFocus(experimentId, finding.target_id);
+              requestAuditFocus(
+        experimentId,
+        action?.focusTargetId ?? finding.target_id,
+      );
               if (action.successMessage) {
                 toast.show(action.successMessage, "success");
               }
