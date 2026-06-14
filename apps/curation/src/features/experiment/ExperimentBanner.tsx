@@ -1845,15 +1845,24 @@ export function TicketContextChip({
   // 2026-06-14 called "not that useful." The chip itself is now a
   // direct back-link to the ticket detail page (no popover trigger);
   // the popover hangs off the counter / ▾ glyph instead.
-  const currentTarget = idx >= 0 ? expTargets[idx] : null;
   const prevTarget = idx > 0 ? expTargets[idx - 1] : null;
   const nextTarget = idx >= 0 && idx < total - 1 ? expTargets[idx + 1] : null;
   function navigateTo(targetId: number): void {
     navigate(`#/experiments/${targetId}?ticket=${ticketId}`);
   }
+  // Layout per Paul 2026-06-14:
+  //   [← Ticket]   [Boss-critic 200 …]   ‹ 12/200 ›
+  //   ───────────  ───────────────────  ───────────
+  //   plain        dropdown trigger     counter + prev/next
+  //   back-link    (opens popover)      (free-floating)
+  //
+  // The back-link is a bare "← Ticket" — no title baked in. The
+  // title lives on the dropdown trigger box next to it. Three
+  // separate concerns, three visually distinct affordances.
+  // Status pill drops out of this row — surface lives in the
+  // popover member list per-row.
   return (
-    <span ref={wrapRef} className="relative inline-flex items-center gap-1.5 text-[11px]">
-      {/* Chip = direct back-link to ticket detail. */}
+    <span ref={wrapRef} className="relative inline-flex items-center gap-2 text-[11px]">
       <a
         href={`#/tickets/${ticketId}`}
         className={cn(
@@ -1861,16 +1870,31 @@ export function TicketContextChip({
           "border-violet-300 bg-violet-100 text-violet-800",
           "hover:bg-violet-200 hover:no-underline",
           "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
-          "max-w-[20rem]",
         )}
         title={`Back to ticket: ${ticket.title}`}
       >
         <span aria-hidden>←</span>
-        <span className="truncate">Ticket: {chipLabel}</span>
+        <span>Ticket</span>
       </a>
-      {/* prev / counter+popover / next nav cluster. Counter is the
-          popover trigger; flanking buttons walk the target list one
-          step at a time. */}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer",
+          "border-violet-300 bg-violet-100 text-violet-800",
+          "hover:bg-violet-200",
+          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
+          "max-w-[20rem]",
+          open && "ring-2 ring-offset-1 ring-violet-400/50",
+        )}
+        title={`${ticket.title} — click for ticket members`}
+      >
+        <span className="truncate">{chipLabel}</span>
+        <span aria-hidden className="text-violet-700/70 dark:text-violet-300/70">
+          ▾
+        </span>
+      </button>
       <button
         type="button"
         onClick={() => prevTarget && navigateTo(prevTarget.target_id)}
@@ -1897,33 +1921,6 @@ export function TicketContextChip({
       >
         ›
       </button>
-      {/* Dropdown trigger — its own bordered chip, visually peer to
-          the back-link chip on the left. Paul 2026-06-14: "the box
-          for going back to the ticket has to be separate from the
-          one for the dropdown." Same violet palette so the two
-          boxes read as a pair of ticket affordances, distinct from
-          each other but obviously related. */}
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer",
-          "border-violet-300 bg-violet-100 text-violet-800",
-          "hover:bg-violet-200",
-          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
-          open && "ring-2 ring-offset-1 ring-violet-400/50",
-        )}
-        title="Show ticket members"
-        aria-label="ticket members"
-      >
-        <span aria-hidden>▾</span>
-      </button>
-      {/* Current target's status — Paul 2026-06-14: "its current
-          status in the ticket should be visible (started, closed…)." */}
-      {currentTarget?.status ? (
-        <TicketTargetStatusPill status={currentTarget.status} />
-      ) : null}
       {open ? (
         <TicketNavigatorPopover
           ticketId={ticketId}
@@ -1934,40 +1931,6 @@ export function TicketContextChip({
           onClose={() => setOpen(false)}
         />
       ) : null}
-    </span>
-  );
-}
-
-/** Small pill rendering a ticket target's current status — surfaces
- *  the curator's progress on THIS experiment within the ticket
- *  (NOT_DONE / UNDERWAY / DONE) inline next to the ticket nav
- *  cluster. */
-function TicketTargetStatusPill({
-  status,
-}: {
-  status: "NOT_DONE" | "UNDERWAY" | "DONE";
-}) {
-  const map = {
-    NOT_DONE: {
-      label: "Not started",
-      cls: "border-slate-300 text-slate-600 bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:bg-slate-800",
-    },
-    UNDERWAY: {
-      label: "Started",
-      cls: "border-amber-300 text-amber-800 bg-amber-50 dark:border-amber-700 dark:text-amber-200 dark:bg-amber-900/30",
-    },
-    DONE: {
-      label: "Done",
-      cls: "border-emerald-300 text-emerald-800 bg-emerald-50 dark:border-emerald-700 dark:text-emerald-200 dark:bg-emerald-900/30",
-    },
-  } as const;
-  const m = map[status];
-  return (
-    <span
-      className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border ${m.cls}`}
-      title={`This experiment's status on the ticket: ${m.label}`}
-    >
-      {m.label}
     </span>
   );
 }
