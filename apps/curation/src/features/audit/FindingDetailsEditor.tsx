@@ -4553,30 +4553,43 @@ function ActionRow({
           {saving ? "Saving…" : b.label}
         </button>
       ))}
-      {buttons.length > 0 && showEscapeHatches ? (
-        <span className="text-slate-300 dark:text-slate-600">·</span>
-      ) : null}
-      {showEscapeHatches ? (
+      {/* Escape hatches — historically rendered Reject + Park
+          alongside the primary buttons. Paul 2026-06-14 (and the
+          earlier findingCard refactor):
+            - When the primary buttons already include the disagree
+              action (e.g. "don't remove" sits next to "remove"),
+              Reject is redundant — drop it.
+            - Park is hidden across the audit/proposal surface until
+              the mid-curation handoff flow that needs it lands;
+              handlers + dialog stay wired so flipping the gate
+              restores the button.
+          Reject still shows when the primary row has only ONE
+          button (the "Agree-only" surfaces like single-tag add):
+          there's no opposite action button there, so the curator
+          needs an escape hatch. */}
+      {showEscapeHatches && buttons.length < 2 && !hideDismiss ? (
         <>
-          {!hideDismiss ? (
-            <button
-              type="button"
-              onClick={onDismiss}
-              disabled={saving}
-              className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              Reject…
-            </button>
-          ) : null}
+          <span className="text-slate-300 dark:text-slate-600">·</span>
           <button
             type="button"
-            onClick={onPark}
+            onClick={onDismiss}
             disabled={saving}
             className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
           >
-            Park…
+            Reject…
           </button>
         </>
+      ) : null}
+      {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
+      {false && showEscapeHatches ? (
+        <button
+          type="button"
+          onClick={onPark}
+          disabled={saving}
+          className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+        >
+          Park…
+        </button>
       ) : null}
       {onUndo ? (
         <button
