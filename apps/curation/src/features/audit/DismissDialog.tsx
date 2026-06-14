@@ -69,6 +69,7 @@ export function DismissDialog({
   initialTag = null,
   initialNotes = "",
   isEdit = false,
+  titleOverride,
   onCancel,
   onConfirm,
 }: {
@@ -92,6 +93,12 @@ export function DismissDialog({
    *  log is append-only, latest-per-target_id wins), so no separate
    *  endpoint is needed. */
   isEdit?: boolean;
+  /** Override the dialog header text. Used so the dismiss dialog can
+   *  read the same action verb as the button that opened it
+   *  ("Don't remove factor" instead of generic "Disagree"). Falls back
+   *  to ``MODE_CONFIG[mode].title`` when null/undefined. Paul
+   *  2026-06-14. */
+  titleOverride?: string | null;
   onCancel: () => void;
   onConfirm: (tag: string | null, notes: string) => Promise<void> | void;
 }) {
@@ -217,7 +224,9 @@ export function DismissDialog({
     >
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <span className="font-semibold text-slate-800 dark:text-slate-100">
-          {isEdit ? `Edit · ${config.title}` : config.title}
+          {isEdit
+            ? `Edit · ${titleOverride || config.title}`
+            : titleOverride || config.title}
         </span>
         <button
           type="button"

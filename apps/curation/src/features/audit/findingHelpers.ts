@@ -83,6 +83,162 @@ export function findingActionLabel(finding: AuditFinding): string {
   return TARGET_KIND_LABEL[finding.target_kind] || finding.target_kind;
 }
 
+/** Action-named labels for a finding's per-card disposition buttons.
+ *  Replaces the old "Agree" / "Reject…" / "Park…" generic triplet
+ *  with verbs that read against the actual mutation the agent
+ *  proposed:
+ *
+ *    calibration_factor_extra            → "Add"      / "Don't add"
+ *    calibration_factor_gold_only_miss   → "Remove"   / "Don't remove"
+ *    calibration_factor_match_*          → "Confirm"  / "Not a match"
+ *    calibration_factor_partition_mismatch → "Modify FVs" / "Don't modify"
+ *    calibration_factor_rename           → "Rename"   / "Don't rename"
+ *    calibration_agent_extra (tag)       → "Add"      / "Don't add"
+ *    calibration_gold_only_miss (tag)    → "Remove"   / "Don't remove"
+ *    factor_proposed_new                 → "Add"      / "Don't add"
+ *    tag_proposed_new                    → "Add"      / "Don't add"
+ *
+ *  Two design rules from Paul 2026-06-14:
+ *    1. Green ALWAYS means "accept the agent's proposal" — the
+ *       accept-agent button is the primary green CTA regardless of
+ *       whether that means add, remove, modify, or confirm.
+ *    2. The dismiss button names the OPPOSITE action ("Don't remove")
+ *       instead of the meta-stance ("Reject") — curators read action
+ *       buttons, not stances.
+ *
+ *  ``dismissDialogTitle`` is the title for the chip-picker dialog
+ *  that opens on dismiss. The dialog already adapts its chips per
+ *  issue_code (see ``dispositionChips.ts``); this just makes the
+ *  header read the same as the button that opened it. */
+export interface DispositionButtonLabels {
+  /** Primary green button label ("Add" / "Remove" / …). */
+  acceptLabel: string;
+  /** Past-tense form used after the apply has landed. */
+  acceptDoneLabel: string;
+  /** Secondary button label ("Don't add" / "Don't remove" / …). */
+  dismissLabel: string;
+  /** Title for the dismiss chip-dialog when it opens. */
+  dismissDialogTitle: string;
+}
+
+export function findingDispositionButtonLabels(
+  finding: AuditFinding,
+): DispositionButtonLabels {
+  const ak = finding.alignment_kind;
+  const isTag = finding.target_kind === "tag";
+  const noun = isTag ? "tag" : "factor";
+  if (ak === "extra") {
+    return {
+      acceptLabel: "Add",
+      acceptDoneLabel: "✓ Added",
+      dismissLabel: "Don't add",
+      dismissDialogTitle: `Don't add ${noun}`,
+    };
+  }
+  if (ak === "gold_only_miss") {
+    return {
+      acceptLabel: "Remove",
+      acceptDoneLabel: "✓ Removed",
+      dismissLabel: "Don't remove",
+      dismissDialogTitle: `Don't remove ${noun}`,
+    };
+  }
+  if (ak === "partition_mismatch") {
+    return {
+      acceptLabel: "Modify FVs",
+      acceptDoneLabel: "✓ Modified",
+      dismissLabel: "Don't modify",
+      dismissDialogTitle: "Don't modify factor values",
+    };
+  }
+  if (ak === "exact" || ak === "near") {
+    return {
+      acceptLabel: "Confirm",
+      acceptDoneLabel: "✓ Confirmed",
+      dismissLabel: "Not a match",
+      dismissDialogTitle: `${noun === "tag" ? "Tag" : "Factor"} isn't a match`,
+    };
+  }
+  const code = finding.issue_code;
+  if (
+    code === "calibration_factor_extra" ||
+    code === "augmentation_factor_extra" ||
+    code === "factor_proposed_new"
+  ) {
+    return {
+      acceptLabel: "Add",
+      acceptDoneLabel: "✓ Added",
+      dismissLabel: "Don't add",
+      dismissDialogTitle: "Don't add factor",
+    };
+  }
+  if (code === "calibration_factor_gold_only_miss") {
+    return {
+      acceptLabel: "Remove",
+      acceptDoneLabel: "✓ Removed",
+      dismissLabel: "Don't remove",
+      dismissDialogTitle: "Don't remove factor",
+    };
+  }
+  if (
+    code === "calibration_agent_extra" ||
+    code === "tag_proposed_new" ||
+    code === "missing_tag"
+  ) {
+    return {
+      acceptLabel: "Add",
+      acceptDoneLabel: "✓ Added",
+      dismissLabel: "Don't add",
+      dismissDialogTitle: "Don't add tag",
+    };
+  }
+  if (code === "calibration_gold_only_miss") {
+    return {
+      acceptLabel: "Remove",
+      acceptDoneLabel: "✓ Removed",
+      dismissLabel: "Don't remove",
+      dismissDialogTitle: "Don't remove tag",
+    };
+  }
+  if (
+    code === "calibration_factor_match_exact" ||
+    code === "calibration_factor_match_near" ||
+    code === "calibration_factor_match" ||
+    code === "calibration_match"
+  ) {
+    return {
+      acceptLabel: "Confirm",
+      acceptDoneLabel: "✓ Confirmed",
+      dismissLabel: "Not a match",
+      dismissDialogTitle: `${isTag ? "Tag" : "Factor"} isn't a match`,
+    };
+  }
+  if (code === "calibration_factor_partition_mismatch") {
+    return {
+      acceptLabel: "Modify FVs",
+      acceptDoneLabel: "✓ Modified",
+      dismissLabel: "Don't modify",
+      dismissDialogTitle: "Don't modify factor values",
+    };
+  }
+  if (code === "calibration_factor_rename") {
+    return {
+      acceptLabel: "Rename",
+      acceptDoneLabel: "✓ Renamed",
+      dismissLabel: "Don't rename",
+      dismissDialogTitle: "Don't rename factor",
+    };
+  }
+  // Generic fallback for unhandled codes — keep the legacy verbs so
+  // we don't ship blank buttons.
+  return {
+    acceptLabel: "Agree",
+    acceptDoneLabel: "✓ Agreed",
+    dismissLabel: "Disagree",
+    dismissDialogTitle: "Disagree",
+  };
+}
+
 /** Leading glyph for the finding's action label. Visually keys the
  *  row to the kind of change being proposed without needing to read
  *  the verb:

@@ -77,6 +77,7 @@ import {
 import {
   findingActionGlyph,
   findingActionLabel,
+  findingDispositionButtonLabels,
   findingShortRationale,
   findingSubjectLabel,
   isMatchFinding,
@@ -949,6 +950,13 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const action = resolveApplyAction(finding, { report, design: draft });
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
+  // Action-named button labels — replaces the legacy "Agree" / "Reject"
+  // pair with verbs matched to the actual mutation (Add / Remove /
+  // Confirm / …). Paul 2026-06-14: "green should ALWAYS mean 'accept
+  // the agent'", and the secondary button names the opposite action
+  // ("Don't remove") rather than the meta-stance ("Reject"). See
+  // ``findingDispositionButtonLabels`` for the full per-code table.
+  const dispoLabels = findingDispositionButtonLabels(finding);
   // Judge says weak → reframe the action row so Dismiss is the primary
   // blue button and the structural-apply demotes to a small "override"
   // link. Without this the curator gets mixed signals (Suggested Fix
@@ -1410,18 +1418,18 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               // re-enables the apply for re-runs.
               const applyAlreadyDone =
                 action.mutates && current !== "pending";
-              // Use the action-level label when set (calibration paths
-              // emit "Agree (add) →" / "Agree (remove) →"); fall back
-              // to the legacy default for handlers that don't.
-              const label =
-                action.label ||
-                (action.mutates ? "Apply & focus →" : "Focus →");
-              // Done state — strip the verb prefix and arrow, leaving
-              // a "✓ done (action)" pill that signals the apply has
-              // landed.
-              const labelDone = label
-                .replace(/^(Agree|Apply)\b/, "✓ Done")
-                .replace(/\s*→\s*$/, "");
+              // Action-named labels override the legacy "Agree (add) →"
+              // strings that applyHandlers still emits. The mutating
+              // path reads "Add →" / "Remove →" / "Confirm →" etc.;
+              // focus-only paths keep their navigation tone.
+              const label = action.mutates
+                ? `${dispoLabels.acceptLabel} →`
+                : action.label || "Focus →";
+              const labelDone = action.mutates
+                ? dispoLabels.acceptDoneLabel
+                : (action.label || "")
+                    .replace(/^(Agree|Apply)\b/, "✓ Done")
+                    .replace(/\s*→\s*$/, "");
               // Agent-extra accept now requires an explanation
               // (2026-05-10): adding new curation deserves a "why".
               // Click opens the accept-reason dialog instead of running
@@ -1478,15 +1486,15 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                     "text-[11px] px-2 py-0.5 rounded font-medium",
                     action.mutates
                       ? dispositionSaving
-                        ? "bg-blue-200 text-blue-700 cursor-progress"
+                        ? "bg-emerald-200 text-emerald-800 cursor-progress"
                         : applyAlreadyDone
                           ? // Greyed-out post-apply state. Indicates
                             // the structural change has landed; undo
                             // through the disposition buttons.
                             "bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
                           : current === "accepted"
-                            ? "bg-blue-700 text-white hover:bg-blue-800"
-                            : "bg-blue-600 text-white hover:bg-blue-700"
+                            ? "bg-emerald-700 text-white hover:bg-emerald-800"
+                            : "bg-emerald-600 text-white hover:bg-emerald-700"
                       : // Focus-only action is just navigation; tone
                         // it down so it doesn't compete with the
                         // explicit Agree verb next to it.
@@ -1523,27 +1531,29 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                   : isParked
                     ? "undo — back to pending"
                     : noFollowUp
-                      ? "agree (click again to undo)"
-                      : "agree (resolve once you've fixed the data)"
+                      ? `${dispoLabels.acceptLabel.toLowerCase()} (click again to undo)`
+                      : `${dispoLabels.acceptLabel.toLowerCase()} (resolve once you've fixed the data)`
               }
               className={cn(
                 "text-[11px] px-2 py-0.5 rounded font-medium disabled:opacity-50",
+                // Always green for the accept-agent CTA. The post-
+                // accept "✓ done" state stays solid emerald; the
+                // pre-accept resting state is an outlined emerald
+                // button so it visually pops without screaming.
                 isResolved
                   ? "bg-emerald-700 text-white hover:bg-emerald-800"
                   : isParked
-                    ? noFollowUp
-                      ? "bg-emerald-700 text-white hover:bg-emerald-800"
-                      : "bg-blue-700 text-white hover:bg-blue-800"
-                    : "bg-white border border-blue-600 text-blue-700 hover:bg-blue-50 dark:bg-slate-900 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-slate-800",
+                    ? "bg-emerald-700 text-white hover:bg-emerald-800"
+                    : "bg-white border border-emerald-600 text-emerald-700 hover:bg-emerald-50 dark:bg-slate-900 dark:border-emerald-400 dark:text-emerald-300 dark:hover:bg-slate-800",
               )}
             >
               {isResolved
-                ? "✓✓ resolved"
+                ? `✓✓ ${dispoLabels.acceptDoneLabel.replace(/^✓\s*/, "").toLowerCase()}`
                 : isParked
                   ? noFollowUp
-                    ? "✓ agreed"
+                    ? dispoLabels.acceptDoneLabel
                     : "✓ parked"
-                  : "Agree"}
+                  : dispoLabels.acceptLabel}
             </button>
           )}
           {isParked && !noFollowUp ? (
@@ -1568,50 +1578,62 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             disabled={dispositionSaving}
             title={
               judgeWeak
-                ? "judge says reject (pick a reason)"
-                : "reject this finding (pick a reason)"
+                ? `judge says ${dispoLabels.dismissLabel.toLowerCase()} (pick a reason)`
+                : `${dispoLabels.dismissLabel.toLowerCase()} (pick a reason)`
             }
             className={cn(
               "rounded font-medium disabled:opacity-50",
               judgeWeak
-                ? // Promoted to primary blue when the judge advises
-                  // against the apply — dismiss is the natural action.
+                ? // Promoted to primary slate when the judge advises
+                  // against the apply — disagree is the natural action,
+                  // but it still shouldn't claim the accept-agent green
+                  // slot. Solid slate beats green for "the judge says
+                  // this isn't the move" without competing with the
+                  // primary accept CTA elsewhere on the page.
                   "text-[11px] px-2 py-0.5 " +
                     (current === "dismissed"
-                      ? "bg-blue-700 text-white hover:bg-blue-800"
-                      : "bg-blue-600 text-white hover:bg-blue-700")
-                : "text-[10px] px-1.5 py-0.5 " +
+                      ? "bg-slate-800 text-white hover:bg-slate-900"
+                      : "bg-slate-700 text-white hover:bg-slate-800")
+                : "text-[11px] px-2 py-0.5 border " +
                     (current === "dismissed"
-                      ? "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
-                      : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"),
+                      ? "bg-slate-700 text-white border-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"),
             )}
           >
-            {current === "dismissed" ? "✓ rejected" : "Reject…"}
+            {current === "dismissed"
+              ? `✓ ${dispoLabels.dismissLabel.toLowerCase()}`
+              : `${dispoLabels.dismissLabel}…`}
           </button>
-          <button
-            ref={notSureBtnRef}
-            type="button"
-            onClick={() => {
-              // Toggle off when already set; opening the dialog only
-              // makes sense when the curator is committing to a new
-              // park decision.
-              if (current === "needs_more_info") {
-                patch("pending");
-              } else {
-                setNotSureOpen(true);
-              }
-            }}
-            disabled={dispositionSaving}
-            title="park with an explanation — counts as decided"
-            className={cn(
-              "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
-              current === "needs_more_info"
-                ? "bg-amber-600 text-white"
-                : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
-            )}
-          >
-            {current === "needs_more_info" ? "✓ parked" : "Park…"}
-          </button>
+          {/* Park button — Paul 2026-06-14: "I'm not sure we have
+              park functionality; let's hide that, but don't remove
+              it." The handlers + chip set + server enum all stay
+              wired up; just don't surface the affordance until the
+              flow that needs it (mid-curation handoffs, partial
+              review) actually lands. Restore by flipping the gate. */}
+          {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
+          {false ? (
+            <button
+              ref={notSureBtnRef}
+              type="button"
+              onClick={() => {
+                if (current === "needs_more_info") {
+                  patch("pending");
+                } else {
+                  setNotSureOpen(true);
+                }
+              }}
+              disabled={dispositionSaving}
+              title="park with an explanation — counts as decided"
+              className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded font-medium disabled:opacity-50",
+                current === "needs_more_info"
+                  ? "bg-amber-600 text-white"
+                  : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
+              )}
+            >
+              {current === "needs_more_info" ? "✓ parked" : "Park…"}
+            </button>
+          ) : null}
           {current !== "pending" ? (
             <button
               type="button"
@@ -1683,6 +1705,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 finding={finding}
                 targetId={finding.target_id}
                 anchor={dismissBtnRef.current}
+                titleOverride={dispoLabels.dismissDialogTitle}
                 isEdit={dismissEditing}
                 initialTag={prefill.tag}
                 initialNotes={prefill.plain}
