@@ -84,7 +84,10 @@ import {
 import { parseTargetId, slug } from "./targetIds";
 import type { FactorProposal } from "@/api/types";
 import { useAudit } from "./AuditContext";
-import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
+import {
+  locateTooltipFor,
+  requestAuditFocus,
+} from "@/lib/scrollToAuditTarget";
 import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
 import {
   isSideEmpty,
@@ -1292,8 +1295,8 @@ export function FindingDetailsEditor({
               <button
                 type="button"
                 onClick={onLocateCurrent}
-                title="show in Design tab"
-                aria-label="locate in design"
+                title={locateTooltipFor(finding.target_id)}
+                aria-label={locateTooltipFor(finding.target_id)}
                 className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
               >
                 🔍
@@ -1659,8 +1662,8 @@ export function FindingDetailsEditor({
               <button
                 type="button"
                 onClick={onLocateCurrent}
-                title="show in Design tab"
-                aria-label="locate in design"
+                title={locateTooltipFor(finding.target_id)}
+                aria-label={locateTooltipFor(finding.target_id)}
                 className="ml-1 align-baseline text-[10px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
               >
                 🔍
@@ -1831,6 +1834,7 @@ export function FindingDetailsEditor({
           rows={rows}
           identities={identities}
           onLocateCurrent={onLocateCurrent}
+          locateTooltip={locateTooltipFor(finding.target_id)}
         />
       ) : null}
 
@@ -1932,6 +1936,7 @@ export function FindingDetailsEditor({
             identities={identities}
             rowState={rowState}
             onLocateCurrent={onLocateCurrent}
+            locateTooltip={locateTooltipFor(finding.target_id)}
             editCategory={firstBacktick(finding.rationale) ?? null}
             leanKinds={leanKinds}
             actionLbls={actionLbls}
@@ -3564,6 +3569,7 @@ function DisagreementBlock({
   onPick,
   onEditCommit,
   onLocateCurrent,
+  locateTooltip,
   editCategory,
   leanKinds,
   actionLbls,
@@ -3587,6 +3593,10 @@ function DisagreementBlock({
   onEditCommit: (label: string, uri: string | null) => void;
   /** Forwarded to the "currently" ComparatorLine's locate button. */
   onLocateCurrent?: () => void;
+  /** Tooltip + aria-label for the locate button — passed in so it
+   *  names the actual tab (Overview / Design / Samples) the focus
+   *  jumps to. Defaults to a generic "locate" when omitted. */
+  locateTooltip?: string;
   /** Category label used to filter the ontology-term picker's
    *  typeahead when the curator opens the "edit…" affordance. */
   editCategory?: string | null;
@@ -3757,6 +3767,7 @@ function DisagreementBlock({
         side="currently"
         picked={blockPick === "currently"}
         onLocate={onLocateCurrent}
+        locateTooltip={locateTooltip}
       />
       {/* Extra current-side statements beyond ``statements[0]`` — a
           curated FV often layers multiple statements (subject + dose,
@@ -3895,10 +3906,12 @@ function TagDetailBlock({
   rows,
   identities,
   onLocateCurrent,
+  locateTooltip,
 }: {
   rows: Row[];
   identities: AuditIdentities;
   onLocateCurrent?: () => void;
+  locateTooltip?: string;
 }) {
   const catRow = rows.find((r) => r.rowLabel === "Category");
   const valRow = rows.find((r) => r.rowLabel === "Value");
@@ -3958,8 +3971,8 @@ function TagDetailBlock({
             <button
               type="button"
               onClick={onLocateCurrent}
-              title="show in Design tab"
-              aria-label="locate in design"
+              title={locateTooltip ?? "locate"}
+              aria-label={locateTooltip ?? "locate"}
               className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
             >
               🔍
@@ -3979,6 +3992,7 @@ function ComparatorLine({
   side,
   picked,
   onLocate,
+  locateTooltip,
 }: {
   who: string;
   /** Optional verb after the identity label ("says" / "have" /
@@ -3994,6 +4008,10 @@ function ComparatorLine({
    *  the ``currently`` side (the gold curator's design data is
    *  what the Design tab shows). */
   onLocate?: () => void;
+  /** Tooltip for the locate button — usually the dynamic
+   *  ``locateTooltipFor(targetId)`` string ("show in Design tab" /
+   *  "show in Overview tab" / "show in Samples tab"). */
+  locateTooltip?: string;
 }) {
   // Sort within the group by part order. Category is filtered
   // out when the group has OTHER rows (subject/predicate/object)
@@ -4080,8 +4098,8 @@ function ComparatorLine({
           <button
             type="button"
             onClick={onLocate}
-            title="show in Design tab"
-            aria-label="locate in design"
+            title={locateTooltip ?? "locate"}
+            aria-label={locateTooltip ?? "locate"}
             className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
           >
             🔍

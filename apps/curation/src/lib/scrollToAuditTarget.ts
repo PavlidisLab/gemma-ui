@@ -127,6 +127,26 @@ export function tabForTargetId(targetId: string): ExperimentTab | null {
   }
 }
 
+/** Human-readable label for the tab a target_id routes to. Used in
+ *  tooltips on locate-in-tab affordances so the curator sees
+ *  "show in Overview tab" for tags and "show in Design tab" for
+ *  factors — not the misleading "Design" fallback that previous
+ *  call sites hardcoded. Paul 2026-06-14: "it's the overview tab
+ *  where tags are shown." */
+export function locateTooltipFor(targetId: string): string {
+  const tab = tabForTargetId(targetId);
+  switch (tab) {
+    case "design":
+      return "show in Design tab";
+    case "overview":
+      return "show in Overview tab";
+    case "samples":
+      return "show in Samples tab";
+    default:
+      return "locate";
+  }
+}
+
 /** Apply the scroll + ring-flash on a DOM element. Used by panels
  *  that listen to onAuditFocusTarget. Centralised so the highlight
  *  treatment stays consistent across factor cards, FV cards, tag

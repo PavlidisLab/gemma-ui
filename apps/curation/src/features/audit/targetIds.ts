@@ -97,7 +97,29 @@ export function parseTargetId(targetId: string): ParsedTargetId | null {
     }
     case "tag": {
       const slash = rest.indexOf("/");
-      if (slash === -1) return null;
+      if (slash === -1) {
+        // ``tag:<id>`` — numeric existing-id shape used by
+        // ``calibration_gold_only_miss`` when the gold tag is
+        // already in the design (see ``applyHandlers.ts``: "two
+        // shapes: ``tag:<existing_id>`` when the gold tag is
+        // already in the design (numeric id from storage), or
+        // ``calibration:miss:<cat>/<val>`` when no existing-id
+        // match was found"). The slug pieces aren't recoverable
+        // from the id alone, so callers that need the (category,
+        // value) slugs MUST fall through to the rationale text
+        // backticks or the design's tag list. Return an empty
+        // categorySlug / valueSlug pair so the kind is still
+        // recognized as "tag" — that lets tab-routing
+        // (``tabForTargetId``) succeed even when the slug shape is
+        // missing. Paul 2026-06-14: tag-side magnifier "doesn't
+        // even navigate to the overview tab"; this was the silent
+        // bail.
+        return {
+          kind: "tag",
+          categorySlug: rest,
+          valueSlug: "",
+        };
+      }
       return {
         kind: "tag",
         categorySlug: rest.slice(0, slash),

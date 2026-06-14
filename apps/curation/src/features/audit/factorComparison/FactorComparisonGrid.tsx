@@ -202,7 +202,7 @@ export function FactorComparisonGrid({
             type="button"
             onClick={onLeftLocate}
             title="show in Design tab"
-            aria-label="locate in design"
+            aria-label="show in Design tab"
             className="text-[10px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
           >
             🔍
