@@ -25,17 +25,27 @@ import { ModeChip } from "@/components/ui/ModeChip";
 import { HealthChip } from "@/components/ui/HealthChip";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
 import { useLogout, useMe } from "@/api/session";
+import { useTicket } from "@/api/tickets";
 import { navigate } from "@/routes";
 import { browserUrl, adminUrl } from "@/lib/appLinks";
 
 export function AppHeader({
   reviewer,
   children,
+  ticketContext,
 }: {
   reviewer: string;
   /** Optional slot for sub-route breadcrumb crumbs / context chips.
    *  Rendered immediately after the nav tab cluster. */
   children?: ReactNode;
+  /** Numeric ticket id when the current surface was entered from a
+   *  ticket detail page (URL ``?ticket=<id>``). When set, the header
+   *  renders a "← Ticket: <title>" breadcrumb next to the Dashboard
+   *  button so the curator can see at a glance where they came from
+   *  and jump back without going via the dashboard. Paul 2026-06-14:
+   *  the existing in-popover ticket link was "a bit obscure"; this
+   *  promotes it to top-level chrome. */
+  ticketContext?: number | string | null;
 }) {
   const logout = useLogout();
   const me = useMe();
@@ -66,6 +76,7 @@ export function AppHeader({
           one-click escape that's labelled by intent. Hidden on the
           dashboard itself so it doesn't loop back on itself. */}
       <BackToDashboardLink />
+      <BackToTicketLink ticketContext={ticketContext ?? null} />
 
       {children}
 
@@ -100,6 +111,59 @@ export function AppHeader({
         </button>
       </div>
     </header>
+  );
+}
+
+/** "← Ticket: <title>" breadcrumb. Renders nothing when there's no
+ *  ticket context, when the curator is already on the ticket detail
+ *  page, or when the ticket fetch hasn't landed yet. Fetches the
+ *  ticket title via ``useTicket`` so the curator sees the
+ *  human-readable name ("Boss-critic 200 — canonical gold") instead
+ *  of the raw id. */
+function BackToTicketLink({
+  ticketContext,
+}: {
+  ticketContext: number | string | null;
+}) {
+  const onTicketPage = useHashMatches(["#/tickets/"]);
+  const id =
+    ticketContext == null
+      ? null
+      : typeof ticketContext === "number"
+        ? ticketContext
+        : Number.parseInt(ticketContext, 10);
+  const idValid = id != null && Number.isFinite(id);
+  const ticketQ = useTicket(idValid ? id : null);
+  if (!idValid || onTicketPage) return null;
+  const title = ticketQ.data?.title?.trim();
+  if (!title) {
+    // Still loading or unknown ticket — render the chip with the
+    // numeric id as fallback so the back-affordance is visible
+    // immediately, instead of waiting for the title fetch.
+    return (
+      <button
+        type="button"
+        onClick={() => navigate(`#/tickets/${id}`)}
+        title={`Back to ticket ${id}`}
+        className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/30 bg-transparent cursor-pointer"
+      >
+        <span aria-hidden>←</span>
+        <span>Ticket #{id}</span>
+      </button>
+    );
+  }
+  // Cap label width — long ticket titles otherwise blow up the
+  // header. Full title still lives in the hover tooltip.
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`#/tickets/${id}`)}
+      title={`Back to ticket: ${title}`}
+      className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/30 bg-transparent cursor-pointer max-w-[20rem]"
+    >
+      <span aria-hidden>←</span>
+      <span className="truncate">Ticket: {title}</span>
+    </button>
   );
 }
 
