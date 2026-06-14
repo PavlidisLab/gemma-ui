@@ -537,6 +537,30 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                         null;
                     }
                   }
+                  // Category-only fallback for ADD TAG: the
+                  // apply_action wire shape carries ``new_category``
+                  // as a bare string without a URI counterpart
+                  // (``ApplyActionPayload.add_tag`` has
+                  // ``new_value_uri`` but no ``new_category_uri`` —
+                  // bro handoff filed). Recover the URI by matching
+                  // any existing tag in the draft that already uses
+                  // this category. Common since experiments often
+                  // have multiple tags under the same category
+                  // ("disease model", "treatment", etc.) — the
+                  // category URI is the same across them. Paul
+                  // 2026-06-14: "why isn't this shown as green
+                  // ontology term?"
+                  if (!catUri && catLabel) {
+                    const lc = catLabel.trim().toLowerCase();
+                    const sameCategoryTag = draft?.tags?.find(
+                      (t) =>
+                        (t.category?.label ?? "").trim().toLowerCase() ===
+                          lc && !!t.category?.uri,
+                    );
+                    if (sameCategoryTag) {
+                      catUri = sameCategoryTag.category?.uri ?? null;
+                    }
+                  }
                   // Render as ``<category> : <value>`` — matches the
                   // agent's emit format ("disease model: Alzheimer
                   // disease") and the proposer-review surface. The
