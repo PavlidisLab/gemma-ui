@@ -64,20 +64,45 @@ export function BulkAssignPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buckets, factor.id]);
 
+  // Sample → currently-assigned FV id. Used to net out no-op
+  // reassignments from the panel count and the apply plan.
+  const currentFvBySample = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const fv of factor.factor_values) {
+      for (const sn of fv.biomaterial_short_names ?? []) m.set(sn, fv.id);
+    }
+    return m;
+  }, [factor]);
+
   function applyPlan() {
     const plan = new Map<string, number>();
     for (const [v, fvId] of valueToFv) {
       if (fvId == null) continue;
       const sns = buckets.get(v);
       if (!sns) continue;
-      for (const sn of sns) plan.set(sn, fvId);
+      for (const sn of sns) {
+        // Skip samples already in the target FV — assigning them
+        // again would be a no-op that still dirties the draft.
+        if (currentFvBySample.get(sn) === fvId) continue;
+        plan.set(sn, fvId);
+      }
     }
     onApply(plan);
   }
 
+  // Net-reassignment count for the apply button label — only samples
+  // whose current FV differs from the proposed target count as a
+  // reassignment.
   const totalAssigned = Array.from(valueToFv.entries()).reduce(
-    (n, [v, fvId]) =>
-      fvId != null ? n + (buckets.get(v)?.length ?? 0) : n,
+    (n, [v, fvId]) => {
+      if (fvId == null) return n;
+      const sns = buckets.get(v) ?? [];
+      let netChanges = 0;
+      for (const sn of sns) {
+        if (currentFvBySample.get(sn) !== fvId) netChanges++;
+      }
+      return n + netChanges;
+    },
     0,
   );
 
@@ -220,20 +245,47 @@ function bucketByCharacteristic(
   return out;
 }
 
-/** Auto-suggest a target FV for each distinct characteristic value
- *  by case-insensitive substring matching against the FV's
- *  free_text_label and any of its statement subjects / objects.
- *  Returns a Map keyed by characteristic value; entries are ``null``
- *  when no confident match exists, so the curator must pick. */
+/** Auto-suggest a target FV for each distinct characteristic value.
+ *  Picks in order: unanimous current assignment across the bucket's
+ *  samples → case-insensitive substring match on FV label /
+ *  statement subjects / objects → ``null`` (curator must pick). */
 function suggestPlan(
   buckets: Map<string, string[]>,
   factor: Factor,
 ): Map<string, number | null> {
+  // Sample → current FV lookup.
+  const currentFvBySample = new Map<string, number>();
+  for (const fv of factor.factor_values) {
+    for (const sn of fv.biomaterial_short_names ?? []) {
+      currentFvBySample.set(sn, fv.id);
+    }
+  }
   const out = new Map<string, number | null>();
-  for (const v of buckets.keys()) {
+  for (const [v, sns] of buckets) {
+    const fromCurrent = unanimousFvAcrossSamples(sns, currentFvBySample);
+    if (fromCurrent != null) {
+      out.set(v, fromCurrent);
+      continue;
+    }
     out.set(v, suggestFvForValue(v, factor));
   }
   return out;
+}
+
+/** Return the single FV id every sample in ``sns`` is currently
+ *  assigned to. ``null`` when the bucket spans multiple FVs OR
+ *  any sample is unassigned — those cases need curator picking. */
+function unanimousFvAcrossSamples(
+  sns: string[],
+  currentFvBySample: Map<string, number>,
+): number | null {
+  if (sns.length === 0) return null;
+  const first = currentFvBySample.get(sns[0]);
+  if (first == null) return null;
+  for (let i = 1; i < sns.length; i++) {
+    if (currentFvBySample.get(sns[i]) !== first) return null;
+  }
+  return first;
 }
 
 function suggestFvForValue(value: string, factor: Factor): number | null {

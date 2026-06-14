@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/Toast";
 import { InlineText } from "@/components/ui/InlineText";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { InlineFvPicker } from "@/components/ui/InlineFvPicker";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { useStickyState, useSessionState } from "@/lib/useStickyState";
 import { useEscape } from "@/lib/useEscape";
 import { fvDisplayLabel } from "@/features/samples/fvLabels";
@@ -1930,30 +1931,40 @@ function SampleTable({
                           {agg.isMixed ? (
                             <span>{agg.display}</span>
                           ) : matchedFactor ? (
-                            <InlineFvPicker
-                              value={agg.display}
-                              placeholder="—"
-                              options={matchedFactor.factor_values.map(
-                                (fv) => fv.free_text_label,
-                              )}
-                              dirty={isDirty}
-                              onCommit={(value) => {
-                                for (const sn of allShortNames) {
-                                  onSetCharacteristic(sn, k, value);
-                                }
-                              }}
-                            />
+                            <span className="inline-flex items-baseline gap-1.5">
+                              <InlineFvPicker
+                                value={agg.display}
+                                placeholder="—"
+                                options={matchedFactor.factor_values.map(
+                                  (fv) => fv.free_text_label,
+                                )}
+                                dirty={isDirty}
+                                onCommit={(value) => {
+                                  for (const sn of allShortNames) {
+                                    onSetCharacteristic(sn, k, value);
+                                  }
+                                }}
+                              />
+                              {agg.valueUri ? (
+                                <CurieLink uri={agg.valueUri} />
+                              ) : null}
+                            </span>
                           ) : (
-                            <InlineText
-                              value={agg.display}
-                              placeholder="—"
-                              dirty={isDirty}
-                              onCommit={(value) => {
-                                for (const sn of allShortNames) {
-                                  onSetCharacteristic(sn, k, value);
-                                }
-                              }}
-                            />
+                            <span className="inline-flex items-baseline gap-1.5">
+                              <InlineText
+                                value={agg.display}
+                                placeholder="—"
+                                dirty={isDirty}
+                                onCommit={(value) => {
+                                  for (const sn of allShortNames) {
+                                    onSetCharacteristic(sn, k, value);
+                                  }
+                                }}
+                              />
+                              {agg.valueUri ? (
+                                <CurieLink uri={agg.valueUri} />
+                              ) : null}
+                            </span>
                           )}
                         </td>
                       );
