@@ -36,6 +36,8 @@ import { IssueTagInline } from "@/features/proposal/IssueTagInline";
 import { useToast } from "@/components/ui/Toast";
 import { useProposalReview } from "@/features/proposal/ProposalReviewContext";
 import { navigate, experimentRoute } from "@/routes";
+import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
+import { factorTarget } from "@/features/audit/targetIds";
 import { MODEL_TIERS, tierForProviderModel } from "@/lib/modelTiers";
 
 /**
@@ -930,6 +932,26 @@ export function ProposalCardV2({
         }
       }
       apply(next);
+      // Focus the first newly-accepted factor so the design tab opens
+      // expanded on its FVs — per Paul 2026-06-13: "when a factor is
+      // added, it should get focus, so that the FVs are shown". The
+      // request rides through the same ``requestAuditFocus`` channel
+      // the audit Apply & focus path uses, so DesignEditor's existing
+      // subscriber handles selection + scroll for free. We target the
+      // first accepted factor only — if multiple are accepted at
+      // once, the curator can scroll the rest in; auto-focusing all
+      // would be a fight for the eye. Subsequent factors land in the
+      // list expanded by their own card click.
+      const firstFactor = acceptedFactors[0];
+      if (firstFactor) {
+        const target = factorTarget(firstFactor.category.label);
+        // Defer one frame so apply() has flushed the new factor into
+        // the draft before DesignEditor's subscriber tries to resolve
+        // it.
+        requestAnimationFrame(() => {
+          requestAuditFocus(proposal.experiment_id, target);
+        });
+      }
       // Apply confirmation. Counts come from the filtered (accepted)
       // tags + factors so unchecked items don't inflate the summary.
       // The proposal card unmounts as the inbox refetches and the
