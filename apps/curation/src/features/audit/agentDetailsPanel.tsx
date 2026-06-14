@@ -370,8 +370,17 @@ export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
           Near-match findings (rename / calibration_factor_match_near)
           omit the Judge row here — it renders inside the FV-level
           DisagreementBlock instead, bound to the exact FV being
-          corrected. */}
-      {!isNearMatch ? (
+          corrected.
+
+          Defender-tile duplication guard: when ``dv.rationale`` is
+          real, the JudgeChain DefenderTile below renders the same
+          text — showing the "Judge:" line here too duplicates the
+          rationale on the card. Paul 2026-06-14: "the text is just
+          repeated anyway in the judge part." Suppress the Judge:
+          line in that case; keep it for the proposer-defense
+          fallback and the sentinel (agent-emitted-nothing) cases
+          where the chain has nothing to render. */}
+      {!isNearMatch && !dv?.rationale?.trim() ? (
         <div
           className={cn(
             judge.isSentinel
