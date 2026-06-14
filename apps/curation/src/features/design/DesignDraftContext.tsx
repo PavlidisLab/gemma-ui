@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import { useDesign, useUpdateDesign } from "@/api/design";
-import { useToast } from "@/components/ui/Toast";
 import { ApiError } from "@/api/client";
 import { diffDesign, type DesignDiff } from "./diff";
 import type { Design } from "@/features/experiment/types";
@@ -264,7 +263,6 @@ export function DesignDraftProvider({
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const updater = useUpdateDesign(experimentId, reviewer);
-  const toast = useToast();
 
   // Resolve the chip baseline to a curation row (when one is set).
   // When the lookup hits, that row's design takes over from the
@@ -330,13 +328,13 @@ export function DesignDraftProvider({
       ? (curationsQuery.error as Error | null)
       : localDesign.error;
 
-  // Defensive write gate. Mirrors useIsReadOnly's rule (edits are
-  // only safe when the page's saved-state is rooted in the local
-  // /design target). Duplicated here so the provider's own commit/
-  // apply paths refuse writes regardless of whether the UI
-  // components honor useIsReadOnly. Cheaper than auditing every
-  // input for a disabled prop.
-  const providerReadOnly = usingBaseline && !baselineIsEditable;
+  // The provider-side write gate (``providerReadOnly``) was dropped
+  // 2026-06-14 — Paul: "the baseline has to always be editable."
+  // ``apply()`` already always-applies (the 2026-06-13 fix);
+  // ``commit()`` no longer refuses on a frozen baseline either.
+  // ``useIsReadOnly()`` remains as a UI-side hint surface but the
+  // provider itself no longer enforces a write block.
+
 
   const [draft, setDraft] = useState<Design | null>(null);
   const [staleCacheDiscarded, setStaleCacheDiscarded] = useState(false);
@@ -503,23 +501,15 @@ export function DesignDraftProvider({
   }, [updater.isPending]);
   const commit = useCallback(() => {
     if (!draft) return;
-    // Never POST writes against /design when the page is viewing a
-    // non-local baseline. A commit here would overwrite the local
-    // pack's design with the baseline content + any stray edits —
-    // exactly the silent-clobber scenario Paul flagged 2026-06-08
-    // ("we have to be careful about what we are editing"). 2026-06-13
-    // change: surface a toast instead of dropping silently — the
-    // curator clicked Commit and deserves feedback on why it didn't
-    // land. They can switch the chip-strip baseline to consensus or
-    // their polished row and retry.
-    if (providerReadOnly) {
-      toast.show(
-        "Switch the chip-strip baseline to consensus or your polished row before committing — edits can't write to /design from a frozen baseline view.",
-        "danger",
-        7000,
-      );
-      return;
-    }
+    // No baseline-view commit gate. Originally a hard refusal, then
+    // a danger toast, then a confirm dialog — every iteration
+    // interacted badly with the close-review's dirty-draft guard:
+    // dirty + viewing-a-baseline ⇒ can't commit, can't close,
+    // curator stuck. Paul 2026-06-14: "the baseline has to always
+    // be editable." The earlier "silent overwrite" concern from
+    // 2026-06-08 is moot when the curator's intent is to commit
+    // their own edits — that's the whole point of clicking Commit.
+    // Just let it through.
     updater.mutate(normalizeForCommit(draft), {
       onSuccess: (server) => {
         setDraft(server);
@@ -530,7 +520,7 @@ export function DesignDraftProvider({
         setRedoStack([]);
       },
     });
-  }, [draft, updater, experimentId, providerReadOnly, toast]);
+  }, [draft, updater, experimentId]);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
     setUndoStack([]);

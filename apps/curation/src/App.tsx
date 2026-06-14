@@ -450,7 +450,22 @@ function Shell({
   // their elements.
   useEffect(() => {
     return onRequestAuditFocus(({ experimentId: reqExpId, targetId }) => {
-      if (reqExpId !== experimentId) return;
+      // 2026-06-14 diagnostic — Paul reported the tag-side magnifier
+      // doesn't navigate at all, but factor works. Loose equality on
+      // experimentId so a string-vs-number type drift between
+      // useAudit()'s experimentId and the route's experimentId
+      // doesn't silently bail. Old strict ``!==`` flipped to
+      // ``String(...)`` compare; the strict form left no console
+      // trace when a mismatched type bailed.
+      if (String(reqExpId) !== String(experimentId)) {
+        console.warn(
+          "audit-focus: experimentId mismatch — req=%s shell=%s, target=%s",
+          reqExpId,
+          experimentId,
+          targetId,
+        );
+        return;
+      }
       const parsed = parseTargetId(targetId);
       if (parsed?.kind === "assignment") {
         // Assignments already route through the samples-scroll plumbing.
@@ -468,7 +483,14 @@ function Shell({
         return;
       }
       const tab = tabForTargetId(targetId);
-      if (!tab) return;
+      if (!tab) {
+        console.warn(
+          "audit-focus: no tab route for target_id=%s (parsed=%o) — listener bailed without switching tabs",
+          targetId,
+          parsed,
+        );
+        return;
+      }
       const localTab = mapRouteTab(tab).tab;
       setActiveTab(localTab);
       navigate(
