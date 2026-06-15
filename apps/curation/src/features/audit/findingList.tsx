@@ -599,6 +599,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
         baselineLabel={baselineLabel}
         comparatorLabel={comparatorLabel}
         experimentId={experimentId}
+        findings={findings}
       />
 
       {GROUPS.map(({ kind: groupKind, header }) => {
@@ -856,6 +857,7 @@ function BaselineDriftSection({
   baselineLabel,
   comparatorLabel,
   experimentId,
+  findings,
 }: {
   curations: readonly CurationRow[];
   baselineSource: Source;
@@ -863,6 +865,16 @@ function BaselineDriftSection({
   baselineLabel: string;
   comparatorLabel: string;
   experimentId: number | string;
+  /** The full findings list for this report. Used to suppress drift
+   *  cards for factors the audit already has a finding for —
+   *  signature-equality on consensus/agent factors misses cases
+   *  where the live FVs and consensus FVs share a category but
+   *  drift on FV labels (e.g. ``organism part: cerebral cortex /
+   *  cerebellum / …`` getting a REMOVE FACTOR finding from the
+   *  consensus side AND a drift card from the live side, for the
+   *  SAME factor). Paul 2026-06-14: "the same factor is mentioned
+   *  twice." */
+  findings: AuditFinding[];
 }) {
   const { apply: applyDraft, draft } = useDesignDraft();
   // Persisted per-(experiment, factor) dismissals so a "Keep" click
@@ -902,6 +914,25 @@ function BaselineDriftSection({
       ...consensusFactors.map(_factorSignature),
       ...agentFactors.map(_factorSignature),
     ]);
+    // Category-slug set sourced from every factor-target finding —
+    // if the audit reports a finding about a factor's category, the
+    // audit "saw" that factor regardless of whether its consensus/
+    // agent_proposal signature matches the live one. Drift fired for
+    // GSE9904 ``organism part`` because consensus + live disagreed on
+    // FV labels (signature mismatch), but the audit DID have a
+    // REMOVE FACTOR finding for it — duplicate card. Paul 2026-06-14.
+    const auditedCategoryKeys = new Set<string>();
+    for (const f of findings) {
+      if (f.target_kind !== "factor") continue;
+      const parsed = parseTargetId(f.target_id);
+      if (parsed?.kind !== "factor") continue;
+      // factorSlug is the agent's slugified category label (or
+      // sometimes a numeric id); fold both into the keyspace so the
+      // category check matches either id-shape.
+      if (parsed.factorSlug) {
+        auditedCategoryKeys.add(parsed.factorSlug.toLowerCase());
+      }
+    }
 
     // Per-category budget: how many factors of a given category URI
     // does the audit already cover? The strict signature
@@ -977,11 +1008,31 @@ function BaselineDriftSection({
       // audit-covered allowance — chip baseline=live and comparator=live
       // shouldn't double-charge.
       const catBudget = new Map(auditedCatCap);
+      // Helper — does this factor's category match any audit
+      // finding's factor target? Compare against the slug rule
+      // (lowercased + whitespace-collapsed-to-dash) since that's
+      // what ``parseTargetId`` emits and what the agent stamps.
+      const categoryCoveredByFinding = (f: Factor): boolean => {
+        const label = (f.category?.label ?? "").trim().toLowerCase();
+        if (!label) return false;
+        const slugified = label.split(/\s+/).filter(Boolean).join("-");
+        return (
+          auditedCategoryKeys.has(slugified) ||
+          auditedCategoryKeys.has(label.replace(/\s+/g, "-")) ||
+          auditedCategoryKeys.has(label)
+        );
+      };
       for (const f of _factorsOf(cur)) {
         if (_isNuisanceFactor(f)) continue;
         const sig = _factorSignature(f);
         if (sig === "" || seen.has(sig)) continue;
         if (auditedSigs.has(sig)) continue;
+        // Audit-finding-coverage check: if there's already a
+        // factor-target finding for this category, the audit
+        // surfaced it — skip the drift card. Stops the duplicate
+        // "Extra factor in Live Gemma" + "REMOVE FACTOR" pair Paul
+        // 2026-06-14 caught.
+        if (categoryCoveredByFinding(f)) continue;
         const keys = catKeys(f);
         const anyHit = keys.some((k) => (catBudget.get(k) ?? 0) > 0);
         if (anyHit) {
@@ -1001,7 +1052,7 @@ function BaselineDriftSection({
     collect(baselineSource, "baseline");
     collect(comparatorSource, "comparator");
     return out;
-  }, [curations, baselineSource, comparatorSource]);
+  }, [curations, baselineSource, comparatorSource, findings]);
 
   // Apply per-(experiment, factor) dismissals — "Keep" clicks land
   // here, persisted in localStorage.
