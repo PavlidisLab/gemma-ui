@@ -174,9 +174,18 @@ function Body({
         {detail.label || <em className="text-slate-400">(no label)</em>}
       </div>
       {detail.definition ? (
-        <div className="text-slate-600 dark:text-slate-300 leading-snug">
-          {detail.definition}
-        </div>
+        <div
+          className="text-slate-600 dark:text-slate-300 leading-snug"
+          // CHEBI / ChEBI-derived definitions ship inline chemistry
+          // formatting as HTML — ``<small>L</small>-Phenylalaninamide``,
+          // ``<em>N</em><sup>α</sup>`` etc. — and rendering the
+          // definition as a plain React child escapes those tags so
+          // curators saw the angle brackets verbatim (Paul 2026-06-15).
+          // The whitelist below re-enables ONLY inline text-formatting
+          // tags; everything else is escaped. No attributes survive →
+          // no event handlers / scripts / links can ride in.
+          dangerouslySetInnerHTML={{ __html: sanitizeDefinitionHtml(detail.definition) }}
+        />
       ) : (
         <div className="italic text-slate-400 dark:text-slate-500">
           No definition recorded
@@ -274,4 +283,35 @@ function NotFound({ uri }: { uri: string }) {
       </a>
     </div>
   );
+}
+
+/** Whitelist-based HTML sanitiser for ontology definitions.
+ *
+ *  CHEBI / ChEBI-derived definitions ship inline formatting via
+ *  HTML — ``<small>L</small>-Phenylalaninamide``,
+ *  ``<em>N</em><sup>α</sup>``, etc. — and those tags are
+ *  meaningful (italic stereodescriptors, superscript locants).
+ *  Stripping them loses chemistry; rendering them raw is unsafe.
+ *
+ *  Strategy: HTML-escape EVERYTHING, then re-enable only the
+ *  inline text-formatting tags from a small whitelist by replacing
+ *  the escaped sequences back to their tag form. No attributes
+ *  survive — no event handlers, no ``javascript:`` URLs, no
+ *  ``style``. Closing tags + the void ``<br>`` are also allowed
+ *  (un-paired ``<br>`` shows up in some XML-ish OWL serialisations
+ *  of definitions). */
+function sanitizeDefinitionHtml(raw: string): string {
+  const escaped = raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const allowed = ["small", "sup", "sub", "em", "i", "b", "strong"];
+  let html = escaped;
+  for (const tag of allowed) {
+    const open = new RegExp(`&lt;${tag}&gt;`, "gi");
+    const close = new RegExp(`&lt;/${tag}&gt;`, "gi");
+    html = html.replace(open, `<${tag}>`).replace(close, `</${tag}>`);
+  }
+  html = html.replace(/&lt;br\s*\/?&gt;/gi, "<br/>");
+  return html;
 }

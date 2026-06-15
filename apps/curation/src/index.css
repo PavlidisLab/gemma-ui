@@ -30,6 +30,24 @@
   .term.predicate { @apply bg-slate-100 text-slate-600 border-slate-300
                            border-l border-l-slate-300 rounded-l pl-1.5; }
   /*
+    ``.term.category`` — a Term being used in the "field-name" role
+    (tag category, factor category, statement category). Slate-tinted
+    + italic + NO emerald bookmark so the eye reads it as a label,
+    not a content term. Keeps the chip frame so categories with URIs
+    can still carry a CURIE link-out. Paul 2026-06-15: "telling
+    categories from values would also be helpful to hint."
+   */
+  .term.category  { @apply bg-slate-50 text-slate-700 border-slate-200 italic
+                           border-l border-l-slate-200 rounded-l pl-1.5; }
+  /*
+    ``.term.diff`` — applied on top of any of the above variants to
+    signal "this chip differs from its paired chip on the other side
+    of a side-by-side comparison." Amber palette + ring; the original
+    variant's italic / non-italic stays so the role still reads.
+   */
+  .term.diff      { @apply bg-amber-100 text-amber-900 border-amber-500
+                           border-l-amber-500; }
+  /*
     ``.term.baseline`` used to apply an emerald wash, but green is
     the house-standard cue for "ontology-resolved" — overloading
     it for baseline made the two states visually indistinguishable.
@@ -182,6 +200,18 @@ html.dark .term.predicate {
   background-color: rgb(30 41 59 / 0.55);    /* slate-800 / 55% */
   color: rgb(203 213 225);                   /* slate-300 */
   border-color: rgb(71 85 105);              /* slate-600 */
+}
+html.dark .term.category {
+  background-color: rgb(30 41 59 / 0.4);     /* slate-800 / 40% */
+  color: rgb(203 213 225);                   /* slate-300 */
+  border-color: rgb(51 65 85);               /* slate-700 */
+  border-left-color: rgb(51 65 85);
+}
+html.dark .term.diff {
+  background-color: rgb(120 53 15 / 0.6);    /* amber-900 / 60% */
+  color: rgb(254 243 199);                   /* amber-100 */
+  border-color: rgb(217 119 6);              /* amber-600 */
+  border-left-color: rgb(245 158 11);        /* amber-500 */
 }
 /* ``.term.baseline`` is a no-op — see the light-theme comment. */
 

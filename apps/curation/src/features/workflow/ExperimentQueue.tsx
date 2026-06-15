@@ -25,7 +25,7 @@ import type {
   StepStatus,
 } from "@/api/workflowTypes";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
-import { useMyTickets } from "@/api/tickets";
+import { useTicket } from "@/api/tickets";
 import { taskKindHeaderLabel } from "./nextTask";
 import { SetProgressBar } from "@/components/ui/SetProgressBar";
 import { progressFromGroup } from "./setProgress";
@@ -88,16 +88,22 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
  * param yet — flag if curators hit pagination edge cases where a
  * page is mostly hidden after filtering).
  */
-type QuickFilter = "all" | "started" | "finished" | "not_started";
+type QuickFilter =
+  | "all"
+  | "started"
+  | "finished"
+  | "not_started"
+  | "uncommitted";
 
 const QUICK_FILTERS: { id: QuickFilter; label: string }[] = [
   { id: "all",         label: "All" },
   { id: "started",     label: "Started" },
   { id: "finished",    label: "Finished" },
   { id: "not_started", label: "Not started" },
+  { id: "uncommitted", label: "Uncommitted" },
 ];
 
-type PipelineState = "not_started" | "started" | "finished";
+type PipelineState = "not_started" | "started" | "finished" | "uncommitted";
 
 /** Walk every step in both the analysis and curation tracks and
  *  reduce to one progress state. ``undefined`` status (no bulk row
@@ -190,22 +196,32 @@ function FilterBar({
       <div className="flex items-center gap-1 flex-wrap">
         {QUICK_FILTERS.map((f) => {
           const n = counts[f.id];
+          // Uncommitted chip carries the amber dot's palette so the
+          // chip + row-dot read as the same state. All others stay
+          // on the blue active style.
+          const isAmberChip = f.id === "uncommitted";
+          const activeCls = isAmberChip
+            ? "bg-amber-500 text-white"
+            : "bg-blue-600 text-white";
+          const idleCls = isAmberChip
+            ? "bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50"
+            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700";
+          const activeCountCls = isAmberChip ? "text-amber-100" : "text-blue-100";
+          const idleCountCls = isAmberChip
+            ? "text-amber-600 dark:text-amber-400"
+            : "text-slate-400 dark:text-slate-500";
           return (
             <button
               key={f.id}
               onClick={() => onChange(f.id)}
               className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
-                active === f.id
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                active === f.id ? activeCls : idleCls
               }`}
             >
               {f.label}{" "}
               <span
                 className={`text-[10px] ${
-                  active === f.id
-                    ? "text-blue-100"
-                    : "text-slate-400 dark:text-slate-500"
+                  active === f.id ? activeCountCls : idleCountCls
                 }`}
               >
                 ({n})
@@ -591,14 +607,20 @@ export function ExperimentQueue({
   // pre-existing ✓Design / ✓Tags from Gemma. The ticket target
   // status is the right signal here.
   //
-  // ``useMyTickets`` is queried below; pull the matching ticket's
-  // targets up-front so the filter/count memos can read them.
-  const { data: tickets } = useMyTickets();
+  // ``useTicket(ticketId)`` shares the query cache with
+  // ``TicketDetailPage``, so the queue's chip counts + row dots
+  // stay in sync with the header's done/underway/not-started
+  // counters whenever the detail page's polling layer refetches.
+  // Earlier this used ``useMyTickets()`` which is a separate cache
+  // entry; bro mutating targets behind the scenes refreshed the
+  // detail-page header (when polling fired) but the queue's row
+  // dots + chip counts stayed stale on a different timer. Paul
+  // 2026-06-14 on ticket #52: row dots showed Started but the
+  // chip filter read "Started (0)". */
+  const { data: ticket } = useTicket(ticketId ?? null);
   const ticketTargetStatusById = useMemo(() => {
     const m = new Map<number, "not_started" | "started" | "finished">();
-    if (ticketId == null || !tickets) return m;
-    const ticket = tickets.find((t) => t.id === ticketId);
-    if (!ticket) return m;
+    if (ticketId == null || !ticket) return m;
     for (const tgt of ticket.targets) {
       if (tgt.target_type !== "EXPRESSION_EXPERIMENT") continue;
       const mapped =
@@ -610,16 +632,32 @@ export function ExperimentQueue({
       m.set(tgt.target_id, mapped);
     }
     return m;
-  }, [tickets, ticketId]);
+  }, [ticket, ticketId]);
+
+  // Curator-side "uncommitted local draft" signal — read once per
+  // page from localStorage. Defined here (above ``stateFor``) so the
+  // row-state computation can lift a "not_started" target to
+  // "started" when the curator has touched it locally but the
+  // server hasn't received the commit yet. Without this, the row
+  // dot reads amber (uncommitted) while the chip count reads
+  // "Started (0)" — Paul 2026-06-15.
+  const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), [allRows]);
 
   // Per-row progress state. In a ticket context, prefer the ticket's
   // own target status (matches the header's done/not-started counts).
   // Outside a ticket context, fall back to the pipeline-step heuristic.
+  // An uncommitted local draft overrides everything except ``finished``
+  // — the amber StatusDisc on the row reads "uncommitted", so the
+  // chip count and filter need a matching bucket.
   const stateFor = (datasetId: number): PipelineState => {
-    if (ticketTargetStatusById.size > 0) {
-      return ticketTargetStatusById.get(datasetId) ?? "not_started";
+    const base: PipelineState =
+      ticketTargetStatusById.size > 0
+        ? ticketTargetStatusById.get(datasetId) ?? "not_started"
+        : derivePipelineState(statusMap[String(datasetId)]);
+    if (base !== "finished" && dirtyDraftIds.has(String(datasetId))) {
+      return "uncommitted";
     }
-    return derivePipelineState(statusMap[String(datasetId)]);
+    return base;
   };
 
   // Apply the progress-state filter client-side on the rows the
@@ -646,28 +684,24 @@ export function ExperimentQueue({
       started: 0,
       finished: 0,
       not_started: 0,
+      uncommitted: 0,
     };
     if (ticketTargetStatusById.size > 0) {
-      for (const state of ticketTargetStatusById.values()) counts[state] += 1;
       counts.all = ticketTargetStatusById.size;
+      for (const [datasetId, base] of ticketTargetStatusById) {
+        const lifted: PipelineState =
+          base !== "finished" && dirtyDraftIds.has(String(datasetId))
+            ? "uncommitted"
+            : base;
+        counts[lifted] += 1;
+      }
     } else {
       counts.all = allRows.length;
       for (const d of allRows) counts[stateFor(d.id)] += 1;
     }
     return counts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allRows, statusMap, ticketTargetStatusById]);
-
-  // Curator-side signals layered onto each row. Both are cheap:
-  // - ``dirtyDraftIds``: one localStorage scan (no network). Keyed
-  //   on the page's row list so it recomputes when the page
-  //   changes; the popover-style "open + close" doesn't apply
-  //   here (we're a persistent panel), so consider refining if
-  //   curator commits a draft and expects the dot to flip without
-  //   a route change.
-  // - ``tickets``: queried earlier (above the filter memos) so the
-  //   ticket-target status feeds the chip counts.
-  const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), [rows]);
+  }, [allRows, statusMap, ticketTargetStatusById, dirtyDraftIds]);
 
   // For group-scoped views, the member_ids carry the prefix form
   // (`preboarding:1` vs bare `91188`). The /datasets rows ship the
@@ -791,7 +825,7 @@ export function ExperimentQueue({
             // non-group / global queue view).
             navId={memberIdByNumericId.get(d.id) ?? String(d.id)}
             hasLocalDraft={dirtyDraftIds.has(String(d.id))}
-            tickets={tickets ?? null}
+            tickets={ticket ? [ticket] : null}
             groupType={group?.type}
             groupTaskKind={group?.task_kind ?? null}
             leadingBadge={leadingBadge}

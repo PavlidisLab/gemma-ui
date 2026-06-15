@@ -91,6 +91,16 @@ function ticketMatchesFilter(ticket: Ticket, filter: DashboardFilter): boolean {
   }
 }
 
+function formatFiledDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function CuratorDashboard({
   reviewer,
   onSelect,
@@ -341,9 +351,9 @@ function TicketCard({
       }}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           <span
-            className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+            className="font-mono text-base font-semibold text-slate-800 dark:text-slate-100"
             title={`Ticket #${ticket.id}`}
           >
             #{ticket.id}
@@ -388,9 +398,12 @@ function TicketCard({
           {ticket.assignee_name
             ? `assigned to ${ticket.assignee_name}`
             : "unassigned"}
+          {ticket.reporter_name ? ` · filed by ${ticket.reporter_name}` : ""}
         </span>
-        {ticket.reporter_name ? (
-          <span>filed by {ticket.reporter_name}</span>
+        {ticket.created_at ? (
+          <span title={`filed ${ticket.created_at}`}>
+            {formatFiledDate(ticket.created_at)}
+          </span>
         ) : null}
       </div>
     </div>

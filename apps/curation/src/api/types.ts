@@ -69,6 +69,19 @@ export interface StatementProposal {
   subject: OntologyTerm;
   predicate: OntologyTerm | null;
   object: OntologyTerm | null;
+  /** Original free-text the statement came from when there was one
+   *  (matches Gemma's ``Characteristic.originalValue``). Often null
+   *  when the agent constructs statements from paper text / BM
+   *  columns directly. */
+  original_value?: string | null;
+  /** Per-statement justification slice. Mirrors the FV-level fields;
+   *  populated when statement-level evidence is genuinely distinct
+   *  from the parent FV's. Empty on payloads from before producer-
+   *  migration 4b. */
+  rationale?: string;
+  citation?: string;
+  citation_url?: string;
+  supporting_evidence?: FindingEvidence[];
   /** Subtask decisions targeted at this statement (target_id format
    *  e.g. `factor:0/fv:1/subject`). Populated today. */
   subtask_decisions?: SubtaskDecision[];

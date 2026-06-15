@@ -1212,13 +1212,22 @@ function MainGrid({
                 already exists ("Request" vs "Re-run"). Click opens
                 AgentRunDialog which carries tier + scope + notes
                 inputs and gates on agent health. */}
-            <AgentRunButton
-              sidebarView={sidebarView}
-              proposeRunning={proposeStream.status === "running"}
-              auditRunning={auditStream.status === "running"}
-              agentDown={servicesHealth.data?.agent === "down"}
-              onRequest={openAgentRunDialog}
-            />
+            {/* "Request proposal…" hidden 2026-06-15 (Paul): the
+                proposal pane is read-only for now, and offering a
+                run-on-this-experiment button while editing isn't
+                available reads as confusing. "Run audit…" still
+                shows on the audit pane where the action is
+                meaningful. Flip the gate when the proposal pane
+                regains an editable affordance. */}
+            {sidebarView === "audit" ? (
+              <AgentRunButton
+                sidebarView={sidebarView}
+                proposeRunning={proposeStream.status === "running"}
+                auditRunning={auditStream.status === "running"}
+                agentDown={servicesHealth.data?.agent === "down"}
+                onRequest={openAgentRunDialog}
+              />
+            ) : null}
           </div>
         ) : (
           /*

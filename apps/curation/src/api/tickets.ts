@@ -151,6 +151,25 @@ export function useTicket(
         ) => number | false | undefined);
   } = {},
 ) {
+  // Default polling cadence — 15 s when nothing's UNDERWAY, 2 s
+  // while an in-flight runner is flipping targets. Without this,
+  // bro's behind-the-scenes target-status flips (PRELOAD runner,
+  // agent passes, manual backend edits) don't reach the UI until
+  // a manual refresh. Per Paul 2026-06-14: ticket #52 read
+  // "0/200 done · 200 not started" while the row dots showed
+  // several Started — the previous gate (poll ONLY while
+  // UNDERWAY) never fired because at the time of the initial
+  // fetch nothing was UNDERWAY, freezing the no-UNDERWAY snapshot
+  // for the rest of the session. Callers can override by passing
+  // their own ``refetchInterval``. */
+  const defaultInterval = (
+    query: Query<Ticket | null, Error, Ticket | null, readonly unknown[]>,
+  ) => {
+    const data = query.state.data;
+    const anyUnderway =
+      data?.targets?.some((t) => t.status === "UNDERWAY") ?? false;
+    return anyUnderway ? 2000 : 15000;
+  };
   return useQuery<Ticket | null>({
     queryKey: ["ticket", id],
     queryFn: async () => {
@@ -158,7 +177,7 @@ export function useTicket(
       return await api.get<Ticket>(`/rest/v2/tickets/${id}`);
     },
     enabled: id != null,
-    refetchInterval: options.refetchInterval,
+    refetchInterval: options.refetchInterval ?? defaultInterval,
   });
 }
 

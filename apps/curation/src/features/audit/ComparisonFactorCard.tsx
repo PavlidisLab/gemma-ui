@@ -35,16 +35,14 @@
 
 import { useContext, useEffect, useMemo, useState } from "react";
 import { PanelExpansionContext } from "./findingCard";
-import {
-  type FvTermRenderer,
-  type FvTermProvenance,
-} from "@gemma/ontology";
+import { termRenderer } from "@/components/ui/Term";
 
 import type {
   AuditFinding,
+  AuditReport,
   DismissReason,
 } from "@/api/auditTypes";
-import { JudgeChain } from "./JudgeChain";
+import { SectionedJudgeChain, WhySection } from "./JudgeChain";
 import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
@@ -65,7 +63,6 @@ import {
 } from "@/features/comparison/useSourceAvailability";
 import type { Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
-import { CurieLink } from "@/components/ui/CurieLink";
 import {
   FactorComparisonGrid,
   continuousValuesFrom,
@@ -84,68 +81,20 @@ import { MatchBadge, SeverityBadge } from "./findingBadges";
 import { isCloseFactorMatch, isExactFactorMatch } from "./factorMatch";
 import { displaySeverity } from "./auditPresentation";
 
-const Term: FvTermRenderer = ({ label, uri, variant, provenance }) => {
-  if (variant === "predicate") {
-    return (
-      <span
-        className="text-[10px] text-slate-500 dark:text-slate-300 font-mono"
-        title={uri || undefined}
-      >
-        {label}
-      </span>
-    );
-  }
-  // Free-text chips get a tooltip built from statement-level
-  // ``original_value`` + ``supporting_evidence`` quotes/sources when
-  // the row provided any. Falls back to the static "no URI" hint so
-  // curators always know what the italic chip means. Resolved chips
-  // (uri present) keep showing the URI tooltip.
-  const provenanceTooltip = !uri && provenance
-    ? _buildProvenanceTooltip(provenance)
-    : undefined;
-  return (
-    <span
-      className={
-        uri
-          ? "inline-flex items-baseline gap-1 rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-100"
-          : "inline-flex items-baseline rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[11px] italic text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-      }
-      title={uri || provenanceTooltip || "free-text (no ontology URI)"}
-    >
-      <span>{label}</span>
-      {uri ? (
-        // CURIE rendered via the modular ``CurieLink`` so clicks open
-        // the inline term-detail popover (Gemma / OLS). Per Paul
-        // 2026-06-13. The popover stops click bubbling so the
-        // surrounding card doesn't react.
-        <CurieLink
-          uri={uri}
-          className="text-[9px] font-mono text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
-        />
-      ) : null}
-    </span>
-  );
-};
+// Local ``Term`` renderer removed 2026-06-15. The comparison grid now
+// uses the canonical ``termRenderer`` from
+// ``@/components/ui/Term`` so every ontology chip across the app
+// (audit cards, design editor, tag bar) renders with one visual
+// contract. Diff highlighting + free-text vs resolved palette + the
+// emerald bookmark cue all live in the canonical Term via its
+// ``variant`` + ``diff`` props. Per Paul 2026-06-15: "make ALL
+// surfaces use a single Term component."
 
 /** Build the multi-line ``title`` tooltip surfaced on a free-text
  *  chip from the statement-level provenance the row passed in.
- *  Returns ``undefined`` when nothing useful is on the wire so the
- *  caller can fall back to its static "no URI" hint. */
-function _buildProvenanceTooltip(
-  p: FvTermProvenance,
-): string | undefined {
-  const lines: string[] = [];
-  const orig = p.originalValue?.trim();
-  if (orig) lines.push(`"${orig}"`);
-  for (const e of p.evidence ?? []) {
-    const q = (e?.quote ?? "").trim();
-    const src = (e?.source ?? "").trim();
-    if (q && src) lines.push(`"${q}" — ${src}`);
-    else if (q) lines.push(`"${q}"`);
-    else if (src) lines.push(`source: ${src}`);
-  }
-  return lines.length ? lines.join("\n") : undefined;
-}
+// ``_buildProvenanceTooltip`` removed 2026-06-15 — the canonical
+// ``Term`` component now owns the free-text-chip provenance tooltip
+// rendering (see ``apps/curation/src/components/ui/Term.tsx``).
 
 /** Pick the category used to look up the LEFT (baseline) factor
  *  in the user-selected baseline curation.
@@ -1015,12 +964,13 @@ export function ComparisonFactorCard({
       </div>
       {cardOpen ? (
         <>
-          {/* Per-finding judge chain — defender + arbiter + boss
-              when each tier has rationale to show. JudgeChain itself
-              suppresses when ALL three tiers are empty so old packages
-              render identically. Per
-              ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */}
-          <JudgeChain finding={finding} report={report} />
+          {/* Judge-chain content (defender / arbiter / boss) used to
+              render here as a single ``JudgeChain`` strip above the
+              grid. Paul 2026-06-15 split it into the labelled WHY
+              block below so the curator reads it in the same place
+              as the proposer's own rationale — and so the AUDITOR
+              tier is visually distinct from the proposer's INTERNAL
+              REVIEW. See ``WhyBlock`` further down this file. */}
           {/* Body — switched 2026-06-12 from the inline CategoryPair +
               FvPairRow loop to the shared FactorComparisonGrid so
               this surface and FindingDetailsEditor (next-up
@@ -1034,7 +984,7 @@ export function ComparisonFactorCard({
             leftHeader={{ label: leftLabel, category: leftCategory }}
             rightHeader={{ label: rightLabel, category: rightCategory }}
             pairs={pairs}
-            termRenderer={Term}
+            termRenderer={termRenderer}
             loading={factorsAreLoading}
             // Continuous-mode swap: when either side declares
             // factor_type=continuous, the index-by-index pair grid is
@@ -1090,15 +1040,20 @@ export function ComparisonFactorCard({
                 : undefined
             }
           />
-          {finding.proposer_defense ? (
-            <div className="text-[11px] text-slate-600 dark:text-slate-300 italic">
-              <span className="font-semibold not-italic text-slate-700 dark:text-slate-200">
-                Agent says:{" "}
-              </span>
-              {finding.proposer_defense}
-            </div>
-          ) : null}
-          <AgentRationale factor={rightFactor} />
+          {/* Three-section WHY: PROPOSAL (proposer's own sources +
+              rationale + proposer_defense), INTERNAL REVIEW
+              (defender_verdict — proposer-side defence), AUDITOR
+              (arbiter + boss — render only when we're actually in a
+              baseline comparison, gated on ``baselineSource``). Paul
+              2026-06-15: the internal review and the audit must be
+              VISUALLY SEPARATE; the audit only appears when a
+              comparison is happening. */}
+          <WhyBlock
+            factor={rightFactor}
+            finding={finding}
+            report={report}
+            isComparison={baselineSource !== undefined}
+          />
           {readOnly && (onRemoveFactor || onKeepFactor) ? (
             // Drift-card action bar — surfaces Remove / Keep so the
             // curator can act on factors the audit didn't see, instead
@@ -1208,25 +1163,23 @@ export function ComparisonFactorCard({
   );
 }
 
-/** Surfaces whatever the agent shipped explaining its proposed
- *  factor — description (≤80-char LLM summary), baseline-relevance
- *  hint + reason, factor-level rationale / citation /
- *  supporting_evidence, per-FV + per-statement rationale /
- *  supporting_evidence, debate_badge, defender_verdicts. Hides
- *  itself entirely when nothing's populated, so old proposals
- *  render identically. Today's payloads (2026-06-14) populate only
- *  ``description`` and ``baseline_relevance_reason``; the rich
- *  fields land with bro 1's producer-migration 4b — when that
- *  ships the expander surfaces it automatically. Per Paul
- *  2026-06-14: "I really wish I could even ONE piece of
- *  information about why this factor was added." */
-function AgentRationale({
+/** Renders the proposer's own sources + rationale as the contents of
+ *  the PROPOSAL section inside ``WhyBlock``. Extracted (with the
+ *  outer <details>/<summary> envelope stripped) from the legacy
+ *  ``AgentRationale`` so the WHY block can stack three labelled
+ *  subsections — proposer, internal review, auditor — under a
+ *  single header. Returns null when nothing's populated so the
+ *  WHY block can decide whether to render the section at all. */
+function ProposalSectionContent({
   factor,
+  proposerDefense,
 }: {
   factor: Factor | FactorProposal | null;
+  proposerDefense?: string;
 }): JSX.Element | null {
-  if (!factor) return null;
-  const fp = factor as Partial<FactorProposal>;
+  const defenseLine = (proposerDefense ?? "").trim();
+  if (!factor && !defenseLine) return null;
+  const fp = (factor ?? {}) as Partial<FactorProposal>;
   const description = (fp.description ?? "").trim();
   const baselineHint = fp.baseline_relevance;
   const baselineReason = (fp.baseline_relevance_reason ?? "").trim();
@@ -1235,7 +1188,6 @@ function AgentRationale({
   const factorCitationUrl = (fp.citation_url ?? "").trim();
   const factorEvidence = fp.supporting_evidence ?? [];
   const debateBadge = (fp.debate_badge ?? "").trim();
-  const defenderCount = fp.defender_verdicts?.length ?? 0;
   const fvs = fp.factor_values ?? [];
   // Walk FVs + statements to detect any rationale / evidence worth
   // surfacing under each. Saves rendering empty rows.
@@ -1258,12 +1210,12 @@ function AgentRationale({
     })
     .filter((b): b is NonNullable<typeof b> => b !== null);
   const hasAny =
+    defenseLine ||
     description ||
     baselineReason ||
     factorRationale ||
     factorEvidence.length > 0 ||
     debateBadge ||
-    defenderCount > 0 ||
     fvBlocks.length > 0;
   if (!hasAny) return null;
   const evidenceLine = (e: {
@@ -1289,19 +1241,21 @@ function AgentRationale({
     );
   };
   return (
-    <details className="text-[11px] bg-slate-50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700 px-2 py-1">
-      <summary className="cursor-pointer select-none text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 inline-flex items-baseline gap-1">
-        <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-          Why?
-        </span>
-        <span>agent's sources + rationale</span>
-        {debateBadge ? (
-          <span className="ml-1 text-[9px] uppercase tracking-wide text-violet-700 dark:text-violet-300">
-            · debate: {debateBadge}
+    <div className="space-y-1.5 text-[11px] text-slate-700 dark:text-slate-200 pl-1">
+      {debateBadge ? (
+        <div className="text-[9px] uppercase tracking-wide text-violet-700 dark:text-violet-300">
+          debate: {debateBadge}
+        </div>
+      ) : null}
+      {defenseLine ? (
+        <div className="italic">
+          <span className="not-italic font-semibold text-slate-700 dark:text-slate-200">
+            Agent says:{" "}
           </span>
-        ) : null}
-      </summary>
-      <div className="mt-1.5 space-y-1.5 text-slate-700 dark:text-slate-200 pl-1">
+          {defenseLine}
+        </div>
+      ) : null}
+      <div className="space-y-1.5">
         {description ? (
           <div>
             <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
@@ -1400,13 +1354,62 @@ function AgentRationale({
             ) : null}
           </div>
         ))}
-        {defenderCount > 0 ? (
-          <div className="text-[10px] text-slate-500 dark:text-slate-400">
-            {defenderCount} defender / arbiter verdict
-            {defenderCount === 1 ? "" : "s"} — see the Judge Chain
-            above the grid for detail.
-          </div>
+      </div>
+    </div>
+  );
+}
+
+/** WHY block — single collapsible envelope with three labelled
+ *  subsections: PROPOSAL (proposer's own sources + rationale +
+ *  proposer_defense), INTERNAL REVIEW (defender_verdict — the
+ *  proposer-side defence), AUDITOR (arbiter + boss verdicts).
+ *
+ *  Sections are visually distinct (per-section palette + uppercase
+ *  header) and each suppresses itself when its underlying data is
+ *  empty. The AUDITOR section is GATED on ``isComparison`` — when
+ *  the card isn't comparing against a baseline (no
+ *  ``baselineSource`` prop on the parent), the auditor's
+ *  proposal-vs-baseline judgment is meaningless, so we hide that
+ *  section entirely. Paul 2026-06-15: "the audit is only going to
+ *  be there if there is a comparison." */
+function WhyBlock({
+  factor,
+  finding,
+  report,
+  isComparison,
+}: {
+  factor: Factor | FactorProposal | null;
+  finding: AuditFinding;
+  report: AuditReport | null;
+  isComparison: boolean;
+}): JSX.Element | null {
+  const proposalNode = ProposalSectionContent({
+    factor,
+    proposerDefense: finding.proposer_defense,
+  });
+  const judgeNode = SectionedJudgeChain({ finding, report, isComparison });
+  if (!proposalNode && !judgeNode) return null;
+  return (
+    <details
+      className="text-[11px] bg-slate-50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700 px-2 py-1.5"
+      open
+    >
+      <summary className="cursor-pointer select-none text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 inline-flex items-baseline gap-1.5">
+        <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+          Why?
+        </span>
+      </summary>
+      <div className="mt-2 space-y-2">
+        {proposalNode ? (
+          <WhySection
+            label="Proposal"
+            sublabel="agent's sources + rationale"
+            tone="slate"
+          >
+            {proposalNode}
+          </WhySection>
         ) : null}
+        {judgeNode}
       </div>
     </details>
   );

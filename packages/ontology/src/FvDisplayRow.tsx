@@ -72,6 +72,12 @@ export type FvTermRenderer = (props: {
    *  for free-text (uri-less) subject / object chips. Undefined for
    *  resolved chips and predicates. */
   provenance?: FvTermProvenance;
+  /** True when the chip is part of a side-by-side comparison and the
+   *  caller's diff resolver flagged this slot as differing from the
+   *  paired chip on the other side. Set only by ``FvDisplayRow`` when
+   *  ``diffChips`` is supplied; renderers that don't care about
+   *  comparison can ignore it. Default ``false``. */
+  diff?: boolean;
 }) => JSX.Element;
 
 export interface FvDisplayRowProps {
@@ -88,6 +94,14 @@ export interface FvDisplayRowProps {
   trailing?: ReactNode;
   /** Optional class on the outer wrapper. */
   className?: string;
+  /** Optional set of chip keys (format
+   *  ``s{originalStatementIndex}:{subject|predicate|object}``) that
+   *  the caller's diff resolver marked as differing from the paired
+   *  chip on the other side of a side-by-side comparison. When set,
+   *  matching chip renders receive ``diff: true`` so the term
+   *  renderer can apply a visual mark (ring / tint). Undefined →
+   *  no diff plumbing (every chip renders with ``diff: false``). */
+  diffChips?: ReadonlySet<string>;
 }
 
 export function FvDisplayRow({
@@ -97,10 +111,20 @@ export function FvDisplayRow({
   leading,
   trailing,
   className,
+  diffChips,
 }: FvDisplayRowProps): JSX.Element {
   const statements = fv.statements ?? [];
   const head = statements[0] ?? null;
-  const rest = statements.slice(1);
+  // Preserve each ``rest`` entry's ORIGINAL index in ``statements``
+  // so the diff resolver's ``s{i}:{slot}`` keys still resolve after
+  // the head/sibling/other-rest partitioning below. Without the
+  // tagging, ``rest[0]`` looks like statement #0 to the diff
+  // resolver when it's really statement #1, and every ring is on the
+  // wrong chip.
+  const rest: Array<{ s: FvDisplayStatement; originalIndex: number }> =
+    statements.slice(1).map((s, i) => ({ s, originalIndex: i + 1 }));
+  const isDiff = (originalIndex: number, slot: "subject" | "predicate" | "object"): boolean =>
+    diffChips?.has(`s${originalIndex}:${slot}`) ?? false;
   // Subject label falls back to the FV's free-text label so a
   // statement that ships only a URI (no subject.label) doesn't blank
   // out the row.
@@ -122,13 +146,13 @@ export function FvDisplayRow({
   // Paul 2026-06-11: "the subject needn't be repeated if it is the
   // same."
   const headSubjectKey = subjectKey(head?.subject ?? null);
-  const headSiblings: FvDisplayStatement[] = [];
-  const otherRest: FvDisplayStatement[] = [];
-  for (const s of rest) {
-    if (headSubjectKey && subjectKey(s.subject ?? null) === headSubjectKey) {
-      headSiblings.push(s);
+  const headSiblings: Array<{ s: FvDisplayStatement; originalIndex: number }> = [];
+  const otherRest: Array<{ s: FvDisplayStatement; originalIndex: number }> = [];
+  for (const entry of rest) {
+    if (headSubjectKey && subjectKey(entry.s.subject ?? null) === headSubjectKey) {
+      headSiblings.push(entry);
     } else {
-      otherRest.push(s);
+      otherRest.push(entry);
     }
   }
   const n = fv.biomaterial_short_names?.length ?? 0;
@@ -186,6 +210,7 @@ export function FvDisplayRow({
             // resolved chips already carry their identity in the
             // CURIE link-out, no tooltip enrichment needed.
             provenance: subjUri ? undefined : _statementProvenance(head),
+            diff: isDiff(0, "subject"),
           })
         ) : !fvName ? (
           // Only show the "(blank)" placeholder when the WHOLE row
@@ -202,12 +227,16 @@ export function FvDisplayRow({
             <StatementPredicateObject
               statement={head}
               termRenderer={termRenderer}
+              predDiff={isDiff(0, "predicate")}
+              objDiff={isDiff(0, "object")}
             />
-            {headSiblings.map((s, i) => (
+            {headSiblings.map(({ s, originalIndex }, i) => (
               <StatementPredicateObject
                 key={i}
                 statement={s}
                 termRenderer={termRenderer}
+                predDiff={isDiff(originalIndex, "predicate")}
+                objDiff={isDiff(originalIndex, "object")}
               />
             ))}
           </div>
@@ -219,6 +248,8 @@ export function FvDisplayRow({
             statement={head}
             termRenderer={termRenderer}
             inline
+            predDiff={isDiff(0, "predicate")}
+            objDiff={isDiff(0, "object")}
           />
         ) : null}
         {fv.is_baseline ? (
@@ -249,7 +280,7 @@ export function FvDisplayRow({
           vertically aligned". */}
       {otherRest.length > 0 ? (
         <div className="mt-0.5 space-y-0.5">
-          {otherRest.map((s, i) => (
+          {otherRest.map(({ s, originalIndex }, i) => (
             <div
               key={i}
               className="flex items-baseline gap-x-1.5"
@@ -270,6 +301,9 @@ export function FvDisplayRow({
               <ExtraStatementLine
                 statement={s}
                 termRenderer={termRenderer}
+                subjDiff={isDiff(originalIndex, "subject")}
+                predDiff={isDiff(originalIndex, "predicate")}
+                objDiff={isDiff(originalIndex, "object")}
               />
             </div>
           ))}
@@ -299,23 +333,35 @@ function StatementPredicateObject({
   statement,
   termRenderer,
   inline = false,
+  predDiff = false,
+  objDiff = false,
 }: {
   statement: FvDisplayStatement;
   termRenderer: FvTermRenderer;
   inline?: boolean;
+  predDiff?: boolean;
+  objDiff?: boolean;
 }): JSX.Element | null {
   const predLabel = statement.predicate?.label?.trim() ?? "";
   const predUri = statement.predicate?.uri ?? null;
   const objLabel = statement.object?.label?.trim() ?? "";
   const objUri = statement.object?.uri ?? null;
   if (!predLabel && !objLabel) return null;
+  // Predicates are intrinsically un-chip-rendered (plain mono text);
+  // when they differ, wrap them in an amber-tinted box so curators
+  // see the diff against the same-position predicate on the other
+  // side. The chip helper below handles the resolved-/free-text
+  // subject + object slots via the term renderer.
+  const predCls = predDiff
+    ? "text-[10px] text-amber-800 dark:text-amber-200 font-mono rounded ring-1 ring-amber-400/70 dark:ring-amber-500/60 bg-amber-50/80 dark:bg-amber-900/30 px-1"
+    : "text-[10px] text-slate-500 dark:text-slate-200 font-mono";
   const content = (
     <>
       {predLabel ? (
         <>
           <span className="text-slate-400 dark:text-slate-500"> - </span>
           <span
-            className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+            className={predCls}
             title={predUri || undefined}
           >
             {predLabel}
@@ -329,6 +375,7 @@ function StatementPredicateObject({
             label: objLabel,
             uri: objUri,
             provenance: objUri ? undefined : _statementProvenance(statement),
+            diff: objDiff,
           })}
         </>
       ) : null}
@@ -345,9 +392,15 @@ function StatementPredicateObject({
 function ExtraStatementLine({
   statement,
   termRenderer,
+  subjDiff = false,
+  predDiff = false,
+  objDiff = false,
 }: {
   statement: FvDisplayStatement;
   termRenderer: FvTermRenderer;
+  subjDiff?: boolean;
+  predDiff?: boolean;
+  objDiff?: boolean;
 }): JSX.Element {
   const subjLabel = statement.subject?.label?.trim() ?? "";
   const subjUri = statement.subject?.uri ?? null;
@@ -355,6 +408,9 @@ function ExtraStatementLine({
   const predUri = statement.predicate?.uri ?? null;
   const objLabel = statement.object?.label?.trim() ?? "";
   const objUri = statement.object?.uri ?? null;
+  const predCls = predDiff
+    ? "text-[10px] text-amber-800 dark:text-amber-200 font-mono rounded ring-1 ring-amber-400/70 dark:ring-amber-500/60 bg-amber-50/80 dark:bg-amber-900/30 px-1"
+    : "text-[10px] text-slate-500 dark:text-slate-200 font-mono";
   return (
     <div className="flex items-baseline gap-x-1.5 text-[11px]">
       {subjLabel
@@ -364,13 +420,14 @@ function ExtraStatementLine({
             provenance: subjUri
               ? undefined
               : _statementProvenance(statement),
+            diff: subjDiff,
           })
         : null}
       {predLabel ? (
         <>
           <span className="text-slate-400 dark:text-slate-500"> - </span>
           <span
-            className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+            className={predCls}
             title={predUri || undefined}
           >
             {predLabel}
@@ -384,6 +441,7 @@ function ExtraStatementLine({
             label: objLabel,
             uri: objUri,
             provenance: objUri ? undefined : _statementProvenance(statement),
+            diff: objDiff,
           })}
         </>
       ) : null}

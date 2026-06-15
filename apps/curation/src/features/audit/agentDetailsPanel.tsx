@@ -50,7 +50,7 @@ import { findingLean, leanSuggestionLabel } from "./defenderLean";
 import { parsePrefixedNote } from "./dispositionEdit";
 import { isNearMatchFinding } from "./factorMatch";
 import { useAudit } from "./AuditContext";
-import { JudgeChain } from "./JudgeChain";
+import { SectionedJudgeChain } from "./JudgeChain";
 import { verdictStrength } from "./auditPresentation";
 import { findingEvidenceRender } from "./paperExcerptsCaption";
 import { trimRationaleBoilerplate } from "./rationaleText";
@@ -395,16 +395,17 @@ export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
           {judge.text}
         </div>
       ) : null}
-      {/* Full judge chain — defender + arbiter + boss tiles when the
-          report carries the 2026-06-13 wire fields. Renders nothing
-          when every tier is empty (older packages), so the one-line
-          Judge row above stays the canonical render for legacy
-          payloads. Per Paul 2026-06-13 "Read both rationales below" —
-          the prompt promised arbiter/boss tiles that only existed
-          inside ComparisonFactorCard. Now they render on every card
-          surface ``AgentSuggestionPanel`` reaches (tag + factor cards
-          alike). */}
-      <JudgeChain finding={finding} report={report} />
+      {/* Sectioned judge chain — Internal review (defender_verdict)
+          and Auditor (arbiter + boss) as visually distinct labelled
+          subsections. Replaces the flat ``JudgeChain`` strip per
+          Paul 2026-06-15 so the proposer-side defence and the
+          audit's comparison verdict read as separate things — same
+          shape as the WHY block on ``ComparisonFactorCard``. The
+          Auditor subsection auto-suppresses when the report has no
+          arbiter/boss content, so older packages render only the
+          Internal review tile (or nothing) — equivalent to the
+          legacy flat strip's behaviour. */}
+      <SectionedJudgeChain finding={finding} report={report} />
       {(() => {
         // Render decision routed through the pure helper so the
         // three-state contract (blockquotes / muted_caption / nothing)

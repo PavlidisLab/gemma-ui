@@ -1937,113 +1937,59 @@ function TagValueChip({
   demoted?: boolean;
 }) {
   const display = abbreviateValueLabel(value.label);
-  const [expanded, setExpanded] = useState(false);
   if (value.uri) {
-    // Ontology-resolved: medium weight. Click the label to reveal
-    // the CURIE inline + a small ↗ link to OLS + an explicit ×
-    // close button. The ↗ is the actual OLS link; the × is the
-    // collapse affordance. The chip-itself-toggles behaviour stays
-    // (clicking the label re-closes) but the × makes it
-    // discoverable.
+    // Ontology-resolved: label + inline CURIE (clickable, opens the
+    // term-detail popover) + small ↗ external link. Mirrors the
+    // ``Term`` chip pattern elsewhere in the UI (audit cards, design
+    // editor) so the CURIE is always visible without a click-to-
+    // expand. Paul 2026-06-15: "the rendering should be more like
+    // what we have in the other parts of the UI, with the curie
+    // visible."
     const curie = shortenUri(value.uri);
     return (
       <span className="inline-flex items-baseline gap-1 align-bottom">
-        {expanded && categoryLabel ? (
-          <span className="text-[10px] opacity-70 whitespace-nowrap">
-            {categoryLabel}:
-          </span>
-        ) : null}
         <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              e.stopPropagation();
-              setExpanded((v) => !v);
-            }
-          }}
-          title={
-            expanded
-              ? `${value.label} — click to hide ${curie}`
-              : `${value.label} — click to reveal ${curie}`
-          }
-          className="inline-block font-medium text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline truncate max-w-[22ch]"
+          title={`${value.label}${categoryLabel ? ` (${categoryLabel})` : ""}`}
+          className="inline-block font-medium text-emerald-700 dark:text-emerald-400 truncate max-w-[22ch]"
         >
           {display}
         </span>
-        {expanded ? (
-          <>
-            <a
-              href={value.uri}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title={`${value.uri} (opens in new tab)`}
-              className="font-mono text-[10px] opacity-70 hover:opacity-100 hover:underline whitespace-nowrap"
-            >
-              {curie}
-            </a>
-            <a
-              href={value.uri}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title="open the term page in a new tab"
-              className="text-[10px] opacity-70 hover:opacity-100"
-              aria-label="open in OLS"
-            >
-              ↗
-            </a>
-          </>
-        ) : null}
+        <CurieLink
+          uri={value.uri}
+          display={curie}
+          className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
+        />
+        <a
+          href={value.uri}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          title="open the term page in a new tab"
+          className="text-[10px] opacity-70 hover:opacity-100"
+          aria-label="open in OLS"
+        >
+          ↗
+        </a>
       </span>
     );
   }
-  // Free-text: italic, no link. Click to reveal the full label
-  // (no truncate); click again to collapse. Symmetric with the
-  // URI-variant click-to-expand above so the curator's mental
-  // model is consistent: clicking any chip reveals more.
+  // Free-text variant: italic, truncated. Full label lives on the
+  // hover title; the click-to-expand pattern dropped 2026-06-15 to
+  // match the URI variant above (Paul wants chip rendering
+  // consistent across the panel).
   return (
     <span className="inline-flex items-baseline gap-1 align-bottom">
-      {expanded && categoryLabel ? (
-        <span className="text-[10px] opacity-70 whitespace-nowrap not-italic">
-          {categoryLabel}:
-        </span>
-      ) : null}
       <span
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          e.stopPropagation();
-          setExpanded((v) => !v);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }
-        }}
-        title={
-          expanded
-            ? `${value.label} (free text — click to collapse)`
-            : `${value.label} (free text — click to reveal full text)`
-        }
+        title={`${value.label}${categoryLabel ? ` (${categoryLabel})` : ""}`}
         className={cn(
-          "inline-block italic cursor-pointer hover:opacity-100",
+          "inline-block italic truncate max-w-[22ch]",
           // Demoted = the group has ontology-resolved siblings; free
           // text plays a supporting role here. Solo / all-free-text
           // groups render at normal weight so they're still readable.
           demoted ? "opacity-50 text-[10px]" : "opacity-80",
-          expanded ? "" : "truncate max-w-[22ch]",
         )}
       >
-        {expanded ? value.label : display}
+        {display}
       </span>
     </span>
   );
@@ -2253,12 +2199,11 @@ function EditableDirectGroupChip({
   const { draft, apply } = useDesignDraft();
   const readOnly = useIsReadOnly();
   const [open, setOpen] = useState(false);
+  // ``editingId`` + ``commitEdit`` retained for the legacy
+  // ChipEditor branch (if/when any path re-enters edit-by-editor
+  // mode). Today's chip-click surface no longer opens it — clicking
+  // exposes only the × delete affordance per Paul 2026-06-15.
   const [editingId, setEditingId] = useState<number | null>(null);
-
-  function beginEdit(tagId: number) {
-    if (readOnly) return;
-    setEditingId(tagId);
-  }
 
   function commitEdit(tag: Tag, cat: OntologyTerm, val: OntologyTerm) {
     if (!draft) return;
@@ -2309,25 +2254,18 @@ function EditableDirectGroupChip({
           // Bookmark on the left when the value is ontology-anchored.
           // Free-text tags share the chip frame but get no bookmark.
           tag.value.uri && ONTOLOGY_ANCHOR_CLS,
-          protectedCategory
-            ? "cursor-default opacity-90"
-            : "cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/50",
+          protectedCategory ? "cursor-default opacity-90" : "",
           // Uncommitted addition — amber ring + soft glow so the
           // curator can see at a glance which chips are pending.
           isNew &&
             "ring-2 ring-amber-400 ring-offset-1 ring-offset-white shadow-[0_0_8px_-2px_rgba(251,191,36,0.7)] dark:ring-offset-slate-900",
         )}
-        onClick={
-          protectedCategory || readOnly
-            ? undefined
-            : () => beginEdit(tag.id)
-        }
         title={
           (protectedCategory
-            ? `${category.label}: ${tag.value.label} — load-time tag, can't be edited or removed`
+            ? `${category.label}: ${tag.value.label} — load-time tag, can't be removed`
             : readOnly
               ? `${category.label}: ${tag.value.label} — read-only in review mode`
-              : `${category.label}: ${tag.value.label} — click to edit`) +
+              : `${category.label}: ${tag.value.label}`) +
           (tag.value.uri ? ` — ${shortenUri(tag.value.uri)}` : "")
         }
       >
@@ -2355,35 +2293,64 @@ function EditableDirectGroupChip({
             <TagStatementInline statements={tag.statements} />
           </span>
         ) : (
-          <span
-            className={cn(
-              "font-medium truncate max-w-[22ch]",
-              // Anchored term → emerald text; free-text → italic slate.
-              // Same convention as TagValueChip (inferred chip variant)
-              // so ontology vs free-text reads identically across both.
-              tag.value.uri
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "italic text-slate-700 dark:text-slate-300",
-            )}
-          >
-            {valueDisplay || <em className="not-italic">no value</em>}
-          </span>
+          <>
+            <span
+              className={cn(
+                "font-medium truncate max-w-[22ch]",
+                // Anchored term → emerald text; free-text → italic slate.
+                tag.value.uri
+                  ? "text-emerald-700 dark:text-emerald-400"
+                  : "italic text-slate-700 dark:text-slate-300",
+              )}
+            >
+              {valueDisplay || <em className="not-italic">no value</em>}
+            </span>
+            {/* CURIE inline next to the label — Term-chip pattern
+                per Paul 2026-06-15. Click opens the term-detail
+                popover; the ↗ next to it opens the canonical OBO
+                page in a new tab. */}
+            {tag.value.uri ? (
+              <>
+                <CurieLink
+                  uri={tag.value.uri}
+                  className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
+                />
+                <a
+                  href={tag.value.uri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  title="open the term page in a new tab"
+                  className="text-[10px] opacity-70 hover:opacity-100"
+                  aria-label="open in OLS"
+                >
+                  ↗
+                </a>
+              </>
+            ) : null}
+          </>
         )}
         <AuditDot
           targetId={tagTarget(tag.category.label, tag.value.label)}
         />
+        {/* Delete affordance — Paul 2026-06-15: "edit should lead
+            to the delete being exposed, but that's all." So the
+            chip no longer opens the ChipEditor — it just exposes
+            a × delete button on hover. Reveals on group-hover via
+            the ``group/chip`` parent so the chip stays compact
+            until the curator targets it. */}
         {protectedCategory || readOnly ? null : (
           <button
             type="button"
-            className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-emerald-900 dark:text-emerald-300/70 dark:hover:bg-emerald-800 dark:hover:text-emerald-100"
+            className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-rose-700 dark:text-emerald-300/70 dark:hover:bg-rose-900/50 dark:hover:text-rose-200 opacity-0 group-hover/chip:opacity-100 focus:opacity-100 transition-opacity"
             onClick={(e) => {
               e.stopPropagation();
-              beginEdit(tag.id);
+              deleteOne(tag.id);
             }}
-            title="edit this tag (delete from the editor)"
-            aria-label="edit tag"
+            title="delete this tag"
+            aria-label="delete tag"
           >
-            <PencilIcon size={11} strokeWidth={2.5} />
+            ×
           </button>
         )}
       </span>
@@ -2449,17 +2416,15 @@ function EditableDirectGroupChip({
                 key={tag.id}
                 data-audit-target={tagTarget(tag.category.label, tag.value.label)}
                 className={cn(
-                  "group inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:border-emerald-700/60 dark:hover:bg-emerald-800/50",
-                  readOnly ? "cursor-default" : "cursor-pointer",
+                  "group/chip inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:border-emerald-700/60 dark:hover:bg-emerald-800/50",
                   tag.value.uri && ONTOLOGY_ANCHOR_CLS,
                   addedTagIds?.has(tag.id) &&
                     "ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-slate-900",
                 )}
-                onClick={readOnly ? undefined : () => beginEdit(tag.id)}
                 title={
                   protectedCategory
                     ? "load-time tag, can't be removed"
-                    : "click to edit"
+                    : tag.value.label
                 }
               >
                 {tag.statements && tag.statements.length > 0 ? (
@@ -2471,28 +2436,44 @@ function EditableDirectGroupChip({
                   <>
                     <span>{tag.value.label || "(blank)"}</span>
                     {tag.value.uri ? (
-                      <CurieLink
-                        uri={tag.value.uri}
-                        className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
-                      />
+                      <>
+                        <CurieLink
+                          uri={tag.value.uri}
+                          className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
+                        />
+                        <a
+                          href={tag.value.uri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="open the term page in a new tab"
+                          className="text-[10px] opacity-70 hover:opacity-100"
+                          aria-label="open in OLS"
+                        >
+                          ↗
+                        </a>
+                      </>
                     ) : null}
                   </>
                 )}
                 <AuditDot
                   targetId={tagTarget(tag.category.label, tag.value.label)}
                 />
-                {protectedCategory ? null : (
+                {/* Delete affordance — same shape as the single-tag
+                    chip above. Hover-reveal via ``group/chip``. Paul
+                    2026-06-15: edit exposes delete, nothing else. */}
+                {protectedCategory || readOnly ? null : (
                   <button
                     type="button"
-                    className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-emerald-900 dark:text-emerald-300/70 dark:hover:bg-emerald-800 dark:hover:text-emerald-100"
+                    className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-rose-700 dark:text-emerald-300/70 dark:hover:bg-rose-900/50 dark:hover:text-rose-200 opacity-0 group-hover/chip:opacity-100 focus:opacity-100 transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setEditingId(tag.id);
+                      deleteOne(tag.id);
                     }}
-                    title="edit this tag (delete from the editor)"
-                    aria-label="edit tag"
+                    title="delete this tag"
+                    aria-label="delete tag"
                   >
-                    <PencilIcon size={11} strokeWidth={2.5} />
+                    ×
                   </button>
                 )}
               </span>

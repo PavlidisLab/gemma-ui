@@ -1,21 +1,33 @@
 /**
  * Per-finding judge chain — defender → arbiter → boss.
  *
- * Up to three stacked coloured tiles, one per producer, each
- * carrying verdict label + rationale prose. Extracted from
- * ``ComparisonFactorCard`` 2026-06-13 so tag cards (and any other
- * finding-card surface) can render the same chain. Paul flagged
- * that ``calibration_agent_extra`` tag cards promised "Read both
- * rationales below" but had no tiles rendered — the chain only
- * existed inside ``ComparisonFactorCard``, which doesn't render
- * tag findings.
+ * Two render shapes live here:
+ *
+ *   - ``JudgeChain`` — the legacy flat stack of three tiles
+ *     (defender, arbiter, boss). Returns null when every tier is
+ *     empty. Used by the few legacy call sites that haven't moved
+ *     to the sectioned shape yet.
+ *
+ *   - ``SectionedJudgeChain`` — same tiles, but grouped into two
+ *     labelled subsections: ``Internal review`` (defender) and
+ *     ``Auditor`` (arbiter + boss). Per Paul 2026-06-15: the
+ *     proposer-side defence and the audit's comparison verdict
+ *     must read as distinct things — the audit section only
+ *     appears when there's a baseline being compared
+ *     (``isComparison``). Used inside the WHY block on every
+ *     finding-card surface (factor / tag / characteristic).
+ *
+ * The shared ``WhySection`` helper carries the per-section palette
+ * (slate / blue / emerald) so any other section the WHY block grows
+ * can hang off the same primitive.
  *
  * Old packages (no ``arbiter_verdicts`` / ``boss_verdicts`` on the
  * wire) render identically to the prior single-defender ``JudgeRow``
- * — the whole component returns null when every tier is empty.
+ * — every shape suppresses tiers with empty rationale.
  *
  * Per ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
  */
+import type { ReactNode } from "react";
 import type {
   ArbiterVerdict,
   AttachedDefenderVerdict,
@@ -145,6 +157,124 @@ export function BossTile({
       ) : null}
       {boss.rationale?.trim() ? (
         <div className="italic opacity-90 mt-0.5">{boss.rationale}</div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sectioned chain — Internal review vs Auditor, with the shared
+// WhySection wrapper. Used by every WHY block surface so the
+// proposer-side defence and the audit's verdict are visually
+// distinct and the audit section only appears when there's
+// actually a comparison happening.
+// ---------------------------------------------------------------------------
+
+/** One labelled subsection inside a WHY block. Three tones distinguish
+ *  the PROPOSAL / INTERNAL REVIEW / AUDITOR roles at a glance — slate
+ *  (neutral proposer prose), blue (proposer-side internal review),
+ *  emerald (audit's comparison verdict). Same primitive ships
+ *  whatever the section is named so future sections (e.g. CURATOR
+ *  NOTES) hang off the same shape. */
+export function WhySection({
+  label,
+  sublabel,
+  tone,
+  children,
+}: {
+  label: string;
+  sublabel?: string;
+  tone: "slate" | "blue" | "emerald";
+  children: ReactNode;
+}): JSX.Element {
+  const palette =
+    tone === "blue"
+      ? "border-blue-300/70 dark:border-blue-700/60 bg-blue-50/30 dark:bg-blue-900/10"
+      : tone === "emerald"
+        ? "border-emerald-300/70 dark:border-emerald-700/60 bg-emerald-50/30 dark:bg-emerald-900/10"
+        : "border-slate-300/60 dark:border-slate-700/60 bg-white/40 dark:bg-slate-900/20";
+  const headerTone =
+    tone === "blue"
+      ? "text-blue-700 dark:text-blue-300"
+      : tone === "emerald"
+        ? "text-emerald-700 dark:text-emerald-300"
+        : "text-slate-600 dark:text-slate-300";
+  return (
+    <section className={`border-l-2 rounded-sm pl-2 py-1 ${palette}`}>
+      <header className="inline-flex items-baseline gap-1.5 mb-1">
+        <span className={`text-[10px] uppercase tracking-wide font-semibold ${headerTone}`}>
+          {label}
+        </span>
+        {sublabel ? (
+          <span className="text-[9px] text-slate-500 dark:text-slate-400">
+            — {sublabel}
+          </span>
+        ) : null}
+      </header>
+      <div>{children}</div>
+    </section>
+  );
+}
+
+/** SectionedJudgeChain — the same defender + arbiter + boss content
+ *  as ``JudgeChain``, but grouped into two labelled subsections so
+ *  the proposer-side defence reads as distinct from the audit's
+ *  verdict.
+ *
+ *  ``isComparison`` gates the AUDITOR subsection — when there's no
+ *  baseline being compared against, the arbiter/boss verdict has no
+ *  meaningful "which side is better" reading, so the section is
+ *  hidden entirely. Defaults to ``true`` because the audit sidebar
+ *  is the dominant caller and every finding there IS part of a
+ *  gold-vs-agent comparison. Read-only drift cards
+ *  (``ComparisonFactorCard`` with ``baselineSource`` unset) flip
+ *  it to ``false``.
+ *
+ *  Returns null when BOTH sections would be empty so legacy
+ *  packages (no arbiter/boss + no defender_verdict) render
+ *  nothing. */
+export function SectionedJudgeChain({
+  finding,
+  report,
+  isComparison = true,
+}: {
+  finding: AuditFinding;
+  report: AuditReport | null;
+  isComparison?: boolean;
+}): JSX.Element | null {
+  const defender = finding.defender_verdict ?? null;
+  const hasInternal = !!(defender && defender.rationale?.trim());
+  const arbiter = isComparison ? findArbiterForFinding(report, finding) : null;
+  const boss = isComparison ? findBossForFinding(report, finding) : null;
+  const hasAuditor =
+    isComparison &&
+    !!(
+      (arbiter && arbiter.rationale?.trim()) ||
+      (boss && (boss.rationale?.trim() || boss.arbiter_rationale?.trim()))
+    );
+  if (!hasInternal && !hasAuditor) return null;
+  return (
+    <div className="space-y-2">
+      {hasInternal ? (
+        <WhySection
+          label="Internal review"
+          sublabel="proposer-side defence (judge / boss)"
+          tone="blue"
+        >
+          <DefenderTile verdict={defender} />
+        </WhySection>
+      ) : null}
+      {hasAuditor ? (
+        <WhySection
+          label="Auditor"
+          sublabel="comparison vs current annotations"
+          tone="emerald"
+        >
+          <div className="space-y-1">
+            <ArbiterTile arbiter={arbiter} />
+            <BossTile boss={boss} />
+          </div>
+        </WhySection>
       ) : null}
     </div>
   );

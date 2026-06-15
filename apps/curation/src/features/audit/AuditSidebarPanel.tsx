@@ -1141,6 +1141,13 @@ function SidebarHeader({
         <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-700">
           <CloseAuditConfirm
             kind={kind}
+            // Stable key for sticky persistence — survives navigate-
+            // away + tab close. Per-audit so two different audits
+            // don't share a draft note; per-kind so audit vs proposal
+            // close panes on the same audit_id stay separate. Paul
+            // 2026-06-14: "if I type here it shouldn't disappear if
+            // I navigate away :(". Cleared on successful finalize. */
+            stickyKey={`closeNote:${kind}:${report.audit_id ?? "noaudit"}`}
             pendingActionable={pendingActionable}
             pendingFindings={report.findings.filter((f) => {
               if (f.severity === "ok") return false;
@@ -1207,6 +1214,7 @@ function pendingFindingLabel(f: AuditFinding): string {
  *  full ConfirmModal would over-weight the action. */
 function CloseAuditConfirm({
   kind,
+  stickyKey,
   pendingActionable,
   pendingFindings,
   saving,
@@ -1215,6 +1223,12 @@ function CloseAuditConfirm({
   onConfirm,
 }: {
   kind: CurationReviewKind;
+  /** Stable per-audit-per-kind key for the sticky note + pending-
+   *  resolution choice. Persists across navigate-away + reload so
+   *  the curator's draft note doesn't evaporate the moment they
+   *  click off to look something up. Cleared on successful
+   *  finalize. */
+  stickyKey: string;
   pendingActionable: number;
   /** Full findings list for the pending-actionable bucket — used to
    *  enumerate the "will be considered rejected" preview on
@@ -1233,14 +1247,17 @@ function CloseAuditConfirm({
   ) => Promise<void> | void;
 }) {
   const copy = KIND_COPY[kind];
-  const [notes, setNotes] = useState(initialNotes);
+  const [notes, setNotes] = useStickyState<string>(
+    `${stickyKey}:notes`,
+    initialNotes,
+  );
   // Default to "reject" — matches the prior auto-sweep behaviour
   // and is the safer assumption (silence isn't agreement; an
   // accidental accept costs more to undo than an accidental
   // reject). Only relevant for proposal kind with pending items.
-  const [pendingResolution, setPendingResolution] = useState<
+  const [pendingResolution, setPendingResolution] = useStickyState<
     "accept" | "reject"
-  >("reject");
+  >(`${stickyKey}:resolution`, "reject");
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -1363,7 +1380,25 @@ function CloseAuditConfirm({
         </button>
         <button
           type="button"
-          onClick={() => onConfirm(notes.trim(), pendingResolution)}
+          onClick={async () => {
+            const trimmed = notes.trim();
+            await onConfirm(trimmed, pendingResolution);
+            // Successful finalize — clear the sticky draft so the
+            // next time the curator opens a fresh review of this
+            // audit they start with an empty textarea (not the
+            // just-submitted note). On cancel we leave it alone
+            // (curator might be coming back).
+            try {
+              localStorage.removeItem(`${stickyKey}:notes`);
+              localStorage.removeItem(`${stickyKey}:resolution`);
+            } catch {
+              // localStorage unavailable — leave the sticky value
+              // in place; setNotes("") below resets the in-memory
+              // state for any subsequent reuse.
+            }
+            setNotes("");
+            setPendingResolution("reject");
+          }}
           disabled={saving}
           className={cn(
             "text-[11px] px-2 py-0.5 rounded font-medium",

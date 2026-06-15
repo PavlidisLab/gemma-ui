@@ -28,7 +28,7 @@
  * indicate the FVs (FV1, FV2). Propose how to make this so they use
  * more of the same code and are visually comparable."
  */
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
 import type { Factor } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
@@ -36,6 +36,11 @@ import {
   ContinuousStrip,
   type ContinuousStripValue,
 } from "./ContinuousStrip";
+import { computeFvDiff } from "./fvDiff";
+import {
+  SamplePartitionSankey,
+  type SankeyRowMetric,
+} from "./SamplePartitionSankey";
 
 /** One FV on either side of the comparison. ``Factor.factor_values``
  *  (gold) and ``FactorProposal.factor_values`` (agent) both satisfy
@@ -170,22 +175,28 @@ function FvCell({
   fv,
   fvIndex,
   termRenderer,
+  diffChips,
 }: {
   fv: GridFv;
   fvIndex: number;
   termRenderer: FvTermRenderer;
+  diffChips?: ReadonlySet<string>;
 }) {
   if (!fv) {
     return <em className="text-slate-400">(no FV)</em>;
   }
   // ``FvDisplayRow`` reads ``free_text_label`` + ``statements[*]`` +
   // ``biomaterial_short_names`` from the FV. ``indexLabel`` drives the
-  // "FV N" prefix Paul asked for on both surfaces.
+  // "FV N" prefix Paul asked for on both surfaces. ``diffChips`` is
+  // the side-specific differing-chip set computed by ``computeFvDiff``
+  // — the row tags matching chips with ``diff: true`` and the caller's
+  // term renderer rings them.
   return (
     <FvDisplayRow
       fv={fv}
       termRenderer={termRenderer}
       indexLabel={fvIndex + 1}
+      diffChips={diffChips}
     />
   );
 }
@@ -270,43 +281,11 @@ export function FactorComparisonGrid({
       (no factor values)
     </div>
   ) : (
-    <div
-      className="grid items-baseline gap-x-2 text-[11px]"
-      style={{
-        gridTemplateColumns: "[left] 1fr [glyph] auto [right] 1fr [action] auto",
-      }}
-    >
-      {pairs.map((pair, ix) => {
-        const glyph = statusGlyph(pair.status);
-        const perFvAction = renderPerFvAction?.(pair, ix) ?? null;
-        return (
-          <div
-            key={`pair-${ix}`}
-            className="contents"
-          >
-            <div className="min-w-0 px-1.5 py-1 border-t border-slate-100 dark:border-slate-800">
-              <FvCell fv={pair.left} fvIndex={ix} termRenderer={termRenderer} />
-            </div>
-            <span
-              className={
-                "select-none text-center px-1 py-1 border-t border-slate-100 dark:border-slate-800 " +
-                (glyph?.cls ?? "text-transparent")
-              }
-              title={glyph?.title ?? undefined}
-              aria-label={pair.status ?? undefined}
-            >
-              {glyph?.ch ?? " "}
-            </span>
-            <div className="min-w-0 px-1.5 py-1 border-t border-slate-100 dark:border-slate-800">
-              <FvCell fv={pair.right} fvIndex={ix} termRenderer={termRenderer} />
-            </div>
-            <div className="px-1.5 py-1 border-t border-slate-100 dark:border-slate-800 flex items-baseline justify-end gap-1.5">
-              {perFvAction}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+    <PairGridBody
+      pairs={pairs}
+      termRenderer={termRenderer}
+      renderPerFvAction={renderPerFvAction}
+    />
   );
   return (
     <div className="space-y-1">
@@ -315,6 +294,222 @@ export function FactorComparisonGrid({
         {body}
       </div>
       {renderFooter ? <div>{renderFooter()}</div> : null}
+    </div>
+  );
+}
+
+/** Inner pair-grid body. Renders the side-by-side FV rows AND a
+ *  column-spanning sample-partition sankey through the middle column.
+ *  Measures per-row geometry via refs so the sankey's ribbon
+ *  endpoints land on the FV row centres regardless of statement
+ *  count / wrap height.
+ *
+ *  Falls back to the per-row status glyph (= / ≈ / + / −) when the
+ *  pair lacks sample-membership info (``biomaterial_short_names``
+ *  empty on both sides) — the sankey can't draw a ribbon, but the
+ *  curator still gets the per-row pairing hint. */
+const SANKEY_COL_PX = 56;
+
+function PairGridBody({
+  pairs,
+  termRenderer,
+  renderPerFvAction,
+}: {
+  pairs: FactorComparisonPair[];
+  termRenderer: FvTermRenderer;
+  renderPerFvAction?: (
+    pair: FactorComparisonPair,
+    fvIndex: number,
+  ) => ReactNode;
+}): JSX.Element {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const leftRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const rightRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [leftMetrics, setLeftMetrics] = useState<SankeyRowMetric[]>([]);
+  const [rightMetrics, setRightMetrics] = useState<SankeyRowMetric[]>([]);
+  const [containerHeight, setContainerHeight] = useState<number>(0);
+
+  useLayoutEffect(() => {
+    function measure() {
+      const wrap = wrapperRef.current;
+      if (!wrap) return;
+      const wrapTop = wrap.getBoundingClientRect().top;
+      const nextLeft: SankeyRowMetric[] = [];
+      const nextRight: SankeyRowMetric[] = [];
+      for (let i = 0; i < pairs.length; i++) {
+        const lr = leftRefs.current[i];
+        const rr = rightRefs.current[i];
+        if (lr) {
+          const r = lr.getBoundingClientRect();
+          nextLeft.push({
+            centerY: r.top - wrapTop + r.height / 2,
+            height: r.height,
+          });
+        } else {
+          nextLeft.push({ centerY: 0, height: 0 });
+        }
+        if (rr) {
+          const r = rr.getBoundingClientRect();
+          nextRight.push({
+            centerY: r.top - wrapTop + r.height / 2,
+            height: r.height,
+          });
+        } else {
+          nextRight.push({ centerY: 0, height: 0 });
+        }
+      }
+      setLeftMetrics(nextLeft);
+      setRightMetrics(nextRight);
+      setContainerHeight(wrap.getBoundingClientRect().height);
+    }
+    measure();
+    // Recompute on viewport / font-load / content-changes.
+    const ro = new ResizeObserver(measure);
+    if (wrapperRef.current) ro.observe(wrapperRef.current);
+    for (const el of leftRefs.current) if (el) ro.observe(el);
+    for (const el of rightRefs.current) if (el) ro.observe(el);
+    return () => ro.disconnect();
+  }, [pairs]);
+
+  const leftFvs = pairs.map((p) => p.left);
+  const rightFvs = pairs.map((p) => p.right);
+  // Whether the sankey can render — every pair must have at least
+  // one side with sample membership. When ALL pairs lack samples on
+  // both sides the SVG would have nothing to draw, so we fall back
+  // to the per-row glyph entirely.
+  const sankeyHasData = pairs.some(
+    (p) =>
+      (p.left?.biomaterial_short_names?.length ?? 0) > 0 &&
+      (p.right?.biomaterial_short_names?.length ?? 0) > 0,
+  );
+
+  return (
+    <div
+      ref={wrapperRef}
+      className="relative grid items-stretch text-[11px]"
+      style={{
+        gridTemplateColumns: `[left] 1fr [sankey] ${SANKEY_COL_PX}px [right] 1fr [action] auto`,
+        rowGap: 6,
+        padding: 4,
+      }}
+    >
+      {/* Per-row backdrop — sits behind each pair's cells so the row
+          reads as one self-contained unit instead of running into
+          its neighbours. Paul 2026-06-15: "the fvs sort of run into
+          each other - they should visually separate better - a
+          small space + stronger tint of background or outline."
+          Each backdrop spans all four columns at its gridRow and is
+          z-indexed below the cell content + sankey SVG. */}
+      {pairs.map((_, ix) => (
+        <div
+          key={`backdrop-${ix}`}
+          aria-hidden
+          style={{
+            gridColumn: "1 / -1",
+            gridRow: ix + 1,
+            zIndex: 0,
+          }}
+          className="rounded bg-slate-100/60 dark:bg-slate-800/40 ring-1 ring-slate-200/70 dark:ring-slate-700/60"
+        />
+      ))}
+      {/* Column-spanning sankey SVG. Sits in the dedicated middle
+          column at gridRow 1 / -1 so it draws BEHIND the per-row
+          glyphs (which we keep visible as a fallback per-row hint
+          when the sankey can't render anything for the pair). */}
+      {sankeyHasData && containerHeight > 0 ? (
+        <div
+          aria-hidden
+          className="pointer-events-none"
+          style={{
+            gridColumn: "sankey",
+            gridRow: `1 / span ${pairs.length}`,
+            alignSelf: "stretch",
+            justifySelf: "stretch",
+            position: "relative",
+            zIndex: 2,
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "auto",
+            }}
+          >
+            <SamplePartitionSankey
+              leftFvs={leftFvs}
+              rightFvs={rightFvs}
+              leftMetrics={leftMetrics}
+              rightMetrics={rightMetrics}
+              width={SANKEY_COL_PX}
+              height={containerHeight}
+            />
+          </div>
+        </div>
+      ) : null}
+      {pairs.map((pair, ix) => {
+        const glyph = statusGlyph(pair.status);
+        const perFvAction = renderPerFvAction?.(pair, ix) ?? null;
+        const { leftKeys, rightKeys } = computeFvDiff(pair.left, pair.right);
+        // Per-row glyph stays as a fallback when this specific pair
+        // can't be drawn by the sankey (one side missing sample
+        // membership, OR the pair is left_only / right_only). When
+        // the sankey covers the row, suppress the glyph so it
+        // doesn't compete visually.
+        const sankeyCoversRow =
+          sankeyHasData &&
+          (pair.left?.biomaterial_short_names?.length ?? 0) > 0 &&
+          (pair.right?.biomaterial_short_names?.length ?? 0) > 0;
+        return (
+          <div key={`pair-${ix}`} className="contents">
+            <div
+              ref={(el) => {
+                leftRefs.current[ix] = el;
+              }}
+              style={{ gridColumn: "left", gridRow: ix + 1, position: "relative", zIndex: 1 }}
+              className="min-w-0 px-2 py-1.5"
+            >
+              <FvCell
+                fv={pair.left}
+                fvIndex={ix}
+                termRenderer={termRenderer}
+                diffChips={leftKeys}
+              />
+            </div>
+            <span
+              style={{ gridColumn: "sankey", gridRow: ix + 1, position: "relative", zIndex: 1 }}
+              className={
+                "select-none text-center px-1 py-1.5 " +
+                (sankeyCoversRow ? "text-transparent" : glyph?.cls ?? "text-transparent")
+              }
+              title={sankeyCoversRow ? undefined : glyph?.title ?? undefined}
+              aria-label={pair.status ?? undefined}
+            >
+              {sankeyCoversRow ? " " : glyph?.ch ?? " "}
+            </span>
+            <div
+              ref={(el) => {
+                rightRefs.current[ix] = el;
+              }}
+              style={{ gridColumn: "right", gridRow: ix + 1, position: "relative", zIndex: 1 }}
+              className="min-w-0 px-2 py-1.5"
+            >
+              <FvCell
+                fv={pair.right}
+                fvIndex={ix}
+                termRenderer={termRenderer}
+                diffChips={rightKeys}
+              />
+            </div>
+            <div
+              style={{ gridColumn: "action", gridRow: ix + 1, position: "relative", zIndex: 1 }}
+              className="px-2 py-1.5 flex items-baseline justify-end gap-1.5"
+            >
+              {perFvAction}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

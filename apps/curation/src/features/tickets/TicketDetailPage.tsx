@@ -39,14 +39,9 @@ export function TicketDetailPage({
   // signal that an async action (today: PRELOAD runner) is still
   // moving rows. Stops polling as soon as no targets are UNDERWAY
   // any more (React Query treats ``false`` as "don't reschedule").
-  const { data: ticket, isLoading, error } = useTicket(ticketId, {
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if (!data) return false;
-      const anyUnderway = data.targets.some((t) => t.status === "UNDERWAY");
-      return anyUnderway ? 2000 : false;
-    },
-  });
+  // Default polling cadence baked into ``useTicket``: 15 s slow,
+  // 2 s while any target is UNDERWAY. No per-call override needed.
+  const { data: ticket, isLoading, error } = useTicket(ticketId);
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <AppHeader reviewer={reviewer} />

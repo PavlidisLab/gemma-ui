@@ -924,13 +924,46 @@ function BaselineDriftSection({
     const auditedCategoryKeys = new Set<string>();
     for (const f of findings) {
       if (f.target_kind !== "factor") continue;
+      // Path 1 — standard ``factor:<slug>`` target_id (proposer-side
+      // findings). ``parseTargetId`` knows this shape.
       const parsed = parseTargetId(f.target_id);
-      if (parsed?.kind !== "factor") continue;
-      // factorSlug is the agent's slugified category label (or
-      // sometimes a numeric id); fold both into the keyspace so the
-      // category check matches either id-shape.
-      if (parsed.factorSlug) {
+      if (parsed?.kind === "factor" && parsed.factorSlug) {
         auditedCategoryKeys.add(parsed.factorSlug.toLowerCase());
+        continue;
+      }
+      // Path 2 — calibration-pipeline factor findings ship a
+      // longer target_id: ``calibration:<kind>:<a-cat>/<a-id>`` for
+      // extra / gold_only_miss, or
+      // ``calibration:<kind>:<a-cat>/<a-id><-><b-cat>/<b-id>`` for
+      // match-family findings (agents-side
+      // ``graph_alignment.py``). ``parseTargetId`` doesn't know this
+      // shape (kind isn't in AuditTargetKind), so the standard path
+      // misses it and the drift dedup leaks. Paul 2026-06-15 on
+      // GSE33191 ``treatment`` rendering as both ``Extra factor in
+      // Live Gemma`` and ``REMOVE FACTOR``. Extract every category
+      // string after the kind prefix and add it to the key set.
+      if (f.target_id.startsWith("calibration:")) {
+        const rest = f.target_id.slice("calibration:".length);
+        const colon = rest.indexOf(":");
+        if (colon !== -1) {
+          const payload = rest.slice(colon + 1);
+          // ``<->`` joins two sides on match-family ids; each side's
+          // segment is ``<cat>/<id>``. Extract the cat portion from
+          // every segment.
+          for (const seg of payload.split("<->")) {
+            const slash = seg.indexOf("/");
+            const cat = (slash === -1 ? seg : seg.slice(0, slash)).trim();
+            if (!cat) continue;
+            // Add both the raw lower-cased category AND its slug
+            // form so the lookup site's slugified comparison matches
+            // either way (calibration ids ship raw labels; the lookup
+            // slugifies live labels).
+            auditedCategoryKeys.add(cat.toLowerCase());
+            auditedCategoryKeys.add(
+              cat.toLowerCase().split(/\s+/).filter(Boolean).join("-"),
+            );
+          }
+        }
       }
     }
 

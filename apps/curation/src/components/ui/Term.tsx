@@ -2,7 +2,7 @@ import { cn } from "@/lib/cn";
 import { curieToUrl } from "@/lib/curie";
 import type { ReactNode } from "react";
 import { CurieLink } from "./CurieLink";
-import type { FvTermProvenance } from "@gemma/ontology";
+import type { FvTermProvenance, FvTermRenderer } from "@gemma/ontology";
 
 /**
  * One ontology term, rendered as an inline chip.
@@ -27,7 +27,7 @@ import type { FvTermProvenance } from "@gemma/ontology";
  * ``<Pill variant="baseline">▂ baseline</Pill>`` chip alongside
  * the term.
  */
-export type TermVariant = "default" | "free" | "predicate";
+export type TermVariant = "default" | "free" | "predicate" | "category";
 
 export function Term({
   children,
@@ -36,6 +36,7 @@ export function Term({
   className,
   asLink = true,
   provenance,
+  diff = false,
 }: {
   children: ReactNode;
   uri?: string | null;
@@ -60,6 +61,13 @@ export function Term({
    *  (resolved chips already carry their identity via the CURIE
    *  link-out). */
   provenance?: FvTermProvenance;
+  /** When true, the chip's diff styling lays an amber palette over
+   *  whatever variant the chip is rendering — used inside side-by-
+   *  side comparison surfaces to mark chips that differ from their
+   *  paired counterpart on the other side. The variant's italic /
+   *  non-italic stays so role (category / value / free) still reads.
+   *  Per Paul 2026-06-15. */
+  diff?: boolean;
 }) {
   // Auto-pick free vs default based on URI presence when caller
   // didn't pin a variant. Predicates and baselines bypass the auto-
@@ -127,6 +135,7 @@ export function Term({
       className={cn(
         "term",
         effectiveVariant !== "default" && effectiveVariant,
+        diff && "diff",
         className,
       )}
       title={tooltipUri}
@@ -140,3 +149,37 @@ export function Term({
     </span>
   );
 }
+
+/** Shared ``FvTermRenderer`` adapter — satisfies the
+ *  ``@gemma/ontology`` contract that ``FvDisplayRow`` consumes by
+ *  passing each chip through the canonical ``Term`` component above.
+ *  Use this on every ``FvDisplayRow`` call site (audit cards,
+ *  comparison grid, FindingDetailsEditor) so the visual contract for
+ *  ontology chips stays uniform across surfaces. Paul 2026-06-15:
+ *  "make ALL surfaces use a single Term component."
+ *
+ *  Variant mapping:
+ *   - ``predicate`` → ``predicate`` (slate, mono)
+ *   - URI absent  → ``free`` (italic stone)
+ *   - URI present → ``default`` (emerald + bookmark)
+ *
+ *  Diff flag is passed through verbatim — the parent surface
+ *  (e.g. ``computeFvDiff`` in ``factorComparison/fvDiff.ts``)
+ *  decides which chips are different. */
+export const termRenderer: FvTermRenderer = ({
+  label,
+  uri,
+  variant,
+  provenance,
+  diff,
+}) => (
+  <Term
+    uri={uri}
+    variant={variant === "predicate" ? "predicate" : "default"}
+    asLink={false}
+    provenance={provenance}
+    diff={diff}
+  >
+    {label}
+  </Term>
+);
