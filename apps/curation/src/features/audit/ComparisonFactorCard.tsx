@@ -147,6 +147,39 @@ function _buildProvenanceTooltip(
   return lines.length ? lines.join("\n") : undefined;
 }
 
+/** Pick the category used to look up the LEFT (baseline) factor
+ *  in the user-selected baseline curation.
+ *
+ *  Default: the finding's nominal category (agent-first; reliable for
+ *  every non-rename case).
+ *
+ *  Override: when the finding carries a ``rename`` payload the agent
+ *  and gold sides have DIFFERENT category labels by definition --
+ *  agent ``treatment`` ↔ gold ``timepoint``, agent
+ *  ``developmental stage`` ↔ gold ``age``, etc. The baseline lookup
+ *  must use the GOLD-side category from the rename payload; otherwise
+ *  the curator gets "(not in <baseline>)" annotation on a finding
+ *  whose audit-time gold IS in the baseline curation. Canonical case:
+ *  GSE67136 2026-06-15 -- treatment / timepoint rename, live design
+ *  contains timepoint, lookup-by-treatment misses → wrong annotation.
+ *
+ *  Exported for the regression test in ``findingCardLayout.test.ts``;
+ *  inline use in ``ComparisonFactorCard``. */
+export function deriveLeftFactorCategory(
+  finding: AuditFinding,
+  findingCategory: { label: string | null; uri: string | null } | null,
+): { label: string | null; uri: string | null } | null {
+  const renameGoldCat = finding.rename?.gold?.category;
+  if (renameGoldCat && (renameGoldCat.label || renameGoldCat.uri)) {
+    return {
+      label: renameGoldCat.label ?? null,
+      uri: renameGoldCat.uri ?? null,
+    };
+  }
+  return findingCategory;
+}
+
+
 /** A factor side — what the column header reads + the factor it points
  *  at. Either side may be null (e.g. an extra finding has no baseline
  *  factor; a miss finding has no comparator). */
@@ -498,6 +531,23 @@ export function ComparisonFactorCard({
     return null;
   }, [owningGoldFactor, owningAgentFactor]);
 
+  // For ``calibration_factor_match_near`` findings that carry a
+  // ``rename`` payload the agent + gold sides have DIFFERENT category
+  // labels by definition (that's what "rename" means: agent says
+  // ``treatment``, gold says ``timepoint``). Using ``findingCategory``
+  // (agent-first) for the LEFT/baseline lookup then misses the gold-
+  // side category and the curator gets "(not in Live Gemma)" rendered
+  // on a finding whose audit-time gold IS in the baseline curation
+  // (GSE67136 2026-06-15 -- canonical case: agent ``treatment`` ↔
+  // gold ``timepoint``; live design HAS ``timepoint``; "(not in
+  // Live Gemma)" annotation was wrong). See ``deriveLeftFactorCategory``
+  // below for the pure rule + the regression test in
+  // ``findingCardLayout.test.ts``.
+  const leftFactorCategory = useMemo(
+    () => deriveLeftFactorCategory(finding, findingCategory),
+    [finding, findingCategory],
+  );
+
   // LEFT = baseline. When baselineSource is set, route through the
   // unified /curations list — that's what the chip strip selected.
   // When absent (legacy callers), fall back to the live design at
@@ -520,7 +570,7 @@ export function ComparisonFactorCard({
       // first-match, which silently picks the wrong factor.
       return findFactorInCuration(
         curation,
-        findingCategory,
+        leftFactorCategory,
         finding.gold_target_index ?? null,
         indexIsAuth,
         owningGoldFactor,
@@ -531,7 +581,7 @@ export function ComparisonFactorCard({
     leftFactorOverride,
     baselineSource,
     curations,
-    findingCategory,
+    leftFactorCategory,
     finding.gold_target_index,
     owningGoldFactor,
   ]);
@@ -1048,6 +1098,7 @@ export function ComparisonFactorCard({
               {finding.proposer_defense}
             </div>
           ) : null}
+          <AgentRationale factor={rightFactor} />
           {readOnly && (onRemoveFactor || onKeepFactor) ? (
             // Drift-card action bar — surfaces Remove / Keep so the
             // curator can act on factors the audit didn't see, instead
@@ -1154,5 +1205,209 @@ export function ComparisonFactorCard({
         </>
       ) : null}
     </div>
+  );
+}
+
+/** Surfaces whatever the agent shipped explaining its proposed
+ *  factor — description (≤80-char LLM summary), baseline-relevance
+ *  hint + reason, factor-level rationale / citation /
+ *  supporting_evidence, per-FV + per-statement rationale /
+ *  supporting_evidence, debate_badge, defender_verdicts. Hides
+ *  itself entirely when nothing's populated, so old proposals
+ *  render identically. Today's payloads (2026-06-14) populate only
+ *  ``description`` and ``baseline_relevance_reason``; the rich
+ *  fields land with bro 1's producer-migration 4b — when that
+ *  ships the expander surfaces it automatically. Per Paul
+ *  2026-06-14: "I really wish I could even ONE piece of
+ *  information about why this factor was added." */
+function AgentRationale({
+  factor,
+}: {
+  factor: Factor | FactorProposal | null;
+}): JSX.Element | null {
+  if (!factor) return null;
+  const fp = factor as Partial<FactorProposal>;
+  const description = (fp.description ?? "").trim();
+  const baselineHint = fp.baseline_relevance;
+  const baselineReason = (fp.baseline_relevance_reason ?? "").trim();
+  const factorRationale = (fp.rationale ?? "").trim();
+  const factorCitation = (fp.citation ?? "").trim();
+  const factorCitationUrl = (fp.citation_url ?? "").trim();
+  const factorEvidence = fp.supporting_evidence ?? [];
+  const debateBadge = (fp.debate_badge ?? "").trim();
+  const defenderCount = fp.defender_verdicts?.length ?? 0;
+  const fvs = fp.factor_values ?? [];
+  // Walk FVs + statements to detect any rationale / evidence worth
+  // surfacing under each. Saves rendering empty rows.
+  const fvBlocks = fvs
+    .map((fv, fvi) => {
+      const fvR = (fv.rationale ?? "").trim();
+      const fvE = fv.supporting_evidence ?? [];
+      const stmtItems = (fv.statements ?? [])
+        .map((s) => ({
+          original: (s.original_value ?? "").trim(),
+          rationale: (s.rationale ?? "").trim(),
+          evidence: s.supporting_evidence ?? [],
+        }))
+        .filter(
+          (s) =>
+            s.original || s.rationale || s.evidence.length > 0,
+        );
+      if (!fvR && fvE.length === 0 && stmtItems.length === 0) return null;
+      return { fvi, label: fv.free_text_label || `FV ${fvi + 1}`, fvR, fvE, stmtItems };
+    })
+    .filter((b): b is NonNullable<typeof b> => b !== null);
+  const hasAny =
+    description ||
+    baselineReason ||
+    factorRationale ||
+    factorEvidence.length > 0 ||
+    debateBadge ||
+    defenderCount > 0 ||
+    fvBlocks.length > 0;
+  if (!hasAny) return null;
+  const evidenceLine = (e: {
+    quote?: string | null;
+    source?: string | null;
+    location?: string | null;
+  }) => {
+    const q = (e.quote ?? "").trim();
+    const src = (e.source ?? "").trim();
+    const loc = (e.location ?? "").trim();
+    return (
+      <>
+        {q ? <span className="italic">&ldquo;{q}&rdquo;</span> : null}
+        {src || loc ? (
+          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+            {q ? " — " : ""}
+            {src}
+            {src && loc ? " · " : ""}
+            {loc}
+          </span>
+        ) : null}
+      </>
+    );
+  };
+  return (
+    <details className="text-[11px] bg-slate-50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700 px-2 py-1">
+      <summary className="cursor-pointer select-none text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 inline-flex items-baseline gap-1">
+        <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+          Why?
+        </span>
+        <span>agent's sources + rationale</span>
+        {debateBadge ? (
+          <span className="ml-1 text-[9px] uppercase tracking-wide text-violet-700 dark:text-violet-300">
+            · debate: {debateBadge}
+          </span>
+        ) : null}
+      </summary>
+      <div className="mt-1.5 space-y-1.5 text-slate-700 dark:text-slate-200 pl-1">
+        {description ? (
+          <div>
+            <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              summary:
+            </span>{" "}
+            {description}
+          </div>
+        ) : null}
+        {baselineReason || baselineHint ? (
+          <div>
+            <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              baseline:
+            </span>{" "}
+            {baselineHint ? (
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                ({baselineHint})
+              </span>
+            ) : null}{" "}
+            {baselineReason}
+          </div>
+        ) : null}
+        {factorRationale ? (
+          <div>
+            <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              rationale:
+            </span>{" "}
+            {factorRationale}
+          </div>
+        ) : null}
+        {factorCitation || factorCitationUrl ? (
+          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+            citation: {factorCitation}
+            {factorCitationUrl ? (
+              <>
+                {" "}
+                <a
+                  href={factorCitationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  ↗
+                </a>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {factorEvidence.length > 0 ? (
+          <ul className="space-y-0.5 ml-2 list-disc list-inside">
+            {factorEvidence.map((e, i) => (
+              <li key={i} className="text-slate-600 dark:text-slate-300">
+                {evidenceLine(e)}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {fvBlocks.map((b) => (
+          <div
+            key={b.fvi}
+            className="border-l-2 border-emerald-300/60 dark:border-emerald-700/60 pl-1.5 space-y-0.5"
+          >
+            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              FV {b.fvi + 1}:{" "}
+              <span className="font-mono normal-case text-slate-700 dark:text-slate-200">
+                {b.label}
+              </span>
+            </div>
+            {b.fvR ? <div>{b.fvR}</div> : null}
+            {b.fvE.length > 0 ? (
+              <ul className="ml-2 list-disc list-inside">
+                {b.fvE.map((e, i) => (
+                  <li key={i}>{evidenceLine(e)}</li>
+                ))}
+              </ul>
+            ) : null}
+            {b.stmtItems.length > 0 ? (
+              <div className="space-y-0.5 ml-1">
+                {b.stmtItems.map((s, si) => (
+                  <div key={si} className="text-slate-600 dark:text-slate-300">
+                    {s.original ? (
+                      <div className="text-[10px] italic">
+                        original: &ldquo;{s.original}&rdquo;
+                      </div>
+                    ) : null}
+                    {s.rationale ? <div>{s.rationale}</div> : null}
+                    {s.evidence.length > 0 ? (
+                      <ul className="ml-2 list-disc list-inside">
+                        {s.evidence.map((e, i) => (
+                          <li key={i}>{evidenceLine(e)}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {defenderCount > 0 ? (
+          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+            {defenderCount} defender / arbiter verdict
+            {defenderCount === 1 ? "" : "s"} — see the Judge Chain
+            above the grid for detail.
+          </div>
+        ) : null}
+      </div>
+    </details>
   );
 }
