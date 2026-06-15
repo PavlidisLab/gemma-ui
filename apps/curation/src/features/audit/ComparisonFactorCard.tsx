@@ -35,7 +35,10 @@
 
 import { useContext, useEffect, useMemo, useState } from "react";
 import { PanelExpansionContext } from "./findingCard";
-import { type FvTermRenderer } from "@gemma/ontology";
+import {
+  type FvTermRenderer,
+  type FvTermProvenance,
+} from "@gemma/ontology";
 
 import type {
   AuditFinding,
@@ -81,7 +84,7 @@ import { MatchBadge, SeverityBadge } from "./findingBadges";
 import { isCloseFactorMatch, isExactFactorMatch } from "./factorMatch";
 import { displaySeverity } from "./auditPresentation";
 
-const Term: FvTermRenderer = ({ label, uri, variant }) => {
+const Term: FvTermRenderer = ({ label, uri, variant, provenance }) => {
   if (variant === "predicate") {
     return (
       <span
@@ -92,6 +95,14 @@ const Term: FvTermRenderer = ({ label, uri, variant }) => {
       </span>
     );
   }
+  // Free-text chips get a tooltip built from statement-level
+  // ``original_value`` + ``supporting_evidence`` quotes/sources when
+  // the row provided any. Falls back to the static "no URI" hint so
+  // curators always know what the italic chip means. Resolved chips
+  // (uri present) keep showing the URI tooltip.
+  const provenanceTooltip = !uri && provenance
+    ? _buildProvenanceTooltip(provenance)
+    : undefined;
   return (
     <span
       className={
@@ -99,7 +110,7 @@ const Term: FvTermRenderer = ({ label, uri, variant }) => {
           ? "inline-flex items-baseline gap-1 rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-100"
           : "inline-flex items-baseline rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[11px] italic text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
       }
-      title={uri || "free-text (no ontology URI)"}
+      title={uri || provenanceTooltip || "free-text (no ontology URI)"}
     >
       <span>{label}</span>
       {uri ? (
@@ -115,6 +126,26 @@ const Term: FvTermRenderer = ({ label, uri, variant }) => {
     </span>
   );
 };
+
+/** Build the multi-line ``title`` tooltip surfaced on a free-text
+ *  chip from the statement-level provenance the row passed in.
+ *  Returns ``undefined`` when nothing useful is on the wire so the
+ *  caller can fall back to its static "no URI" hint. */
+function _buildProvenanceTooltip(
+  p: FvTermProvenance,
+): string | undefined {
+  const lines: string[] = [];
+  const orig = p.originalValue?.trim();
+  if (orig) lines.push(`"${orig}"`);
+  for (const e of p.evidence ?? []) {
+    const q = (e?.quote ?? "").trim();
+    const src = (e?.source ?? "").trim();
+    if (q && src) lines.push(`"${q}" — ${src}`);
+    else if (q) lines.push(`"${q}"`);
+    else if (src) lines.push(`source: ${src}`);
+  }
+  return lines.length ? lines.join("\n") : undefined;
+}
 
 /** A factor side — what the column header reads + the factor it points
  *  at. Either side may be null (e.g. an extra finding has no baseline
@@ -188,41 +219,44 @@ function _jaccard(a: Set<string>, b: Set<string>): number {
 }
 
 /** Find the factor inside a curation's design that the finding is
- *  pointing at. When the curation is the one whose factors the
- *  finding's index was originally computed against (consensus
- *  polished for the gold side; agent_proposal for the agent side),
- *  the index is authoritative. Otherwise we match by category URI
- *  first, then by case-insensitive label, returning null when no
- *  factor in that curation lines up — the card renders the side as
- *  empty so the curator sees "(not in <source>)".
+ *  pointing at. Pairing is **identity-based**: category URI first,
+ *  category label fallback, FV-subject Jaccard against the audit-
+ *  time anchor for multi-factor-same-category disambiguation.
+ *  Returns null when no factor in that curation lines up — the
+ *  card renders the side as empty so the curator sees "(not in
+ *  <source>)".
+ *
+ *  The ``preferIndex`` / ``indexIsAuthoritative`` parameters are
+ *  retained as ARGUMENTS for source-compat but no longer trusted:
+ *  the index was always a fragile pointer into one specific
+ *  curation's factor list, and using it cross-curation produced
+ *  off-by-rotation pairings whenever the baseline curation had a
+ *  different factor count or ordering than the curation the audit
+ *  ran against (GSE78929 2026-06-14: live had ``[disease, sex,
+ *  age, individual]``, polished_strict_consensus had ``[sex, age,
+ *  disease]`` — index 0 on the live-audited finding routed to
+ *  polished's ``sex`` and so on). Paul: "it's just a comparison
+ *  between annotation sets. doing it based on order is an obvious
+ *  fail."
  *
  *  Multi-factor-same-category disambiguation: when more than one
- *  candidate factor in the curation matches by category, we score
- *  each candidate by FV-subject-URI Jaccard overlap with the
- *  owning factor (the finding's anchor) and pick the highest
- *  scorer. GSE93824 has two `genotype` factors in live (C5aR1 KO
- *  + hAPP transgene); a naive first-match would render the wrong
- *  one. The BaselineDriftSection surfaces the runner-up factors
- *  separately so neither gets silently dropped. */
+ *  candidate factor in the curation matches by category, score each
+ *  by FV-subject-URI Jaccard overlap with the anchor (the audit-time
+ *  owning factor) and pick the highest scorer. GSE93824 has two
+ *  ``genotype`` factors (C5aR1 KO + hAPP transgene); a naive
+ *  first-match would render the wrong one. The BaselineDriftSection
+ *  surfaces the runner-up factors separately. */
 function findFactorInCuration(
   curation: CurationRow | null,
   category: { uri: string | null; label: string | null } | null,
-  preferIndex: number | null,
-  indexIsAuthoritative: boolean,
+  _preferIndex: number | null,
+  _indexIsAuthoritative: boolean,
   anchor: Factor | FactorProposal | null = null,
 ): Factor | null {
   if (!curation) return null;
   const design = curation.design as { factors?: Factor[] } | undefined;
   const factors = design?.factors;
   if (!Array.isArray(factors) || factors.length === 0) return null;
-  if (
-    indexIsAuthoritative &&
-    preferIndex != null &&
-    preferIndex >= 0 &&
-    factors[preferIndex]
-  ) {
-    return factors[preferIndex];
-  }
   if (!category) return null;
 
   // Collect category-matching candidates (URI preferred, label
@@ -432,18 +466,34 @@ export function ComparisonFactorCard({
     return report?.evidence?.comparison_proposal?.factors?.[ix] ?? null;
   }, [finding.agent_target_index, report]);
 
-  // Category hint for non-owning curations. Prefer the gold side
-  // (URI-grounded against the polished consensus), fall back to the
-  // agent side. Both sides may be null on findings that don't carry
-  // a paired factor.
+  // Category hint for cross-curation factor lookup. Prefer the
+  // AGENT side — its category is reliable because it's read off
+  // ``report.evidence.comparison_proposal.factors[agent_target_index]``,
+  // an index against the audit's own copy of the agent proposal.
+  // The gold side's ``owningGoldFactor`` is also looked up by index
+  // (against ``owningGoldCuration``), but if
+  // ``finding.gold_curation_id`` resolves to a curation whose factor
+  // order differs from the one the audit ran against — which can
+  // happen when the gold_curation_id was stamped optimistically as
+  // a consensus row id rather than the actual audit-time gold — that
+  // index points at the wrong factor and contaminates downstream
+  // category matching with a stale label/URI. Caught 2026-06-14 on
+  // GSE78929 where pack curation order ``[bio sex, age, disease]``
+  // didn't line up with the audit-time live order ``[disease, bio
+  // sex, age, individual]`` and every factor_match card paired the
+  // wrong pair. Agent-first prefers the path that doesn't depend on
+  // cross-curation index alignment. Fallback to gold side preserves
+  // the case where only the gold side has a factor (e.g.
+  // calibration_factor_gold_only_miss findings — ``individual`` on
+  // GSE78929 — where ``owningAgentFactor`` is null).
   const findingCategory = useMemo(() => {
-    const gc = owningGoldFactor?.category;
-    if (gc && (gc.label || gc.uri)) {
-      return { label: gc.label ?? null, uri: gc.uri ?? null };
-    }
     const ac = owningAgentFactor?.category;
     if (ac && (ac.label || ac.uri)) {
       return { label: ac.label ?? null, uri: ac.uri ?? null };
+    }
+    const gc = owningGoldFactor?.category;
+    if (gc && (gc.label || gc.uri)) {
+      return { label: gc.label ?? null, uri: gc.uri ?? null };
     }
     return null;
   }, [owningGoldFactor, owningAgentFactor]);
@@ -748,6 +798,23 @@ export function ComparisonFactorCard({
   // path; their structural applies live elsewhere.
   const isNearMatch =
     finding.issue_code === "calibration_factor_match_near";
+  // "Proposal is better" routes through the draft-mutating
+  // ``dispatchNearMatchAccept`` for the WHOLE match family — exact,
+  // close, near, and the legacy ``calibration_factor_match`` code —
+  // not only ``_match_near``. Paul 2026-06-14: on a factor-MATCH card
+  // where categories agree but the agent's FV is enriched with extra
+  // statements (e.g. ``treatment`` matched but agent adds ``delivered
+  // to mother`` / ``dose 10% v/v``), clicking "Proposal is better"
+  // was a no-op — disposition PATCHed, draft unchanged, design tab
+  // didn't focus. Treat any match-family finding with a resolvable
+  // agent factor as "adopt + focus". Rename / extra / miss stay on
+  // their existing dedicated handlers. */
+  const isMatchFamilyAdopt =
+    !!rightFactor && (
+      isNearMatch ||
+      isExactFactorMatch(finding) ||
+      isCloseFactorMatch(finding)
+    );
 
   async function dispatchNearMatchMerge(): Promise<void> {
     // Curator's "+ Merge" — take the union of both sides' per-FV
@@ -1034,7 +1101,7 @@ export function ComparisonFactorCard({
                 type="button"
                 disabled={busy}
                 onClick={() =>
-                  isNearMatch
+                  isMatchFamilyAdopt
                     ? dispatchNearMatchAccept()
                     : dispatch("accepted")
                 }

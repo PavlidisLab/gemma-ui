@@ -32,6 +32,10 @@ import type { ReactNode } from "react";
 import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
 import type { Factor } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
+import {
+  ContinuousStrip,
+  type ContinuousStripValue,
+} from "./ContinuousStrip";
 
 /** One FV on either side of the comparison. ``Factor.factor_values``
  *  (gold) and ``FactorProposal.factor_values`` (agent) both satisfy
@@ -96,6 +100,19 @@ export interface FactorComparisonGridProps {
    *  instead of pairs. Caller uses this on the /curations slow path
    *  per the existing ComparisonFactorCard loading semantics. */
   loading?: boolean;
+  /** When supplied, the body renders a compact agreement strip
+   *  (``ContinuousStrip``) instead of the index-by-index pair grid.
+   *  Caller computes the per-side numeric values via
+   *  ``continuousValuesFrom(factor.factor_values)`` and supplies
+   *  them here; the grid stays agnostic about how each side resolved
+   *  to a numeric. Use this when either side's factor is
+   *  ``factor_type === "continuous"`` — the labelled pair grid is
+   *  the wrong shape for measurement-axis comparison (Gemma's per-
+   *  measurement FVs + agent's deduped FVs misalign by index). */
+  continuous?: {
+    left: ContinuousStripValue[];
+    right: ContinuousStripValue[];
+  };
 }
 
 /** Convert a ``status`` to its glyph + colour + tooltip. */
@@ -182,6 +199,7 @@ export function FactorComparisonGrid({
   renderFooter,
   loading,
   onLeftLocate,
+  continuous,
 }: FactorComparisonGridProps): JSX.Element {
   // Header: column labels + factor category chip pair. Same shape on
   // both surfaces — moving it into the grid means we have one
@@ -235,6 +253,18 @@ export function FactorComparisonGrid({
       <span className="inline-block w-2 h-2 rounded-full bg-amber-400 dark:bg-amber-500 mr-1 animate-pulse align-middle" />
       loading comparison data…
     </div>
+  ) : continuous ? (
+    <ContinuousStrip
+      left={continuous.left}
+      right={continuous.right}
+      // Strip always uses fixed short lane labels ("current" /
+      // "agent") regardless of what the chip strip named the
+      // sources — the column-header strip above already surfaces
+      // the long names, and the strip's gutter is too narrow to
+      // fit ``"agent original proposal"`` without stealing plot
+      // width. Defaults inside ContinuousStrip do the right thing;
+      // we don't thread the header labels in.
+    />
   ) : pairs.length === 0 ? (
     <div className="px-1.5 py-2 text-[11px] italic text-slate-400">
       (no factor values)
@@ -295,3 +325,8 @@ export function FactorComparisonGrid({
 // ---------------------------------------------------------------------------
 
 export { pairFvs } from "./pairFvs";
+export {
+  ContinuousStrip,
+  continuousValuesFrom,
+  type ContinuousStripValue,
+} from "./ContinuousStrip";
