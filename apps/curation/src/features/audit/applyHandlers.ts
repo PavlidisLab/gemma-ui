@@ -49,6 +49,7 @@ import {
 } from "./factorMatch";
 import {
   addContinuousFactorFromCharacteristic,
+  adoptNearMatchAgentFactor,
   setFactorFields,
   setFvLabel,
 } from "@/features/design/mutations";
@@ -584,6 +585,7 @@ function resolveFactorCalibrationApply(
     code !== "calibration_factor_extra" &&
     code !== "augmentation_factor_extra" &&
     code !== "calibration_factor_gold_only_miss" &&
+    code !== "calibration_factor_partition_mismatch" &&
     code !== "factor_proposed_new"
   ) {
     return null;
@@ -712,6 +714,133 @@ function resolveFactorCalibrationApply(
           }
         : {}),
       appliedFix: `add factor ${proposal.category.label}`,
+    };
+  }
+
+  // calibration_factor_partition_mismatch — agent and gold share the
+  // category but the partition (FV breakdown) disagrees. ``direction``
+  // says agent_finer (3 levels vs gold's 2) or agent_coarser (gold's
+  // 3 vs agent's 2). Both adopt-shaped: replace gold's FV partition
+  // with the agent's, preserving FV ids by biomaterial-set match
+  // (so downstream refs survive where possible). Cross-cutting falls
+  // through to null — it's not a single-factor replace, the curator
+  // has to disambiguate manually (the dedicated cross-cutting card
+  // body handles that). Paul 2026-06-14: clicking "adopt Auditor's
+  // finer levels" on GSE9649 organism_part disposition-PATCHed but
+  // left the design at 2 levels — same class of bug as the
+  // ComparisonFactorCard "Proposal is better" fix; partition_mismatch
+  // just wasn't routed through any mutator. */
+  if (code === "calibration_factor_partition_mismatch") {
+    const pm = finding.partition_mismatch;
+    if (!pm) return null;
+    // Cross-cutting needs the agent to split into multiple factors,
+    // which isn't a single-factor replace. Defer to the dedicated
+    // card body's UI; no automatic apply. Exception: the
+    // "degenerate" cross-cutting case where only ONE gold factor is
+    // spanned (the agent classified ``cross_cutting`` because no
+    // FV pair hit Jaccard ≥ 0.8 but there's still just one gold
+    // factor in scope) — treat as a regular partition_mismatch
+    // and adopt-shape applies safely. GSE448 population +
+    // biological_sex are the canonical examples.
+    if (
+      pm.direction === "cross_cutting" &&
+      (pm.cross_cutting_golds?.length ?? 0) > 1
+    ) {
+      return null;
+    }
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    const labelHint =
+      pm.agent?.category?.label ??
+      finding.rationale?.match(/`([^`]+)`/)?.[1] ??
+      null;
+    const proposal = resolveAgentFactor(finding, cp, labelHint);
+    if (!proposal) return null;
+    // Locate the gold factor by category (label / URI) — same
+    // lookup ``adoptNearMatchAgentFactor`` uses internally, mirrored
+    // here for the idempotency + tooltip strings. No-op when gold
+    // already carries the agent's partition (identical FV signature).
+    const goldSlug = (
+      pm.gold?.category?.label ?? proposal.category.label
+    )
+      .toLowerCase()
+      .trim();
+    const goldFactor =
+      resolveGoldFactor(finding, design.factors, goldSlug) ??
+      (design.factors ?? []).find(
+        (f) =>
+          (f.category.label || "").toLowerCase().trim() === goldSlug,
+      ) ??
+      null;
+    if (!goldFactor) {
+      return {
+        mutates: false,
+        label: "✓ Factor not in draft",
+        tooltip:
+          `No factor "${goldSlug}" in the current draft. Agree to ` +
+          `disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    // Idempotency: same FV-signature bijection check as the
+    // factor_extra branch. If gold already carries the agent's exact
+    // partition, surface as already-applied.
+    const fvSig = (
+      fvs: { free_text_label: string; biomaterial_short_names: string[] }[],
+    ) =>
+      new Set(
+        fvs.map(
+          (fv) =>
+            `${(fv.free_text_label || "").toLowerCase().trim()} ${[
+              ...fv.biomaterial_short_names,
+            ]
+              .sort()
+              .join("|")}`,
+        ),
+      );
+    const gSig = fvSig(goldFactor.factor_values);
+    const pSig = fvSig(proposal.factor_values);
+    let same = goldFactor.factor_values.length === proposal.factor_values.length
+      && gSig.size === pSig.size;
+    if (same) {
+      for (const s of pSig) {
+        if (!gSig.has(s)) {
+          same = false;
+          break;
+        }
+      }
+    }
+    if (same) {
+      return {
+        mutates: false,
+        label: "✓ Already applied",
+        tooltip:
+          `Factor "${goldFactor.category.label}" already carries the ` +
+          `agent's partition. Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    const directionPhrase =
+      pm.direction === "agent_finer"
+        ? "finer levels"
+        : pm.direction === "agent_coarser"
+          ? "fewer levels"
+          : "partition";
+    return {
+      mutates: true,
+      label: "Agree →",
+      tooltip:
+        `Agree → adopt agent's ${directionPhrase} on factor ` +
+        `"${goldFactor.category.label}" (${goldFactor.factor_values.length} → ` +
+        `${proposal.factor_values.length} values). Preserves FV ids where ` +
+        `biomaterial sets match. Commit the draft to save.`,
+      successMessage:
+        `Adopted agent's ${directionPhrase} on factor ` +
+        `"${proposal.category.label}". Commit to save.`,
+      mutate: (draft) => adoptNearMatchAgentFactor(draft, proposal),
+      appliedFix:
+        `adopt agent partition on factor ${proposal.category.label} ` +
+        `(${goldFactor.factor_values.length} → ${proposal.factor_values.length} values)`,
+      focusTargetId: factorTarget(proposal.category.label),
     };
   }
 

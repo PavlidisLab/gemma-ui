@@ -69,12 +69,14 @@ export const curationTermRenderer: FvTermRenderer = ({
   label,
   uri,
   variant,
+  provenance,
 }) => (
   <Term
     uri={uri}
     asLink={false}
     variant={variant === "predicate" ? "predicate" : "default"}
     className="!whitespace-normal break-words"
+    provenance={provenance}
   >
     {label}
   </Term>

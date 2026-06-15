@@ -893,7 +893,12 @@ export function FindingDetailsEditor({
   // to free-text (URI-less) subject / object terms. When the curator
   // has already resolved this label via the inline picker, render
   // the resolved chip (URI-grounded) and suppress the find link.
-  const editorTermRenderer: FvTermRenderer = ({ label, uri, variant }) => {
+  const editorTermRenderer: FvTermRenderer = ({
+    label,
+    uri,
+    variant,
+    provenance,
+  }) => {
     const isPredicate = variant === "predicate";
     const lookupKey = label.trim().toLowerCase();
     const resolved =
@@ -908,6 +913,7 @@ export function FindingDetailsEditor({
           asLink={false}
           variant={isPredicate ? "predicate" : "default"}
           className="!whitespace-normal break-words"
+          provenance={provenance}
         >
           {effLabel}
         </Term>
@@ -1206,14 +1212,247 @@ export function FindingDetailsEditor({
   // renders as a parent→children table.
   if (isPartitionMismatch) {
     const pm = finding.partition_mismatch!;
+    // Cross-cutting partition_mismatch — the agent's factor
+    // partitions samples along an axis that cross-cuts multiple gold
+    // factors of the same category. Neither finer nor coarser; the
+    // ``fv_pairs`` list is intentionally empty and the per-FV
+    // overlap evidence lives in ``cross_cutting_overlaps``. This
+    // branch ships ahead of Paul speccing the verb/action labels —
+    // the actions are stubbed disabled with a TODO note so curators
+    // see the right shape now (instead of the broken 0-level
+    // fallthrough flagged on GSE79061) and we can drop the
+    // affordance in without touching the card body again. */
+    if (pm.direction === "cross_cutting") {
+      const ccGolds = pm.cross_cutting_golds ?? [];
+      const ccOverlaps = pm.cross_cutting_overlaps ?? [];
+      const categoryLabel =
+        pm.agent.category.label ||
+        pm.gold.category.label ||
+        finding.target_id;
+      // Degenerate "cross-cutting" — only ONE gold factor spanned.
+      // This isn't actually cross-cutting; the agent classified it
+      // ``cross_cutting`` because no FV pair hit Jaccard ≥ 0.8, but
+      // there's still just one gold factor in scope. Treat as a
+      // regular partition_mismatch (adopt-shaped action), drop the
+      // misleading "spans multiple" copy. Paul 2026-06-14 (GSE448).
+      const isDegenerate = ccGolds.length <= 1;
+      return (
+        <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+          {/* Title row. */}
+          <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+            <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              Factor
+            </span>
+            <span className="font-mono text-slate-800 dark:text-slate-100">
+              {categoryLabel}
+            </span>
+            <span className="text-slate-400 dark:text-slate-500">·</span>
+            <span className="text-amber-700 dark:text-amber-300">
+              <strong>
+                {isDegenerate
+                  ? `partition disagreement — no clean per-FV correspondence between ${identities.goldCurator} and ${identities.proposer}`
+                  : `cross-cutting partition — ${identities.proposer}'s factor spans multiple ${identities.goldCurator} factors of the same category`}
+              </strong>
+            </span>
+          </div>
+
+          {/* Gold-factor list — the agent factor cross-cuts these N
+              gold factors. Single-line chips matching the design-
+              editor convention. */}
+          {ccGolds.length > 0 ? (
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+                {identities.goldCurator} factors spanned ({ccGolds.length})
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-[11px]">
+                {ccGolds.map((g, gi) => (
+                  <Term
+                    key={gi}
+                    uri={g.category?.uri ?? null}
+                    asLink={false}
+                    className="!whitespace-normal break-words"
+                  >
+                    {g.category?.label || `factor ${gi + 1}`}
+                  </Term>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Per-FV overlap rows — agent FV ↔ gold factor's FV with
+              Jaccard ≥ 0.8. Tabular so curators can scan the
+              "agent's X covers gold-A's X1 + gold-B's X2" pattern at
+              a glance. */}
+          {ccOverlaps.length > 0 ? (
+            <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+                FV-level overlaps (Jaccard ≥ 0.8)
+              </div>
+              <div className="grid grid-cols-[1fr_auto_1fr_auto_auto] gap-x-2 gap-y-1 text-[11px] items-baseline">
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500">
+                  {identities.goldCurator}
+                </div>
+                <div />
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500">
+                  {identities.proposer}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 text-right">
+                  Jaccard
+                </div>
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 text-right">
+                  n
+                </div>
+                {ccOverlaps.map((row, ri) => (
+                  <Fragment key={ri}>
+                    <div className="flex items-baseline gap-1 min-w-0">
+                      <Term
+                        uri={row.gold_fv?.uri ?? null}
+                        asLink={false}
+                        className="!whitespace-normal break-words"
+                      >
+                        {row.gold_fv?.label || "(unnamed)"}
+                      </Term>
+                      <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">
+                        · {row.gold_factor?.category?.label || ""}
+                      </span>
+                    </div>
+                    <span
+                      className="text-slate-400 dark:text-slate-500"
+                      aria-hidden
+                    >
+                      ↔
+                    </span>
+                    <div className="min-w-0">
+                      <Term
+                        uri={row.agent_fv?.uri ?? null}
+                        asLink={false}
+                        className="!whitespace-normal break-words"
+                      >
+                        {row.agent_fv?.label || "(unnamed)"}
+                      </Term>
+                    </div>
+                    <div className="text-right tabular-nums text-slate-600 dark:text-slate-300">
+                      {row.jaccard.toFixed(2)}
+                    </div>
+                    <div className="text-right tabular-nums text-slate-500 dark:text-slate-400 text-[10px]">
+                      {row.n_overlap}/{row.n_gold} ∩ {row.n_agent}
+                    </div>
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] italic text-slate-500 dark:text-slate-400">
+              No FV-level overlaps shipped — the partition is genuinely
+              cross-cutting with no clean per-FV correspondence.
+            </div>
+          )}
+
+          {/* Action row. Degenerate cross-cutting (single gold
+              spanned) routes through the same partition_mismatch
+              adopt path the agent_finer / agent_coarser variants
+              use — ``applyHandlers.resolveFactorCalibrationApply``
+              picks up the ``calibration_factor_partition_mismatch``
+              issue_code and runs ``adoptNearMatchAgentFactor`` on
+              accept. True cross-cutting (multiple golds spanned)
+              stays disabled with the "verbs pending" tooltip —
+              adopting agent's shape would clobber one of the gold
+              factors without touching the others, which is not a
+              safe one-click action. */}
+          <ActionRow
+            saving={saving}
+            disabled={!isDegenerate}
+            buttons={[
+              {
+                key: "keep",
+                kind: "primary-keep",
+                label: isDegenerate
+                  ? `Keep ${identities.goldCurator}'s partition`
+                  : `Keep ${identities.goldCurator}'s separate factors`,
+                onClick: () => dispatchSave("currently"),
+                title: isDegenerate
+                  ? `Reject ${identities.proposer}'s repartition; keep the existing factor as-is.`
+                  : "Cross-cutting affordance pending — adopt would clobber one of the spanned gold factors silently. Park / Dismiss for now.",
+              },
+              {
+                key: "accept",
+                kind: "primary-accept",
+                label: isDegenerate
+                  ? `Adopt ${identities.proposer}'s partition`
+                  : `Adopt ${identities.proposer}'s cross-cutting shape`,
+                onClick: () => dispatchSave("proposal"),
+                title: isDegenerate
+                  ? `Replace the existing factor's FV breakdown with ${identities.proposer}'s.`
+                  : "Cross-cutting affordance pending — adopt would clobber one of the spanned gold factors silently. Park / Dismiss for now.",
+              },
+            ]}
+            onDismiss={onDismiss}
+            onPark={onPark}
+            onUndo={
+              currentDisposition !== "pending" ? onUndo : undefined
+            }
+          />
+        </div>
+      );
+    }
     const isAgentFiner = pm.direction === "agent_finer";
-    // Direction-aware label fragment for the title + button.
-    // Avoids the older "split / combine" verbs that read as
-    // "split/merge two factors" — partition_mismatch is a
-    // within-factor FV reorg. Per Paul 2026-05-21.
-    const directionPhrase = isAgentFiner ? "finer levels" : "fewer levels";
     const agentVerb = "says";
     const goldVerb = currentlyVerb(identities.goldCurator);
+    // Group fv_pairs by the PARENT side (declared BEFORE the framing
+    // decisions below so we can detect the 1:1 case — i.e. each
+    // parent has exactly one child — and override the "finer /
+    // fewer levels" copy when the partition is actually 1:1 with
+    // labels drifting. Paul 2026-06-14: factor:57029 (GSE36611
+    // diet) ships direction=agent_finer with two 1:1 pairs (ad
+    // libitum ↔ reference substance role, caloric restriction ↔
+    // calorie restricted) — counts are 2 == 2 yet the headline
+    // reads "Auditor proposes finer levels". Real classification
+    // is label drift, not finer; the agent's direction tag is
+    // load-bearing in agent_coarser / agent_finer with M:1 or 1:M
+    // mappings but degenerates to drift when M = 1. UI detects
+    // this and adjusts. */
+    // Group fv_pairs by the PARENT side. For agent_finer the
+    // parent is gold; for agent_coarser the parent is agent.
+    // Repeated entries with the same parent collapse into a
+    // single row with multiple children. Each side carries its
+    // ``StatementParts`` so the row can render via ``FvDisplayRow``
+    // (statement chips, not just the FV's free-text name) — the
+    // shape Paul's design-editor surface uses.
+    type SidedFv = {
+      term: { label: string; uri: string | null };
+      statement?: StatementParts | null;
+    };
+    const groups = (() => {
+      const map = new Map<
+        string,
+        { parent: SidedFv; children: SidedFv[] }
+      >();
+      for (const pair of pm.fv_pairs) {
+        const parent: SidedFv = isAgentFiner
+          ? { term: pair.gold, statement: pair.gold_statement }
+          : { term: pair.agent, statement: pair.agent_statement };
+        const child: SidedFv = isAgentFiner
+          ? { term: pair.agent, statement: pair.agent_statement }
+          : { term: pair.gold, statement: pair.gold_statement };
+        const key = `${parent.term.label}|${parent.term.uri ?? ""}`;
+        const entry = map.get(key) ?? { parent, children: [] };
+        entry.children.push(child);
+        map.set(key, entry);
+      }
+      return Array.from(map.values());
+    })();
+    // 1:1 detection — when every parent has exactly one child and
+    // the totals on both sides match, the agent's "finer / fewer"
+    // direction tag is a misclassification. Frame as label drift.
+    const is1to1 =
+      groups.length > 0 &&
+      groups.length === pm.fv_pairs.length &&
+      groups.every((g) => g.children.length === 1);
+    const directionPhrase = is1to1
+      ? "different labels (same partition)"
+      : isAgentFiner
+        ? "finer levels"
+        : "fewer levels";
     // partition_mismatch is a `change` shape (FV reorg within an
     // existing factor). The "keep" reads "don't change"; the
     // "accept" reads "adopt <proposer>'s <directionPhrase>" so the
@@ -1224,29 +1463,14 @@ export function FindingDetailsEditor({
     // append the direction phrase by hand here rather than going
     // through acceptLabel() because the directional cue belongs
     // only on this specific finding type.
-    const acceptButtonLabel = `${actionLbls.adopt} ${identities.proposer}'s ${directionPhrase}`;
-    const acceptTitle = isAgentFiner
-      ? `Use the finer factor-value partition ${identities.proposer} proposed.`
-      : `Use the simpler factor-value partition ${identities.proposer} proposed.`;
-    // Group fv_pairs by the PARENT side. For agent_finer the
-    // parent is gold; for agent_coarser the parent is agent.
-    // Repeated entries with the same parent collapse into a
-    // single row with multiple children.
-    const groups = (() => {
-      const map = new Map<
-        string,
-        { parent: { label: string; uri: string | null }; children: Array<{ label: string; uri: string | null }> }
-      >();
-      for (const pair of pm.fv_pairs) {
-        const parent = isAgentFiner ? pair.gold : pair.agent;
-        const child = isAgentFiner ? pair.agent : pair.gold;
-        const key = `${parent.label}|${parent.uri ?? ""}`;
-        const entry = map.get(key) ?? { parent, children: [] };
-        entry.children.push(child);
-        map.set(key, entry);
-      }
-      return Array.from(map.values());
-    })();
+    const acceptButtonLabel = is1to1
+      ? `${actionLbls.adopt} ${identities.proposer}'s labels`
+      : `${actionLbls.adopt} ${identities.proposer}'s ${directionPhrase}`;
+    const acceptTitle = is1to1
+      ? `Use ${identities.proposer}'s FV labels — the partition (sample groupings) is identical, only the level names differ.`
+      : isAgentFiner
+        ? `Use the finer factor-value partition ${identities.proposer} proposed.`
+        : `Use the simpler factor-value partition ${identities.proposer} proposed.`;
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
         {/* Title row — matches the factor-card title shape. */}
@@ -1259,7 +1483,11 @@ export function FindingDetailsEditor({
           </span>
           <span className="text-slate-400 dark:text-slate-500">·</span>
           <span className="text-amber-700 dark:text-amber-300">
-            <strong>partition mismatch — {identities.proposer} proposes {directionPhrase}</strong>
+            <strong>
+              {is1to1
+                ? `label drift — ${identities.proposer} proposes ${directionPhrase}`
+                : `partition mismatch — ${identities.proposer} proposes ${directionPhrase}`}
+            </strong>
           </span>
         </div>
 
@@ -1313,48 +1541,91 @@ export function FindingDetailsEditor({
           </div>
         </div>
 
-        {/* Mapping — grouped by parent (umbrella) so when multiple
-            child levels collapse onto a single parent the parent
-            is shown ONCE on the right with a merged arrow. Avoids
-            visual duplication (the curator was reading "ICU-
-            acquired weakness MONDO:0001957" twice in a row and
-            having to compare the URIs to confirm they were the
-            same target — Paul 2026-05-21). For 1→1 groups this
-            renders identical to the old row-per-pair shape. */}
+        {/* Mapping — grouped by parent (umbrella). Layout convention
+            is "current on the LEFT, auditor on the RIGHT" regardless
+            of which side is the umbrella (Paul 2026-06-14). For
+            agent_finer the gold side IS the umbrella; for
+            agent_coarser the gold side is the children-stack — so
+            the orientation of single-vs-stacked flips with
+            ``direction`` while the left/right semantics stay put.
+            Each FV renders via ``FvDisplayRow`` so the statement
+            chips (subject · predicate · object) show, matching the
+            design-editor surface — not just the FV's free-text
+            name. Earlier ``MappingChip`` collapsed each side to a
+            bare label which read as "all wrong" on multi-statement
+            FVs (e.g. ``Homozygous negative ORC2 [human]`` instead
+            of ``genotype · ORC2 · has_genotype · Homozygous
+            negative``). */}
         {groups.length > 0 ? (
           <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
-            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
-              {isAgentFiner
-                ? `Mapping (${identities.proposer}'s level → ${identities.goldCurator}'s umbrella)`
-                : `Mapping (${identities.goldCurator}'s level → ${identities.proposer}'s umbrella)`}
+            <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 mb-1.5 text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              <span>{identities.goldCurator}</span>
+              <span aria-hidden />
+              <span>{identities.proposer}</span>
             </div>
-            <div className="space-y-1.5 text-[11px]">
-              {groups.map((g, gi) => (
-                <div
-                  key={gi}
-                  className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center"
-                >
-                  <div className="flex flex-col gap-1 min-w-0">
-                    {g.children.map((c, ci) => (
-                      <MappingChip key={ci} term={c} />
-                    ))}
-                  </div>
-                  <span
-                    className="text-slate-400 dark:text-slate-500"
-                    aria-hidden
-                    title={
-                      g.children.length > 1
-                        ? `${g.children.length} levels collapse to one`
-                        : undefined
-                    }
+            <div className="space-y-2 text-[11px]">
+              {groups.map((g, gi) => {
+                // Which side gets the SINGLE umbrella render vs the
+                // stacked children:
+                //   agent_finer  → gold is umbrella (LEFT single),
+                //                  agent children (RIGHT stacked)
+                //   agent_coarser→ gold children (LEFT stacked),
+                //                  agent umbrella (RIGHT single)
+                const goldSide: SidedFv | SidedFv[] = isAgentFiner
+                  ? g.parent
+                  : g.children;
+                const agentSide: SidedFv | SidedFv[] = isAgentFiner
+                  ? g.children
+                  : g.parent;
+                const arrow =
+                  g.children.length > 1
+                    ? isAgentFiner
+                      ? "⇐"
+                      : "⇒"
+                    : isAgentFiner
+                      ? "←"
+                      : "→";
+                return (
+                  <div
+                    key={gi}
+                    className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-start"
                   >
-                    {g.children.length > 1 ? "⇒" : "→"}
-                  </span>
-                  <div className="min-w-0">
-                    <MappingChip term={g.parent} />
+                    <div className="flex flex-col gap-1 min-w-0">
+                      {(Array.isArray(goldSide) ? goldSide : [goldSide]).map(
+                        (s, si) => (
+                          <FvDisplayRow
+                            key={si}
+                            fv={_fvDisplayFromMapping(s.term, s.statement)}
+                            termRenderer={editorTermRenderer}
+                          />
+                        ),
+                      )}
+                    </div>
+                    <span
+                      className="text-slate-400 dark:text-slate-500 mt-0.5"
+                      aria-hidden
+                      title={
+                        g.children.length > 1
+                          ? `${g.children.length} levels collapse to one`
+                          : undefined
+                      }
+                    >
+                      {arrow}
+                    </span>
+                    <div className="flex flex-col gap-1 min-w-0">
+                      {(
+                        Array.isArray(agentSide) ? agentSide : [agentSide]
+                      ).map((s, si) => (
+                        <FvDisplayRow
+                          key={si}
+                          fv={_fvDisplayFromMapping(s.term, s.statement)}
+                          termRenderer={editorTermRenderer}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : null}
@@ -4232,33 +4503,39 @@ export function leanButtonKinds(lean: DefenderLean): {
   return { keep: "primary-keep", accept: "primary-accept" };
 }
 
-/** Compact chip for the partition_mismatch mapping block. Drops
- *  the URI annotation that `Term` renders inline (full URI still
- *  surfaces on hover via the title attribute) and uses tighter
- *  padding + text so a parent + several children fit on one
- *  line. Ontology-resolved terms use the emerald palette;
- *  free-text falls through to grey italic — same convention as
- *  Term. */
-function MappingChip({ term }: { term: { label: string; uri: string | null } }) {
-  const hasUri = !!term.uri;
-  return (
-    <span
-      title={term.uri ? `${term.label} — ${term.uri}` : term.label}
-      className={cn(
-        "inline-flex items-baseline gap-1 px-1 py-0 rounded text-[11px] leading-[1.3rem] border",
-        hasUri
-          ? "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-700"
-          : "bg-stone-50 text-stone-600 border-stone-200 italic dark:bg-stone-800 dark:text-stone-300 dark:border-stone-600",
-      )}
-    >
-      <span>{term.label}</span>
-      {hasUri ? (
-        <span className="text-slate-400 font-mono text-[10px] whitespace-nowrap">
-          {shortenUri(term.uri!)}
-        </span>
-      ) : null}
-    </span>
-  );
+/** Synthesise an ``FvDisplayLike`` for the partition_mismatch mapping
+ *  block from a side's ``OntologyTerm`` (FV-level label / URI) plus
+ *  the wire's optional ``StatementParts`` decomposition. Hands the
+ *  result to ``FvDisplayRow`` so the mapping rows render statement
+ *  chips (subject · predicate · object) instead of just the FV's
+ *  free-text name — matching the design-editor's per-FV display
+ *  surface. ``biomaterial_short_names`` is left empty (the wire
+ *  doesn't carry per-pair sample sets here); the ``(n)`` count
+ *  simply doesn't render. */
+function _fvDisplayFromMapping(
+  term: { label: string; uri: string | null },
+  stmt: StatementParts | null | undefined,
+) {
+  const statements = stmt
+    ? [
+        {
+          subject: stmt.subject
+            ? { label: stmt.subject.label, uri: stmt.subject.uri ?? null }
+            : null,
+          predicate: stmt.predicate
+            ? { label: stmt.predicate.label, uri: stmt.predicate.uri ?? null }
+            : null,
+          object: stmt.object
+            ? { label: stmt.object.label, uri: stmt.object.uri ?? null }
+            : null,
+        },
+      ]
+    : [];
+  return {
+    free_text_label: term.label,
+    statements,
+    biomaterial_short_names: [],
+  };
 }
 
 /** Inline suggestion banner for findings linked through

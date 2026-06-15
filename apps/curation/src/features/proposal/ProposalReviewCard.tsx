@@ -8,12 +8,18 @@ import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
  *  with the design editor + Overview tag bar. The `variant` arg
  *  threads through so predicates render with the muted slate
  *  styling baked into Term. */
-const curationTermRenderer: FvTermRenderer = ({ label, uri, variant }) => (
+const curationTermRenderer: FvTermRenderer = ({
+  label,
+  uri,
+  variant,
+  provenance,
+}) => (
   <Term
     uri={uri}
     asLink={false}
     variant={variant === "predicate" ? "predicate" : "default"}
     className="!whitespace-normal break-words"
+    provenance={provenance}
   >
     {label}
   </Term>

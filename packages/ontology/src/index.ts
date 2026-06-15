@@ -9,6 +9,8 @@ export {
   type FvDisplayLike,
   type FvDisplayStatement,
   type FvDisplayTerm,
+  type FvDisplayEvidence,
   type FvDisplayRowProps,
   type FvTermRenderer,
+  type FvTermProvenance,
 } from "./FvDisplayRow";

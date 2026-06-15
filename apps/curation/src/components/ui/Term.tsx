@@ -2,6 +2,7 @@ import { cn } from "@/lib/cn";
 import { curieToUrl } from "@/lib/curie";
 import type { ReactNode } from "react";
 import { CurieLink } from "./CurieLink";
+import type { FvTermProvenance } from "@gemma/ontology";
 
 /**
  * One ontology term, rendered as an inline chip.
@@ -34,6 +35,7 @@ export function Term({
   variant = "default",
   className,
   asLink = true,
+  provenance,
 }: {
   children: ReactNode;
   uri?: string | null;
@@ -48,6 +50,16 @@ export function Term({
    *  Paul confirmed 2026-05-19 for the per-element disposition
    *  editor. */
   asLink?: boolean;
+  /** Statement-level provenance for free-text chips — the agent's
+   *  ``original_value`` + per-statement ``supporting_evidence`` quotes
+   *  / sources. When provided AND the chip is rendering in the
+   *  ``free`` (uri-less) variant, the chip's ``title`` tooltip
+   *  surfaces the provenance so curators can see where the
+   *  unresolved free-text came from. Threaded through by the shared
+   *  ``FvDisplayRow`` renderer; ignored when a URI is present
+   *  (resolved chips already carry their identity via the CURIE
+   *  link-out). */
+  provenance?: FvTermProvenance;
 }) {
   // Auto-pick free vs default based on URI presence when caller
   // didn't pin a variant. Predicates and baselines bypass the auto-
@@ -62,7 +74,24 @@ export function Term({
   // We open in a new tab; ``rel`` follows the standard noopener+
   // noreferrer pair to avoid window.opener leakage.
   const isLink = asLink && !!uri && effectiveVariant !== "free";
-  const tooltipUri = uri || undefined;
+  // For free-text chips, build a multi-line tooltip from any
+  // statement-level provenance the row passed in. Resolved chips
+  // keep the URI as their tooltip (existing behaviour).
+  const provenanceTooltip = (() => {
+    if (effectiveVariant !== "free" || !provenance) return undefined;
+    const lines: string[] = [];
+    const orig = provenance.originalValue?.trim();
+    if (orig) lines.push(`"${orig}"`);
+    for (const e of provenance.evidence ?? []) {
+      const q = (e?.quote ?? "").trim();
+      const src = (e?.source ?? "").trim();
+      if (q && src) lines.push(`"${q}" — ${src}`);
+      else if (q) lines.push(`"${q}"`);
+      else if (src) lines.push(`source: ${src}`);
+    }
+    return lines.length ? lines.join("\n") : undefined;
+  })();
+  const tooltipUri = uri || provenanceTooltip || undefined;
 
   // CURIE inline → ALWAYS opens the modular CuriePopover (label /
   // definition / parents from Gemma; explicit "Fetch from OLS"

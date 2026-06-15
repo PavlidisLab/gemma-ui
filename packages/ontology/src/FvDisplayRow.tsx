@@ -22,10 +22,36 @@ export interface FvDisplayTerm {
   uri?: string | null;
 }
 
+export interface FvDisplayEvidence {
+  quote?: string | null;
+  source?: string | null;
+}
+
 export interface FvDisplayStatement {
   subject?: FvDisplayTerm | null;
   predicate?: FvDisplayTerm | null;
   object?: FvDisplayTerm | null;
+  /** Original free-text the agent decomposed into (subject, predicate,
+   *  object). Mirrors Gemma's ``Characteristic.originalValue`` /
+   *  agent wire-field ``StatementProposal.original_value``. Surfaced
+   *  by the term renderer on free-text (uri-less) chips so curators
+   *  can see where the unresolved term came from. Optional — older
+   *  proposals leave it absent. */
+  original_value?: string | null;
+  /** Paper-sentence quotes the agent anchored the statement on.
+   *  Subset of the wire ``FindingEvidence`` shape — quote + source
+   *  ("characteristic" / "paper" / "Methods" / etc.). */
+  supporting_evidence?: ReadonlyArray<FvDisplayEvidence> | null;
+}
+
+/** Per-call provenance handed to the caller-supplied ``termRenderer``
+ *  for free-text (uri-less) subject / object chips. Resolved chips
+ *  and predicates receive ``undefined``. Renderers use this to build
+ *  a richer tooltip / popover that names where the unresolved
+ *  free-text came from. */
+export interface FvTermProvenance {
+  originalValue?: string | null;
+  evidence?: ReadonlyArray<FvDisplayEvidence> | null;
 }
 
 export interface FvDisplayLike {
@@ -42,6 +68,10 @@ export type FvTermRenderer = (props: {
   label: string;
   uri: string | null;
   variant?: "default" | "predicate";
+  /** Statement-level provenance, supplied by ``FvDisplayRow`` only
+   *  for free-text (uri-less) subject / object chips. Undefined for
+   *  resolved chips and predicates. */
+  provenance?: FvTermProvenance;
 }) => JSX.Element;
 
 export interface FvDisplayRowProps {
@@ -149,7 +179,14 @@ export function FvDisplayRow({
           </span>
         ) : null}
         {subjLabel ? (
-          termRenderer({ label: subjLabel, uri: subjUri })
+          termRenderer({
+            label: subjLabel,
+            uri: subjUri,
+            // Provenance only surfaces when the chip is free-text —
+            // resolved chips already carry their identity in the
+            // CURIE link-out, no tooltip enrichment needed.
+            provenance: subjUri ? undefined : _statementProvenance(head),
+          })
         ) : !fvName ? (
           // Only show the "(blank)" placeholder when the WHOLE row
           // is empty — when fvName is present the row already reads
@@ -288,7 +325,11 @@ function StatementPredicateObject({
       {objLabel ? (
         <>
           <span className="text-slate-400 dark:text-slate-500"> - </span>
-          {termRenderer({ label: objLabel, uri: objUri })}
+          {termRenderer({
+            label: objLabel,
+            uri: objUri,
+            provenance: objUri ? undefined : _statementProvenance(statement),
+          })}
         </>
       ) : null}
     </>
@@ -317,7 +358,13 @@ function ExtraStatementLine({
   return (
     <div className="flex items-baseline gap-x-1.5 text-[11px]">
       {subjLabel
-        ? termRenderer({ label: subjLabel, uri: subjUri })
+        ? termRenderer({
+            label: subjLabel,
+            uri: subjUri,
+            provenance: subjUri
+              ? undefined
+              : _statementProvenance(statement),
+          })
         : null}
       {predLabel ? (
         <>
@@ -333,7 +380,11 @@ function ExtraStatementLine({
       {objLabel ? (
         <>
           <span className="text-slate-400 dark:text-slate-500"> - </span>
-          {termRenderer({ label: objLabel, uri: objUri })}
+          {termRenderer({
+            label: objLabel,
+            uri: objUri,
+            provenance: objUri ? undefined : _statementProvenance(statement),
+          })}
         </>
       ) : null}
     </div>
@@ -343,4 +394,23 @@ function ExtraStatementLine({
 /** Local className-merge — packages/ontology stays dep-light. */
 function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
+}
+
+/** Derive the provenance handed to the ``termRenderer`` for free-text
+ *  chips inside a statement. Returns ``undefined`` when nothing useful
+ *  is on the wire so the renderer can fall back to its plain
+ *  "free-text" tooltip. */
+function _statementProvenance(
+  s: FvDisplayStatement | null | undefined,
+): FvTermProvenance | undefined {
+  if (!s) return undefined;
+  const orig = (s.original_value ?? "").trim();
+  const ev = (s.supporting_evidence ?? []).filter(
+    (e) => ((e?.quote ?? "").trim() || (e?.source ?? "").trim()),
+  );
+  if (!orig && ev.length === 0) return undefined;
+  return {
+    originalValue: orig || null,
+    evidence: ev.length ? ev : null,
+  };
 }

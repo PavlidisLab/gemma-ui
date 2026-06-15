@@ -17,7 +17,7 @@
  *   - search        — substring match highlights every hit; pressing
  *                     Enter cycles through them via scrollIntoView.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export interface JsonViewerProps {
@@ -45,7 +45,7 @@ export function JsonViewer({
 }: JsonViewerProps) {
   const [search, setSearch] = useState("");
   const [matchCursor, setMatchCursor] = useState(0);
-  const matchRefs = useRef<HTMLElement[]>([]);
+  const treeRef = useRef<HTMLDivElement>(null);
 
   // Reset search when the data identity changes (curator opens a
   // different node) so the previous query doesn't carry over silently.
@@ -65,32 +65,56 @@ export function JsonViewer({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Match registration — JsonNode calls this for every key/value that
-  // matches the current search string. The viewer uses the collected
-  // refs to scroll the active match into view.
-  const registerMatch = useCallback((el: HTMLElement | null) => {
-    if (el && !matchRefs.current.includes(el)) {
-      matchRefs.current.push(el);
-    }
-  }, []);
-
-  // Reset match registry on search change.
+  // Reset cursor on every new search string.
   useEffect(() => {
-    matchRefs.current = [];
     setMatchCursor(0);
   }, [search]);
 
-  // Scroll the active match into view after a render flush so the
-  // refs are populated.
-  useEffect(() => {
-    if (!search) return;
-    requestAnimationFrame(() => {
-      const el = matchRefs.current[matchCursor];
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }, [matchCursor, search]);
+  // Match count is derived by walking the data tree once per search —
+  // mirrors what ``Line`` registers as a match (key OR primitive value
+  // contains the search). Stays in sync with what's actually rendered
+  // even when subtrees are collapsed; the auto-expand effect in
+  // ``JsonNode`` opens any subtree containing a hit so all matches
+  // land in the DOM before we scroll.
+  const matchCount = useMemo(
+    () => _countMatches(data, search),
+    [data, search],
+  );
 
-  const matchCount = matchRefs.current.length;
+  // Scroll the active match into view. Reads the live DOM order
+  // (querySelectorAll inside ``treeRef``) instead of accumulated refs
+  // so ordering matches visual top-to-bottom and stale collapsed-
+  // subtree refs can't desync the cursor. Two RAFs: the first lets
+  // auto-expand subtree opens settle, the second runs after layout.
+  useEffect(() => {
+    if (!search || matchCount === 0) return;
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const els = treeRef.current?.querySelectorAll<HTMLElement>(
+          '[data-json-match="true"]',
+        );
+        if (!els || els.length === 0) return;
+        const i = ((matchCursor % els.length) + els.length) % els.length;
+        const target = els[i];
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Visually mark the active match so cycling is obvious even
+        // when multiple hits look the same.
+        els.forEach((e, j) => {
+          if (j === i) {
+            e.classList.add("ring-2", "ring-orange-500");
+          } else {
+            e.classList.remove("ring-2", "ring-orange-500");
+          }
+        });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [matchCursor, search, matchCount]);
 
   function cycleMatch(delta: number) {
     if (matchCount === 0) return;
@@ -170,14 +194,15 @@ export function JsonViewer({
           ) : null}
         </div>
         {/* Tree */}
-        <div className="flex-1 overflow-auto p-3 font-mono text-[11px] leading-relaxed text-slate-800 dark:text-slate-100">
+        <div
+          ref={treeRef}
+          className="flex-1 overflow-auto p-3 font-mono text-[11px] leading-relaxed text-slate-800 dark:text-slate-100"
+        >
           <JsonNode
             value={data}
             depth={0}
             initialExpandDepth={initialExpandDepth}
             search={search}
-            registerMatch={registerMatch}
-            activeMatch={matchCursor}
           />
         </div>
       </div>
@@ -198,8 +223,6 @@ interface NodeProps {
   depth: number;
   initialExpandDepth: number;
   search: string;
-  registerMatch: (el: HTMLElement | null) => void;
-  activeMatch: number;
 }
 
 function JsonNode({
@@ -208,8 +231,6 @@ function JsonNode({
   depth,
   initialExpandDepth,
   search,
-  registerMatch,
-  activeMatch,
 }: NodeProps) {
   const [open, setOpen] = useState(depth < initialExpandDepth);
 
@@ -224,16 +245,17 @@ function JsonNode({
     if (hasMatch) setOpen(true);
   }, [hasMatch]);
 
+  const valueMatch = _primitiveMatches(value, search);
   if (value === null) {
     return (
-      <Line k={k} search={search} registerMatch={registerMatch}>
+      <Line k={k} search={search} matchesValue={valueMatch}>
         <span className="text-slate-400">null</span>
       </Line>
     );
   }
   if (typeof value === "boolean") {
     return (
-      <Line k={k} search={search} registerMatch={registerMatch}>
+      <Line k={k} search={search} matchesValue={valueMatch}>
         <span className="text-amber-700 dark:text-amber-300">
           {value ? "true" : "false"}
         </span>
@@ -242,7 +264,7 @@ function JsonNode({
   }
   if (typeof value === "number") {
     return (
-      <Line k={k} search={search} registerMatch={registerMatch}>
+      <Line k={k} search={search} matchesValue={valueMatch}>
         <span className="text-violet-700 dark:text-violet-300">
           {String(value)}
         </span>
@@ -251,7 +273,7 @@ function JsonNode({
   }
   if (typeof value === "string") {
     return (
-      <Line k={k} search={search} registerMatch={registerMatch}>
+      <Line k={k} search={search} matchesValue={valueMatch}>
         <span className="text-emerald-700 dark:text-emerald-300 break-all">
           {`"`}
           <Highlighted text={value} search={search} />
@@ -267,7 +289,6 @@ function JsonNode({
         <Line
           k={k}
           search={search}
-          registerMatch={registerMatch}
           toggle={n > 0 ? () => setOpen((v) => !v) : undefined}
           glyph={n > 0 ? (open ? "▾" : "▸") : null}
         >
@@ -285,8 +306,6 @@ function JsonNode({
                 depth={depth + 1}
                 initialExpandDepth={initialExpandDepth}
                 search={search}
-                registerMatch={registerMatch}
-                activeMatch={activeMatch}
               />
             ))}
           </div>
@@ -301,7 +320,6 @@ function JsonNode({
         <Line
           k={k}
           search={search}
-          registerMatch={registerMatch}
           toggle={entries.length > 0 ? () => setOpen((v) => !v) : undefined}
           glyph={entries.length > 0 ? (open ? "▾" : "▸") : null}
         >
@@ -324,8 +342,6 @@ function JsonNode({
                 depth={depth + 1}
                 initialExpandDepth={initialExpandDepth}
                 search={search}
-                registerMatch={registerMatch}
-                activeMatch={activeMatch}
               />
             ))}
           </div>
@@ -335,7 +351,7 @@ function JsonNode({
   }
   // Fallback (functions / symbols / etc).
   return (
-    <Line k={k} search={search} registerMatch={registerMatch}>
+    <Line k={k} search={search} matchesValue={valueMatch}>
       <span className="italic text-slate-400">{String(value)}</span>
     </Line>
   );
@@ -347,26 +363,27 @@ function Line({
   toggle,
   glyph,
   search,
-  registerMatch,
+  matchesValue,
 }: {
   k?: string | number;
   children: React.ReactNode;
   toggle?: () => void;
   glyph?: string | null;
   search: string;
-  registerMatch: (el: HTMLElement | null) => void;
+  /** True when the rendered primitive value contains the search
+   *  substring. Container lines (objects / arrays) leave this false
+   *  so we don't register a hit for ``"{ 5 keys }"`` matching ``"5"``. */
+  matchesValue?: boolean;
 }) {
   const keyText = k != null ? String(k) : "";
-  const lineRef = useRef<HTMLDivElement>(null);
-  const matchesKey = !!search && keyText.toLowerCase().includes(search.toLowerCase());
-  useEffect(() => {
-    if (matchesKey) registerMatch(lineRef.current);
-  });
+  const matchesKey =
+    !!search && keyText.toLowerCase().includes(search.toLowerCase());
+  const isMatch = matchesKey || !!matchesValue;
   return (
     <div
-      ref={lineRef}
+      data-json-match={isMatch ? "true" : undefined}
       className={`flex items-baseline gap-1 ${
-        matchesKey ? "bg-yellow-100 dark:bg-yellow-900/30 rounded px-0.5" : ""
+        isMatch ? "bg-yellow-100 dark:bg-yellow-900/30 rounded px-0.5" : ""
       }`}
     >
       {glyph ? (
@@ -427,6 +444,47 @@ function Highlighted({ text, search }: { text: string; search: string }) {
     i = hit + q.length;
   }
   return <>{parts}</>;
+}
+
+/** Does this leaf primitive match the search? Mirrors what ``Line``
+ *  registers as a match — keep these two in sync. Container types
+ *  (object / array) intentionally return false; their summary lines
+ *  ("{ 5 keys }") would otherwise false-match unrelated numeric
+ *  searches. */
+function _primitiveMatches(value: unknown, search: string): boolean {
+  if (!search) return false;
+  const q = search.toLowerCase();
+  if (value === null) return "null".includes(q);
+  if (typeof value === "string") return value.toLowerCase().includes(q);
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value).toLowerCase().includes(q);
+  }
+  return false;
+}
+
+/** Total number of matching lines for ``search`` — sum of every node
+ *  whose key OR primitive value matches. Walks the data tree once
+ *  per search change (memoized in ``JsonViewer``). Order of the walk
+ *  matches visual top-to-bottom render order. */
+function _countMatches(value: unknown, search: string): number {
+  if (!search) return 0;
+  const q = search.toLowerCase();
+  let count = 0;
+  function walk(v: unknown, k: string | number | undefined): void {
+    const keyMatch = k != null && String(k).toLowerCase().includes(q);
+    if (keyMatch || _primitiveMatches(v, search)) count++;
+    if (Array.isArray(v)) {
+      v.forEach((child, i) => walk(child, i));
+    } else if (v && typeof v === "object") {
+      for (const [childK, child] of Object.entries(
+        v as Record<string, unknown>,
+      )) {
+        walk(child, childK);
+      }
+    }
+  }
+  walk(value, undefined);
+  return count;
 }
 
 /** Does any descendant key OR string value match the search? Used to

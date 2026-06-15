@@ -49,6 +49,7 @@ import type {
   Factor,
   OntologyTerm,
   Publication,
+  Statement,
   Tag,
 } from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
@@ -2152,6 +2153,89 @@ function groupTagsByCategoryLabel(
   return groups;
 }
 
+/** Render a tag's structured statements inline — used when
+ *  ``tag.statements`` is non-empty so a knockout / genotype / drug-
+ *  dose tag can carry the full subject · predicate · object shape
+ *  instead of collapsing to a single ``value`` chip. Multi-statement
+ *  tags stack vertically inside the chip frame (rare — one
+ *  statement is the common case). Mirrors the visual convention
+ *  used inside ``FvDisplayRow``: anchored = green / weight, free-
+ *  text = italic slate, predicate = mono caption. Kept inline so
+ *  the TagBar's tight per-chip layout doesn't break. Paul 2026-06-14:
+ *  experiment-level tags need the same expressiveness as FV-level
+ *  statements (e.g. ``genotype · Abca4 · has_genotype · Homozygous
+ *  negative`` for a knockout applying to all samples). */
+function TagStatementInline({ statements }: { statements: Statement[] }) {
+  return (
+    <span className="inline-flex flex-col gap-0.5 items-baseline">
+      {statements.map((s, i) => (
+        <span
+          key={i}
+          className="inline-flex items-baseline gap-1 whitespace-normal"
+        >
+          {s.subject?.label ? (
+            <TagInnerTerm
+              label={s.subject.label}
+              uri={s.subject.uri ?? null}
+            />
+          ) : null}
+          {s.predicate?.label ? (
+            <>
+              <span className="text-emerald-900/40 dark:text-emerald-200/40">
+                ·
+              </span>
+              <span
+                className="font-mono text-[10px] text-emerald-900/75 dark:text-emerald-200/75"
+                title={s.predicate.uri || undefined}
+              >
+                {s.predicate.label}
+              </span>
+            </>
+          ) : null}
+          {s.object?.label ? (
+            <>
+              <span className="text-emerald-900/40 dark:text-emerald-200/40">
+                ·
+              </span>
+              <TagInnerTerm
+                label={s.object.label}
+                uri={s.object.uri ?? null}
+              />
+            </>
+          ) : null}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Compact ontology-vs-free-text term render for the inline tag-
+ *  statement chip. Same convention as the single-tag chip's value
+ *  span — anchored terms get the emerald-weight treatment, free-
+ *  text gets italic slate. CURIE / popover affordances live on the
+ *  full ``Term`` component; this stub stays text-only so it nests
+ *  cleanly inside the chip frame. */
+function TagInnerTerm({
+  label,
+  uri,
+}: {
+  label: string;
+  uri: string | null;
+}) {
+  return uri ? (
+    <span
+      className="font-medium text-emerald-800 dark:text-emerald-200"
+      title={shortenUri(uri)}
+    >
+      {label}
+    </span>
+  ) : (
+    <span className="italic text-slate-700 dark:text-slate-300">
+      {label}
+    </span>
+  );
+}
+
 function EditableDirectGroupChip({
   category,
   tags,
@@ -2260,19 +2344,31 @@ function EditableDirectGroupChip({
             🔒
           </span>
         ) : null}
-        <span
-          className={cn(
-            "font-medium truncate max-w-[22ch]",
-            // Anchored term → emerald text; free-text → italic slate.
-            // Same convention as TagValueChip (inferred chip variant)
-            // so ontology vs free-text reads identically across both.
-            tag.value.uri
-              ? "text-emerald-700 dark:text-emerald-400"
-              : "italic text-slate-700 dark:text-slate-300",
-          )}
-        >
-          {valueDisplay || <em className="not-italic">no value</em>}
-        </span>
+        {tag.statements && tag.statements.length > 0 ? (
+          // Structured tag — the agent / curator decomposed the value
+          // into S-P-O (e.g. ``Abca4 · has_genotype · Homozygous
+          // negative``). Render the statement chips inline instead of
+          // the flat value label. ``tag.value.label`` (if any) still
+          // exists as a fallback summary but the structured form is
+          // more useful for the curator.
+          <span className="max-w-[40ch]">
+            <TagStatementInline statements={tag.statements} />
+          </span>
+        ) : (
+          <span
+            className={cn(
+              "font-medium truncate max-w-[22ch]",
+              // Anchored term → emerald text; free-text → italic slate.
+              // Same convention as TagValueChip (inferred chip variant)
+              // so ontology vs free-text reads identically across both.
+              tag.value.uri
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "italic text-slate-700 dark:text-slate-300",
+            )}
+          >
+            {valueDisplay || <em className="not-italic">no value</em>}
+          </span>
+        )}
         <AuditDot
           targetId={tagTarget(tag.category.label, tag.value.label)}
         />
@@ -2366,13 +2462,22 @@ function EditableDirectGroupChip({
                     : "click to edit"
                 }
               >
-                <span>{tag.value.label || "(blank)"}</span>
-                {tag.value.uri ? (
-                  <CurieLink
-                    uri={tag.value.uri}
-                    className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
-                  />
-                ) : null}
+                {tag.statements && tag.statements.length > 0 ? (
+                  // Structured tag — render S-P-O inline; the CURIE
+                  // link-out drops here because the inner chips each
+                  // carry their own URI hover via ``TagInnerTerm``.
+                  <TagStatementInline statements={tag.statements} />
+                ) : (
+                  <>
+                    <span>{tag.value.label || "(blank)"}</span>
+                    {tag.value.uri ? (
+                      <CurieLink
+                        uri={tag.value.uri}
+                        className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
+                      />
+                    ) : null}
+                  </>
+                )}
                 <AuditDot
                   targetId={tagTarget(tag.category.label, tag.value.label)}
                 />

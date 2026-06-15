@@ -1291,7 +1291,14 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               finding.issue_code === "augmentation_factor_extra" ||
               finding.issue_code === "calibration_factor_gold_only_miss" ||
               finding.issue_code === "calibration_agent_extra" ||
-              finding.issue_code === "calibration_gold_only_miss";
+              finding.issue_code === "calibration_gold_only_miss" ||
+              // partition_mismatch's "adopt agent's finer/fewer levels"
+              // is a structural replace — same routing as extra/miss.
+              // Paul 2026-06-14: prior to this, the editor PATCHed the
+              // disposition but never ran the mutator, leaving the
+              // design at the gold partition while the card showed as
+              // accepted.
+              finding.issue_code === "calibration_factor_partition_mismatch";
             if (
               isStructuralOnly &&
               status === "accepted" &&

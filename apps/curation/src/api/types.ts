@@ -30,6 +30,13 @@ export interface OntologyTerm {
 export interface TagProposal {
   category: OntologyTerm;
   value: OntologyTerm;
+  /** Structured (subject · predicate · object) statements proposed
+   *  for this experiment-level tag. Mirrors the post-2026-06-14
+   *  rich-tag shape on ``Design.Tag.statements``. Optional + empty
+   *  on flat agent proposals; populated when the agent's tag
+   *  proposer decomposes a value into S-P-O (e.g. genotype tag
+   *  with ``Abca4 · has_genotype · Homozygous negative``). */
+  statements?: StatementProposal[];
   evidence_quote: string;
   confidence: string;
   /** Debate-loop outcome. ``"platinum"`` = human-verified,

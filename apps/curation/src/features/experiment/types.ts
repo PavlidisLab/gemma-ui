@@ -116,6 +116,19 @@ export interface Tag {
   id: number;
   category: OntologyTerm;
   value: OntologyTerm;
+  /** Structured (subject · predicate · object) statements attached
+   *  to this experiment-level tag. Optional + back-compat: a flat
+   *  ``{category, value}`` tag leaves this absent. When present and
+   *  non-empty, the tag carries richer nuance than the single
+   *  ``value`` field can express — e.g. ``genotype`` tag with
+   *  statement ``[Abca4 · has_genotype · Homozygous negative]`` for
+   *  a knockout experiment that applies to all samples. ``value``
+   *  remains useful as a human-readable summary even on
+   *  statement-shaped tags (mirrors ``FactorValue.free_text_label``).
+   *  Gemma's ``ExpressionExperiment.characteristic`` entity already
+   *  supports statements; this UI mirror unblocks rendering them
+   *  on the overview / comparison surfaces. Per Paul 2026-06-14. */
+  statements?: Statement[];
   /** True when this tag is bubbled up from a sample characteristic
    *  or a factor-value statement rather than directly attached to
    *  the experiment. Inferred tags render distinctly (yellow,

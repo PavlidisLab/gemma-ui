@@ -415,19 +415,53 @@ export interface FactorRenamePayload {
 /** Which side has the finer partition in a
  *  ``calibration_factor_partition_mismatch`` finding.
  *
- *  - ``"agent_finer"``   — agent split one gold factor along a hidden
+ *  - ``"agent_finer"``    — agent split one gold factor along a hidden
  *                          axis (GSE28300: ``rotenone 3h`` /
  *                          ``rotenone 3d`` under one ``treatment``
  *                          factor where gold has ``treatment`` +
  *                          ``timepoint`` separately).
- *  - ``"agent_coarser"`` — agent collapsed two gold factors into one
+ *  - ``"agent_coarser"``  — agent collapsed two gold factors into one
  *                          with cross-product FVs (multi-factor-same-
  *                          category pattern).
+ *  - ``"cross_cutting"``  — agent's factor partitions samples along an
+ *                          axis that cross-cuts two or more gold
+ *                          factors of the same category. Neither
+ *                          finer nor coarser overall, though
+ *                          individual agent FVs may fully overlap
+ *                          individual gold FVs. ``fv_pairs`` is
+ *                          intentionally empty in this direction —
+ *                          the cross-factor mapping lives in
+ *                          ``cross_cutting_golds`` +
+ *                          ``cross_cutting_overlaps`` instead. Added
+ *                          2026-05-21 (agents-side); UI mirror
+ *                          followed 2026-06-14 after Paul flagged
+ *                          GSE79061 cross-cutting cards rendering as
+ *                          0-level fallthroughs.
  *
  *  Drives the editor's card title and the "adopt agent's split" vs
  *  "restore gold's separate factors" affordance choice. Mirrors
  *  agents-side ``PartitionMismatchDirection``. */
-export type PartitionMismatchDirection = "agent_finer" | "agent_coarser";
+export type PartitionMismatchDirection =
+  | "agent_finer"
+  | "agent_coarser"
+  | "cross_cutting";
+
+/** One FV-level overlap row for a ``direction="cross_cutting"``
+ *  partition_mismatch finding. Says: "agent's ``agent_fv``
+ *  (n=n_agent samples) overlaps with gold factor ``gold_factor``'s
+ *  FV ``gold_fv`` (n=n_gold) at Jaccard=``jaccard`` (n_overlap
+ *  shared samples)." Emitted when ``jaccard >= 0.8`` (agents-side
+ *  threshold). Mirror of ``CrossCuttingOverlapRow`` in
+ *  ``gemma_curation_agents.agents.audit.schemas``. */
+export interface CrossCuttingOverlapRow {
+  agent_fv: OntologyTerm;
+  gold_factor: FactorRef;
+  gold_fv: OntologyTerm;
+  jaccard: number;
+  n_overlap: number;
+  n_agent: number;
+  n_gold: number;
+}
 
 /** Structured payload for a ``calibration_factor_partition_mismatch``
  *  finding — single-card replacement for the legacy
@@ -446,15 +480,31 @@ export type PartitionMismatchDirection = "agent_finer" | "agent_coarser";
  *                          is the parent agent FV that subsumes the
  *                          gold FV's samples (multiple gold rows can
  *                          share an agent).
+ *  - ``"cross_cutting"`` — ``gold`` is the first (canonical)
+ *                          overlapping gold factor; the full list of
+ *                          gold factors the agent's factor spans is
+ *                          in ``cross_cutting_golds``, and per-FV
+ *                          overlap evidence lives in
+ *                          ``cross_cutting_overlaps``. ``fv_pairs``
+ *                          is empty by design — the cross-factor
+ *                          shape doesn't fit the single-gold pair
+ *                          model.
  *
- *  ``FvPair`` stays 1:1; the cross-product mapping is captured by
- *  repeated entries with shared parents on one side. The
- *  ``direction`` flag encodes which side's repetition is the parent. */
+ *  ``FvPair`` stays 1:1; the cross-product mapping for the finer /
+ *  coarser cases is captured by repeated entries with shared parents
+ *  on one side. The ``direction`` flag encodes which side's
+ *  repetition is the parent. */
 export interface PartitionMismatchPayload {
   agent: FactorRef;
   gold: FactorRef;
   direction: PartitionMismatchDirection;
   fv_pairs: FvPair[];
+  /** Populated only when ``direction === "cross_cutting"``. Empty
+   *  list on finer / coarser payloads. */
+  cross_cutting_golds?: FactorRef[];
+  /** Populated only when ``direction === "cross_cutting"``. Empty
+   *  list on finer / coarser payloads. */
+  cross_cutting_overlaps?: CrossCuttingOverlapRow[];
 }
 
 /** Judge's verdict on a single audit finding. ``side`` constrains

@@ -1399,22 +1399,32 @@ function SampleTable({
                   if (!entry) return null;
                   const { factor } = entry;
                   const nuisance = isNuisanceFactor(factor);
+                  // Title shows full factor name + description + flags;
+                  // pulls the name to the front so long names truncated
+                  // by the header label still surface on hover. Per
+                  // Paul 2026-06-14 ("the names of the factors need to
+                  // be visible in the header, long names abbrev/trunc").
+                  const factorLabel =
+                    factor.name || `factor#${factor.id}`;
+                  const titleParts = [
+                    factorLabel,
+                    factor.description || null,
+                    nuisance ? "nuisance factor (batch / block)" : null,
+                    constantFactorIds.has(factor.id)
+                      ? "constant across visible rows"
+                      : null,
+                  ].filter(Boolean);
                   return (
                     <SortableTh
                       key={`f-${factor.id}`}
-                      label={factor.name || `factor#${factor.id}`}
+                      label={factorLabel}
+                      truncateLabel
                       colKey={key}
                       sort={sort}
                       onSortChange={onSortChange}
                       badge="factor"
                       className="bg-blue-50/50 border-l-2 border-blue-200"
-                      title={
-                        (factor.description || `factor#${factor.id}`) +
-                        (nuisance ? " · nuisance factor (batch / block)" : "") +
-                        (constantFactorIds.has(factor.id)
-                          ? " · constant across visible rows"
-                          : "")
-                      }
+                      title={titleParts.join(" · ")}
                       dataFactorId={factor.id}
                       width={colWidths[key]}
                       onResize={(w) => setColWidth(key, w)}
@@ -2061,6 +2071,7 @@ function SortableTh({
   onDragOver,
   onDrop,
   onDragEnd,
+  truncateLabel,
 }: {
   label: string;
   colKey: string;
@@ -2069,6 +2080,13 @@ function SortableTh({
   className?: string;
   title?: string;
   sticky?: boolean;
+  /** When true, the label wraps in an inline-block with ``truncate``
+   *  so it ellipsizes at the column's resolved width instead of
+   *  overflowing. Combine with a meaningful ``title`` so the full
+   *  text is reachable on hover. Used by factor headers where
+   *  ``factor.name`` can be lengthy (e.g. "Klf4 [mouse]
+   *  overexpression genotype"). */
+  truncateLabel?: boolean;
   /** "char" for raw biomaterial characteristics; "factor" for
    *  curated experimental factors. Renders as a tiny pill above
    *  the label so curators can tell which is which at a glance. */
@@ -2212,7 +2230,7 @@ function SortableTh({
       <button
         type="button"
         className={cn(
-          "inline-flex items-center gap-1 hover:text-slate-900 block",
+          "inline-flex items-baseline gap-1 hover:text-slate-900 block max-w-full",
           active ? "text-slate-900" : "text-slate-600",
         )}
         onClick={() =>
@@ -2222,7 +2240,15 @@ function SortableTh({
           })
         }
       >
-        {label}
+        {truncateLabel ? (
+          // Ellipsize at the column's resolved width — full text
+          // surfaces on hover via the ``<th>``'s ``title`` attribute.
+          <span className="truncate inline-block max-w-full min-w-0">
+            {label}
+          </span>
+        ) : (
+          label
+        )}
         <span className="text-[10px] tabular-nums text-slate-400">
           {dir === "asc" ? "▲" : dir === "desc" ? "▼" : ""}
         </span>
