@@ -2048,7 +2048,16 @@ export function FindingDetailsEditor({
               key: "remove",
               kind: leanKinds.accept,
               label: acceptLabel(actionShape, identities.proposer),
-              onClick: () => dispatchSave("proposal"),
+              // Accept-the-removal opens the shared accept chip
+              // picker via onAgree — chips come from
+              // ``dispositionChips.acceptChipsFor`` (CAL_MISS_ACCEPT_CHIPS
+              // for removal findings: "Gold wrong" / "Borderline" /
+              // "Other"). Paul 2026-06-15: a destructive action
+              // (actually drops the tag/factor from the draft)
+              // deserves a reason prompt; fire-and-forget on the
+              // green button was wrong here.
+              onClick: onAgree ?? (() => dispatchSave("proposal")),
+              title: `Accept ${identities.proposer}'s removal with a reason chip.`,
             },
           ]}
           onDismiss={onDismiss}
@@ -2189,7 +2198,15 @@ export function FindingDetailsEditor({
       finding.severity !== "ok" &&
       !isCloseFactorMatch(finding) &&
       !isExactFactorMatch(finding) &&
-      finding.issue_code !== "calibration_match" ? (
+      finding.issue_code !== "calibration_match" &&
+      // Suppress once the curator has decided — the explainer is for
+      // helping the curator understand a "looks no-op but isn't"
+      // finding before acting; after Agree/Reject lands it's noise,
+      // and on ADD TAG cards it surfaces as an amber wrapper because
+      // accepting moves the tag into the draft and the row matcher
+      // (rightly) sees both sides agreeing. Paul 2026-06-15: "why
+      // does 'agree' leave this amber-coloured thing?"
+      currentDisposition === "pending" ? (
         <ActionableNoDeltaExplainer finding={finding} />
       ) : null}
 
