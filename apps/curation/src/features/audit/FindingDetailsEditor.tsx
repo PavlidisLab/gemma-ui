@@ -36,6 +36,7 @@
  */
 
 import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { sameOntologyTerm } from "@/lib/ontologyTerm";
@@ -1477,75 +1478,160 @@ export function FindingDetailsEditor({
             negative``). */}
         {groups.length > 0 ? (
           <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
-            <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 mb-1.5 text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-              <span>{identities.goldCurator}</span>
-              <span aria-hidden />
-              <span>{identities.proposer}</span>
-            </div>
-            <div className="space-y-2 text-[11px]">
-              {groups.map((g, gi) => {
-                // Which side gets the SINGLE umbrella render vs the
-                // stacked children:
-                //   agent_finer  → gold is umbrella (LEFT single),
-                //                  agent children (RIGHT stacked)
-                //   agent_coarser→ gold children (LEFT stacked),
-                //                  agent umbrella (RIGHT single)
-                const goldSide: SidedFv | SidedFv[] = isAgentFiner
-                  ? g.parent
-                  : g.children;
-                const agentSide: SidedFv | SidedFv[] = isAgentFiner
-                  ? g.children
-                  : g.parent;
-                const arrow =
-                  g.children.length > 1
-                    ? isAgentFiner
-                      ? "⇐"
-                      : "⇒"
-                    : isAgentFiner
-                      ? "←"
-                      : "→";
-                return (
-                  <div
-                    key={gi}
-                    className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-start"
-                  >
-                    <div className="flex flex-col gap-1 min-w-0">
-                      {(Array.isArray(goldSide) ? goldSide : [goldSide]).map(
-                        (s, si) => (
-                          <FvDisplayRow
-                            key={si}
-                            fv={_fvDisplayFromMapping(s.term, s.statement, s.samples ?? null)}
-                            termRenderer={termRenderer}
-                          />
-                        ),
-                      )}
-                    </div>
-                    <span
-                      className="text-slate-400 dark:text-slate-500 mt-0.5"
-                      aria-hidden
-                      title={
-                        g.children.length > 1
-                          ? `${g.children.length} levels collapse to one`
-                          : undefined
-                      }
-                    >
-                      {arrow}
-                    </span>
-                    <div className="flex flex-col gap-1 min-w-0">
-                      {(
-                        Array.isArray(agentSide) ? agentSide : [agentSide]
-                      ).map((s, si) => (
+            {/* Three-column grid — LEFT (current/gold) · MID (count
+                comparator) · RIGHT (auditor/agent). The MID column
+                renders ``gold_n ↔ agent_n`` per row in the same
+                colour rule as ``FactorComparisonGrid``: emerald when
+                counts match, amber when they differ, rose for
+                one-sided. Suppresses the in-chip ``(N)`` badge
+                (``suppressSampleCount``) since the centred count is
+                the canonical surface — Paul 2026-06-16: "the numbers
+                should be in the middle, like the other ones". */}
+            {(() => {
+              const cells: ReactNode[] = [];
+              let rowIx = 1;
+              // Header row
+              cells.push(
+                <span
+                  key="hdr-l"
+                  style={{ gridColumn: "left", gridRow: rowIx }}
+                  className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400"
+                >
+                  {identities.goldCurator}
+                </span>,
+                <span
+                  key="hdr-m"
+                  style={{ gridColumn: "mid", gridRow: rowIx }}
+                  aria-hidden
+                />,
+                <span
+                  key="hdr-r"
+                  style={{ gridColumn: "right", gridRow: rowIx }}
+                  className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400"
+                >
+                  {identities.proposer}
+                </span>,
+              );
+              rowIx++;
+              groups.forEach((g, gi) => {
+                const umbrellaIsGold = isAgentFiner;
+                const umbrella = g.parent;
+                const children = g.children;
+                const groupRowStart = rowIx;
+                children.forEach((child, ci) => {
+                  const goldSide: SidedFv = umbrellaIsGold ? umbrella : child;
+                  const agentSide: SidedFv = umbrellaIsGold ? child : umbrella;
+                  // Render gold cell — only on the first child row
+                  // when gold is the umbrella; render children-side
+                  // cell every row.
+                  if (!umbrellaIsGold || ci === 0) {
+                    cells.push(
+                      <div
+                        key={`l-${gi}-${ci}`}
+                        style={{
+                          gridColumn: "left",
+                          gridRow: umbrellaIsGold
+                            ? `${groupRowStart} / span ${children.length}`
+                            : rowIx,
+                        }}
+                        className="min-w-0 px-1 py-0.5 self-center"
+                      >
                         <FvDisplayRow
-                          key={si}
-                          fv={_fvDisplayFromMapping(s.term, s.statement, s.samples ?? null)}
+                          fv={_fvDisplayFromMapping(
+                            goldSide.term,
+                            goldSide.statement,
+                            goldSide.samples ?? null,
+                          )}
                           termRenderer={termRenderer}
+                          suppressSampleCount
                         />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                      </div>,
+                    );
+                  }
+                  // Mid cell — N ↔ M per row.
+                  const lN = (umbrellaIsGold ? umbrella : child).samples?.length ?? 0;
+                  const rN = (umbrellaIsGold ? child : umbrella).samples?.length ?? 0;
+                  let midText = "";
+                  let midCls = "text-slate-400 dark:text-slate-500";
+                  let midTitle: string | undefined;
+                  if (lN > 0 && rN > 0) {
+                    midText = `${lN} ↔ ${rN}`;
+                    if (lN === rN) {
+                      midCls = "text-emerald-600 dark:text-emerald-400";
+                      midTitle = `${lN} sample(s) each — counts agree`;
+                    } else {
+                      midCls = "text-amber-600 dark:text-amber-400";
+                      midTitle = `${lN} on current, ${rN} on auditor — counts differ`;
+                    }
+                  } else if (lN > 0) {
+                    midText = `${lN} →`;
+                    midCls = "text-rose-600 dark:text-rose-400";
+                  } else if (rN > 0) {
+                    midText = `← ${rN}`;
+                    midCls = "text-rose-600 dark:text-rose-400";
+                  } else {
+                    midText = isAgentFiner ? "⇐" : "⇒";
+                  }
+                  cells.push(
+                    <span
+                      key={`m-${gi}-${ci}`}
+                      style={{
+                        gridColumn: "mid",
+                        gridRow: rowIx,
+                      }}
+                      className={
+                        "select-none text-center px-1 py-0.5 self-center whitespace-nowrap font-semibold " +
+                        midCls
+                      }
+                      title={midTitle}
+                    >
+                      {midText}
+                    </span>,
+                  );
+                  // Render agent cell — every row when agent is the
+                  // children-stack; only on the first when agent is
+                  // the umbrella.
+                  if (umbrellaIsGold || ci === 0) {
+                    cells.push(
+                      <div
+                        key={`r-${gi}-${ci}`}
+                        style={{
+                          gridColumn: "right",
+                          gridRow: umbrellaIsGold
+                            ? rowIx
+                            : `${groupRowStart} / span ${children.length}`,
+                        }}
+                        className="min-w-0 px-1 py-0.5 self-center"
+                      >
+                        <FvDisplayRow
+                          fv={_fvDisplayFromMapping(
+                            agentSide.term,
+                            agentSide.statement,
+                            agentSide.samples ?? null,
+                          )}
+                          termRenderer={termRenderer}
+                          suppressSampleCount
+                        />
+                      </div>,
+                    );
+                  }
+                  rowIx++;
+                });
+              });
+              return (
+                <div
+                  className="grid items-baseline text-[11px]"
+                  style={{
+                    gridTemplateColumns:
+                      "[left] 1fr [mid] 84px [right] 1fr",
+                    columnGap: 8,
+                    rowGap: 4,
+                  }}
+                >
+                  {cells}
+                </div>
+              );
+            })()}
           </div>
         ) : null}
 
