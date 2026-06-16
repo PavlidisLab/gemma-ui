@@ -1543,35 +1543,19 @@ export function FindingDetailsEditor({
                             goldSide.samples ?? null,
                           )}
                           termRenderer={termRenderer}
-                          suppressSampleCount
                         />
                       </div>,
                     );
                   }
-                  // Mid cell — N ↔ M per row.
+                  // Mid cell — ↔ only when both sides carry samples
+                  // AND the counts agree (clean per-FV partition
+                  // match). Differing counts leave the middle blank;
+                  // the per-FV (n) badges on each side communicate
+                  // the gap. Paul 2026-06-16: "one number per fv;
+                  // only include arrows for the matching ones".
                   const lN = (umbrellaIsGold ? umbrella : child).samples?.length ?? 0;
                   const rN = (umbrellaIsGold ? child : umbrella).samples?.length ?? 0;
-                  let midText = "";
-                  let midCls = "text-slate-400 dark:text-slate-500";
-                  let midTitle: string | undefined;
-                  if (lN > 0 && rN > 0) {
-                    midText = `${lN} ↔ ${rN}`;
-                    if (lN === rN) {
-                      midCls = "text-emerald-600 dark:text-emerald-400";
-                      midTitle = `${lN} sample(s) each — counts agree`;
-                    } else {
-                      midCls = "text-amber-600 dark:text-amber-400";
-                      midTitle = `${lN} on current, ${rN} on auditor — counts differ`;
-                    }
-                  } else if (lN > 0) {
-                    midText = `${lN} →`;
-                    midCls = "text-rose-600 dark:text-rose-400";
-                  } else if (rN > 0) {
-                    midText = `← ${rN}`;
-                    midCls = "text-rose-600 dark:text-rose-400";
-                  } else {
-                    midText = isAgentFiner ? "⇐" : "⇒";
-                  }
+                  const countsMatch = lN > 0 && rN > 0 && lN === rN;
                   cells.push(
                     <span
                       key={`m-${gi}-${ci}`}
@@ -1581,11 +1565,18 @@ export function FindingDetailsEditor({
                       }}
                       className={
                         "select-none text-center px-1 py-0.5 self-center whitespace-nowrap font-semibold " +
-                        midCls
+                        (countsMatch
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-transparent")
                       }
-                      title={midTitle}
+                      title={
+                        countsMatch
+                          ? `${lN} sample(s) each — counts agree`
+                          : undefined
+                      }
+                      aria-hidden={!countsMatch}
                     >
-                      {midText}
+                      {countsMatch ? "↔" : " "}
                     </span>,
                   );
                   // Render agent cell — every row when agent is the
@@ -1610,7 +1601,6 @@ export function FindingDetailsEditor({
                             agentSide.samples ?? null,
                           )}
                           termRenderer={termRenderer}
-                          suppressSampleCount
                         />
                       </div>,
                     );
