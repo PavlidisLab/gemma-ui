@@ -467,6 +467,12 @@ export interface FvPair {
   equivalence: "exact" | "synonym" | "judgment" | (string & {});
   agent_statement?: StatementParts | null;
   gold_statement?: StatementParts | null;
+  /** Per-side biomaterial short names — surfaced so the partition-
+   *  mismatch / rename UI can render the per-FV sample count
+   *  ``(n)`` badge on each side. Optional for back-compat with
+   *  pre-2026-06-15 payloads. */
+  agent_biomaterial_short_names?: string[] | null;
+  gold_biomaterial_short_names?: string[] | null;
 }
 
 /** Compact factor reference inside a rename payload. */

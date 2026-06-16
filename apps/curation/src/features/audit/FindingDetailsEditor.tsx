@@ -1323,6 +1323,7 @@ export function FindingDetailsEditor({
     type SidedFv = {
       term: { label: string; uri: string | null };
       statement?: StatementParts | null;
+      samples?: readonly string[] | null;
     };
     const groups = (() => {
       const map = new Map<
@@ -1331,11 +1332,27 @@ export function FindingDetailsEditor({
       >();
       for (const pair of pm.fv_pairs) {
         const parent: SidedFv = isAgentFiner
-          ? { term: pair.gold, statement: pair.gold_statement }
-          : { term: pair.agent, statement: pair.agent_statement };
+          ? {
+              term: pair.gold,
+              statement: pair.gold_statement,
+              samples: pair.gold_biomaterial_short_names ?? null,
+            }
+          : {
+              term: pair.agent,
+              statement: pair.agent_statement,
+              samples: pair.agent_biomaterial_short_names ?? null,
+            };
         const child: SidedFv = isAgentFiner
-          ? { term: pair.agent, statement: pair.agent_statement }
-          : { term: pair.gold, statement: pair.gold_statement };
+          ? {
+              term: pair.agent,
+              statement: pair.agent_statement,
+              samples: pair.agent_biomaterial_short_names ?? null,
+            }
+          : {
+              term: pair.gold,
+              statement: pair.gold_statement,
+              samples: pair.gold_biomaterial_short_names ?? null,
+            };
         const key = `${parent.term.label}|${parent.term.uri ?? ""}`;
         const entry = map.get(key) ?? { parent, children: [] };
         entry.children.push(child);
@@ -1497,7 +1514,7 @@ export function FindingDetailsEditor({
                         (s, si) => (
                           <FvDisplayRow
                             key={si}
-                            fv={_fvDisplayFromMapping(s.term, s.statement)}
+                            fv={_fvDisplayFromMapping(s.term, s.statement, s.samples ?? null)}
                             termRenderer={termRenderer}
                           />
                         ),
@@ -1520,7 +1537,7 @@ export function FindingDetailsEditor({
                       ).map((s, si) => (
                         <FvDisplayRow
                           key={si}
-                          fv={_fvDisplayFromMapping(s.term, s.statement)}
+                          fv={_fvDisplayFromMapping(s.term, s.statement, s.samples ?? null)}
                           termRenderer={termRenderer}
                         />
                       ))}
@@ -4442,6 +4459,7 @@ export function leanButtonKinds(lean: DefenderLean): {
 function _fvDisplayFromMapping(
   term: { label: string; uri: string | null },
   stmt: StatementParts | null | undefined,
+  samples: readonly string[] | null = null,
 ) {
   const statements = stmt
     ? [
@@ -4461,7 +4479,7 @@ function _fvDisplayFromMapping(
   return {
     free_text_label: term.label,
     statements,
-    biomaterial_short_names: [],
+    biomaterial_short_names: samples ? [...samples] : [],
   };
 }
 
