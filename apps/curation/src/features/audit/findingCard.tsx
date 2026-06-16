@@ -690,17 +690,17 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             disabled={!hasExpandableContent}
             aria-label={
               !hasExpandableContent
-                ? `no further details from ${auditorName}`
+                ? "no reasoning available"
                 : open
-                  ? `hide ${auditorName} details`
-                  : `show ${auditorName} details`
+                  ? "hide reasoning"
+                  : "show reasoning"
             }
             title={
               !hasExpandableContent
-                ? `${auditorName} emitted no further details`
+                ? "no reasoning was recorded for this finding"
                 : open
-                  ? `collapse ${auditorName}'s details`
-                  : `show ${auditorName}'s reasoning + supporting evidence`
+                  ? "collapse the proposer + reviewer text"
+                  : "show the proposer + reviewer text"
             }
             className={cn(
               "inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold whitespace-nowrap",
@@ -710,10 +710,10 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             )}
           >
             {!hasExpandableContent
-              ? `no details from ${auditorName}`
+              ? "no reasoning"
               : open
-                ? `hide ${auditorName} details`
-                : `${auditorName} details`}
+                ? "hide reasoning"
+                : "reasoning"}
             {hasExpandableContent ? (
               <span className="text-xs leading-none">
                 {open ? "▾" : "▸"}
@@ -1737,6 +1737,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 targetId={finding.target_id}
                 anchor={dismissBtnRef.current}
                 titleOverride={dispoLabels.dismissDialogTitle}
+                confirmLabelOverride={dispoLabels.dismissDialogTitle}
                 isEdit={dismissEditing}
                 initialTag={prefill.tag}
                 initialNotes={prefill.plain}

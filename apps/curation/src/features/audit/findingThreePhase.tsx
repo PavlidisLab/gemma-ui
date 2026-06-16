@@ -387,11 +387,60 @@ export function ThreePhaseFindingBody({
 }): JSX.Element {
   const why = deriveWhy(finding);
   const reviews = deriveReviews(finding, report);
+  const comparison = finding.comparison ?? null;
   return (
     <div className="space-y-2">
       <WhyPhase why={why} />
       <ReviewsPhase reviews={reviews} />
+      <ComparisonJudgePhase comparison={comparison} />
     </div>
+  );
+}
+
+/** Phase-3 TEXT only — the comparison-judge verdict + one-sentence
+ *  rationale. The VISUAL chip strip / factor grid lives outside the
+ *  reasoning collapsible (caller owns it) so toggling "reasoning"
+ *  hides all the prose at once and leaves the visual + action
+ *  buttons visible. */
+function ComparisonJudgePhase({
+  comparison,
+}: {
+  comparison: import("@/api/auditTypes").ComparisonVerdict | null;
+}): JSX.Element | null {
+  if (!comparison) return null;
+  const v = verdictLabel(comparison.judge_verdict);
+  const r = (comparison.judge_rationale ?? "").trim();
+  const brief = (comparison.judge_brief ?? "").trim();
+  if (!v && !r && !brief) return null;
+  const label = (comparison.comparator_label ?? "").trim() || "comparator";
+  return (
+    <PhaseSection
+      header={`Comparison vs ${label}`}
+      brief={
+        <div className="text-[11px] text-slate-700 dark:text-slate-200 leading-snug">
+          {v ? <span className="font-semibold mr-1">{v}.</span> : null}
+          {brief ? (
+            <span className="italic text-slate-600 dark:text-slate-300">
+              {brief}
+            </span>
+          ) : null}
+          {!brief && r ? (
+            <span className="italic text-slate-600 dark:text-slate-300">
+              {r}
+            </span>
+          ) : null}
+        </div>
+      }
+      detail={
+        brief && r && r !== brief ? (
+          <div className="text-[11px] italic text-slate-600 dark:text-slate-300">
+            {r}
+          </div>
+        ) : null
+      }
+      defaultOpen={false}
+      alwaysShowHeader
+    />
   );
 }
 
