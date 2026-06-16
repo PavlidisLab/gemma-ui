@@ -44,9 +44,11 @@ import { useToast } from "@/components/ui/Toast";
 import { Term, termRenderer } from "@/components/ui/Term";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
+  CONTINUATION,
   FactorComparisonGrid,
   type FactorComparisonPair,
 } from "./factorComparison/FactorComparisonGrid";
+import { buildPartitionMismatchPairs } from "./factorComparison/partitionRowBuilder";
 import { FvDisplayRow } from "@gemma/ontology";
 import {
   ContinuousStrip,
@@ -1456,19 +1458,25 @@ export function FindingDetailsEditor({
                 uri: pm.agent.category.uri ?? null,
               },
             }}
-            pairs={pm.fv_pairs.map<FactorComparisonPair>((p) => ({
-              left: _fvDisplayFromMapping(
-                p.gold,
-                p.gold_statement,
-                p.gold_biomaterial_short_names ?? null,
-              ) as FactorComparisonPair["left"],
-              right: _fvDisplayFromMapping(
-                p.agent,
-                p.agent_statement,
-                p.agent_biomaterial_short_names ?? null,
-              ) as FactorComparisonPair["right"],
-              status: "drift",
-            }))}
+            pairs={buildPartitionMismatchPairs({
+              direction: pm.direction,
+              fvPairs: pm.fv_pairs.map((p) => ({
+                agent: { label: p.agent.label, uri: p.agent.uri ?? null },
+                gold: { label: p.gold.label, uri: p.gold.uri ?? null },
+                agent_statement: p.agent_statement,
+                gold_statement: p.gold_statement,
+                agent_biomaterial_short_names:
+                  p.agent_biomaterial_short_names ?? null,
+                gold_biomaterial_short_names:
+                  p.gold_biomaterial_short_names ?? null,
+              })),
+              project: (term, stmt, samples) =>
+                _fvDisplayFromMapping(
+                  term,
+                  stmt as StatementParts | null,
+                  samples,
+                ) as FactorComparisonPair["left"],
+            })}
             termRenderer={termRenderer}
             onLeftLocate={onLocateCurrent}
           />

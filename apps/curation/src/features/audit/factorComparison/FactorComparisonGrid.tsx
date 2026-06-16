@@ -46,12 +46,27 @@ export type GridFv =
   | FactorValueProposal
   | null;
 
+/** Continuation marker — a cell slot that the umbrella row above
+ *  already filled via rowspan. Lets callers express "this row's left
+ *  side is the same FV as the row above's" without re-rendering the
+ *  label / count. */
+export const CONTINUATION = Symbol("FactorComparisonGrid.CONTINUATION");
+export type Continuation = typeof CONTINUATION;
+
 /** One paired row in the grid. The pairing decision is opaque to the
  *  grid — caller supplies ``status`` so the glyph between the cells
- *  reads correctly. */
+ *  reads correctly.
+ *
+ *  Per-cell rowspan (Paul 2026-06-16, Option B): each cell may be a
+ *  ``GridFv`` (renders) or ``CONTINUATION`` (skipped — the umbrella
+ *  row above's rowspan covers this slot). The umbrella row sets
+ *  ``leftRowSpan`` / ``rightRowSpan`` to N; the next N-1 rows must
+ *  set ``left`` / ``right`` to ``CONTINUATION``. Default (omitted)
+ *  is one-row-per-pair with no rowspan — back-compat for
+ *  factor_match callers. */
 export interface FactorComparisonPair {
-  left: GridFv;
-  right: GridFv;
+  left: GridFv | Continuation;
+  right: GridFv | Continuation;
   /** Quick visual indicator between the cells:
    *   - ``"same"``       — labels match
    *   - ``"drift"``      — paired by sample partition; labels differ
@@ -60,6 +75,14 @@ export interface FactorComparisonPair {
    *   - ``null``         — no glyph (suppress the column entirely)
    */
   status: "same" | "drift" | "left_only" | "right_only" | null;
+  /** Rowspan for the LEFT FV cell. Default 1. */
+  leftRowSpan?: number;
+  /** Rowspan for the RIGHT FV cell. Default 1. */
+  rightRowSpan?: number;
+  /** Rowspan for the mid (count) cell. Default 1. Used when the
+   *  umbrella side carries a single N that applies to all child
+   *  rows — the mid cell rowspans alongside it. */
+  midRowSpan?: number;
 }
 
 export interface FactorComparisonHeaderSide {
@@ -320,8 +343,10 @@ export function midCellRender(pair: FactorComparisonPair): {
   cls: string;
   title: string;
 } | null {
-  const leftN = pair.left?.biomaterial_short_names?.length ?? 0;
-  const rightN = pair.right?.biomaterial_short_names?.length ?? 0;
+  const leftFv = pair.left === CONTINUATION ? null : pair.left;
+  const rightFv = pair.right === CONTINUATION ? null : pair.right;
+  const leftN = leftFv?.biomaterial_short_names?.length ?? 0;
+  const rightN = rightFv?.biomaterial_short_names?.length ?? 0;
   if (leftN === 0 && rightN === 0) return null;
   // The middle column communicates the SAMPLE-COUNT axis only:
   // ``N ↔ M`` always, coloured by whether the counts agree. Label
@@ -394,24 +419,49 @@ function PairGridBody({
       {pairs.map((pair, ix) => {
         const glyph = statusGlyph(pair.status);
         const perFvAction = renderPerFvAction?.(pair, ix) ?? null;
-        const { leftKeys, rightKeys } = computeFvDiff(pair.left, pair.right);
+        const leftFv = pair.left === CONTINUATION ? null : pair.left;
+        const rightFv = pair.right === CONTINUATION ? null : pair.right;
+        const { leftKeys, rightKeys } = computeFvDiff(leftFv, rightFv);
         const mid = midCellRender(pair);
+        const leftSpan = Math.max(1, pair.leftRowSpan ?? 1);
+        const rightSpan = Math.max(1, pair.rightRowSpan ?? 1);
+        const midSpan = Math.max(1, pair.midRowSpan ?? 1);
+        const renderLeft = pair.left !== CONTINUATION;
+        const renderRight = pair.right !== CONTINUATION;
+        // Mid cell is suppressed only when BOTH sides are
+        // continuations (umbrella above covers the entire row's
+        // semantic).
+        const renderMid =
+          pair.left !== CONTINUATION || pair.right !== CONTINUATION;
         return (
           <div key={`pair-${ix}`} className="contents">
-            <div
-              style={{ gridColumn: "left", gridRow: ix + 1, position: "relative", zIndex: 1 }}
-              className="min-w-0 px-2 py-2"
-            >
-              <FvCell
-                fv={pair.left}
-                termRenderer={termRenderer}
-                diffChips={leftKeys}
-              />
-            </div>
+            {renderLeft ? (
+              <div
+                style={{
+                  gridColumn: "left",
+                  gridRow: `${ix + 1} / span ${leftSpan}`,
+                  position: "relative",
+                  zIndex: 1,
+                }}
+                className="min-w-0 px-2 py-2 self-center"
+              >
+                <FvCell
+                  fv={leftFv}
+                  termRenderer={termRenderer}
+                  diffChips={leftKeys}
+                />
+              </div>
+            ) : null}
+            {renderMid ? (
             <span
-              style={{ gridColumn: "mid", gridRow: ix + 1, position: "relative", zIndex: 1 }}
+              style={{
+                gridColumn: "mid",
+                gridRow: `${ix + 1} / span ${midSpan}`,
+                position: "relative",
+                zIndex: 1,
+              }}
               className={
-                "select-none text-center px-1 py-2 font-semibold text-[13px] whitespace-nowrap " +
+                "select-none text-center px-1 py-2 self-center font-semibold text-[13px] whitespace-nowrap " +
                 (mid ? mid.cls : glyph?.cls ?? "text-transparent")
               }
               title={mid ? mid.title : glyph?.title ?? undefined}
@@ -419,16 +469,24 @@ function PairGridBody({
             >
               {mid ? mid.text : glyph?.ch ?? " "}
             </span>
-            <div
-              style={{ gridColumn: "right", gridRow: ix + 1, position: "relative", zIndex: 1 }}
-              className="min-w-0 px-2 py-2"
-            >
-              <FvCell
-                fv={pair.right}
-                termRenderer={termRenderer}
-                diffChips={rightKeys}
-              />
-            </div>
+            ) : null}
+            {renderRight ? (
+              <div
+                style={{
+                  gridColumn: "right",
+                  gridRow: `${ix + 1} / span ${rightSpan}`,
+                  position: "relative",
+                  zIndex: 1,
+                }}
+                className="min-w-0 px-2 py-2 self-center"
+              >
+                <FvCell
+                  fv={rightFv}
+                  termRenderer={termRenderer}
+                  diffChips={rightKeys}
+                />
+              </div>
+            ) : null}
             <div
               style={{ gridColumn: "action", gridRow: ix + 1, position: "relative", zIndex: 1 }}
               className="px-2 py-2 flex items-baseline justify-end gap-1.5"
