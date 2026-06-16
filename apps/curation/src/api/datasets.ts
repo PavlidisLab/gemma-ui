@@ -119,31 +119,6 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
   });
 }
 
-export interface GemmaDatasetHit {
-  experiment_id: number;
-  short_name: string;
-  accession: string;
-  title: string;
-  taxon: string;
-  n_samples: number;
-  external_database: string;
-}
-
-/** Search real Gemma's catalog (proxied via gemmapy on the
- *  mock). Used by the landing-page import typeahead. */
-export function useGemmaSearch(query: string, options: { enabled?: boolean } = {}) {
-  const enabled = options.enabled !== false && query.trim().length >= 2;
-  return useQuery({
-    queryKey: ["gemma-search", query.trim()],
-    queryFn: () =>
-      api.get<GemmaDatasetHit[]>(
-        `/rest/v2/datasets/search?query=${encodeURIComponent(query.trim())}&limit=20`,
-      ),
-    enabled,
-    staleTime: 1000 * 60 * 5,
-  });
-}
-
 /**
  * Pull a real Gemma dataset into the mock. Same pathway as the
  * `gca mock-gemma import` CLI; accepts whatever Gemma reference

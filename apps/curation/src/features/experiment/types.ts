@@ -300,16 +300,6 @@ const NO_BASELINE_CATEGORIES = new Set<string>([
   "cell_line",
 ]);
 
-/** Reserved for the day a category genuinely has soft semantics
- *  (warn but don't block). Cell line briefly lived here in the
- *  2026-05-06 first pass; it now lives in the strict
- *  no-baseline set above because the guidelines are unambiguous.
- *  Kept as an empty set + helper so the plumbing
- *  (``baseline_blocks_commit`` field, CommitBar / PrePublishChecklist
- *  reading it) survives if a future category needs the soft
- *  treatment. */
-const SOFT_BASELINE_CATEGORIES = new Set<string>([]);
-
 /** Accepts either a ``Factor`` (preferred — captures both type and
  *  category) or a bare ``OntologyTerm`` (legacy callers that only
  *  have the category in hand). The factor-aware overload is the
@@ -382,8 +372,7 @@ export function factorBaselineBlocksCommit(
   // factorRequiresBaseline above; this catches the structural case.
   const fvCount = factor?.factor_values?.length ?? 0;
   if (fvCount <= 1) return false;
-  const k = (factor?.category?.label || "").trim().toLowerCase();
-  return !SOFT_BASELINE_CATEGORIES.has(k);
+  return true;
 }
 
 export interface FactorValidationState {

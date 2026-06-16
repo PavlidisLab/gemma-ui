@@ -60,11 +60,6 @@
   .pill { @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.7rem] leading-4; }
   .pill.high     { @apply bg-emerald-100 text-emerald-800; }
   .pill.medium   { @apply bg-yellow-100 text-yellow-800; }
-  .pill.low      { @apply bg-red-100 text-red-800; }
-  .pill.pending  { @apply bg-amber-100 text-amber-800; }
-  .pill.accepted { @apply bg-emerald-100 text-emerald-800; }
-  .pill.rejected { @apply bg-red-100 text-red-800; }
-  .pill.needs    { @apply bg-indigo-100 text-indigo-800; }
   /*
     Sky-blue palette so the "★ baseline" pill reads as a status
     marker without colliding with the emerald that means
@@ -216,27 +211,13 @@ html.dark .term.diff {
 /* ``.term.baseline`` is a no-op — see the light-theme comment. */
 
 /* Pills (status badges). Keep the hue cue but dim. */
-html.dark .pill.high,
-html.dark .pill.accepted {
+html.dark .pill.high {
   background-color: rgb(6 78 59 / 0.5);
   color: rgb(167 243 208);
 }
 html.dark .pill.medium {
   background-color: rgb(113 63 18 / 0.5);
   color: rgb(254 240 138);
-}
-html.dark .pill.low,
-html.dark .pill.rejected {
-  background-color: rgb(127 29 29 / 0.5);
-  color: rgb(254 202 202);
-}
-html.dark .pill.pending {
-  background-color: rgb(120 53 15 / 0.5);
-  color: rgb(253 230 138);
-}
-html.dark .pill.needs {
-  background-color: rgb(49 46 129 / 0.5);
-  color: rgb(199 210 254);
 }
 html.dark .pill.baseline {
   background-color: rgb(12 74 110 / 0.5);    /* sky-900 / 50% */

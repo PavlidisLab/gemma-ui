@@ -201,20 +201,6 @@ export function saveFeedback(
   }
 }
 
-export function clearDispositionsForExperiment(experimentId: number | string): void {
-  try {
-    const prefix = `${LS_PREFIX}:${experimentId}:`;
-    const toRemove: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const k = window.localStorage.key(i);
-      if (k && k.startsWith(prefix)) toRemove.push(k);
-    }
-    for (const k of toRemove) window.localStorage.removeItem(k);
-  } catch {
-    // ignore
-  }
-}
-
 /** Drop the entire proposal-review localStorage footprint (dispositions
  *  + notes + feedback) for one experiment. Used by the commit-undo and
  *  per-finding-undo paths so curator state across surfaces stays

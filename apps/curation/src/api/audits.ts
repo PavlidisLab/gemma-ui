@@ -300,21 +300,3 @@ export function useReopenAudit(experimentId: number | string) {
   });
 }
 
-/** POST a freshly-built audit to the mock. Used by the trigger
- *  dialog when we go end-to-end (the SSE stream variant lands in a
- *  later iteration). Server assigns `audit_id` and any inbound
- *  `dispositions` are dropped per the contract. */
-export function useSubmitAudit(experimentId: number | string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (report: AuditReport) =>
-      api.post<AuditReport>(
-        `/rest/v2/datasets/${experimentId}/audits`,
-        report,
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
-      qc.invalidateQueries({ queryKey: KEY.inbox() });
-    },
-  });
-}

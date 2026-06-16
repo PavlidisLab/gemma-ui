@@ -36,7 +36,6 @@ import type { OntologyTerm } from "@/api/types";
 import {
   isPolishedSource,
   polishedCuratorOf,
-  sourceLabel,
   type Source,
 } from "./sources";
 
@@ -446,18 +445,3 @@ function verbFor(kind: DiffKind): string {
   }
 }
 
-/** Convenience for the chip strip's mode-tag — "Cy's audit of
- *  preboard" / "Am's audit of Cy" / etc. Used for the sidebar
- *  header when the override report is mounted. */
-export function diffPanelTitle(
-  baselineSource: Source,
-  comparatorSource: Source,
-): string {
-  if (baselineSource === "empty") {
-    return `${sourceLabel(comparatorSource)} (proposal)`;
-  }
-  if (baselineSource === comparatorSource) {
-    return `${sourceLabel(baselineSource)} vs itself (regression check)`;
-  }
-  return `${sourceLabel(comparatorSource)} vs ${sourceLabel(baselineSource)}`;
-}

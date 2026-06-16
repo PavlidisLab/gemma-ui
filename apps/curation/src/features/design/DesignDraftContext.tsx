@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import { useDesign, useUpdateDesign } from "@/api/design";
-import { ApiError } from "@/api/client";
 import { diffDesign, type DesignDiff } from "./diff";
 import type { Design } from "@/features/experiment/types";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
@@ -598,23 +597,6 @@ export function DesignDraftProvider({
       {children}
     </DesignDraftContext.Provider>
   );
-}
-
-/** True when the load error indicates the experiment isn't in
- *  storage (404). Lets the UI show a "import this" prompt instead
- *  of a generic error.
- *
- *  Accepts either the raw error (preferred — uses ``ApiError.status``
- *  cleanly) or the legacy string message form (regex on
- *  ``"failed: 404 ..."`` for backwards compatibility with callers
- *  that already destructure ``loadError`` as a string). */
-export function isNotImportedError(
-  err: unknown | string | null,
-): boolean {
-  if (!err) return false;
-  if (err instanceof ApiError) return err.status === 404;
-  if (typeof err === "string") return /\b404\b/.test(err);
-  return false;
 }
 
 export function useDesignDraft(): DesignDraftValue {

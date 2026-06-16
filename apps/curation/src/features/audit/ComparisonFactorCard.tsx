@@ -1141,9 +1141,9 @@ export function ComparisonFactorCard({
                 {dismissLabel}
               </button>
               {/* Park button hidden 2026-06-14 (Paul: "hide the park
-                  button — everywhere"). Handler stays wired; flip the
-                  ``false`` gate to restore. Same pattern used in
-                  findingCard / FindingDetailsEditor. */}
+                  button — everywhere; don't remove it"). Handler stays
+                  wired; flip the ``false`` gate to restore. Same pattern
+                  used in findingCard / FindingDetailsEditor. */}
               {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
               {false ? (
                 <button

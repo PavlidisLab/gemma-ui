@@ -310,6 +310,8 @@ export function ticketTypeLabel(t: TicketType): string {
       return "Preload";
     case "CURATION":
       return "Curation";
+    case "SCREENING":
+      return "Screening";
     case "GENERIC":
       return "General";
   }
