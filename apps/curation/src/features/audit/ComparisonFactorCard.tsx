@@ -1348,62 +1348,10 @@ function ProposalSectionContent({
   );
 }
 
-/** WHY block — single collapsible envelope with three labelled
- *  subsections: PROPOSAL (proposer's own sources + rationale +
- *  proposer_defense), INTERNAL REVIEW (defender_verdict — the
- *  proposer-side defence), AUDITOR (arbiter + boss verdicts).
- *
- *  Sections are visually distinct (per-section palette + uppercase
- *  header) and each suppresses itself when its underlying data is
- *  empty. The AUDITOR section is GATED on ``isComparison`` — when
- *  the card isn't comparing against a baseline (no
- *  ``baselineSource`` prop on the parent), the auditor's
- *  proposal-vs-baseline judgment is meaningless, so we hide that
- *  section entirely. Paul 2026-06-15: "the audit is only going to
- *  be there if there is a comparison." */
-function WhyBlock({
-  factor,
-  finding,
-  report,
-  isComparison,
-}: {
-  factor: Factor | FactorProposal | null;
-  finding: AuditFinding;
-  report: AuditReport | null;
-  isComparison: boolean;
-}): JSX.Element | null {
-  const proposalNode = ProposalSectionContent({
-    factor,
-    proposerDefense: finding.proposer_defense,
-  });
-  // Three-phase render per Paul 2026-06-15
-  // (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md). Phase 1 (Why
-  // proposed) + Phase 2 (Reviews) render flat (no nested boxes, no
-  // "INTERNAL REVIEW — proposer-side defence" subtitle). Phase 3
-  // (Comparison) is already drawn above this block by
-  // FactorComparisonGrid — the section header for it lives on that
-  // grid surface, not here. ``isComparison`` is preserved on the
-  // call signature so callers still pass it, but the rule now is:
-  // Reviews always shows (header is load-bearing for the curator —
-  // Paul 2026-06-15); Comparison is gated by the grid's own visibility,
-  // not by this block.
-  //
-  // Legacy proposal-section content (per-FV rationale + statements +
-  // evidence) is preserved as a "deeper detail" envelope below the
-  // three-phase body so factor-side proposers' rich rationales stay
-  // discoverable.
-  void isComparison;
-  return (
-    <div className="text-[11px] space-y-2 px-1 py-1">
-      <ThreePhaseFindingBody finding={finding} report={report} />
-      {proposalNode ? (
-        <details className="text-[11px] text-slate-700 dark:text-slate-200">
-          <summary className="cursor-pointer select-none text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100">
-            Proposer detail
-          </summary>
-          <div className="mt-1">{proposalNode}</div>
-        </details>
-      ) : null}
-    </div>
-  );
-}
+// WhyBlock was retired 2026-06-16 — every card now routes through the
+// shared ``FindingReasoningPanel`` (./findingReasoningPanel.tsx) so the
+// proposer + reviewer + comparison-judge text renders identically across
+// CompactFindingCard and ComparisonFactorCard. The "Proposer detail"
+// per-FV rationale envelope this block used to attach is covered by
+// the per-FV chips inside FactorComparisonGrid + the proposer rationale
+// inside AgentSuggestionPanel — no separate envelope needed.
