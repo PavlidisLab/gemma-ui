@@ -57,6 +57,7 @@ import {
   adoptNearMatchAgentFactor,
   mergeNearMatchAgentFactor,
 } from "@/features/design/mutations";
+import { addFactorFromProposal } from "./applyHandlers";
 import { useToast } from "@/components/ui/Toast";
 import {
   useCurations,
@@ -876,7 +877,17 @@ export function ComparisonFactorCard({
     }
     setBusy(true);
     try {
-      applyDraft((d) => adoptNearMatchAgentFactor(d, agentFactor));
+      // Match-downgrade: the displayed gold baseline doesn't carry
+      // the factor (``matchedButMissingFromBaseline``); there's
+      // nothing for ``adoptNearMatchAgentFactor`` to mutate in place.
+      // Route through the add-factor mutator instead so Agree
+      // actually adds the agent's factor to the draft. Per
+      // MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+      if (matchedButMissingFromBaseline) {
+        applyDraft((d) => addFactorFromProposal(d, agentFactor));
+      } else {
+        applyDraft((d) => adoptNearMatchAgentFactor(d, agentFactor));
+      }
       requestAuditFocus(
         experimentId,
         factorTarget(agentFactor.category.label),
@@ -884,7 +895,13 @@ export function ComparisonFactorCard({
       await setDisposition(finding.target_id, "accepted", {
         resolvedAt: new Date().toISOString(),
       });
-      toast.show("Adopted the agent's alternative.", "success", 3000);
+      toast.show(
+        matchedButMissingFromBaseline
+          ? "Added the agent's factor."
+          : "Adopted the agent's alternative.",
+        "success",
+        3000,
+      );
     } finally {
       setBusy(false);
     }
@@ -896,6 +913,12 @@ export function ComparisonFactorCard({
   // names the OUTCOME, not the meta-stance. Code-specific verbs
   // (Add factor / Remove factor / Adopt rename) stay for the
   // structural-action codes.
+  //
+  // Match-downgrade: a match finding viewed against a baseline that
+  // doesn't carry the factor (``matchedButMissingFromBaseline``) reads
+  // as an Add — the curator's action is to add the agent's factor to
+  // the displayed baseline, not confirm a match against an empty
+  // column. Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
   const acceptLabel =
     finding.issue_code === "calibration_factor_rename"
       ? "Adopt rename"
@@ -903,7 +926,9 @@ export function ComparisonFactorCard({
         ? "Add factor"
         : finding.issue_code === "calibration_factor_gold_only_miss"
           ? "Remove factor"
-          : "Proposal is better";
+          : matchedButMissingFromBaseline
+            ? "Add factor"
+            : "Proposal is better";
   const dismissLabel =
     finding.issue_code === "calibration_factor_rename"
       ? "Keep current"
@@ -911,7 +936,9 @@ export function ComparisonFactorCard({
         ? "Don't add"
         : finding.issue_code === "calibration_factor_gold_only_miss"
           ? "Keep current"
-          : "Keep";
+          : matchedButMissingFromBaseline
+            ? "Don't add"
+            : "Keep";
 
   // Dispositioned cards (accepted / dismissed / parked) recede the
   // same way ``CompactFindingCard`` does — opacity-40 with a hover
@@ -976,7 +1003,11 @@ export function ComparisonFactorCard({
               [reasoning] → [visual] → [buttons] regardless of finding
               kind. Paul 2026-06-16: "IT SHOULD BE THE SAME COMPONENT
               WHETHER THE FACTOR IS A MATCH or a PARTIAL MATCH". */}
-          <FindingReasoningPanel finding={finding} report={report} />
+          <FindingReasoningPanel
+            finding={finding}
+            report={report}
+            defaultOpen={panelExpansion === "fully"}
+          />
           {/* Body — switched 2026-06-12 from the inline CategoryPair +
               FvPairRow loop to the shared FactorComparisonGrid so
               this surface and FindingDetailsEditor (next-up

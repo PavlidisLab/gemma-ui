@@ -138,6 +138,52 @@ describe("findingDisplayedGoldEmpty — factor side", () => {
     ]);
     expect(findingDisplayedGoldEmpty(f, draft)).toBe(false);
   });
+
+  // Calibration findings carry a numeric Gemma factor id in
+  // ``target_id`` (``factor:55021``) rather than a category slug. The
+  // helper must bridge through ``gold_target_index`` instead of
+  // slug-matching — slug("timepoint") never equals "55021", so the
+  // bare slug walk silently downgrades the match to "Add factor".
+  it("numeric target_id: uses gold_target_index when present", () => {
+    const f = makeFinding({
+      target_kind: "factor",
+      target_id: "factor:55021",
+      issue_code: "calibration_factor_match_exact",
+      rationale: "",
+      gold_target_index: 0,
+    } as Partial<AuditFinding>);
+    const draft = makeDraft([], [
+      { category: { label: "timepoint", uri: null }, factor_values: [] } as Design["factors"][number],
+    ]);
+    expect(findingDisplayedGoldEmpty(f, draft)).toBe(false);
+  });
+
+  it("numeric target_id: returns null when no gold_target_index is set", () => {
+    const f = makeFinding({
+      target_kind: "factor",
+      target_id: "factor:55021",
+      issue_code: "calibration_factor_match_exact",
+      rationale: "",
+    });
+    const draft = makeDraft([], [
+      { category: { label: "timepoint", uri: null }, factor_values: [] } as Design["factors"][number],
+    ]);
+    expect(findingDisplayedGoldEmpty(f, draft)).toBeNull();
+  });
+
+  it("numeric target_id: returns null when gold_target_index is out of range", () => {
+    const f = makeFinding({
+      target_kind: "factor",
+      target_id: "factor:55021",
+      issue_code: "calibration_factor_match_exact",
+      rationale: "",
+      gold_target_index: 5,
+    } as Partial<AuditFinding>);
+    const draft = makeDraft([], [
+      { category: { label: "timepoint", uri: null }, factor_values: [] } as Design["factors"][number],
+    ]);
+    expect(findingDisplayedGoldEmpty(f, draft)).toBeNull();
+  });
 });
 
 describe("findingActionLabel goldEmpty override", () => {

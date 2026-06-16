@@ -385,7 +385,25 @@ export function ThreePhaseFindingBody({
   finding: AuditFinding;
   report: AuditReport | null;
 }): JSX.Element {
-  const why = deriveWhy(finding);
+  let why = deriveWhy(finding);
+  // ``suggested_fix`` fallback: when no judge / defender / proposer
+  // stage has populated a Why block but the agent shipped a one-line
+  // ``suggested_fix`` ("Already captured by biomaterial
+  // characteristic"), surface it as the Why brief. Better than a
+  // bare empty WHY PROPOSED slot the curator has nothing to act on.
+  // Per FINDING_SHORT_RATIONALE_BM_AWARE_2026_06_16.
+  if (!why) {
+    const fix = (finding.suggested_fix ?? "").trim();
+    if (fix) {
+      why = {
+        brief: fix,
+        rationale: fix,
+        evidence: [],
+        citation: "",
+        citation_url: "",
+      } as WhyBlock;
+    }
+  }
   const reviews = deriveReviews(finding, report);
   const comparison = finding.comparison ?? null;
   return (

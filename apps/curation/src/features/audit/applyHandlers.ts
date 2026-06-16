@@ -126,8 +126,20 @@ export interface ApplyAction {
  *  using only the finding's structured fields. */
 export function resolveApplyAction(
   finding: AuditFinding,
-  ctx?: { report?: AuditReport | null; design?: Design | null },
+  ctx?: {
+    report?: AuditReport | null;
+    design?: Design | null;
+    /** When true, ``*_match`` codes route through the add-shaped
+     *  mutator (the displayed gold baseline doesn't carry the entity
+     *  even though the audit-time baseline did). Match-downgrade —
+     *  see ``findingActionShape({ goldEmpty })`` and
+     *  MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16. The editor / card
+     *  computes this via ``findingDisplayedGoldEmpty(finding, draft)``
+     *  and threads it in. */
+    goldEmpty?: boolean;
+  },
 ): ApplyAction | null {
+  const goldEmpty = !!ctx?.goldEmpty;
   // Proposer-mode "add_tag" findings ship a structured
   // ``apply_action`` from the agent (tag_llm_judge.py emits
   // ``ApplyAction(kind="add_tag", new_category, new_value)``).
@@ -144,7 +156,11 @@ export function resolveApplyAction(
   // mutations — adding or removing an experiment tag — so the
   // curator's "Apply" click writes the change into the design
   // draft, then the disposition PATCH stamps applied_fix.
-  const calibrationApply = resolveCalibrationApply(finding, ctx?.design ?? null);
+  const calibrationApply = resolveCalibrationApply(
+    finding,
+    ctx?.design ?? null,
+    { goldEmpty },
+  );
   if (calibrationApply) return calibrationApply;
 
   // Factor-level calibration apply: agent_extra → add factor;
@@ -155,6 +171,7 @@ export function resolveApplyAction(
       finding,
       ctx.report ?? null,
       ctx.design ?? null,
+      { goldEmpty },
     );
     if (factorApply) return factorApply;
   }
@@ -318,11 +335,23 @@ function resolveProposalApply(
 function resolveCalibrationApply(
   finding: AuditFinding,
   design: Design | null,
+  opts?: { goldEmpty?: boolean },
 ): ApplyAction | null {
   const code = finding.issue_code;
+  const goldEmpty = !!opts?.goldEmpty;
+  // Match-downgrade: a ``calibration_match`` viewed against a
+  // baseline that lacks the tag is curator-actionable as an add.
+  // Route through the same add-tag path ``calibration_agent_extra``
+  // uses so Agree actually mutates the draft (was no-op pre-handoff).
+  // Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  const matchDowngradeAsAdd =
+    goldEmpty &&
+    (code === "calibration_match" ||
+      code === "tag_proposed_match_with_design");
   if (
     code !== "calibration_agent_extra" &&
-    code !== "calibration_gold_only_miss"
+    code !== "calibration_gold_only_miss" &&
+    !matchDowngradeAsAdd
   ) {
     return null;
   }
@@ -405,6 +434,68 @@ function resolveCalibrationApply(
         };
       }
     }
+  }
+
+  // Match-downgrade: ``calibration_match`` viewed against an empty
+  // displayed gold baseline routes through an add-tag mutator. The
+  // target_id is ``tag:<cat-slug>/<val-slug>`` (NOT the calibration
+  // prefix), and the (category, value) labels come from
+  // ``finding.proposer_term`` when populated, falling back to the
+  // backticked rationale token (``cell type: astrocyte``) the
+  // calibration builder emits. Per MATCH_DOWNGRADE_ACTION_HANDOFF.
+  if (matchDowngradeAsAdd) {
+    const term = finding.proposer_term;
+    let categoryLabel = (term?.label ? "" : "").trim();
+    let valueLabel = (term?.label ?? "").trim();
+    let valueUri: string | null = term?.uri ?? null;
+    if (!valueLabel) {
+      // Fall back to the rationale's first backticked ``cat: val`` —
+      // calibration_match's standard rationale shape ("Is
+      // `cell type: astrocyte` correctly assigned?").
+      const tok = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? "";
+      const colon = tok.indexOf(":");
+      if (colon !== -1) {
+        categoryLabel = tok.slice(0, colon).trim();
+        valueLabel = tok.slice(colon + 1).trim();
+      }
+    }
+    // proposer_term holds the value; the category lives on
+    // ``proposer_term_category`` when shipped, or we fall back to
+    // the target_id slug (de-slugged best-effort by replacing dashes
+    // with spaces — UI-side cosmetic only, the URI is what matters).
+    if (!categoryLabel) {
+      const slugMatch = finding.target_id.match(/^tag:([^/]+)\//);
+      if (slugMatch) categoryLabel = slugMatch[1].replace(/-/g, " ");
+    }
+    if (!categoryLabel || !valueLabel) return null;
+    const alreadyApplied = (design?.tags ?? []).some((tag) => {
+      if (!labelEq(tag.category?.label, categoryLabel)) return false;
+      if (!labelEq(tag.value?.label, valueLabel)) return false;
+      if (valueUri && tag.value?.uri) return tag.value.uri === valueUri;
+      return true;
+    });
+    if (alreadyApplied) {
+      return {
+        mutates: false,
+        label: "✓ Already in draft",
+        tooltip:
+          `Tag "${categoryLabel}: ${valueLabel}" is already on the design. ` +
+          `Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    const tooltip = valueUri
+      ? `Agree → add tag "${categoryLabel}: ${valueLabel}" (${valueUri}) to the design.`
+      : `Agree → add tag "${categoryLabel}: ${valueLabel}" (free-text — resolve later) to the design.`;
+    return {
+      mutates: true,
+      label: "Agree (add) →",
+      tooltip,
+      successMessage: `Added tag "${categoryLabel}: ${valueLabel}". Commit the draft to save.`,
+      mutate: (draft) =>
+        addPopulatedTag(draft, categoryLabel, valueLabel, valueUri),
+      appliedFix: `add ${categoryLabel}: ${valueLabel}`,
+    };
   }
 
   const t = parseCalibrationTargetId(finding.target_id);
@@ -561,32 +652,58 @@ function resolveFactorCalibrationApply(
   finding: AuditFinding,
   report: AuditReport | null,
   design: Design | null,
+  opts?: { goldEmpty?: boolean },
 ): ApplyAction | null {
   if (finding.target_kind !== "factor") return null;
   const code = finding.issue_code;
   if (!design) return null;
+  const goldEmpty = !!opts?.goldEmpty;
 
-  // Near / close / legacy-rename factor match: the agent and Gemma
-  // paired against the same partition but drift exists at the
-  // category-label or FV level. Curator's Agree = adopt the agent's
-  // labels/URIs onto the existing Gemma factor in place (a rename +
-  // FV relabel). Replaces the previous focus-only fallback so the
-  // curator can act on a near-match card without bouncing to the
-  // Preview button or the Design tab.
+  // Match-downgrade (factor side): a ``*_match_*`` finding viewed
+  // against an empty displayed gold baseline routes through the
+  // add-factor path the ``calibration_factor_extra`` branch below
+  // uses — there's no gold factor for ``resolveNearMatchApply`` to
+  // mutate in place. Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
   if (
+    goldEmpty &&
+    (isExactFactorMatch(finding) ||
+      isCloseFactorMatch(finding) ||
+      code === "calibration_factor_match" ||
+      code === "factor_proposed_match_with_design")
+  ) {
+    // Fall through to the add-factor branch below by re-tagging
+    // the effective code locally. The original ``finding.issue_code``
+    // stays unchanged on the wire — only the apply routing flips.
+  } else if (
     isExactFactorMatch(finding) ||
     isCloseFactorMatch(finding) ||
     code === "calibration_factor_rename"
   ) {
+    // Near / close / legacy-rename factor match: the agent and Gemma
+    // paired against the same partition but drift exists at the
+    // category-label or FV level. Curator's Agree = adopt the agent's
+    // labels/URIs onto the existing Gemma factor in place (a rename +
+    // FV relabel). Replaces the previous focus-only fallback so the
+    // curator can act on a near-match card without bouncing to the
+    // Preview button or the Design tab.
     return resolveNearMatchApply(finding, report, design);
   }
 
+  const effectiveAddCode =
+    code === "calibration_factor_extra" ||
+    code === "augmentation_factor_extra" ||
+    code === "factor_proposed_new" ||
+    // Match-downgrade routes match codes through the add path.
+    (goldEmpty &&
+      (isExactFactorMatch(finding) ||
+        isCloseFactorMatch(finding) ||
+        code === "calibration_factor_match" ||
+        code === "factor_proposed_match_with_design"));
+
   if (
-    code !== "calibration_factor_extra" &&
-    code !== "augmentation_factor_extra" &&
+    !effectiveAddCode &&
     code !== "calibration_factor_gold_only_miss" &&
-    code !== "calibration_factor_partition_mismatch" &&
-    code !== "factor_proposed_new"
+    code !== "calibration_factor_partition_mismatch"
   ) {
     return null;
   }
@@ -599,11 +716,11 @@ function resolveFactorCalibrationApply(
   // proposal-side Agree button records the disposition but never
   // mutates the draft — the curator clicks Agree, the card greys, and
   // the factor never appears in Design setup. Paul 2026-06-14.
-  if (
-    code === "calibration_factor_extra" ||
-    code === "augmentation_factor_extra" ||
-    code === "factor_proposed_new"
-  ) {
+  //
+  // Match-downgrade additions (goldEmpty): ``effectiveAddCode``
+  // includes the match codes when the displayed baseline lacks the
+  // factor; same add-factor mutator handles those.
+  if (effectiveAddCode) {
     const cp = report?.evidence?.comparison_proposal ?? null;
     // Pull a label hint from the rationale's first backticked token
     // so older audits without agent_target_index still resolve.
@@ -1146,7 +1263,13 @@ function resolveContinuousCharacteristicKey(
   return null;
 }
 
-function addFactorFromProposal(
+/** Build a Factor from a FactorProposal and append it to ``design``.
+ *  Continuous-factor proposals are promoted to per-sample FVs via
+ *  ``addContinuousFactorFromCharacteristic`` when the agent shipped
+ *  only a placeholder FV. Exported so ``ComparisonFactorCard`` can
+ *  reuse it for the match-downgrade add-path
+ *  (MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16). */
+export function addFactorFromProposal(
   design: Design,
   proposal: FactorProposal,
 ): Design {

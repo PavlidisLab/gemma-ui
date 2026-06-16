@@ -94,8 +94,27 @@ export function findingDisplayedGoldEmpty(
   }
   // Factor side: lookup by factor slug (parseTargetId emits
   // ``factorSlug``; that's a slug of the factor's category label).
+  //
+  // Calibration findings carry a numeric Gemma factor id in
+  // ``target_id`` (``factor:55021``) rather than a category slug. The
+  // slug-equality walk silently fails on those — every numeric vs slug
+  // comparison returns false, the helper reports goldEmpty=true, and
+  // ``findingActionLabel`` downgrades a valid match to "Add factor".
+  // When the parsed factorSlug is purely numeric, bridge through
+  // ``gold_target_index`` (calibration package v12+ — direct index
+  // into ``draft.factors``) instead. Returns null ("don't know") when
+  // no bridge resolves so we never override a real match.
   const parsed = parseTargetId(finding.target_id);
   if (parsed?.kind === "factor") {
+    if (/^\d+$/.test(parsed.factorSlug)) {
+      const idx = finding.gold_target_index;
+      if (typeof idx === "number" && Number.isInteger(idx)) {
+        const factors = draft.factors ?? [];
+        if (idx < 0 || idx >= factors.length) return null;
+        return !factors[idx];
+      }
+      return null;
+    }
     const found = draft.factors?.find(
       (f) => slug(f.category?.label) === parsed.factorSlug,
     );
@@ -212,12 +231,46 @@ export interface DispositionButtonLabels {
   dismissDialogTitle: string;
 }
 
+/** Optional context for ``findingDispositionButtonLabels``. When
+ *  ``goldEmpty`` is true, a ``*_match`` finding's labels downgrade
+ *  to the add-shaped vocab ("Add" / "Don't add" / "Don't add tag")
+ *  so the dialog title and confirm button agree with the downgraded
+ *  card title — fixes the "Don't remove tag" confirm reading on what
+ *  is visually an Add (MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16). */
+export interface FindingDispositionButtonLabelsContext {
+  goldEmpty?: boolean;
+}
+
 export function findingDispositionButtonLabels(
   finding: AuditFinding,
+  ctx?: FindingDispositionButtonLabelsContext,
 ): DispositionButtonLabels {
   const ak = finding.alignment_kind;
   const isTag = finding.target_kind === "tag";
   const noun = isTag ? "tag" : "factor";
+  const goldEmpty = !!ctx?.goldEmpty;
+  // Match-downgrade: when displayed gold is empty, a *_match finding
+  // reads as an Add — labels follow. Keep this early-out narrow to
+  // the codes ``findingActionShape({ goldEmpty })`` also downgrades.
+  if (goldEmpty) {
+    const code = finding.issue_code;
+    if (
+      code === "calibration_match" ||
+      code === "calibration_factor_match_exact" ||
+      code === "calibration_factor_match_near" ||
+      code === "calibration_factor_match_close" ||
+      code === "calibration_factor_match" ||
+      code === "factor_proposed_match_with_design" ||
+      code === "tag_proposed_match_with_design"
+    ) {
+      return {
+        acceptLabel: "Add",
+        acceptDoneLabel: "✓ Added",
+        dismissLabel: "Don't add",
+        dismissDialogTitle: `Don't add ${noun}`,
+      };
+    }
+  }
   if (ak === "extra") {
     return {
       acceptLabel: "Add",
@@ -631,17 +684,6 @@ export function subsumedFvChildren(
  *  one-liners is open. */
 export function findingShortRationale(finding: AuditFinding): string | null {
   const max = 50;
-  // Per-issue-code curated copy — short, curator-readable phrases for
-  // the situations where the wire-side rationale is too verbose or
-  // says something off-pitch. Paul 2026-06-11: "The remove tag ones
-  // should say 'Agent did not propose'." Lands BEFORE the heuristic
-  // sources below so the curated copy always wins.
-  if (
-    finding.issue_code === "calibration_gold_only_miss" ||
-    finding.issue_code === "calibration_factor_gold_only_miss"
-  ) {
-    return "Agent did not propose";
-  }
   const trim = (s: string | null | undefined): string => {
     if (!s) return "";
     const trimmed = s.trim();
@@ -669,5 +711,19 @@ export function findingShortRationale(finding: AuditFinding): string | null {
   if (rationale) return rationale;
   const defense = trim(finding.proposer_defense);
   if (defense) return defense;
+  // Per-issue-code curated copy — last-resort fallback when the wire
+  // ships no usable rationale. Originally landed BEFORE
+  // ``suggested_fix`` (Paul 2026-06-11) so the agent's prose was
+  // always overridden; flipped to a fallback per
+  // FINDING_SHORT_RATIONALE_BM_AWARE_2026_06_16: when the agent emits
+  // a richer ``suggested_fix`` ("Already captured by biomaterial
+  // characteristic"), use it. The bare "Agent did not propose"
+  // template only shows when the agent has nothing better to say.
+  if (
+    finding.issue_code === "calibration_gold_only_miss" ||
+    finding.issue_code === "calibration_factor_gold_only_miss"
+  ) {
+    return "Agent did not propose";
+  }
   return null;
 }

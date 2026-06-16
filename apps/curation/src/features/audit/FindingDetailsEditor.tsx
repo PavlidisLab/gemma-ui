@@ -92,6 +92,7 @@ import {
   findingActionShape,
   type ActionShape,
 } from "./actionLabels";
+import { findingDisplayedGoldEmpty } from "./findingHelpers";
 import { parseTargetId, slug } from "./targetIds";
 import type { FactorProposal } from "@/api/types";
 import { useAudit } from "./AuditContext";
@@ -954,9 +955,17 @@ export function FindingDetailsEditor({
   // ``applyHandlers.ts`` (``resolveCalibrationApply`` → adds the
   // tag); the editor's per-row details-edit path is a no-op for
   // tag findings (``applyDetailsEditsToDesign`` is factor-only).
+  //
+  // Match-downgrade: a ``calibration_match`` viewed against a baseline
+  // that lacks the tag reads as a tag-add — same render path
+  // (``hideDismiss`` cleared so the [Add, Don't add] pair shows up
+  // instead of the no-affordance ``[Agree only]`` row the bare match
+  // code rendered). Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
   const isTagAddFinding =
     finding.target_kind === "tag" &&
-    finding.issue_code === "calibration_agent_extra";
+    (finding.issue_code === "calibration_agent_extra" ||
+      (finding.issue_code === "calibration_match" &&
+        findingDisplayedGoldEmpty(finding, design) === true));
 
   const isPartitionMismatch =
     finding.issue_code === "calibration_factor_partition_mismatch" &&
@@ -974,7 +983,18 @@ export function FindingDetailsEditor({
   // label. See ./actionLabels.ts. Paul 2026-05-21 — an "Add tag"
   // finding's keep button shouldn't read "keep current" when there
   // IS no current; it should read "don't add".
-  const actionShape = findingActionShape(finding);
+  // Match-downgrade signal: when the curator's displayed gold
+  // baseline doesn't carry the entity even though the audit-time
+  // baseline did, a ``*_match`` finding's action shape downgrades to
+  // ``"add"`` — the row becomes [Agree, Don't add] and the apply path
+  // routes through the add mutator. Mirrors the title downgrade in
+  // ``findingCard.tsx`` (``goldEmptyForTitle``). Per
+  // MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  const displayedGoldEmpty =
+    findingDisplayedGoldEmpty(finding, design) === true;
+  const actionShape = findingActionShape(finding, {
+    goldEmpty: displayedGoldEmpty,
+  });
   const actionLbls = actionLabels(actionShape);
 
   function setPick(path: string, patch: Partial<RowState>): void {
@@ -1105,13 +1125,23 @@ export function FindingDetailsEditor({
   // is NARROWER than ``isCloseFactorMatch`` — close / near matches
   // still need the curator's eyes (URI variant, FV-count drift),
   // so they keep their buttons even when the per-row diff is empty.
-  const auditorSaysExactlyRight =
+  // Match-downgrade exception: a ``*_match`` finding viewed against
+  // an empty displayed gold baseline is NOT "exactly right" — the
+  // curator's action is to add the entity. The action-row collapse
+  // to ``[Agree]`` only is wrong; the editor must render the
+  // [Agree, Don't add] pair. ``displayedGoldEmpty`` is already
+  // computed below for ``actionShape``. Per
+  // MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  const auditorSaysExactlyRightRaw =
     finding.severity === "ok" ||
     isExactFactorMatch(finding) ||
     finding.issue_code === "calibration_factor_match_exact" ||
     (finding.target_kind === "tag" &&
       finding.issue_code === "calibration_match" &&
       disagreementRows.length === 0);
+  const auditorSaysExactlyRight =
+    auditorSaysExactlyRightRaw &&
+    findingDisplayedGoldEmpty(finding, design) !== true;
 
   // Partition-mismatch findings — agent and gold disagree on the
   // partition shape of a same-label factor along a clean

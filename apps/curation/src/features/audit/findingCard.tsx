@@ -829,6 +829,16 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   } = useAudit();
   const { apply: applyDraft, draft } = useDesignDraft();
   const toast = useToast();
+  // Match-downgrade signal: a stored ``*_match`` finding viewed
+  // against a baseline that lacks the entity reads as an Add — same
+  // computation as ``CompactFindingCard``'s ``goldEmptyForTitle``.
+  // Threaded into the apply resolver, dismiss chip vocab, and
+  // disposition button labels below so the action row matches the
+  // downgraded title. Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  const goldEmptyForTitle = useMemo(
+    () => findingDisplayedGoldEmpty(finding, draft ?? null) === true,
+    [finding, draft],
+  );
   // Review-mode lock — same gate as `ActionRow` in
   // FindingDetailsEditor. Curator can read the finding cards but can't
   // act on them without a calibration / ticket context. The per-card
@@ -911,7 +921,16 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // Pass the report + draft so factor-level calibration apply handlers
   // (extra → add factor, gold_only_miss → remove factor) can resolve
   // the agent factor and guard against double-applies.
-  const action = resolveApplyAction(finding, { report, design: draft });
+  // ``goldEmpty`` propagates the same match-downgrade signal the title
+  // uses (``goldEmptyForTitle``) into the apply path — a
+  // ``calibration_match`` viewed against a baseline that lacks the
+  // entity routes through the add-tag/factor mutator instead of a
+  // no-op. Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  const action = resolveApplyAction(finding, {
+    report,
+    design: draft,
+    goldEmpty: goldEmptyForTitle,
+  });
   const disposition = dispositionByTarget.get(finding.target_id);
   const current = disposition?.status ?? "pending";
   // Action-named button labels — replaces the legacy "Agree" / "Reject"
@@ -920,7 +939,10 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // the agent'", and the secondary button names the opposite action
   // ("Don't remove") rather than the meta-stance ("Reject"). See
   // ``findingDispositionButtonLabels`` for the full per-code table.
-  const dispoLabels = findingDispositionButtonLabels(finding);
+  // Same goldEmpty signal — a downgraded match's labels read as Add.
+  const dispoLabels = findingDispositionButtonLabels(finding, {
+    goldEmpty: goldEmptyForTitle,
+  });
   // Judge says weak → reframe the action row so Dismiss is the primary
   // blue button and the structural-apply demotes to a small "override"
   // link. Without this the curator gets mixed signals (Suggested Fix
@@ -1672,12 +1694,11 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             return (
               <DismissDialog
                 mode="dismiss"
-                chips={dismissChipsFor(finding)}
+                chips={dismissChipsFor(finding, { goldEmpty: goldEmptyForTitle })}
                 finding={finding}
                 targetId={finding.target_id}
                 anchor={dismissBtnRef.current}
                 titleOverride={dispoLabels.dismissDialogTitle}
-                confirmLabelOverride={dispoLabels.dismissDialogTitle}
                 isEdit={dismissEditing}
                 initialTag={prefill.tag}
                 initialNotes={prefill.plain}

@@ -54,10 +54,45 @@ import type { AuditFinding } from "@/api/auditTypes";
 
 export type ActionShape = "add" | "remove" | "change" | "match";
 
+/** Optional context for ``findingActionShape``. When ``goldEmpty``
+ *  is true, a ``*_match`` finding's shape downgrades from ``"match"``
+ *  to ``"add"`` — the curator's display baseline (polished_gold /
+ *  preboard / etc.) doesn't carry the entity even though the
+ *  audit-time baseline (often live Gemma) did, so the curator's
+ *  action is genuinely "add this", not "confirm this match". Mirrors
+ *  ``findingActionLabel({ goldEmpty })`` (ed4f25f, 2026-06-16) and
+ *  is the action-row half of the MATCH_DOWNGRADE_ACTION handoff. */
+export interface FindingActionShapeContext {
+  goldEmpty?: boolean;
+}
+
 /** Map a finding to one of four action shapes. Drives the button-
  *  label text on the finding card (keep vs accept). */
-export function findingActionShape(finding: AuditFinding): ActionShape {
+export function findingActionShape(
+  finding: AuditFinding,
+  ctx?: FindingActionShapeContext,
+): ActionShape {
+  const goldEmpty = !!ctx?.goldEmpty;
   const code = finding.issue_code;
+  // Match-downgrade: when the displayed gold baseline doesn't carry
+  // the entity (goldEmpty), every match-shaped code reads as an Add.
+  // Title already downgrades via ``findingActionLabel({ goldEmpty })``;
+  // the action row, dismiss vocab, and apply path must follow so
+  // Agree actually adds the entity to the draft. Per
+  // MATCH_DOWNGRADE_ACTION_HANDOFF.md.
+  if (goldEmpty) {
+    if (
+      code === "calibration_match" ||
+      code === "calibration_factor_match_exact" ||
+      code === "calibration_factor_match_near" ||
+      code === "calibration_factor_match_close" ||
+      code === "calibration_factor_match" ||
+      code === "factor_proposed_match_with_design" ||
+      code === "tag_proposed_match_with_design"
+    ) {
+      return "add";
+    }
+  }
   if (code === "calibration_factor_extra") return "add";
   if (code === "calibration_agent_extra") return "add";
   if (code === "calibration_factor_gold_only_miss") return "remove";

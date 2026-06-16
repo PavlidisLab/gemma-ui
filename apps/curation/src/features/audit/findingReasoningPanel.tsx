@@ -21,7 +21,7 @@
  * FACTOR IS A MATCH or a PARTIAL MATCH".
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import type { AuditFinding, AuditReport } from "@/api/auditTypes";
@@ -71,6 +71,15 @@ export function FindingReasoningPanel({
   extraBody = null,
 }: FindingReasoningPanelProps) {
   const [open, setOpen] = useState(defaultOpen);
+  // Re-sync to defaultOpen when the parent's panel-expansion baseline
+  // changes — CompactFindingCard drives this via the
+  // PanelExpansionContext. Without this, cycling collapsed → expanded
+  // → fully mounts the panel at defaultOpen=false (the "expanded"
+  // step) and the subsequent defaultOpen=true ("fully" step) never
+  // reaches the internal state.
+  useEffect(() => {
+    setOpen(defaultOpen);
+  }, [defaultOpen]);
   const hasContent = findingHasReasoningContent(finding);
   const citationVisible = !!(finding.citation || finding.citation_url);
   return (

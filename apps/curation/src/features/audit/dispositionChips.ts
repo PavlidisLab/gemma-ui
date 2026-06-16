@@ -260,10 +260,41 @@ export const TAG_DISMISS_CHIPS: DialogChip[] = [
  *  ``TAG_DISMISS_CHIPS`` — the generic vocab plus "Subset only" and
  *  "Redundant" (server-side gate widened 2026-06-12 per
  *  UIB_HANDOFF_2026_06_12_DISMISS_REASON_GATE_WIDEN.md). */
+/** Optional context for ``dismissChipsFor``. When ``goldEmpty`` is
+ *  true, a ``*_match`` finding's dismiss chips downgrade to the
+ *  add-side vocabulary (Subset only / No evidence / Redundant /
+ *  Out of scope) so the dialog matches the downgraded card title.
+ *  Mirrors ``findingActionLabel({ goldEmpty })`` and
+ *  ``findingActionShape({ goldEmpty })``. Per
+ *  MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16. */
+export interface DismissChipsContext {
+  goldEmpty?: boolean;
+}
+
 export function dismissChipsFor(
   finding: Pick<AuditFinding, "issue_code" | "target_kind">,
+  ctx?: DismissChipsContext,
 ): DialogChip[] {
   const issueCode = finding.issue_code;
+  const goldEmpty = !!ctx?.goldEmpty;
+  // Match-downgrade: when displayed gold is empty, a *_match finding's
+  // dismiss vocab follows the add-side path. Tag and factor split
+  // mirrors the calibration_agent_extra / calibration_factor_extra
+  // branches below.
+  if (
+    goldEmpty &&
+    (issueCode === "calibration_match" ||
+      issueCode === "calibration_factor_match_exact" ||
+      issueCode === "calibration_factor_match_near" ||
+      issueCode === "calibration_factor_match_close" ||
+      issueCode === "calibration_factor_match" ||
+      issueCode === "factor_proposed_match_with_design" ||
+      issueCode === "tag_proposed_match_with_design")
+  ) {
+    return finding.target_kind === "tag"
+      ? CAL_EXTRA_TAG_DISMISS_CHIPS
+      : CAL_EXTRA_FACTOR_DISMISS_CHIPS;
+  }
   // Remove-factor / remove-tag: curator disagrees with the removal.
   // Split per ``target_kind`` — tags and factors share the issue_code
   // family but have entirely different vocabularies (tags have no
