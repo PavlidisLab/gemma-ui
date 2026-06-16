@@ -1478,13 +1478,12 @@ export function FindingDetailsEditor({
             negative``). */}
         {groups.length > 0 ? (
           <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
-            {/* Four-column grid — [count-L] [LEFT label] [RIGHT
-                label] [count-R]. BIG number on the OUTSIDE of each
-                FV, never inside. Umbrella side's count renders once
-                with rowspan so it is not duplicated across the
-                group's children. No arrow. Paul 2026-06-16:
-                "NUMBERS TO THE RIGHT OF THE RIGHT_HAND AND LEFT OF
-                THE LEFT_HAND". */}
+            {/* Four-column grid — [LEFT label] [count-L] [count-R]
+                [RIGHT label]. BIG numbers side-by-side in the
+                MIDDLE so they read as a comparator pair. Umbrella
+                side's count + label rowspan so neither is
+                duplicated across the group's children. No arrow,
+                no in-chip (N). */}
             {(() => {
               const cells: ReactNode[] = [];
               let rowIx = 1;
@@ -1515,27 +1514,7 @@ export function FindingDetailsEditor({
                   const goldSide: SidedFv = umbrellaIsGold ? umbrella : child;
                   const agentSide: SidedFv = umbrellaIsGold ? child : umbrella;
                   const childN = child.samples?.length ?? 0;
-                  // count-L (far LEFT). Per-row for children-side,
-                  // rowspan'd to first row when umbrella-side.
-                  const goldN = umbrellaIsGold ? umbrellaN : childN;
-                  if (!umbrellaIsGold || ci === 0) {
-                    cells.push(
-                      <span
-                        key={`cl-${gi}-${ci}`}
-                        style={{
-                          gridColumn: "count-l",
-                          gridRow: umbrellaIsGold
-                            ? `${groupRowStart} / span ${children.length}`
-                            : rowIx,
-                        }}
-                        className="self-center text-right pr-2 text-xl font-bold tabular-nums text-slate-700 dark:text-slate-200"
-                        title={`${goldN} sample(s)`}
-                      >
-                        {goldN > 0 ? goldN : ""}
-                      </span>,
-                    );
-                  }
-                  // LEFT label cell — rowspan when umbrella, per-row
+                  // LEFT label — rowspan when umbrella, per-row
                   // when children.
                   if (!umbrellaIsGold || ci === 0) {
                     cells.push(
@@ -1561,7 +1540,46 @@ export function FindingDetailsEditor({
                       </div>,
                     );
                   }
-                  // RIGHT label cell — mirror.
+                  // count-L (mid-LEFT, right-aligned). Per-row for
+                  // children-side, rowspan'd when umbrella-side.
+                  const goldN = umbrellaIsGold ? umbrellaN : childN;
+                  if (!umbrellaIsGold || ci === 0) {
+                    cells.push(
+                      <span
+                        key={`cl-${gi}-${ci}`}
+                        style={{
+                          gridColumn: "count-l",
+                          gridRow: umbrellaIsGold
+                            ? `${groupRowStart} / span ${children.length}`
+                            : rowIx,
+                        }}
+                        className="self-center text-right px-2 text-xl font-bold tabular-nums text-slate-700 dark:text-slate-200"
+                        title={`${goldN} sample(s)`}
+                      >
+                        {goldN > 0 ? goldN : ""}
+                      </span>,
+                    );
+                  }
+                  // count-R (mid-RIGHT, left-aligned).
+                  const agentN = umbrellaIsGold ? childN : umbrellaN;
+                  if (umbrellaIsGold || ci === 0) {
+                    cells.push(
+                      <span
+                        key={`cr-${gi}-${ci}`}
+                        style={{
+                          gridColumn: "count-r",
+                          gridRow: umbrellaIsGold
+                            ? rowIx
+                            : `${groupRowStart} / span ${children.length}`,
+                        }}
+                        className="self-center text-left px-2 text-xl font-bold tabular-nums text-amber-700 dark:text-amber-300"
+                        title={`${agentN} sample(s)`}
+                      >
+                        {agentN > 0 ? agentN : ""}
+                      </span>,
+                    );
+                  }
+                  // RIGHT label — mirror.
                   if (umbrellaIsGold || ci === 0) {
                     cells.push(
                       <div
@@ -1586,25 +1604,6 @@ export function FindingDetailsEditor({
                       </div>,
                     );
                   }
-                  // count-R (far RIGHT).
-                  const agentN = umbrellaIsGold ? childN : umbrellaN;
-                  if (umbrellaIsGold || ci === 0) {
-                    cells.push(
-                      <span
-                        key={`cr-${gi}-${ci}`}
-                        style={{
-                          gridColumn: "count-r",
-                          gridRow: umbrellaIsGold
-                            ? rowIx
-                            : `${groupRowStart} / span ${children.length}`,
-                        }}
-                        className="self-center text-left pl-2 text-xl font-bold tabular-nums text-amber-700 dark:text-amber-300"
-                        title={`${agentN} sample(s)`}
-                      >
-                        {agentN > 0 ? agentN : ""}
-                      </span>,
-                    );
-                  }
                   rowIx++;
                 });
               });
@@ -1613,7 +1612,7 @@ export function FindingDetailsEditor({
                   className="grid items-baseline text-[11px]"
                   style={{
                     gridTemplateColumns:
-                      "[count-l] auto [left] 1fr [right] 1fr [count-r] auto",
+                      "[left] 1fr [count-l] auto [count-r] auto [right] 1fr",
                     columnGap: 6,
                     rowGap: 4,
                   }}
