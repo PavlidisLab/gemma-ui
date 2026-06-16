@@ -169,29 +169,24 @@ function CategoryChip({
 
 function FvCell({
   fv,
-  fvIndex,
   termRenderer,
   diffChips,
 }: {
   fv: GridFv;
-  fvIndex: number;
   termRenderer: FvTermRenderer;
   diffChips?: ReadonlySet<string>;
 }) {
   if (!fv) {
     return <em className="text-slate-400">(no FV)</em>;
   }
-  // ``FvDisplayRow`` reads ``free_text_label`` + ``statements[*]`` +
-  // ``biomaterial_short_names`` from the FV. ``indexLabel`` drives the
-  // "FV N" prefix Paul asked for on both surfaces. ``diffChips`` is
-  // the side-specific differing-chip set computed by ``computeFvDiff``
-  // — the row tags matching chips with ``diff: true`` and the caller's
-  // term renderer rings them.
+  // FV-index prefix ("FV 1" / "FV 2" / …) dropped 2026-06-16 — Paul:
+  // "The FV1, FV1, FV2 etc is not needed as long as separate FVs are
+  // visibly separate." Row separation now relies on backdrop +
+  // padding only.
   return (
     <FvDisplayRow
       fv={fv}
       termRenderer={termRenderer}
-      indexLabel={fvIndex + 1}
       diffChips={diffChips}
       suppressSampleCount
     />
@@ -375,23 +370,25 @@ function PairGridBody({
       className="relative grid items-stretch text-[11px]"
       style={{
         gridTemplateColumns: `[left] 1fr [mid] ${MID_COL_PX}px [right] 1fr [action] auto`,
-        rowGap: 6,
-        padding: 4,
+        rowGap: 10,
+        padding: 6,
       }}
     >
       {/* Per-row backdrop — sits behind each pair's cells so the row
           reads as one self-contained unit instead of running into
-          its neighbours. */}
+          its neighbours. Stronger ring + slightly darker fill per
+          Paul 2026-06-16 ("They barely [separate] right now"). */}
       {pairs.map((_, ix) => (
         <div
           key={`backdrop-${ix}`}
           aria-hidden
+          data-testid="factor-comparison-row-backdrop"
           style={{
             gridColumn: "1 / -1",
             gridRow: ix + 1,
             zIndex: 0,
           }}
-          className="rounded bg-slate-100/60 dark:bg-slate-800/40 ring-1 ring-slate-200/70 dark:ring-slate-700/60"
+          className="rounded bg-slate-200/50 ring-1 ring-slate-300 dark:bg-slate-800/60 dark:ring-slate-600/80"
         />
       ))}
       {pairs.map((pair, ix) => {
@@ -403,11 +400,10 @@ function PairGridBody({
           <div key={`pair-${ix}`} className="contents">
             <div
               style={{ gridColumn: "left", gridRow: ix + 1, position: "relative", zIndex: 1 }}
-              className="min-w-0 px-2 py-1.5"
+              className="min-w-0 px-2 py-2"
             >
               <FvCell
                 fv={pair.left}
-                fvIndex={ix}
                 termRenderer={termRenderer}
                 diffChips={leftKeys}
               />
@@ -415,7 +411,7 @@ function PairGridBody({
             <span
               style={{ gridColumn: "mid", gridRow: ix + 1, position: "relative", zIndex: 1 }}
               className={
-                "select-none text-center px-1 py-1.5 font-semibold text-[13px] whitespace-nowrap " +
+                "select-none text-center px-1 py-2 font-semibold text-[13px] whitespace-nowrap " +
                 (mid ? mid.cls : glyph?.cls ?? "text-transparent")
               }
               title={mid ? mid.title : glyph?.title ?? undefined}
@@ -425,18 +421,17 @@ function PairGridBody({
             </span>
             <div
               style={{ gridColumn: "right", gridRow: ix + 1, position: "relative", zIndex: 1 }}
-              className="min-w-0 px-2 py-1.5"
+              className="min-w-0 px-2 py-2"
             >
               <FvCell
                 fv={pair.right}
-                fvIndex={ix}
                 termRenderer={termRenderer}
                 diffChips={rightKeys}
               />
             </div>
             <div
               style={{ gridColumn: "action", gridRow: ix + 1, position: "relative", zIndex: 1 }}
-              className="px-2 py-1.5 flex items-baseline justify-end gap-1.5"
+              className="px-2 py-2 flex items-baseline justify-end gap-1.5"
             >
               {perFvAction}
             </div>

@@ -43,6 +43,10 @@ import { sameOntologyTerm } from "@/lib/ontologyTerm";
 import { useToast } from "@/components/ui/Toast";
 import { Term, termRenderer } from "@/components/ui/Term";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
+import {
+  FactorComparisonGrid,
+  type FactorComparisonPair,
+} from "./factorComparison/FactorComparisonGrid";
 import { FvDisplayRow } from "@gemma/ontology";
 import {
   ContinuousStrip,
@@ -1301,73 +1305,40 @@ export function FindingDetailsEditor({
     const isAgentFiner = pm.direction === "agent_finer";
     const agentVerb = "says";
     const goldVerb = currentlyVerb(identities.goldCurator);
-    // Group fv_pairs by the PARENT side (declared BEFORE the framing
-    // decisions below so we can detect the 1:1 case — i.e. each
-    // parent has exactly one child — and override the "finer /
-    // fewer levels" copy when the partition is actually 1:1 with
-    // labels drifting. Paul 2026-06-14: factor:57029 (GSE36611
-    // diet) ships direction=agent_finer with two 1:1 pairs (ad
-    // libitum ↔ reference substance role, caloric restriction ↔
-    // calorie restricted) — counts are 2 == 2 yet the headline
-    // reads "Auditor proposes finer levels". Real classification
-    // is label drift, not finer; the agent's direction tag is
-    // load-bearing in agent_coarser / agent_finer with M:1 or 1:M
-    // mappings but degenerates to drift when M = 1. UI detects
-    // this and adjusts. */
-    // Group fv_pairs by the PARENT side. For agent_finer the
-    // parent is gold; for agent_coarser the parent is agent.
-    // Repeated entries with the same parent collapse into a
-    // single row with multiple children. Each side carries its
-    // ``StatementParts`` so the row can render via ``FvDisplayRow``
-    // (statement chips, not just the FV's free-text name) — the
-    // shape Paul's design-editor surface uses.
-    type SidedFv = {
-      term: { label: string; uri: string | null };
-      statement?: StatementParts | null;
-      samples?: readonly string[] | null;
-    };
-    const groups = (() => {
-      const map = new Map<
-        string,
-        { parent: SidedFv; children: SidedFv[] }
-      >();
-      for (const pair of pm.fv_pairs) {
-        const parent: SidedFv = isAgentFiner
-          ? {
-              term: pair.gold,
-              statement: pair.gold_statement,
-              samples: pair.gold_biomaterial_short_names ?? null,
-            }
-          : {
-              term: pair.agent,
-              statement: pair.agent_statement,
-              samples: pair.agent_biomaterial_short_names ?? null,
-            };
-        const child: SidedFv = isAgentFiner
-          ? {
-              term: pair.agent,
-              statement: pair.agent_statement,
-              samples: pair.agent_biomaterial_short_names ?? null,
-            }
-          : {
-              term: pair.gold,
-              statement: pair.gold_statement,
-              samples: pair.gold_biomaterial_short_names ?? null,
-            };
-        const key = `${parent.term.label}|${parent.term.uri ?? ""}`;
-        const entry = map.get(key) ?? { parent, children: [] };
-        entry.children.push(child);
-        map.set(key, entry);
+    // 1:1 detection — when every parent has exactly one child the
+    // agent's "finer/fewer" direction tag is a misclassification.
+    // Frame as label drift. Group by the umbrella side (gold for
+    // agent_finer; agent for agent_coarser); 1:1 means every group
+    // has exactly one entry.
+    const umbrellaKeyForPair = (
+      p: typeof pm.fv_pairs[number],
+    ): string =>
+      isAgentFiner
+        ? `${p.gold.label}|${p.gold.uri ?? ""}`
+        : `${p.agent.label}|${p.agent.uri ?? ""}`;
+    const umbrellaCounts = (() => {
+      const m = new Map<string, number>();
+      for (const p of pm.fv_pairs) {
+        const k = umbrellaKeyForPair(p);
+        m.set(k, (m.get(k) ?? 0) + 1);
       }
-      return Array.from(map.values());
+      return m;
     })();
-    // 1:1 detection — when every parent has exactly one child and
-    // the totals on both sides match, the agent's "finer / fewer"
-    // direction tag is a misclassification. Frame as label drift.
+    const distinctUmbrellaCount = umbrellaCounts.size;
     const is1to1 =
-      groups.length > 0 &&
-      groups.length === pm.fv_pairs.length &&
-      groups.every((g) => g.children.length === 1);
+      pm.fv_pairs.length > 0 &&
+      distinctUmbrellaCount === pm.fv_pairs.length;
+    // Counts for the headline summary. Auditor (agent) side count
+    // = distinct agent FVs; current (gold) side count = distinct
+    // gold FVs. Computed independently of umbrella direction so the
+    // "Auditor says N levels / Current says M levels" headline
+    // reads consistently.
+    const distinctAgentCount = new Set(
+      pm.fv_pairs.map((p) => `${p.agent.label}|${p.agent.uri ?? ""}`),
+    ).size;
+    const distinctGoldCount = new Set(
+      pm.fv_pairs.map((p) => `${p.gold.label}|${p.gold.uri ?? ""}`),
+    ).size;
     const directionPhrase = is1to1
       ? "different labels (same partition)"
       : isAgentFiner
@@ -1429,7 +1400,7 @@ export function FindingDetailsEditor({
             </span>
             <span className="flex items-baseline gap-x-1.5">
               <span className="text-xl font-bold text-amber-700 dark:text-amber-300 leading-none">
-                {isAgentFiner ? pm.fv_pairs.length : groups.length}
+                {distinctAgentCount}
               </span>
               <span className="text-slate-600 dark:text-slate-300">
                 levels
@@ -1452,7 +1423,7 @@ export function FindingDetailsEditor({
             </span>
             <span className="flex items-baseline gap-x-1.5">
               <span className="text-xl font-bold text-slate-700 dark:text-slate-200 leading-none">
-                {isAgentFiner ? groups.length : pm.fv_pairs.length}
+                {distinctGoldCount}
               </span>
               <span className="text-slate-600 dark:text-slate-300">
                 levels
@@ -1461,167 +1432,46 @@ export function FindingDetailsEditor({
           </div>
         </div>
 
-        {/* Mapping — grouped by parent (umbrella). Layout convention
-            is "current on the LEFT, auditor on the RIGHT" regardless
-            of which side is the umbrella (Paul 2026-06-14). For
-            agent_finer the gold side IS the umbrella; for
-            agent_coarser the gold side is the children-stack — so
-            the orientation of single-vs-stacked flips with
-            ``direction`` while the left/right semantics stay put.
-            Each FV renders via ``FvDisplayRow`` so the statement
-            chips (subject · predicate · object) show, matching the
-            design-editor surface — not just the FV's free-text
-            name. Earlier ``MappingChip`` collapsed each side to a
-            bare label which read as "all wrong" on multi-statement
-            FVs (e.g. ``Homozygous negative ORC2 [human]`` instead
-            of ``genotype · ORC2 · has_genotype · Homozygous
-            negative``). */}
-        {groups.length > 0 ? (
-          <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
-            {/* Four-column grid — [LEFT label] [count-L] [count-R]
-                [RIGHT label]. BIG numbers side-by-side in the
-                MIDDLE so they read as a comparator pair. Umbrella
-                side's count + label rowspan so neither is
-                duplicated across the group's children. No arrow,
-                no in-chip (N). */}
-            {(() => {
-              const cells: ReactNode[] = [];
-              let rowIx = 1;
-              cells.push(
-                <span
-                  key="hdr-l"
-                  style={{ gridColumn: "left", gridRow: rowIx }}
-                  className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400"
-                >
-                  {identities.goldCurator}
-                </span>,
-                <span
-                  key="hdr-r"
-                  style={{ gridColumn: "right", gridRow: rowIx }}
-                  className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400"
-                >
-                  {identities.proposer}
-                </span>,
-              );
-              rowIx++;
-              groups.forEach((g, gi) => {
-                const umbrellaIsGold = isAgentFiner;
-                const umbrella = g.parent;
-                const children = g.children;
-                const groupRowStart = rowIx;
-                const umbrellaN = umbrella.samples?.length ?? 0;
-                children.forEach((child, ci) => {
-                  const goldSide: SidedFv = umbrellaIsGold ? umbrella : child;
-                  const agentSide: SidedFv = umbrellaIsGold ? child : umbrella;
-                  const childN = child.samples?.length ?? 0;
-                  // LEFT label — rowspan when umbrella, per-row
-                  // when children.
-                  if (!umbrellaIsGold || ci === 0) {
-                    cells.push(
-                      <div
-                        key={`l-${gi}-${ci}`}
-                        style={{
-                          gridColumn: "left",
-                          gridRow: umbrellaIsGold
-                            ? `${groupRowStart} / span ${children.length}`
-                            : rowIx,
-                        }}
-                        className="min-w-0 px-1 py-0.5 self-center"
-                      >
-                        <FvDisplayRow
-                          fv={_fvDisplayFromMapping(
-                            goldSide.term,
-                            goldSide.statement,
-                            goldSide.samples ?? null,
-                          )}
-                          termRenderer={termRenderer}
-                          suppressSampleCount
-                        />
-                      </div>,
-                    );
-                  }
-                  // count-L (mid-LEFT, right-aligned). Per-row for
-                  // children-side, rowspan'd when umbrella-side.
-                  const goldN = umbrellaIsGold ? umbrellaN : childN;
-                  if (!umbrellaIsGold || ci === 0) {
-                    cells.push(
-                      <span
-                        key={`cl-${gi}-${ci}`}
-                        style={{
-                          gridColumn: "count-l",
-                          gridRow: umbrellaIsGold
-                            ? `${groupRowStart} / span ${children.length}`
-                            : rowIx,
-                        }}
-                        className="self-center text-right px-2 text-xl font-bold tabular-nums text-slate-700 dark:text-slate-200"
-                        title={`${goldN} sample(s)`}
-                      >
-                        {goldN > 0 ? goldN : ""}
-                      </span>,
-                    );
-                  }
-                  // count-R (mid-RIGHT, left-aligned).
-                  const agentN = umbrellaIsGold ? childN : umbrellaN;
-                  if (umbrellaIsGold || ci === 0) {
-                    cells.push(
-                      <span
-                        key={`cr-${gi}-${ci}`}
-                        style={{
-                          gridColumn: "count-r",
-                          gridRow: umbrellaIsGold
-                            ? rowIx
-                            : `${groupRowStart} / span ${children.length}`,
-                        }}
-                        className="self-center text-left px-2 text-xl font-bold tabular-nums text-amber-700 dark:text-amber-300"
-                        title={`${agentN} sample(s)`}
-                      >
-                        {agentN > 0 ? agentN : ""}
-                      </span>,
-                    );
-                  }
-                  // RIGHT label — mirror.
-                  if (umbrellaIsGold || ci === 0) {
-                    cells.push(
-                      <div
-                        key={`r-${gi}-${ci}`}
-                        style={{
-                          gridColumn: "right",
-                          gridRow: umbrellaIsGold
-                            ? rowIx
-                            : `${groupRowStart} / span ${children.length}`,
-                        }}
-                        className="min-w-0 px-1 py-0.5 self-center"
-                      >
-                        <FvDisplayRow
-                          fv={_fvDisplayFromMapping(
-                            agentSide.term,
-                            agentSide.statement,
-                            agentSide.samples ?? null,
-                          )}
-                          termRenderer={termRenderer}
-                          suppressSampleCount
-                        />
-                      </div>,
-                    );
-                  }
-                  rowIx++;
-                });
-              });
-              return (
-                <div
-                  className="grid items-baseline text-[11px]"
-                  style={{
-                    gridTemplateColumns:
-                      "[left] 1fr [count-l] auto [count-r] auto [right] 1fr",
-                    columnGap: 6,
-                    rowGap: 4,
-                  }}
-                >
-                  {cells}
-                </div>
-              );
-            })()}
-          </div>
+        {/* FV mapping — SAME FactorComparisonGrid used by the
+            factor-match card. ONE shared component for every
+            factor-side comparison; partition_mismatch is just a
+            different fill of the same pairs slot. Paul 2026-06-16:
+            "I want ONE component for factors and ONE component for
+            TAGS." Cost of unification: when the partition is M:1
+            (agent_coarser) the agent FV label repeats across each
+            gold child row instead of rowspanning — accepted. */}
+        {pm.fv_pairs.length > 0 ? (
+          <FactorComparisonGrid
+            leftHeader={{
+              label: identities.goldCurator,
+              category: {
+                label: pm.gold.category.label ?? null,
+                uri: pm.gold.category.uri ?? null,
+              },
+            }}
+            rightHeader={{
+              label: identities.proposer,
+              category: {
+                label: pm.agent.category.label ?? null,
+                uri: pm.agent.category.uri ?? null,
+              },
+            }}
+            pairs={pm.fv_pairs.map<FactorComparisonPair>((p) => ({
+              left: _fvDisplayFromMapping(
+                p.gold,
+                p.gold_statement,
+                p.gold_biomaterial_short_names ?? null,
+              ) as FactorComparisonPair["left"],
+              right: _fvDisplayFromMapping(
+                p.agent,
+                p.agent_statement,
+                p.agent_biomaterial_short_names ?? null,
+              ) as FactorComparisonPair["right"],
+              status: "drift",
+            }))}
+            termRenderer={termRenderer}
+            onLeftLocate={onLocateCurrent}
+          />
         ) : null}
 
         {hint ? (
@@ -1928,14 +1778,13 @@ export function FindingDetailsEditor({
             the category chip sits inline next to "Current 🔍" so the
             FV chips below can fit on one line at 11px. */}
         <div className="space-y-1">
-          <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
-            <span className="text-slate-600 dark:text-slate-300">
-              <strong>{identities.proposer}</strong> {proposerVerb}
-            </span>
-            <span className="italic text-slate-400">
-              (proposes removing — no entry)
-            </span>
-          </div>
+          {/* Auditor's "(proposes removing — no entry)" line removed
+              2026-06-16 — placeholder anti-pattern flagged by Paul.
+              The card header ("REMOVE TAG") and the body's "removal
+              proposed" tag already convey the auditor's ask; a
+              labeled empty-state row added noise. Per the
+              three-phase spec: omit empty sections, never render
+              "(no entry)" placeholders. */}
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px]">
             <span className="text-slate-600 dark:text-slate-300 whitespace-nowrap">
               <strong>{identities.goldCurator}</strong>
