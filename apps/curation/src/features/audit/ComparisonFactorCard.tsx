@@ -43,6 +43,7 @@ import type {
   DismissReason,
 } from "@/api/auditTypes";
 import { ThreePhaseFindingBody } from "./findingThreePhase";
+import { FindingReasoningPanel } from "./findingReasoningPanel";
 import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
@@ -964,20 +965,14 @@ export function ComparisonFactorCard({
       </div>
       {cardOpen ? (
         <>
-          {/* Reasoning (Why + Reviews + Comparison judge text) renders
-              ABOVE the visual grid — same vertical order as
-              FindingDetailsEditor uses for partition_mismatch / extra
-              / miss cards. Both card types must read top-to-bottom
-              as [reasoning] → [visual] → [buttons] so the curator
-              learns ONE layout regardless of finding kind. Paul
-              2026-06-16: "IT SHOULD BE THE SAME COMPONENT WHETHER
-              THE FACTOR IS A MATCH or a PARTIAL MATCH". */}
-          <WhyBlock
-            factor={rightFactor}
-            finding={finding}
-            report={report}
-            isComparison={baselineSource !== undefined}
-          />
+          {/* Reasoning collapsible — SAME component, SAME affordance
+              shape as every other finding card type (the one used by
+              CompactFindingCard / FindingDetailsEditor). Renders
+              ABOVE the visual grid so the curator reads
+              [reasoning] → [visual] → [buttons] regardless of finding
+              kind. Paul 2026-06-16: "IT SHOULD BE THE SAME COMPONENT
+              WHETHER THE FACTOR IS A MATCH or a PARTIAL MATCH". */}
+          <FindingReasoningPanel finding={finding} report={report} />
           {/* Body — switched 2026-06-12 from the inline CategoryPair +
               FvPairRow loop to the shared FactorComparisonGrid so
               this surface and FindingDetailsEditor (next-up
