@@ -863,12 +863,15 @@ export function FindingDetailsEditor({
   const [saving, setSaving] = useState(false);
   // Inline Reject-with-reason prompt — Reject requires a reason
   // (Paul 2026-05-25: "reject and park should have a reason"),
-  // Agree is fire-and-forget without a notes prompt, Park already
-  // routes through ``onPark`` → NotSureDialog which gates on a
-  // structured reason chip. The note rides on the disposition
-  // PATCH and goes back to the curation agent at close-review
-  // time.
-  const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
+  // Agree is fire-and-forget without a notes prompt; Reject routes
+  // through ``onDismiss`` → ``DismissDialog`` chip picker with the
+  // per-issue-code chip set from ``dispositionChips.dismissChipsFor``;
+  // Park routes through ``onPark`` → ``NotSureDialog``. The earlier
+  // ``rejectPromptOpen`` / ``InlineNotesPrompt`` path was a bare
+  // notes textarea that bypassed the chip taxonomy — removed
+  // 2026-06-15 per Paul: "make sure there is a _uniform_ place those
+  // are coded but the choices might differ based on the situation."
+  // dispositionChips.ts IS that uniform place.
   // Free-text term lookup state (``findTermLabel`` + ``resolvedTerms``
   // + ``FreeTextLookup`` picker) removed 2026-06-15 — Paul: "I would
   // prefer not to even enable editing of free text. They would have
@@ -1685,21 +1688,7 @@ export function FindingDetailsEditor({
           })()
         ) : null}
 
-        {rejectPromptOpen ? (
-          <InlineNotesPrompt
-            primaryLabel="Reject"
-            primaryTone="reject"
-            saving={saving}
-            onCancel={() => setRejectPromptOpen(false)}
-            onConfirm={async (notes) => {
-              setRejectPromptOpen(false);
-              // "currently" verdict on a factor-extra collapses to
-              // status=dismissed via verdictToStructureDetails —
-              // same wire shape the legacy Disagree path used.
-              await dispatchSave("currently", notes);
-            }}
-          />
-        ) : (
+        {(
           <ActionRow
             saving={saving}
             disabled={currentDisposition !== "pending"}
@@ -1709,8 +1698,11 @@ export function FindingDetailsEditor({
                 kind: "primary-accept" as const,
                 label: "Agree",
                 // Agree is fire-and-forget — no notes prompt. Per
-                // Paul 2026-05-25: "just agree". Reject + Park
-                // still require a reason.
+                // Paul 2026-05-25: "just agree". Reject opens the
+                // shared DismissDialog chip picker via onDismiss —
+                // chips come from ``dispositionChips.dismissChipsFor``
+                // (CAL_EXTRA_FACTOR_DISMISS_CHIPS for factor-extra:
+                // "Already covered" / "Wrong shape" / "FVs wrong" / …).
                 onClick: () => runApply(""),
                 title: `Agree with ${identities.proposer}: add the proposed factor to the design.`,
               } satisfies ActionButton,
@@ -1718,9 +1710,9 @@ export function FindingDetailsEditor({
                 key: "reject",
                 kind: "secondary" as const,
                 label: "Reject…",
-                onClick: () => setRejectPromptOpen(true),
+                onClick: onDismiss,
                 title:
-                  "Record an explicit rejection (optional explanation). Goes back to the curation agent at close-review time.",
+                  "Reject with a reason chip (Already covered / Wrong shape / FVs wrong / Other) — goes back to the curation agent at close-review time.",
               } satisfies ActionButton,
             ]}
             onDismiss={onDismiss}
@@ -1938,7 +1930,16 @@ export function FindingDetailsEditor({
               key: "keep",
               kind: leanKinds.keep,
               label: keepLabel,
-              onClick: () => dispatchSave("currently"),
+              // Reject-the-removal opens the shared DismissDialog chip
+              // picker via onDismiss — chips come from
+              // ``dispositionChips.dismissChipsFor`` (CAL_MISS_DISMISS_CHIPS
+              // for removal findings: "Factor needed" / "Structure
+              // correct, FVs wrong" / "Wrong partition" / "Missed
+              // evidence" / …). Paul 2026-06-15: REMOVE TAG cards had
+              // no disposition prompt at all — fire-and-forget on Keep
+              // dropped the curator's reason on the floor.
+              onClick: onDismiss,
+              title: `Reject ${identities.proposer}'s removal with a reason chip.`,
             },
             {
               key: "remove",
@@ -2171,18 +2172,7 @@ export function FindingDetailsEditor({
           action row while the curator decides; Dismiss + "keep"
           are dropped (non-application records itself via the
           close-review summary). Per Paul 2026-05-25. */}
-      {isTagAddFinding && rejectPromptOpen ? (
-        <InlineNotesPrompt
-          primaryLabel="Reject"
-          primaryTone="reject"
-          saving={saving}
-          onCancel={() => setRejectPromptOpen(false)}
-          onConfirm={async (notes) => {
-            setRejectPromptOpen(false);
-            await dispatchSave("currently", notes);
-          }}
-        />
-      ) : (
+      {(
       <ActionRow
         saving={saving}
         disabled={currentDisposition !== "pending"}
@@ -2221,9 +2211,20 @@ export function FindingDetailsEditor({
                     key: "reject",
                     kind: "secondary" as const,
                     label: "Reject…",
-                    onClick: () => setRejectPromptOpen(true),
+                    // Reject opens the shared DismissDialog chip picker
+                    // via onDismiss — chips come from
+                    // ``dispositionChips.dismissChipsFor``
+                    // (CAL_EXTRA_TAG_DISMISS_CHIPS for tag-add:
+                    // "Subset only" / "No evidence" / "Redundant" /
+                    // "Out of scope" / …). Paul 2026-06-15: a bare
+                    // notes textarea here dropped the curator's
+                    // structured reason on the floor — the chip set
+                    // already existed in dispositionChips.ts and was
+                    // routed by issue_code; the InlineNotesPrompt was
+                    // just bypassing it.
+                    onClick: onDismiss,
                     title:
-                      "Record an explicit rejection (optional explanation). Goes back to the curation agent at close-review time.",
+                      "Reject with a reason chip (Subset only / No evidence / Redundant / Other) — goes back to the curation agent at close-review time.",
                   } satisfies ActionButton,
                 ]
             : noActionableDelta
@@ -4546,111 +4547,12 @@ function ConsequentHintBanner({
 // proposal-pane editing affordance. Recover from git history
 // (commit c687592) if/when it's needed again.
 
-/** Inline optional-explanation prompt — replaces the action row on
- *  factor-extra / tag-extra cards for both Apply and Reject so the
- *  two verdicts share visual shape (Paul 2026-05-25 harmonization).
- *  Textarea accepts free text; empty is fine — the explanation is
- *  optional. The note rides on the disposition PATCH and goes back
- *  to the curation agent at close-review time. */
-function InlineNotesPrompt({
-  primaryLabel,
-  primaryTone = "accept",
-  placeholder,
-  saving,
-  onCancel,
-  onConfirm,
-  savingLabel,
-  notesRequired = false,
-}: {
-  primaryLabel: string;
-  /** ``"accept"`` = blue (default; Apply path). ``"reject"`` = rose
-   *  (Reject path) so the curator sees the verdict colour-coded
-   *  before they confirm. */
-  primaryTone?: "accept" | "reject";
-  placeholder?: string;
-  saving: boolean;
-  /** Optional override for the in-flight button label — defaults
-   *  to "applying…" / "rejecting…" based on tone. */
-  savingLabel?: string;
-  /** When true, the confirm button stays disabled until the
-   *  textarea has at least one non-whitespace character. Use for
-   *  Reject — curator should record WHY they declined. Apply is
-   *  optional-notes. */
-  notesRequired?: boolean;
-  onCancel: () => void;
-  onConfirm: (notes: string) => void | Promise<void>;
-}) {
-  const [notes, setNotes] = useState("");
-  const tonedClass =
-    primaryTone === "reject"
-      ? saving
-        ? "bg-rose-200 text-rose-700 cursor-progress"
-        : "bg-rose-700 text-white hover:bg-rose-800"
-      : saving
-        ? "bg-blue-200 text-blue-700 cursor-progress"
-        : "bg-blue-700 text-white hover:bg-blue-800";
-  const defaultSavingLabel =
-    primaryTone === "reject" ? "rejecting…" : "applying…";
-  const trimmed = notes.trim();
-  const blockedByEmpty = notesRequired && trimmed.length === 0;
-  return (
-    // ``max-w-sm`` (24rem ~ 384px) keeps the textarea + buttons in a
-    // single readable cluster instead of stretching across the full
-    // card width (Paul 2026-05-25: "this box is so wide, the Reject
-    // confirm button is waaaay over there").
-    <div className="border border-slate-300 dark:border-slate-600 rounded p-2 space-y-2 bg-slate-50 dark:bg-slate-900/60 max-w-sm">
-      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-200">
-        {notesRequired ? "Explain" : "Optional explanation"}
-        <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
-          — rides to the curation agent at close-review time
-        </span>
-      </label>
-      <textarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        rows={2}
-        placeholder={
-          placeholder ??
-          (primaryTone === "reject"
-            ? notesRequired
-              ? "why you're rejecting this"
-              : "(optional) why you're rejecting this — leave blank if no comment"
-            : notesRequired
-              ? "why you're applying this"
-              : "(optional) why you're applying this — leave blank if no comment")
-        }
-        autoFocus
-        className="w-full text-[11px] border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 resize-y bg-white dark:bg-slate-900"
-      />
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={saving}
-          className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-700"
-        >
-          cancel
-        </button>
-        <button
-          type="button"
-          onClick={() => onConfirm(notes)}
-          disabled={saving || blockedByEmpty}
-          title={
-            blockedByEmpty
-              ? "enter a reason first"
-              : undefined
-          }
-          className={cn(
-            "text-[11px] px-2 py-0.5 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed",
-            tonedClass,
-          )}
-        >
-          {saving ? (savingLabel ?? defaultSavingLabel) : primaryLabel}
-        </button>
-      </div>
-    </div>
-  );
-}
+// InlineNotesPrompt deleted 2026-06-15 — Reject paths now route
+// through ``onDismiss`` → ``DismissDialog`` chip picker, sourcing
+// per-issue-code chips from ``dispositionChips.dismissChipsFor``.
+// Paul: "make sure there is a _uniform_ place those are coded but
+// the choices might differ based on the situation." Recover from
+// git history if a future surface wants a free-text-only prompt.
 
 
 function ActionRow({
