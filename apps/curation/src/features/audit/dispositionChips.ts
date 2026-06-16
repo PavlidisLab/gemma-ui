@@ -85,7 +85,10 @@ export const NOT_SURE_CHIPS: DialogChip[] = [
 // now permissive (`DismissReason: str`, see
 // `handoffs/CHIP_VOCAB_BRO1_LANDED_2026_06_14.md`), so new slugs ship
 // without coordination.
-export const CAL_MISS_DISMISS_CHIPS: DialogChip[] = [
+// FACTOR-side removal dismiss — curator says "don't remove the
+// factor"; the factor / its FVs / its partition need to stay
+// (possibly with fixes). Factor concepts: FVs, partition, structure.
+export const CAL_MISS_FACTOR_DISMISS_CHIPS: DialogChip[] = [
   { key: "agent_real_miss",            label: "Factor needed",         help: "the factor + its FVs are correct; agent should have proposed it" },
   { key: "structure_correct_fvs_wrong", label: "Structure correct, FVs wrong", help: "the factor category is right but the FV labels / values need fixing — don't remove" },
   { key: "wrong_partition",            label: "Wrong partition",       help: "the factor exists but the sample assignment to FVs is wrong — don't remove" },
@@ -93,6 +96,28 @@ export const CAL_MISS_DISMISS_CHIPS: DialogChip[] = [
   { key: "borderline",                 label: "Borderline",            help: "close call — could reasonably go either way" },
   { key: "other",                      label: "Other",                 help: "add a note" },
 ];
+
+// TAG-side removal dismiss — curator says "don't remove the tag";
+// the tag is correct and should stay. Tags have NO factor values,
+// NO partition, NO structure — chips that talk about FVs/partition
+// don't apply. Per Paul 2026-06-15: "tags don't have factor values
+// or levels or structure GET IT RIGHT" and earlier: "When prompted
+// to _remove_ a tag, the _reject_ would be by ('keep') 'Agent
+// missed it' pretty much."
+export const CAL_MISS_TAG_DISMISS_CHIPS: DialogChip[] = [
+  { key: "agent_missed_it",     label: "Agent missed it",     help: "the tag is correct and applies; agent should have kept it" },
+  { key: "tag_applies_broadly", label: "Applies broadly",     help: "the tag covers the profiled samples — countering a 'subset only' rationale" },
+  { key: "missed_evidence",     label: "Missed evidence",     help: "agent overlooked supporting evidence in the paper/data" },
+  { key: "borderline",          label: "Borderline",          help: "close call — could reasonably go either way" },
+  { key: "other",               label: "Other",               help: "add a note" },
+];
+
+/** @deprecated Use ``CAL_MISS_FACTOR_DISMISS_CHIPS`` (factor-side)
+ *  or ``CAL_MISS_TAG_DISMISS_CHIPS`` (tag-side). Kept as an alias
+ *  for any external import; remove once consumers settle on the
+ *  split-by-target_kind sets. Routes per target_kind via
+ *  ``dismissChipsFor``. */
+export const CAL_MISS_DISMISS_CHIPS = CAL_MISS_FACTOR_DISMISS_CHIPS;
 // For calibration_*_gold_only_miss: "Accept (remove)" means curator
 // agrees with agent's removal. Chips align with the reasons a
 // curator would normally remove a current tag, per Paul 2026-06-15:
@@ -240,6 +265,10 @@ export function dismissChipsFor(
 ): DialogChip[] {
   const issueCode = finding.issue_code;
   // Remove-factor / remove-tag: curator disagrees with the removal.
+  // Split per ``target_kind`` — tags and factors share the issue_code
+  // family but have entirely different vocabularies (tags have no
+  // FVs / partition / structure). Paul 2026-06-15: "tags don't have
+  // factor values or levels or structure GET IT RIGHT".
   if (
     issueCode === "calibration_gold_only_miss" ||
     issueCode === "calibration_factor_gold_only_miss" ||
@@ -247,8 +276,11 @@ export function dismissChipsFor(
     // removal framing.
     issueCode === "factor_design_missing_from_agent" ||
     issueCode === "tag_design_missing_from_agent"
-  )
-    return CAL_MISS_DISMISS_CHIPS;
+  ) {
+    return finding.target_kind === "tag"
+      ? CAL_MISS_TAG_DISMISS_CHIPS
+      : CAL_MISS_FACTOR_DISMISS_CHIPS;
+  }
   // Add-factor / add-tag: curator disagrees with the addition.
   if (
     issueCode === "calibration_agent_extra" ||

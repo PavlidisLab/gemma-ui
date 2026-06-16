@@ -3,7 +3,8 @@ import type { AuditFinding } from "@/api/auditTypes";
 import {
   CAL_EXTRA_FACTOR_DISMISS_CHIPS,
   CAL_EXTRA_TAG_DISMISS_CHIPS,
-  CAL_MISS_DISMISS_CHIPS,
+  CAL_MISS_FACTOR_DISMISS_CHIPS,
+  CAL_MISS_TAG_DISMISS_CHIPS,
   DISMISS_CHIPS,
   TAG_DISMISS_CHIPS,
   dismissChipsFor,
@@ -50,12 +51,18 @@ function mkFinding(
 }
 
 describe("dismissChipsFor — calibration routing (unchanged)", () => {
-  it("routes calibration_gold_only_miss to CAL_MISS regardless of target_kind", () => {
+  it("routes calibration_gold_only_miss (tag) to CAL_MISS_TAG — tags have no FVs/partition/structure", () => {
+    // Paul 2026-06-15: tag-side removal dismiss must NOT show
+    // factor-flavoured chips like "Wrong partition" / "Structure
+    // correct, FVs wrong" — tags don't have those concepts.
     expect(
       dismissChipsFor(
         mkFinding({ issue_code: "calibration_gold_only_miss", target_kind: "tag" }),
       ),
-    ).toBe(CAL_MISS_DISMISS_CHIPS);
+    ).toBe(CAL_MISS_TAG_DISMISS_CHIPS);
+  });
+
+  it("routes calibration_factor_gold_only_miss to CAL_MISS_FACTOR — factor-shaped vocab", () => {
     expect(
       dismissChipsFor(
         mkFinding({
@@ -63,7 +70,7 @@ describe("dismissChipsFor — calibration routing (unchanged)", () => {
           target_kind: "factor",
         }),
       ),
-    ).toBe(CAL_MISS_DISMISS_CHIPS);
+    ).toBe(CAL_MISS_FACTOR_DISMISS_CHIPS);
   });
 
   it("routes calibration_agent_extra (tag) to CAL_EXTRA_TAG", () => {
@@ -121,14 +128,19 @@ describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
     expect(chips.map((c) => c.key)).toContain("not_sample_applicable");
   });
 
-  it("routes entity-frame tag_design_missing_from_agent to CAL_MISS_DISMISS_CHIPS — 'don't remove tag' framing", () => {
+  it("routes entity-frame tag_design_missing_from_agent to CAL_MISS_TAG — 'don't remove tag' framing", () => {
+    // Paul 2026-06-15 split: tag-side removal-dismiss now uses tag
+    // vocab ("Agent missed it" / "Applies broadly" / …) — factor
+    // vocab ("Factor needed" / "Wrong partition") no longer leaks
+    // into tag cards.
     const chips = dismissChipsFor(
       mkFinding({
         issue_code: "tag_design_missing_from_agent",
         target_kind: "tag",
       }),
     );
-    expect(chips.map((c) => c.key)).toContain("agent_real_miss");
+    expect(chips).toBe(CAL_MISS_TAG_DISMISS_CHIPS);
+    expect(chips.map((c) => c.key)).toContain("agent_missed_it");
   });
 
   it("routes unknown tag-target issue codes to TAG_DISMISS_CHIPS (forward-compat)", () => {
