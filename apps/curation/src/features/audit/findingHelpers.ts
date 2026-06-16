@@ -24,7 +24,7 @@ import {
 } from "./factorMatch";
 import { isActionPrefixRationale } from "./auditorDetails";
 import { SEVERITY_RANK, TARGET_KIND_LABEL } from "./auditPresentation";
-import { parseTargetId } from "./targetIds";
+import { parseTargetId, slug } from "./targetIds";
 
 // ---------------------------------------------------------------------------
 // Action label + glyph — what verb does the card header announce
@@ -41,7 +41,85 @@ import { parseTargetId } from "./targetIds";
  *    - calibration_agent_extra             → "Add tag"
  *    - calibration_gold_only_miss          → "Remove tag"
  *    - generic factor / tag findings       → "Factor" / "Tag" */
-export function findingActionLabel(finding: AuditFinding): string {
+/** Returns true when the displayed gold-side (the baseline the
+ *  curator currently has selected via the chip strip) has NO value
+ *  for the subject of the finding. The audit's stored issue_code is
+ *  baseline-dependent: a ``calibration_match`` finding was correct
+ *  against the audit's original baseline (often live Gemma) but the
+ *  curator may now view it against polished_gold / cy_polished /
+ *  preboard / etc. — and those may not carry the value at all. When
+ *  the displayed gold-side is empty, the card body renders
+ *  ``Current: no entry`` and a bare "Tag match" / "Factor match"
+ *  title contradicts the body.
+ *
+ *  Lookup mirrors the same path the tag-card chip render uses:
+ *  ``parseTargetId`` to recover the (category, value) slugs, then a
+ *  slug-keyed walk of ``draft.tags`` / ``draft.factors``. Falls back
+ *  to a backticked-rationale token when the target_id doesn't carry
+ *  the identity (rare for tags; common for legacy synthetic IDs).
+ *
+ *  Returns ``null`` (= "don't know") when neither path yields enough
+ *  to lookup — caller treats that as "trust the stored label" so we
+ *  never accidentally downgrade a real match to an Add. */
+export function findingDisplayedGoldEmpty(
+  finding: AuditFinding,
+  draft: Design | null,
+): boolean | null {
+  if (!draft) return null;
+  const isTag = finding.target_kind === "tag";
+  if (isTag) {
+    const parsed = parseTargetId(finding.target_id);
+    if (parsed?.kind === "tag") {
+      const found = draft.tags?.find(
+        (t) =>
+          slug(t.category?.label) === parsed.categorySlug &&
+          slug(t.value?.label) === parsed.valueSlug,
+      );
+      return !found;
+    }
+    // Fallback: parse backticked rationale token "cat: val".
+    const tok = firstBacktick(finding.rationale);
+    if (!tok) return null;
+    const colon = tok.indexOf(":");
+    if (colon === -1) return null;
+    const catSlug = slug(tok.slice(0, colon).trim());
+    const valSlug = slug(tok.slice(colon + 1).trim());
+    if (!catSlug || !valSlug) return null;
+    const found = draft.tags?.find(
+      (t) =>
+        slug(t.category?.label) === catSlug &&
+        slug(t.value?.label) === valSlug,
+    );
+    return !found;
+  }
+  // Factor side: lookup by factor slug (parseTargetId emits
+  // ``factorSlug``; that's a slug of the factor's category label).
+  const parsed = parseTargetId(finding.target_id);
+  if (parsed?.kind === "factor") {
+    const found = draft.factors?.find(
+      (f) => slug(f.category?.label) === parsed.factorSlug,
+    );
+    return !found;
+  }
+  return null;
+}
+
+/** Optional context for ``findingActionLabel``. When ``goldEmpty`` is
+ *  true, a ``*_match`` finding is silently downgraded to ``Add tag`` /
+ *  ``Add factor`` because the displayed comparator has no value — the
+ *  audit's ``calibration_match`` was correct against a *different*
+ *  baseline (often live Gemma) but the current view's baseline
+ *  (polished_gold / cy_polished / etc.) doesn't carry it, so the card
+ *  body would render ``Current: no entry`` and the bare "Tag match"
+ *  title would contradict the body. Paul 2026-06-16. */
+export interface FindingActionLabelContext {
+  goldEmpty?: boolean;
+}
+
+export function findingActionLabel(
+  finding: AuditFinding,
+  ctx?: FindingActionLabelContext,
+): string {
   // Declarative verbs ("Add tag" / "Remove factor" / etc.) instead of
   // the older "Proposed ..." nouns. Per Paul 2026-05-21: the agent's
   // recommendation reads more cleanly when the action is stated
@@ -54,11 +132,18 @@ export function findingActionLabel(finding: AuditFinding): string {
   // than walking ``issue_code``. Tag vs factor disambiguation falls
   // back to ``target_kind`` since the alignment enum is shared. Old
   // packages without the field fall through to the issue_code path.
+  const isTag = finding.target_kind === "tag";
+  const goldEmpty = !!ctx?.goldEmpty;
   const ak = finding.alignment_kind;
   if (ak) {
-    const isTag = finding.target_kind === "tag";
-    if (ak === "exact") return isTag ? "Tag match" : "Factor match";
-    if (ak === "near") return isTag ? "Tag near-match" : "Factor near-match";
+    if (ak === "exact") {
+      if (goldEmpty) return isTag ? "Add tag" : "Add factor";
+      return isTag ? "Tag match" : "Factor match";
+    }
+    if (ak === "near") {
+      if (goldEmpty) return isTag ? "Add tag" : "Add factor";
+      return isTag ? "Tag near-match" : "Factor near-match";
+    }
     if (ak === "partition_mismatch") return "Modify factor values";
     if (ak === "extra") return isTag ? "Add tag" : "Add factor";
     if (ak === "gold_only_miss") return isTag ? "Remove tag" : "Remove factor";
@@ -68,8 +153,12 @@ export function findingActionLabel(finding: AuditFinding): string {
   if (code === "calibration_agent_extra") return "Add tag";
   if (code === "calibration_factor_gold_only_miss") return "Remove factor";
   if (code === "calibration_gold_only_miss") return "Remove tag";
-  if (code === "calibration_factor_match_exact") return "Factor match";
-  if (code === "calibration_factor_match_near") return "Factor near-match";
+  if (code === "calibration_factor_match_exact") {
+    return goldEmpty ? "Add factor" : "Factor match";
+  }
+  if (code === "calibration_factor_match_near") {
+    return goldEmpty ? "Add factor" : "Factor near-match";
+  }
   if (code === "calibration_factor_rename") return "Rename factor";
   if (code === "calibration_factor_partition_mismatch") {
     // Always "Modify factor values". The finer/coarser axis is a
@@ -79,7 +168,9 @@ export function findingActionLabel(finding: AuditFinding): string {
     // The mapping table below the header carries the direction signal.
     return "Modify factor values";
   }
-  if (code === "calibration_match") return "Tag match";
+  if (code === "calibration_match") {
+    return goldEmpty ? "Add tag" : "Tag match";
+  }
   return TARGET_KIND_LABEL[finding.target_kind] || finding.target_kind;
 }
 

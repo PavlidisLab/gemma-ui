@@ -77,6 +77,7 @@ import {
 import {
   findingActionGlyph,
   findingActionLabel,
+  findingDisplayedGoldEmpty,
 } from "./findingHelpers";
 import { MatchBadge, SeverityBadge } from "./findingBadges";
 import { isCloseFactorMatch, isExactFactorMatch } from "./factorMatch";
@@ -742,7 +743,10 @@ export function ComparisonFactorCard({
           />
         )}
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-          {findingActionLabel(finding)}
+          {findingActionLabel(finding, {
+            goldEmpty:
+              findingDisplayedGoldEmpty(finding, draftDesign ?? null) === true,
+          })}
         </span>
         {matchedButMissingFromBaseline ? (
           <span

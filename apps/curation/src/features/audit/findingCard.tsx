@@ -79,6 +79,7 @@ import {
   findingActionGlyph,
   findingActionLabel,
   findingDispositionButtonLabels,
+  findingDisplayedGoldEmpty,
   findingShortRationale,
   findingSubjectLabel,
   isMatchFinding,
@@ -199,6 +200,16 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   const { draft } = useDesignDraft();
   const disposition = dispositionByTarget.get(finding.target_id);
   const currentDisposition = disposition?.status ?? "pending";
+  // Baseline-aware title override: a stored ``*_match`` finding was
+  // correct against the audit's original baseline; the curator may
+  // now view it against a different baseline that lacks the value
+  // (polished_gold for GSE110721 has no cell-type tag, etc.). When
+  // the displayed gold side is empty, downgrade "Tag match" to "Add
+  // tag" so the title agrees with the body. Paul 2026-06-16.
+  const goldEmptyForTitle = useMemo(
+    () => findingDisplayedGoldEmpty(finding, draft ?? null) === true,
+    [finding, draft],
+  );
 
   // Two boolean axes encode the 3-state card expansion:
   //   collapsed → cardOpen=false, open=false (title row only)
@@ -404,7 +415,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             // surfaces with more precision.
             <>
               <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mr-1">
-                {findingActionLabel(finding)}
+                {findingActionLabel(finding, { goldEmpty: goldEmptyForTitle })}
               </span>
               <JudgeStrengthGlyph finding={finding} />
 
@@ -643,7 +654,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   line. */}
               <span className="flex items-baseline gap-1.5 flex-wrap">
                 <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mr-1">
-                  {findingActionLabel(finding)}
+                  {findingActionLabel(finding, { goldEmpty: goldEmptyForTitle })}
                 </span>
                 {finding.proposer_term?.label ? (
                   <>
