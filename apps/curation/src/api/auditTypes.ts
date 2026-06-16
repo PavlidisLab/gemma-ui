@@ -314,6 +314,101 @@ export interface AuditFinding {
    *  the legacy ``issue_code`` for back-compat on packages that
    *  pre-date the field. */
   alignment_kind?: AlignmentKind | null;
+  /** Phase 1 of the three-phase finding-card render
+   *  (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md, Path B). The
+   *  proposer's own reasoning for emitting this proposal — NEVER
+   *  references gold or any other curation set; only the experiment's
+   *  own data + curation rules. Additive on the wire while the
+   *  agents-side migration completes; readers fall back to
+   *  ``proposer_defense`` / ``supporting_evidence`` / ``citation``
+   *  / ``citation_url`` when this block isn't populated. */
+  why?: WhyBlock | null;
+  /** Phase 2 of the three-phase finding-card render. Flat list of
+   *  reviewer-LLM verdicts (defender, factor_defender, arbiter, boss)
+   *  in pipeline order. Reviewers DO NOT compare to any external
+   *  curation set — only guidelines + experiment data. Additive on
+   *  the wire; readers fall back to ``defender_verdict`` +
+   *  ``evidence.arbiter_verdicts`` + ``evidence.boss_verdicts``
+   *  lookups when this list isn't populated. */
+  reviews?: ReviewVerdict[];
+  /** Phase 3 of the three-phase finding-card render. Optional —
+   *  present only when an external curation set (polished gold, live
+   *  Gemma, another ticket) was compared against. When absent, the
+   *  card omits the Comparison section entirely (no "Auditor says
+   *  (no entry)" placeholder). Carries the comparison-judge LLM's
+   *  verdict + rationale and a label naming the comparator. */
+  comparison?: ComparisonVerdict | null;
+}
+
+// ---------------------------------------------------------------------------
+// Three-phase render blocks
+// (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md — Path B)
+//
+// Additive on the wire while the agents-side migration completes; UI
+// reads these blocks preferentially and falls back to the legacy
+// ``proposer_defense`` / ``defender_verdict`` / ``arbiter_verdicts``
+// fields when absent. Once UI consumes the new shape exclusively, the
+// legacy fields get deprecated and dropped.
+// ---------------------------------------------------------------------------
+
+/** Phase 1: the proposer's own rationale + evidence + citation. */
+export interface WhyBlock {
+  /** One-sentence summary — the always-visible brief line. Falls
+   *  back to first sentence of ``rationale`` when the producer
+   *  doesn't populate it explicitly. */
+  brief?: string;
+  /** Full proposer rationale paragraph — surfaced on expand. */
+  rationale: string;
+  /** Optional evidence quotes — reveal when the curator expands the
+   *  section. Same shape as ``AuditFinding.supporting_evidence``. */
+  evidence?: FindingEvidence[];
+  /** Curation-rule pointer (section anchor) shown as a chip. */
+  citation?: string;
+  citation_url?: string;
+}
+
+/** Phase 2: one reviewer-LLM verdict. Order in the list = order in
+ *  the pipeline (defender first, boss last when present). */
+export interface ReviewVerdict {
+  /** Curator-facing reviewer name — "defender" / "factor_defender" /
+   *  "arbiter" / "boss" / etc. UI renders verbatim; producer is
+   *  responsible for picking a readable string. */
+  reviewer: string;
+  /** Verdict tag — curator-friendly label (producer-renamed per the
+   *  vocabulary cleanup in the spec). String for forward-compat; UI
+   *  doesn't enum-narrow. */
+  verdict: string;
+  /** One-sentence summary — the always-visible brief line for this
+   *  reviewer's row. Falls back to first sentence of ``rationale``
+   *  when absent. */
+  brief?: string;
+  /** Full reviewer rationale — shown on per-row expand. */
+  rationale: string;
+  /** Optional structured action this reviewer suggested (today: boss
+   *  ``undo`` / ``rename`` / ``change_category`` / ``drop_fv``).
+   *  Surface as expanded detail. Shape is producer-defined. */
+  structured_action?: Record<string, unknown> | null;
+}
+
+/** Phase 3: the comparison judgement against an external curation
+ *  set. Optional — when no comparator is in scope, this block is
+ *  absent and the card omits the Comparison section. */
+export interface ComparisonVerdict {
+  /** Human label for the comparator — "polished gold" / "live Gemma"
+   *  / "amanda's curation" / etc. Drives the section header text. */
+  comparator_label: string;
+  /** Structured comparator payload — gold-side tag / FV / factor
+   *  shape. Producer-defined; UI walks it via the existing
+   *  FactorComparisonGrid / chip-strip primitives. */
+  comparator_payload?: Record<string, unknown>;
+  /** Judge verdict — "agent-better" / "gold-better" / "tie" /
+   *  curator-friendly producer string. */
+  judge_verdict: string;
+  /** One-sentence summary — the always-visible brief line beside the
+   *  judge verdict. */
+  judge_brief?: string;
+  /** One-sentence rationale from the comparison judge. */
+  judge_rationale: string;
 }
 
 /** Structured agent-side "Agree mutates X" descriptor. Discriminated

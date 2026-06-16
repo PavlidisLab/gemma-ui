@@ -51,6 +51,7 @@ import { parsePrefixedNote } from "./dispositionEdit";
 import { isNearMatchFinding } from "./factorMatch";
 import { useAudit } from "./AuditContext";
 import { SectionedJudgeChain } from "./JudgeChain";
+import { ThreePhaseFindingBody } from "./findingThreePhase";
 import { verdictStrength } from "./auditPresentation";
 import { findingEvidenceRender } from "./paperExcerptsCaption";
 import { trimRationaleBoilerplate } from "./rationaleText";
@@ -231,6 +232,43 @@ export function InlineSubtaskReasoning({
  *     distinguishes "agent ran but had nothing to add" from
  *     "renderer dropped the field". */
 export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
+  const { report } = useAudit();
+  // Three-phase render per Paul 2026-06-15
+  // (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md). Replaces the
+  // legacy nested-box "STRONG SUGGESTION → INTERNAL REVIEW
+  // (judge/boss) → AUDITOR" stack. Phase 3 (Comparison) is rendered
+  // by the calling card — tag findings render their chip-strip
+  // comparator inside CompactFindingCard's editor; factor findings
+  // use FactorComparisonGrid via ComparisonFactorCard. This panel
+  // covers Phase 1 (Why proposed) and Phase 2 (Reviews); a small
+  // fix-override caption survives below for legacy weak-verdict
+  // copy.
+  const verdictFix = shortFixForVerdict(finding.defender_verdict);
+  return (
+    <div className="px-1.5 py-1 space-y-2">
+      <ThreePhaseFindingBody finding={finding} report={report} />
+      {verdictFix ? (
+        <div className="text-[11px] text-slate-800 dark:text-slate-200 leading-snug italic">
+          {verdictFix}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Legacy nested-box render was deleted with the three-phase rewrite
+// (Paul 2026-06-15, FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md).
+// Recover from git history if a diff comparison is needed; the new
+// ``AgentSuggestionPanel`` above is the canonical render. The
+// function below is preserved verbatim as ``_LegacyAgentSuggestionPanel``
+// and re-exported so its imports stay live during the migration
+// window — once the producer-side ``why`` / ``reviews`` / ``comparison``
+// blocks land on the wire and the three-phase render has settled,
+// delete this function plus the unused imports.
+//
+// Export-only to satisfy ``noUnusedLocals`` without ESLint suppressions.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function _LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const { report } = useAudit();
   const verdictFix = shortFixForVerdict(finding.defender_verdict);
   // For calibration triplet codes the collapsed header already states

@@ -42,7 +42,7 @@ import type {
   AuditReport,
   DismissReason,
 } from "@/api/auditTypes";
-import { SectionedJudgeChain, WhySection } from "./JudgeChain";
+import { ThreePhaseFindingBody } from "./findingThreePhase";
 import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
@@ -1387,30 +1387,34 @@ function WhyBlock({
     factor,
     proposerDefense: finding.proposer_defense,
   });
-  const judgeNode = SectionedJudgeChain({ finding, report, isComparison });
-  if (!proposalNode && !judgeNode) return null;
+  // Three-phase render per Paul 2026-06-15
+  // (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md). Phase 1 (Why
+  // proposed) + Phase 2 (Reviews) render flat (no nested boxes, no
+  // "INTERNAL REVIEW — proposer-side defence" subtitle). Phase 3
+  // (Comparison) is already drawn above this block by
+  // FactorComparisonGrid — the section header for it lives on that
+  // grid surface, not here. ``isComparison`` is preserved on the
+  // call signature so callers still pass it, but the rule now is:
+  // Reviews always shows (header is load-bearing for the curator —
+  // Paul 2026-06-15); Comparison is gated by the grid's own visibility,
+  // not by this block.
+  //
+  // Legacy proposal-section content (per-FV rationale + statements +
+  // evidence) is preserved as a "deeper detail" envelope below the
+  // three-phase body so factor-side proposers' rich rationales stay
+  // discoverable.
+  void isComparison;
   return (
-    <details
-      className="text-[11px] bg-slate-50 dark:bg-slate-900/40 rounded border border-slate-200 dark:border-slate-700 px-2 py-1.5"
-      open
-    >
-      <summary className="cursor-pointer select-none text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 inline-flex items-baseline gap-1.5">
-        <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-          Why?
-        </span>
-      </summary>
-      <div className="mt-2 space-y-2">
-        {proposalNode ? (
-          <WhySection
-            label="Proposal"
-            sublabel="agent's sources + rationale"
-            tone="slate"
-          >
-            {proposalNode}
-          </WhySection>
-        ) : null}
-        {judgeNode}
-      </div>
-    </details>
+    <div className="text-[11px] space-y-2 px-1 py-1">
+      <ThreePhaseFindingBody finding={finding} report={report} />
+      {proposalNode ? (
+        <details className="text-[11px] text-slate-700 dark:text-slate-200">
+          <summary className="cursor-pointer select-none text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100">
+            Proposer detail
+          </summary>
+          <div className="mt-1">{proposalNode}</div>
+        </details>
+      ) : null}
+    </div>
   );
 }
