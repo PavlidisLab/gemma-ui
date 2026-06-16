@@ -49,152 +49,58 @@
 
 import { useState, type ReactNode } from "react";
 import type {
-  ArbiterVerdict,
-  AttachedDefenderVerdict,
   AuditFinding,
   AuditReport,
-  BossPassVerdict,
   ReviewVerdict,
   WhyBlock,
 } from "@/api/auditTypes";
-import {
-  findArbiterForFinding,
-  findBossForFinding,
-} from "@/api/pipelineCommentary";
 import { FindingEvidenceBlock } from "./agentDetailsPanel";
-import { trimRationaleBoilerplate } from "./rationaleText";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 
 // ---------------------------------------------------------------------------
-// Vocabulary translation — TEMPORARY, drop once wire ships labels.
+// Phase 3 of the rollout (Paul 2026-06-15): UI now reads the new wire
+// blocks (`finding.why` / `finding.reviews` / `finding.comparison`)
+// directly. Legacy field fallbacks dropped; vocabulary translation
+// dropped (producer ships curator-friendly verdict strings via the
+// agents-repo `curator_verdict_label()` map, and the eval-repo
+// migration script `migrate_findings_to_three_phase.py` translated
+// every stored review's wire labels). If a finding lacks a populated
+// `why` block the section is omitted (gold_only_miss findings have
+// no positive proposer rationale by design). If `reviews` is empty
+// the section renders with the "no review was done" placeholder.
 // ---------------------------------------------------------------------------
-//
-// TODO(2026-06-15, three-phase-spec): the producer-side rename per
-// Paul's "vocabulary cleanup at producer; UI doesn't translate" rule
-// is landing in parallel. Until the wire ships curator-friendly
-// verdict strings, this UI-side table catches the worst debug
-// strings so curators don't read ``AGENT_MISSED_GOLD`` /
-// ``agent_correct_inherited`` raw on a card. Once the wire ships
-// labels (agents-side wire-block commit), delete this table and
-// just render ``verdict`` verbatim.
-const VERDICT_LABELS: Record<string, string> = {
-  agent_correct_inherited: "already captured by Gemma",
-  agent_missed_gold: "gold has, agent missed",
-  AGENT_MISSED_GOLD: "gold has, agent missed",
-  extra_genuine_new: "real new factor / tag",
-  extra_confounded: "confounded with another",
-  extra_unsupported: "weak evidence",
-  extra_inherited_redundant: "inherited from biomaterial",
-  extra_borderline: "borderline",
-  agent_miss_genuine: "agent missed a real one",
-  agent_correct_overzealous_gold: "agent right, gold over-tagged",
-  miss_genuine: "agent missed it",
-  miss_inherited_from_design: "covered elsewhere in design",
-  miss_overzealous_gold: "gold over-included",
-  miss_borderline: "borderline",
-  concept_mismatch: "different concept",
-  synonym: "same concept, different wording",
-  partition_mismatch: "same factor, samples differ",
-  judgment_unclear: "couldn't decide",
-  gold_correct_per_rule: "gold is right",
-  agent_correct_per_rule: "agent is right",
-  equivalent_by_judgment: "both defensible",
-};
 
-/** Curator-friendly label for a raw wire-side verdict tag. Returns
- *  the input string unchanged when no translation is registered —
- *  forward-compat with new verdicts the producer ships. */
+/** Curator-friendly label for a verdict string. The producer ships
+ *  pre-translated strings on the wire (per Paul's vocab-at-producer
+ *  rule), so this is now a thin pass-through. Kept as a single
+ *  callable so callers don't depend on whether translation happens
+ *  here or at the producer. */
 export function verdictLabel(raw: string | null | undefined): string {
-  const s = (raw ?? "").trim();
-  if (!s) return "";
-  return VERDICT_LABELS[s] ?? s;
+  return (raw ?? "").trim();
 }
 
-// ---------------------------------------------------------------------------
-// Adapters — read three-phase blocks if present, else project from legacy
-// fields. Pure functions; safe to call on every render.
-// ---------------------------------------------------------------------------
-
-/** Pull the Phase-1 Why block. Prefers ``finding.why`` when set;
- *  otherwise projects from the legacy proposer fields. Returns null
- *  when no rationale / evidence / citation is available — caller
- *  suppresses the section. */
+/** Phase-1 Why block. Returns the wire block when populated; null
+ *  otherwise (caller omits the section). */
 export function deriveWhy(finding: AuditFinding): WhyBlock | null {
-  if (finding.why) {
-    const w = finding.why;
-    const hasContent =
-      (w.rationale && w.rationale.trim()) ||
-      (w.evidence && w.evidence.length > 0) ||
-      (w.citation && w.citation.trim()) ||
-      (w.citation_url && w.citation_url.trim());
-    if (!hasContent) return null;
-    return w;
-  }
-  const rationale = trimRationaleBoilerplate(
-    (finding.proposer_defense ?? "").trim(),
-  );
-  const evidence = finding.supporting_evidence ?? [];
-  const citation = (finding.citation ?? "").trim();
-  const citation_url = (finding.citation_url ?? "").trim();
-  if (
-    !rationale &&
-    evidence.length === 0 &&
-    !citation &&
-    !citation_url
-  ) {
-    return null;
-  }
-  return { rationale, evidence, citation, citation_url };
+  const w = finding.why;
+  if (!w) return null;
+  const hasContent =
+    (w.brief && w.brief.trim()) ||
+    (w.rationale && w.rationale.trim()) ||
+    (w.evidence && w.evidence.length > 0) ||
+    (w.citation && w.citation.trim()) ||
+    (w.citation_url && w.citation_url.trim());
+  return hasContent ? w : null;
 }
 
-/** Pull the Phase-2 Reviews list. Prefers ``finding.reviews`` when
- *  set; otherwise projects from ``defender_verdict`` +
- *  ``evidence.arbiter_verdicts`` + ``evidence.boss_verdicts``. Order:
- *  defender → arbiter → boss (pipeline order). */
+/** Phase-2 Reviews list. Returns the wire list directly. Empty list
+ *  when no reviewer LLM ran — caller renders the "no review was done"
+ *  placeholder. */
 export function deriveReviews(
   finding: AuditFinding,
-  report: AuditReport | null,
+  _report: AuditReport | null,
 ): ReviewVerdict[] {
-  if (finding.reviews && finding.reviews.length > 0) {
-    return finding.reviews;
-  }
-  const out: ReviewVerdict[] = [];
-  const defender = finding.defender_verdict ?? null;
-  if (defender && defender.rationale?.trim()) {
-    out.push({
-      reviewer: reviewerLabelFromDefender(defender),
-      verdict: defender.verdict ?? "",
-      rationale: defender.rationale,
-    });
-  }
-  const arbiter = findArbiterForFinding(report, finding);
-  if (arbiter && arbiter.rationale?.trim()) {
-    out.push({
-      reviewer: "arbiter",
-      verdict: arbiter.verdict ?? "",
-      rationale: arbiter.rationale,
-    });
-  }
-  const boss = findBossForFinding(report, finding);
-  if (boss && boss.rationale?.trim()) {
-    out.push({
-      reviewer: "boss",
-      verdict: boss.verdict ?? "",
-      rationale: boss.rationale,
-    });
-  }
-  return out;
-}
-
-/** Pick a reviewer name from a legacy ``AttachedDefenderVerdict``.
- *  The ``side`` field carries the producer label ("defender" /
- *  "arbiter" / "boss" / "agent_extra" / "agent_missed_gold"). The
- *  first two map to the role; the calibration ``agent_*`` sides are
- *  pre-defender-rename legacy and just read "defender" on the card. */
-function reviewerLabelFromDefender(v: AttachedDefenderVerdict): string {
-  if (v.side === "arbiter") return "arbiter";
-  if (v.side === "boss") return "boss";
-  return "defender";
+  return finding.reviews ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +252,35 @@ function ReviewsPhase({
 function ReviewRow({ review }: { review: ReviewVerdict }): JSX.Element {
   const v = verdictLabel(review.verdict);
   const r = (review.rationale ?? "").trim();
+  const isBoss = (review.reviewer ?? "").trim().toLowerCase() === "boss";
+  // Phase 5 (Paul 2026-06-15): boss-row copy is intentionally
+  // minimized. We surface that the boss reviewed and made changes,
+  // but don't expose the structured-action specifics
+  // (`undo` / `rename` / `change_category` / `drop_fv`) as
+  // per-card affordances. Keeps the card from becoming a
+  // boss-action interface. The boss's rationale (when present)
+  // appears as the italic continuation, same as other reviewers.
+  if (isBoss) {
+    return (
+      <li className="flex items-baseline gap-1.5 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+          boss
+        </span>
+        <span className="text-slate-400 dark:text-slate-500">▪</span>
+        <span className="text-[11px] font-medium text-slate-700 dark:text-slate-200">
+          review resulted in changes based on feedback
+        </span>
+        {r ? (
+          <>
+            <span className="text-slate-400 dark:text-slate-500">▪</span>
+            <span className="text-[11px] italic text-slate-600 dark:text-slate-300">
+              {r}
+            </span>
+          </>
+        ) : null}
+      </li>
+    );
+  }
   return (
     <li className="flex items-baseline gap-1.5 flex-wrap">
       <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
@@ -461,4 +396,4 @@ export function ThreePhaseFindingBody({
 }
 
 // Re-export shared types for tests / callers.
-export type { ArbiterVerdict, BossPassVerdict, ReviewVerdict, WhyBlock };
+export type { ReviewVerdict, WhyBlock } from "@/api/auditTypes";

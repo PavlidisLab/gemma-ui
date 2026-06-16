@@ -1,23 +1,21 @@
 /**
  * Tests for the three-phase finding-card adapters
- * (``findingThreePhase.tsx``).
+ * (``findingThreePhase.tsx``) — Phase 3 of the rollout.
  *
  * Spec: ``Gemma/handoffs/FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md``.
- * Principle memory: ``[[feedback_finding_three_phase_contract]]``.
+ * Principle: ``[[feedback_finding_three_phase_contract]]``.
  *
- * We cover the pure projection functions —
- * ``verdictLabel`` / ``deriveWhy`` / ``deriveReviews`` — since they
- * carry the wire-shape contract. The visual components
- * (``WhyPhase`` / ``ReviewsPhase`` / ``ComparisonPhase``) are exercised
- * in integration via ``AgentSuggestionPanel`` / ``ComparisonFactorCard``;
- * not duplicated here.
+ * Phase 3 (Paul 2026-06-15): UI reads the new wire blocks
+ * (``finding.why`` / ``finding.reviews`` / ``finding.comparison``)
+ * directly. No legacy-field fallback. Vocabulary translation is
+ * producer-side; ``verdictLabel`` is a thin pass-through.
  */
 
 import { describe, expect, it } from "vitest";
 import type {
-  AttachedDefenderVerdict,
   AuditFinding,
   AuditReport,
+  ReviewVerdict,
   WhyBlock,
 } from "@/api/auditTypes";
 import {
@@ -36,7 +34,7 @@ function makeFinding(overrides: Partial<AuditFinding> = {}): AuditFinding {
     target_id: "tag:0",
     severity: "minor",
     issue_code: "calibration_agent_extra",
-    rationale: "Agent proposes a new cell-type tag macrophage.",
+    rationale: "",
     rationale_summary: "",
     rationale_bin: "",
     citation: "",
@@ -69,31 +67,26 @@ function emptyReport(): AuditReport | null {
 }
 
 // ---------------------------------------------------------------------------
-// verdictLabel
+// verdictLabel — Phase 3: producer ships curator-friendly strings,
+// UI just trims + passes through. Translation table is gone.
 // ---------------------------------------------------------------------------
 
 describe("verdictLabel", () => {
-  it("maps the canonical agent_missed_gold variants", () => {
-    expect(verdictLabel("AGENT_MISSED_GOLD")).toBe("gold has, agent missed");
-    expect(verdictLabel("agent_missed_gold")).toBe("gold has, agent missed");
-  });
-
-  it("maps factor-extra family verdicts", () => {
-    expect(verdictLabel("extra_genuine_new")).toBe("real new factor / tag");
-    expect(verdictLabel("extra_confounded")).toBe("confounded with another");
-    expect(verdictLabel("extra_unsupported")).toBe("weak evidence");
-  });
-
-  it("maps FV-pair equivalence flavors", () => {
-    expect(verdictLabel("synonym")).toBe("same concept, different wording");
-    expect(verdictLabel("concept_mismatch")).toBe("different concept");
-    expect(verdictLabel("partition_mismatch")).toBe(
-      "same factor, samples differ",
+  it("passes through curator-friendly strings verbatim", () => {
+    expect(verdictLabel("Gold has, agent missed")).toBe(
+      "Gold has, agent missed",
+    );
+    expect(verdictLabel("Real new factor")).toBe("Real new factor");
+    expect(verdictLabel("Same concept, different wording")).toBe(
+      "Same concept, different wording",
     );
   });
 
-  it("forwards unknown verdicts unchanged (escape hatch)", () => {
-    expect(verdictLabel("novel_verdict_xyz")).toBe("novel_verdict_xyz");
+  it("passes through wire-debug strings unchanged (no translation)", () => {
+    // Phase 3: producer is responsible for shipping the right
+    // string. If a finding still has a raw debug label, the UI
+    // surfaces it as-is so we can see the wire issue.
+    expect(verdictLabel("AGENT_MISSED_GOLD")).toBe("AGENT_MISSED_GOLD");
   });
 
   it("returns empty string for nullish input", () => {
@@ -103,18 +96,17 @@ describe("verdictLabel", () => {
   });
 
   it("trims whitespace", () => {
-    expect(verdictLabel("  AGENT_MISSED_GOLD  ")).toBe(
-      "gold has, agent missed",
-    );
+    expect(verdictLabel("  Real new factor  ")).toBe("Real new factor");
   });
 });
 
 // ---------------------------------------------------------------------------
-// deriveWhy
+// deriveWhy — Phase 3: reads finding.why directly, no legacy
+// fallback.
 // ---------------------------------------------------------------------------
 
 describe("deriveWhy", () => {
-  it("returns the new ``why`` block when present and non-empty", () => {
+  it("returns the wire ``why`` block when populated", () => {
     const why: WhyBlock = {
       brief: "Macrophage is constant.",
       rationale: "Macrophage cell-type tag matches every sample.",
@@ -125,8 +117,11 @@ describe("deriveWhy", () => {
     expect(deriveWhy(finding)).toEqual(why);
   });
 
-  it("falls back to legacy proposer_defense + evidence + citation", () => {
+  it("returns null when finding.why is absent (no legacy fallback)", () => {
     const finding = makeFinding({
+      // Legacy fields populated but no `why` block → null. The
+      // producer-side migration ought to have projected these into
+      // a why block; if it didn't, the section is omitted.
       proposer_defense: "Tag is real per the BM characteristic.",
       supporting_evidence: [
         {
@@ -137,49 +132,57 @@ describe("deriveWhy", () => {
         },
       ],
       citation: "rules/02.md",
-      citation_url: "https://example.com/02",
-    });
-    const why = deriveWhy(finding);
-    expect(why).not.toBeNull();
-    expect(why?.rationale).toBe("Tag is real per the BM characteristic.");
-    expect(why?.evidence).toHaveLength(1);
-    expect(why?.citation).toBe("rules/02.md");
-    expect(why?.citation_url).toBe("https://example.com/02");
-  });
-
-  it("returns null when neither block nor legacy fields have content", () => {
-    const finding = makeFinding({
-      proposer_defense: "",
-      supporting_evidence: [],
-      citation: "",
-      citation_url: "",
     });
     expect(deriveWhy(finding)).toBeNull();
   });
 
-  it("returns null when the new block exists but is empty", () => {
+  it("returns null when finding.why is present but empty", () => {
+    const finding = makeFinding({
+      why: {
+        brief: "",
+        rationale: "",
+        evidence: [],
+        citation: "",
+        citation_url: "",
+      },
+    });
+    expect(deriveWhy(finding)).toBeNull();
+  });
+
+  it("returns the block when only brief is populated", () => {
+    const why: WhyBlock = {
+      brief: "Short summary only.",
+      rationale: "",
+      evidence: [],
+      citation: "",
+    };
+    const finding = makeFinding({ why });
+    expect(deriveWhy(finding)).toEqual(why);
+  });
+
+  it("returns the block when only citation is populated", () => {
     const why: WhyBlock = {
       brief: "",
       rationale: "",
       evidence: [],
-      citation: "",
-      citation_url: "",
+      citation: "rules/02.md",
     };
     const finding = makeFinding({ why });
-    expect(deriveWhy(finding)).toBeNull();
+    expect(deriveWhy(finding)).toEqual(why);
   });
 });
 
 // ---------------------------------------------------------------------------
-// deriveReviews
+// deriveReviews — Phase 3: returns finding.reviews directly, empty
+// when absent.
 // ---------------------------------------------------------------------------
 
 describe("deriveReviews", () => {
-  it("returns the new ``reviews`` list verbatim when present", () => {
-    const reviews = [
+  it("returns the wire ``reviews`` list verbatim", () => {
+    const reviews: ReviewVerdict[] = [
       {
         reviewer: "defender",
-        verdict: "real new factor / tag",
+        verdict: "Real new factor",
         rationale: "Real new property.",
       },
       {
@@ -192,47 +195,26 @@ describe("deriveReviews", () => {
     expect(deriveReviews(finding, emptyReport())).toEqual(reviews);
   });
 
-  it("projects defender_verdict into a single review row", () => {
-    const dv: AttachedDefenderVerdict = {
-      side: "agent_extra",
-      verdict: "extra_genuine_new",
-      rationale: "Real new property; curator should have tagged.",
-    } as AttachedDefenderVerdict;
-    const finding = makeFinding({ defender_verdict: dv });
-    const result = deriveReviews(finding, emptyReport());
-    expect(result).toHaveLength(1);
-    expect(result[0].reviewer).toBe("defender");
-    expect(result[0].verdict).toBe("extra_genuine_new"); // raw — UI translates at render
-    expect(result[0].rationale).toBe(
-      "Real new property; curator should have tagged.",
-    );
-  });
-
-  it("returns empty list when there's nothing to project", () => {
-    const finding = makeFinding({ defender_verdict: null });
+  it("returns empty array when reviews is absent (no legacy fallback)", () => {
+    // Legacy defender_verdict populated but no `reviews` list →
+    // caller renders the "no review was done" placeholder.
+    const finding = makeFinding({
+      defender_verdict: {
+        side: "agent_extra",
+        verdict: "extra_genuine_new",
+        rationale: "Real new property.",
+      } as never,
+    });
     expect(deriveReviews(finding, emptyReport())).toEqual([]);
   });
 
-  it("drops defender verdicts without a rationale (renders no row)", () => {
-    const dv: AttachedDefenderVerdict = {
-      side: "agent_extra",
-      verdict: "extra_genuine_new",
-      rationale: "",
-    } as AttachedDefenderVerdict;
-    const finding = makeFinding({ defender_verdict: dv });
+  it("returns empty array when reviews is undefined", () => {
+    const finding = makeFinding();
     expect(deriveReviews(finding, emptyReport())).toEqual([]);
   });
 
-  it("respects the side->reviewer mapping for arbiter / boss legacy verdicts", () => {
-    const arbiterSide: AttachedDefenderVerdict = {
-      side: "arbiter",
-      verdict: "kept",
-      rationale: "Arbiter ran.",
-    } as AttachedDefenderVerdict;
-    const result = deriveReviews(
-      makeFinding({ defender_verdict: arbiterSide }),
-      emptyReport(),
-    );
-    expect(result[0].reviewer).toBe("arbiter");
+  it("returns empty array when reviews is an empty array (still empty)", () => {
+    const finding = makeFinding({ reviews: [] });
+    expect(deriveReviews(finding, emptyReport())).toEqual([]);
   });
 });
