@@ -33,6 +33,7 @@ import { cn } from "@/lib/cn";
 import { Term } from "@/components/ui/Term";
 import { useToast } from "@/components/ui/Toast";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { FindingReasoningPanel } from "./findingReasoningPanel";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
@@ -676,107 +677,34 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         </span>
       </div>
 
-      {/* In-body agent-details toggle. Subtle text affordance —
-          clicking expands the justification panel underneath. Disabled
-          (reads "no details") when the finding has nothing to expand. */}
+      {/* Reasoning collapsible — shared FindingReasoningPanel so
+          every finding card type (compact, factor-match, partition-
+          mismatch, extra, miss) renders the SAME toggle affordance.
+          Paul 2026-06-16: "IT SHOULD BE THE SAME COMPONENT WHETHER
+          THE FACTOR IS A MATCH or a PARTIAL MATCH". */}
       {cardOpen ? (
-        <div className="pl-1">
-          <button
-            type="button"
-            onClick={() => {
-              if (!hasExpandableContent) return;
-              setOpen((v) => !v);
-            }}
-            disabled={!hasExpandableContent}
-            aria-label={
-              !hasExpandableContent
-                ? "no reasoning available"
-                : open
-                  ? "hide reasoning"
-                  : "show reasoning"
-            }
-            title={
-              !hasExpandableContent
-                ? "no reasoning was recorded for this finding"
-                : open
-                  ? "collapse the proposer + reviewer text"
-                  : "show the proposer + reviewer text"
-            }
-            className={cn(
-              "inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold whitespace-nowrap",
-              hasExpandableContent
-                ? "text-sky-700 hover:underline dark:text-sky-300"
-                : "text-slate-400 cursor-not-allowed dark:text-slate-500",
-            )}
-          >
-            {!hasExpandableContent
-              ? "no reasoning"
-              : open
-                ? "hide reasoning"
-                : "reasoning"}
-            {hasExpandableContent ? (
-              <span className="text-xs leading-none">
-                {open ? "▾" : "▸"}
-              </span>
-            ) : null}
-          </button>
-        </div>
-      ) : null}
-
-      {/* Agent-details panel — citation + agent suggestion + subtask
-          reasoning. The "justification under the proposal" Paul asked
-          for: renders below the editor, behind the in-body toggle. */}
-      {cardOpen && open ? (
-        <div className="space-y-1.5 pl-1 border-l-2 border-slate-200 dark:border-slate-700">
-          {/* Raw target_id slug — debug-only DOM key for the
-              inline-dot resolver, not curator-actionable. */}
-          <div className="hidden text-[10px] text-slate-500 dark:text-slate-400 font-mono pl-1.5">
-            {finding.target_id}
-          </div>
-
-          {finding.citation || finding.citation_url ? (
-            <div className="text-[10px] text-slate-500 pl-1.5">
-              §{" "}
-              {finding.citation_url ? (
-                <a
-                  href={normalizeWikiUrl(finding.citation_url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-700 hover:underline"
-                  title={finding.citation || finding.citation_url}
-                >
-                  {finding.citation || finding.citation_url}
-                </a>
-              ) : (
-                <span>{finding.citation}</span>
-              )}
-            </div>
-          ) : null}
-
-          {/* For factor-kind extra/miss findings, render the same
-              FV-correspondence detail the match cards use so the
-              visual shape stays consistent across (match, extra, miss)
-              — curators see exactly the same agent FVs + ↔ Gemma
-              pairing + ✓ / ≈ / + / − glyphs whether the finding lived
-              through the stricter near-match gate or got demoted out
-              of it. For miss findings the gold side is primary; we use
-              GoldFactorMissEmbed instead. */}
-          {finding.target_kind === "factor" &&
-          finding.issue_code === "calibration_factor_extra" &&
-          !editorWillRender ? (
-            <RenameFactorEmbed finding={finding} />
-          ) : null}
-          {finding.target_kind === "factor" &&
-          finding.issue_code === "calibration_factor_gold_only_miss" &&
-          !editorWillRender ? (
-            <GoldFactorMissEmbed finding={finding} />
-          ) : null}
-
-          <AgentSuggestionPanel finding={finding} />
-
-          {/* Inline subtask analysis for factor-scoped findings. */}
-          <InlineSubtaskReasoning finding={finding} report={report} />
-        </div>
+        <FindingReasoningPanel
+          finding={finding}
+          report={report}
+          defaultOpen={open}
+          extraBody={
+            <>
+              {/* For factor-kind extra/miss findings without an inline
+                  editor, fall back to the FV-correspondence embed so
+                  the curator still has the side-by-side view. */}
+              {finding.target_kind === "factor" &&
+              finding.issue_code === "calibration_factor_extra" &&
+              !editorWillRender ? (
+                <RenameFactorEmbed finding={finding} />
+              ) : null}
+              {finding.target_kind === "factor" &&
+              finding.issue_code === "calibration_factor_gold_only_miss" &&
+              !editorWillRender ? (
+                <GoldFactorMissEmbed finding={finding} />
+              ) : null}
+            </>
+          }
+        />
       ) : null}
 
       {/* Action row last — the editor + verdict buttons (the

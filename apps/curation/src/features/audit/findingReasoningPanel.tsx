@@ -21,7 +21,7 @@
  * FACTOR IS A MATCH or a PARTIAL MATCH".
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import type { AuditFinding, AuditReport } from "@/api/auditTypes";
@@ -33,6 +33,12 @@ export interface FindingReasoningPanelProps {
   /** Default-open state. CompactFindingCard wires this to a higher
    *  "expand all" baseline; standalone callers can leave it false. */
   defaultOpen?: boolean;
+  /** Optional extra body content rendered BEFORE the
+   *  AgentSuggestionPanel — used by CompactFindingCard to slot in
+   *  the per-issue-code RenameFactorEmbed / GoldFactorMissEmbed
+   *  fallbacks. Skipped by ComparisonFactorCard which has no
+   *  per-issue-code embed needs. */
+  extraBody?: ReactNode;
 }
 
 /** Returns true when the finding has any content the panel can show.
@@ -62,6 +68,7 @@ export function FindingReasoningPanel({
   finding,
   report,
   defaultOpen = false,
+  extraBody = null,
 }: FindingReasoningPanelProps) {
   const [open, setOpen] = useState(defaultOpen);
   const hasContent = findingHasReasoningContent(finding);
@@ -136,6 +143,7 @@ export function FindingReasoningPanel({
               )}
             </div>
           ) : null}
+          {extraBody}
           <AgentSuggestionPanel finding={finding} />
           <InlineSubtaskReasoning finding={finding} report={report} />
         </div>
