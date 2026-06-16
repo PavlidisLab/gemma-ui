@@ -205,7 +205,11 @@ export interface DesignDraftValue {
   baselineLabel: string | null;
 }
 
-const DesignDraftContext = createContext<DesignDraftValue | null>(null);
+// Exported so render-time tests can wrap with a stub draft value
+// instead of booting the full ``DesignDraftProvider`` (which hits
+// the live design API). Production path still goes through the
+// provider; this is purely a test affordance.
+export const DesignDraftContext = createContext<DesignDraftValue | null>(null);
 
 const EMPTY_DIFF: DesignDiff = {
   isDirty: false,

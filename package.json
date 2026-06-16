@@ -19,7 +19,8 @@
     "typecheck": "npm run typecheck:curation && npm run typecheck:browser",
     "lint": "eslint apps packages",
     "lint:fix": "eslint apps packages --fix",
-    "test:curation": "npm --workspace gemma-curation-ui run test"
+    "test:curation": "npm --workspace gemma-curation-ui run test",
+    "prepare": "husky"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.25"
@@ -29,6 +30,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "husky": "^9.1.7",
     "typescript-eslint": "^8.59.4"
   }
 }

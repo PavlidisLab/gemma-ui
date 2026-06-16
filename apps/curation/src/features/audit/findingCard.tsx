@@ -1260,7 +1260,24 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               // disposition but never ran the mutator, leaving the
               // design at the gold partition while the card showed as
               // accepted.
-              finding.issue_code === "calibration_factor_partition_mismatch";
+              finding.issue_code === "calibration_factor_partition_mismatch" ||
+              // Match-downgrade (MATCH_DOWNGRADE_ACTION_HANDOFF,
+              // 2026-06-16): a ``*_match`` viewed against an empty
+              // displayed baseline reads as Add. ``resolveApplyAction``
+              // already returns a mutating add-tag / add-factor action
+              // for these — but the editor's onSave was keying off the
+              // issue_code list instead of ``action.mutates``, so the
+              // mutator never fired and Agree silently stamped accepted
+              // without modifying the draft. ``action?.mutates`` gates
+              // this branch: a non-downgraded match still resolves to a
+              // non-mutating action, so the addition stays a no-op for
+              // the normal match case.
+              (!!action?.mutates &&
+                (finding.issue_code === "calibration_match" ||
+                  finding.issue_code === "calibration_factor_match_exact" ||
+                  finding.issue_code === "calibration_factor_match_near" ||
+                  finding.issue_code === "calibration_factor_match_close" ||
+                  finding.issue_code === "calibration_factor_match"));
             if (
               isStructuralOnly &&
               status === "accepted" &&

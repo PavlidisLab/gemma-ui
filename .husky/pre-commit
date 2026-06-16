@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Critical-test gate. Runs on every commit; fails the commit if the
+# regression tests don't pass.
+#
+# Scope: vitest unit + render tests (fast — ~5 s) PLUS the
+# ``@critical``-tagged Playwright specs. The full Playwright run is
+# too slow for a precommit gate; ``@critical`` is the narrow set
+# that pins behaviour we've broken before — finding-card titles,
+# action-row buttons, dismiss-dialog vocab — and would catch the
+# same shape of regression on the next commit.
+#
+# Skipping the gate: ``git commit --no-verify`` (use sparingly; the
+# next commit re-runs all of it). When the gate fires a false
+# positive, fix the test rather than the bypass — see the test
+# files' headers for the contract each one pins.
+set -euo pipefail
+
+cd apps/curation
+
+echo "[pre-commit] vitest run (unit + render)"
+npx vitest run --silent
+
+# Playwright @critical specs — only run if a Playwright browser is
+# already installed (curators / freshly-cloned dev shells without
+# Chromium shouldn't be blocked). The check is cheap.
+if [ -d "$HOME/Library/Caches/ms-playwright" ] || [ -d "$HOME/.cache/ms-playwright" ]; then
+    echo "[pre-commit] playwright @critical specs"
+    npx playwright test --grep '@critical' --reporter=line || {
+        echo "[pre-commit] @critical e2e failed."
+        echo "[pre-commit] To bypass once: git commit --no-verify"
+        exit 1
+    }
+else
+    echo "[pre-commit] skipping playwright @critical (no browser cache present)"
+fi

@@ -39,7 +39,7 @@ async function expandAllCards(page: import("@playwright/test").Page) {
   await page.waitForTimeout(400);
 }
 
-test.describe("Reasoning panel — unified shell", () => {
+test.describe("Reasoning panel — unified shell @critical", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => window.localStorage.clear());
     await page.setViewportSize({ width: 1600, height: 1400 });

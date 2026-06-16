@@ -207,7 +207,14 @@ interface AuditContextValue {
   dispositionError: string | null;
 }
 
-const AuditContext = createContext<AuditContextValue | null>(null);
+// Exported so render-time tests (``*.render.test.tsx``) can wrap a
+// component with their own stub context value without booting the
+// full ``AuditProvider`` (which fetches live audit data). The
+// production code path still goes through ``AuditProvider`` →
+// ``useAudit``; the export is a test affordance, not a new public
+// surface for the app.
+export const AuditContext = createContext<AuditContextValue | null>(null);
+export type { AuditContextValue };
 
 /** Synth reports use this prefix on `audit_id`. The presence of the
  *  prefix routes dispositions through the in-memory path instead of

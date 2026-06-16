@@ -32,7 +32,9 @@ interface ToastContextValue {
   show: (message: string, tone?: ToastTone, durationMs?: number) => void;
 }
 
-const ToastContext = createContext<ToastContextValue | null>(null);
+// Exported for render-time tests so a stub ``show`` can be threaded
+// in without booting the full ``ToastProvider``.
+export const ToastContext = createContext<ToastContextValue | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
