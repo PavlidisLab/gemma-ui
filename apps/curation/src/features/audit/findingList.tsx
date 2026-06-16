@@ -46,6 +46,20 @@ import { EscalationBanner } from "./EscalationBanner";
 import { PipelineAuditTrail } from "./PipelineAuditTrail";
 
 // ---------------------------------------------------------------------------
+// Audit-panel baseline framing — exported so the regression test in
+// ``findingListBaselineLabel.test.ts`` can lock the contract.
+// ---------------------------------------------------------------------------
+
+/** Header label rendered next to the LEFT (baseline) factor chip on
+ *  every comparison card inside the audit/findings panel. Hardcoded
+ *  to ``"Current"`` regardless of what the chip strip's baseline
+ *  source happens to be (live / polished:cyan / preboard / opaque
+ *  curation_id). Per Paul 2026-06-15: "should be just 'current'
+ *  EVERYWHERE in the panel." Do NOT replace with a dynamic source
+ *  label — the chip strip itself surfaces the real source. */
+export const AUDIT_PANEL_BASELINE_LABEL = "Current";
+
+// ---------------------------------------------------------------------------
 // Section header — shared className for the per-kind dividers
 // ---------------------------------------------------------------------------
 
@@ -345,7 +359,12 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   const chip = useChipState({ experimentId, flow });
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
-  const baselineLabel = sourceLabel(chip.baseline, curations);
+  // Audit/findings panel always frames the baseline as "Current" — the
+  // curator's working state, regardless of which source the chip strip
+  // resolved to (live / polished:cyan / etc.). Per Paul 2026-06-15:
+  // "should be just 'current' EVERYWHERE in the panel." The chip strip
+  // itself still surfaces the real source label.
+  const baselineLabel = AUDIT_PANEL_BASELINE_LABEL;
   const comparatorLabel = sourceLabel(chip.comparator, curations);
   // Single flat list, sorted by severity then target_kind. The full
   // report view groups by target_kind (it has the room); in the narrow

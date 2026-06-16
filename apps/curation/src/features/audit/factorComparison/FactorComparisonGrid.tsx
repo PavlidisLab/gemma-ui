@@ -28,7 +28,7 @@
  * indicate the FVs (FV1, FV2). Propose how to make this so they use
  * more of the same code and are visually comparable."
  */
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
 import type { Factor } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
@@ -37,10 +37,6 @@ import {
   type ContinuousStripValue,
 } from "./ContinuousStrip";
 import { computeFvDiff } from "./fvDiff";
-import {
-  SamplePartitionSankey,
-  type SankeyRowMetric,
-} from "./SamplePartitionSankey";
 
 /** One FV on either side of the comparison. ``Factor.factor_values``
  *  (gold) and ``FactorProposal.factor_values`` (agent) both satisfy
@@ -197,6 +193,7 @@ function FvCell({
       termRenderer={termRenderer}
       indexLabel={fvIndex + 1}
       diffChips={diffChips}
+      suppressSampleCount
     />
   );
 }
@@ -298,17 +295,68 @@ export function FactorComparisonGrid({
   );
 }
 
-/** Inner pair-grid body. Renders the side-by-side FV rows AND a
- *  column-spanning sample-partition sankey through the middle column.
- *  Measures per-row geometry via refs so the sankey's ribbon
- *  endpoints land on the FV row centres regardless of statement
- *  count / wrap height.
+/** Inner pair-grid body. Renders the side-by-side FV rows with a
+ *  per-row sample-partition summary in the middle column ("N ↔ M",
+ *  colour-coded green/amber/red). Replaces an earlier SVG sankey
+ *  experiment — Paul 2026-06-15: "the sankey is no good; just put
+ *  30 ↔ 60 or something … double-headed arrow, with colour
+ *  indicating green/amber/red". The ↔ is a comparison glyph (not a
+ *  direction marker), so it shows regardless of which way drift
+ *  runs.
  *
  *  Falls back to the per-row status glyph (= / ≈ / + / −) when the
  *  pair lacks sample-membership info (``biomaterial_short_names``
- *  empty on both sides) — the sankey can't draw a ribbon, but the
- *  curator still gets the per-row pairing hint. */
-const SANKEY_COL_PX = 56;
+ *  empty on both sides) — no counts to compare, the glyph is the
+ *  only available pairing hint. */
+const MID_COL_PX = 76;
+
+/** Compute the middle-column content for one pair: a coloured count
+ *  summary when sample data is present, the legacy glyph otherwise.
+ *
+ *  Colour rule:
+ *   - emerald — both sides have samples AND counts match (clean
+ *     partition equivalence)
+ *   - amber — both sides have samples but counts differ (partial
+ *     overlap / drift)
+ *   - rose — one side has samples and the other doesn't (left_only
+ *     / right_only at the sample level) */
+export function midCellRender(pair: FactorComparisonPair): {
+  text: string;
+  cls: string;
+  title: string;
+} | null {
+  const leftN = pair.left?.biomaterial_short_names?.length ?? 0;
+  const rightN = pair.right?.biomaterial_short_names?.length ?? 0;
+  if (leftN === 0 && rightN === 0) return null;
+  // The middle column communicates the SAMPLE-COUNT axis only:
+  // ``N ↔ M`` always, coloured by whether the counts agree. Label
+  // drift is a different axis — it's communicated by the per-chip
+  // diff rings on the side cells, NOT here. Per Paul 2026-06-15:
+  // "the number 12 is agreeing in both. What happened to 12 ↔ 12?"
+  // The earlier ``≈ 12`` / ``= 12`` glyphs collapsed the two axes
+  // and read as "approximately 12 samples" which was wrong — the
+  // count is exact, the drift is on the labels.
+  if (leftN > 0 && rightN > 0) {
+    const equal = leftN === rightN;
+    return {
+      text: `${leftN} ↔ ${rightN}`,
+      cls: equal
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-amber-600 dark:text-amber-400",
+      title: equal
+        ? `${leftN} sample(s) on each side — partition agrees`
+        : `${leftN} sample(s) left vs ${rightN} right — partition disagrees`,
+    };
+  }
+  // One-sided: surface whichever count we have with a direction arrow.
+  const n = leftN || rightN;
+  const side = leftN > 0 ? "left" : "right";
+  return {
+    text: leftN > 0 ? `${n} →` : `← ${n}`,
+    cls: "text-rose-600 dark:text-rose-400",
+    title: `${n} sample(s) on the ${side} only`,
+  };
+}
 
 function PairGridBody({
   pairs,
@@ -322,84 +370,18 @@ function PairGridBody({
     fvIndex: number,
   ) => ReactNode;
 }): JSX.Element {
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const leftRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const rightRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const [leftMetrics, setLeftMetrics] = useState<SankeyRowMetric[]>([]);
-  const [rightMetrics, setRightMetrics] = useState<SankeyRowMetric[]>([]);
-  const [containerHeight, setContainerHeight] = useState<number>(0);
-
-  useLayoutEffect(() => {
-    function measure() {
-      const wrap = wrapperRef.current;
-      if (!wrap) return;
-      const wrapTop = wrap.getBoundingClientRect().top;
-      const nextLeft: SankeyRowMetric[] = [];
-      const nextRight: SankeyRowMetric[] = [];
-      for (let i = 0; i < pairs.length; i++) {
-        const lr = leftRefs.current[i];
-        const rr = rightRefs.current[i];
-        if (lr) {
-          const r = lr.getBoundingClientRect();
-          nextLeft.push({
-            centerY: r.top - wrapTop + r.height / 2,
-            height: r.height,
-          });
-        } else {
-          nextLeft.push({ centerY: 0, height: 0 });
-        }
-        if (rr) {
-          const r = rr.getBoundingClientRect();
-          nextRight.push({
-            centerY: r.top - wrapTop + r.height / 2,
-            height: r.height,
-          });
-        } else {
-          nextRight.push({ centerY: 0, height: 0 });
-        }
-      }
-      setLeftMetrics(nextLeft);
-      setRightMetrics(nextRight);
-      setContainerHeight(wrap.getBoundingClientRect().height);
-    }
-    measure();
-    // Recompute on viewport / font-load / content-changes.
-    const ro = new ResizeObserver(measure);
-    if (wrapperRef.current) ro.observe(wrapperRef.current);
-    for (const el of leftRefs.current) if (el) ro.observe(el);
-    for (const el of rightRefs.current) if (el) ro.observe(el);
-    return () => ro.disconnect();
-  }, [pairs]);
-
-  const leftFvs = pairs.map((p) => p.left);
-  const rightFvs = pairs.map((p) => p.right);
-  // Whether the sankey can render — every pair must have at least
-  // one side with sample membership. When ALL pairs lack samples on
-  // both sides the SVG would have nothing to draw, so we fall back
-  // to the per-row glyph entirely.
-  const sankeyHasData = pairs.some(
-    (p) =>
-      (p.left?.biomaterial_short_names?.length ?? 0) > 0 &&
-      (p.right?.biomaterial_short_names?.length ?? 0) > 0,
-  );
-
   return (
     <div
-      ref={wrapperRef}
       className="relative grid items-stretch text-[11px]"
       style={{
-        gridTemplateColumns: `[left] 1fr [sankey] ${SANKEY_COL_PX}px [right] 1fr [action] auto`,
+        gridTemplateColumns: `[left] 1fr [mid] ${MID_COL_PX}px [right] 1fr [action] auto`,
         rowGap: 6,
         padding: 4,
       }}
     >
       {/* Per-row backdrop — sits behind each pair's cells so the row
           reads as one self-contained unit instead of running into
-          its neighbours. Paul 2026-06-15: "the fvs sort of run into
-          each other - they should visually separate better - a
-          small space + stronger tint of background or outline."
-          Each backdrop spans all four columns at its gridRow and is
-          z-indexed below the cell content + sankey SVG. */}
+          its neighbours. */}
       {pairs.map((_, ix) => (
         <div
           key={`backdrop-${ix}`}
@@ -412,60 +394,14 @@ function PairGridBody({
           className="rounded bg-slate-100/60 dark:bg-slate-800/40 ring-1 ring-slate-200/70 dark:ring-slate-700/60"
         />
       ))}
-      {/* Column-spanning sankey SVG. Sits in the dedicated middle
-          column at gridRow 1 / -1 so it draws BEHIND the per-row
-          glyphs (which we keep visible as a fallback per-row hint
-          when the sankey can't render anything for the pair). */}
-      {sankeyHasData && containerHeight > 0 ? (
-        <div
-          aria-hidden
-          className="pointer-events-none"
-          style={{
-            gridColumn: "sankey",
-            gridRow: `1 / span ${pairs.length}`,
-            alignSelf: "stretch",
-            justifySelf: "stretch",
-            position: "relative",
-            zIndex: 2,
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              pointerEvents: "auto",
-            }}
-          >
-            <SamplePartitionSankey
-              leftFvs={leftFvs}
-              rightFvs={rightFvs}
-              leftMetrics={leftMetrics}
-              rightMetrics={rightMetrics}
-              width={SANKEY_COL_PX}
-              height={containerHeight}
-            />
-          </div>
-        </div>
-      ) : null}
       {pairs.map((pair, ix) => {
         const glyph = statusGlyph(pair.status);
         const perFvAction = renderPerFvAction?.(pair, ix) ?? null;
         const { leftKeys, rightKeys } = computeFvDiff(pair.left, pair.right);
-        // Per-row glyph stays as a fallback when this specific pair
-        // can't be drawn by the sankey (one side missing sample
-        // membership, OR the pair is left_only / right_only). When
-        // the sankey covers the row, suppress the glyph so it
-        // doesn't compete visually.
-        const sankeyCoversRow =
-          sankeyHasData &&
-          (pair.left?.biomaterial_short_names?.length ?? 0) > 0 &&
-          (pair.right?.biomaterial_short_names?.length ?? 0) > 0;
+        const mid = midCellRender(pair);
         return (
           <div key={`pair-${ix}`} className="contents">
             <div
-              ref={(el) => {
-                leftRefs.current[ix] = el;
-              }}
               style={{ gridColumn: "left", gridRow: ix + 1, position: "relative", zIndex: 1 }}
               className="min-w-0 px-2 py-1.5"
             >
@@ -477,20 +413,17 @@ function PairGridBody({
               />
             </div>
             <span
-              style={{ gridColumn: "sankey", gridRow: ix + 1, position: "relative", zIndex: 1 }}
+              style={{ gridColumn: "mid", gridRow: ix + 1, position: "relative", zIndex: 1 }}
               className={
-                "select-none text-center px-1 py-1.5 " +
-                (sankeyCoversRow ? "text-transparent" : glyph?.cls ?? "text-transparent")
+                "select-none text-center px-1 py-1.5 font-semibold text-[13px] whitespace-nowrap " +
+                (mid ? mid.cls : glyph?.cls ?? "text-transparent")
               }
-              title={sankeyCoversRow ? undefined : glyph?.title ?? undefined}
+              title={mid ? mid.title : glyph?.title ?? undefined}
               aria-label={pair.status ?? undefined}
             >
-              {sankeyCoversRow ? " " : glyph?.ch ?? " "}
+              {mid ? mid.text : glyph?.ch ?? " "}
             </span>
             <div
-              ref={(el) => {
-                rightRefs.current[ix] = el;
-              }}
               style={{ gridColumn: "right", gridRow: ix + 1, position: "relative", zIndex: 1 }}
               className="min-w-0 px-2 py-1.5"
             >

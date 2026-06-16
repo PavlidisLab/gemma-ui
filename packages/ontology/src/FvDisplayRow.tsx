@@ -102,6 +102,12 @@ export interface FvDisplayRowProps {
    *  renderer can apply a visual mark (ring / tint). Undefined →
    *  no diff plumbing (every chip renders with ``diff: false``). */
   diffChips?: ReadonlySet<string>;
+  /** Suppress the trailing ``(N)`` sample-count badge. Used by the
+   *  paired-factor comparison grids where the middle column already
+   *  carries the sample count once, in colour — repeating ``(N)`` on
+   *  each side is visual noise. Per Paul 2026-06-15: "the number of
+   *  samples should be shown ONCE and in the MIDDLE". */
+  suppressSampleCount?: boolean;
 }
 
 export function FvDisplayRow({
@@ -112,6 +118,7 @@ export function FvDisplayRow({
   trailing,
   className,
   diffChips,
+  suppressSampleCount = false,
 }: FvDisplayRowProps): JSX.Element {
   const statements = fv.statements ?? [];
   const head = statements[0] ?? null;
@@ -261,7 +268,7 @@ export function FvDisplayRow({
             ▂
           </span>
         ) : null}
-        {n > 0 ? (
+        {n > 0 && !suppressSampleCount ? (
           <span className="text-[10px] text-slate-500 dark:text-slate-400 ml-0.5">
             ({n})
           </span>
