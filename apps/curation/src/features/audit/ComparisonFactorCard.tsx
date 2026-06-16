@@ -964,13 +964,20 @@ export function ComparisonFactorCard({
       </div>
       {cardOpen ? (
         <>
-          {/* Judge-chain content (defender / arbiter / boss) used to
-              render here as a single ``JudgeChain`` strip above the
-              grid. Paul 2026-06-15 split it into the labelled WHY
-              block below so the curator reads it in the same place
-              as the proposer's own rationale — and so the AUDITOR
-              tier is visually distinct from the proposer's INTERNAL
-              REVIEW. See ``WhyBlock`` further down this file. */}
+          {/* Reasoning (Why + Reviews + Comparison judge text) renders
+              ABOVE the visual grid — same vertical order as
+              FindingDetailsEditor uses for partition_mismatch / extra
+              / miss cards. Both card types must read top-to-bottom
+              as [reasoning] → [visual] → [buttons] so the curator
+              learns ONE layout regardless of finding kind. Paul
+              2026-06-16: "IT SHOULD BE THE SAME COMPONENT WHETHER
+              THE FACTOR IS A MATCH or a PARTIAL MATCH". */}
+          <WhyBlock
+            factor={rightFactor}
+            finding={finding}
+            report={report}
+            isComparison={baselineSource !== undefined}
+          />
           {/* Body — switched 2026-06-12 from the inline CategoryPair +
               FvPairRow loop to the shared FactorComparisonGrid so
               this surface and FindingDetailsEditor (next-up
@@ -1040,20 +1047,7 @@ export function ComparisonFactorCard({
                 : undefined
             }
           />
-          {/* Three-section WHY: PROPOSAL (proposer's own sources +
-              rationale + proposer_defense), INTERNAL REVIEW
-              (defender_verdict — proposer-side defence), AUDITOR
-              (arbiter + boss — render only when we're actually in a
-              baseline comparison, gated on ``baselineSource``). Paul
-              2026-06-15: the internal review and the audit must be
-              VISUALLY SEPARATE; the audit only appears when a
-              comparison is happening. */}
-          <WhyBlock
-            factor={rightFactor}
-            finding={finding}
-            report={report}
-            isComparison={baselineSource !== undefined}
-          />
+          {/* (Reasoning rendered above the grid — see above.) */}
           {readOnly && (onRemoveFactor || onKeepFactor) ? (
             // Drift-card action bar — surfaces Remove / Keep so the
             // curator can act on factors the audit didn't see, instead
