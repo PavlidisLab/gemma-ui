@@ -318,7 +318,7 @@ function ReviewsPhase({
   const brief =
     reviews.length === 0 ? (
       <span className="italic text-slate-400 dark:text-slate-500">
-        no reviewer commentary
+        no review was done
       </span>
     ) : (
       <ul className="space-y-0.5">
