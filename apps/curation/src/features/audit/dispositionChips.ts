@@ -94,11 +94,19 @@ export const CAL_MISS_DISMISS_CHIPS: DialogChip[] = [
   { key: "other",                      label: "Other",                 help: "add a note" },
 ];
 // For calibration_*_gold_only_miss: "Accept (remove)" means curator
-// thinks gold is wrong (agent TN). Chips explain WHY.
+// agrees with agent's removal. Chips align with the reasons a
+// curator would normally remove a current tag, per Paul 2026-06-15:
+// "it should be the same reasons that we remove the 'current':
+// agent is right but we can be more specific; the current is
+// redundant; or the current is wrong." Open-enum on the wire
+// (CHIP_VOCAB_BRO1_LANDED_2026_06_14.md) — new slugs ship without
+// agent-side coordination.
 export const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
-  { key: "gold_was_wrong",  label: "Gold wrong",       help: "Gemma's existing tag is incorrect or outdated" },
-  { key: "borderline",      label: "Borderline",       help: "close call — acceptable to remove" },
-  { key: "other",           label: "Other",            help: "add a note" },
+  { key: "current_redundant",      label: "Current redundant",      help: "the current tag is already captured elsewhere — by a biomaterial characteristic, a factor value, or another tag" },
+  { key: "current_wrong",          label: "Current wrong",          help: "the current tag is incorrect or outdated — agent's removal is right" },
+  { key: "more_specific_available", label: "More specific available", help: "agent's removal is right because a finer-grained tag better captures this (often paired with an add proposal elsewhere)" },
+  { key: "borderline",             label: "Borderline",             help: "close call — acceptable to remove" },
+  { key: "other",                  label: "Other",                  help: "add a note" },
 ];
 // For calibration_agent_extra (tag-side): "Disagree" means curator
 // thinks the agent over-proposed (agent FP). Chips explain WHY.
