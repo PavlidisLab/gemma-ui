@@ -1478,19 +1478,16 @@ export function FindingDetailsEditor({
             negative``). */}
         {groups.length > 0 ? (
           <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
-            {/* Three-column grid — LEFT (current/gold) · MID (count
-                comparator) · RIGHT (auditor/agent). The MID column
-                renders ``gold_n ↔ agent_n`` per row in the same
-                colour rule as ``FactorComparisonGrid``: emerald when
-                counts match, amber when they differ, rose for
-                one-sided. Suppresses the in-chip ``(N)`` badge
-                (``suppressSampleCount``) since the centred count is
-                the canonical surface — Paul 2026-06-16: "the numbers
-                should be in the middle, like the other ones". */}
+            {/* Four-column grid — [count-L] [LEFT label] [RIGHT
+                label] [count-R]. BIG number on the OUTSIDE of each
+                FV, never inside. Umbrella side's count renders once
+                with rowspan so it is not duplicated across the
+                group's children. No arrow. Paul 2026-06-16:
+                "NUMBERS TO THE RIGHT OF THE RIGHT_HAND AND LEFT OF
+                THE LEFT_HAND". */}
             {(() => {
               const cells: ReactNode[] = [];
               let rowIx = 1;
-              // Header row
               cells.push(
                 <span
                   key="hdr-l"
@@ -1499,11 +1496,6 @@ export function FindingDetailsEditor({
                 >
                   {identities.goldCurator}
                 </span>,
-                <span
-                  key="hdr-m"
-                  style={{ gridColumn: "mid", gridRow: rowIx }}
-                  aria-hidden
-                />,
                 <span
                   key="hdr-r"
                   style={{ gridColumn: "right", gridRow: rowIx }}
@@ -1518,12 +1510,33 @@ export function FindingDetailsEditor({
                 const umbrella = g.parent;
                 const children = g.children;
                 const groupRowStart = rowIx;
+                const umbrellaN = umbrella.samples?.length ?? 0;
                 children.forEach((child, ci) => {
                   const goldSide: SidedFv = umbrellaIsGold ? umbrella : child;
                   const agentSide: SidedFv = umbrellaIsGold ? child : umbrella;
-                  // Render gold cell — only on the first child row
-                  // when gold is the umbrella; render children-side
-                  // cell every row.
+                  const childN = child.samples?.length ?? 0;
+                  // count-L (far LEFT). Per-row for children-side,
+                  // rowspan'd to first row when umbrella-side.
+                  const goldN = umbrellaIsGold ? umbrellaN : childN;
+                  if (!umbrellaIsGold || ci === 0) {
+                    cells.push(
+                      <span
+                        key={`cl-${gi}-${ci}`}
+                        style={{
+                          gridColumn: "count-l",
+                          gridRow: umbrellaIsGold
+                            ? `${groupRowStart} / span ${children.length}`
+                            : rowIx,
+                        }}
+                        className="self-center text-right pr-2 text-xl font-bold tabular-nums text-slate-700 dark:text-slate-200"
+                        title={`${goldN} sample(s)`}
+                      >
+                        {goldN > 0 ? goldN : ""}
+                      </span>,
+                    );
+                  }
+                  // LEFT label cell — rowspan when umbrella, per-row
+                  // when children.
                   if (!umbrellaIsGold || ci === 0) {
                     cells.push(
                       <div
@@ -1543,45 +1556,12 @@ export function FindingDetailsEditor({
                             goldSide.samples ?? null,
                           )}
                           termRenderer={termRenderer}
+                          suppressSampleCount
                         />
                       </div>,
                     );
                   }
-                  // Mid cell — ↔ only when both sides carry samples
-                  // AND the counts agree (clean per-FV partition
-                  // match). Differing counts leave the middle blank;
-                  // the per-FV (n) badges on each side communicate
-                  // the gap. Paul 2026-06-16: "one number per fv;
-                  // only include arrows for the matching ones".
-                  const lN = (umbrellaIsGold ? umbrella : child).samples?.length ?? 0;
-                  const rN = (umbrellaIsGold ? child : umbrella).samples?.length ?? 0;
-                  const countsMatch = lN > 0 && rN > 0 && lN === rN;
-                  cells.push(
-                    <span
-                      key={`m-${gi}-${ci}`}
-                      style={{
-                        gridColumn: "mid",
-                        gridRow: rowIx,
-                      }}
-                      className={
-                        "select-none text-center px-1 py-0.5 self-center whitespace-nowrap font-semibold " +
-                        (countsMatch
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-transparent")
-                      }
-                      title={
-                        countsMatch
-                          ? `${lN} sample(s) each — counts agree`
-                          : undefined
-                      }
-                      aria-hidden={!countsMatch}
-                    >
-                      {countsMatch ? "↔" : " "}
-                    </span>,
-                  );
-                  // Render agent cell — every row when agent is the
-                  // children-stack; only on the first when agent is
-                  // the umbrella.
+                  // RIGHT label cell — mirror.
                   if (umbrellaIsGold || ci === 0) {
                     cells.push(
                       <div
@@ -1601,8 +1581,28 @@ export function FindingDetailsEditor({
                             agentSide.samples ?? null,
                           )}
                           termRenderer={termRenderer}
+                          suppressSampleCount
                         />
                       </div>,
+                    );
+                  }
+                  // count-R (far RIGHT).
+                  const agentN = umbrellaIsGold ? childN : umbrellaN;
+                  if (umbrellaIsGold || ci === 0) {
+                    cells.push(
+                      <span
+                        key={`cr-${gi}-${ci}`}
+                        style={{
+                          gridColumn: "count-r",
+                          gridRow: umbrellaIsGold
+                            ? rowIx
+                            : `${groupRowStart} / span ${children.length}`,
+                        }}
+                        className="self-center text-left pl-2 text-xl font-bold tabular-nums text-amber-700 dark:text-amber-300"
+                        title={`${agentN} sample(s)`}
+                      >
+                        {agentN > 0 ? agentN : ""}
+                      </span>,
                     );
                   }
                   rowIx++;
@@ -1613,8 +1613,8 @@ export function FindingDetailsEditor({
                   className="grid items-baseline text-[11px]"
                   style={{
                     gridTemplateColumns:
-                      "[left] 1fr [mid] 84px [right] 1fr",
-                    columnGap: 8,
+                      "[count-l] auto [left] 1fr [right] 1fr [count-r] auto",
+                    columnGap: 6,
                     rowGap: 4,
                   }}
                 >
