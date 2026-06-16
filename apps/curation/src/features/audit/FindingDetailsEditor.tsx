@@ -1753,7 +1753,9 @@ export function FindingDetailsEditor({
     // binary). The proposer's row shows nothing (their proposal
     // IS removal); the gold curator's row shows what's there.
     const currentTermLabel = removeTargetLabel ?? "";
-    const proposerVerb = "says";
+    // proposerVerb removed 2026-06-16 with the "Auditor says (proposes
+    // removing — no entry)" placeholder line — see comment block in
+    // the JSX below for context.
     const goldVerb = currentlyVerb(identities.goldCurator);
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
