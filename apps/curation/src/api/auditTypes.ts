@@ -1154,6 +1154,15 @@ export type DismissReason =
   | "agent_real_miss"
   | "redundant_with_bm_source"
   | "not_sample_applicable"
+  // Match-family Keep sub-verdicts — Paul 2026-06-16. On a near-/
+  // match-family card the curator's "Keep" decision is too coarse;
+  // we split it into three so the eval scorer can credit
+  // ``keep_agent_equivalent`` as a TP and so ``keep_agent_close``
+  // (paired with a ``notes`` payload) becomes a training signal for
+  // the proposer / chain refinement loop. The legacy ``wont_fix``
+  // value covers the "agent was materially off" case.
+  | "keep_agent_equivalent"
+  | "keep_agent_close"
   | (string & {});
 
 /** Issue-code shapes that gate the server's ``accept_reason``

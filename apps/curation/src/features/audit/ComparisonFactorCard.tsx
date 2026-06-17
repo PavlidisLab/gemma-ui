@@ -365,6 +365,18 @@ export function ComparisonFactorCard({
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const [busy, setBusy] = useState(false);
+  // Per Paul 2026-06-16: on match-family cards "Keep" is too coarse.
+  // The curator may have rejected the agent's alternative because (a)
+  // it was equivalent and they're keeping the existing for style, (b)
+  // close but specifically wrong about one thing, or (c) materially
+  // off. The three Keep buttons capture those verdicts separately;
+  // (b) opens an inline note so the curator can name the gap. The
+  // sub-verdict rides on the disposition as ``dismissReason`` (open
+  // string enum: ``keep_agent_equivalent`` / ``keep_agent_close`` /
+  // existing ``wont_fix``); the ``keep_agent_close`` case also stamps
+  // the note into the disposition's ``notes`` field.
+  const [keepCloseNoteOpen, setKeepCloseNoteOpen] = useState(false);
+  const [keepCloseNote, setKeepCloseNote] = useState("");
   // Chip-strip read-only state — OR'd with the prop so callers can
   // still force read-only on synthetic baseline-drift cards via the
   // existing prop, but the card auto-detects when the chip strip is
@@ -1156,14 +1168,59 @@ export function ComparisonFactorCard({
                   + Merge
                 </button>
               ) : null}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => dispatch("dismissed", { dismissReason: "wont_fix" })}
-                className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
-              >
-                {dismissLabel}
-              </button>
+              {isMatchFamilyAdopt ? (
+                // Match-family cards: split Keep into three sub-
+                // verdicts the curator picks before dismiss resolves.
+                // The "close" path opens an inline note so the
+                // curator can specify what was wrong.
+                <>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 self-center">
+                    {dismissLabel}:
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      dispatch("dismissed", {
+                        dismissReason: "keep_agent_equivalent",
+                      })
+                    }
+                    title="Keep the existing factor; the agent's alternative was functionally equivalent (eval credits this as a match)."
+                    className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
+                  >
+                    ≈ equivalent
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setKeepCloseNoteOpen((v) => !v)}
+                    title="Keep the existing factor; the agent was close but specifically wrong about something — capture it."
+                    className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
+                  >
+                    ~ close
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      dispatch("dismissed", { dismissReason: "wont_fix" })
+                    }
+                    title="Keep the existing factor; the agent's alternative was materially off."
+                    className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
+                  >
+                    ✗ off
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => dispatch("dismissed", { dismissReason: "wont_fix" })}
+                  className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
+                >
+                  {dismissLabel}
+                </button>
+              )}
               {/* Park button hidden 2026-06-14 (Paul: "hide the park
                   button — everywhere; don't remove it"). Handler stays
                   wired; flip the ``false`` gate to restore. Same pattern
@@ -1181,6 +1238,65 @@ export function ComparisonFactorCard({
               ) : null}
             </div>
           )}
+          {/* Keep-close note input — appears when the curator chose
+              "~ close". Submits on Enter or button click; dispatches
+              dismissed with the note as ``notes`` so the eval-side
+              near-miss report can read what the curator pointed out.
+              Empty submission falls back to the bare "close" verdict. */}
+          {keepCloseNoteOpen && status === "pending" ? (
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <input
+                type="text"
+                autoFocus
+                disabled={busy}
+                value={keepCloseNote}
+                onChange={(e) => setKeepCloseNote(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const note = keepCloseNote.trim();
+                    setKeepCloseNoteOpen(false);
+                    void dispatch("dismissed", {
+                      dismissReason: "keep_agent_close",
+                      notes: note || undefined,
+                    });
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setKeepCloseNoteOpen(false);
+                    setKeepCloseNote("");
+                  }
+                }}
+                placeholder="What was the agent close-but-wrong about? (e.g. category URI off, missing statement)"
+                className="text-[11px] px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 flex-1 disabled:opacity-50"
+              />
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const note = keepCloseNote.trim();
+                  setKeepCloseNoteOpen(false);
+                  void dispatch("dismissed", {
+                    dismissReason: "keep_agent_close",
+                    notes: note || undefined,
+                  });
+                }}
+                className="text-[11px] px-2 py-0.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                save
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setKeepCloseNoteOpen(false);
+                  setKeepCloseNote("");
+                }}
+                className="text-[10px] text-slate-500 hover:text-slate-800 underline underline-offset-2 dark:text-slate-400 dark:hover:text-slate-100 disabled:opacity-50"
+              >
+                cancel
+              </button>
+            </div>
+          ) : null}
         </>
       ) : null}
     </div>
