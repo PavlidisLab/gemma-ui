@@ -787,6 +787,33 @@ export interface AuditScope {
   include: AuditScopeItem[];
 }
 
+/** One row of the experiment-level boss-critic review feed. The
+ *  boss-critic is a gold-blind LLM reviewer that runs against the
+ *  agent's full emission — its commentary is experiment-scoped, not
+ *  per-finding. v0.14.5 producer projects every boss-critic decision
+ *  (every round, every target) into ``AuditEvidence.boss_critic_reviews``
+ *  for the UI's top-of-panel render. */
+export interface BossCriticReview {
+  /** The entity the boss-critic commented on. ``"design"`` for
+   *  whole-experiment calls; ``"factor:<cat>"`` for per-factor;
+   *  ``"tag:<cat>|<val>"`` or numeric ``"tag:<id>"`` for tag;
+   *  ``"fv:..."`` for FV-level. UI renders the target as a small
+   *  scope chip next to each verdict. */
+  target_id: string;
+  /** Which boss-critic round emitted this call. 1 = initial review;
+   *  ≥2 = re-evaluation after the proposer re-ran on feedback. When
+   *  only round 1 exists for a blocker target, the proposer never
+   *  got to address it — the UI flags the call as "unresolved" so
+   *  the curator treats it as a debatable escalation. */
+  round: number;
+  /** ``ok`` / ``advisory`` / ``blocker`` / ``escalation``. */
+  severity: string;
+  /** Full prose verdict. */
+  verdict: string;
+  /** First sentence of the verdict, sentence-boundary truncated. */
+  brief: string;
+}
+
 export interface AuditEvidence {
   preboarding_excerpt: string;
   paper_source: string | null;
@@ -827,6 +854,15 @@ export interface AuditEvidence {
    *  case. Per
    *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */
   experiment_summary?: string | null;
+  /** Inline boss-critic reviews — gold-blind LLM commentary scoped
+   *  to the EXPERIMENT (the boss-critic operates on the agent's
+   *  whole emission, not on any single finding). Rendered as a top-
+   *  of-panel ``BossReviewPanel`` adjacent to ``OrientationProse``.
+   *  Replaces the v0.14.2–.4 per-finding fan-out: duplicating the
+   *  same paragraph across N cards read as noise. Per Paul
+   *  2026-06-16 (ticket-60 walkthrough). Empty / null / undefined
+   *  on packages predating v0.14.5; renderer suppresses. */
+  boss_critic_reviews?: BossCriticReview[] | null;
   /** v5 supervisor's audit-trail prose — narrative of what the
    *  orchestrator observed, intervened on, deferred. ≥150 chars
    *  when populated. Empty / null on legacy packages. Rendered as

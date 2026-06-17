@@ -43,6 +43,7 @@ import {
   readEscalationRequests,
 } from "@/api/pipelineCommentary";
 import { EscalationBanner } from "./EscalationBanner";
+import { BossReviewPanel } from "./BossReviewPanel";
 import { PipelineAuditTrail } from "./PipelineAuditTrail";
 
 // ---------------------------------------------------------------------------
@@ -589,6 +590,16 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
           and ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */}
       <OrientationProse
         text={readCommentaryString(report?.evidence, "experiment_summary")}
+      />
+      {/* Experiment-level boss-critic review — gold-blind LLM
+          commentary scoped to the whole agent emission. Renders the
+          list once here instead of being fanned out per-card (the
+          v0.14.2-.4 fan-out duplicated the same paragraph across
+          every factor / tag card and read as noise; per Paul
+          2026-06-16 ticket-60 walkthrough). Suppresses entirely
+          when the list is empty / absent. */}
+      <BossReviewPanel
+        reviews={report?.evidence?.boss_critic_reviews}
       />
       {/* Summary header — always visible. Frames the body content
           ("N findings — X open, Y already triaged, Z noted") so a
