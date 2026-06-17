@@ -68,8 +68,19 @@ export function findingDisplayedGoldEmpty(
   if (!draft) return null;
   const isTag = finding.target_kind === "tag";
   if (isTag) {
+    // URI lookup wins over slug lookup. The agent's proposer term and
+    // the draft tag may share an ontology URI (CLO:0002673) but differ
+    // on label (``D283 Med cell`` vs ``D283 Med`` vs ``D283-MED``) —
+    // slug equality fails, the helper would report goldEmpty=true, and
+    // a real match downgrades to "Add tag" when the tag is already
+    // there. When the URIs match the tag IS present regardless of
+    // label drift.
+    const proposerValueUri = finding.proposer_term?.uri ?? null;
+    if (proposerValueUri && draft.tags?.some((t) => t.value?.uri === proposerValueUri)) {
+      return false;
+    }
     const parsed = parseTargetId(finding.target_id);
-    if (parsed?.kind === "tag") {
+    if (parsed?.kind === "tag" && parsed.valueSlug) {
       const found = draft.tags?.find(
         (t) =>
           slug(t.category?.label) === parsed.categorySlug &&
@@ -77,6 +88,11 @@ export function findingDisplayedGoldEmpty(
       );
       return !found;
     }
+    // ``tag:<numeric_id>`` shape — valueSlug is "" and categorySlug is
+    // the bare id. Slug walk can't decide; defer to the rationale
+    // fallback (and ultimately to null = "don't know") so we never
+    // downgrade a real match. URI lookup above already short-circuits
+    // the common case.
     // Fallback: parse backticked rationale token "cat: val".
     const tok = firstBacktick(finding.rationale);
     if (!tok) return null;

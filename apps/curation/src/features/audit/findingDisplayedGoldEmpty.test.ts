@@ -97,6 +97,31 @@ describe("findingDisplayedGoldEmpty — tag side", () => {
     expect(findingDisplayedGoldEmpty(f, makeDraft())).toBe(true);
   });
 
+  it("returns false on URI match even when label slugs differ (GSE110721 D283 Med cell drift)", () => {
+    // Agent's proposer_term has CLO:0002673 with label "D283 Med cell";
+    // draft already carries the same URI under a different label
+    // ("D283 Med"). Slug equality would fail and the helper would
+    // (wrongly) report goldEmpty=true. URI match wins.
+    const f = makeFinding({
+      target_id: "calibration:match:cell-line/d283-med-cell",
+      rationale: "Is `cell line: D283 Med cell` correctly assigned?",
+      proposer_term: {
+        label: "D283 Med cell",
+        uri: "http://purl.obolibrary.org/obo/CLO_0002673",
+      } as AuditFinding["proposer_term"],
+    });
+    const draft = makeDraft([
+      {
+        category: { label: "cell line", uri: null },
+        value: {
+          label: "D283 Med",
+          uri: "http://purl.obolibrary.org/obo/CLO_0002673",
+        },
+      } as Design["tags"][number],
+    ]);
+    expect(findingDisplayedGoldEmpty(f, draft)).toBe(false);
+  });
+
   it("falls back to backticked rationale token when target_id doesn't parse", () => {
     const f = makeFinding({
       target_id: "calibration:match:opaque-key",
