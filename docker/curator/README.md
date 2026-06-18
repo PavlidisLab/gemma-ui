@@ -98,6 +98,78 @@ docker push <registry>/gemma-curator/local-api:latest
 Update `LOCAL_API_IMAGE` / `CURATION_UI_IMAGE` in `.env.example` to
 point at the registry path.
 
+## Updating the code (without losing your data)
+
+Code is **baked into the images** — the UI is compiled to static files
+inside `curation-ui`, Python into `local-api`. A `git pull` alone
+changes nothing in a running container; the image has to be rebuilt.
+But rebuilding is **not** starting over: the layer cache makes it fast,
+and your work persists.
+
+**Your data survives a rebuild.** Imported calibration packages,
+dispositions, and the SQLite DB live in the `local-api-data` volume,
+which `build.sh` / `start.sh` never touch — only `docker compose down
+-v` wipes it. So you rebuild, recreate containers, and **do not
+re-import anything.**
+
+### If you have both source repos checked out side-by-side
+
+(`~/Dev/gemma-curation-ui` + `~/Dev/gemma-curation-agents`, as
+`build.sh` expects.)
+
+```sh
+# 1. Pull latest source (skip the agents repo if only the UI changed)
+cd ~/Dev/gemma-curation-ui      && git pull
+cd ~/Dev/gemma-curation-agents  && git pull
+
+# 2. Rebuild the images — re-tags gemma-curator/*:latest (cached, fast)
+cd ~/Dev/gemma-curation-ui/docker/curator
+./build.sh
+
+# 3. Recreate the containers from the new :latest images.
+#    The local-api-data volume (your packages + dispositions) persists.
+./start.sh
+```
+
+That's the whole loop — no `down -v`, no re-import.
+
+**UI-only shortcut.** If only the TS changed, rebuild just that image
+(the compose file pins images, so use the raw build, not `compose
+build`) and recreate only that container:
+
+```sh
+cd ~/Dev/gemma-curation-ui/docker/curator
+docker build -f Dockerfile.curation-ui \
+  --build-arg "VITE_GEMMA_ONTOLOGY_URL=${GEMMA_ONTOLOGY_URL:-}" \
+  -t gemma-curator/curation-ui:latest "$(cd ../.. && pwd)"
+docker compose up -d curation-ui
+```
+
+> ⚠️ `VITE_GEMMA_ONTOLOGY_URL` is baked into the SPA bundle at **build**
+> time (it drives the term-picker / backend-mode footer host). If the
+> ontology host changed, export `GEMMA_ONTOLOGY_URL=…` before building
+> or the old host stays compiled in.
+
+### If you only have the published images (no source)
+
+There's no `git pull` — pull the newer image and recreate:
+
+```sh
+cd <curator-folder>
+docker compose pull        # only changed layers download
+./start.sh
+```
+
+Still keeps the `local-api-data` volume.
+
+### If you iterate on code often
+
+Switch to the sibling **`../local-mode/`** dev stack — it bind-mounts
+host source, so `git pull` + Vite HMR (UI) / reload (API) update with
+no image build at all. It needs a source checkout and a bit more
+setup, but it's the right tool for frequent code changes (see "Versus
+the dev stack" below).
+
 ## Enabling the proposer (fresh proposals)
 
 Curators reviewing pre-built calibration packages don't need this —
