@@ -1,5 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  StatementEditModal,
+  type StatementDraft,
+} from "@/components/ui/StatementEditModal";
 import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
@@ -34,6 +38,7 @@ import {
   deleteTag,
   setDesignDescription,
   setTagCategory,
+  setTagStatements,
   setTagValue,
 } from "@/features/design/mutations";
 import {
@@ -1036,9 +1041,8 @@ function TagBarLegend() {
           <Sample palette="bm" val="brain" />
           <span>
             <span className="font-medium">Medium weight</span> —
-            ontology-resolved. Click to reveal the CURIE inline; click
-            the <span className="font-mono">↗</span> to open the term
-            page in a new tab.
+            ontology-resolved. Click the CURIE to open the term
+            popover.
           </span>
           <Sample palette="bm" val="Laser captured…" italic />
           <span>
@@ -1232,6 +1236,48 @@ function FactorChip({
   );
 }
 
+/** Context for chip-level edit requests. EditableDirectGroupChip
+ *  consumes this and fires ``openEditTag(tag)`` when the curator
+ *  clicks an existing chip; TagBar provides the implementation and
+ *  hoists the modal so popover positioning + the draft snapshot live
+ *  at one level. */
+interface TagEditCtxValue {
+  openEditTag: (tag: Tag) => void;
+}
+const TagEditCtx = createContext<TagEditCtxValue | null>(null);
+function useTagEditContext(): TagEditCtxValue | null {
+  return useContext(TagEditCtx);
+}
+
+/** Convert a Tag (the UI's internal shape) into the modal's
+ *  StatementDraft. Tag.statements[] becomes the (predicate, object)
+ *  pair list; the modal doesn't echo the subject inside each pair
+ *  since subject==tag.value per the wire spec (UIB_HANDOFF_2026_06_17). */
+function tagToDraft(tag: Tag): StatementDraft {
+  return {
+    category: { label: tag.category.label, uri: tag.category.uri ?? null },
+    subject: { label: tag.value.label, uri: tag.value.uri ?? null },
+    pairs: (tag.statements ?? []).map((s) => ({
+      predicate: s.predicate ?? null,
+      object: s.object ?? null,
+    })),
+  };
+}
+
+/** Convert a StatementDraft into the Statement[] the Tag stores. The
+ *  subject mirrors the draft's subject; pairs with neither predicate
+ *  nor object are dropped. */
+function draftToStatements(draft: StatementDraft): Statement[] {
+  return draft.pairs
+    .filter((p) => p.predicate?.label || p.object?.label)
+    .map((p) => ({
+      category: draft.category,
+      subject: draft.subject,
+      predicate: p.predicate,
+      object: p.object,
+    }));
+}
+
 function TagBar({
   tags,
   biomaterials,
@@ -1245,11 +1291,46 @@ function TagBar({
   experimentId: number | string;
 }) {
   const { draft, apply, diff } = useDesignDraft();
-  // Review-mode lock: only the "+ tag" + chip remove + ChipEditor
+  // Review-mode lock: only the "+ tag" + chip remove + StatementEditModal
   // mutate state. Expand/collapse, legend popup, and chip select
   // stay live so the curator can still read.
   const tagReadOnly = useIsReadOnly();
-  const [adding, setAdding] = useState(false);
+  // Modal state: ``mode`` distinguishes add (no tag id yet) vs edit
+  // (existing tag id). Initial draft is rebuilt on every open from the
+  // tag at the moment of click — guarantees the modal can't show stale
+  // state if the curator opens, cancels, mutates elsewhere, then
+  // reopens the same chip.
+  const [modalState, setModalState] = useState<
+    | { mode: "add" }
+    | { mode: "edit"; tagId: number; initial: StatementDraft }
+    | null
+  >(null);
+  const openEditTag = (tag: Tag) => {
+    setModalState({ mode: "edit", tagId: tag.id, initial: tagToDraft(tag) });
+  };
+  const editCtxValue: TagEditCtxValue = { openEditTag };
+
+  const addInitial: StatementDraft = {
+    category: { label: "", uri: null },
+    subject: { label: "", uri: null },
+    pairs: [],
+  };
+  async function handleSave(saved: StatementDraft) {
+    if (!draft) return;
+    if (modalState?.mode === "add") {
+      const { design: afterAdd, tagId } = addTag(draft);
+      let next = setTagCategory(afterAdd, tagId, saved.category);
+      next = setTagValue(next, tagId, saved.subject);
+      next = setTagStatements(next, tagId, draftToStatements(saved));
+      apply(next);
+    } else if (modalState?.mode === "edit") {
+      let next = setTagCategory(draft, modalState.tagId, saved.category);
+      next = setTagValue(next, modalState.tagId, saved.subject);
+      next = setTagStatements(next, modalState.tagId, draftToStatements(saved));
+      apply(next);
+    }
+    setModalState(null);
+  }
   // Set of tag ids that exist in the draft but not the saved server
   // state — these are uncommitted additions. Threaded down to the
   // chip render so the curator can see at a glance what they've
@@ -1495,6 +1576,7 @@ function TagBar({
     inferredByGroup.set(k, list);
   }
   return (
+    <TagEditCtx.Provider value={editCtxValue}>
     <div className="pt-1 space-y-0.5">
       <div className="flex items-baseline gap-1.5">
         <span className="text-[11px] uppercase tracking-wide text-slate-500">
@@ -1596,12 +1678,12 @@ function TagBar({
         }
         return rows;
       })}
-      {draft && !adding ? (
+      {draft ? (
         <div className="flex items-center gap-1 pl-2 pt-0.5">
           <button
             type="button"
             className="text-[11px] text-slate-500 hover:text-emerald-800 hover:bg-emerald-50 border border-dashed border-slate-300 hover:border-emerald-300 rounded px-1.5 py-0.5 disabled:opacity-50 disabled:hover:text-slate-500 disabled:hover:bg-transparent disabled:hover:border-slate-300 disabled:cursor-not-allowed"
-            onClick={() => setAdding(true)}
+            onClick={() => setModalState({ mode: "add" })}
             disabled={tagReadOnly}
           >
             + tag
@@ -1627,23 +1709,17 @@ function TagBar({
           />
         </div>
       ) : null}
-      {draft && adding ? (
-        <div className="pl-2 pt-0.5">
-          <ChipEditor
-            category={{ label: "" }}
-            value={{ label: "" }}
-            onCancel={() => setAdding(false)}
-            onCommit={(cat, val) => {
-              const { design: next, tagId } = addTag(draft);
-              const withCat = setTagCategory(next, tagId, cat);
-              const withVal = setTagValue(withCat, tagId, val);
-              apply(withVal);
-              setAdding(false);
-            }}
-          />
-        </div>
-      ) : null}
+      <StatementEditModal
+        open={modalState !== null}
+        initial={
+          modalState?.mode === "edit" ? modalState.initial : addInitial
+        }
+        title={modalState?.mode === "edit" ? "Edit tag" : "Add tag"}
+        onCancel={() => setModalState(null)}
+        onSave={handleSave}
+      />
     </div>
+    </TagEditCtx.Provider>
   );
 }
 
@@ -1967,12 +2043,11 @@ function TagValueChip({
   const display = abbreviateValueLabel(value.label);
   if (value.uri) {
     // Ontology-resolved: label + inline CURIE (clickable, opens the
-    // term-detail popover) + small ↗ external link. Mirrors the
-    // ``Term`` chip pattern elsewhere in the UI (audit cards, design
-    // editor) so the CURIE is always visible without a click-to-
-    // expand. Paul 2026-06-15: "the rendering should be more like
-    // what we have in the other parts of the UI, with the curie
-    // visible."
+    // term-detail popover with its own "Fetch from OLS" button).
+    // Mirrors the ``Term`` chip pattern elsewhere in the UI. Inline
+    // ↗ external link removed 2026-06-17 (Paul): it cluttered the
+    // chip and penalised misclicks; the popover already exposes the
+    // OLS fetch button when the curator actually wants the term page.
     const curie = shortenUri(value.uri);
     return (
       <span className="inline-flex items-baseline gap-1 align-bottom">
@@ -1987,17 +2062,6 @@ function TagValueChip({
           display={curie}
           className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
         />
-        <a
-          href={value.uri}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          title="open the term page in a new tab"
-          className="text-[10px] opacity-70 hover:opacity-100"
-          aria-label="open in OLS"
-        >
-          ↗
-        </a>
       </span>
     );
   }
@@ -2227,11 +2291,13 @@ function EditableDirectGroupChip({
   const { draft, apply } = useDesignDraft();
   const readOnly = useIsReadOnly();
   const [open, setOpen] = useState(false);
-  // ``editingId`` + ``commitEdit`` retained for the legacy
-  // ChipEditor branch (if/when any path re-enters edit-by-editor
-  // mode). Today's chip-click surface no longer opens it — clicking
-  // exposes only the × delete affordance per Paul 2026-06-15.
+  // ``editingId`` + ``commitEdit`` retained for any legacy paths that
+  // still call into ChipEditor; today's chip-click surface routes
+  // through ``openEditTag`` from TagEditCtx → StatementEditModal at
+  // the TagBar level, which handles statements as well as flat
+  // category/value pairs.
   const [editingId, setEditingId] = useState<number | null>(null);
+  const tagEdit = useTagEditContext();
 
   function commitEdit(tag: Tag, cat: OntologyTerm, val: OntologyTerm) {
     if (!draft) return;
@@ -2272,17 +2338,32 @@ function EditableDirectGroupChip({
     }
     const isNew = addedTagIds?.has(tag.id) ?? false;
     const valueDisplay = abbreviateValueLabel(tag.value.label || "");
+    const canEdit = !protectedCategory && !readOnly && !!tagEdit;
     return (
       <span
         // Audit focus hook — Apply & focus on a tag finding scrolls
         // this chip into view + ring-flashes it.
         data-audit-target={tagTarget(tag.category.label, tag.value.label)}
+        role={canEdit ? "button" : undefined}
+        tabIndex={canEdit ? 0 : undefined}
+        onClick={canEdit ? () => tagEdit?.openEditTag(tag) : undefined}
+        onKeyDown={
+          canEdit
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  tagEdit?.openEditTag(tag);
+                }
+              }
+            : undefined
+        }
         className={cn(
           "group/chip inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-100",
           // Bookmark on the left when the value is ontology-anchored.
           // Free-text tags share the chip frame but get no bookmark.
           tag.value.uri && ONTOLOGY_ANCHOR_CLS,
           protectedCategory ? "cursor-default opacity-90" : "",
+          canEdit && "cursor-pointer hover:ring-1 hover:ring-emerald-400 dark:hover:ring-emerald-500",
           // Uncommitted addition — amber ring + soft glow so the
           // curator can see at a glance which chips are pending.
           isNew &&
@@ -2293,7 +2374,7 @@ function EditableDirectGroupChip({
             ? `${category.label}: ${tag.value.label} — load-time tag, can't be removed`
             : readOnly
               ? `${category.label}: ${tag.value.label} — read-only in review mode`
-              : `${category.label}: ${tag.value.label}`) +
+              : `${category.label}: ${tag.value.label} — click to edit`) +
           (tag.value.uri ? ` — ${shortenUri(tag.value.uri)}` : "")
         }
       >
@@ -2335,26 +2416,14 @@ function EditableDirectGroupChip({
             </span>
             {/* CURIE inline next to the label — Term-chip pattern
                 per Paul 2026-06-15. Click opens the term-detail
-                popover; the ↗ next to it opens the canonical OBO
-                page in a new tab. */}
+                popover (which carries its own "Fetch from OLS"
+                button). Inline ↗ external link removed 2026-06-17
+                (Paul: misclick penalty + clutter). */}
             {tag.value.uri ? (
-              <>
-                <CurieLink
-                  uri={tag.value.uri}
-                  className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
-                />
-                <a
-                  href={tag.value.uri}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  title="open the term page in a new tab"
-                  className="text-[10px] opacity-70 hover:opacity-100"
-                  aria-label="open in OLS"
-                >
-                  ↗
-                </a>
-              </>
+              <CurieLink
+                uri={tag.value.uri}
+                className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
+              />
             ) : null}
           </>
         )}
@@ -2443,16 +2512,37 @@ function EditableDirectGroupChip({
               <span
                 key={tag.id}
                 data-audit-target={tagTarget(tag.category.label, tag.value.label)}
+                role={!protectedCategory && !readOnly && tagEdit ? "button" : undefined}
+                tabIndex={!protectedCategory && !readOnly && tagEdit ? 0 : undefined}
+                onClick={
+                  !protectedCategory && !readOnly && tagEdit
+                    ? (e) => {
+                        e.stopPropagation();
+                        tagEdit.openEditTag(tag);
+                      }
+                    : undefined
+                }
+                onKeyDown={
+                  !protectedCategory && !readOnly && tagEdit
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          tagEdit.openEditTag(tag);
+                        }
+                      }
+                    : undefined
+                }
                 className={cn(
                   "group/chip inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:border-emerald-700/60 dark:hover:bg-emerald-800/50",
                   tag.value.uri && ONTOLOGY_ANCHOR_CLS,
+                  !protectedCategory && !readOnly && tagEdit && "cursor-pointer",
                   addedTagIds?.has(tag.id) &&
                     "ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-slate-900",
                 )}
                 title={
                   protectedCategory
                     ? "load-time tag, can't be removed"
-                    : tag.value.label
+                    : `${tag.value.label} — click to edit`
                 }
               >
                 {tag.statements && tag.statements.length > 0 ? (
@@ -2464,23 +2554,10 @@ function EditableDirectGroupChip({
                   <>
                     <span>{tag.value.label || "(blank)"}</span>
                     {tag.value.uri ? (
-                      <>
-                        <CurieLink
-                          uri={tag.value.uri}
-                          className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
-                        />
-                        <a
-                          href={tag.value.uri}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          title="open the term page in a new tab"
-                          className="text-[10px] opacity-70 hover:opacity-100"
-                          aria-label="open in OLS"
-                        >
-                          ↗
-                        </a>
-                      </>
+                      <CurieLink
+                        uri={tag.value.uri}
+                        className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
+                      />
                     ) : null}
                   </>
                 )}

@@ -337,10 +337,23 @@ function normaliseDesignForSave(design: Design): Design {
         id = nextSyntheticId++;
         existingIds.add(id);
       }
+      // ``statements`` is optional and round-trips through the wire
+      // as the (predicate, object) + (secondPredicate, secondObject)
+      // pairs on AnnotationTagInput; canonical UI shape is an array of
+      // ``Statement`` rows with the subject mirroring ``value`` (per
+      // UIB_HANDOFF_2026_06_17_TAG_AND_BM_STATEMENT_ENDPOINTS). Pass
+      // it through verbatim if the source already produced canonical
+      // rows; otherwise drop to undefined and let the read side rehydrate.
+      const rawStmts = (t as { statements?: unknown }).statements;
+      const normalizedStatements =
+        Array.isArray(rawStmts) && rawStmts.length > 0
+          ? (rawStmts as Design["tags"][number]["statements"])
+          : undefined;
       return {
         id,
         category: normalizedCategory,
         value: normalizedValue,
+        statements: normalizedStatements,
         inferred: Boolean(
           (t as { inferred?: unknown }).inferred,
         ),

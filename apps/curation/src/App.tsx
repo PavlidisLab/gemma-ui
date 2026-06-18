@@ -12,6 +12,7 @@ import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
 import { AuditsInbox } from "@/features/inbox/AuditsInbox";
 import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
 import { ProposalPreviewPage } from "@/features/proposal/ProposalPreviewPage";
+import { DevStatementChipPreview } from "@/pages/DevStatementChipPreview";
 import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
 import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { PipelinePanel } from "@/features/workflow/PipelinePanel";
@@ -171,6 +172,10 @@ export default function App() {
 
   if (route.kind === "proposal-preview") {
     return <ProposalPreviewPage />;
+  }
+
+  if (route.kind === "dev-statement-chip") {
+    return <DevStatementChipPreview />;
   }
 
   if (route.kind === "workflow") {
