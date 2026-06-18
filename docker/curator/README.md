@@ -49,7 +49,7 @@ keeps working.
 2. Get this `curator/` folder (zip / git clone) — and the calibration package(s) into `./calibration-packages/`.
 3. `cp .env.example .env` — edit `GEMMA_ONTOLOGY_URL` if a non-default ontology host is preferred.
 4. `docker compose pull` (or `docker compose up --build` if a registry isn't set up yet).
-5. `docker compose up -d`.
+5. **`./start.sh`** (not `docker compose up -d` directly — see "Credentials" below).
 6. **Import the calibration packages — `./import-all.sh`** (mandatory; UI is blank without this).
 7. Open <http://localhost:5175/>.
 
@@ -108,6 +108,72 @@ the LLM-backed proposer locally too:
 # Set ANTHROPIC_API_KEY in .env first
 docker compose --profile agents up -d
 ```
+
+## Credentials (cross-platform keychain integration)
+
+Two scripts handle credential resolution on the **host** so the
+container always sees the right value:
+
+| script | when to use | what it does |
+|---|---|---|
+| `./start.sh` | replaces `docker compose up -d` | resolves keys on host, exports, then `docker compose up -d $@` |
+| `./import-all.sh` | after `start.sh`, to load packages | resolves keys on host, passes to setup.py via `--api-key` |
+
+Both source `./resolve_secrets.sh`, which checks (in order):
+
+1. **Keychain** — whichever is available on the curator's OS:
+   * macOS: `security find-generic-password`
+   * Linux: `secret-tool lookup` (install `libsecret-tools` first)
+   * Windows: `powershell.exe` + the `CredentialManager` PS module
+2. **Environment variable** already exported in the calling shell.
+
+If neither is set, the local-api falls back to the public
+`dev-token-123` default, which works for fresh handoffs but breaks
+once the lab rotates the bearer.
+
+### Adding the key to keychain (one-time setup)
+
+**macOS:**
+
+```sh
+security add-generic-password -s GEMMA_CURATION_API_KEY \
+  -a "$USER" -w '<the-value>'
+```
+
+**Linux** (GNOME Keyring / KDE Wallet via Secret Service):
+
+```sh
+sudo apt install libsecret-tools     # or your distro's package
+secret-tool store --label='Gemma curation API key' \
+  service GEMMA_CURATION_API_KEY
+# prompts for the value
+```
+
+**Windows** (PowerShell, once per machine):
+
+```powershell
+Install-Module CredentialManager -Scope CurrentUser -Force
+New-StoredCredential -Target GEMMA_CURATION_API_KEY -UserName gemma `
+  -Password '<the-value>' -Persist LocalMachine
+```
+
+After this, `./start.sh` and `./import-all.sh` will both pick the
+value up automatically — same behaviour on every OS.
+
+### Optional: Anthropic key for the proposer profile
+
+`./start.sh` also tries to resolve `ANTHROPIC_API_KEY` (needed only
+when running with `--profile agents`). Add it the same way:
+
+```sh
+# macOS
+security add-generic-password -s ANTHROPIC_API_KEY \
+  -a "$USER" -w 'sk-ant-...'
+```
+
+The script tries several common entry names (`ANTHROPIC_API_KEY`,
+`anthropic`, `anthropic-api-key`) so existing keychain entries from
+other tools usually just work.
 
 ## Cross-platform notes
 
