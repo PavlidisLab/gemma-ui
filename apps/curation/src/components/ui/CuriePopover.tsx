@@ -173,6 +173,17 @@ function Body({
       <div className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
         {detail.label || <em className="text-slate-400">(no label)</em>}
       </div>
+      {detail.taxonScientificName ? (
+        <div className="text-[11px] italic text-slate-600 dark:text-slate-300">
+          {detail.taxonScientificName}
+          {detail.taxonId ? (
+            <span className="not-italic text-slate-400 dark:text-slate-500">
+              {" "}
+              · NCBI Taxon {detail.taxonId}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {detail.definition ? (
         <div
           className="text-slate-600 dark:text-slate-300 leading-snug"

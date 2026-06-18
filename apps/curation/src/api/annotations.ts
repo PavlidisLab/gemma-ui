@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./client";
 import { curieToUrl, ncbiGeneIdFromUri, ncbiGeneUrl } from "@/lib/curie";
+import { taxonSortPriority } from "@/lib/taxon";
 
 /**
  * One typeahead candidate. Shape mirrors what the curation mock /
@@ -20,6 +21,13 @@ export interface AnnotationCandidate {
   /** How many times this term has been used across Gemma. Drives
    *  the bold/regular split in the picker. */
   usage_count: number;
+  // Gene-shaped hits only (``category == "gene"``); null on
+  // ontology-term hits — taxon is a gene-only attribute. Added
+  // 2026-06-18 (UIB_HANDOFF_..._GENE_TAXON) so the picker can show
+  // ``KRAS (H.s.)`` vs ``Kras (M.m.)`` as distinct rows.
+  taxon_id?: number | null;
+  taxon_common_name?: string | null;
+  taxon_scientific_name?: string | null;
 }
 
 const KEY = (q: string, category: string | null, limit: number) =>
@@ -74,6 +82,11 @@ export function useAnnotationSearch(
         category?: string | null;
         category_uri?: string | null;
         usage_count?: number | null;
+        // Gene hits carry taxon after the 2026-06-18 backend change;
+        // client.ts snakeifies ``taxonId`` → ``taxon_id`` etc.
+        taxon_id?: number | null;
+        taxon_common_name?: string | null;
+        taxon_scientific_name?: string | null;
       };
       type LocalShape = AnnotationCandidate;
       const raw = await api.get<
@@ -84,10 +97,13 @@ export function useAnnotationSearch(
         : raw && Array.isArray(raw.data)
           ? raw.data
           : [];
-      return rows.map((r): AnnotationCandidate => {
+      const candidates = rows.map((r): AnnotationCandidate => {
         // Local shape carries ``label``; Gemma shape carries
         // ``value``. ``label`` is what every consumer of
-        // ``AnnotationCandidate`` reads, so coalesce here.
+        // ``AnnotationCandidate`` reads, so coalesce here. The
+        // ``taxon_*`` fields share a key across both shapes (local_api
+        // won't populate them until the agents side ships taxon
+        // awareness — null is the correct degraded value).
         const asLocal = r as Partial<LocalShape>;
         const asGemma = r as Partial<GemmaShape>;
         return {
@@ -96,12 +112,64 @@ export function useAnnotationSearch(
           category_label: asLocal.category_label ?? asGemma.category ?? "",
           category_uri: asLocal.category_uri ?? asGemma.category_uri ?? null,
           usage_count: asLocal.usage_count ?? asGemma.usage_count ?? 0,
+          taxon_id: asLocal.taxon_id ?? asGemma.taxon_id ?? null,
+          taxon_common_name:
+            asLocal.taxon_common_name ?? asGemma.taxon_common_name ?? null,
+          taxon_scientific_name:
+            asLocal.taxon_scientific_name ??
+            asGemma.taxon_scientific_name ??
+            null,
         };
       });
+      return orderCandidatesByTaxon(candidates);
     },
     staleTime: 1000 * 60 * 5,
     enabled,
   });
+}
+
+/**
+ * Cluster same-symbol gene hits across species into adjacent rows
+ * without losing the backend's usage ranking for everything else.
+ *
+ * The backend ranks the whole list by usage. When ``kras`` matches
+ * the human, mouse, rat and zebrafish genes, those rows can scatter
+ * through the list by usage; a curator scanning for "the mouse one"
+ * has to hunt. We group by (case-insensitive) label, keeping each
+ * group's first-seen position (so usage ranking still drives overall
+ * order), and within a multi-row group sort human → mouse → rat →
+ * others, then by descending usage. Singleton groups (the common,
+ * non-gene case) pass through untouched.
+ */
+export function orderCandidatesByTaxon(
+  candidates: AnnotationCandidate[],
+): AnnotationCandidate[] {
+  const groups = new Map<string, AnnotationCandidate[]>();
+  const order: string[] = [];
+  for (const c of candidates) {
+    const key = c.label.trim().toLowerCase();
+    let bucket = groups.get(key);
+    if (!bucket) {
+      bucket = [];
+      groups.set(key, bucket);
+      order.push(key);
+    }
+    bucket.push(c);
+  }
+  const out: AnnotationCandidate[] = [];
+  for (const key of order) {
+    const bucket = groups.get(key)!;
+    if (bucket.length > 1) {
+      bucket.sort((a, b) => {
+        const pa = taxonSortPriority(a.taxon_common_name, a.taxon_scientific_name);
+        const pb = taxonSortPriority(b.taxon_common_name, b.taxon_scientific_name);
+        if (pa !== pb) return pa - pb;
+        return b.usage_count - a.usage_count;
+      });
+    }
+    out.push(...bucket);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +200,12 @@ export interface AnnotationTermDetail {
   /** Canonical resolver URL — the curator can click "open in OBO" /
    *  "open in OLS" to verify on the upstream page. */
   canonicalUrl: string | null;
+  /** Species for gene records (NCBI Gene path); null for ontology
+   *  terms. Lets the popover header disambiguate which species' gene
+   *  the curator is looking at. ``taxonId`` is the NCBI Taxonomy id. */
+  taxonScientificName?: string | null;
+  taxonCommonName?: string | null;
+  taxonId?: number | null;
 }
 
 const GEMMA_TERM_KEY = (uri: string | null) =>
@@ -304,10 +378,26 @@ function parseNcbiGene(
     typeof r.otheraliases === "string" && r.otheraliases.trim()
       ? r.otheraliases
       : "";
-  const organism =
+  const organismObj =
     r.organism && typeof r.organism === "object"
-      ? ((r.organism as Record<string, unknown>).scientificname as string) ?? ""
+      ? (r.organism as Record<string, unknown>)
+      : null;
+  const organism =
+    typeof organismObj?.scientificname === "string"
+      ? organismObj.scientificname
       : "";
+  const taxonCommonName =
+    typeof organismObj?.commonname === "string" && organismObj.commonname
+      ? organismObj.commonname
+      : null;
+  // esummary ships ``taxid`` as a number (sometimes a numeric string).
+  const taxidRaw = organismObj?.taxid;
+  const taxonId =
+    typeof taxidRaw === "number"
+      ? taxidRaw
+      : typeof taxidRaw === "string" && taxidRaw.trim() !== ""
+        ? Number(taxidRaw)
+        : null;
   // Compose label as ``SYMBOL — full name``; falls back to whichever
   // half is present.
   const label = [symbol, description].filter(Boolean).join(" — ");
@@ -329,6 +419,9 @@ function parseNcbiGene(
     ontology: "NCBI Gene",
     source: "ncbi",
     canonicalUrl: ncbiGeneUrl(geneId),
+    taxonScientificName: organism || null,
+    taxonCommonName,
+    taxonId: Number.isFinite(taxonId) ? taxonId : null,
   };
 }
 

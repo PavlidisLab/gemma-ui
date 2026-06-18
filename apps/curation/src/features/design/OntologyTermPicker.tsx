@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
+import { taxonAbbreviation } from "@/lib/taxon";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import type { OntologyTerm } from "@/features/experiment/types";
@@ -642,6 +643,15 @@ function CandidateRow({
 }) {
   const used = candidate.usage_count > 0;
   const ontology = !!candidate.uri;
+  // Gene hits carry a taxon; show the compact ``H.s.`` form so a
+  // curator can tell the human KRAS from the mouse Kras. Suffix
+  // follows the row's emphasis (no independent bold/dim).
+  const taxonAbbr = taxonAbbreviation(candidate.taxon_scientific_name);
+  const taxonTitle = candidate.taxon_scientific_name
+    ? `${candidate.taxon_scientific_name}${
+        candidate.taxon_id ? ` · NCBI Taxon ${candidate.taxon_id}` : ""
+      }`
+    : undefined;
   return (
     <li
       onMouseEnter={onHover}
@@ -653,7 +663,7 @@ function CandidateRow({
     >
       <span
         className={cn(
-          "truncate flex-1",
+          "truncate min-w-0",
           ontology ? "text-emerald-800" : "text-slate-700 italic",
           used ? "font-semibold" : "font-normal",
         )}
@@ -661,6 +671,14 @@ function CandidateRow({
       >
         {candidate.label}
       </span>
+      {taxonAbbr ? (
+        <span className="text-[10px] text-slate-500 shrink-0" title={taxonTitle}>
+          {taxonAbbr}
+        </span>
+      ) : null}
+      {/* Spacer pushes the URI / category / usage metadata to the
+          right while the symbol + taxon suffix stay grouped left. */}
+      <span className="flex-1" />
       {ontology ? (
         <span className="text-[10px] text-slate-400 font-mono shrink-0">
           {shortenUri(candidate.uri!)}
