@@ -38,6 +38,23 @@ else
     echo "        for keychain setup instructions."
 fi
 
+# GEMMA_BASE_URL — required, no fallback. Per Paul's project-level
+# rule (CLAUDE.md): the keychain entry IS the source of truth for
+# the active dev target. Try keychain first; fall through to env /
+# .env (compose-up errors loudly if still unset).
+if val=$(resolve_secret GEMMA_BASE_URL \
+            "GEMMA_BASE_URL" "gemma-base-url" \
+            2>/dev/null); then
+    export GEMMA_BASE_URL="$val"
+    echo "[start] GEMMA_BASE_URL resolved from keychain: $val"
+elif [ -n "${GEMMA_BASE_URL:-}" ]; then
+    echo "[start] GEMMA_BASE_URL inherited from env: $GEMMA_BASE_URL"
+else
+    echo "[start] GEMMA_BASE_URL not set in keychain or env;"
+    echo "        relying on .env. If unset there too, docker compose"
+    echo "        up will error (intentional — no silent fallback)."
+fi
+
 # Optional: forward Anthropic key if the curator opted into the
 # ``agents`` profile (LLM proposer). Same precedence; the proposer
 # image reads ``ANTHROPIC_API_KEY`` from env at startup.

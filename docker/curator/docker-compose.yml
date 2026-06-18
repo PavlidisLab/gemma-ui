@@ -87,9 +87,13 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
       GEMMA_CURATION_URL: http://local-api:8000
-      # Remote Gemma 2.0 — set in .env (e.g.
-      # https://gemma.msl.ubc.ca or whatever offsite host bro runs).
-      GEMMA_BASE_URL: ${GEMMA_BASE_URL:-https://staging-gemma.msl.ubc.ca}
+      # Remote Gemma 2.0 — MUST be set explicitly. Per Paul
+      # 2026-06-18 + the project CLAUDE.md note: silent fallback to
+      # staging-gemma bit us 2026-06-10 with empty results for valid
+      # queries (~35 FV groundings across 18 GSEs). Compose-up now
+      # errors if unset rather than silently picking the wrong host.
+      # Set in .env or export before ./start.sh.
+      GEMMA_BASE_URL: ${GEMMA_BASE_URL:?GEMMA_BASE_URL must be set — edit .env (e.g. http://frink.msl.ubc.ca:8080) or export it before ./start.sh}
     command: ["python", "-m", "gemma_curation_agents.cli", "proposer-service", "serve", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
 
