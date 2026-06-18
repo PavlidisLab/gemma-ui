@@ -1077,6 +1077,43 @@ export async function getHeatmapData(
   }
 }
 
+/** A random sample of genes assayed by a dataset.
+ *
+ *  Reuses the heatmap-data endpoint's ``sampleSize`` param: called
+ *  *without* a ``genes`` filter, the backend returns ``sampleSize``
+ *  randomly-chosen design-element rows for the dataset, each carrying
+ *  its mapped gene(s). This is the cheap way to get "valid genes for
+ *  this dataset" — one call, and the sample is inherently restricted
+ *  to the dataset's platform + taxon (no walking the platform's tens
+ *  of thousands of elements). Rows can map to 0..n genes, so we
+ *  flatten + dedupe and cap to ``n``.
+ *
+ *  Used to pre-populate the Visualize tab's heatmap on first open. */
+export async function getRandomDatasetGenes(
+  datasetId: number | string,
+  n: number,
+  signal?: AbortSignal,
+): Promise<Gene[]> {
+  const wire = await getHeatmapData(datasetId, { sampleSize: n }, signal);
+  if (!wire?.rows?.length) return [];
+  const seen = new Set<number>();
+  const out: Gene[] = [];
+  for (const row of wire.rows) {
+    for (const g of row.genes ?? []) {
+      if (g.id == null || seen.has(g.id)) continue;
+      seen.add(g.id);
+      out.push({
+        id: g.id,
+        officialSymbol: g.officialSymbol ?? null,
+        // Wire calls it ``name``; the Gene shape (and chip tooltip)
+        // expects ``officialName``.
+        officialName: g.name ?? null,
+      });
+    }
+  }
+  return out.slice(0, n);
+}
+
 /** Categories endpoint also returns annotations under each category as a separate call. */
 export async function getCategoriesWithChildren(
   args: CategoriesArgs,
