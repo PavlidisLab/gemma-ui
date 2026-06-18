@@ -296,7 +296,11 @@ function normaliseDesignForSave(design: Design): Design {
   const out: Design = {
     ...design,
     tags: (design.tags ?? []).map((raw) => {
-      const t = raw as Record<string, unknown>;
+      // ``Tag`` has no index signature, so TS rejects a direct cast to
+      // ``Record<string, unknown>``; route through ``unknown`` — the
+      // producers feeding this normaliser are deliberately loosely
+      // typed (flat-shape tags from several call sites).
+      const t = raw as unknown as Record<string, unknown>;
       const cat = t.category;
       const val = t.value;
       let normalizedCategory: { label: string; uri: string | null };
@@ -331,8 +335,11 @@ function normaliseDesignForSave(design: Design): Design {
       } else {
         normalizedValue = { label: "", uri: null };
       }
-      let id = (t as { id?: unknown }).id;
-      if (typeof id !== "number") {
+      const rawId = (t as { id?: unknown }).id;
+      let id: number;
+      if (typeof rawId === "number") {
+        id = rawId;
+      } else {
         while (existingIds.has(nextSyntheticId)) nextSyntheticId++;
         id = nextSyntheticId++;
         existingIds.add(id);
