@@ -1,7 +1,7 @@
 // Public, read-only Expression Experiment page.
 
 import { useMemo, useRef, useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { marked } from "marked";
 import { ExternalLink, Pencil, ChevronRight } from "lucide-react";
@@ -827,11 +827,42 @@ function FlagChip({ label, color }: { label: string; color: "red" | "amber" }) {
 
 // ─── Expression tab ───────────────────────────────────────────────────────────
 
+/** Shared query options for a result set's corrected p-value histogram.
+ *  Used both by the per-row {@link PvalueHistogramStrip} and by the
+ *  tab-level prefetch below — keeping the key/args/staleTime identical
+ *  in one place so a prefetch reliably warms the cache the strips read.
+ *  The 30-min staleTime means an expand never re-hits the network for a
+ *  set already fetched this session. */
+function pvalueDistQueryOptions(resultSetId: number) {
+  return {
+    queryKey: ["resultset-pvalue-dist", resultSetId] as const,
+    queryFn: ({ signal }: QueryFunctionContext) =>
+      getPvalueDistribution(resultSetId, { bins: 20, column: "corrected" }, signal),
+    staleTime: 30 * 60_000,
+  };
+}
+
 function ExpressionTab({ datasetId }: { datasetId: number }) {
+  const queryClient = useQueryClient();
   const analyses = useQuery({
     queryKey: ["datasetDiffEx", datasetId],
     queryFn: ({ signal }) => getDatasetDiffExAnalyses(datasetId, signal),
   });
+
+  // Warm the p-value histograms for every result set as soon as the
+  // analyses arrive, so expanding a subset reads from cache instead of
+  // firing a `resultSets/{id}/pvalueDistribution` call per row on first
+  // open. React Query dedupes against the in-flight prefetch if a row
+  // mounts before it resolves.
+  const analysesData = analyses.data;
+  useEffect(() => {
+    if (!analysesData) return;
+    for (const a of analysesData) {
+      for (const rs of a.resultSets ?? []) {
+        void queryClient.prefetchQuery(pvalueDistQueryOptions(rs.id));
+      }
+    }
+  }, [analysesData, queryClient]);
 
   return (
     <>
@@ -1347,12 +1378,7 @@ function DeCountChip({
  *  uncluttered. Tooltip carries the bar counts so the curator can
  *  hover-inspect without a popover. */
 function PvalueHistogramStrip({ resultSetId }: { resultSetId: number }) {
-  const q = useQuery({
-    queryKey: ["resultset-pvalue-dist", resultSetId],
-    queryFn: ({ signal }) =>
-      getPvalueDistribution(resultSetId, { bins: 20, column: "corrected" }, signal),
-    staleTime: 30 * 60_000,
-  });
+  const q = useQuery(pvalueDistQueryOptions(resultSetId));
   if (q.isLoading) {
     return (
       <span
