@@ -26,6 +26,7 @@ import {
   searchGoTerms,
   getGoTermGenes,
   getHeatmapData,
+  getRandomDatasetGenes,
   type Gene,
   type HeatmapWireResponse,
 } from "@/api/endpoints";
@@ -41,6 +42,9 @@ const PICKER_MODE_LS_KEY = "gemma-visualize-picker-mode";
 const RECENT_SYMBOL_QUERIES_LS_KEY = "gemma-visualize-recent-symbol-queries";
 const RECENT_GO_TERMS_LS_KEY = "gemma-visualize-recent-go-terms";
 const RECENT_CAP = 8;
+// How many random genes to seed the heatmap with on first open of the
+// Visualize tab (no prior selection in URL hash / localStorage).
+const RANDOM_SEED_COUNT = 20;
 
 type PickerMode = "symbol" | "go";
 
@@ -1038,16 +1042,25 @@ function useGeneSelection(datasetId: number): [
   const initRan = useRef(false);
   const [selected, setSelectedState] = useState<Gene[]>([]);
 
-  // First-paint hydrate: URL hash wins, then localStorage.
+  // First-paint hydrate: URL hash wins, then localStorage. With no
+  // prior selection at all, seed a random sample of the dataset's genes
+  // so the heatmap shows something on first open instead of an empty
+  // prompt. The seeded set persists like any manual selection (hash +
+  // localStorage), so a refresh restores it rather than re-rolling.
   useEffect(() => {
     if (initRan.current) return;
     initRan.current = true;
     const ids = readGeneIdsFromHash() ?? readGeneIdsFromStorage(lsKey);
-    if (!ids || ids.length === 0) return;
-    void resolveGeneIds(ids, qc).then((genes) => {
-      setSelectedState(genes);
+    if (ids && ids.length > 0) {
+      void resolveGeneIds(ids, qc).then((genes) => {
+        setSelectedState(genes);
+      });
+      return;
+    }
+    void getRandomDatasetGenes(datasetId, RANDOM_SEED_COUNT).then((genes) => {
+      if (genes.length > 0) setSelectedState(genes);
     });
-  }, [lsKey, qc]);
+  }, [lsKey, qc, datasetId]);
 
   // Persist on change.
   useEffect(() => {
