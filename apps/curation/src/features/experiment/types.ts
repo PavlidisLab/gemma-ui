@@ -15,6 +15,8 @@
  * the real Gemma read endpoints; the UI components don't need to change.
  */
 
+import type { FindingEvidence } from "@/api/auditTypes";
+
 export interface OntologyTerm {
   label: string;
   uri?: string | null;
@@ -147,6 +149,15 @@ export interface Tag {
    *  annotations are visually distinct from electronically-propagated
    *  (IEA) ones. */
   evidence_code?: string;
+  /** Verbatim provenance for an agent-emitted tag — the BM
+   *  characteristic / paper sentence / catalog fact it was grounded
+   *  on. Optional + tolerate-null: direct curator tags and older wire
+   *  payloads leave it absent, and the chip renders unchanged. When
+   *  present + non-empty the chip shows a ❝ evidence affordance.
+   *  Mirrors `TagProposal.supporting_evidence`; pending a Gemma-side
+   *  `AnnotationValueObject` field so curated tags carry it too — see
+   *  UIB_HANDOFF_2026_06_18_TAG_EVIDENCE_QUOTES. */
+  supporting_evidence?: FindingEvidence[];
 }
 
 /**

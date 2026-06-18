@@ -60,6 +60,7 @@ import type {
 } from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
 import { AuditDot } from "@/features/audit/AuditDot";
+import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
 import { experimentTarget, factorTarget, tagTarget } from "@/features/audit/targetIds";
 import {
   focusByAuditTarget,
@@ -2430,6 +2431,10 @@ function EditableDirectGroupChip({
         <AuditDot
           targetId={tagTarget(tag.category.label, tag.value.label)}
         />
+        {/* Verbatim provenance for an agent-emitted tag — ❝ glyph,
+            click → popover. Renders nothing until the tag carries
+            supporting_evidence (pending the Gemma wire field). */}
+        <EvidenceTrigger evidence={tag.supporting_evidence} className="ml-0.5" />
         {/* Delete affordance — Paul 2026-06-15: "edit should lead
             to the delete being exposed, but that's all." So the
             chip no longer opens the ChipEditor — it just exposes

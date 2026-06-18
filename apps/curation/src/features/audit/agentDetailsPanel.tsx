@@ -46,6 +46,8 @@ import {
   pickJudgeRowText,
   s10MatchesHeaderUri,
 } from "./auditorDetails";
+import { evidenceSourceMeta } from "./evidenceSource";
+import { parseEvidenceLocation } from "./evidenceLocation";
 import { findingLean, leanSuggestionLabel } from "./defenderLean";
 import { parsePrefixedNote } from "./dispositionEdit";
 import { isNearMatchFinding } from "./factorMatch";
@@ -560,18 +562,11 @@ export function FindingEvidenceBlock({
   evidence: NonNullable<AuditFinding["supporting_evidence"]>[number];
 }) {
   const [expanded, setExpanded] = useState(false);
-  // Display labels for the evidence-source discriminated union. The
-  // wire-format literal is still `"preboarding"` (mirrors the Python
-  // schema) but the curator-facing string is "preboarding" per Paul
-  // 2026-05-21. When brother renames the wire literal, update the KEY
-  // here too in lockstep.
-  const sourceLabel: Record<typeof evidence.source, string> = {
-    paper: "paper",
-    preboarding: "preboarding",
-    sample_names: "sample names",
-    geo_metadata: "GEO",
-    characteristic: "characteristic",
-  };
+  // Source label + per-type accent colour live in evidenceSource so the
+  // tag-chip popover and these audit blocks read identically. Colour is
+  // the "what kind of provenance is this" cue (characteristic / paper /
+  // GEO / …); see evidenceSource.ts.
+  const meta = evidenceSourceMeta(evidence.source, evidence.location);
   const { context, highlights } = stripContextHeader(
     (evidence.context || "").trim(),
     evidence.highlights ?? [],
@@ -607,36 +602,50 @@ export function FindingEvidenceBlock({
   const hasMore = !!context && context !== quote;
   return (
     <blockquote
-      className="border-l-2 border-violet-300 bg-white/60 pl-2 pr-1 py-1 text-slate-700 italic relative dark:border-violet-600 dark:bg-slate-800/40 dark:text-slate-200"
-      title={evidence.location || sourceLabel[evidence.source]}
+      className={cn(
+        "border-l-2 bg-white/60 pl-2 pr-1 py-1 text-slate-700 italic relative dark:bg-slate-800/40 dark:text-slate-200",
+        meta.borderCls,
+      )}
+      title={evidence.location || meta.label}
     >
-      <div className="not-italic text-[9px] uppercase tracking-wide text-violet-700/80 mb-0.5 flex items-center justify-between gap-2 dark:text-violet-300/90">
+      <div
+        className={cn(
+          "not-italic text-[9px] uppercase tracking-wide mb-0.5 flex items-center justify-between gap-2",
+          meta.headerCls,
+        )}
+      >
         <span className="inline-flex items-baseline gap-1.5">
-          <span>{sourceLabel[evidence.source]}</span>
+          <span>{meta.label}</span>
+          {meta.badge ? (
+            <span className="not-italic normal-case text-[8px] px-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+              {meta.badge}
+            </span>
+          ) : null}
           {evidence.source_url ? (
             <a
               href={evidence.source_url}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="text-violet-700/90 hover:text-violet-900 hover:underline dark:text-violet-300 dark:hover:text-violet-200"
+              className={cn("hover:underline", meta.linkCls)}
               title={`open source: ${evidence.source_url}`}
             >
               open ↗
             </a>
           ) : null}
         </span>
-        {evidence.location ? (
-          <span className="text-slate-500 not-italic font-mono text-[9px] truncate dark:text-slate-400">
-            {evidence.location}
-          </span>
-        ) : null}
+        <EvidenceLocationLabel location={location} />
       </div>
       <span className="leading-snug">"{quote}"</span>
       {hasMore ? (
         <>
           {expanded ? (
-            <pre className="not-italic mt-1.5 px-1.5 py-1 rounded bg-violet-50/70 dark:bg-violet-900/30 text-[11px] leading-snug whitespace-pre-wrap break-words font-sans text-slate-800 dark:text-slate-200 max-h-72 overflow-y-auto">
+            <pre
+              className={cn(
+                "not-italic mt-1.5 px-1.5 py-1 rounded text-[11px] leading-snug whitespace-pre-wrap break-words font-sans text-slate-800 dark:text-slate-200 max-h-72 overflow-y-auto",
+                meta.contextBgCls,
+              )}
+            >
               {renderHighlightedContext(context, highlights)}
             </pre>
           ) : null}
@@ -647,7 +656,7 @@ export function FindingEvidenceBlock({
               e.stopPropagation();
               setExpanded((v) => !v);
             }}
-            className="not-italic mt-1 ml-1 text-[10px] text-violet-700 hover:underline dark:text-violet-300"
+            className={cn("not-italic mt-1 ml-1 text-[10px] hover:underline", meta.headerCls)}
           >
             {expanded ? "Show less" : "Show more"}
           </button>
@@ -655,6 +664,71 @@ export function FindingEvidenceBlock({
       ) : null}
     </blockquote>
   );
+}
+
+/**
+ * Render an evidence ``location`` string structurally — coverage badge
+ * for "all N samples", a ratio + sample list for partial coverage, an
+ * alias mapping, or a loud "investigate" flag for the producer-bug
+ * case. Falls back to the raw string for anything unrecognised.
+ */
+function EvidenceLocationLabel({ location }: { location: string }) {
+  const parsed = parseEvidenceLocation(location);
+  switch (parsed.kind) {
+    case "constant":
+      return (
+        <span className="not-italic text-[9px] text-slate-500 dark:text-slate-400 truncate">
+          {parsed.scope ? `${parsed.scope} · ` : ""}
+          <span className="text-emerald-700/80 dark:text-emerald-400/80 font-medium">
+            all{parsed.count != null ? ` ${parsed.count}` : ""}
+          </span>
+        </span>
+      );
+    case "partial":
+      return (
+        <span
+          className="not-italic text-[9px] text-slate-500 dark:text-slate-400 truncate"
+          title={
+            parsed.samples.length
+              ? `${parsed.samples.join(", ")}${parsed.moreCount ? `, +${parsed.moreCount} more` : ""}`
+              : undefined
+          }
+        >
+          {parsed.scope ? `${parsed.scope} · ` : ""}
+          {parsed.matched != null && parsed.total != null ? (
+            <span className="tabular-nums font-medium">
+              {parsed.matched}/{parsed.total}
+            </span>
+          ) : null}
+        </span>
+      );
+    case "bug":
+      return (
+        <span className="not-italic text-[9px] font-semibold text-rose-700 dark:text-rose-300">
+          ⚠ investigate{parsed.total != null ? ` (0/${parsed.total})` : ""}
+        </span>
+      );
+    case "alias":
+      return (
+        <span className="not-italic text-[9px] text-slate-500 dark:text-slate-400 truncate">
+          <mark className="bg-yellow-200/70 dark:bg-yellow-700/40 rounded px-0.5">
+            {parsed.from}
+          </mark>{" "}
+          →{" "}
+          <mark className="bg-yellow-200/70 dark:bg-yellow-700/40 rounded px-0.5">
+            {parsed.to}
+          </mark>
+        </span>
+      );
+    case "catalog":
+      return null; // the "Cellosaurus" source label + badge says it
+    case "plain":
+      return parsed.text ? (
+        <span className="text-slate-500 not-italic font-mono text-[9px] truncate dark:text-slate-400">
+          {parsed.text}
+        </span>
+      ) : null;
+  }
 }
 
 /** Strip the leading `=== ... ===` separator line GEO-metadata
