@@ -20,6 +20,7 @@ import {
   markPaperDismissed,
 } from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
+import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import { augmentInferredFromFactors } from "./augmentFactorTags";
@@ -526,8 +527,10 @@ function DesignSummary({
       else buckets.set(key, { values: tuple, count: 1 });
     }
     // Stable order: sort rows by tuple for deterministic display.
+    // Numeric-aware so "3 h" precedes "8 h" precedes "24 h" rather
+    // than sorting lexically (which would float "24 h" to the top).
     return Array.from(buckets.values()).sort((a, b) =>
-      a.values.join(" / ").localeCompare(b.values.join(" / ")),
+      compareValuesNatural(a.values.join(" / "), b.values.join(" / ")),
     );
   }, [standard, biomaterials]);
 
@@ -548,10 +551,28 @@ function DesignSummary({
       b: { values: string[]; count: number },
     ) => {
       if (sort.col === "assays") return (a.count - b.count) * sign;
-      return a.values[sort.col].localeCompare(b.values[sort.col]) * sign;
+      return compareValuesNatural(a.values[sort.col], b.values[sort.col]) * sign;
     };
     return [...rows].sort(cmp);
   }, [rows, sort]);
+
+  // Per-column first-seen-value index → shared `tintForIndex` colour,
+  // the same scheme the samples table uses. Walk the rows in display
+  // order so the tint follows the current sort; "(unassigned)" keeps
+  // its rose treatment and is left untinted. Index 0 is the same hue
+  // across every column, so two factor columns that partition the
+  // design identically show matching colour stripes.
+  const valueIdxByColumn = useMemo(() => {
+    const out: Array<Map<string, number>> = standard.map(() => new Map());
+    for (const row of sortedRows) {
+      row.values.forEach((v, j) => {
+        if (v === "(unassigned)") return;
+        const seen = out[j];
+        if (!seen.has(v)) seen.set(v, seen.size);
+      });
+    }
+    return out;
+  }, [sortedRows, standard]);
   const onSortClick = (col: "assays" | number) => {
     setSort((cur) => {
       if (!cur || cur.col !== col) return { col, dir: "asc" };
@@ -728,19 +749,26 @@ function DesignSummary({
                   <td className="px-2 py-1 border border-slate-200 font-mono text-slate-700">
                     {row.count}
                   </td>
-                  {row.values.map((v, j) => (
-                    <td
-                      key={j}
-                      className={
-                        "px-2 py-1 border border-slate-200 " +
-                        (v === "(unassigned)"
-                          ? "text-rose-700 italic"
-                          : "text-slate-700")
-                      }
-                    >
-                      {v}
-                    </td>
-                  ))}
+                  {row.values.map((v, j) => {
+                    const tint =
+                      v === "(unassigned)"
+                        ? undefined
+                        : tintForIndex(valueIdxByColumn[j]?.get(v) ?? -1);
+                    return (
+                      <td
+                        key={j}
+                        className={
+                          "px-2 py-1 border border-slate-200 " +
+                          (v === "(unassigned)"
+                            ? "text-rose-700 italic"
+                            : "text-slate-700")
+                        }
+                        style={tint ? { backgroundColor: tint } : undefined}
+                      >
+                        {v}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>

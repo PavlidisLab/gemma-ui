@@ -175,7 +175,7 @@ export function AgentRunDialog({
       onClick={busy ? undefined : onCancel}
     >
       <div
-        className="bg-white rounded shadow-lg w-full max-w-md p-4 space-y-3 dark:bg-slate-800 dark:text-slate-100"
+        className="bg-white rounded-lg shadow-xl border border-slate-300 dark:border-slate-600 w-full max-w-md p-4 space-y-3 dark:bg-slate-800 dark:text-slate-100"
         onClick={(e) => e.stopPropagation()}
       >
         <div>
