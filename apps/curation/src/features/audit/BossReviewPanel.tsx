@@ -151,6 +151,12 @@ function BossReviewPanelBody({
   const counts = countSeverities(reviews);
   const maxRoundByT = maxRoundByTarget(reviews);
   const onlyOneRound = reviews.every((r) => maxRoundByT[r.target_id] === 1);
+  const hasUrgent = !!(counts.blocker || counts.escalation);
+  // Collapsed by default to reclaim space (Paul 2026-06-19: "takes up
+  // too much space") — the header + severity counts stay visible so the
+  // curator still sees there's commentary. Auto-expand when a blocker /
+  // escalation is present so urgent items aren't hidden behind a click.
+  const [panelOpen, setPanelOpen] = useState(hasUrgent);
 
   // Sort: blockers first, then escalations, advisories, ok, other.
   // Within a severity bucket, "design" target comes first because
@@ -171,7 +177,21 @@ function BossReviewPanelBody({
         (className ? ` ${className}` : "")
       }
     >
-      <header className="flex items-baseline gap-2">
+      <button
+        type="button"
+        onClick={() => setPanelOpen((v) => !v)}
+        aria-expanded={panelOpen}
+        aria-label={
+          panelOpen ? "Collapse boss-critic review" : "Expand boss-critic review"
+        }
+        className="flex items-baseline gap-2 w-full text-left"
+      >
+        <span
+          className="text-[10px] leading-none text-slate-400 dark:text-slate-500 shrink-0"
+          aria-hidden
+        >
+          {panelOpen ? "▾" : "▸"}
+        </span>
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-700 dark:text-slate-200">
           Boss-critic review
         </span>
@@ -193,8 +213,10 @@ function BossReviewPanelBody({
             ) : null,
           )}
         </div>
-      </header>
-      {onlyOneRound && (counts.blocker || counts.escalation) ? (
+      </button>
+      {panelOpen ? (
+       <>
+      {onlyOneRound && hasUrgent ? (
         <div className="text-[10px] italic text-amber-700 dark:text-amber-300">
           Round 1 only — the proposer didn't re-evaluate after the
           boss flagged. Treat blockers / escalations as unresolved
@@ -251,6 +273,8 @@ function BossReviewPanelBody({
           );
         })}
       </ul>
+       </>
+      ) : null}
     </section>
   );
 }
