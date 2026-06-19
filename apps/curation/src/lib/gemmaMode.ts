@@ -16,7 +16,25 @@
  * ``gemma-curation-agents-eval/docs/HANDOFF_2026-05-19_LOCAL_VS_REMOTE_MODE.md``.
  */
 
+import { createContext, useContext } from "react";
+
 export type GemmaMode = "local" | "remote";
+
+/**
+ * Host config served by local-api's ``GET /rest/v2/__config__`` —
+ * read at runtime so a curator who flips ``GEMMA_ONTOLOGY_URL`` in
+ * ``.env`` + ``docker compose down && up`` sees the new host without a
+ * SPA rebuild (the build-time ``import.meta.env`` value would otherwise
+ * stay baked in). camelCase on the wire; we coalesce snake_case too in
+ * ``fetchRuntimeConfig`` in case it round-trips through ``client.ts``.
+ * See UIB_HANDOFF_2026_06_18_RUNTIME_ONTOLOGY_HOST.
+ */
+export interface RuntimeConfig {
+  gemmaBaseUrl?: string | null;
+  gemmaOntologyUrl?: string | null;
+  gemmaCurationUrl?: string | null;
+  mode?: GemmaMode | null;
+}
 
 export interface GemmaModeInfo {
   /** Resolved mode after defaulting. */
@@ -77,12 +95,21 @@ function hostFromUrl(url: string): string {
 
 /** Resolve mode + base URL from build-time env vars. Pure — no React;
  *  hookified below for ergonomic use in components. */
-export function resolveGemmaMode(): GemmaModeInfo {
+export function resolveGemmaMode(runtime?: RuntimeConfig | null): GemmaModeInfo {
   const envMode = import.meta.env.VITE_GEMMA_MODE;
   const envBase = import.meta.env.VITE_GEMMA_BASE_URL;
+  // Precedence everywhere below: runtime config (from
+  // /rest/v2/__config__) > build-time env > terminal default.
   // Local mode default; remote requires explicit opt-in.
-  const mode: GemmaMode = envMode === "remote" ? "remote" : "local";
+  const mode: GemmaMode =
+    (runtime?.mode ?? envMode) === "remote" ? "remote" : "local";
   const baseUrl =
+    // In remote mode the base IS the Gemma host, so a runtime value is
+    // authoritative. In local mode the UI talks to local-api via the
+    // proxy and the runtime ``gemmaBaseUrl`` is the *proposer's* remote
+    // target (frink), not the UI's backend — so we keep the local
+    // default there rather than mislabel the chip.
+    (mode === "remote" ? runtime?.gemmaBaseUrl || undefined : undefined) ||
     envBase ||
     (mode === "remote"
       ? // Refuse to silently default a remote-mode base — surface
@@ -112,7 +139,7 @@ export function resolveGemmaMode(): GemmaModeInfo {
   const ontologyUrl =
     mode === "remote"
       ? baseUrl
-      : envOntology || DEFAULT_ONTOLOGY_BASE;
+      : runtime?.gemmaOntologyUrl || envOntology || DEFAULT_ONTOLOGY_BASE;
   const ontologyHost =
     ontologyUrl === "(unset)" ? "(unset)" : hostFromUrl(ontologyUrl);
   const ontologySplit = ontologyHost !== baseHost;
@@ -129,11 +156,50 @@ export function resolveGemmaMode(): GemmaModeInfo {
   };
 }
 
-/** React hook over `resolveGemmaMode`. Result is stable per page
- *  load — mode is build-time, not user-toggleable mid-session. */
+/**
+ * Fetch the runtime host config from local-api. Returns ``null`` on
+ * any failure (legacy local-api without the endpoint, network error,
+ * malformed body) so the caller falls back to build-time env — old
+ * bundles / old servers keep working exactly as before. Reads both
+ * camelCase (raw wire) and snake_case (post-client.ts) keys so the
+ * call site doesn't care which path the response took.
+ */
+export async function fetchRuntimeConfig(): Promise<RuntimeConfig | null> {
+  try {
+    const resp = await fetch("/rest/v2/__config__", {
+      headers: { Accept: "application/json" },
+    });
+    if (!resp.ok) return null;
+    const body: unknown = await resp.json();
+    if (!body || typeof body !== "object") return null;
+    const o = body as Record<string, unknown>;
+    const pick = (camel: string, snake: string): string | null => {
+      const v = o[camel] ?? o[snake];
+      return typeof v === "string" && v.trim() ? v : null;
+    };
+    const rawMode = o.mode;
+    const mode: GemmaMode | null =
+      rawMode === "remote" ? "remote" : rawMode === "local" ? "local" : null;
+    return {
+      gemmaBaseUrl: pick("gemmaBaseUrl", "gemma_base_url"),
+      gemmaOntologyUrl: pick("gemmaOntologyUrl", "gemma_ontology_url"),
+      gemmaCurationUrl: pick("gemmaCurationUrl", "gemma_curation_url"),
+      mode,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Resolved mode info, supplied by ``GemmaModeProvider`` once the
+ *  runtime config has been fetched. ``null`` until a provider mounts —
+ *  consumers fall back to the synchronous build-time resolution. */
+export const GemmaModeContext = createContext<GemmaModeInfo | null>(null);
+
+/** React hook for the resolved backend mode. Reads the runtime-aware
+ *  value from ``GemmaModeProvider`` when present; falls back to the
+ *  build-time resolution otherwise (unit tests, isolated renders) so
+ *  the hook never throws and never needs the provider to be useful. */
 export function useGemmaMode(): GemmaModeInfo {
-  // No React state needed; the env never changes after boot. Keeps
-  // the hook callable from anywhere without subscribing to a
-  // context.
-  return resolveGemmaMode();
+  return useContext(GemmaModeContext) ?? resolveGemmaMode();
 }

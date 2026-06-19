@@ -11,6 +11,7 @@ import { ApiError } from "./api/client";
 import { saveStoredSession } from "./api/session";
 import { initTheme } from "./features/settings/useTheme";
 import { GlobalTooltips } from "./components/ui/GlobalTooltips";
+import { GemmaModeProvider } from "./contexts/GemmaModeProvider";
 import "./index.css";
 
 /**
@@ -53,7 +54,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <GlobalTooltips />
-      <App />
+      <GemmaModeProvider>
+        <App />
+      </GemmaModeProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 );

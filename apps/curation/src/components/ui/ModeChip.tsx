@@ -162,15 +162,21 @@ export function ModeChip() {
           ) : null}
 
           <p className="text-[10px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700">
-            Mode is build-time. To switch, set <code>VITE_GEMMA_MODE</code>
-            + <code>VITE_GEMMA_BASE_URL</code>
-            {info.ontologySplit ? (
+            {info.mode === "local" ? (
               <>
-                {" "}
-                (and <code>VITE_GEMMA_ONTOLOGY_URL</code> for term search)
+                Hosts reflect the running local-api&rsquo;s config. To change
+                them, edit <code>GEMMA_BASE_URL</code> /{" "}
+                <code>GEMMA_ONTOLOGY_URL</code> in <code>.env</code> and{" "}
+                <code>docker compose down &amp;&amp; up</code> — no SPA rebuild
+                needed.
               </>
-            ) : null}{" "}
-            in <code>.env</code> and restart the dev server (or rebuild).
+            ) : (
+              <>
+                Mode is build-time. To switch, set <code>VITE_GEMMA_MODE</code>{" "}
+                + <code>VITE_GEMMA_BASE_URL</code> in <code>.env</code> and
+                restart the dev server (or rebuild).
+              </>
+            )}
           </p>
         </div>
       ) : null}
