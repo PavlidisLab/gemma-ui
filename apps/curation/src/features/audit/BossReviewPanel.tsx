@@ -25,6 +25,17 @@
  * Suppresses entirely when the list is empty / undefined — old
  * packages + GSEs the boss-critic didn't run on read identically
  * to today.
+ *
+ * The panel is collapsible (collapsed by default; auto-expands on a
+ * blocker / escalation) — Paul 2026-06-19: "takes up too much space".
+ *
+ * DEFERRED (Paul 2026-06-19, paused pending the boss's role): route
+ * factor / FV / tag-scoped rows into their OWN card context (visually
+ * distinct as boss-critic), keeping only ``design``-scoped rows here.
+ * Note the @critical "not duplicated inside any finding card body"
+ * contract (the pre-v0.14.5 fan-out fix) before doing it — targeted
+ * per-element routing differs from that spam, but the spec must be
+ * revised deliberately.
  */
 import { useState } from "react";
 import type { BossCriticReview } from "@/api/auditTypes";
