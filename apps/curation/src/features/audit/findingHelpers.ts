@@ -188,6 +188,18 @@ export function findingActionLabel(
   if (code === "calibration_agent_extra") return "Add tag";
   if (code === "calibration_factor_gold_only_miss") return "Remove factor";
   if (code === "calibration_gold_only_miss") return "Remove tag";
+  // Tag-side match codes mirroring the factor split. The producer
+  // emits ``calibration_tag_match_near`` (and, forward-compat, an
+  // ``_exact`` variant) for agent/gold tag matches that aren't the
+  // legacy single ``calibration_match``. Without these the near-match
+  // tag fell through to the generic "TAG" title (Paul 2026-06-19:
+  // "it doesn't even say add or remove").
+  if (code === "calibration_tag_match_near") {
+    return goldEmpty ? "Add tag" : "Tag near-match";
+  }
+  if (code === "calibration_tag_match_exact" || code === "calibration_tag_match") {
+    return goldEmpty ? "Add tag" : "Tag match";
+  }
   if (code === "calibration_factor_match_exact") {
     return goldEmpty ? "Add factor" : "Factor match";
   }

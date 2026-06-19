@@ -241,6 +241,18 @@ describe("findingActionLabel goldEmpty override", () => {
     expect(findingActionLabel(f, { goldEmpty: true })).toBe("Add factor");
   });
 
+  it('calibration_tag_match_near → "Tag near-match" (was the generic "TAG" fallthrough)', () => {
+    const f = makeFinding({ issue_code: "calibration_tag_match_near" });
+    expect(findingActionLabel(f)).toBe("Tag near-match");
+    expect(findingActionLabel(f, { goldEmpty: true })).toBe("Add tag");
+  });
+
+  it('calibration_tag_match_exact → "Tag match"', () => {
+    const f = makeFinding({ issue_code: "calibration_tag_match_exact" });
+    expect(findingActionLabel(f)).toBe("Tag match");
+    expect(findingActionLabel(f, { goldEmpty: true })).toBe("Add tag");
+  });
+
   it('alignment_kind "exact" tag → "Add tag" when goldEmpty is true', () => {
     const f = makeFinding({
       alignment_kind: "exact",
