@@ -502,19 +502,39 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   if (!catLabel || !valLabel) {
                     // Last-resort: backticked rationale token.
                     const tok = firstBacktick(finding.rationale);
-                    if (tok) {
+                    if (tok && tok.indexOf(":") !== -1) {
                       const colon = tok.indexOf(":");
-                      if (colon !== -1) {
-                        catLabel = tok.slice(0, colon).trim();
-                        valLabel = tok.slice(colon + 1).trim();
-                      } else {
-                        return (
-                          <span className="text-[11px] text-slate-600 dark:text-slate-300 mr-1 truncate">
-                            —{" "}
-                            <span className="font-mono">{tok}</span>
+                      catLabel = tok.slice(0, colon).trim();
+                      valLabel = tok.slice(colon + 1).trim();
+                    } else if (finding.proposer_term?.label) {
+                      // Numeric ``tag:<id>`` (valueSlug empty) or an
+                      // otherwise-unresolvable slug: the resolved
+                      // ontology term lives on ``proposer_term``. Render
+                      // it through the Term widget so it reads green +
+                      // carries the CURIE popover, instead of dropping
+                      // to plain grey text. Paul 2026-06-19: "render it
+                      // as an ontology term — use our little widget."
+                      return (
+                        <span className="inline-flex items-baseline gap-x-1 mr-1 min-w-0">
+                          <span className="text-slate-500 dark:text-slate-400">
+                            —
                           </span>
-                        );
-                      }
+                          <Term
+                            uri={finding.proposer_term.uri ?? null}
+                            asLink={false}
+                            className="!whitespace-normal break-words"
+                          >
+                            {finding.proposer_term.label}
+                          </Term>
+                        </span>
+                      );
+                    } else if (tok) {
+                      return (
+                        <span className="text-[11px] text-slate-600 dark:text-slate-300 mr-1 truncate">
+                          —{" "}
+                          <span className="font-mono">{tok}</span>
+                        </span>
+                      );
                     } else {
                       return null;
                     }
