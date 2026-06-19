@@ -21,6 +21,7 @@ export type AuditTargetKind =
   | "factor"
   | "fv"
   | "tag"
+  | "characteristic"
   | "assignment"
   | "statement";
 
@@ -130,6 +131,28 @@ export interface AuditFinding {
    *  characteristics. Rendered as blockquotes. Empty on older
    *  reports or when no specific quote grounds the suggestion. */
   supporting_evidence?: FindingEvidence[];
+  /** True when the judge ran but no paper excerpts could be
+   *  anchored to this finding (legacy pack predating the
+   *  ``paper_excerpts`` proposer schema, biolit miss, OA-PDF lookup
+   *  failure, character-budget exhaustion, etc.). Distinct from
+   *  "``supporting_evidence`` happened to be empty" — when this is
+   *  ``true`` the UI renders a muted "no paper excerpt emitted —
+   *  judge rationale above is un-grounded" caption so the curator
+   *  can see WHY the evidence box is empty. When ``false`` (or
+   *  absent) and ``supporting_evidence`` is also empty, the finding
+   *  has no rationale to ground in the first place (structural-only
+   *  findings like ``calibration_factor_gold_only_miss``) and the
+   *  UI shows nothing.
+   *
+   *  Shipped 2026-06-12 by bro per
+   *  ``UIB_HANDOFF_2026_06_11_AGENT_PARAPHRASE_FALLBACK.md`` /
+   *  ``HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md``.
+   *  Replaces the legacy synthetic ``supporting_evidence`` entry
+   *  whose ``location`` was the literal "AGENT-PARAPHRASE FALLBACK
+   *  (PAPER_EXCERPTS NOT EMITTED)"; the UI's old string-match
+   *  suppression is retained as a fallback for transcripts archived
+   *  pre-flag. */
+  paper_excerpts_unavailable?: boolean;
   /** Structured statement(s) for the proposer's pick — populated
    *  on FV / factor-shape findings so the UI can render the same
    *  ``StatementGlyph`` (S-P-O three-disc visualisation) the
@@ -192,6 +215,16 @@ export interface AuditFinding {
    *  definition) and on older builders. Agents-repo commit
    *  ``3868a09``; HANDOFF_2026-05-18_GOLD_TARGET_INDEX.md. */
   gold_target_index?: number | null;
+  /** Opaque ``curation_id`` of the gold curation row the agent
+   *  compared against — disambiguates ``gold_target_index`` when an
+   *  experiment carries multiple consensus rows (strict_consensus /
+   *  strict_cy_am / …). Stamped on every finding whose
+   *  ``gold_target_index`` is non-null per
+   *  ``handoffs/GOLD_CURATION_ID_LANDED_2026_06_14.md`` (agents SHA
+   *  ``9a0faec``). Null on old packages, on findings built from a
+   *  live-Gemma fetch, and on ``calibration_factor_extra`` (no gold
+   *  counterpart). Wire field: ``goldCurationId`` (camelCase). */
+  gold_curation_id?: string | null;
   /** Cross-reference UUID stamped on both halves of a demoted
    *  same-category factor match. When the builder demotes a
    *  partition-mismatched same-label pair into
@@ -273,6 +306,109 @@ export interface AuditFinding {
    *  ``resolveCalibrationApply`` branch in ``applyHandlers.ts``
    *  already covers via target_id parsing). */
   apply_action?: ApplyActionPayload | null;
+  /** Direct alignment classification from the graph-alignment
+   *  Mapping (bro's ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_
+   *  ALIGNMENT_RENDER.md``, shipped 2026-06-12). When present, the
+   *  card renderer prefers this over walking the issue_code matcher
+   *  — same verbs / glyphs / badges, more direct lookup. Paired with
+   *  the legacy ``issue_code`` for back-compat on packages that
+   *  pre-date the field. */
+  alignment_kind?: AlignmentKind | null;
+  /** Phase 1 of the three-phase finding-card render
+   *  (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md, Path B). The
+   *  proposer's own reasoning for emitting this proposal — NEVER
+   *  references gold or any other curation set; only the experiment's
+   *  own data + curation rules. Additive on the wire while the
+   *  agents-side migration completes; readers fall back to
+   *  ``proposer_defense`` / ``supporting_evidence`` / ``citation``
+   *  / ``citation_url`` when this block isn't populated. */
+  why?: WhyBlock | null;
+  /** Phase 2 of the three-phase finding-card render. Flat list of
+   *  reviewer-LLM verdicts (defender, factor_defender, arbiter, boss)
+   *  in pipeline order. Reviewers DO NOT compare to any external
+   *  curation set — only guidelines + experiment data. Additive on
+   *  the wire; readers fall back to ``defender_verdict`` +
+   *  ``evidence.arbiter_verdicts`` + ``evidence.boss_verdicts``
+   *  lookups when this list isn't populated. */
+  reviews?: ReviewVerdict[];
+  /** Phase 3 of the three-phase finding-card render. Optional —
+   *  present only when an external curation set (polished gold, live
+   *  Gemma, another ticket) was compared against. When absent, the
+   *  card omits the Comparison section entirely (no "Auditor says
+   *  (no entry)" placeholder). Carries the comparison-judge LLM's
+   *  verdict + rationale and a label naming the comparator. */
+  comparison?: ComparisonVerdict | null;
+}
+
+// ---------------------------------------------------------------------------
+// Three-phase render blocks
+// (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md — Path B)
+//
+// Additive on the wire while the agents-side migration completes; UI
+// reads these blocks preferentially and falls back to the legacy
+// ``proposer_defense`` / ``defender_verdict`` / ``arbiter_verdicts``
+// fields when absent. Once UI consumes the new shape exclusively, the
+// legacy fields get deprecated and dropped.
+// ---------------------------------------------------------------------------
+
+/** Phase 1: the proposer's own rationale + evidence + citation. */
+export interface WhyBlock {
+  /** One-sentence summary — the always-visible brief line. Falls
+   *  back to first sentence of ``rationale`` when the producer
+   *  doesn't populate it explicitly. */
+  brief?: string;
+  /** Full proposer rationale paragraph — surfaced on expand. */
+  rationale: string;
+  /** Optional evidence quotes — reveal when the curator expands the
+   *  section. Same shape as ``AuditFinding.supporting_evidence``. */
+  evidence?: FindingEvidence[];
+  /** Curation-rule pointer (section anchor) shown as a chip. */
+  citation?: string;
+  citation_url?: string;
+}
+
+/** Phase 2: one reviewer-LLM verdict. Order in the list = order in
+ *  the pipeline (defender first, boss last when present). */
+export interface ReviewVerdict {
+  /** Curator-facing reviewer name — "defender" / "factor_defender" /
+   *  "arbiter" / "boss" / etc. UI renders verbatim; producer is
+   *  responsible for picking a readable string. */
+  reviewer: string;
+  /** Verdict tag — curator-friendly label (producer-renamed per the
+   *  vocabulary cleanup in the spec). String for forward-compat; UI
+   *  doesn't enum-narrow. */
+  verdict: string;
+  /** One-sentence summary — the always-visible brief line for this
+   *  reviewer's row. Falls back to first sentence of ``rationale``
+   *  when absent. */
+  brief?: string;
+  /** Full reviewer rationale — shown on per-row expand. */
+  rationale: string;
+  /** Optional structured action this reviewer suggested (today: boss
+   *  ``undo`` / ``rename`` / ``change_category`` / ``drop_fv``).
+   *  Surface as expanded detail. Shape is producer-defined. */
+  structured_action?: Record<string, unknown> | null;
+}
+
+/** Phase 3: the comparison judgement against an external curation
+ *  set. Optional — when no comparator is in scope, this block is
+ *  absent and the card omits the Comparison section. */
+export interface ComparisonVerdict {
+  /** Human label for the comparator — "polished gold" / "live Gemma"
+   *  / "amanda's curation" / etc. Drives the section header text. */
+  comparator_label: string;
+  /** Structured comparator payload — gold-side tag / FV / factor
+   *  shape. Producer-defined; UI walks it via the existing
+   *  FactorComparisonGrid / chip-strip primitives. */
+  comparator_payload?: Record<string, unknown>;
+  /** Judge verdict — "agent-better" / "gold-better" / "tie" /
+   *  curator-friendly producer string. */
+  judge_verdict: string;
+  /** One-sentence summary — the always-visible brief line beside the
+   *  judge verdict. */
+  judge_brief?: string;
+  /** One-sentence rationale from the comparison judge. */
+  judge_rationale: string;
 }
 
 /** Structured agent-side "Agree mutates X" descriptor. Discriminated
@@ -331,6 +467,12 @@ export interface FvPair {
   equivalence: "exact" | "synonym" | "judgment" | (string & {});
   agent_statement?: StatementParts | null;
   gold_statement?: StatementParts | null;
+  /** Per-side biomaterial short names — surfaced so the partition-
+   *  mismatch / rename UI can render the per-FV sample count
+   *  ``(n)`` badge on each side. Optional for back-compat with
+   *  pre-2026-06-15 payloads. */
+  agent_biomaterial_short_names?: string[] | null;
+  gold_biomaterial_short_names?: string[] | null;
 }
 
 /** Compact factor reference inside a rename payload. */
@@ -374,19 +516,53 @@ export interface FactorRenamePayload {
 /** Which side has the finer partition in a
  *  ``calibration_factor_partition_mismatch`` finding.
  *
- *  - ``"agent_finer"``   — agent split one gold factor along a hidden
+ *  - ``"agent_finer"``    — agent split one gold factor along a hidden
  *                          axis (GSE28300: ``rotenone 3h`` /
  *                          ``rotenone 3d`` under one ``treatment``
  *                          factor where gold has ``treatment`` +
  *                          ``timepoint`` separately).
- *  - ``"agent_coarser"`` — agent collapsed two gold factors into one
+ *  - ``"agent_coarser"``  — agent collapsed two gold factors into one
  *                          with cross-product FVs (multi-factor-same-
  *                          category pattern).
+ *  - ``"cross_cutting"``  — agent's factor partitions samples along an
+ *                          axis that cross-cuts two or more gold
+ *                          factors of the same category. Neither
+ *                          finer nor coarser overall, though
+ *                          individual agent FVs may fully overlap
+ *                          individual gold FVs. ``fv_pairs`` is
+ *                          intentionally empty in this direction —
+ *                          the cross-factor mapping lives in
+ *                          ``cross_cutting_golds`` +
+ *                          ``cross_cutting_overlaps`` instead. Added
+ *                          2026-05-21 (agents-side); UI mirror
+ *                          followed 2026-06-14 after Paul flagged
+ *                          GSE79061 cross-cutting cards rendering as
+ *                          0-level fallthroughs.
  *
  *  Drives the editor's card title and the "adopt agent's split" vs
  *  "restore gold's separate factors" affordance choice. Mirrors
  *  agents-side ``PartitionMismatchDirection``. */
-export type PartitionMismatchDirection = "agent_finer" | "agent_coarser";
+export type PartitionMismatchDirection =
+  | "agent_finer"
+  | "agent_coarser"
+  | "cross_cutting";
+
+/** One FV-level overlap row for a ``direction="cross_cutting"``
+ *  partition_mismatch finding. Says: "agent's ``agent_fv``
+ *  (n=n_agent samples) overlaps with gold factor ``gold_factor``'s
+ *  FV ``gold_fv`` (n=n_gold) at Jaccard=``jaccard`` (n_overlap
+ *  shared samples)." Emitted when ``jaccard >= 0.8`` (agents-side
+ *  threshold). Mirror of ``CrossCuttingOverlapRow`` in
+ *  ``gemma_curation_agents.agents.audit.schemas``. */
+export interface CrossCuttingOverlapRow {
+  agent_fv: OntologyTerm;
+  gold_factor: FactorRef;
+  gold_fv: OntologyTerm;
+  jaccard: number;
+  n_overlap: number;
+  n_agent: number;
+  n_gold: number;
+}
 
 /** Structured payload for a ``calibration_factor_partition_mismatch``
  *  finding — single-card replacement for the legacy
@@ -405,15 +581,31 @@ export type PartitionMismatchDirection = "agent_finer" | "agent_coarser";
  *                          is the parent agent FV that subsumes the
  *                          gold FV's samples (multiple gold rows can
  *                          share an agent).
+ *  - ``"cross_cutting"`` — ``gold`` is the first (canonical)
+ *                          overlapping gold factor; the full list of
+ *                          gold factors the agent's factor spans is
+ *                          in ``cross_cutting_golds``, and per-FV
+ *                          overlap evidence lives in
+ *                          ``cross_cutting_overlaps``. ``fv_pairs``
+ *                          is empty by design — the cross-factor
+ *                          shape doesn't fit the single-gold pair
+ *                          model.
  *
- *  ``FvPair`` stays 1:1; the cross-product mapping is captured by
- *  repeated entries with shared parents on one side. The
- *  ``direction`` flag encodes which side's repetition is the parent. */
+ *  ``FvPair`` stays 1:1; the cross-product mapping for the finer /
+ *  coarser cases is captured by repeated entries with shared parents
+ *  on one side. The ``direction`` flag encodes which side's
+ *  repetition is the parent. */
 export interface PartitionMismatchPayload {
   agent: FactorRef;
   gold: FactorRef;
   direction: PartitionMismatchDirection;
   fv_pairs: FvPair[];
+  /** Populated only when ``direction === "cross_cutting"``. Empty
+   *  list on finer / coarser payloads. */
+  cross_cutting_golds?: FactorRef[];
+  /** Populated only when ``direction === "cross_cutting"``. Empty
+   *  list on finer / coarser payloads. */
+  cross_cutting_overlaps?: CrossCuttingOverlapRow[];
 }
 
 /** Judge's verdict on a single audit finding. ``side`` constrains
@@ -423,7 +615,18 @@ export interface PartitionMismatchPayload {
  *  ``strength`` drives the header label, ``rationale`` the Judge
  *  one-liner. */
 export interface AttachedDefenderVerdict {
-  side: "agent_extra" | "agent_missed_gold";
+  /** Producer label: legacy calibration-defender uses
+   *  ``agent_extra`` / ``agent_missed_gold``; the 2026-05-22 unified
+   *  justification swap (shared/justification.py) adds
+   *  ``defender`` / ``arbiter`` / ``boss``. Forward-compat string
+   *  fallback covers any future producer. */
+  side:
+    | "agent_extra"
+    | "agent_missed_gold"
+    | "defender"
+    | "arbiter"
+    | "boss"
+    | (string & {});
   verdict:
     // Tag side (original six, AUDIT_DEFENDER_VERDICT_HANDOFF.md).
     | "agent_miss_genuine"
@@ -472,10 +675,143 @@ export interface AttachedDefenderVerdict {
    *
    *  ``undefined`` on packages predating the arbiter prompt swap. */
   mode?: "rule" | "judgment" | "meta" | "escape";
+  /** Producer confidence in the verdict — ``high`` / ``medium`` /
+   *  ``low``. Added by the unified justification shared/justification.py
+   *  schema (2026-05-22). Omitted on older producers. */
+  confidence?: string;
+}
+
+/**
+ * Graph-alignment Mapping + scoring shipped 2026-06-12 per bro's
+ * ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_ALIGNMENT_RENDER.md``.
+ *
+ * The Mapping carries the structured alignment between two annotation
+ * sets (today: agent proposal vs polished gold). Indices reference
+ * the existing ``comparison_proposal.factors`` / ``.tags`` shapes —
+ * no element-shape change, just a new way to index the pairing over
+ * them. Findings continue to ship as before; ``alignment_kind`` on
+ * the finding is the direct lookup the card renderer prefers over
+ * walking the Mapping.
+ *
+ * UI posture is render-the-fields: when the wire carries
+ * ``mapping`` / ``alignment_kind`` / ``scoring``, prefer them; when
+ * absent (old packages), fall through to the existing chip-strip /
+ * Jaccard / issue_code heuristics. Migration is additive.
+ */
+export type AlignmentKind =
+  | "exact"
+  | "near"
+  | "partition_mismatch"
+  | "extra"
+  | "gold_only_miss";
+
+export interface AlignmentFactorPairFeatures {
+  score: number;
+  category_label: number;
+  fv_partition: number;
+  uri_overlap: number;
+  /** Present when the gray-band LLM judge fired. */
+  llm_judge?: number;
+}
+
+/** One paired factor (a_idx into AnnotationSet A's ``factors[]``,
+ *  b_idx into B's). ``kind`` constrains to the pair-shapes the
+ *  alignment matcher emits — ``extra`` / ``gold_only_miss`` live on
+ *  the unmatched lists below. */
+export interface AlignmentFactorPair {
+  a_idx: number;
+  b_idx: number;
+  /** Similarity score in [0, 1]. */
+  score: number;
+  kind: "exact" | "near" | "partition_mismatch";
+  features: AlignmentFactorPairFeatures;
+}
+
+/** One paired FV inside a paired factor. ``factor_pair`` keys back to
+ *  the owning ``AlignmentFactorPair`` (a_factor_idx, b_factor_idx).
+ *  ``kind`` only ever ``"exact"`` / ``"near"`` — partition_mismatch
+ *  lives at the factor level. */
+export interface AlignmentFvPair {
+  factor_pair: [number, number];
+  a_fv_idx: number;
+  b_fv_idx: number;
+  score: number;
+  kind: "exact" | "near";
+}
+
+export interface AlignmentTagPairFeatures {
+  category_match: number;
+  value_match: number;
+}
+
+export interface AlignmentTagPair {
+  a_idx: number;
+  b_idx: number;
+  score: number;
+  kind: "exact" | "near";
+  features: AlignmentTagPairFeatures;
+}
+
+/** Top-level alignment blob on ``AuditReport.evidence`` /
+ *  ``audit_dict``. Indices reference the existing
+ *  ``comparison_proposal.factors[i]`` / ``.tags[i]`` shapes. Self-
+ *  describing thresholds let the UI render tooltip / disclosure copy
+ *  without compiling them in. */
+export interface AlignmentMapping {
+  factor_pairs: AlignmentFactorPair[];
+  fv_pairs: AlignmentFvPair[];
+  tag_pairs: AlignmentTagPair[];
+  unmatched_a_factors: number[];
+  unmatched_b_factors: number[];
+  unmatched_a_tags: number[];
+  unmatched_b_tags: number[];
+  factor_threshold: number;
+  tag_threshold: number;
+  exact_threshold: number;
+  partition_match_threshold: number;
+}
+
+/** Per-GSE scoring rollup on ``AuditReport.evidence`` /
+ *  ``audit_dict.scoring``. Batch-level rollup is sum(tp), sum(fp),
+ *  sum(fn) across the GSEs in the package — one-liner consumer. */
+export interface AlignmentScoring {
+  factor_tp: number;
+  factor_fp: number;
+  factor_fn: number;
+  tag_tp: number;
+  tag_fp: number;
+  tag_fn: number;
 }
 
 export interface AuditScope {
   include: AuditScopeItem[];
+}
+
+/** One row of the experiment-level boss-critic review feed. The
+ *  boss-critic is a gold-blind LLM reviewer that runs against the
+ *  agent's full emission — its commentary is experiment-scoped, not
+ *  per-finding. v0.14.5 producer projects every boss-critic decision
+ *  (every round, every target) into ``AuditEvidence.boss_critic_reviews``
+ *  for the UI's top-of-panel render. */
+export interface BossCriticReview {
+  /** The entity the boss-critic commented on. ``"design"`` for
+   *  whole-experiment calls; ``"factor:<cat>"`` for per-factor;
+   *  ``"tag:<cat>|<val>"`` or numeric ``"tag:<id>"`` for tag;
+   *  ``"fv:..."`` for FV-level. UI renders the target as a small
+   *  scope chip next to each verdict. */
+  target_id: string;
+  /** Which boss-critic round emitted this call. 1 = initial review;
+   *  ≥2 = re-evaluation after the proposer re-ran on feedback. When
+   *  only round 1 exists for a blocker target, the proposer never
+   *  got to address it — the UI flags the call as "unresolved" so
+   *  the curator treats it as a debatable escalation. */
+  round: number;
+  /** ``ok`` / ``advisory`` / ``blocker`` / ``escalation``. */
+  severity: string;
+  /** Full prose verdict. */
+  verdict: string;
+  /** First sentence of the verdict, sentence-boundary truncated. */
+  brief: string;
 }
 
 export interface AuditEvidence {
@@ -492,6 +828,156 @@ export interface AuditEvidence {
    *  run didn't use ``--debate-design`` or the sidecar file is missing.
    *  Factors not in this list were silently approved. */
   design_debate_transcripts?: DesignDebateEntry[];
+  /** Structured graph-alignment Mapping between the two annotation
+   *  sets compared in this audit (today: agent proposal vs polished
+   *  gold). When present, the UI prefers ``mapping.factor_pairs[i]``
+   *  / ``mapping.fv_pairs[i]`` for pair derivation over the legacy
+   *  chip-strip Jaccard heuristics. Indices reference the existing
+   *  ``comparison_proposal.factors[i]`` / ``.tags[i]`` shapes —
+   *  the wire ships the alignment over them, not new element shapes.
+   *  ``null`` / ``undefined`` on packages predating the 2026-06-12
+   *  ship; UI falls through to the legacy fallback. */
+  mapping?: AlignmentMapping | null;
+  /** Per-GSE scoring rollup — factor + tag tp / fp / fn. Rendered as
+   *  a small summary pill in the audit-sidebar header next to the
+   *  verdict. Batch-level rollup across multiple GSEs is sum(tp) /
+   *  sum(fp) / sum(fn). ``null`` / ``undefined`` on older packages. */
+  scoring?: AlignmentScoring | null;
+  /** Curator-facing prose paragraph from the orchestrator — what
+   *  the agent observed, any intervention it ran, what the final
+   *  design + tags look like. Renders as orientation prose at the
+   *  top of the audit / proposal panel via ``OrientationProse``
+   *  (``components/ui/OrientationProse.tsx``). Slot is render-the-
+   *  string; no domain coupling. Empty / null / undefined on
+   *  packages predating the orchestrator v5 wire and on
+   *  tags-only audits — the renderer suppresses entirely in that
+   *  case. Per
+   *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */
+  experiment_summary?: string | null;
+  /** Inline boss-critic reviews — gold-blind LLM commentary scoped
+   *  to the EXPERIMENT (the boss-critic operates on the agent's
+   *  whole emission, not on any single finding). Rendered as a top-
+   *  of-panel ``BossReviewPanel`` adjacent to ``OrientationProse``.
+   *  Replaces the v0.14.2–.4 per-finding fan-out: duplicating the
+   *  same paragraph across N cards read as noise. Per Paul
+   *  2026-06-16 (ticket-60 walkthrough). Empty / null / undefined
+   *  on packages predating v0.14.5; renderer suppresses. */
+  boss_critic_reviews?: BossCriticReview[] | null;
+  /** v5 supervisor's audit-trail prose — narrative of what the
+   *  orchestrator observed, intervened on, deferred. ≥150 chars
+   *  when populated. Empty / null on legacy packages. Rendered as
+   *  a collapsible "Pipeline audit trail" section at the bottom
+   *  of the findings list. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
+   *
+   *  Dual-state: canonical source is
+   *  ``comparison_proposal.experiment_notes`` (see ``Proposal``
+   *  in ``api/types.ts``); this field is the back-compat mirror
+   *  per agents-side commit ``5d6e069``. UIB readers should
+   *  prefer the proposal-side field and fall through to this one
+   *  via the recommended adapter. */
+  experiment_notes?: string | null;
+  /** v5 curator-follow-up requests — the agent flagging things
+   *  it couldn't proceed without (paper fetch, ontology fix,
+   *  strain resolver gap, …). Each ``EscalationRequest`` carries
+   *  a ``blocks_correction`` flag; ``true`` entries render as
+   *  loud red chips in the top-of-panel banner because they're
+   *  hard blockers, ``false`` entries render amber. Suppressed
+   *  entirely when empty. Same dual-state rule as
+   *  ``experiment_notes`` — canonical on Proposal. */
+  escalation_requests?: EscalationRequest[];
+  /** v5 supervisor's headline assessment (1-2 line summary of the
+   *  whole run). Optional dual-state mirror; canonical on
+   *  Proposal. Today's render targets are not yet defined — the
+   *  field rides for forward-compat. */
+  overall_assessment?: string | null;
+  /** Schema-discriminator stamped by the agent build process,
+   *  format ``agents@<short-sha>/<schema-tag>``. Lets the UI
+   *  skip / quarantine payloads whose shape it doesn't
+   *  understand. Mirrored on ``comparison_proposal.agent_version``
+   *  (canonical) and ``AuditReport.agent_version`` (top-level). */
+  agent_version?: string | null;
+  /** Every arbiter row that ran on this audit, full rationale.
+   *  Targeting key is ``(target_kind, side, target_category,
+   *  target_value)``; ``target_value`` is empty for factor-level
+   *  rows. UIB looks up the matching arbiter row per finding to
+   *  render the per-finding judge-chain (defender → arbiter →
+   *  boss). Empty on packages predating commit ``c784824`` and
+   *  on legacy runs that didn't ship an arbiter pass. */
+  arbiter_verdicts?: ArbiterVerdict[];
+  /** Every boss row that re-adjudicated an arbiter call. Same
+   *  targeting-key shape as ``arbiter_verdicts``. Each row carries
+   *  ``arbiter_rationale`` as a pass-through so the curator can
+   *  read the boss's view of the prior call without cross-
+   *  indexing. Empty on packages that didn't run a boss pass.
+   *
+   *  Named ``BossPassVerdict`` (not ``BossVerdict``) to
+   *  disambiguate from the existing proposal-wide
+   *  ``BossVerdict`` in ``./justification.ts``, which is a
+   *  different concept (overall conclusion on a proposal vs.
+   *  per-row arbitration here). */
+  boss_verdicts?: BossPassVerdict[];
+}
+
+/** One arbiter row from the calibration-batch judge pass.
+ *  Targeting key matches the per-finding lookup used by
+ *  ``ComparisonFactorCard``'s judge-chain renderer. Field names
+ *  mirror agents-side ``ArbiterVerdict`` (snake_case after the
+ *  wire-boundary transform). Per
+ *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+export interface ArbiterVerdict {
+  gse: string;
+  target_kind: string;
+  side: string;
+  target_category: string;
+  /** Empty for factor-level rows (factor-level verdicts target
+   *  the factor category, not a specific FV). */
+  target_value: string;
+  target_uri: string;
+  verdict: string;
+  mode: string;
+  citation: string;
+  /** Curator-visible explanation; 215-300 chars typical. */
+  rationale: string;
+  confidence: string;
+}
+
+/** One boss row that re-adjudicated an arbiter call. ``rationale``
+ *  carries the boss's own ruling; ``arbiter_rationale`` carries
+ *  the prior arbiter call so the curator can read the chain
+ *  without cross-indexing.
+ *
+ *  Named ``BossPassVerdict`` (not ``BossVerdict``) to avoid
+ *  colliding with the existing ``BossVerdict`` in
+ *  ``./justification.ts`` which describes a proposal-wide
+ *  conclusion (split / collapse / rebalance recommendations) —
+ *  different scope, different fields. */
+export interface BossPassVerdict {
+  gse: string;
+  target_kind: string;
+  side: string;
+  target_category: string;
+  target_value: string;
+  target_uri: string;
+  verdict: string;
+  mode: string;
+  citation: string;
+  arbiter_rationale: string;
+  rationale: string;
+  confidence: string;
+}
+
+/** v5 curator-follow-up request. ``kind`` discriminates the
+ *  category of follow-up; ``blocks_correction: true`` signals
+ *  the agent can't proceed without this input (render in red).
+ *  ``aggregation_key`` lets the UI bucket similar escalations
+ *  across runs. */
+export interface EscalationRequest {
+  kind: string;
+  rationale: string;
+  suggested_action: string;
+  blocks_correction: boolean;
+  aggregation_key: string;
 }
 
 export interface AuditSummary {
@@ -668,6 +1154,15 @@ export type DismissReason =
   | "agent_real_miss"
   | "redundant_with_bm_source"
   | "not_sample_applicable"
+  // Match-family Keep sub-verdicts — Paul 2026-06-16. On a near-/
+  // match-family card the curator's "Keep" decision is too coarse;
+  // we split it into three so the eval scorer can credit
+  // ``keep_agent_equivalent`` as a TP and so ``keep_agent_close``
+  // (paired with a ``notes`` payload) becomes a training signal for
+  // the proposer / chain refinement loop. The legacy ``wont_fix``
+  // value covers the "agent was materially off" case.
+  | "keep_agent_equivalent"
+  | "keep_agent_close"
   | (string & {});
 
 /** Issue-code shapes that gate the server's ``accept_reason``
@@ -811,6 +1306,15 @@ export interface AuditReport {
   findings: AuditFinding[];
   evidence: AuditEvidence;
   summary: AuditSummary;
+  /** Schema-discriminator stamped by the agent build process,
+   *  format ``agents@<short-sha>/<schema-tag>``. Lets the UI
+   *  skip / quarantine payloads whose shape it doesn't
+   *  understand. Mirrored on
+   *  ``evidence.comparison_proposal.agent_version`` and
+   *  ``evidence.agent_version``; this top-level slot is the
+   *  primary reading point for the discriminator. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+  agent_version?: string | null;
   /** Latest curator disposition per finding (keyed by `target_id`).
    *  Empty on a freshly-produced report; populated by the read
    *  endpoints after PATCH calls. */

@@ -18,15 +18,28 @@ import { PipelineStatusRow, type BadgeTone } from "./PipelineStatusRow";
 import { useMe } from "@/api/session";
 import { useToast } from "@/components/ui/Toast";
 import { exportSetAsGzip } from "./exportSet";
-import type { Group } from "@/api/workflowTypes";
+import type {
+  ExperimentPipelineStatus,
+  Group,
+  PipelineStep,
+  StepStatus,
+} from "@/api/workflowTypes";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
-import { useMyTickets } from "@/api/tickets";
+import { useTicket } from "@/api/tickets";
 import { taskKindHeaderLabel } from "./nextTask";
 import { SetProgressBar } from "@/components/ui/SetProgressBar";
 import { progressFromGroup } from "./setProgress";
 import { cn } from "@/lib/cn";
+import { useStickyState } from "@/lib/useStickyState";
 
-const PAGE_SIZE = 50;
+/** Default page size + user-settable picker options.
+ *
+ *  Paul 2026-06-14 asked for a 200 default ("typical ticket fits in
+ *  one page"). Bro 1 raised the ``/rest/v2/datasets`` cap from 100
+ *  to 1000 in response to ``handoffs/DATASETS_LIMIT_CAP_2026_06_14.md``,
+ *  so we ship the 200 default + headroom in the picker. */
+const PAGE_SIZE_DEFAULT = 200;
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500, 1000] as const;
 
 // ---------------------------------------------------------------------------
 // Sort selector
@@ -49,18 +62,81 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 // Quick filters
 // ---------------------------------------------------------------------------
 
+/**
+ * Progress-state filters that mirror the ticket-page Started /
+ * Finished / Not started / All chips. Derived client-side from the
+ * pipeline track step statuses on each row's
+ * ``ExperimentPipelineStatus`` rather than the legacy server-side
+ * ``troubled`` / ``needs_attention`` / ``is_public`` query params
+ * (those are quality flags, not progress signals — different axis,
+ * the curator's "where am I in the work" question keys off step
+ * state).
+ *
+ * State derivation (10 steps: 5 analysis + 5 curation):
+ *   - **Not started** — every step is ``not_run`` or ``na`` (no work
+ *     yet, or steps that don't apply to this dataset).
+ *   - **Finished**    — every step is ``ok`` or ``na`` (every
+ *     applicable step is done).
+ *   - **Started**     — anywhere in between — at least one step has
+ *     left ``not_run`` but not every step has reached ``ok``.
+ *     ``needs_attention`` / ``failed`` / ``in_progress`` all count
+ *     as "started, more to do".
+ *   - **All**         — no filter.
+ *
+ * Filter runs client-side on the rows the server returned (the
+ * /datasets endpoint doesn't carry a "step-state aggregate" query
+ * param yet — flag if curators hit pagination edge cases where a
+ * page is mostly hidden after filtering).
+ */
 type QuickFilter =
   | "all"
-  | "troubled"
-  | "needs_attention"
-  | "not_public";
+  | "started"
+  | "finished"
+  | "not_started"
+  | "uncommitted";
 
-const QUICK_FILTERS: { id: QuickFilter; label: string; serverFilter?: string }[] = [
-  { id: "all",             label: "All" },
-  { id: "troubled",        label: "Troubled",       serverFilter: "troubled=true" },
-  { id: "needs_attention", label: "Needs attention", serverFilter: "needs_attention=true" },
-  { id: "not_public",      label: "Not public",     serverFilter: "is_public=false" },
+const QUICK_FILTERS: { id: QuickFilter; label: string }[] = [
+  { id: "all",         label: "All" },
+  { id: "started",     label: "Started" },
+  { id: "finished",    label: "Finished" },
+  { id: "not_started", label: "Not started" },
+  { id: "uncommitted", label: "Uncommitted" },
 ];
+
+type PipelineState = "not_started" | "started" | "finished" | "uncommitted";
+
+/** Walk every step in both the analysis and curation tracks and
+ *  reduce to one progress state. ``undefined`` status (no bulk row
+ *  yet) is treated as "not_started" so a row not yet covered by
+ *  the bulk fetch doesn't accidentally read as Finished. */
+function derivePipelineState(
+  status: ExperimentPipelineStatus | undefined,
+): PipelineState {
+  if (!status) return "not_started";
+  const steps: PipelineStep[] = [
+    status.analysis.missing_value_analysis,
+    status.analysis.batch_info,
+    status.analysis.preprocessing,
+    status.analysis.dea,
+    status.analysis.diagnostics,
+    status.curation.design,
+    status.curation.tags,
+    status.curation.outlier_review,
+    status.curation.batch_decision,
+    status.curation.audit,
+  ];
+  let anyStarted = false;
+  let allFinished = true;
+  for (const step of steps) {
+    const st: StepStatus = step.status;
+    if (st === "na") continue; // n/a steps don't count for either gate.
+    if (st !== "not_run") anyStarted = true;
+    if (st !== "ok") allFinished = false;
+  }
+  if (allFinished && anyStarted) return "finished";
+  if (anyStarted) return "started";
+  return "not_started";
+}
 
 // ---------------------------------------------------------------------------
 // Filter / sort bar
@@ -73,6 +149,13 @@ function FilterBar({
   onSearch,
   sort,
   onSort,
+  counts,
+  pageSize,
+  onPageSize,
+  total,
+  offset,
+  onPrev,
+  onNext,
 }: {
   active: QuickFilter;
   onChange: (f: QuickFilter) => void;
@@ -80,7 +163,27 @@ function FilterBar({
   onSearch: (s: string) => void;
   sort: SortKey;
   onSort: (s: SortKey) => void;
+  /** Per-filter row count — visible on the chip so curators can see
+   *  the filter is doing something even when their ticket only
+   *  matches one bucket. Paul 2026-06-14: "these buttons don't do
+   *  anything" — they did, but with a 1-experiment ticket 3 of 4
+   *  chips emptied the list silently. Counts make the filter
+   *  effect legible. */
+  counts: Record<QuickFilter, number>;
+  /** Page-size dropdown — Paul 2026-06-14: "extend what you have now
+   *  to have a user-settable number per page, with a default of 200."
+   *  Persisted in localStorage via useStickyState upstream. */
+  pageSize: number;
+  onPageSize: (n: number) => void;
+  /** Pagination state — surfaced inline so it sits at the TOP of the
+   *  list (was below the rows; Paul wanted it up here). */
+  total: number;
+  offset: number;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + pageSize, total);
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex-wrap bg-white dark:bg-slate-900 sticky top-0 z-10">
       <input
@@ -91,24 +194,91 @@ function FilterBar({
         className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 w-52 focus:outline-none focus:ring-1 focus:ring-blue-500"
       />
       <div className="flex items-center gap-1 flex-wrap">
-        {QUICK_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => onChange(f.id)}
-            className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
-              active === f.id
-                ? "bg-blue-600 text-white"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+        {QUICK_FILTERS.map((f) => {
+          const n = counts[f.id];
+          // Uncommitted chip carries the amber dot's palette so the
+          // chip + row-dot read as the same state. All others stay
+          // on the blue active style.
+          const isAmberChip = f.id === "uncommitted";
+          const activeCls = isAmberChip
+            ? "bg-amber-500 text-white"
+            : "bg-blue-600 text-white";
+          const idleCls = isAmberChip
+            ? "bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50"
+            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700";
+          const activeCountCls = isAmberChip ? "text-amber-100" : "text-blue-100";
+          const idleCountCls = isAmberChip
+            ? "text-amber-600 dark:text-amber-400"
+            : "text-slate-400 dark:text-slate-500";
+          return (
+            <button
+              key={f.id}
+              onClick={() => onChange(f.id)}
+              className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+                active === f.id ? activeCls : idleCls
+              }`}
+            >
+              {f.label}{" "}
+              <span
+                className={`text-[10px] ${
+                  active === f.id ? activeCountCls : idleCountCls
+                }`}
+              >
+                ({n})
+              </span>
+            </button>
+          );
+        })}
       </div>
+      {/* Pagination + page-size — sits at the top per Paul 2026-06-14
+          ("the page navigation should be at the top"). Hidden when
+          the whole list fits in one page since there's nothing to
+          paginate. */}
+      {total > pageSize ? (
+        <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300">
+          <button
+            type="button"
+            onClick={onPrev}
+            disabled={offset === 0}
+            title="Previous page"
+            className="px-1 font-bold text-[14px] leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            ‹
+          </button>
+          <span className="tabular-nums">
+            {from}–{to} of {total}
+          </span>
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={to >= total}
+            title="Next page"
+            className="px-1 font-bold text-[14px] leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:text-slate-900 dark:hover:text-slate-100"
+          >
+            ›
+          </button>
+        </span>
+      ) : (
+        <span className="ml-auto text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+          {total} {total === 1 ? "experiment" : "experiments"}
+        </span>
+      )}
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        title="Page size"
+        className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      >
+        {PAGE_SIZE_OPTIONS.map((n) => (
+          <option key={n} value={n}>
+            {n}/page
+          </option>
+        ))}
+      </select>
       <select
         value={sort}
         onChange={(e) => onSort(e.target.value as SortKey)}
-        className="ml-auto text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
       >
         {SORT_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
@@ -120,49 +290,9 @@ function FilterBar({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Pagination bar
-// ---------------------------------------------------------------------------
-
-function PaginationBar({
-  offset,
-  limit,
-  total,
-  onPrev,
-  onNext,
-}: {
-  offset: number;
-  limit: number;
-  total: number;
-  onPrev: () => void;
-  onNext: () => void;
-}) {
-  const from = total === 0 ? 0 : offset + 1;
-  const to = Math.min(offset + limit, total);
-  return (
-    <div className="flex items-center justify-between px-4 py-2 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-500 dark:text-slate-400 shrink-0">
-      <span>
-        {from}–{to} of {total.toLocaleString()}
-      </span>
-      <div className="flex items-center gap-1">
-        <button
-          disabled={offset === 0}
-          onClick={onPrev}
-          className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-        >
-          ‹ Prev
-        </button>
-        <button
-          disabled={offset + limit >= total}
-          onClick={onNext}
-          className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-        >
-          Next ›
-        </button>
-      </div>
-    </div>
-  );
-}
+// Pagination moved into FilterBar 2026-06-14 — the standalone
+// ``PaginationBar`` is gone. The "‹ N–M of TOTAL ›" cluster lives at
+// the top-right of the filter row.
 
 // ---------------------------------------------------------------------------
 // Export-Set button
@@ -425,6 +555,18 @@ export function ExperimentQueue({
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("-lastUpdated");
   const [offset, setOffset] = useState(0);
+  const [pageSizeRaw, setPageSize] = useStickyState<number>(
+    "experimentQueue.pageSize",
+    PAGE_SIZE_DEFAULT,
+  );
+  // Clamp against the server's max — curators who already wrote a
+  // larger value (e.g. the 200 default from the brief window before
+  // the cap was honored) would otherwise stay stuck on a 422-empty
+  // queue. Read-time clamp self-heals on the next setPageSize.
+  const pageSize = Math.min(
+    pageSizeRaw,
+    PAGE_SIZE_OPTIONS[PAGE_SIZE_OPTIONS.length - 1],
+  );
 
   // ``includeSummaries`` so the header progress bar can roll up
   // per-member audit_status without an extra round trip.
@@ -442,33 +584,124 @@ export function ExperimentQueue({
     return group.member_ids.join(",");
   }, [experimentIds, groupId, group]);
 
-  const filterStr = QUICK_FILTERS.find((f) => f.id === activeFilter)?.serverFilter;
-
   const { data: page, isLoading, isFetching } = useDatasetsPaginated({
     query: search.trim() || undefined,
-    filter: filterStr,
     sort,
-    limit: PAGE_SIZE,
+    limit: pageSize,
     offset,
     ids: scopeIds,
   });
 
-  const rows = page?.data ?? [];
+  const allRows = page?.data ?? [];
   const total = page?.total_elements ?? 0;
 
-  const { data: statusMap = {} } = usePipelineStatusBulk(rows.map((r) => r.id));
+  const { data: statusMap = {} } = usePipelineStatusBulk(allRows.map((r) => r.id));
 
-  // Curator-side signals layered onto each row. Both are cheap:
-  // - ``dirtyDraftIds``: one localStorage scan (no network). Keyed
-  //   on the page's row list so it recomputes when the page
-  //   changes; the popover-style "open + close" doesn't apply
-  //   here (we're a persistent panel), so consider refining if
-  //   curator commits a draft and expects the dot to flip without
-  //   a route change.
-  // - ``tickets``: cached by useMyTickets's query, shared with the
-  //   curator dashboard.
-  const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), [rows]);
-  const { data: tickets } = useMyTickets();
+  // Ticket-target-status lookup. In a ticket context, the ticket's
+  // ``targets[i].status`` (NOT_DONE / UNDERWAY / DONE) is the truth
+  // for what the CURATOR has done — independent of the dataset's
+  // pipeline-step status (which counts Gemma's pre-imported Design /
+  // Tags as already "ok"). Paul 2026-06-14 on tickets/45: header
+  // says "0/200 done · 200 not started" but the filter was showing
+  // Started (50) because every row's pipeline-step status carried
+  // pre-existing ✓Design / ✓Tags from Gemma. The ticket target
+  // status is the right signal here.
+  //
+  // ``useTicket(ticketId)`` shares the query cache with
+  // ``TicketDetailPage``, so the queue's chip counts + row dots
+  // stay in sync with the header's done/underway/not-started
+  // counters whenever the detail page's polling layer refetches.
+  // Earlier this used ``useMyTickets()`` which is a separate cache
+  // entry; bro mutating targets behind the scenes refreshed the
+  // detail-page header (when polling fired) but the queue's row
+  // dots + chip counts stayed stale on a different timer. Paul
+  // 2026-06-14 on ticket #52: row dots showed Started but the
+  // chip filter read "Started (0)". */
+  const { data: ticket } = useTicket(ticketId ?? null);
+  const ticketTargetStatusById = useMemo(() => {
+    const m = new Map<number, "not_started" | "started" | "finished">();
+    if (ticketId == null || !ticket) return m;
+    for (const tgt of ticket.targets) {
+      if (tgt.target_type !== "EXPRESSION_EXPERIMENT") continue;
+      const mapped =
+        tgt.status === "DONE"
+          ? "finished"
+          : tgt.status === "UNDERWAY"
+            ? "started"
+            : "not_started";
+      m.set(tgt.target_id, mapped);
+    }
+    return m;
+  }, [ticket, ticketId]);
+
+  // Curator-side "uncommitted local draft" signal — read once per
+  // page from localStorage. Defined here (above ``stateFor``) so the
+  // row-state computation can lift a "not_started" target to
+  // "started" when the curator has touched it locally but the
+  // server hasn't received the commit yet. Without this, the row
+  // dot reads amber (uncommitted) while the chip count reads
+  // "Started (0)" — Paul 2026-06-15.
+  const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), [allRows]);
+
+  // Per-row progress state. In a ticket context, prefer the ticket's
+  // own target status (matches the header's done/not-started counts).
+  // Outside a ticket context, fall back to the pipeline-step heuristic.
+  // An uncommitted local draft overrides everything except ``finished``
+  // — the amber StatusDisc on the row reads "uncommitted", so the
+  // chip count and filter need a matching bucket.
+  const stateFor = (datasetId: number): PipelineState => {
+    const base: PipelineState =
+      ticketTargetStatusById.size > 0
+        ? ticketTargetStatusById.get(datasetId) ?? "not_started"
+        : derivePipelineState(statusMap[String(datasetId)]);
+    if (base !== "finished" && dirtyDraftIds.has(String(datasetId))) {
+      return "uncommitted";
+    }
+    return base;
+  };
+
+  // Apply the progress-state filter client-side on the rows the
+  // server returned. The /datasets endpoint doesn't carry a step-
+  // state aggregate query param, so this happens after the fetch.
+  // Empty results are honest — the bottom-of-list "no experiments
+  // match" caption fires when the filter clears the whole page.
+  const rows = useMemo(() => {
+    if (activeFilter === "all") return allRows;
+    return allRows.filter((d) => stateFor(d.id) === activeFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter, allRows, statusMap, ticketTargetStatusById]);
+
+  // Per-filter counts for the chip labels. In a ticket context the
+  // counts come from the ticket's target list (ALL targets, not just
+  // the rows on the current page) so "Started (12)" actually means
+  // "12 across the whole ticket", not "12 of the 50 visible." Paul
+  // 2026-06-14: "this is showing the page view, not the total."
+  // Outside ticket context (group / global queue), fall back to
+  // counting over the visible page — the only signal available.
+  const filterCounts = useMemo<Record<QuickFilter, number>>(() => {
+    const counts: Record<QuickFilter, number> = {
+      all: 0,
+      started: 0,
+      finished: 0,
+      not_started: 0,
+      uncommitted: 0,
+    };
+    if (ticketTargetStatusById.size > 0) {
+      counts.all = ticketTargetStatusById.size;
+      for (const [datasetId, base] of ticketTargetStatusById) {
+        const lifted: PipelineState =
+          base !== "finished" && dirtyDraftIds.has(String(datasetId))
+            ? "uncommitted"
+            : base;
+        counts[lifted] += 1;
+      }
+    } else {
+      counts.all = allRows.length;
+      for (const d of allRows) counts[stateFor(d.id)] += 1;
+    }
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allRows, statusMap, ticketTargetStatusById, dirtyDraftIds]);
 
   // For group-scoped views, the member_ids carry the prefix form
   // (`preboarding:1` vs bare `91188`). The /datasets rows ship the
@@ -556,6 +789,16 @@ export function ExperimentQueue({
         onSearch={changeSearch}
         sort={sort}
         onSort={changeSort}
+        counts={filterCounts}
+        pageSize={pageSize}
+        onPageSize={(n) => {
+          setPageSize(n);
+          setOffset(0);
+        }}
+        total={total}
+        offset={offset}
+        onPrev={() => setOffset((o) => Math.max(0, o - pageSize))}
+        onNext={() => setOffset((o) => o + pageSize)}
       />
 
       {/* Row list */}
@@ -582,7 +825,7 @@ export function ExperimentQueue({
             // non-group / global queue view).
             navId={memberIdByNumericId.get(d.id) ?? String(d.id)}
             hasLocalDraft={dirtyDraftIds.has(String(d.id))}
-            tickets={tickets ?? null}
+            tickets={ticket ? [ticket] : null}
             groupType={group?.type}
             groupTaskKind={group?.task_kind ?? null}
             leadingBadge={leadingBadge}
@@ -590,16 +833,8 @@ export function ExperimentQueue({
         ))}
       </div>
 
-      {/* Pagination */}
-      {total > 0 && (
-        <PaginationBar
-          offset={offset}
-          limit={PAGE_SIZE}
-          total={total}
-          onPrev={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-          onNext={() => setOffset((o) => o + PAGE_SIZE)}
-        />
-      )}
+      {/* Pagination moved to the top per Paul 2026-06-14 — see the
+          inline cluster in FilterBar above. */}
     </div>
   );
 }

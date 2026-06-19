@@ -127,6 +127,26 @@ export function tabForTargetId(targetId: string): ExperimentTab | null {
   }
 }
 
+/** Human-readable label for the tab a target_id routes to. Used in
+ *  tooltips on locate-in-tab affordances so the curator sees
+ *  "show in Overview tab" for tags and "show in Design tab" for
+ *  factors — not the misleading "Design" fallback that previous
+ *  call sites hardcoded. Paul 2026-06-14: "it's the overview tab
+ *  where tags are shown." */
+export function locateTooltipFor(targetId: string): string {
+  const tab = tabForTargetId(targetId);
+  switch (tab) {
+    case "design":
+      return "show in Design tab";
+    case "overview":
+      return "show in Overview tab";
+    case "samples":
+      return "show in Samples tab";
+    default:
+      return "locate";
+  }
+}
+
 /** Apply the scroll + ring-flash on a DOM element. Used by panels
  *  that listen to onAuditFocusTarget. Centralised so the highlight
  *  treatment stays consistent across factor cards, FV cards, tag
@@ -152,7 +172,20 @@ export function focusByAuditTarget(targetId: string): boolean {
   const el = document.querySelector<HTMLElement>(
     `[data-audit-target="${safe}"]`,
   );
-  if (!el) return false;
+  if (!el) {
+    // Diagnostic signal — silent no-op was the reason Paul's
+    // "magnifying glasses don't do anything" report 2026-06-14 had
+    // no console trace. Common cause: the target's owning chip
+    // group is collapsed (Multi-tag groups in OverviewPanel are
+    // collapsed by default), so the data-audit-target element isn't
+    // in the DOM yet. Surface the miss so the next time it
+    // happens we have a smoking gun.
+    console.warn(
+      "focusByAuditTarget: no element with data-audit-target=%s — chip group may be collapsed, or the target_id slug doesn't match the stamped attribute",
+      targetId,
+    );
+    return false;
+  }
   flashFocus(el);
   return true;
 }

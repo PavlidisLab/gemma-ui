@@ -48,10 +48,17 @@ import {
   resolveGoldFactor,
 } from "./factorMatch";
 import {
+  addContinuousFactorFromCharacteristic,
+  adoptNearMatchAgentFactor,
   setFactorFields,
   setFvLabel,
 } from "@/features/design/mutations";
-import { parseTargetId, type ParsedTargetId } from "./targetIds";
+import {
+  factorTarget,
+  parseTargetId,
+  slug,
+  type ParsedTargetId,
+} from "./targetIds";
 
 export interface ApplyAction {
   /** Whether the action mutates the design draft (true) or just
@@ -95,6 +102,15 @@ export interface ApplyAction {
    *  the right semantics is merge-FVs or add-second, the curator
    *  confirms each case. */
   confirmMessage?: string;
+  /** Override target for the post-apply focus jump. Defaults to
+   *  ``finding.target_id`` when the caller doesn't read this. Use
+   *  for factor-add applies where the finding's target_id might
+   *  point at gold / proposer space — the curator should land on
+   *  the NEW factor in the design tab so the FVs are visible. Paul
+   *  2026-06-13/14 flagged twice that accepting a proposed factor
+   *  failed to surface its FVs because the focus jump didn't land
+   *  on the just-added factor. */
+  focusTargetId?: string;
 }
 
 /** Resolve an apply action for a finding. Returns null only when
@@ -110,8 +126,20 @@ export interface ApplyAction {
  *  using only the finding's structured fields. */
 export function resolveApplyAction(
   finding: AuditFinding,
-  ctx?: { report?: AuditReport | null; design?: Design | null },
+  ctx?: {
+    report?: AuditReport | null;
+    design?: Design | null;
+    /** When true, ``*_match`` codes route through the add-shaped
+     *  mutator (the displayed gold baseline doesn't carry the entity
+     *  even though the audit-time baseline did). Match-downgrade —
+     *  see ``findingActionShape({ goldEmpty })`` and
+     *  MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16. The editor / card
+     *  computes this via ``findingDisplayedGoldEmpty(finding, draft)``
+     *  and threads it in. */
+    goldEmpty?: boolean;
+  },
 ): ApplyAction | null {
+  const goldEmpty = !!ctx?.goldEmpty;
   // Proposer-mode "add_tag" findings ship a structured
   // ``apply_action`` from the agent (tag_llm_judge.py emits
   // ``ApplyAction(kind="add_tag", new_category, new_value)``).
@@ -128,7 +156,11 @@ export function resolveApplyAction(
   // mutations — adding or removing an experiment tag — so the
   // curator's "Apply" click writes the change into the design
   // draft, then the disposition PATCH stamps applied_fix.
-  const calibrationApply = resolveCalibrationApply(finding, ctx?.design ?? null);
+  const calibrationApply = resolveCalibrationApply(
+    finding,
+    ctx?.design ?? null,
+    { goldEmpty },
+  );
   if (calibrationApply) return calibrationApply;
 
   // Factor-level calibration apply: agent_extra → add factor;
@@ -139,6 +171,7 @@ export function resolveApplyAction(
       finding,
       ctx.report ?? null,
       ctx.design ?? null,
+      { goldEmpty },
     );
     if (factorApply) return factorApply;
   }
@@ -201,7 +234,46 @@ function resolveProposalApply(
   design: Design | null,
 ): ApplyAction | null {
   const aa = finding.apply_action;
-  if (!aa || aa.kind !== "add_tag") return null;
+  if (!aa) return null;
+  // ``remove_tag`` (entity-frame proposer, 2026-06-07+) — agent says
+  // "remove the finding's target tag". Pair with the slug-shaped
+  // target_id (``tag:<cat-slug>/<val-slug>``) to find the design
+  // tag and remove by id. Falls through to null when the target_id
+  // doesn't parse OR no design tag matches the slugs (caller's
+  // chain takes over — calibration branch handles the same shape
+  // as a fallback when no structured apply_action ships).
+  if (aa.kind === "remove_tag") {
+    const slugMatch = finding.target_id.match(/^tag:([^/]+)\/(.+)$/);
+    if (!slugMatch || !design) return null;
+    const [, categorySlug, valueSlug] = slugMatch;
+    const target = (design.tags ?? []).find(
+      (t) =>
+        slug(t.category?.label) === categorySlug &&
+        slug(t.value?.label) === valueSlug,
+    );
+    if (!target) {
+      return {
+        mutates: false,
+        label: "✓ Already removed",
+        tooltip:
+          `No tag matches "${categorySlug} / ${valueSlug}" on the current ` +
+          `draft. Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    if (isProtectedTagCategory(target.category?.label)) return null;
+    const catLabel = target.category?.label ?? categorySlug;
+    const valLabel = target.value?.label ?? valueSlug;
+    return {
+      mutates: true,
+      label: "Agree (remove) →",
+      tooltip: `Agree → remove tag "${catLabel}: ${valLabel}" from the design.`,
+      successMessage: `Removed tag "${catLabel}: ${valLabel}". Commit the draft to save.`,
+      mutate: (draft) => removeTagById(draft, target.id),
+      appliedFix: `remove ${catLabel}: ${valLabel}`,
+    };
+  }
+  if (aa.kind !== "add_tag") return null;
   const action = aa as Extract<typeof aa, { kind: "add_tag" }>;
   const categoryLabel = (action.new_category || "").trim();
   const valueLabel = (action.new_value || "").trim();
@@ -263,11 +335,23 @@ function resolveProposalApply(
 function resolveCalibrationApply(
   finding: AuditFinding,
   design: Design | null,
+  opts?: { goldEmpty?: boolean },
 ): ApplyAction | null {
   const code = finding.issue_code;
+  const goldEmpty = !!opts?.goldEmpty;
+  // Match-downgrade: a ``calibration_match`` viewed against a
+  // baseline that lacks the tag is curator-actionable as an add.
+  // Route through the same add-tag path ``calibration_agent_extra``
+  // uses so Agree actually mutates the draft (was no-op pre-handoff).
+  // Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  const matchDowngradeAsAdd =
+    goldEmpty &&
+    (code === "calibration_match" ||
+      code === "tag_proposed_match_with_design");
   if (
     code !== "calibration_agent_extra" &&
-    code !== "calibration_gold_only_miss"
+    code !== "calibration_gold_only_miss" &&
+    !matchDowngradeAsAdd
   ) {
     return null;
   }
@@ -294,6 +378,124 @@ function resolveCalibrationApply(
         appliedFix: `remove tag #${tagId}`,
       };
     }
+    // Entity-frame proposer (2026-06-07+) emits slugged
+    // ``tag:<category-slug>/<value-slug>`` target_ids — mirrors
+    // ``tag_target()`` in
+    // ``gemma_curation_agents/agents/audit/target_ids.py``. The
+    // numeric-id branch above doesn't catch these, and the
+    // calibration-prefix parser only handles ``calibration:miss:…``,
+    // so the resolver chain previously fell through to focus-only
+    // and the "remove" button did nothing. Look up the matching tag
+    // by slug (handles "cell-type" vs "cell type" label drift via
+    // ``slug()``'s whitespace-collapse) and remove by id.
+    const slugMatch = finding.target_id.match(/^tag:([^/]+)\/(.+)$/);
+    if (slugMatch && design) {
+      const [, categorySlug, valueSlug] = slugMatch;
+      // Same permissive fallback as the calibration:miss branch
+      // below — strict slug match first, then alphanumeric-only key
+      // (Paul 2026-06-12 remove-tag walkthrough).
+      const normalize = (s: string | null | undefined) =>
+        (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+      const catKey = normalize(categorySlug);
+      const valKey = normalize(valueSlug);
+      const target = (design.tags ?? []).find(
+        (t) =>
+          (slug(t.category?.label) === categorySlug &&
+            slug(t.value?.label) === valueSlug) ||
+          (normalize(t.category?.label) === catKey &&
+            normalize(t.value?.label) === valKey),
+      );
+      if (target && !isProtectedTagCategory(target.category?.label)) {
+        const catLabel = target.category?.label ?? categorySlug;
+        const valLabel = target.value?.label ?? valueSlug;
+        return {
+          mutates: true,
+          label: "Agree (remove) →",
+          tooltip:
+            `Agree → remove tag "${catLabel}: ${valLabel}" from the design ` +
+            `(existing curation had it; agent did not propose it).`,
+          successMessage:
+            `Removed tag "${catLabel}: ${valLabel}". Commit the draft to save.`,
+          mutate: (draft) => removeTagById(draft, target.id),
+          appliedFix: `remove ${catLabel}: ${valLabel}`,
+        };
+      }
+      // Slug parses but no matching tag on the draft → idempotent
+      // "already removed" so the curator can disposition without a
+      // dangling Apply click.
+      if (!target) {
+        return {
+          mutates: false,
+          label: "✓ Already removed",
+          tooltip:
+            `No tag matches "${categorySlug} / ${valueSlug}" on the current ` +
+            `draft. Agree to disposition without re-applying.`,
+          successMessage: "",
+        };
+      }
+    }
+  }
+
+  // Match-downgrade: ``calibration_match`` viewed against an empty
+  // displayed gold baseline routes through an add-tag mutator. The
+  // target_id is ``tag:<cat-slug>/<val-slug>`` (NOT the calibration
+  // prefix), and the (category, value) labels come from
+  // ``finding.proposer_term`` when populated, falling back to the
+  // backticked rationale token (``cell type: astrocyte``) the
+  // calibration builder emits. Per MATCH_DOWNGRADE_ACTION_HANDOFF.
+  if (matchDowngradeAsAdd) {
+    const term = finding.proposer_term;
+    let categoryLabel = (term?.label ? "" : "").trim();
+    let valueLabel = (term?.label ?? "").trim();
+    let valueUri: string | null = term?.uri ?? null;
+    if (!valueLabel) {
+      // Fall back to the rationale's first backticked ``cat: val`` —
+      // calibration_match's standard rationale shape ("Is
+      // `cell type: astrocyte` correctly assigned?").
+      const tok = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? "";
+      const colon = tok.indexOf(":");
+      if (colon !== -1) {
+        categoryLabel = tok.slice(0, colon).trim();
+        valueLabel = tok.slice(colon + 1).trim();
+      }
+    }
+    // proposer_term holds the value; the category lives on
+    // ``proposer_term_category`` when shipped, or we fall back to
+    // the target_id slug (de-slugged best-effort by replacing dashes
+    // with spaces — UI-side cosmetic only, the URI is what matters).
+    if (!categoryLabel) {
+      const slugMatch = finding.target_id.match(/^tag:([^/]+)\//);
+      if (slugMatch) categoryLabel = slugMatch[1].replace(/-/g, " ");
+    }
+    if (!categoryLabel || !valueLabel) return null;
+    const alreadyApplied = (design?.tags ?? []).some((tag) => {
+      if (!labelEq(tag.category?.label, categoryLabel)) return false;
+      if (!labelEq(tag.value?.label, valueLabel)) return false;
+      if (valueUri && tag.value?.uri) return tag.value.uri === valueUri;
+      return true;
+    });
+    if (alreadyApplied) {
+      return {
+        mutates: false,
+        label: "✓ Already in draft",
+        tooltip:
+          `Tag "${categoryLabel}: ${valueLabel}" is already on the design. ` +
+          `Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    const tooltip = valueUri
+      ? `Agree → add tag "${categoryLabel}: ${valueLabel}" (${valueUri}) to the design.`
+      : `Agree → add tag "${categoryLabel}: ${valueLabel}" (free-text — resolve later) to the design.`;
+    return {
+      mutates: true,
+      label: "Agree (add) →",
+      tooltip,
+      successMessage: `Added tag "${categoryLabel}: ${valueLabel}". Commit the draft to save.`,
+      mutate: (draft) =>
+        addPopulatedTag(draft, categoryLabel, valueLabel, valueUri),
+      appliedFix: `add ${categoryLabel}: ${valueLabel}`,
+    };
   }
 
   const t = parseCalibrationTargetId(finding.target_id);
@@ -374,17 +576,38 @@ function resolveCalibrationApply(
   if (isProtectedTagCategory(t.category)) {
     return null;
   }
-  // Idempotency: tag already gone from the design → "Already
-  // removed". Inverse of the agent_extra add-side check; same
-  // rationale (see HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS
-  // §3).
-  const stillPresent = (design?.tags ?? []).some(
+  // Idempotency + lookup: the agent's target_id slugs the labels
+  // (whitespace → "-"), but the design tag's labels are the
+  // curator's free-text — "border-associated macrophage" (space)
+  // vs "border-associated-macrophage" (slug). A bare lowercase+trim
+  // compare missed those cases and the "remove" button silently
+  // no-op'd. Look up the gold tag by slug so space-vs-dash drift
+  // resolves uniformly; remove by id once found. Per Paul 2026-06-11.
+  //
+  // Permissive fallback (Paul 2026-06-12 — "I clicked remove tag and
+  // nothing happened"): when the strict slug match misses, fall back
+  // to a key that ignores ALL non-alphanumeric characters
+  // ("developmental_stage" / "developmental stage" / "developmental-
+  // stage" all collapse to "developmentalstage"). The slug() function
+  // only handles whitespace → dash, so underscores in a target_id and
+  // spaces in a design tag's label still failed strict match. After
+  // the loose key matches, the card emits the right mutator instead
+  // of the misleading "Already removed" idempotent path that left the
+  // tag in place but resolved the card.
+  const targetCategorySlug = slug(t.category);
+  const targetValueSlug = slug(t.value);
+  const normalize = (s: string | null | undefined) =>
+    (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const targetCategoryKey = normalize(t.category);
+  const targetValueKey = normalize(t.value);
+  const goldTag = (design?.tags ?? []).find(
     (tag) =>
-      tag.category.label.toLowerCase().trim() ===
-        t.category.toLowerCase().trim() &&
-      tag.value.label.toLowerCase().trim() === t.value.toLowerCase().trim(),
+      (slug(tag.category?.label) === targetCategorySlug &&
+        slug(tag.value?.label) === targetValueSlug) ||
+      (normalize(tag.category?.label) === targetCategoryKey &&
+        normalize(tag.value?.label) === targetValueKey),
   );
-  if (!stillPresent && design) {
+  if (!goldTag && design) {
     return {
       mutates: false,
       label: "✓ Already removed",
@@ -394,16 +617,20 @@ function resolveCalibrationApply(
       successMessage: "",
     };
   }
+  const catLabel = goldTag?.category?.label ?? t.category;
+  const valLabel = goldTag?.value?.label ?? t.value;
   const tooltip =
-    `Agree → remove tag "${t.category}: ${t.value}" from the design.`;
+    `Agree → remove tag "${catLabel}: ${valLabel}" from the design.`;
   return {
     mutates: true,
     label: "Agree (remove) →",
     tooltip,
     successMessage:
-      `Removed tag "${t.category}: ${t.value}". Commit the draft to save.`,
-    mutate: (draft) => removeTagByLabels(draft, t.category, t.value),
-    appliedFix: `remove ${t.category}: ${t.value}`,
+      `Removed tag "${catLabel}: ${valLabel}". Commit the draft to save.`,
+    mutate: goldTag
+      ? (draft) => removeTagById(draft, goldTag.id)
+      : (draft) => removeTagByLabels(draft, t.category, t.value),
+    appliedFix: `remove ${catLabel}: ${valLabel}`,
   };
 }
 
@@ -425,39 +652,75 @@ function resolveFactorCalibrationApply(
   finding: AuditFinding,
   report: AuditReport | null,
   design: Design | null,
+  opts?: { goldEmpty?: boolean },
 ): ApplyAction | null {
   if (finding.target_kind !== "factor") return null;
   const code = finding.issue_code;
   if (!design) return null;
+  const goldEmpty = !!opts?.goldEmpty;
 
-  // Near / close / legacy-rename factor match: the agent and Gemma
-  // paired against the same partition but drift exists at the
-  // category-label or FV level. Curator's Agree = adopt the agent's
-  // labels/URIs onto the existing Gemma factor in place (a rename +
-  // FV relabel). Replaces the previous focus-only fallback so the
-  // curator can act on a near-match card without bouncing to the
-  // Preview button or the Design tab.
+  // Match-downgrade (factor side): a ``*_match_*`` finding viewed
+  // against an empty displayed gold baseline routes through the
+  // add-factor path the ``calibration_factor_extra`` branch below
+  // uses — there's no gold factor for ``resolveNearMatchApply`` to
+  // mutate in place. Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
   if (
+    goldEmpty &&
+    (isExactFactorMatch(finding) ||
+      isCloseFactorMatch(finding) ||
+      code === "calibration_factor_match" ||
+      code === "factor_proposed_match_with_design")
+  ) {
+    // Fall through to the add-factor branch below by re-tagging
+    // the effective code locally. The original ``finding.issue_code``
+    // stays unchanged on the wire — only the apply routing flips.
+  } else if (
     isExactFactorMatch(finding) ||
     isCloseFactorMatch(finding) ||
     code === "calibration_factor_rename"
   ) {
+    // Near / close / legacy-rename factor match: the agent and Gemma
+    // paired against the same partition but drift exists at the
+    // category-label or FV level. Curator's Agree = adopt the agent's
+    // labels/URIs onto the existing Gemma factor in place (a rename +
+    // FV relabel). Replaces the previous focus-only fallback so the
+    // curator can act on a near-match card without bouncing to the
+    // Preview button or the Design tab.
     return resolveNearMatchApply(finding, report, design);
   }
 
+  const effectiveAddCode =
+    code === "calibration_factor_extra" ||
+    code === "augmentation_factor_extra" ||
+    code === "factor_proposed_new" ||
+    // Match-downgrade routes match codes through the add path.
+    (goldEmpty &&
+      (isExactFactorMatch(finding) ||
+        isCloseFactorMatch(finding) ||
+        code === "calibration_factor_match" ||
+        code === "factor_proposed_match_with_design"));
+
   if (
-    code !== "calibration_factor_extra" &&
-    code !== "augmentation_factor_extra" &&
-    code !== "calibration_factor_gold_only_miss"
+    !effectiveAddCode &&
+    code !== "calibration_factor_gold_only_miss" &&
+    code !== "calibration_factor_partition_mismatch"
   ) {
     return null;
   }
 
-  // *_factor_extra — add the agent's factor to the draft.
-  if (
-    code === "calibration_factor_extra" ||
-    code === "augmentation_factor_extra"
-  ) {
+  // *_factor_extra / factor_proposed_new — add the agent's factor to
+  // the draft. ``factor_proposed_new`` is the entity-frame proposer
+  // analog of ``calibration_factor_extra``: same resolver path (find
+  // the agent factor via agent_target_index → comparison_proposal),
+  // same idempotency check, same mutator. Without this branch the
+  // proposal-side Agree button records the disposition but never
+  // mutates the draft — the curator clicks Agree, the card greys, and
+  // the factor never appears in Design setup. Paul 2026-06-14.
+  //
+  // Match-downgrade additions (goldEmpty): ``effectiveAddCode``
+  // includes the match codes when the displayed baseline lacks the
+  // factor; same add-factor mutator handles those.
+  if (effectiveAddCode) {
     const cp = report?.evidence?.comparison_proposal ?? null;
     // Pull a label hint from the rationale's first backticked token
     // so older audits without agent_target_index still resolve.
@@ -545,6 +808,12 @@ function resolveFactorCalibrationApply(
           }) to the design.`,
       successMessage: `Added factor "${proposal.category.label}". Commit the draft to save.`,
       mutate: (draft) => addFactorFromProposal(draft, proposal),
+      // Focus jumps to the just-added factor (target id derived from
+      // the proposal's category) regardless of what the finding's
+      // target_id points at on the gold / proposer side. Without this
+      // override the design tab opens collapsed on whatever the
+      // finding anchored to instead of the new factor, hiding its FVs.
+      focusTargetId: factorTarget(proposal.category.label),
       // On name clash, force the caller to confirm before mutating.
       // Cy flagged 2026-06-05 that silent second-add was confusing.
       // Until we decide between merge-FVs vs add-second semantics,
@@ -562,6 +831,133 @@ function resolveFactorCalibrationApply(
           }
         : {}),
       appliedFix: `add factor ${proposal.category.label}`,
+    };
+  }
+
+  // calibration_factor_partition_mismatch — agent and gold share the
+  // category but the partition (FV breakdown) disagrees. ``direction``
+  // says agent_finer (3 levels vs gold's 2) or agent_coarser (gold's
+  // 3 vs agent's 2). Both adopt-shaped: replace gold's FV partition
+  // with the agent's, preserving FV ids by biomaterial-set match
+  // (so downstream refs survive where possible). Cross-cutting falls
+  // through to null — it's not a single-factor replace, the curator
+  // has to disambiguate manually (the dedicated cross-cutting card
+  // body handles that). Paul 2026-06-14: clicking "adopt Auditor's
+  // finer levels" on GSE9649 organism_part disposition-PATCHed but
+  // left the design at 2 levels — same class of bug as the
+  // ComparisonFactorCard "Proposal is better" fix; partition_mismatch
+  // just wasn't routed through any mutator. */
+  if (code === "calibration_factor_partition_mismatch") {
+    const pm = finding.partition_mismatch;
+    if (!pm) return null;
+    // Cross-cutting needs the agent to split into multiple factors,
+    // which isn't a single-factor replace. Defer to the dedicated
+    // card body's UI; no automatic apply. Exception: the
+    // "degenerate" cross-cutting case where only ONE gold factor is
+    // spanned (the agent classified ``cross_cutting`` because no
+    // FV pair hit Jaccard ≥ 0.8 but there's still just one gold
+    // factor in scope) — treat as a regular partition_mismatch
+    // and adopt-shape applies safely. GSE448 population +
+    // biological_sex are the canonical examples.
+    if (
+      pm.direction === "cross_cutting" &&
+      (pm.cross_cutting_golds?.length ?? 0) > 1
+    ) {
+      return null;
+    }
+    const cp = report?.evidence?.comparison_proposal ?? null;
+    const labelHint =
+      pm.agent?.category?.label ??
+      finding.rationale?.match(/`([^`]+)`/)?.[1] ??
+      null;
+    const proposal = resolveAgentFactor(finding, cp, labelHint);
+    if (!proposal) return null;
+    // Locate the gold factor by category (label / URI) — same
+    // lookup ``adoptNearMatchAgentFactor`` uses internally, mirrored
+    // here for the idempotency + tooltip strings. No-op when gold
+    // already carries the agent's partition (identical FV signature).
+    const goldSlug = (
+      pm.gold?.category?.label ?? proposal.category.label
+    )
+      .toLowerCase()
+      .trim();
+    const goldFactor =
+      resolveGoldFactor(finding, design.factors, goldSlug) ??
+      (design.factors ?? []).find(
+        (f) =>
+          (f.category.label || "").toLowerCase().trim() === goldSlug,
+      ) ??
+      null;
+    if (!goldFactor) {
+      return {
+        mutates: false,
+        label: "✓ Factor not in draft",
+        tooltip:
+          `No factor "${goldSlug}" in the current draft. Agree to ` +
+          `disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    // Idempotency: same FV-signature bijection check as the
+    // factor_extra branch. If gold already carries the agent's exact
+    // partition, surface as already-applied.
+    const fvSig = (
+      fvs: { free_text_label: string; biomaterial_short_names: string[] }[],
+    ) =>
+      new Set(
+        fvs.map(
+          (fv) =>
+            `${(fv.free_text_label || "").toLowerCase().trim()} ${[
+              ...fv.biomaterial_short_names,
+            ]
+              .sort()
+              .join("|")}`,
+        ),
+      );
+    const gSig = fvSig(goldFactor.factor_values);
+    const pSig = fvSig(proposal.factor_values);
+    let same = goldFactor.factor_values.length === proposal.factor_values.length
+      && gSig.size === pSig.size;
+    if (same) {
+      for (const s of pSig) {
+        if (!gSig.has(s)) {
+          same = false;
+          break;
+        }
+      }
+    }
+    if (same) {
+      return {
+        mutates: false,
+        label: "✓ Already applied",
+        tooltip:
+          `Factor "${goldFactor.category.label}" already carries the ` +
+          `agent's partition. Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    const directionPhrase =
+      pm.direction === "agent_finer"
+        ? "finer levels"
+        : pm.direction === "agent_coarser"
+          ? "fewer levels"
+          : "partition";
+    return {
+      mutates: true,
+      label: "Agree →",
+      tooltip:
+        `Agree → adopt agent's ${directionPhrase} on factor ` +
+        `"${goldFactor.category.label}" (${goldFactor.factor_values.length} → ` +
+        `${proposal.factor_values.length} values). Preserves FV ids where ` +
+        `biomaterial sets match. Commit the draft to save.`,
+      successMessage:
+        `Adopted agent's ${directionPhrase} on factor ` +
+        `"${proposal.category.label}". Commit to save.`,
+      mutate: (draft) => adoptNearMatchAgentFactor(draft, proposal),
+      appliedFix:
+        `adopt agent partition on factor ${proposal.category.label} ` +
+        `(${goldFactor.factor_values.length} → ${proposal.factor_values.length} values)`,
+      focusTargetId: factorTarget(proposal.category.label),
     };
   }
 
@@ -838,10 +1234,88 @@ function replaceFactorWithProposal(
  *  proposal. Mirrors the retired ``proposalFactorsToDesignFactors``
  *  on the audit side — same id-allocation strategy (next-after-max)
  *  and same baseline-inference rule. Curator-asserted (IC). */
-function addFactorFromProposal(
+/** Walk ``design.biomaterials[].characteristics`` looking for a key
+ *  that matches the agent's continuous-factor proposal. Match order:
+ *  exact match → case-insensitive → fuzzy (alphanumeric-only collapse,
+ *  so "time point" / "time_point" / "timepoint" all match a "timepoint"
+ *  proposal). Returns the actual key string from the design (preserves
+ *  the curator-facing casing / spacing) so the caller can pass it
+ *  straight to ``addContinuousFactorFromCharacteristic``. */
+function resolveContinuousCharacteristicKey(
+  design: Design,
+  proposalCategory: string,
+): string | null {
+  const allKeys = new Set<string>();
+  for (const bm of design.biomaterials ?? []) {
+    for (const k of Object.keys(bm.characteristics ?? {})) allKeys.add(k);
+  }
+  if (allKeys.has(proposalCategory)) return proposalCategory;
+  const targetLc = proposalCategory.trim().toLowerCase();
+  for (const k of allKeys) {
+    if (k.trim().toLowerCase() === targetLc) return k;
+  }
+  const loose = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const targetLoose = loose(proposalCategory);
+  for (const k of allKeys) {
+    if (loose(k) === targetLoose) return k;
+  }
+  return null;
+}
+
+/** Build a Factor from a FactorProposal and append it to ``design``.
+ *  Continuous-factor proposals are promoted to per-sample FVs via
+ *  ``addContinuousFactorFromCharacteristic`` when the agent shipped
+ *  only a placeholder FV. Exported so ``ComparisonFactorCard`` can
+ *  reuse it for the match-downgrade add-path
+ *  (MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16). */
+export function addFactorFromProposal(
   design: Design,
   proposal: FactorProposal,
 ): Design {
+  // Continuous-factor branch: the agent ships ONE placeholder FV
+  // ("<continuous, populated from characteristic>") with empty
+  // biomaterials + null numeric_value. Blindly adding it produces a
+  // single-empty-FV factor that's invisible to the curator and breaks
+  // the sample table. Per Paul 2026-06-13: "accepting the agent's
+  // suggestion for a continuous factor fails to do anything".
+  //
+  // Promote to per-sample FVs via ``addContinuousFactorFromCharacteristic``:
+  // walks ``design.biomaterials[i].characteristics`` for a key matching
+  // the factor's category (case-insensitive; underscore/space tolerant)
+  // and emits one FV per BM carrying that characteristic.
+  if (proposal.factor_type === "continuous") {
+    const fvs = proposal.factor_values ?? [];
+    const placeholderOnly =
+      fvs.length === 0 ||
+      (fvs.length === 1 &&
+        (fvs[0].biomaterial_short_names ?? []).length === 0);
+    if (placeholderOnly) {
+      const characteristicKey = resolveContinuousCharacteristicKey(
+        design,
+        proposal.category.label,
+      );
+      if (characteristicKey) {
+        const { design: next } = addContinuousFactorFromCharacteristic(
+          design,
+          characteristicKey,
+          {
+            name: proposal.name_in_design || proposal.category.label,
+            category: {
+              label: proposal.category.label,
+              uri: proposal.category.uri ?? null,
+            },
+          },
+        );
+        return next;
+      }
+      // Couldn't find a matching characteristic — fall through to the
+      // generic add (still better than dropping the curator's click
+      // silently). The factor lands with the placeholder FV; the
+      // curator can rename / re-bind from the design editor.
+    }
+  }
+
   const nextFactorId =
     (design.factors ?? []).reduce((m, f) => Math.max(m, f.id), 0) + 1;
   let nextFvId =
@@ -877,8 +1351,18 @@ function addFactorFromProposal(
       label: proposal.category.label,
       uri: proposal.category.uri ?? null,
     },
-    description: "",
+    // Carry the agent's ≤80-char ``description`` (the subtitle the
+    // proposal card surfaces — "Lipopolysaccharide (LPS) vs vehicle
+    // control") onto the new factor so the curator doesn't have to
+    // re-type it after Agree. Paul 2026-06-11: he saw the description
+    // on the card, clicked Agree, and the resulting factor landed with
+    // an empty description — the subtitle was being dropped at the
+    // mutator boundary. Empty string when the proposal didn't carry one
+    // (older audits, structural-only adds).
+    description: (proposal.description ?? "").trim(),
     type: proposal.factor_type === "continuous" ? "continuous" : "categorical",
+    baseline_relevance: proposal.baseline_relevance,
+    baseline_relevance_reason: proposal.baseline_relevance_reason,
     factor_values,
   };
   return { ...design, factors: [...(design.factors ?? []), newFactor] };
@@ -944,12 +1428,18 @@ function removeTagByLabels(
   valueLabel: string,
 ): Design {
   if (isProtectedTagCategory(categoryLabel)) return design;
+  // Compare by slug so the same target_id-shaped labels (whitespace
+  // collapsed to "-") still match design tags with the curator's
+  // original spacing. ``labelEq``'s bare lowercase+trim wasn't enough
+  // — see Paul 2026-06-11 (the "remove doesn't remove" walkthrough).
+  const catSlug = slug(categoryLabel);
+  const valSlug = slug(valueLabel);
   return {
     ...design,
     tags: (design.tags ?? []).filter(
       (t) =>
-        !labelEq(t.category?.label, categoryLabel) ||
-        !labelEq(t.value?.label, valueLabel),
+        slug(t.category?.label) !== catSlug ||
+        slug(t.value?.label) !== valSlug,
     ),
   };
 }
@@ -986,6 +1476,12 @@ function focusTooltip(parsed: ParsedTargetId): string {
       return "open the design tab, select the parent factor, and scroll to this FV";
     case "tag":
       return "open the overview tab and scroll to this tag";
+    case "characteristic":
+      // Entity-frame proposer characteristic finding — anchors to the
+      // raw BM column(s) the agent proposes to clean / merge. No
+      // dedicated tab yet; the overview tab carries the characteristics
+      // block, so route there.
+      return "open the overview tab and scroll to the source characteristic column(s)";
     case "assignment":
       return "open the samples tab and scroll to this sample";
     case "experiment":

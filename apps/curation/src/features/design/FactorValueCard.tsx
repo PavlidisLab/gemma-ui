@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { InlineText } from "@/components/ui/InlineText";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { Term } from "@/components/ui/Term";
-import { shortenUri } from "@/lib/curie";
 import {
   StatementEditor,
   StatementGroupEditor,
@@ -29,6 +29,7 @@ export function FactorValueCard({
   onLabelChange,
   onToggleBaseline,
   onDelete,
+  onDuplicate,
   onAddStatement,
   onAddSiblingStatement,
   onAddStatementFromTemplate,
@@ -50,6 +51,11 @@ export function FactorValueCard({
   onLabelChange: (label: string) => void;
   onToggleBaseline: () => void;
   onDelete: () => void;
+  /** Optional clone affordance — when wired, the FV header surfaces a
+   *  "Duplicate" button. Clone semantics: copy label + statements,
+   *  clear sample assignment + baseline (per
+   *  ``duplicateFactorValue`` in mutations.ts). Paul 2026-06-14. */
+  onDuplicate?: () => void;
   onAddStatement: () => void;
   /** Append a statement that inherits the seed's category + subject
    *  (predicate / object blank). Used by the "+ sibling" action in
@@ -176,7 +182,13 @@ export function FactorValueCard({
               !!onlyStmt.subject?.uri &&
               (onlyStmt.subject.label || "").trim().toLowerCase() === fvLabel &&
               !!fvLabel;
-            if (redundant) {
+            // Redundant-label suppression only fires in the open editor.
+            // In compact mode the statement row ALSO hides the subject
+            // label (``hideSubjectLabel`` below), so hiding the header
+            // here too would leave just the CURIE on the row — Paul
+            // 2026-06-14 caught this on the biological_sex / PATO card.
+            // Keep the FV label visible in compact mode no matter what.
+            if (redundant && !compact) {
               // Render nothing — the statement chip below carries the
               // label + CURIE. Keeps the FV card compact.
               return null;
@@ -300,7 +312,7 @@ export function FactorValueCard({
             <button
               type="button"
               onClick={onRevert}
-              className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-700 hover:text-rose-700 underline-offset-2 hover:underline dark:text-amber-400 dark:hover:text-rose-400"
+              className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50"
               title={
                 change.kind === "added"
                   ? "discard this FV — it didn't exist on the saved baseline"
@@ -309,8 +321,8 @@ export function FactorValueCard({
                     : "discard your edits to this FV (label, baseline, statements, sample assignments) and restore from saved"
               }
             >
-              <span aria-hidden className="text-[12px] leading-none">↺</span>
-              revert
+              <span aria-hidden className="text-[11px] leading-none">↺</span>
+              Undo
             </button>
           ) : null}
         </div>
@@ -322,21 +334,33 @@ export function FactorValueCard({
               {onAssignRemaining && (remainingCount ?? 0) > 0 ? (
                 <button
                   type="button"
-                  className="btn ghost text-xs text-indigo-700"
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:border-indigo-700 dark:text-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50"
                   onClick={onAssignRemaining}
                   title={`Assign all ${remainingCount} unassigned sample(s) to this FV`}
                 >
-                  assign remaining {remainingCount}
+                  Assign remaining {remainingCount}
+                </button>
+              ) : null}
+              {onDuplicate ? (
+                <button
+                  type="button"
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"
+                  onClick={onDuplicate}
+                  title="Duplicate this FV — copies label + statements, clears sample assignment"
+                >
+                  Duplicate
                 </button>
               ) : null}
               <button
-                className="btn ghost text-xs text-rose-700"
+                type="button"
+                className="text-[10px] px-1.5 py-0.5 rounded border border-rose-300 text-rose-700 bg-white hover:bg-rose-50 dark:border-rose-700 dark:text-rose-300 dark:bg-slate-800 dark:hover:bg-rose-900/30"
                 onClick={() => {
                   if (hasContent) setConfirming(true);
                   else onDelete();
                 }}
+                title="Delete this FV"
               >
-                delete FV
+                Delete
               </button>
             </>
           )}
@@ -499,7 +523,7 @@ export function FactorValueCard({
                 fv.statements.length === 1 ? "" : "s"
               }.`
         }
-        confirmLabel="delete FV"
+        confirmLabel="Delete"
         onConfirm={() => {
           onDelete();
           setConfirming(false);
@@ -568,26 +592,35 @@ function CompactStatementRow({
   statement: FactorValue["statements"][number];
   hideSubjectLabel?: boolean;
 }) {
+  const cat = statement.category;
   const subj = statement.subject;
   const pred = statement.predicate;
   const obj = statement.object;
+  const hasCat = !!cat?.label?.trim();
   const hasPred = !!pred?.label?.trim();
   const hasObj = !!obj?.label?.trim();
   const subjUri = subj?.uri ?? null;
   return (
     <div className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]">
+      {/* Category chip leads the row so the compact view reads as a
+          full statement triple — Paul 2026-06-14: "the full statement
+          should be shown, like in the review panel." Hidden when the
+          statement carries no category (rare, but the type allows). */}
+      {hasCat ? (
+        <Term
+          uri={cat?.uri ?? null}
+          asLink={false}
+          className="!whitespace-normal break-words"
+        >
+          {cat!.label!}
+        </Term>
+      ) : null}
       {hideSubjectLabel ? (
         subjUri ? (
-          <a
-            href={subjUri}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400 hover:underline"
-            title={subjUri}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {shortenUri(subjUri)}
-          </a>
+          <CurieLink
+            uri={subjUri}
+            className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer bg-transparent border-0 p-0"
+          />
         ) : null
       ) : (
         <Term
@@ -626,12 +659,17 @@ function CompactStatementRow({
 }
 
 /** Compact-mode rendering for a group of statements that share the
- *  same (category, subject). Mirrors `StatementGroupEditor`'s
- *  layout but read-only — subject chip on the left, each
- *  statement's `predicate - object` pair stacked in a column to
- *  the right. So a Srsf1 FV with two has_genotype statements
- *  collapses to one subject + two stacked P/O rows instead of
- *  repeating the (long) subject twice. Per Paul 2026-05-21. */
+ *  same (category, subject). Mirrors Gemma's multi-PO statement
+ *  shape (one subject, many predicate-object pairs) visually —
+ *  subject chip on the left, each P/O pair inline next to it on the
+ *  SAME row, wrapping only when the row overflows. So a Srsf1 FV
+ *  with two has_genotype statements collapses to
+ *  ``Srsf1 - has_genotype - WT - has_genotype - KO`` on one line;
+ *  long rows wrap naturally via ``flex-wrap``. Per Paul:
+ *
+ *    2026-05-21 — subject shouldn't be repeated when shared.
+ *    2026-06-12 — "they can be shown on the same row, at least in
+ *                 the compact view". */
 function CompactStatementGroup({
   statements,
 }: {
@@ -650,48 +688,47 @@ function CompactStatementGroup({
       >
         {subj?.label || "(blank)"}
       </Term>
-      <div className="flex flex-col gap-1 min-w-0">
-        {statements.map((s, i) => {
-          const pred = s.predicate;
-          const obj = s.object;
-          const hasPred = !!pred?.label?.trim();
-          const hasObj = !!obj?.label?.trim();
-          return (
-            <div
-              key={i}
-              className="flex flex-wrap items-baseline gap-x-1.5"
-            >
-              {hasPred ? (
-                <>
-                  <span className="text-slate-400 dark:text-slate-500">
-                    {" - "}
-                  </span>
-                  <span
-                    className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
-                    title={pred?.uri || undefined}
-                  >
-                    {pred?.label}
-                  </span>
-                </>
-              ) : null}
-              {hasObj ? (
-                <>
-                  <span className="text-slate-400 dark:text-slate-500">
-                    {" - "}
-                  </span>
-                  <Term
-                    uri={obj?.uri ?? null}
-                    asLink={false}
-                    className="!whitespace-normal break-words"
-                  >
-                    {obj?.label}
-                  </Term>
-                </>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+      {statements.map((s, i) => {
+        const pred = s.predicate;
+        const obj = s.object;
+        const hasPred = !!pred?.label?.trim();
+        const hasObj = !!obj?.label?.trim();
+        if (!hasPred && !hasObj) return null;
+        return (
+          <span
+            key={i}
+            className="inline-flex items-baseline gap-x-1.5 flex-wrap"
+          >
+            {hasPred ? (
+              <>
+                <span className="text-slate-400 dark:text-slate-500">
+                  {" - "}
+                </span>
+                <span
+                  className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+                  title={pred?.uri || undefined}
+                >
+                  {pred?.label}
+                </span>
+              </>
+            ) : null}
+            {hasObj ? (
+              <>
+                <span className="text-slate-400 dark:text-slate-500">
+                  {" - "}
+                </span>
+                <Term
+                  uri={obj?.uri ?? null}
+                  asLink={false}
+                  className="!whitespace-normal break-words"
+                >
+                  {obj?.label}
+                </Term>
+              </>
+            ) : null}
+          </span>
+        );
+      })}
     </div>
   );
 }

@@ -119,6 +119,14 @@ export function ModeChip() {
               <dt className="text-slate-500 dark:text-slate-400">Auth</dt>
               <dd>{info.authLabel}</dd>
             </div>
+            {info.ontologySplit ? (
+              <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline">
+                <dt className="text-slate-500 dark:text-slate-400">Gemma REST</dt>
+                <dd className="font-mono text-[11px] break-all">
+                  {info.ontologyUrl}
+                </dd>
+              </div>
+            ) : null}
           </dl>
 
           {severity === "prod" ? (
@@ -155,8 +163,14 @@ export function ModeChip() {
 
           <p className="text-[10px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-700">
             Mode is build-time. To switch, set <code>VITE_GEMMA_MODE</code>
-            + <code>VITE_GEMMA_BASE_URL</code> in <code>.env</code> and
-            restart the dev server (or rebuild).
+            + <code>VITE_GEMMA_BASE_URL</code>
+            {info.ontologySplit ? (
+              <>
+                {" "}
+                (and <code>VITE_GEMMA_ONTOLOGY_URL</code> for term search)
+              </>
+            ) : null}{" "}
+            in <code>.env</code> and restart the dev server (or rebuild).
           </p>
         </div>
       ) : null}

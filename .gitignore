@@ -17,3 +17,7 @@ coverage/
 screenshots/
 test-results/
 playwright-report/
+
+# Local backup snapshots — large, local-only, never for git.
+*.bak/
+*.bak.*/

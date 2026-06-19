@@ -61,6 +61,7 @@ export type Route =
     }
   | { kind: "audit-preview" }
   | { kind: "proposal-preview" }
+  | { kind: "dev-statement-chip" }
   | { kind: "workflow"; groupId?: string }
   | { kind: "ticket"; ticketId: number };
 
@@ -110,6 +111,7 @@ export function parseRoute(): Route {
   // on the UI before /audit/* endpoints are live. Hidden from the
   // landing page navigation — paste the URL or follow a dev link.
   if (/^#\/audit-preview\b/.test(h)) return { kind: "audit-preview" };
+  if (/^#\/dev\/statement-chip\b/.test(h)) return { kind: "dev-statement-chip" };
   // Fixture-driven preview for the new per-element proposal review
   // surface. Paste #/proposal-preview into the URL bar. Removed once
   // the live ``CurationWorkspace`` entity lands.

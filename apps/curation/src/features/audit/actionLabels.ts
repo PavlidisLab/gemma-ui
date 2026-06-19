@@ -54,10 +54,45 @@ import type { AuditFinding } from "@/api/auditTypes";
 
 export type ActionShape = "add" | "remove" | "change" | "match";
 
+/** Optional context for ``findingActionShape``. When ``goldEmpty``
+ *  is true, a ``*_match`` finding's shape downgrades from ``"match"``
+ *  to ``"add"`` — the curator's display baseline (polished_gold /
+ *  preboard / etc.) doesn't carry the entity even though the
+ *  audit-time baseline (often live Gemma) did, so the curator's
+ *  action is genuinely "add this", not "confirm this match". Mirrors
+ *  ``findingActionLabel({ goldEmpty })`` (ed4f25f, 2026-06-16) and
+ *  is the action-row half of the MATCH_DOWNGRADE_ACTION handoff. */
+export interface FindingActionShapeContext {
+  goldEmpty?: boolean;
+}
+
 /** Map a finding to one of four action shapes. Drives the button-
  *  label text on the finding card (keep vs accept). */
-export function findingActionShape(finding: AuditFinding): ActionShape {
+export function findingActionShape(
+  finding: AuditFinding,
+  ctx?: FindingActionShapeContext,
+): ActionShape {
+  const goldEmpty = !!ctx?.goldEmpty;
   const code = finding.issue_code;
+  // Match-downgrade: when the displayed gold baseline doesn't carry
+  // the entity (goldEmpty), every match-shaped code reads as an Add.
+  // Title already downgrades via ``findingActionLabel({ goldEmpty })``;
+  // the action row, dismiss vocab, and apply path must follow so
+  // Agree actually adds the entity to the draft. Per
+  // MATCH_DOWNGRADE_ACTION_HANDOFF.md.
+  if (goldEmpty) {
+    if (
+      code === "calibration_match" ||
+      code === "calibration_factor_match_exact" ||
+      code === "calibration_factor_match_near" ||
+      code === "calibration_factor_match_close" ||
+      code === "calibration_factor_match" ||
+      code === "factor_proposed_match_with_design" ||
+      code === "tag_proposed_match_with_design"
+    ) {
+      return "add";
+    }
+  }
   if (code === "calibration_factor_extra") return "add";
   if (code === "calibration_agent_extra") return "add";
   if (code === "calibration_factor_gold_only_miss") return "remove";
@@ -74,6 +109,43 @@ export function findingActionShape(finding: AuditFinding): ActionShape {
   if (code === "calibration_factor_match") {
     return finding.severity === "ok" ? "match" : "change";
   }
+  // Entity-frame proposer (agents-repo commit 923b663). Mirrors the
+  // calibration_* shapes but framed as "agent proposes X against the
+  // existing design" rather than "calibration delta vs gold":
+  //   *_proposed_new           → add    (agent proposes a new element)
+  //   *_proposed_match_*       → match  (agent's proposal matches design)
+  //   *_partition_mismatch     → change (matched category, levels diverge)
+  //   *_design_missing_from_agent → match (recall gap; curator confirms
+  //                              the design's call is correct — "remove"
+  //                              would read as "drop it from the design",
+  //                              the opposite of what the curator does)
+  //   characteristic_proposed_replacement → change (cleaner value
+  //                              supersedes one raw BM column)
+  //   characteristic_proposed_merge       → change (consolidates
+  //                              multiple raw BM columns into one)
+  if (code === "factor_proposed_new") return "add";
+  if (code === "factor_proposed_match_with_design") return "match";
+  if (code === "factor_proposed_match_partition_mismatch") return "change";
+  // Same factor (by sample partition) with disagreeing category:
+  // accept = keep the existing curation's category; reject = switch
+  // to the agent's. "change" reads better than "match" because
+  // there's a real either/or rather than a confirmation.
+  if (code === "factor_proposed_match_category_mismatch") return "change";
+  if (code === "factor_design_missing_from_agent") return "match";
+  if (code === "tag_proposed_new") return "add";
+  if (code === "tag_proposed_match_with_design") return "match";
+  if (code === "tag_design_missing_from_agent") return "match";
+  if (code === "characteristic_proposed_replacement") return "change";
+  if (code === "characteristic_proposed_merge") return "change";
+  // Boss-dropped findings (post-boss pack provenance): the agent
+  // proposed the entity, the boss said drop. The finding surfaces
+  // the drop so the curator can confirm or override.
+  //   "adopt" -> confirm the boss's drop (entity stays out)
+  //   "keep"  -> override; agent's original proposal stands
+  // The "remove" chip pair ("remove" / "don't remove") fits cleanly.
+  if (code === "factor_dropped_by_boss") return "remove";
+  if (code === "tag_dropped_by_boss") return "remove";
+  if (code === "characteristic_dropped_by_boss") return "remove";
   return "change";
 }
 
@@ -89,4 +161,28 @@ export function actionLabels(shape: ActionShape): {
   if (shape === "match") return { keep: "confirm", adopt: "confirm" };
   // change (default)
   return { keep: "don't change", adopt: "adopt" };
+}
+
+/** Full accept-button text including a possessive suffix when it
+ *  reads naturally. The legacy pattern was
+ *  ``${actionLbls.adopt} ${identities.proposer}'s`` everywhere,
+ *  but for a REMOVE action that renders as ``remove Auditor's`` —
+ *  a hanging possessive with nothing for it to modify (the curator
+ *  isn't removing something OF the auditor's; they're removing the
+ *  existing tag that the auditor proposed should go).
+ *
+ *  Rule (Paul 2026-06-08):
+ *    add / change → "<verb> <Proposer>'s"  (adopt Auditor's, add Auditor's)
+ *    remove       → "<verb>"               ("remove" alone)
+ *    match        → "<verb>"               ("confirm" alone)
+ *
+ *  Use this helper instead of inlining the template at call sites.
+ */
+export function acceptLabel(
+  shape: ActionShape,
+  proposerIdentity: string,
+): string {
+  const lbls = actionLabels(shape);
+  if (shape === "remove" || shape === "match") return lbls.adopt;
+  return `${lbls.adopt} ${proposerIdentity}'s`;
 }

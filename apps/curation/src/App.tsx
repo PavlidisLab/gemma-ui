@@ -1,4 +1,5 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState, type ReactNode } from "react";
+import { useActiveBaselineSource } from "@/features/comparison/useActiveBaselineSource";
 import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { PreboardingDetailPage } from "@/features/preboarding/PreboardingDetailPage";
@@ -11,6 +12,7 @@ import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
 import { AuditsInbox } from "@/features/inbox/AuditsInbox";
 import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
 import { ProposalPreviewPage } from "@/features/proposal/ProposalPreviewPage";
+import { DevStatementChipPreview } from "@/pages/DevStatementChipPreview";
 import { AuditDetailPage } from "@/features/audit/AuditDetailPage";
 import { WorkflowPage } from "@/features/workflow/WorkflowPage";
 import { PipelinePanel } from "@/features/workflow/PipelinePanel";
@@ -172,16 +174,22 @@ export default function App() {
     return <ProposalPreviewPage />;
   }
 
+  if (route.kind === "dev-statement-chip") {
+    return <DevStatementChipPreview />;
+  }
+
   if (route.kind === "workflow") {
     return <WorkflowPage groupId={route.groupId} reviewer={fullName || reviewer} />;
   }
 
   if (route.kind === "ticket") {
     return (
-      <TicketDetailPage
-        ticketId={route.ticketId}
-        reviewer={fullName || reviewer}
-      />
+      <ToastProvider>
+        <TicketDetailPage
+          ticketId={route.ticketId}
+          reviewer={fullName || reviewer}
+        />
+      </ToastProvider>
     );
   }
 
@@ -217,11 +225,20 @@ export default function App() {
           the page (audit panel, banner, etc.) reflected the new id.
           Same principle as ``Shell``'s implicit per-experiment
           local state — the key forces a clean slate.
+
+          DesignDraftProvider sits above FlowProvider in the tree
+          (FlowProvider is mounted inside Shell), so it can't read
+          chip state directly. The thin ChipBaselineResolver layer
+          pre-computes the active baseline source (URL + flow
+          defaults) and passes it in — making the whole page render
+          against whatever the chip strip selected, per Paul
+          2026-06-08 ("yes everywhere").
         */}
-        <DesignDraftProvider
-          key={route.id}
+        <ChipBaselineResolver
           experimentId={route.id}
           reviewer={reviewer}
+          urlBaseline={route.kind === "experiment" ? route.baselineSource : undefined}
+          ticketContext={route.ticketContext}
         >
           <Shell
             experimentId={route.id}
@@ -231,9 +248,50 @@ export default function App() {
             groupContext={route.groupContext}
             ticketContext={route.ticketContext}
           />
-        </DesignDraftProvider>
+        </ChipBaselineResolver>
       </ProposalReviewProvider>
     </ToastProvider>
+  );
+}
+
+/** Pre-resolves the chip-strip baseline source and mounts the
+ *  DesignDraftProvider with it. DesignDraftProvider lives above
+ *  FlowProvider so it can't call useChipState directly; this
+ *  resolver does the same READ calculation
+ *  (URL ?base= → defaultSlots) at App level. The chip strip itself
+ *  (inside Shell, below FlowProvider) handles writes via
+ *  useChipState — URL is the single source of truth so both calls
+ *  agree by construction. */
+function ChipBaselineResolver({
+  experimentId,
+  reviewer,
+  urlBaseline,
+  ticketContext,
+  children,
+}: {
+  experimentId: number | string;
+  reviewer: string;
+  urlBaseline: import("@/features/comparison/sources").Source | undefined;
+  ticketContext: string | undefined;
+  children: ReactNode;
+}) {
+  const ticketIdNumeric = ticketContext
+    ? Number.parseInt(ticketContext, 10)
+    : null;
+  const baselineSource = useActiveBaselineSource({
+    experimentId,
+    urlBaseline,
+    ticketIdNumeric: Number.isFinite(ticketIdNumeric) ? ticketIdNumeric : null,
+  });
+  return (
+    <DesignDraftProvider
+      key={experimentId}
+      experimentId={experimentId}
+      reviewer={reviewer}
+      baselineSource={baselineSource}
+    >
+      {children}
+    </DesignDraftProvider>
   );
 }
 
@@ -281,7 +339,63 @@ function Shell({
     setNotesOpen(next.notesOpen);
   }, [initialTab]);
 
-  const { draft, isLoading: draftLoading, loadError, staleCacheDiscarded, diff } = useDesignDraft();
+  const {
+    draft,
+    isLoading: draftLoading,
+    loadError,
+    staleCacheDiscarded,
+    diff,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useDesignDraft();
+
+  // Global undo / redo bindings — Cmd+Z (Mac) / Ctrl+Z (others) for
+  // undo; Cmd+Shift+Z / Ctrl+Y for redo. Skipped when focus is on a
+  // text-editable element so the browser's native undo still works
+  // inside textareas / inputs / contenteditable. Paul 2026-06-14:
+  // "how about binding undo key to last action."
+  useEffect(() => {
+    function isEditableTarget(el: EventTarget | null): boolean {
+      if (!(el instanceof HTMLElement)) return false;
+      if (el.isContentEditable) return true;
+      const tag = el.tagName;
+      if (tag === "TEXTAREA") return true;
+      if (tag === "INPUT") {
+        const t = (el as HTMLInputElement).type;
+        // Allow undo through for non-text inputs (checkbox, radio,
+        // button, etc.) — the browser doesn't own undo there.
+        return ![
+          "checkbox",
+          "radio",
+          "button",
+          "submit",
+          "reset",
+          "range",
+          "color",
+        ].includes(t);
+      }
+      return false;
+    }
+    function onKey(e: KeyboardEvent) {
+      const cmd = e.metaKey || e.ctrlKey;
+      if (!cmd) return;
+      const key = e.key.toLowerCase();
+      const isUndo = key === "z" && !e.shiftKey;
+      const isRedo = (key === "z" && e.shiftKey) || key === "y";
+      if (!isUndo && !isRedo) return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      if (isUndo) {
+        if (canUndo) undo();
+      } else if (isRedo) {
+        if (canRedo) redo();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo, canUndo, canRedo]);
 
   // ``flow`` drives the review-mode lock. Source of truth: the
   // active Ticket's ``flow`` field — Paul 2026-05-27, "[mode should
@@ -341,7 +455,22 @@ function Shell({
   // their elements.
   useEffect(() => {
     return onRequestAuditFocus(({ experimentId: reqExpId, targetId }) => {
-      if (reqExpId !== experimentId) return;
+      // 2026-06-14 diagnostic — Paul reported the tag-side magnifier
+      // doesn't navigate at all, but factor works. Loose equality on
+      // experimentId so a string-vs-number type drift between
+      // useAudit()'s experimentId and the route's experimentId
+      // doesn't silently bail. Old strict ``!==`` flipped to
+      // ``String(...)`` compare; the strict form left no console
+      // trace when a mismatched type bailed.
+      if (String(reqExpId) !== String(experimentId)) {
+        console.warn(
+          "audit-focus: experimentId mismatch — req=%s shell=%s, target=%s",
+          reqExpId,
+          experimentId,
+          targetId,
+        );
+        return;
+      }
       const parsed = parseTargetId(targetId);
       if (parsed?.kind === "assignment") {
         // Assignments already route through the samples-scroll plumbing.
@@ -359,7 +488,14 @@ function Shell({
         return;
       }
       const tab = tabForTargetId(targetId);
-      if (!tab) return;
+      if (!tab) {
+        console.warn(
+          "audit-focus: no tab route for target_id=%s (parsed=%o) — listener bailed without switching tabs",
+          targetId,
+          parsed,
+        );
+        return;
+      }
       const localTab = mapRouteTab(tab).tab;
       setActiveTab(localTab);
       navigate(
@@ -441,7 +577,7 @@ function Shell({
   if (draftLoading && !draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer}>
+        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
           <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
             /
           </span>
@@ -494,7 +630,7 @@ function Shell({
   if (isThin && draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer}>
+        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
           <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
             /
           </span>
@@ -540,18 +676,25 @@ function Shell({
   return (
     <FlowProvider flow={flow}>
     <div className="min-h-screen flex flex-col">
-      <AppHeader reviewer={fullName || reviewer} />
+      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
+        {/* Chip strip folded into the header row 2026-06-14 per Paul:
+            "this could be fit on one row, saving screen space." Was a
+            separate row below with its own bg + border. The mode pill
+            ("REVIEWING PROPOSAL" / "Editing local design") was dropped
+            in the same pass — the chip pair itself communicates
+            "what am I comparing." */}
+        <ChipStrip
+          experimentId={experimentId}
+          flow={flow}
+          tab={tabIdToRouteTab(activeTab)}
+          groupContext={groupContext}
+          ticketContext={ticketContext}
+        />
+      </AppHeader>
       <TopBar
         experimentId={experimentId}
         experimentShortName={shortName}
         reviewer={fullName || reviewer}
-      />
-      <ChipStrip
-        experimentId={experimentId}
-        flow={flow}
-        tab={tabIdToRouteTab(activeTab)}
-        groupContext={groupContext}
-        ticketContext={ticketContext}
       />
       <ExperimentBanner
         experimentId={experimentId}
@@ -625,7 +768,7 @@ function Shell({
 
       {staleCacheDiscarded ? (
         <div className="bg-amber-50 border-b border-amber-200 dark:bg-amber-950/40 dark:border-amber-900">
-          <div className="mx-auto w-full max-w-[1800px] px-4 py-2 text-xs text-amber-900 flex items-center gap-2 dark:text-amber-200">
+          <div className="mx-auto w-full px-4 py-2 text-xs text-amber-900 flex items-center gap-2 dark:text-amber-200">
             <span className="font-semibold">Stale draft discarded.</span>
             <span>
               You had unsaved changes from a previous session, but the
@@ -859,8 +1002,13 @@ function MainGrid({
   // Sidebar width. Default 320 = Tailwind's old ``lg:w-80``. Curators
   // who want more room for the v2 ProposalCard's verify-N or edit
   // affordances drag the left edge wider; persists via localStorage.
+  // Max bumped 2026-06-12 from 1200 → 1600 so the proposal-review
+  // panel can host the side-by-side ComparisonFactorCard layout on
+  // wide displays without horizontal scroll in the comparator
+  // columns. Per Paul: "the review panel needs to be as wide as
+  // possible (reasonable) to fit the side-by-side."
   const SIDEBAR_MIN = 240;
-  const SIDEBAR_MAX = 1200;
+  const SIDEBAR_MAX = 1600;
   const SIDEBAR_DEFAULT = 320;
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
@@ -919,7 +1067,17 @@ function MainGrid({
         setSidebarView("audit");
       }}
     >
-      <main className="mx-auto w-full max-w-[1800px] px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
+      {/* Workspace shell — drop the 1800px cap so the proposal-review
+          panel can sit close to the viewport edge on wide displays.
+          ``px-4`` keeps a small visual gutter on the left + right;
+          the right rail's own draggable resizer caps the panel
+          width inside that space. Landing / inboxes still use the
+          1800px cap (those are text-column surfaces; an ultra-wide
+          column of cards reads worse than a contained one). Per
+          Paul 2026-06-12: "the portal should fill the horizontal
+          width; the proposal tab should be right at the right-side
+          of the window, or at least closer." */}
+      <main className="mx-auto w-full px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
         {/* Review-mode lock scope, per Paul 2026-05-29: "all we
             need to block is editing of the factors and tags."
             Sample-table sorting, guideline popups, expand/collapse,
@@ -1059,13 +1217,22 @@ function MainGrid({
                 already exists ("Request" vs "Re-run"). Click opens
                 AgentRunDialog which carries tier + scope + notes
                 inputs and gates on agent health. */}
-            <AgentRunButton
-              sidebarView={sidebarView}
-              proposeRunning={proposeStream.status === "running"}
-              auditRunning={auditStream.status === "running"}
-              agentDown={servicesHealth.data?.agent === "down"}
-              onRequest={openAgentRunDialog}
-            />
+            {/* "Request proposal…" hidden 2026-06-15 (Paul): the
+                proposal pane is read-only for now, and offering a
+                run-on-this-experiment button while editing isn't
+                available reads as confusing. "Run audit…" still
+                shows on the audit pane where the action is
+                meaningful. Flip the gate when the proposal pane
+                regains an editable affordance. */}
+            {sidebarView === "audit" ? (
+              <AgentRunButton
+                sidebarView={sidebarView}
+                proposeRunning={proposeStream.status === "running"}
+                auditRunning={auditStream.status === "running"}
+                agentDown={servicesHealth.data?.agent === "down"}
+                onRequest={openAgentRunDialog}
+              />
+            ) : null}
           </div>
         ) : (
           /*

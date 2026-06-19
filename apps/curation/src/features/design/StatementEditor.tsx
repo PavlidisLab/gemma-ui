@@ -2,8 +2,8 @@ import { useState } from "react";
 import { CategoryPicker } from "./CategoryPicker";
 import { OntologyTermPicker } from "./OntologyTermPicker";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
-import { shortenUri } from "@/lib/curie";
 import { PREDICATE_GUIDELINE } from "@/lib/guidelines";
 import type { OntologyTerm, Statement } from "@/features/experiment/types";
 
@@ -114,8 +114,8 @@ export function StatementEditor({
         }
       />
       {statement.subject.uri ? (
-        <span className="text-slate-400 text-[10px]">
-          {shortenUri(statement.subject.uri)}
+        <span className="text-[10px]">
+          <CurieLink uri={statement.subject.uri} />
         </span>
       ) : null}
 
@@ -123,21 +123,18 @@ export function StatementEditor({
         {/*
           Predicate select. When a predicate is picked it recedes to
           near-text styling so subject + object carry the visual
-          weight. When empty it needs to read as a *control*, not a
-          label — the prior italic-grey "(no predicate)" looked like
-          a hint and confused curators ("where do I click to add the
-          object?"). Solution: when empty, render a dashed-border
-          chip labelled "+ predicate" that visibly invites a click.
-          ``text-sm`` matches the surrounding statement text so the
-          predicate doesn't visually shrink between the subject and
-          object terms.
+          weight. When empty it matches the object placeholder's
+          dashed/italic chip — same affordance language as the
+          neighbouring object slot so an unfilled statement reads as
+          "fill in predicate, then object" rather than one loud
+          control next to a quiet placeholder.
         */}
         <select
           className={
             "text-sm rounded px-1 py-0 cursor-pointer max-w-[14rem] " +
             (statement.predicate
               ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
-              : "border border-dashed border-slate-400 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:border-slate-500 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")
+              : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
           }
           value={statement.predicate?.uri ?? ""}
           onChange={(e) => {
@@ -156,7 +153,7 @@ export function StatementEditor({
             }
           }}
         >
-          <option value="">(no predicate)</option>
+          <option value="">predicate</option>
           {PREDICATES.map((p) => (
             <option key={p.uri} value={p.uri}>
               {p.label}
@@ -182,21 +179,30 @@ export function StatementEditor({
             }
           />
           {statement.object?.uri ? (
-            <span className="text-slate-400 text-[10px]">
-              {shortenUri(statement.object.uri)}
+            <span className="text-[10px]">
+              <CurieLink uri={statement.object.uri} />
             </span>
           ) : null}
         </>
       ) : null}
 
+      {/* Statement delete — sits inline with the statement's S-P-O
+          row, not right-edge-floated. Paul 2026-06-14: the
+          ``ml-auto`` floated it to the same column as the FV-level
+          Delete, so the two looked like duplicate buttons. Icon
+          shape ("×") instead of a "Delete" pill so it doesn't
+          compete with the larger FV-level Delete either. */}
       <button
-        className="btn ghost text-xs text-rose-700 ml-auto"
+        type="button"
+        className="text-[12px] leading-none w-5 h-5 rounded text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-900/30 inline-flex items-center justify-center"
         onClick={() => {
           if (hasContent) setConfirming(true);
           else onDelete();
         }}
+        title="Delete this statement"
+        aria-label="delete statement"
       >
-        remove
+        ×
       </button>
 
       <ConfirmModal
@@ -211,7 +217,7 @@ export function StatementEditor({
             .filter(Boolean)
             .join(" · ")
         }
-        confirmLabel="remove"
+        confirmLabel="Delete"
         onConfirm={() => {
           onDelete();
           setConfirming(false);
@@ -330,8 +336,8 @@ export function StatementGroupEditor({
           onCommit={setSharedSubject}
         />
         {head.subject.uri ? (
-          <span className="text-slate-400 text-[10px]">
-            {shortenUri(head.subject.uri)}
+          <span className="text-[10px]">
+            <CurieLink uri={head.subject.uri} />
           </span>
         ) : null}
       </div>
@@ -382,12 +388,12 @@ function InlinePredicateObjectPair({
       <select
         className={
           // Same chrome as the singleton StatementEditor — recedes
-          // when populated, dashed-border affordance when empty so
-          // curators see it as a control.
+          // when populated, dashed/italic placeholder chip matching
+          // the object slot when empty.
           "text-[11px] rounded px-0.5 py-0 cursor-pointer " +
           (statement.predicate
             ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
-            : "border border-dashed border-slate-400 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:border-slate-500 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")
+            : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
         }
         value={statement.predicate?.uri ?? ""}
         onChange={(e) => {
@@ -403,7 +409,7 @@ function InlinePredicateObjectPair({
           }
         }}
       >
-        <option value="">(no predicate)</option>
+        <option value="">predicate</option>
         {PREDICATES.map((p) => (
           <option key={p.uri} value={p.uri}>
             {p.label}
@@ -422,8 +428,8 @@ function InlinePredicateObjectPair({
             onCommit={(next) => onChange({ ...statement, object: next })}
           />
           {statement.object?.uri ? (
-            <span className="text-slate-400 text-[10px]">
-              {shortenUri(statement.object.uri)}
+            <span className="text-[10px]">
+              <CurieLink uri={statement.object.uri} />
             </span>
           ) : null}
         </>

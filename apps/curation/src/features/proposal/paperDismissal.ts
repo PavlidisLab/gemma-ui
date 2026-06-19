@@ -52,19 +52,3 @@ export function markPaperDismissed(
   }
 }
 
-/** Clear every dismissal flag for an experiment — called by the
- *  reset-experiment flow so a fresh preboarding state gets fresh auto-apply
- *  behaviour for any pending proposals. */
-export function clearPaperDismissalsForExperiment(experimentId: number | string): void {
-  try {
-    const scopedPrefix = `${PREFIX}${experimentId}:`;
-    const toRemove: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const k = window.localStorage.key(i);
-      if (k && k.startsWith(scopedPrefix)) toRemove.push(k);
-    }
-    for (const k of toRemove) window.localStorage.removeItem(k);
-  } catch {
-    // ignore
-  }
-}

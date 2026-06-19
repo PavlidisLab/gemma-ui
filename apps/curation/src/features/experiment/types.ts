@@ -116,6 +116,19 @@ export interface Tag {
   id: number;
   category: OntologyTerm;
   value: OntologyTerm;
+  /** Structured (subject · predicate · object) statements attached
+   *  to this experiment-level tag. Optional + back-compat: a flat
+   *  ``{category, value}`` tag leaves this absent. When present and
+   *  non-empty, the tag carries richer nuance than the single
+   *  ``value`` field can express — e.g. ``genotype`` tag with
+   *  statement ``[Abca4 · has_genotype · Homozygous negative]`` for
+   *  a knockout experiment that applies to all samples. ``value``
+   *  remains useful as a human-readable summary even on
+   *  statement-shaped tags (mirrors ``FactorValue.free_text_label``).
+   *  Gemma's ``ExpressionExperiment.characteristic`` entity already
+   *  supports statements; this UI mirror unblocks rendering them
+   *  on the overview / comparison surfaces. Per Paul 2026-06-14. */
+  statements?: Statement[];
   /** True when this tag is bubbled up from a sample characteristic
    *  or a factor-value statement rather than directly attached to
    *  the experiment. Inferred tags render distinctly (yellow,
@@ -287,16 +300,6 @@ const NO_BASELINE_CATEGORIES = new Set<string>([
   "cell_line",
 ]);
 
-/** Reserved for the day a category genuinely has soft semantics
- *  (warn but don't block). Cell line briefly lived here in the
- *  2026-05-06 first pass; it now lives in the strict
- *  no-baseline set above because the guidelines are unambiguous.
- *  Kept as an empty set + helper so the plumbing
- *  (``baseline_blocks_commit`` field, CommitBar / PrePublishChecklist
- *  reading it) survives if a future category needs the soft
- *  treatment. */
-const SOFT_BASELINE_CATEGORIES = new Set<string>([]);
-
 /** Accepts either a ``Factor`` (preferred — captures both type and
  *  category) or a bare ``OntologyTerm`` (legacy callers that only
  *  have the category in hand). The factor-aware overload is the
@@ -351,7 +354,11 @@ export function isProtectedTagCategory(
 
 /** Like ``factorRequiresBaseline`` but stricter — returns ``false``
  *  for soft-baseline categories (cell line) so commit / publish
- *  gates don't block on them. The warning surface still uses
+ *  gates don't block on them. Also returns false for "no-contrast"
+ *  factors — a single FV or an empty FV list has nothing to
+ *  baseline against, so blocking commit on baseline-count would
+ *  just nag the curator to pick a baseline for a factor that
+ *  carries no comparison. The warning surface still uses
  *  ``factorRequiresBaseline``, so the curator sees the bullet in
  *  the ValidatorBanner; this just controls whether they can keep
  *  moving. */
@@ -359,8 +366,13 @@ export function factorBaselineBlocksCommit(
   factor: Factor | null | undefined,
 ): boolean {
   if (!factorRequiresBaseline(factor)) return false;
-  const k = (factor?.category?.label || "").trim().toLowerCase();
-  return !SOFT_BASELINE_CATEGORIES.has(k);
+  // No-contrast factors: ≤1 FV means there's no comparison to be
+  // made, so the baseline concept doesn't apply. Continuous +
+  // ontology-no-baseline categories are already filtered by
+  // factorRequiresBaseline above; this catches the structural case.
+  const fvCount = factor?.factor_values?.length ?? 0;
+  if (fvCount <= 1) return false;
+  return true;
 }
 
 export interface FactorValidationState {

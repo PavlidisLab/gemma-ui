@@ -1,15 +1,7 @@
 import { cn } from "@/lib/cn";
 import type { ReactNode } from "react";
 
-type PillVariant =
-  | "high"
-  | "medium"
-  | "low"
-  | "pending"
-  | "accepted"
-  | "rejected"
-  | "needs"
-  | "baseline";
+type PillVariant = "high" | "medium" | "baseline";
 
 export function Pill({
   variant,

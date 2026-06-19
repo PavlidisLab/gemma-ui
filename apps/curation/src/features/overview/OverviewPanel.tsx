@@ -1,8 +1,14 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  StatementEditModal,
+  type StatementDraft,
+} from "@/components/ui/StatementEditModal";
 import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
+import { usePubmedMetadata } from "@/api/pubmed";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -18,8 +24,10 @@ import {
   markPaperDismissed,
 } from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
+import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
+import { augmentInferredFromFactors } from "./augmentFactorTags";
 import { shortenUri } from "@/lib/curie";
 import { cn } from "@/lib/cn";
 import { ONTOLOGY_ANCHOR_CLS } from "@/lib/ontologyAnchor";
@@ -30,6 +38,7 @@ import {
   deleteTag,
   setDesignDescription,
   setTagCategory,
+  setTagStatements,
   setTagValue,
 } from "@/features/design/mutations";
 import {
@@ -46,6 +55,7 @@ import type {
   Factor,
   OntologyTerm,
   Publication,
+  Statement,
   Tag,
 } from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
@@ -522,8 +532,10 @@ function DesignSummary({
       else buckets.set(key, { values: tuple, count: 1 });
     }
     // Stable order: sort rows by tuple for deterministic display.
+    // Numeric-aware so "3 h" precedes "8 h" precedes "24 h" rather
+    // than sorting lexically (which would float "24 h" to the top).
     return Array.from(buckets.values()).sort((a, b) =>
-      a.values.join(" / ").localeCompare(b.values.join(" / ")),
+      compareValuesNatural(a.values.join(" / "), b.values.join(" / ")),
     );
   }, [standard, biomaterials]);
 
@@ -544,10 +556,28 @@ function DesignSummary({
       b: { values: string[]; count: number },
     ) => {
       if (sort.col === "assays") return (a.count - b.count) * sign;
-      return a.values[sort.col].localeCompare(b.values[sort.col]) * sign;
+      return compareValuesNatural(a.values[sort.col], b.values[sort.col]) * sign;
     };
     return [...rows].sort(cmp);
   }, [rows, sort]);
+
+  // Per-column first-seen-value index → shared `tintForIndex` colour,
+  // the same scheme the samples table uses. Walk the rows in display
+  // order so the tint follows the current sort; "(unassigned)" keeps
+  // its rose treatment and is left untinted. Index 0 is the same hue
+  // across every column, so two factor columns that partition the
+  // design identically show matching colour stripes.
+  const valueIdxByColumn = useMemo(() => {
+    const out: Array<Map<string, number>> = standard.map(() => new Map());
+    for (const row of sortedRows) {
+      row.values.forEach((v, j) => {
+        if (v === "(unassigned)") return;
+        const seen = out[j];
+        if (!seen.has(v)) seen.set(v, seen.size);
+      });
+    }
+    return out;
+  }, [sortedRows, standard]);
   const onSortClick = (col: "assays" | number) => {
     setSort((cur) => {
       if (!cur || cur.col !== col) return { col, dir: "asc" };
@@ -724,19 +754,26 @@ function DesignSummary({
                   <td className="px-2 py-1 border border-slate-200 font-mono text-slate-700">
                     {row.count}
                   </td>
-                  {row.values.map((v, j) => (
-                    <td
-                      key={j}
-                      className={
-                        "px-2 py-1 border border-slate-200 " +
-                        (v === "(unassigned)"
-                          ? "text-rose-700 italic"
-                          : "text-slate-700")
-                      }
-                    >
-                      {v}
-                    </td>
-                  ))}
+                  {row.values.map((v, j) => {
+                    const tint =
+                      v === "(unassigned)"
+                        ? undefined
+                        : tintForIndex(valueIdxByColumn[j]?.get(v) ?? -1);
+                    return (
+                      <td
+                        key={j}
+                        className={
+                          "px-2 py-1 border border-slate-200 " +
+                          (v === "(unassigned)"
+                            ? "text-rose-700 italic"
+                            : "text-slate-700")
+                        }
+                        style={tint ? { backgroundColor: tint } : undefined}
+                      >
+                        {v}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -1004,9 +1041,8 @@ function TagBarLegend() {
           <Sample palette="bm" val="brain" />
           <span>
             <span className="font-medium">Medium weight</span> —
-            ontology-resolved. Click to reveal the CURIE inline; click
-            the <span className="font-mono">↗</span> to open the term
-            page in a new tab.
+            ontology-resolved. Click the CURIE to open the term
+            popover.
           </span>
           <Sample palette="bm" val="Laser captured…" italic />
           <span>
@@ -1200,6 +1236,48 @@ function FactorChip({
   );
 }
 
+/** Context for chip-level edit requests. EditableDirectGroupChip
+ *  consumes this and fires ``openEditTag(tag)`` when the curator
+ *  clicks an existing chip; TagBar provides the implementation and
+ *  hoists the modal so popover positioning + the draft snapshot live
+ *  at one level. */
+interface TagEditCtxValue {
+  openEditTag: (tag: Tag) => void;
+}
+const TagEditCtx = createContext<TagEditCtxValue | null>(null);
+function useTagEditContext(): TagEditCtxValue | null {
+  return useContext(TagEditCtx);
+}
+
+/** Convert a Tag (the UI's internal shape) into the modal's
+ *  StatementDraft. Tag.statements[] becomes the (predicate, object)
+ *  pair list; the modal doesn't echo the subject inside each pair
+ *  since subject==tag.value per the wire spec (UIB_HANDOFF_2026_06_17). */
+function tagToDraft(tag: Tag): StatementDraft {
+  return {
+    category: { label: tag.category.label, uri: tag.category.uri ?? null },
+    subject: { label: tag.value.label, uri: tag.value.uri ?? null },
+    pairs: (tag.statements ?? []).map((s) => ({
+      predicate: s.predicate ?? null,
+      object: s.object ?? null,
+    })),
+  };
+}
+
+/** Convert a StatementDraft into the Statement[] the Tag stores. The
+ *  subject mirrors the draft's subject; pairs with neither predicate
+ *  nor object are dropped. */
+function draftToStatements(draft: StatementDraft): Statement[] {
+  return draft.pairs
+    .filter((p) => p.predicate?.label || p.object?.label)
+    .map((p) => ({
+      category: draft.category,
+      subject: draft.subject,
+      predicate: p.predicate,
+      object: p.object,
+    }));
+}
+
 function TagBar({
   tags,
   biomaterials,
@@ -1213,11 +1291,46 @@ function TagBar({
   experimentId: number | string;
 }) {
   const { draft, apply, diff } = useDesignDraft();
-  // Review-mode lock: only the "+ tag" + chip remove + ChipEditor
+  // Review-mode lock: only the "+ tag" + chip remove + StatementEditModal
   // mutate state. Expand/collapse, legend popup, and chip select
   // stay live so the curator can still read.
   const tagReadOnly = useIsReadOnly();
-  const [adding, setAdding] = useState(false);
+  // Modal state: ``mode`` distinguishes add (no tag id yet) vs edit
+  // (existing tag id). Initial draft is rebuilt on every open from the
+  // tag at the moment of click — guarantees the modal can't show stale
+  // state if the curator opens, cancels, mutates elsewhere, then
+  // reopens the same chip.
+  const [modalState, setModalState] = useState<
+    | { mode: "add" }
+    | { mode: "edit"; tagId: number; initial: StatementDraft }
+    | null
+  >(null);
+  const openEditTag = (tag: Tag) => {
+    setModalState({ mode: "edit", tagId: tag.id, initial: tagToDraft(tag) });
+  };
+  const editCtxValue: TagEditCtxValue = { openEditTag };
+
+  const addInitial: StatementDraft = {
+    category: { label: "", uri: null },
+    subject: { label: "", uri: null },
+    pairs: [],
+  };
+  async function handleSave(saved: StatementDraft) {
+    if (!draft) return;
+    if (modalState?.mode === "add") {
+      const { design: afterAdd, tagId } = addTag(draft);
+      let next = setTagCategory(afterAdd, tagId, saved.category);
+      next = setTagValue(next, tagId, saved.subject);
+      next = setTagStatements(next, tagId, draftToStatements(saved));
+      apply(next);
+    } else if (modalState?.mode === "edit") {
+      let next = setTagCategory(draft, modalState.tagId, saved.category);
+      next = setTagValue(next, modalState.tagId, saved.subject);
+      next = setTagStatements(next, modalState.tagId, draftToStatements(saved));
+      apply(next);
+    }
+    setModalState(null);
+  }
   // Set of tag ids that exist in the draft but not the saved server
   // state — these are uncommitted additions. Threaded down to the
   // chip render so the curator can see at a glance what they've
@@ -1291,9 +1404,24 @@ function TagBar({
   // organism part. The biomaterials carry the full set; we walk
   // them and build a synth chip per category that captures every
   // distinct value across the cohort.
+  //
+  // Then layer the FV-projected synth chips from ``draft.factors``:
+  // one chip per factor with the factor's FV labels comma-joined as
+  // the value. Used to come from agents-side
+  // ``import_from_gemma.py`` step 4a; that synthesis was retired on
+  // 2026-06-10 (handoff
+  // ``HANDOFF_2026-06-10_REMOVE_FV_TAG_PROJECTION.md``) because it
+  // inflated eval F1 baselines as a factor-as-tag projection
+  // artifact. The UI re-synthesises locally so the downstream dedup
+  // (FV-synth wins over direct EE tags for the same category) keeps
+  // working without any further changes here.
   const augmentedTags = useMemo(
-    () => augmentInferredFromBiomaterials(tags, biomaterials),
-    [tags, biomaterials],
+    () =>
+      augmentInferredFromFactors(
+        augmentInferredFromBiomaterials(tags, biomaterials),
+        draft?.factors ?? [],
+      ),
+    [tags, biomaterials, draft?.factors],
   );
 
   // Drop block / batch tags here — they're nuisance variables
@@ -1354,26 +1482,61 @@ function TagBar({
     if (t.inferred_source === "FactorValue") return 2;
     return 3;
   };
+  // Effective URI: prefer the tag's own ``value.uri``; fall back to
+  // the biomaterial characteristic URI lookup (synth tags built by
+  // ``augmentInferredFromBiomaterials`` ship with null URIs because
+  // the augmenter doesn't carry them; the URI is recovered at chip-
+  // render time via ``splitTagValues``). Without this fallback,
+  // dedup-by-URI misses the case where two synth tags built from
+  // different BM characteristic columns map to the same ontology
+  // term — Paul 2026-06-12: "redundant terms should be hidden; this
+  // is coming from two separate biomaterial char columns"
+  // (``BioSource: microglial cell CL:0000129`` +
+  // ``organism part: microglial cell CL:0000129``).
+  const effectiveUri = (t: Tag): string | null => {
+    if (t.value.uri) return t.value.uri;
+    const catKey = (t.category.label || "").trim().toLowerCase();
+    const valKey = (t.value.label || "").trim().toLowerCase();
+    return charUriLookup.get(`${catKey}|${valKey}`) ?? null;
+  };
+  // Canonical-category preference: when two tags in the same row
+  // resolve to the same effective URI, prefer the one whose category
+  // is a canonical Gemma category over a GEO-imported one. Lower
+  // rank wins.
+  const CANONICAL_SAMPLE_SOURCE_CATEGORIES = new Set([
+    "organism part",
+    "cell type",
+    "cell line",
+  ]);
+  const categoryRank = (t: Tag): number => {
+    const k = (t.category.label || "").trim().toLowerCase();
+    if (CANONICAL_SAMPLE_SOURCE_CATEGORIES.has(k)) return 0;
+    return 1;
+  };
   // Build "URI exists for (group, label)" lookup so the free-text
   // pass can drop chips that share their label with a URI-bearing
   // sibling in the same row.
   const uriBearingByGroupLabel = new Set<string>();
   for (const t of [...direct, ...inferred]) {
-    if (t.value.uri && (t.value.label || "").trim().length > 0) {
+    if (effectiveUri(t) && (t.value.label || "").trim().length > 0) {
       uriBearingByGroupLabel.add(`${groupKeyOf(t)}|${valLabelLc(t)}`);
     }
   }
-  // First pass: dedup by URI within each row. Lower sourceRank
-  // wins (direct > biomaterial > FV). Free-text chips (no URI)
-  // sail through here; the next pass handles them.
+  // First pass: dedup by effective URI within each row. Sort so the
+  // preferred winner lands first: source rank ascending (direct >
+  // biomaterial > FV), then canonical category ascending (canonical
+  // Gemma > GEO-imported).
   const seenUriKeys = new Set<string>();
-  const allSorted = [...direct, ...inferred].sort(
-    (a, b) => sourceRank(a) - sourceRank(b),
-  );
+  const allSorted = [...direct, ...inferred].sort((a, b) => {
+    const s = sourceRank(a) - sourceRank(b);
+    if (s !== 0) return s;
+    return categoryRank(a) - categoryRank(b);
+  });
   const afterUriDedup: Tag[] = [];
   for (const t of allSorted) {
-    if (t.value.uri) {
-      const key = `${groupKeyOf(t)}|${t.value.uri}`;
+    const uri = effectiveUri(t);
+    if (uri) {
+      const key = `${groupKeyOf(t)}|${uri}`;
       if (seenUriKeys.has(key)) continue;
       seenUriKeys.add(key);
     }
@@ -1382,7 +1545,7 @@ function TagBar({
   // Second pass: drop free-text chips whose label is already
   // covered by a URI-bearing chip in the same row.
   const dedupedAll = afterUriDedup.filter((t) => {
-    if (t.value.uri) return true; // URI chip — keep
+    if (effectiveUri(t)) return true; // URI chip — keep
     const k = `${groupKeyOf(t)}|${valLabelLc(t)}`;
     return !uriBearingByGroupLabel.has(k);
   });
@@ -1413,6 +1576,7 @@ function TagBar({
     inferredByGroup.set(k, list);
   }
   return (
+    <TagEditCtx.Provider value={editCtxValue}>
     <div className="pt-1 space-y-0.5">
       <div className="flex items-baseline gap-1.5">
         <span className="text-[11px] uppercase tracking-wide text-slate-500">
@@ -1514,12 +1678,12 @@ function TagBar({
         }
         return rows;
       })}
-      {draft && !adding ? (
+      {draft ? (
         <div className="flex items-center gap-1 pl-2 pt-0.5">
           <button
             type="button"
             className="text-[11px] text-slate-500 hover:text-emerald-800 hover:bg-emerald-50 border border-dashed border-slate-300 hover:border-emerald-300 rounded px-1.5 py-0.5 disabled:opacity-50 disabled:hover:text-slate-500 disabled:hover:bg-transparent disabled:hover:border-slate-300 disabled:cursor-not-allowed"
-            onClick={() => setAdding(true)}
+            onClick={() => setModalState({ mode: "add" })}
             disabled={tagReadOnly}
           >
             + tag
@@ -1545,23 +1709,17 @@ function TagBar({
           />
         </div>
       ) : null}
-      {draft && adding ? (
-        <div className="pl-2 pt-0.5">
-          <ChipEditor
-            category={{ label: "" }}
-            value={{ label: "" }}
-            onCancel={() => setAdding(false)}
-            onCommit={(cat, val) => {
-              const { design: next, tagId } = addTag(draft);
-              const withCat = setTagCategory(next, tagId, cat);
-              const withVal = setTagValue(withCat, tagId, val);
-              apply(withVal);
-              setAdding(false);
-            }}
-          />
-        </div>
-      ) : null}
+      <StatementEditModal
+        open={modalState !== null}
+        initial={
+          modalState?.mode === "edit" ? modalState.initial : addInitial
+        }
+        title={modalState?.mode === "edit" ? "Edit tag" : "Add tag"}
+        onCancel={() => setModalState(null)}
+        onSave={handleSave}
+      />
     </div>
+    </TagEditCtx.Provider>
   );
 }
 
@@ -1883,113 +2041,47 @@ function TagValueChip({
   demoted?: boolean;
 }) {
   const display = abbreviateValueLabel(value.label);
-  const [expanded, setExpanded] = useState(false);
   if (value.uri) {
-    // Ontology-resolved: medium weight. Click the label to reveal
-    // the CURIE inline + a small ↗ link to OLS + an explicit ×
-    // close button. The ↗ is the actual OLS link; the × is the
-    // collapse affordance. The chip-itself-toggles behaviour stays
-    // (clicking the label re-closes) but the × makes it
-    // discoverable.
+    // Ontology-resolved: label + inline CURIE (clickable, opens the
+    // term-detail popover with its own "Fetch from OLS" button).
+    // Mirrors the ``Term`` chip pattern elsewhere in the UI. Inline
+    // ↗ external link removed 2026-06-17 (Paul): it cluttered the
+    // chip and penalised misclicks; the popover already exposes the
+    // OLS fetch button when the curator actually wants the term page.
     const curie = shortenUri(value.uri);
     return (
       <span className="inline-flex items-baseline gap-1 align-bottom">
-        {expanded && categoryLabel ? (
-          <span className="text-[10px] opacity-70 whitespace-nowrap">
-            {categoryLabel}:
-          </span>
-        ) : null}
         <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              e.stopPropagation();
-              setExpanded((v) => !v);
-            }
-          }}
-          title={
-            expanded
-              ? `${value.label} — click to hide ${curie}`
-              : `${value.label} — click to reveal ${curie}`
-          }
-          className="inline-block font-medium text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline truncate max-w-[22ch]"
+          title={`${value.label}${categoryLabel ? ` (${categoryLabel})` : ""}`}
+          className="inline-block font-medium text-emerald-700 dark:text-emerald-400 truncate max-w-[22ch]"
         >
           {display}
         </span>
-        {expanded ? (
-          <>
-            <a
-              href={value.uri}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title={`${value.uri} (opens in new tab)`}
-              className="font-mono text-[10px] opacity-70 hover:opacity-100 hover:underline whitespace-nowrap"
-            >
-              {curie}
-            </a>
-            <a
-              href={value.uri}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title="open the term page in a new tab"
-              className="text-[10px] opacity-70 hover:opacity-100"
-              aria-label="open in OLS"
-            >
-              ↗
-            </a>
-          </>
-        ) : null}
+        <CurieLink
+          uri={value.uri}
+          display={curie}
+          className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
+        />
       </span>
     );
   }
-  // Free-text: italic, no link. Click to reveal the full label
-  // (no truncate); click again to collapse. Symmetric with the
-  // URI-variant click-to-expand above so the curator's mental
-  // model is consistent: clicking any chip reveals more.
+  // Free-text variant: italic, truncated. Full label lives on the
+  // hover title; the click-to-expand pattern dropped 2026-06-15 to
+  // match the URI variant above (Paul wants chip rendering
+  // consistent across the panel).
   return (
     <span className="inline-flex items-baseline gap-1 align-bottom">
-      {expanded && categoryLabel ? (
-        <span className="text-[10px] opacity-70 whitespace-nowrap not-italic">
-          {categoryLabel}:
-        </span>
-      ) : null}
       <span
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          e.stopPropagation();
-          setExpanded((v) => !v);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }
-        }}
-        title={
-          expanded
-            ? `${value.label} (free text — click to collapse)`
-            : `${value.label} (free text — click to reveal full text)`
-        }
+        title={`${value.label}${categoryLabel ? ` (${categoryLabel})` : ""}`}
         className={cn(
-          "inline-block italic cursor-pointer hover:opacity-100",
+          "inline-block italic truncate max-w-[22ch]",
           // Demoted = the group has ontology-resolved siblings; free
           // text plays a supporting role here. Solo / all-free-text
           // groups render at normal weight so they're still readable.
           demoted ? "opacity-50 text-[10px]" : "opacity-80",
-          expanded ? "" : "truncate max-w-[22ch]",
         )}
       >
-        {expanded ? value.label : display}
+        {display}
       </span>
     </span>
   );
@@ -2099,6 +2191,89 @@ function groupTagsByCategoryLabel(
   return groups;
 }
 
+/** Render a tag's structured statements inline — used when
+ *  ``tag.statements`` is non-empty so a knockout / genotype / drug-
+ *  dose tag can carry the full subject · predicate · object shape
+ *  instead of collapsing to a single ``value`` chip. Multi-statement
+ *  tags stack vertically inside the chip frame (rare — one
+ *  statement is the common case). Mirrors the visual convention
+ *  used inside ``FvDisplayRow``: anchored = green / weight, free-
+ *  text = italic slate, predicate = mono caption. Kept inline so
+ *  the TagBar's tight per-chip layout doesn't break. Paul 2026-06-14:
+ *  experiment-level tags need the same expressiveness as FV-level
+ *  statements (e.g. ``genotype · Abca4 · has_genotype · Homozygous
+ *  negative`` for a knockout applying to all samples). */
+function TagStatementInline({ statements }: { statements: Statement[] }) {
+  return (
+    <span className="inline-flex flex-col gap-0.5 items-baseline">
+      {statements.map((s, i) => (
+        <span
+          key={i}
+          className="inline-flex items-baseline gap-1 whitespace-normal"
+        >
+          {s.subject?.label ? (
+            <TagInnerTerm
+              label={s.subject.label}
+              uri={s.subject.uri ?? null}
+            />
+          ) : null}
+          {s.predicate?.label ? (
+            <>
+              <span className="text-emerald-900/40 dark:text-emerald-200/40">
+                ·
+              </span>
+              <span
+                className="font-mono text-[10px] text-emerald-900/75 dark:text-emerald-200/75"
+                title={s.predicate.uri || undefined}
+              >
+                {s.predicate.label}
+              </span>
+            </>
+          ) : null}
+          {s.object?.label ? (
+            <>
+              <span className="text-emerald-900/40 dark:text-emerald-200/40">
+                ·
+              </span>
+              <TagInnerTerm
+                label={s.object.label}
+                uri={s.object.uri ?? null}
+              />
+            </>
+          ) : null}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Compact ontology-vs-free-text term render for the inline tag-
+ *  statement chip. Same convention as the single-tag chip's value
+ *  span — anchored terms get the emerald-weight treatment, free-
+ *  text gets italic slate. CURIE / popover affordances live on the
+ *  full ``Term`` component; this stub stays text-only so it nests
+ *  cleanly inside the chip frame. */
+function TagInnerTerm({
+  label,
+  uri,
+}: {
+  label: string;
+  uri: string | null;
+}) {
+  return uri ? (
+    <span
+      className="font-medium text-emerald-800 dark:text-emerald-200"
+      title={shortenUri(uri)}
+    >
+      {label}
+    </span>
+  ) : (
+    <span className="italic text-slate-700 dark:text-slate-300">
+      {label}
+    </span>
+  );
+}
+
 function EditableDirectGroupChip({
   category,
   tags,
@@ -2116,12 +2291,13 @@ function EditableDirectGroupChip({
   const { draft, apply } = useDesignDraft();
   const readOnly = useIsReadOnly();
   const [open, setOpen] = useState(false);
+  // ``editingId`` + ``commitEdit`` retained for any legacy paths that
+  // still call into ChipEditor; today's chip-click surface routes
+  // through ``openEditTag`` from TagEditCtx → StatementEditModal at
+  // the TagBar level, which handles statements as well as flat
+  // category/value pairs.
   const [editingId, setEditingId] = useState<number | null>(null);
-
-  function beginEdit(tagId: number) {
-    if (readOnly) return;
-    setEditingId(tagId);
-  }
+  const tagEdit = useTagEditContext();
 
   function commitEdit(tag: Tag, cat: OntologyTerm, val: OntologyTerm) {
     if (!draft) return;
@@ -2162,32 +2338,40 @@ function EditableDirectGroupChip({
     }
     const isNew = addedTagIds?.has(tag.id) ?? false;
     const valueDisplay = abbreviateValueLabel(tag.value.label || "");
+    const canEdit = !protectedCategory && !readOnly && !!tagEdit;
     return (
       <span
         // Audit focus hook — Apply & focus on a tag finding scrolls
         // this chip into view + ring-flashes it.
         data-audit-target={tagTarget(tag.category.label, tag.value.label)}
+        role={canEdit ? "button" : undefined}
+        tabIndex={canEdit ? 0 : undefined}
+        onClick={canEdit ? () => tagEdit?.openEditTag(tag) : undefined}
+        onKeyDown={
+          canEdit
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  tagEdit?.openEditTag(tag);
+                }
+              }
+            : undefined
+        }
         className={cn(
           "group/chip inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-100",
           // Bookmark on the left when the value is ontology-anchored.
           // Free-text tags share the chip frame but get no bookmark.
           tag.value.uri && ONTOLOGY_ANCHOR_CLS,
-          protectedCategory
-            ? "cursor-default opacity-90"
-            : "cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/50",
+          protectedCategory ? "cursor-default opacity-90" : "",
+          canEdit && "cursor-pointer hover:ring-1 hover:ring-emerald-400 dark:hover:ring-emerald-500",
           // Uncommitted addition — amber ring + soft glow so the
           // curator can see at a glance which chips are pending.
           isNew &&
             "ring-2 ring-amber-400 ring-offset-1 ring-offset-white shadow-[0_0_8px_-2px_rgba(251,191,36,0.7)] dark:ring-offset-slate-900",
         )}
-        onClick={
-          protectedCategory || readOnly
-            ? undefined
-            : () => beginEdit(tag.id)
-        }
         title={
           (protectedCategory
-            ? `${category.label}: ${tag.value.label} — load-time tag, can't be edited or removed`
+            ? `${category.label}: ${tag.value.label} — load-time tag, can't be removed`
             : readOnly
               ? `${category.label}: ${tag.value.label} — read-only in review mode`
               : `${category.label}: ${tag.value.label} — click to edit`) +
@@ -2207,34 +2391,63 @@ function EditableDirectGroupChip({
             🔒
           </span>
         ) : null}
-        <span
-          className={cn(
-            "font-medium truncate max-w-[22ch]",
-            // Anchored term → emerald text; free-text → italic slate.
-            // Same convention as TagValueChip (inferred chip variant)
-            // so ontology vs free-text reads identically across both.
-            tag.value.uri
-              ? "text-emerald-700 dark:text-emerald-400"
-              : "italic text-slate-700 dark:text-slate-300",
-          )}
-        >
-          {valueDisplay || <em className="not-italic">no value</em>}
-        </span>
+        {tag.statements && tag.statements.length > 0 ? (
+          // Structured tag — the agent / curator decomposed the value
+          // into S-P-O (e.g. ``Abca4 · has_genotype · Homozygous
+          // negative``). Render the statement chips inline instead of
+          // the flat value label. ``tag.value.label`` (if any) still
+          // exists as a fallback summary but the structured form is
+          // more useful for the curator.
+          <span className="max-w-[40ch]">
+            <TagStatementInline statements={tag.statements} />
+          </span>
+        ) : (
+          <>
+            <span
+              className={cn(
+                "font-medium truncate max-w-[22ch]",
+                // Anchored term → emerald text; free-text → italic slate.
+                tag.value.uri
+                  ? "text-emerald-700 dark:text-emerald-400"
+                  : "italic text-slate-700 dark:text-slate-300",
+              )}
+            >
+              {valueDisplay || <em className="not-italic">no value</em>}
+            </span>
+            {/* CURIE inline next to the label — Term-chip pattern
+                per Paul 2026-06-15. Click opens the term-detail
+                popover (which carries its own "Fetch from OLS"
+                button). Inline ↗ external link removed 2026-06-17
+                (Paul: misclick penalty + clutter). */}
+            {tag.value.uri ? (
+              <CurieLink
+                uri={tag.value.uri}
+                className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
+              />
+            ) : null}
+          </>
+        )}
         <AuditDot
           targetId={tagTarget(tag.category.label, tag.value.label)}
         />
+        {/* Delete affordance — Paul 2026-06-15: "edit should lead
+            to the delete being exposed, but that's all." So the
+            chip no longer opens the ChipEditor — it just exposes
+            a × delete button on hover. Reveals on group-hover via
+            the ``group/chip`` parent so the chip stays compact
+            until the curator targets it. */}
         {protectedCategory || readOnly ? null : (
           <button
             type="button"
-            className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-emerald-900 dark:text-emerald-300/70 dark:hover:bg-emerald-800 dark:hover:text-emerald-100"
+            className="ml-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-rose-700 dark:text-emerald-300/70 dark:hover:bg-rose-900/50 dark:hover:text-rose-200 opacity-0 group-hover/chip:opacity-100 focus:opacity-100 transition-opacity"
             onClick={(e) => {
               e.stopPropagation();
-              beginEdit(tag.id);
+              deleteOne(tag.id);
             }}
-            title="edit this tag (delete from the editor)"
-            aria-label="edit tag"
+            title="delete this tag"
+            aria-label="delete tag"
           >
-            <PencilIcon size={11} strokeWidth={2.5} />
+            ×
           </button>
         )}
       </span>
@@ -2299,48 +2512,73 @@ function EditableDirectGroupChip({
               <span
                 key={tag.id}
                 data-audit-target={tagTarget(tag.category.label, tag.value.label)}
+                role={!protectedCategory && !readOnly && tagEdit ? "button" : undefined}
+                tabIndex={!protectedCategory && !readOnly && tagEdit ? 0 : undefined}
+                onClick={
+                  !protectedCategory && !readOnly && tagEdit
+                    ? (e) => {
+                        e.stopPropagation();
+                        tagEdit.openEditTag(tag);
+                      }
+                    : undefined
+                }
+                onKeyDown={
+                  !protectedCategory && !readOnly && tagEdit
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          tagEdit.openEditTag(tag);
+                        }
+                      }
+                    : undefined
+                }
                 className={cn(
-                  "group inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:border-emerald-700/60 dark:hover:bg-emerald-800/50",
-                  readOnly ? "cursor-default" : "cursor-pointer",
+                  "group/chip inline-flex items-baseline gap-1 px-1 rounded bg-emerald-50 border border-emerald-200/70 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:border-emerald-700/60 dark:hover:bg-emerald-800/50",
                   tag.value.uri && ONTOLOGY_ANCHOR_CLS,
+                  !protectedCategory && !readOnly && tagEdit && "cursor-pointer",
                   addedTagIds?.has(tag.id) &&
                     "ring-2 ring-amber-400 ring-offset-1 ring-offset-white dark:ring-offset-slate-900",
                 )}
-                onClick={readOnly ? undefined : () => beginEdit(tag.id)}
                 title={
                   protectedCategory
                     ? "load-time tag, can't be removed"
-                    : "click to edit"
+                    : `${tag.value.label} — click to edit`
                 }
               >
-                <span>{tag.value.label || "(blank)"}</span>
-                {tag.value.uri ? (
-                  <a
-                    href={tag.value.uri}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    title={`${tag.value.uri} (opens in new tab)`}
-                    className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap"
-                  >
-                    {shortenUri(tag.value.uri)}
-                  </a>
-                ) : null}
+                {tag.statements && tag.statements.length > 0 ? (
+                  // Structured tag — render S-P-O inline; the CURIE
+                  // link-out drops here because the inner chips each
+                  // carry their own URI hover via ``TagInnerTerm``.
+                  <TagStatementInline statements={tag.statements} />
+                ) : (
+                  <>
+                    <span>{tag.value.label || "(blank)"}</span>
+                    {tag.value.uri ? (
+                      <CurieLink
+                        uri={tag.value.uri}
+                        className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
+                      />
+                    ) : null}
+                  </>
+                )}
                 <AuditDot
                   targetId={tagTarget(tag.category.label, tag.value.label)}
                 />
-                {protectedCategory ? null : (
+                {/* Delete affordance — same shape as the single-tag
+                    chip above. Hover-reveal via ``group/chip``. Paul
+                    2026-06-15: edit exposes delete, nothing else. */}
+                {protectedCategory || readOnly ? null : (
                   <button
                     type="button"
-                    className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-emerald-900 dark:text-emerald-300/70 dark:hover:bg-emerald-800 dark:hover:text-emerald-100"
+                    className="ml-1 inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-emerald-700/70 hover:bg-emerald-200 hover:text-rose-700 dark:text-emerald-300/70 dark:hover:bg-rose-900/50 dark:hover:text-rose-200 opacity-0 group-hover/chip:opacity-100 focus:opacity-100 transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setEditingId(tag.id);
+                      deleteOne(tag.id);
                     }}
-                    title="edit this tag (delete from the editor)"
-                    aria-label="edit tag"
+                    title="delete this tag"
+                    aria-label="delete tag"
                   >
-                    <PencilIcon size={11} strokeWidth={2.5} />
+                    ×
                   </button>
                 )}
               </span>
@@ -3239,22 +3477,44 @@ function PublicationRow({
   onDelete?: () => void;
 }) {
   const [abstractOpen, setAbstractOpen] = useState(false);
+  // Fetch live PubMed metadata when the local row lacks a title.
+  // The local API only persists what was on the GEO MINiML
+  // ``<Pubmed-ID>`` tag (just the PMID); title / citation /
+  // authors are pulled from NCBI esummary on-demand. usePubmedMetadata
+  // is a no-op when pubmed_id is empty.
+  const needsFetch =
+    !publication.title?.trim() && !publication.citation?.trim();
+  const { data: pubmedMeta, isLoading: pubmedLoading } = usePubmedMetadata(
+    needsFetch ? publication.pubmed_id : undefined,
+  );
+  const displayTitle =
+    publication.title?.trim() ||
+    pubmedMeta?.title ||
+    publication.citation?.trim() ||
+    "";
+  const displayCitation =
+    publication.citation?.trim() || pubmedMeta?.citation || "";
+  const effectiveDoi = publication.doi?.trim() || pubmedMeta?.doi || "";
   const pmidUrl = publication.pubmed_id
     ? `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(publication.pubmed_id)}/`
     : null;
-  const doiUrl = publication.doi
-    ? `https://doi.org/${encodeURIComponent(publication.doi)}`
+  const doiUrl = effectiveDoi
+    ? `https://doi.org/${encodeURIComponent(effectiveDoi)}`
     : null;
   return (
     <li className="flex items-start gap-2">
       <div className="flex-1 min-w-0">
         <div className="font-medium text-slate-800 leading-snug">
-          {publication.title || publication.citation || (
+          {displayTitle ? (
+            displayTitle
+          ) : pubmedLoading ? (
+            <span className="italic text-slate-400">fetching from PubMed…</span>
+          ) : (
             <span className="italic text-slate-400">(metadata not fetched yet)</span>
           )}
         </div>
-        {publication.citation && publication.title ? (
-          <div className="text-slate-500 italic">{publication.citation}</div>
+        {displayCitation && displayTitle && displayCitation !== displayTitle ? (
+          <div className="text-slate-500 italic">{displayCitation}</div>
         ) : null}
         <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
           {pmidUrl ? (
@@ -3274,7 +3534,7 @@ function PublicationRow({
               rel="noopener noreferrer"
               className="text-blue-700 hover:underline font-mono"
             >
-              {shortenUri(`https://doi.org/${publication.doi}`)} ↗
+              {shortenUri(`https://doi.org/${effectiveDoi}`)} ↗
             </a>
           ) : null}
           {abstract ? (
@@ -3290,7 +3550,7 @@ function PublicationRow({
         </div>
         {abstract && abstractOpen ? (
           <AbstractModal
-            title={publication.title || publication.citation || ""}
+            title={displayTitle || ""}
             excerpt={abstract}
             tone="annotated"
             onClose={() => setAbstractOpen(false)}
@@ -3300,7 +3560,19 @@ function PublicationRow({
       {onDelete ? (
         <button
           type="button"
-          onClick={onDelete}
+          onClick={() => {
+            // Confirm before removing — publications are intentionally
+            // surfaced by the curator (via the agent or by hand) and
+            // an accidental click on the × shouldn't drop the link
+            // silently. The next mutation re-renders the row so the
+            // curator sees the result immediately. Paul 2026-06-11.
+            const what =
+              displayTitle ||
+              (publication.pubmed_id ? `PMID ${publication.pubmed_id}` : "this publication");
+            if (window.confirm(`Remove “${what}” from this experiment?`)) {
+              onDelete();
+            }
+          }}
           className="text-rose-700 hover:text-rose-900 text-xs"
           title="remove this publication"
         >

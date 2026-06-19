@@ -8,6 +8,113 @@ import {
   type Source,
 } from "./sources";
 
+/** One row returned by the unified /curation-versions endpoint
+ *  (agents-repo `local_api/curation_versions.py`, Phase 1 of the
+ *  2026-06-08 unified-curation-versions reframe). The chip strip's
+ *  source-availability discovery prefers this endpoint and falls
+ *  back to the three legacy probes only if the call fails. */
+interface CurationVersionRow {
+  version_id: string;
+  kind: string;
+  producer: string;
+  label: string;
+  description?: string;
+  created_at?: string | null;
+}
+
+interface CurationVersionListResponse {
+  items: CurationVersionRow[];
+  total: number;
+}
+
+/** One row from the unified /curations endpoint — full payload
+ *  shape (design + tags + provenance). Mirrors the agents-side
+ *  Curation Pydantic model. */
+export interface CurationRow {
+  curation_id: string;
+  experiment_id: number;
+  producer: string;
+  source_kind: string;
+  label: string;
+  design: Record<string, unknown>;
+  tags: unknown[];
+  bm_characteristic_overlay?: Record<string, unknown> | null;
+  created_at?: string | null;
+  parent_curation_ids?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+interface CurationListResp {
+  items: CurationRow[];
+  total: number;
+}
+
+/** Fetch the full curations list (with payloads) for an
+ *  experiment. Step 3b of the 2026-06-08 unified-curation-versions
+ *  reframe: chip strip + card render against THIS list, with
+ *  labels coming from each row's `label` / `producer + source_kind`.
+ *
+ *  Returns empty list on 404 (instance without the unified
+ *  endpoint deployed) so callers can fall back to the legacy
+ *  Source-enum dropdown without a hard error. */
+export function useCurations(experimentId: number | string) {
+  return useQuery({
+    enabled: Boolean(experimentId),
+    queryKey: ["curations", experimentId] as const,
+    staleTime: 30_000,
+    queryFn: async (): Promise<CurationRow[]> => {
+      try {
+        const raw = await api.get<CurationListResp>(
+          `/rest/v2/datasets/${experimentId}/curations`,
+        );
+        return raw?.items ?? [];
+      } catch (e: unknown) {
+        if (
+          e &&
+          typeof e === "object" &&
+          "status" in e &&
+          (e as { status: number }).status === 404
+        ) {
+          return [];
+        }
+        throw e;
+      }
+    },
+  });
+}
+
+/** Fetch the unified curation-versions list for an experiment.
+ *  Returns ``null`` on 404 (endpoint not yet deployed on this
+ *  local_api / Gemma instance) so callers can route to the legacy
+ *  probe fallback path without a hard error. */
+function useCurationVersions(experimentId: number | string) {
+  return useQuery({
+    enabled: Boolean(experimentId),
+    queryKey: ["curation-versions", experimentId] as const,
+    staleTime: 30_000,
+    queryFn: async (): Promise<CurationVersionListResponse | null> => {
+      try {
+        const raw = await api.get<CurationVersionListResponse>(
+          `/rest/v2/datasets/${experimentId}/curation-versions`,
+        );
+        return raw;
+      } catch (e: unknown) {
+        if (
+          e &&
+          typeof e === "object" &&
+          "status" in e &&
+          (e as { status: number }).status === 404
+        ) {
+          // Endpoint not deployed on this local_api / Gemma instance.
+          // Caller falls back to the three legacy probes.
+          return null;
+        }
+        throw e;
+      }
+    },
+  });
+}
+
 /** Per-source availability report. ``available`` is the only signal
  *  the chip menu needs to grey an entry; ``reason`` provides the
  *  tooltip explanation when it's disabled. */
@@ -144,42 +251,130 @@ function useAgentProposalAvailable(experimentId: number | string) {
 export function useSourceUniverse(
   experimentId: number | string,
 ): SourceUniverse {
+  // Phase 2 of the 2026-06-08 unified-curation-versions reframe:
+  // /curation-versions is now the source of truth for what versions
+  // exist for an experiment, regardless of backend. We still issue
+  // the three legacy probes so a local_api / Gemma instance that
+  // hasn't deployed /curation-versions yet (or returns 404) falls
+  // through to the prior behaviour. Once every consuming instance
+  // has the unified endpoint, the legacy probes can come out (and
+  // the polished-curator enumeration will come straight from the
+  // version list's curator_polish rows).
+  const versions = useCurationVersions(experimentId);
   const preboard = usePreboardAvailable(experimentId);
   const agent = useAgentProposalAvailable(experimentId);
   const polished = usePolishedCurators(experimentId);
 
+  // Derive availability from the unified endpoint when it returns
+  // data. ``versions.data === null`` means the endpoint 404'd
+  // (instance hasn't been upgraded); fall back to legacy probes.
+  const unified = versions.data;
+  const usingUnified = unified != null;
+
+  // Polished-curator enumeration: prefer the unified endpoint's
+  // curator_polish AND consensus rows when available. Falls back
+  // to the dedicated /polished probe otherwise.
+  //
+  // Per memory project-curation-overlay-model (2026-06-08): polished
+  // gold isn't architecturally special — consensus and curator_polish
+  // are both "a named curation overlay". The chip-strip's
+  // `polished:<name>` token is the existing carrier for this slot;
+  // until the larger Source-enum elimination (step 3b, deferred) is
+  // done, we route consensus rows through it too so they surface as
+  // selectable baselines. The token is a slug of the producer
+  // (`consensus:strict_cy_am` → `consensus_strict_cy_am`) so the
+  // existing URL/state machinery doesn't choke on the embedded `:`.
+  function _producerSlug(producer: string): string {
+    return producer.replace(/[^a-zA-Z0-9_-]+/g, "_");
+  }
+  // Dedupe by slug — the unified list can carry multiple rows per
+  // producer (one per curation snapshot / audit pass), but the chip
+  // dropdown's Source token is producer-scoped, so collapsing N
+  // identical tokens into one is the correct behaviour. Without this
+  // the dropdown rendered the same `consensus:strict_consensus` row
+  // ~15 times.
+  const polishedCurators: string[] = usingUnified
+    ? Array.from(
+        new Set(
+          unified.items
+            .filter(
+              (v) => v.kind === "curator_polish" || v.kind === "consensus",
+            )
+            .map((v) =>
+              v.kind === "consensus" ? _producerSlug(v.producer) : v.producer,
+            ),
+        ),
+      )
+    : (polished.data ?? []);
+
   // The dynamic enumeration. System sources first (stable order:
   // empty → preboard → agent_proposal), then polished:<curator> in
   // the order returned by the backend.
-  const polishedCurators = polished.data ?? [];
   const sources: Source[] = [
     ...SYSTEM_SOURCES,
     ...polishedCurators.map((c) => polishedSourceFor(c)),
   ];
 
-  const isLoading =
-    preboard.isLoading || agent.isLoading || polished.isLoading;
+  // ``isLoading`` covers whichever probes are actually feeding
+  // availability. With the unified endpoint up, the three legacy
+  // probes still complete in the background (cheap, cached), but
+  // they don't gate render — only the unified call does.
+  const isLoading = usingUnified
+    ? versions.isLoading
+    : preboard.isLoading || agent.isLoading || polished.isLoading;
+
+  // Helper: is a kind present in the unified list? Used to decide
+  // availability of preboard / agent_proposal under unified mode.
+  const unifiedHas = (kind: string): boolean =>
+    !!unified?.items.some((v) => v.kind === kind);
 
   const availability = {} as AvailabilityMap;
   for (const s of sources) {
     if (s === "empty") {
       availability[s] = { available: true, reason: "", comingSoon: false };
     } else if (s === "preboard") {
-      availability[s] = preboard.data
+      const available = usingUnified
+        ? unifiedHas("preboard")
+        : !!preboard.data;
+      availability[s] = available
         ? { available: true, reason: "", comingSoon: false }
         : {
             available: false,
-            reason: preboard.isLoading
+            reason: versions.isLoading || preboard.isLoading
               ? "checking…"
               : "no preboard snapshot stored for this experiment",
             comingSoon: false,
           };
-    } else if (s === "agent_proposal") {
-      availability[s] = agent.data
+    } else if (s === "live") {
+      // ``live`` is unified-only — there's no legacy probe. When the
+      // unified endpoint hasn't been deployed, treat live as
+      // unavailable so the chip strip falls through to other
+      // sources rather than rendering a broken option.
+      const available = usingUnified && unifiedHas("live");
+      availability[s] = available
         ? { available: true, reason: "", comingSoon: false }
         : {
             available: false,
-            reason: agent.isLoading
+            reason: versions.isLoading
+              ? "checking…"
+              : "no live curation state available for this experiment",
+            comingSoon: false,
+          };
+    } else if (s === "agent_proposal") {
+      // Unified mode: present iff ANY agent_proposal row exists. The
+      // chip dropdown today picks "the latest" implicitly via the
+      // legacy /proposals fetch path; once the chip strip surfaces
+      // each version separately (Phase 3 — give the curator a list
+      // of agent runs to choose from), this collapses to one row per
+      // version_id.
+      const available = usingUnified
+        ? unifiedHas("agent_proposal")
+        : !!agent.data;
+      availability[s] = available
+        ? { available: true, reason: "", comingSoon: false }
+        : {
+            available: false,
+            reason: versions.isLoading || agent.isLoading
               ? "checking…"
               : "no agent proposal found for this experiment",
             comingSoon: false,

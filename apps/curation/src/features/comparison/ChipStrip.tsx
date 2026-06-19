@@ -52,37 +52,20 @@ export function ChipStrip({
   // chips stay selectable so the curator can audit / compare freely.
   const baselineLocked = flow === "edit";
 
-  // Mode pill: reflects whether the design tab is editable. The
-  // baseline drives writability — ``preboard`` is Gemma's live state
-  // (the actual writable target) so edits land. Any other baseline
-  // is a snapshot (polished:cy, empty, etc.) and the tab is locked
-  // to its content. Flow no longer controls this directly; the
-  // chip-strip baseline does. Per Paul 2026-06-02 framework.
-  const isEditable = baseline === "preboard";
-  const modePill = isEditable ? (
-    <span
-      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:border-amber-500 dark:text-amber-100"
-      title="Editing Gemma's current design. Factor/tag edits land in Gemma; accept/reject on the right are live."
-    >
-      Curation mode
-    </span>
-  ) : (
-    <span
-      className="inline-flex items-baseline px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide border border-sky-400 bg-sky-100 text-sky-900 dark:bg-sky-900/50 dark:border-sky-500 dark:text-sky-100 cursor-help"
-      title="Baseline is a snapshot, not Gemma's live state — design tab is locked to display the snapshot. Flip baseline to Gemma to edit."
-    >
-      Review mode
-    </span>
-  );
-
+  // Mode pill ("Reviewing proposal" / "Editing local design") dropped
+  // 2026-06-14 per Paul: "Perhaps because the 'reviewing proposal'
+  // might not even be needed. It's just curation, what makes it
+  // special is what we're comparing to." The chip pair below already
+  // communicates the mode — the curator reads "BASELINE Gemma · AUDIT
+  // agent original proposal" and infers "I'm reviewing the agent's
+  // proposal" without a redundant pill.
 
   return (
     <div
-      className="w-full bg-slate-50 border-b border-slate-200 px-4 py-2 text-base flex items-center gap-4 dark:bg-slate-900/40 dark:border-slate-700"
+      className="inline-flex items-center gap-2 text-[11px]"
       role="region"
       aria-label="Comparison source selection"
     >
-      {modePill}
       {baselineLocked ? (
         <ChipLabel slotLabel="Baseline" value={baseline} />
       ) : (
@@ -396,3 +379,4 @@ function menuItemTooltip(
   if (!avail.available) return avail.reason;
   return undefined;
 }
+

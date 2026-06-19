@@ -28,20 +28,27 @@ const MODE_CONFIG: Record<
   DispositionMode,
   { title: string; confirmLabel: string; confirmingLabel: string }
 > = {
+  // Confirm verb is "Save" across all modes — the dialog's job is
+  // to capture the reason chip + optional note, then persist the
+  // disposition. "Close" read as "dismiss the dialog without
+  // committing"; "Save" makes the persist semantic obvious. Paul
+  // 2026-06-16. Callers can still override via ``confirmLabelOverride``
+  // when the verb on the button that opened the dialog is more
+  // specific ("Don't remove", "Don't add", etc.).
   dismiss: {
     title: "Disagree",
-    confirmLabel: "Close",
-    confirmingLabel: "closing…",
+    confirmLabel: "Save",
+    confirmingLabel: "saving…",
   },
   accept: {
     title: "Accept",
-    confirmLabel: "Accept",
-    confirmingLabel: "accepting…",
+    confirmLabel: "Save",
+    confirmingLabel: "saving…",
   },
   not_sure: {
     title: "Park",
-    confirmLabel: "Park",
-    confirmingLabel: "parking…",
+    confirmLabel: "Save",
+    confirmingLabel: "saving…",
   },
 };
 
@@ -63,12 +70,14 @@ const draftKeyOf = (targetId: string, mode: DispositionMode) =>
 export function DismissDialog({
   mode = "dismiss",
   chips = [],
-  finding,
+  finding: _finding,
   targetId,
   anchor,
   initialTag = null,
   initialNotes = "",
   isEdit = false,
+  titleOverride,
+  confirmLabelOverride,
   onCancel,
   onConfirm,
 }: {
@@ -77,7 +86,15 @@ export function DismissDialog({
    *  vocabulary for the disposition type (dismiss reasons, accept
    *  reasons, not-sure reasons). Empty = no chip row shown. */
   chips?: DialogChip[];
-  finding: { issue_code: string; rationale: string };
+  /** Kept for back-compat with older call sites; the dialog no
+   *  longer renders the finding's rationale. The agent's framing
+   *  was confusing on dismiss surfaces ("Remove tag X?" body under
+   *  a "Don't remove tag" title made the curator re-read the
+   *  agent's argument FOR removal at the moment they were
+   *  rejecting it). Paul 2026-06-16: "the body text shows the
+   *  agent's rationale verbatim, but the dialog title is the
+   *  curator's action." Drop the prop in a follow-up. */
+  finding?: { issue_code: string; rationale: string };
   /** Stable id for the finding so draft state can be keyed per-finding
    *  across the dialog's mount/unmount cycle. */
   targetId: string;
@@ -92,6 +109,17 @@ export function DismissDialog({
    *  log is append-only, latest-per-target_id wins), so no separate
    *  endpoint is needed. */
   isEdit?: boolean;
+  /** Override the dialog header text. Used so the dismiss dialog can
+   *  read the same action verb as the button that opened it
+   *  ("Don't remove factor" instead of generic "Disagree"). Falls back
+   *  to ``MODE_CONFIG[mode].title`` when null/undefined. Paul
+   *  2026-06-14. */
+  titleOverride?: string | null;
+  /** Override the confirm-button label. Defaults to the mode's
+   *  generic verb (now "Save" across all modes); pass an action
+   *  verb when the dialog has a specific surface ("Don't remove",
+   *  "Don't add", "Reject"). */
+  confirmLabelOverride?: string | null;
   onCancel: () => void;
   onConfirm: (tag: string | null, notes: string) => Promise<void> | void;
 }) {
@@ -217,7 +245,9 @@ export function DismissDialog({
     >
       <div className="flex items-center justify-between gap-2 mb-1.5">
         <span className="font-semibold text-slate-800 dark:text-slate-100">
-          {isEdit ? `Edit · ${config.title}` : config.title}
+          {isEdit
+            ? `Edit · ${titleOverride || config.title}`
+            : titleOverride || config.title}
         </span>
         <button
           type="button"
@@ -230,8 +260,18 @@ export function DismissDialog({
           ×
         </button>
       </div>
-      <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">
-        {finding.rationale}
+      {/* Curator-perspective subtitle — orients the curator to what
+          the dialog is for. The agent's rationale used to render
+          here verbatim, but it framed the agent's argument FOR the
+          original proposal — confusing when the curator is REJECTING
+          that proposal ("Remove tag X?" body under a "Don't remove
+          tag" title). The agent's reasoning is already on the card
+          the curator just came from; the dialog's job is to record
+          why they chose what they chose. Paul 2026-06-16. */}
+      <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2">
+        {chips.length > 0
+          ? "Pick a reason — note rides to the curation agent at close-review."
+          : "Optional note rides to the curation agent at close-review."}
       </div>
       {chips.length > 0 ? (
         <div className="flex gap-1 flex-wrap mb-2">
@@ -286,7 +326,7 @@ export function DismissDialog({
             ? config.confirmingLabel
             : isEdit
               ? "Save"
-              : config.confirmLabel}
+              : confirmLabelOverride || config.confirmLabel}
         </button>
       </div>
     </div>,

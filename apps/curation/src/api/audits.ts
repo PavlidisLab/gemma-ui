@@ -115,7 +115,25 @@ export function usePatchDisposition(experimentId: number | string) {
       auditId: string;
       patch: AuditFindingDispositionPatch;
     }) => api.patch<AuditReport>(`/rest/v2/audits/${auditId}`, patch),
-    onSuccess: (refreshed) => {
+    onSuccess: (refreshed, vars) => {
+      // Smoking-gun trace per the 2026-06-14 "3 pending stays 3
+      // pending" investigation. If the PATCH returns a report whose
+      // dispositions list lacks the target_id we just sent, the
+      // server didn't persist (or the read path returned stale state)
+      // — surface that immediately rather than waiting for a second
+      // round of "the counts aren't updating" reports.
+      const patched = refreshed.dispositions?.find(
+        (d) => d.target_id === vars.patch.target_id,
+      );
+      if (!patched) {
+        console.warn(
+          "patchDisposition.onSuccess: refreshed report missing the just-PATCHed target_id (target_id=%s, audit_id=%s, status=%s, dispositions=%d) — server response didn't persist or returned stale rows",
+          vars.patch.target_id,
+          vars.auditId,
+          vars.patch.status,
+          refreshed.dispositions?.length ?? 0,
+        );
+      }
       // Per-experiment list lives in TWO caches keyed by kind: the
       // audit list at ``["audits", "by-experiment", X]`` and the
       // proposal-review list at ``["curation-reviews", "proposal",
@@ -148,7 +166,26 @@ export function usePatchDisposition(experimentId: number | string) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
       qc.invalidateQueries({ queryKey: KEY.inbox() });
+      invalidateChipCalibrationReport(qc, experimentId);
     },
+  });
+}
+
+/** Invalidate the ``["chip-calibration-report", experimentId]`` cache
+ *  used by ``useCalibrationAuditReport`` (features/comparison/useChipDiff.ts).
+ *  That hook holds the override report ChipOverrideMount feeds into the
+ *  AuditProvider when the chip strip is in ``polished-vs-agent_proposal``
+ *  mode. Without this invalidation the override stays at the pre-mutation
+ *  report shape after a PATCH / finalize / reopen / reset succeeds — the
+ *  sidebar reads ``dispositionByTarget`` off the stale override, so action
+ *  buttons don't grey + the card doesn't fade even though the server state
+ *  is up-to-date. Caught 2026-06-09 on the v15 calibration pack. */
+function invalidateChipCalibrationReport(
+  qc: ReturnType<typeof useQueryClient>,
+  experimentId: number | string,
+) {
+  qc.invalidateQueries({
+    queryKey: ["chip-calibration-report", experimentId],
   });
 }
 
@@ -188,6 +225,7 @@ export function useFinalizeAudit(experimentId: number | string) {
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
+      invalidateChipCalibrationReport(qc, experimentId);
     },
   });
 }
@@ -227,6 +265,7 @@ export function useResetAuditDispositions(
         queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
       });
       qc.invalidateQueries({ queryKey: KEY.inbox() });
+      invalidateChipCalibrationReport(qc, experimentId);
     },
   });
 }
@@ -256,25 +295,8 @@ export function useReopenAudit(experimentId: number | string) {
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
+      invalidateChipCalibrationReport(qc, experimentId);
     },
   });
 }
 
-/** POST a freshly-built audit to the mock. Used by the trigger
- *  dialog when we go end-to-end (the SSE stream variant lands in a
- *  later iteration). Server assigns `audit_id` and any inbound
- *  `dispositions` are dropped per the contract. */
-export function useSubmitAudit(experimentId: number | string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (report: AuditReport) =>
-      api.post<AuditReport>(
-        `/rest/v2/datasets/${experimentId}/audits`,
-        report,
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
-      qc.invalidateQueries({ queryKey: KEY.inbox() });
-    },
-  });
-}

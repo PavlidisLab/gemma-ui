@@ -12,12 +12,14 @@ import type { FvChange } from "./diff";
 
 export function FactorValueList({
   factor,
+  factorDescription,
   totalBiomaterials,
   changesByFvId,
   onFvLabelChange,
   onToggleBaseline,
   onAddFv,
   onDeleteFv,
+  onDuplicateFv,
   onAddStatement,
   onAddSiblingStatement,
   onAddStatementFromTemplate,
@@ -29,6 +31,11 @@ export function FactorValueList({
   onToggleCompact,
 }: {
   factor: Factor;
+  /** LLM-emitted ≤80-char summary surfaced as an italic subtitle
+   *  under the panel header. Optional; the header row drops the
+   *  subtitle when absent or empty. Per
+   *  UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md. */
+  factorDescription?: string;
   totalBiomaterials: number;
   /** Compact view — hides per-FV editing chrome (delete buttons,
    *  statement-template menu, predicate selects, find-term, etc.)
@@ -46,6 +53,9 @@ export function FactorValueList({
   onToggleBaseline: (fvId: number) => void;
   onAddFv: () => void;
   onDeleteFv: (fvId: number) => void;
+  /** Duplicate an FV inside this factor. Optional — when absent the
+   *  Duplicate button doesn't render. */
+  onDuplicateFv?: (fvId: number) => void;
   onAddStatement: (fvId: number) => void;
   /** "+ sibling" within a StatementGroupEditor — seed the new
    *  statement with the source's category + subject. */
@@ -92,7 +102,8 @@ export function FactorValueList({
     // these over the `.card` class's default white background +
     // slate border in light mode.
     <div className="rounded-lg border bg-sky-50 border-sky-300 dark:bg-sky-900/40 dark:border-sky-700">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-sky-300 dark:border-sky-800">
+      <div className="px-3 py-2 border-b border-sky-300 dark:border-sky-800">
+        <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="section-h">
             Factor values for:{" "}
@@ -158,6 +169,12 @@ export function FactorValueList({
             </button>
           )}
         </div>
+        </div>
+        {factorDescription?.trim() ? (
+          <div className="mt-1 text-[11px] italic leading-snug text-slate-500 dark:text-slate-400">
+            {factorDescription.trim()}
+          </div>
+        ) : null}
       </div>
       {/* FV cards stacked inside a padded, spaced container. The
           parent factor uses the sky-50 / sky-900/40 tint to claim
@@ -189,6 +206,9 @@ export function FactorValueList({
             onLabelChange={(label) => onFvLabelChange(fv.id, label)}
             onToggleBaseline={() => onToggleBaseline(fv.id)}
             onDelete={() => onDeleteFv(fv.id)}
+            onDuplicate={
+              onDuplicateFv ? () => onDuplicateFv(fv.id) : undefined
+            }
             onAddStatement={() => onAddStatement(fv.id)}
             onAddSiblingStatement={(seed) =>
               onAddSiblingStatement(fv.id, seed)

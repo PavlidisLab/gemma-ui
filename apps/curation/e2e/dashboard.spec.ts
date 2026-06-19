@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { installErrorGuards } from "./_helpers";
 
 /**
  * Smoke tests for the curator dashboard.
@@ -10,26 +11,11 @@ import { test, expect } from "@playwright/test";
  */
 test.describe("Curator dashboard", () => {
   test.beforeEach(async ({ page }) => {
-    // Surface any console errors / unhandled rejections in the test
-    // output. The dashboard should be silent on a clean page load.
-    page.on("pageerror", (e) => {
-      throw new Error(`pageerror: ${e.message}`);
-    });
-    page.on("console", (msg) => {
-      if (msg.type() === "error") {
-        // React's StrictMode + dev-mode warnings can be noisy; gate
-        // on actual errors.
-        const text = msg.text();
-        if (
-          text.includes("Warning: ") ||
-          text.includes("React Router") ||
-          text.includes("[vite]")
-        ) {
-          return;
-        }
-        throw new Error(`console.error: ${text}`);
-      }
-    });
+    // Use the shared helper so the suite's console-error filter list
+    // stays one source of truth (the inline copy lacked the
+    // 404 / "Failed to load resource" allowance the dev server emits
+    // on its TanStack-query health probes — Paul 2026-06-16).
+    installErrorGuards(page);
   });
 
   test("mounts to the landing route without crashing", async ({ page }) => {

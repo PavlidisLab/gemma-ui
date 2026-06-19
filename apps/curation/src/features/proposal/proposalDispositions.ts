@@ -36,16 +36,49 @@ export type ProposalDisposition =
  *  audit's ``target_id`` slug but scoped to one proposal. */
 export type ProposalElementKey = string;
 
-export function factorElementKey(proposalId: string, idx: number): ProposalElementKey {
-  return `factor:${proposalId}:${idx}`;
+/** Build a stable key from a proposed factor. Keys on category URI
+ *  when present (most stable across runs); falls back to a
+ *  normalised category label so a free-text-only factor still gets
+ *  a deterministic identity. NOT keyed on list index — the agent
+ *  can re-emit a proposal with re-ordered factors, and the prior
+ *  ``factor:<id>:0`` LS entry would silently target a different
+ *  factor (continuity sweep 2026-06-13). */
+export function factorElementKey(
+  proposalId: string,
+  factor: { category?: { uri?: string | null; label?: string | null } | null },
+): ProposalElementKey {
+  const uri = (factor.category?.uri ?? "").trim();
+  if (uri) return `factor:${proposalId}:uri:${uri.toLowerCase()}`;
+  const label = (factor.category?.label ?? "").trim().toLowerCase();
+  return `factor:${proposalId}:lbl:${label || "?"}`;
 }
 
-export function tagElementKey(proposalId: string, idx: number): ProposalElementKey {
-  return `tag:${proposalId}:${idx}`;
+/** Build a stable key from a proposed tag. Keys on the (category,
+ *  value) URI pair when present; falls back to lowercased label
+ *  composite. Same rationale as ``factorElementKey``. */
+export function tagElementKey(
+  proposalId: string,
+  tag: {
+    category?: { uri?: string | null; label?: string | null } | null;
+    value?: { uri?: string | null; label?: string | null } | null;
+  },
+): ProposalElementKey {
+  const cUri = (tag.category?.uri ?? "").trim();
+  const vUri = (tag.value?.uri ?? "").trim();
+  if (cUri && vUri) {
+    return `tag:${proposalId}:uri:${cUri.toLowerCase()}|${vUri.toLowerCase()}`;
+  }
+  const cLbl = (tag.category?.label ?? "").trim().toLowerCase();
+  const vLbl = (tag.value?.label ?? "").trim().toLowerCase();
+  return `tag:${proposalId}:lbl:${cLbl}|${vLbl}`;
 }
 
-const LS_PREFIX = "gemma-proposal-dispositions";
-const LS_NOTES_PREFIX = "gemma-proposal-disposition-notes";
+// Bumped 2026-06-13 from the index-keyed encoding to the URI-keyed
+// one above. Old LS entries silently roll off the next time the
+// curator dispositions; the index-based prefix wouldn't deserialize
+// into the new key shape anyway.
+const LS_PREFIX = "gemma-proposal-dispositions.v2";
+const LS_NOTES_PREFIX = "gemma-proposal-disposition-notes.v2";
 const LS_FEEDBACK_PREFIX = "gemma-proposal-feedback";
 
 function storageKey(experimentId: number | string, proposalId: string): string {
@@ -168,16 +201,81 @@ export function saveFeedback(
   }
 }
 
-export function clearDispositionsForExperiment(experimentId: number | string): void {
+/** Drop the entire proposal-review localStorage footprint (dispositions
+ *  + notes + feedback) for one experiment. Used by the commit-undo and
+ *  per-finding-undo paths so curator state across surfaces stays
+ *  coherent: rolling back the design draft / a disposition while
+ *  leaving the proposal cards stuck on "retained" / "rejected" was
+ *  the bug Paul flagged 2026-06-10. */
+export function clearAllProposalStateForExperiment(
+  experimentId: number | string,
+): void {
+  const prefixes = [
+    `${LS_PREFIX}:${experimentId}:`,
+    `${LS_NOTES_PREFIX}:${experimentId}:`,
+    `${LS_FEEDBACK_PREFIX}:${experimentId}:`,
+  ];
   try {
-    const prefix = `${LS_PREFIX}:${experimentId}:`;
     const toRemove: string[] = [];
     for (let i = 0; i < window.localStorage.length; i++) {
       const k = window.localStorage.key(i);
-      if (k && k.startsWith(prefix)) toRemove.push(k);
+      if (k && prefixes.some((p) => k.startsWith(p))) toRemove.push(k);
     }
     for (const k of toRemove) window.localStorage.removeItem(k);
   } catch {
     // ignore
   }
+}
+
+/** Window-level event bus the in-memory React state in
+ *  ``ProposalSidebarPanel`` subscribes to. Undo paths in the design
+ *  editor + audit sidebar dispatch this so the panel can flush its
+ *  in-memory dispositions/notes/feedback without each undo site
+ *  having to know which proposal id is currently mounted. */
+const PROPOSAL_STATE_RESET_EVENT = "gemma:proposal-state-reset";
+
+interface ProposalStateResetDetail {
+  experimentId: string;
+}
+
+export function notifyProposalStateReset(
+  experimentId: number | string,
+): void {
+  try {
+    const detail: ProposalStateResetDetail = {
+      experimentId: String(experimentId),
+    };
+    window.dispatchEvent(
+      new CustomEvent(PROPOSAL_STATE_RESET_EVENT, { detail }),
+    );
+  } catch {
+    // SSR / no-window — listeners are React effects, so a missing
+    // dispatch just means no in-memory reset; LS was already wiped
+    // by the caller.
+  }
+}
+
+/** Subscribe to proposal-state-reset broadcasts. ``handler`` fires
+ *  with the experimentId the reset targets; the listener decides
+ *  whether the event matches its own scope. Returns an unsubscribe
+ *  function suitable for a ``useEffect`` cleanup. */
+export function onProposalStateReset(
+  handler: (experimentId: string) => void,
+): () => void {
+  const fn = (e: Event) => {
+    const detail = (e as CustomEvent<ProposalStateResetDetail>).detail;
+    if (detail?.experimentId) handler(detail.experimentId);
+  };
+  try {
+    window.addEventListener(PROPOSAL_STATE_RESET_EVENT, fn);
+  } catch {
+    return () => {};
+  }
+  return () => {
+    try {
+      window.removeEventListener(PROPOSAL_STATE_RESET_EVENT, fn);
+    } catch {
+      // ignore
+    }
+  };
 }

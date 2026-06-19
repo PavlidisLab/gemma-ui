@@ -28,6 +28,7 @@ import type {
   FactorType,
   FactorValue,
   OntologyTerm,
+  Publication,
   Statement,
   Tag,
 } from "@/features/experiment/types";
@@ -125,6 +126,14 @@ export interface G2Design {
    *  single-nucleus studies as bulk RNA-seq because the assay tag
    *  it inspects was missing from the composed Design. */
   tags?: Tag[];
+  /** Linked publications — populated by the local_api Design
+   *  schema's ``publications`` field (built at ingest from the
+   *  GEO MINiML ``<Pubmed-ID>`` tag). Pre-2026-06-11 ``composeCurationDesign``
+   *  silently dropped this on its return path, so the OverviewPanel's
+   *  "Publications" card and the PrePublishChecklist both rendered
+   *  empty even when the upstream had a PMID. Fixed by adding the
+   *  copy-through. */
+  publications?: Publication[];
 }
 
 // ─── Curation-proposal overlay shape ─────────────────────────────
@@ -290,6 +299,13 @@ export function composeCurationDesign(
     // dropped the saved tags on the floor and caused the banner's
     // ModalityIndicator to misclassify single-cell studies as bulk.
     tags: overlay?.tags ?? g2.tags ?? [],
+    // Publications copy-through. composeCurationDesign was building
+    // a fresh Design from g2 + overlay + meta but had never been
+    // taught about the design's `publications` field — so the
+    // OverviewPanel "Publications" card and the PrePublishChecklist
+    // both rendered as empty even when the local API returned a
+    // populated PMID list. Fixed 2026-06-11 (Paul GSE102415).
+    publications: g2.publications ?? [],
     external_source: externalSource ?? null,
     title: g2.name ?? undefined,
     description: g2.description ?? undefined,

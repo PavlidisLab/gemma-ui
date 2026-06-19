@@ -22,8 +22,8 @@ import type {
   CurationReviewKind,
   DismissReason,
   DispositionStatus,
-  Severity,
 } from "@/api/auditTypes";
+import { SEVERITY_RANK } from "./auditPresentation";
 
 /**
  * Per-experiment audit state.
@@ -55,12 +55,6 @@ import type {
  *  state reconciles. The branch is detected by audit_id prefix
  *  (`synth-…` for the dev synth path).
  */
-const SEVERITY_RANK: Record<Severity, number> = {
-  blocker: 0,
-  major: 1,
-  minor: 2,
-  ok: 3,
-};
 
 interface AuditContextValue {
   /** Discriminator for the review-kind this provider is wrapping —
@@ -213,15 +207,42 @@ interface AuditContextValue {
   dispositionError: string | null;
 }
 
-const AuditContext = createContext<AuditContextValue | null>(null);
+// Exported so render-time tests (``*.render.test.tsx``) can wrap a
+// component with their own stub context value without booting the
+// full ``AuditProvider`` (which fetches live audit data). The
+// production code path still goes through ``AuditProvider`` →
+// ``useAudit``; the export is a test affordance, not a new public
+// surface for the app.
+export const AuditContext = createContext<AuditContextValue | null>(null);
+export type { AuditContextValue };
 
 /** Synth reports use this prefix on `audit_id`. The presence of the
  *  prefix routes dispositions through the in-memory path instead of
  *  PATCH — there's nothing to PATCH against on the server. */
 export const SYNTH_AUDIT_ID_PREFIX = "synth-";
 
+/** Chip-diff comparison overrides (set by ChipOverrideMount when the
+ *  curator picks a ?base= / ?cmp= pair) carry `audit_id: null` plus a
+ *  `model: "chip-diff:..."` marker instead of the synth- prefix. Route
+ *  these through the in-memory path too — there's no server audit to
+ *  PATCH, but dispositions still need to update the override so the
+ *  Confirm button greys after a click. */
 function isOverrideReport(r: AuditReport | null): boolean {
-  return !!r?.audit_id && r.audit_id.startsWith(SYNTH_AUDIT_ID_PREFIX);
+  if (!r) return false;
+  if (r.audit_id && r.audit_id.startsWith(SYNTH_AUDIT_ID_PREFIX)) return true;
+  if (r.audit_id == null && typeof r.model === "string"
+      && r.model.startsWith("chip-diff:")) return true;
+  return false;
+  // 2026-06-14: an "any null audit_id → override" branch lived here
+  // briefly. Pulled after bro 1 verified the wire ships ``auditId``
+  // (camelCase) populated, the UI's snakeify converts it to
+  // ``audit_id``, and ``report.audit_id`` is never null on a real
+  // proposal-review report. The fallback was masking whatever
+  // downstream bug actually caused Paul's "3 pending stays 3 pending"
+  // symptom; the next instance should land in the live-PATCH branch
+  // and surface via the DevTools Network tab, not the in-memory
+  // override (which doesn't persist). See
+  // ``handoffs/AUDIT_ID_CLARIFICATION_2026_06_14.md``.
 }
 
 export function AuditProvider({
@@ -384,11 +405,23 @@ export function AuditProvider({
           resolved_at: extras.resolvedAt ?? null,
         };
         setOverride((cur) => {
-          if (!cur) return cur;
-          const filtered = (cur.dispositions ?? []).filter(
+          // Seed from the rendered report when the override state itself
+          // is null but `report` came in as an override-shaped object
+          // (chip-diff overrides set via setOverrideReport land here on
+          // initial mount). Falling back to `report` avoids the silent
+          // no-op that previously left the Confirm button stuck active.
+          const base = cur ?? report;
+          if (!base) {
+            console.warn(
+              "setDisposition: no base override report to mutate (target_id=%s)",
+              targetId,
+            );
+            return cur;
+          }
+          const filtered = (base.dispositions ?? []).filter(
             (d) => d.target_id !== targetId,
           );
-          return { ...cur, dispositions: [...filtered, next] };
+          return { ...base, dispositions: [...filtered, next] };
         });
         return;
       }
@@ -396,7 +429,14 @@ export function AuditProvider({
       // invalidates and the report re-renders with the refreshed
       // disposition list. The mutation throws on failure so a
       // ``saving…`` UI surface naturally surfaces an error.
-      if (!report.audit_id) return;
+      if (!report.audit_id) {
+        console.warn(
+          "setDisposition: live path but report has no audit_id (target_id=%s, report.model=%s) — neither synth- nor chip-diff override shape; nothing to PATCH",
+          targetId,
+          report.model,
+        );
+        return;
+      }
       // Resolve the finding's issue_code from the report so the server
       // validator can gate reason chips by code (chip-gap closure,
       // 2026-05-16). Empty string if the finding isn't found — server

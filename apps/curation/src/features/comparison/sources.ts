@@ -13,16 +13,43 @@
  *  Stable across sessions; renaming a system-level token requires a
  *  migration step. Curator-specific tokens (``polished:foo``) don't
  *  need migrations — the curator name comes from the data. */
-export type SystemSource = "empty" | "preboard" | "agent_proposal";
+export type SystemSource = "empty" | "preboard" | "live" | "agent_proposal";
 export type PolishedSource = `polished:${string}`;
-export type Source = SystemSource | PolishedSource;
+
+/** A comparison source is identified by an OPAQUE curation_id
+ *  string. Step 3b of the 2026-06-08 unified-curation-versions
+ *  reframe widened this from a discriminated union to a generic
+ *  string so any /curations row (unified-table UUID, legacy synthetic
+ *  id like `live` / `polished:cyan`, future producer kind) can sit
+ *  in either chip-strip slot.
+ *
+ *  Recognized literal IDs the helpers still special-case for
+ *  back-compat with hand-edited URLs and legacy slot rules:
+ *  ``empty`` / ``preboard`` / ``live`` / ``agent_proposal`` /
+ *  ``polished:<curator>``. Anything else is treated as an opaque
+ *  curation_id whose label + producer + source_kind are resolved
+ *  by looking it up in the experiment's /curations list.
+ *
+ *  Per memory project-curation-overlay-model: polished gold isn't
+ *  architecturally special, it's just a named curation; the
+ *  string-typed Source reflects that. */
+export type Source = SystemSource | PolishedSource | (string & {});
 
 /** System-level sources that are always part of the universe (their
  *  availability per-experiment depends on whether the data is there).
- *  The polished family is dynamic and not enumerated here. */
+ *  The polished family is dynamic and not enumerated here.
+ *
+ *  ``live`` was added 2026-06-08 as part of the unified-curation-
+ *  versions reframe — the live Gemma curation state is a first-class
+ *  source (kind=live in /curation-versions). Before this change the
+ *  chip strip defaulted to ``preboard`` as the baseline even when
+ *  no preboard was available, which kept "Gemma preboard" stuck in
+ *  the dropdown as the anchor selection. With ``live`` available
+ *  the default falls through to it when polished isn't loaded. */
 export const SYSTEM_SOURCES: readonly SystemSource[] = [
   "empty",
   "preboard",
+  "live",
   "agent_proposal",
 ] as const;
 
@@ -58,15 +85,67 @@ function titleCaseCurator(name: string): string {
     .join("");
 }
 
-/** Human-facing label for a source. ``"Gemma"`` for the preboard;
- *  ``"<Curator> polished"`` for polished sources — derived from the
- *  username dynamically, no hand-maintained label map. */
-export function sourceLabel(s: Source): string {
+/** Minimal shape of a curation row from /curations — only the
+ *  fields sourceLabel needs. Avoids a hard import of the full
+ *  Curation type so this module stays standalone. */
+export interface CurationLabelLookup {
+  curation_id: string;
+  label?: string;
+  producer?: string;
+  source_kind?: string;
+}
+
+/** Human-facing label for a source.
+ *
+ *  When `curations` is supplied AND the source matches one of the
+ *  curation_ids, use that row's `label` (or derive `${producer}
+ *  (${source_kind})` if label is empty). This is the step-3b path
+ *  — labels come from /curations, not from hard-coded enum cases.
+ *
+ *  Falls through to the legacy enum-based label for back-compat
+ *  with code that doesn't pass curations and for the legacy
+ *  literal IDs (preboard / live / agent_proposal / polished:*). */
+export function sourceLabel(
+  s: Source,
+  curations?: readonly CurationLabelLookup[],
+): string {
+  if (curations) {
+    const match = curations.find((c) => c.curation_id === s);
+    if (match) {
+      if (match.label && match.label.trim()) return match.label;
+      const producer = match.producer || "";
+      const kind = match.source_kind || "";
+      if (producer && kind) return `${producer} (${kind})`;
+      if (producer) return producer;
+      if (kind) return kind;
+    }
+  }
   if (s === "empty") return "(empty)";
-  if (s === "preboard") return "Gemma";
+  // Was "Gemma" — misleading: preboard is the GEO-only pre-curation
+  // snapshot, not the live Gemma curation state. Per Paul 2026-06-08
+  // (chip-strip showed "Gemma / Gemma" with no agent option, and the
+  // baseline was actually the preboard). "Gemma preboard" distinguishes
+  // from live Gemma / polished sets once the unified curation-versions
+  // model lands. See HANDOFF_2026-06-08_UNIFIED_CURATION_VERSIONS.md.
+  if (s === "preboard") return "Gemma preboard";
+  // "Gemma" without a "(live)" qualifier — the chip strip fetches a
+  // snapshot, not a live stream, and curators read "live" as real-
+  // time which isn't accurate. Agent should supply a friendlier name
+  // via the /curations row's ``label`` field; this fallback fires
+  // only when ``label`` is empty (pre-step-3b enum path). Per Paul
+  // 2026-06-12.
+  if (s === "live") return "Gemma";
   if (s === "agent_proposal") return "agent original proposal";
   if (isPolishedSource(s)) {
     const curator = polishedCuratorOf(s);
+    // Consensus-producer rows are routed through the polished
+    // channel until step 3b drops the Source enum (2026-06-08).
+    // Their tokens are slugified consensus:<id> → polished:consensus_<id>;
+    // unslug back to the canonical "consensus:<id>" form for display
+    // so the chip reads honestly.
+    if (curator.startsWith("consensus_")) {
+      return curator.replace(/^consensus_/, "consensus:");
+    }
     return `${titleCaseCurator(curator)} polished`;
   }
   return s;
@@ -89,13 +168,15 @@ export function isSourceValidInSlot(slot: SlotKind, source: Source): boolean {
     // is always going to be a preboard with at least the title").
     // The agent's proposal is a proposal, not a canonical state —
     // never a legitimate baseline. Everything else (preboard +
-    // polished:*) is.
+    // polished:* + opaque curation_ids) is. Step 3b: an opaque
+    // curation_id whose source_kind is `agent_proposal` could in
+    // principle also be filtered here, but the chip-strip rules
+    // are advisory anyway — wrong baseline picks render
+    // harmlessly. Leave to default-allow.
     return source !== "agent_proposal" && source !== "empty";
   }
-  // Comparator slot: empty | preboard | polished | proposal all OK.
-  // The preboard-only-as-baseline rule for the special
-  // empty-baseline-preboard-comparator combination is enforced via
-  // isPairAllowed.
+  // Comparator slot: empty | preboard | polished | proposal |
+  // opaque curation_id all OK.
   return true;
 }
 
@@ -146,13 +227,46 @@ export type FlowKind = "review" | "edit";
 
 export function defaultSlots(
   flow: FlowKind,
-  options?: { polishedCurators?: readonly string[] },
+  options?: {
+    polishedCurators?: readonly string[];
+    /** Per-source availability from useSourceUniverse. Lets the
+     *  default fall through when the preferred source isn't loaded
+     *  for this experiment — e.g. v6 calibration pack has no
+     *  preboard but does have live + agent_proposal, so the
+     *  baseline default falls through to ``live`` instead of
+     *  sticking on the unavailable ``preboard``. Optional for
+     *  back-compat with callers that don't have the availability
+     *  map. */
+    availability?: Partial<Record<Source, { available: boolean }>>;
+  },
 ): { baseline: Source; comparator: Source } {
+  const av = options?.availability;
+  const isAvail = (s: Source): boolean =>
+    av ? (av[s]?.available ?? true) : true;
+
   if (flow === "edit") {
-    return { baseline: "preboard", comparator: "agent_proposal" };
+    // Edit flow: prefer preboard → live → first polished.
+    let baseline: Source = "preboard";
+    if (!isAvail(baseline)) {
+      if (isAvail("live")) {
+        baseline = "live";
+      } else {
+        const first = options?.polishedCurators?.[0];
+        if (first) baseline = polishedSourceFor(first);
+      }
+    }
+    return { baseline, comparator: "agent_proposal" };
   }
+  // Review flow: prefer first polished → live → preboard.
   const first = options?.polishedCurators?.[0];
-  const baseline: Source = first ? polishedSourceFor(first) : "preboard";
+  let baseline: Source;
+  if (first) {
+    baseline = polishedSourceFor(first);
+  } else if (isAvail("live")) {
+    baseline = "live";
+  } else {
+    baseline = "preboard";
+  }
   return { baseline, comparator: "agent_proposal" };
 }
 
@@ -162,11 +276,11 @@ export function defaultSlots(
  *  than crash. */
 export function parseSource(s: string | null | undefined): Source | null {
   if (!s) return null;
-  if (s === "empty" || s === "preboard" || s === "agent_proposal") {
-    return s;
-  }
-  if (s.startsWith("polished:") && s.length > "polished:".length) {
-    return s as PolishedSource;
-  }
-  return null;
+  // Step 3b: any non-empty string is a valid Source (opaque
+  // curation_id). Legacy literals continue to be recognised by
+  // the helpers; unknown strings resolve via the curations list
+  // lookup at render time. Empty / whitespace-only strings still
+  // return null so the URL layer can fall back to the default.
+  const trimmed = s.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }

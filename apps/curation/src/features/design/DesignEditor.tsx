@@ -7,6 +7,7 @@ import { FactorValueList } from "./FactorValueList";
 import { SampleAssignmentPreview } from "./SampleAssignmentPreview";
 import { ValidatorBanner } from "./ValidatorBanner";
 import { useDesignDraft } from "./DesignDraftContext";
+import { useAudit } from "@/features/audit/AuditContext";
 import { indexChanges } from "./diff";
 import { parseTargetId, slug } from "@/features/audit/targetIds";
 import {
@@ -24,6 +25,8 @@ import {
   assignRemainingBiomaterials,
   deleteFactor,
   deleteFactorValue,
+  duplicateFactorValue,
+  findDuplicateFactorPairs,
   deleteStatement,
   reassignSamples,
   revertFactor,
@@ -109,6 +112,15 @@ export function DesignEditor({
     [draft],
   );
 
+  // Perfect-duplicate factor detection (Paul 2026-06-14): equality
+  // keys on the statement-set, NOT FV labels. Surface as a soft
+  // warning above the FactorList so the curator notices before they
+  // commit a redundant pair.
+  const duplicatePairs = useMemo(
+    () => (draft ? findDuplicateFactorPairs(draft) : []),
+    [draft],
+  );
+
   // Audit "Apply & focus" handler. For factor-kind targets the factor
   // row is always in the DOM; for fv-kind the FV card lives inside
   // the FactorValueList that only renders when its factor is
@@ -158,6 +170,48 @@ export function DesignEditor({
     });
   }, [draft]);
 
+  // ---- Hooks must come BEFORE any early return (Rules of Hooks).
+  // The loading / loadError guards below conditionally render but
+  // never short-circuit hook calls — see 2026-06-11 crash where the
+  // ``useIsReadOnly`` / ``useDesignDraft`` / ``useAudit`` / ``useMemo``
+  // calls sat below the ``if (isLoading || !draft) return …`` guard
+  // and broke React's hook-order check the moment ``draft`` flipped
+  // from null to loaded.
+  const effectiveSelected =
+    selectedFactorId ?? draft?.factors[0]?.id ?? null;
+  const selectedFactor =
+    draft?.factors.find((f) => f.id === effectiveSelected) ?? null;
+
+  // Review-mode banner — surfaces *why* the tab is locked. The
+  // App-level ``<fieldset disabled>`` wrapper handles interaction
+  // blocking for real form controls; span+role="button" widgets
+  // (CategoryPicker, OntologyTermPicker, EditableDescription) read
+  // ``useIsReadOnly()`` and self-gate. This banner is just the
+  // visible status line.
+  const readOnly = useIsReadOnly();
+  const { usingBaseline, baselineLabel, baselineSourceKind } = useDesignDraft();
+
+  // Pull the LLM-emitted ≤80-char `description` for the selected
+  // factor out of the audit report's comparison_proposal — matched
+  // by `name_in_design` against the draft factor's name. Empty when
+  // there's no matching proposal (no audit running, fresh factor
+  // added in the draft, name drift since proposal time, etc.) and
+  // FactorValueList suppresses the subtitle row in that case. Per
+  // UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md.
+  const { report } = useAudit();
+  const factorDescription = useMemo<string | undefined>(() => {
+    if (!selectedFactor?.name) return undefined;
+    const target = selectedFactor.name.trim().toLowerCase();
+    const proposals = report?.evidence?.comparison_proposal?.factors ?? [];
+    const match = proposals.find(
+      (f) => (f.name_in_design ?? "").trim().toLowerCase() === target,
+    );
+    const desc = match?.description?.trim();
+    return desc ? desc : undefined;
+  }, [report, selectedFactor?.name]);
+
+  // ---- Render-time early returns. Hook order is fixed above so
+  // these guards are safe.
   // Order matters: ``draft === null`` is a transient state during
   // a "Reset experiment" refetch (react-query flips ``isFetching``,
   // not ``isLoading``, on a refetch). Show "loading" rather than
@@ -180,31 +234,31 @@ export function DesignEditor({
     );
   }
 
-  const effectiveSelected =
-    selectedFactorId ?? draft.factors[0]?.id ?? null;
-  const selectedFactor =
-    draft.factors.find((f) => f.id === effectiveSelected) ?? null;
-
-  // Review-mode banner — surfaces *why* the tab is locked. The
-  // App-level ``<fieldset disabled>`` wrapper handles interaction
-  // blocking for real form controls; span+role="button" widgets
-  // (CategoryPicker, OntologyTermPicker, EditableDescription) read
-  // ``useIsReadOnly()`` and self-gate. This banner is just the
-  // visible status line.
-  const readOnly = useIsReadOnly();
-
   return (
     <div className="space-y-4">
       {readOnly ? (
         <div
-          className="rounded border border-slate-300 bg-slate-100/60 px-3 py-2 text-[12px] text-slate-600 dark:bg-slate-800/60 dark:border-slate-600 dark:text-slate-300"
+          className="rounded border border-amber-300 bg-amber-50/60 px-3 py-2 text-[12px] text-amber-800 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-200"
           role="status"
         >
           <span className="font-semibold uppercase tracking-wide text-[10px] mr-2">
             Read-only
           </span>
-          no calibration / ticket context — open this experiment via a
-          package to take action on the design
+          {usingBaseline ? (
+            <>
+              you're viewing{" "}
+              <span className="font-mono">{baselineLabel ?? baselineSourceKind ?? "this curation"}</span>
+              {" "}— edits write to the local pack, so editing while
+              viewing this baseline is locked. Switch the baseline
+              chip to the editable target (consensus / your polished
+              row) to edit.
+            </>
+          ) : (
+            <>
+              no calibration / ticket context — open this experiment
+              via a package to take action on the design
+            </>
+          )}
         </div>
       ) : null}
       <div className="space-y-4">
@@ -219,6 +273,43 @@ export function DesignEditor({
           state={validation}
           onSelectFactor={(factorId) => setSelectedFactorId(factorId)}
         />
+      ) : null}
+      {duplicatePairs.length > 0 ? (
+        <div className="text-[11px] rounded border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1.5 mb-2 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100">
+          <span className="font-semibold">
+            {duplicatePairs.length === 1
+              ? "Duplicate factor"
+              : `${duplicatePairs.length} duplicate factor pairs`}
+            :{" "}
+          </span>
+          {duplicatePairs.slice(0, 3).map((p, i) => (
+            <span key={`${p.a.id}-${p.b.id}`}>
+              {i > 0 ? "; " : ""}
+              <button
+                type="button"
+                onClick={() => setSelectedFactorId(p.a.id)}
+                className="underline underline-offset-2 hover:text-amber-700"
+              >
+                {p.a.category.label || `factor ${p.a.id}`}
+              </button>
+              {" ≡ "}
+              <button
+                type="button"
+                onClick={() => setSelectedFactorId(p.b.id)}
+                className="underline underline-offset-2 hover:text-amber-700"
+              >
+                {p.b.category.label || `factor ${p.b.id}`}
+              </button>
+            </span>
+          ))}
+          {duplicatePairs.length > 3 ? (
+            <span className="italic"> · and more</span>
+          ) : null}
+          <div className="text-[10px] italic mt-0.5 text-amber-800 dark:text-amber-200">
+            Equality is by statement-set (FV labels can differ). Delete
+            or edit one of each pair before committing.
+          </div>
+        </div>
       ) : null}
       <ExperimentDecisionsSection
         draft={draft}
@@ -310,6 +401,7 @@ export function DesignEditor({
           <>
             <FactorValueList
               factor={selectedFactor}
+              factorDescription={factorDescription}
               totalBiomaterials={draft.biomaterials.length}
               changesByFvId={changes.byFv.get(selectedFactor.id) ?? null}
               onFvLabelChange={(fvId, label) =>
@@ -322,6 +414,14 @@ export function DesignEditor({
               onDeleteFv={(fvId) =>
                 apply(deleteFactorValue(draft, selectedFactor.id, fvId))
               }
+              onDuplicateFv={(fvId) => {
+                const result = duplicateFactorValue(
+                  draft,
+                  selectedFactor.id,
+                  fvId,
+                );
+                if (result) apply(result.design);
+              }}
               onAddStatement={(fvId) =>
                 apply(addStatement(draft, selectedFactor.id, fvId))
               }

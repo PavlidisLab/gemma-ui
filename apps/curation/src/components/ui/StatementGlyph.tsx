@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { shortenUri } from "@/lib/curie";
+import { CurieLink } from "./CurieLink";
 
 /**
  * Compact graphical view of an FV / statement-shape value's
@@ -203,16 +203,10 @@ function GlyphTermRow({
             {term.label || "—"}
           </span>
           {term.uri ? (
-            <a
-              href={term.uri}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-[10px] text-slate-400 hover:text-blue-700 hover:underline dark:text-slate-500 dark:hover:text-blue-300"
-              onClick={(e) => e.stopPropagation()}
-              title={term.uri}
-            >
-              {shortenUri(term.uri)}
-            </a>
+            <CurieLink
+              uri={term.uri}
+              className="font-mono text-[10px] text-slate-400 hover:text-blue-700 hover:underline dark:text-slate-500 dark:hover:text-blue-300 cursor-pointer bg-transparent border-0 p-0"
+            />
           ) : (
             <span className="text-[10px] text-slate-400 dark:text-slate-500">
               free-text

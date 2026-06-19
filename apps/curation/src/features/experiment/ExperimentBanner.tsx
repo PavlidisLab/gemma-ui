@@ -99,7 +99,7 @@ export function ExperimentBanner({
   notesOpen,
   onToggleNotes,
   groupContext,
-  ticketContext,
+  ticketContext: _ticketContext,
   commitBar,
 }: {
   experimentId: number | string;
@@ -152,7 +152,7 @@ export function ExperimentBanner({
 
   return (
     <section className="bg-white border-b border-slate-200">
-      <div className="mx-auto w-full max-w-[1800px] px-4 py-3 flex gap-4 flex-wrap items-start">
+      <div className="mx-auto w-full px-4 py-3 flex gap-4 flex-wrap items-start">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
             <ShortNameEditor
@@ -248,12 +248,12 @@ export function ExperimentBanner({
              three set chips PLUS a separate paginator for "the active
              one", with the same data echoed twice. Open the active
              chip to navigate. */}
-          {ticketContext ? (
-            <TicketContextChip
-              experimentId={experimentId}
-              ticketContext={ticketContext}
-            />
-          ) : null}
+          {/* TicketContextChip moved 2026-06-14 — Paul: "would it make
+             sense to consolidate this so that the breadcrumb is also
+             the drop-down ui?" The same component now mounts in
+             AppHeader next to the Dashboard button, doubling as the
+             back-affordance + the member-popover trigger. Was a
+             separate violet pill here. */}
           <ExperimentGroupChips
             experimentId={experimentId}
             groupContext={groupContext}
@@ -290,7 +290,7 @@ export function ExperimentBanner({
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[1800px] px-4">
+      <div className="mx-auto w-full px-4">
         <nav className="flex items-center gap-1 -mb-px overflow-x-auto">
           <ExperimentTabs activeTab={activeTab} onTabChange={onTabChange} />
         </nav>
@@ -1797,7 +1797,7 @@ export function TopBar(_props: {
  *  within the ticket's targets ("3/20"), with prev/next arrows
  *  walking the target list — same workflow as the group navigator
  *  for sets. */
-function TicketContextChip({
+export function TicketContextChip({
   experimentId,
   ticketContext,
 }: {
@@ -1840,8 +1840,43 @@ function TicketContextChip({
   const chipLabel =
     ticket.title.length > 32 ? `${ticket.title.slice(0, 32)}…` : ticket.title;
 
+  // Prev / next navigation around the position counter — replaces
+  // the popover-only "[ and ] keys to navigate" hint, which Paul
+  // 2026-06-14 called "not that useful." The chip itself is now a
+  // direct back-link to the ticket detail page (no popover trigger);
+  // the popover hangs off the counter / ▾ glyph instead.
+  const currentTarget = idx >= 0 ? expTargets[idx] : null;
+  const prevTarget = idx > 0 ? expTargets[idx - 1] : null;
+  const nextTarget = idx >= 0 && idx < total - 1 ? expTargets[idx + 1] : null;
+  function navigateTo(targetId: number): void {
+    navigate(`#/experiments/${targetId}?ticket=${ticketId}`);
+  }
+  // Layout per Paul 2026-06-14:
+  //   [← Ticket]   [Boss-critic 200 …]   ‹ 12/200 ›
+  //   ───────────  ───────────────────  ───────────
+  //   plain        dropdown trigger     counter + prev/next
+  //   back-link    (opens popover)      (free-floating)
+  //
+  // The back-link is a bare "← Ticket" — no title baked in. The
+  // title lives on the dropdown trigger box next to it. Three
+  // separate concerns, three visually distinct affordances.
+  // Status pill drops out of this row — surface lives in the
+  // popover member list per-row.
   return (
-    <span ref={wrapRef} className="relative inline-flex items-center gap-1 text-[11px]">
+    <span ref={wrapRef} className="relative inline-flex items-center gap-2 text-[11px]">
+      <a
+        href={`#/tickets/${ticketId}`}
+        className={cn(
+          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer no-underline",
+          "border-violet-300 bg-violet-100 text-violet-800",
+          "hover:bg-violet-200 hover:no-underline",
+          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
+        )}
+        title={`Back to ticket: ${ticket.title}`}
+      >
+        <span aria-hidden>←</span>
+        <span>Ticket</span>
+      </a>
       <button
         type="button"
         aria-expanded={open}
@@ -1851,21 +1886,43 @@ function TicketContextChip({
           "border-violet-300 bg-violet-100 text-violet-800",
           "hover:bg-violet-200",
           "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
+          "max-w-[20rem]",
           open && "ring-2 ring-offset-1 ring-violet-400/50",
         )}
-        title={`${ticket.title} — click to see ticket members`}
+        title={`${ticket.title} — click for ticket members`}
       >
-        <span>Ticket: {chipLabel}</span>
-        <span className="text-[10px] text-violet-700/70 dark:text-violet-300/70 tabular-nums">
-          {total}
-        </span>
-        <span className="text-violet-700/70 dark:text-violet-300/70" aria-hidden>
+        <span className="truncate">{chipLabel}</span>
+        <span aria-hidden className="text-violet-700/70 dark:text-violet-300/70">
           ▾
         </span>
       </button>
-      <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300">
+      <button
+        type="button"
+        onClick={() => prevTarget && navigateTo(prevTarget.target_id)}
+        disabled={!prevTarget}
+        title="Previous member (also: [ key)"
+        aria-label="previous member"
+        className="text-[14px] font-bold leading-none text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:text-slate-100 dark:disabled:text-slate-600 px-0.5"
+      >
+        ‹
+      </button>
+      <span
+        className="font-mono tabular-nums text-slate-700 dark:text-slate-200 select-none"
+        title={`Member ${idx >= 0 ? idx + 1 : "?"} of ${total}`}
+      >
         {idx >= 0 ? idx + 1 : "?"}/{total}
       </span>
+      <button
+        type="button"
+        onClick={() => nextTarget && navigateTo(nextTarget.target_id)}
+        disabled={!nextTarget}
+        title="Next member (also: ] key)"
+        aria-label="next member"
+        className="text-[14px] font-bold leading-none text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:text-slate-100 dark:disabled:text-slate-600 px-0.5"
+      >
+        ›
+      </button>
+      <TicketTargetStatusDot status={currentTarget?.status ?? null} />
       {open ? (
         <TicketNavigatorPopover
           ticketId={ticketId}
@@ -1877,6 +1934,30 @@ function TicketContextChip({
         />
       ) : null}
     </span>
+  );
+}
+
+/** Tiny coloured circle conveying the current experiment's status on
+ *  the ticket. Compact form-factor — fits in the header nav cluster
+ *  next to ‹ N/M ›. Tooltip carries the human-readable label. */
+function TicketTargetStatusDot({
+  status,
+}: {
+  status: "NOT_DONE" | "UNDERWAY" | "DONE" | null | undefined;
+}) {
+  if (!status) return null;
+  const map = {
+    NOT_DONE: { cls: "bg-slate-400 dark:bg-slate-500", label: "Not started" },
+    UNDERWAY: { cls: "bg-amber-500", label: "Started" },
+    DONE: { cls: "bg-emerald-500", label: "Done" },
+  } as const;
+  const m = map[status];
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${m.cls}`}
+      title={`This experiment's status on the ticket: ${m.label}`}
+      aria-label={m.label}
+    />
   );
 }
 
@@ -1991,10 +2072,14 @@ function TicketNavigatorPopover({
             </a>
           </span>
         </div>
+        {/* Progress indication — Paul 2026-06-14: the popover should
+            still surface the curator's position in the ticket.
+            Dropped the "[ and ] keys to navigate" tail since those
+            are now click affordances next to the chip. */}
         {targets.length > 0 ? (
           <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
             {currentIdx >= 0
-              ? `${currentIdx + 1} of ${targets.length}  ·  [ and ] keys to navigate`
+              ? `${currentIdx + 1} of ${targets.length}`
               : `not on ticket · ${targets.length} member${
                   targets.length === 1 ? "" : "s"
                 }`}
@@ -2075,18 +2160,26 @@ function TicketMemberRow({
           {target.display_name || "(no title)"}
         </span>
         {target.status ? (
-          <span
-            className={cn(
-              "text-[9px] uppercase tracking-wide shrink-0",
+          // Status disc — same visual language as the set-navigator
+          // popover. Per Paul 2026-06-11: "we used to have little
+          // circles." The earlier uppercase text label drifted from
+          // the set-navigator's disc convention.
+          <StatusDisc
+            tone={
               target.status === "DONE"
-                ? "text-emerald-700 dark:text-emerald-400"
+                ? "done"
                 : target.status === "UNDERWAY"
-                  ? "text-amber-700 dark:text-amber-400"
-                  : "text-slate-500 dark:text-slate-400",
-            )}
-          >
-            {target.status === "NOT_DONE" ? "todo" : target.status.toLowerCase()}
-          </span>
+                  ? "draft"
+                  : "untouched"
+            }
+            title={
+              target.status === "DONE"
+                ? "done"
+                : target.status === "UNDERWAY"
+                  ? "in progress"
+                  : "todo"
+            }
+          />
         ) : null}
       </button>
     </li>

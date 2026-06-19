@@ -10,6 +10,8 @@ import {
   MetadataBadge,
   summariseDataset,
 } from "./MetadataBadge";
+import { AgentConsideredPanel } from "./AgentConsideredPanel";
+import { OrientationProse } from "@/components/ui/OrientationProse";
 import {
   TriageBadge,
   designChipFor,
@@ -25,6 +27,7 @@ import {
   loadDispositions,
   loadFeedback,
   loadNotes,
+  onProposalStateReset,
   saveDispositions,
   saveFeedback,
   saveNotes,
@@ -145,6 +148,21 @@ export function ProposalSidebarPanel({
     saveFeedback(experimentId, proposalId, feedback);
   }, [experimentId, proposalId, feedback]);
 
+  // Listen for cross-surface resets dispatched by the commit-undo and
+  // per-finding-undo paths. The LS layer is already wiped by the
+  // caller; this listener flushes the matching in-memory state so the
+  // proposal cards reflect the rollback without the curator having to
+  // remount the panel. Per Paul 2026-06-10: undo had been leaving
+  // proposal cards stuck on retained/rejected.
+  useEffect(() => {
+    return onProposalStateReset((targetExperimentId) => {
+      if (targetExperimentId !== String(experimentId)) return;
+      setDispositions(new Map());
+      setNotes(new Map());
+      setFeedback("");
+    });
+  }, [experimentId]);
+
   const setOne = (key: string, d: ProposalDisposition) => {
     setDispositions((prev) => {
       const next = new Map(prev);
@@ -174,11 +192,11 @@ export function ProposalSidebarPanel({
     setDispositions((prev) => {
       const next = new Map(prev);
       for (let i = 0; i < (proposal.factors?.length ?? 0); i++) {
-        const k = factorElementKey(proposalId, i);
+        const k = factorElementKey(proposalId, proposal.factors![i]);
         if (!next.has(k)) next.set(k, "retained");
       }
       for (let i = 0; i < (proposal.tags?.length ?? 0); i++) {
-        const k = tagElementKey(proposalId, i);
+        const k = tagElementKey(proposalId, proposal.tags![i]);
         if (!next.has(k)) next.set(k, "retained");
       }
       return next;
@@ -218,11 +236,26 @@ export function ProposalSidebarPanel({
     // ``card`` class — the global ``html.dark .card`` rule in
     // index.css overrode the dark sky tint. Per Paul 2026-05-21.
     <div className="p-2 space-y-2 rounded-lg border border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/40">
+      {/* Orchestrator orientation prose — generic top-of-panel slot.
+          Reads directly from ``proposal.experiment_summary`` — the
+          Proposal IS the canonical location for the field; no
+          AuditEvidence fallback applies on this surface. Per
+          ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``
+          and ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */}
+      <OrientationProse text={proposal.experiment_summary ?? null} />
       {datasetSummary && datasetSummary.nSamples > 0 ? (
         <div className="px-1 pb-1.5 border-b border-sky-200 dark:border-sky-800">
           <MetadataBadge summary={datasetSummary} />
         </div>
       ) : null}
+      {/* Quiet "agent considered but didn't propose" panel — surfaces
+          constant BM characteristics the resolver chain inspected but
+          couldn't ground. Stays hidden when the proposal carries no
+          considered-records. Per
+          UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md. */}
+      <AgentConsideredPanel
+        agentConsidered={proposal.evidence?.agent_considered}
+      />
       <DecisionsStrip proposal={proposal} />
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300">
@@ -310,7 +343,10 @@ export function ProposalSidebarPanel({
             Design — factors
           </div>
           {proposal.factors.map((f, i) => {
-            const key = factorElementKey(proposalId, i);
+            const key = factorElementKey(proposalId, f);
+            // i kept in signature for symmetry with the tag map below;
+            // not used in the key (URI-anchored now).
+            void i;
             return (
               <FactorReviewCard
                 key={key}
@@ -341,7 +377,8 @@ export function ProposalSidebarPanel({
         <DecisionsStrip proposal={proposal} scope="tag" />
         {proposal.tags?.length ? (
           proposal.tags.map((t, i) => {
-            const key = tagElementKey(proposalId, i);
+            const key = tagElementKey(proposalId, t);
+            void i;
             return (
               <TagReviewCard
                 key={key}

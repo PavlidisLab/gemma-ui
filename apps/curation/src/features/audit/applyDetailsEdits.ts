@@ -158,7 +158,21 @@ export function applyDetailsEditsToDesign(
       continue;
     }
 
-    const goldFv = goldFvForAgentIdx(agentFactor, goldFactor, parsed.fvIndex);
+    // Re-resolve the gold FV against ``mutated`` (not the original
+    // ``goldFactor``) so prior edits in this same apply pass are
+    // visible. Without this, a curator confirming both predicate and
+    // object on a near-match had the second edit silently overwrite
+    // the first — each iteration read the stale ``current`` from
+    // ``goldFactor.statements[idx]`` and ``next = {...current,
+    // <part>: nextTerm}`` clobbered the other slot back to its
+    // pre-edit value. Per Paul 2026-06-12: "clicking 'agree' leads
+    // to a 'modified' flag on the factor value but no change."
+    const mutatedFactor = mutated.factors.find(
+      (f) => f.id === goldFactor.id,
+    );
+    const goldFv = mutatedFactor
+      ? goldFvForAgentIdx(agentFactor, mutatedFactor, parsed.fvIndex)
+      : null;
     if (!goldFv) continue;
 
     if (parsed.kind === "fv_label") {

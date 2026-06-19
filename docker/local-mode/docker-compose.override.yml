@@ -1,14 +1,21 @@
-# Temporary override for the smoke test 2026-05-24.
-# Wires local-api's GEMMA_BASE_URL at the local-mode gemma-rest
-# service so the dry-run scrape doesn't fall through to staging.
+# Local-api GEMMA_BASE_URL override.
 #
-# Gap on bro's side: local-api's `environment:` block in
-# docker-compose.yml declares GEMMA_USERNAME / GEMMA_PASSWORD but
-# not GEMMA_BASE_URL, so the container falls through to
-# shared.gemma._GEMMA_BASE_DEFAULT (staging). Proposer's block
-# does declare GEMMA_BASE_URL. Fix-on-bro's-side: add the same
-# line to local-api.
+# Default targets host.docker.internal:8080 — the standalone
+# gemma-rest container Paul typically has running on the host's port
+# 8080 (separate from the in-stack `gemma-rest` profile service in
+# the base compose, which isn't started in most local sessions).
+# Override via the GEMMA_BASE_URL env var to point at staging-gemma,
+# frink, prod, or the in-stack service when --profile gemma is up:
+#
+#   GEMMA_BASE_URL=http://frink.msl.ubc.ca:8080 docker compose up -d local-api
+#   GEMMA_BASE_URL=https://staging-gemma.msl.ubc.ca docker compose up -d local-api
+#   GEMMA_BASE_URL=http://gemma-rest:8080 docker compose --profile gemma up -d
+#
+# Used by:
+#   * /datasets/{id}/curations live curation row fetch
+#     (curation_versions._fetch_live_design_from_upstream, 2026-06-08).
+#   * Existing proxy / sample / publications fetches.
 services:
   local-api:
     environment:
-      GEMMA_BASE_URL: ${GEMMA_BASE_URL:-http://gemma-rest:8080}
+      GEMMA_BASE_URL: ${GEMMA_BASE_URL:-http://host.docker.internal:8080}

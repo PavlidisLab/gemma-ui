@@ -13,7 +13,7 @@ import {
 import { useToast } from "@/components/ui/Toast";
 import { InlineText } from "@/components/ui/InlineText";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
-import { InlineFvPicker } from "@/components/ui/InlineFvPicker";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { useStickyState, useSessionState } from "@/lib/useStickyState";
 import { useEscape } from "@/lib/useEscape";
 import { fvDisplayLabel } from "@/features/samples/fvLabels";
@@ -24,11 +24,9 @@ import type {
   Statement,
 } from "@/features/experiment/types";
 import { cn } from "@/lib/cn";
-import {
-  ONTOLOGY_ANCHOR_CLS_PL2,
-  ONTOLOGY_ANCHOR_CLS_PL3,
-} from "@/lib/ontologyAnchor";
+import { ONTOLOGY_ANCHOR_CLS_PL2 } from "@/lib/ontologyAnchor";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { HelpPopup } from "@/components/ui/HelpPopup";
 import { Fragment } from "react";
 import { BulkAssignPanel } from "@/features/samples/BulkAssignPanel";
 import { useProposalReview } from "@/features/proposal/ProposalReviewContext";
@@ -39,6 +37,7 @@ import {
 import { AuditDot } from "@/features/audit/AuditDot";
 import { assignmentTarget } from "@/features/audit/targetIds";
 import { onSamplesScrollRow } from "@/lib/scrollToSample";
+import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { BiomaterialMetaPopover } from "./BiomaterialMetaPopover";
 import type {
   BiomaterialAssignmentMeta,
@@ -267,23 +266,6 @@ function SampleTable({
       if (k) s.add(k);
     }
     return s;
-  }, [design.factors]);
-  // Match characteristic keys to categorical factors so the cell
-  // editor can offer an FV picker instead of free text. Keyed by
-  // lowercased char key for case-insensitive lookup; only entries
-  // for ``categorical`` factors with ≥1 FV land in the map —
-  // continuous factors and factor-less chars fall through to the
-  // text editor.
-  const categoricalFactorByCharKey = useMemo(() => {
-    const m = new Map<string, Factor>();
-    for (const f of design.factors) {
-      if (f.type !== "categorical") continue;
-      if (f.factor_values.length === 0) continue;
-      const key = (f.category.label || "").trim().toLowerCase();
-      if (!key) continue;
-      if (!m.has(key)) m.set(key, f);
-    }
-    return m;
   }, [design.factors]);
   // Saved-baseline char lookup for per-cell dirty detection. Keyed
   // by ``${short_name}|${charKey}`` so the rendering path can do an
@@ -1229,6 +1211,7 @@ function SampleTable({
           factors={design.factors}
           biomaterials={design.biomaterials}
           initialFactor={bulkAssignFactor}
+          selectedShortNames={Array.from(selected)}
           onApply={(factorId, plan) => {
             // Group by destination FV so each FV is one bulk
             // mutation rather than N sequential single-sample
@@ -1398,22 +1381,32 @@ function SampleTable({
                   if (!entry) return null;
                   const { factor } = entry;
                   const nuisance = isNuisanceFactor(factor);
+                  // Title shows full factor name + description + flags;
+                  // pulls the name to the front so long names truncated
+                  // by the header label still surface on hover. Per
+                  // Paul 2026-06-14 ("the names of the factors need to
+                  // be visible in the header, long names abbrev/trunc").
+                  const factorLabel =
+                    factor.name || `factor#${factor.id}`;
+                  const titleParts = [
+                    factorLabel,
+                    factor.description || null,
+                    nuisance ? "nuisance factor (batch / block)" : null,
+                    constantFactorIds.has(factor.id)
+                      ? "constant across visible rows"
+                      : null,
+                  ].filter(Boolean);
                   return (
                     <SortableTh
                       key={`f-${factor.id}`}
-                      label={factor.name || `factor#${factor.id}`}
+                      label={factorLabel}
+                      truncateLabel
                       colKey={key}
                       sort={sort}
                       onSortChange={onSortChange}
                       badge="factor"
                       className="bg-blue-50/50 border-l-2 border-blue-200"
-                      title={
-                        (factor.description || `factor#${factor.id}`) +
-                        (nuisance ? " · nuisance factor (batch / block)" : "") +
-                        (constantFactorIds.has(factor.id)
-                          ? " · constant across visible rows"
-                          : "")
-                      }
+                      title={titleParts.join(" · ")}
                       dataFactorId={factor.id}
                       width={colWidths[key]}
                       onResize={(w) => setColWidth(key, w)}
@@ -1803,10 +1796,26 @@ function SampleTable({
                           if (c === "medium") cellConf = "medium";
                         }
                       }
+                      // Per-value tint lives on the cell (not the
+                      // dropdown chip) so factor and char columns wash
+                      // the whole cell identically — the colour bands
+                      // line up across columns for the same value.
+                      const cellTint =
+                        agg.isMixed || agg.fvId == null
+                          ? undefined
+                          : (() => {
+                              const idx = valueIdxByColumn
+                                .get(`factor:${factor.id}`)
+                                ?.get(String(agg.fvId));
+                              return idx != null ? tintForIndex(idx) : undefined;
+                            })();
                       return (
                         <td
                           key={`${repr.short_name}-f${factor.id}`}
                           className="px-3 py-0.5 border-l-2 border-blue-100"
+                          style={
+                            cellTint ? { backgroundColor: cellTint } : undefined
+                          }
                         >
                           <span className="inline-flex items-center gap-1">
                             {/* Confidence-warning slot — fixed width so
@@ -1844,13 +1853,6 @@ function SampleTable({
                               factor={factor}
                               currentFvId={agg.fvId}
                               isMixed={agg.isMixed}
-                              valueTint={(() => {
-                                if (agg.isMixed || agg.fvId == null) return undefined;
-                                const idx = valueIdxByColumn
-                                  .get(`factor:${factor.id}`)
-                                  ?.get(String(agg.fvId));
-                                return idx != null ? tintForIndex(idx) : undefined;
-                              })()}
                               onChange={(fvId) => {
                                 for (const sn of allShortNames) {
                                   onReassign(sn, factor.id, fvId);
@@ -1899,8 +1901,6 @@ function SampleTable({
                           ).trim();
                           return cur !== prior;
                         });
-                      const matchedFactor =
-                        categoricalFactorByCharKey.get(k.toLowerCase());
                       return (
                         <td
                           key={`${repr.short_name}-${k}`}
@@ -1909,9 +1909,7 @@ function SampleTable({
                             agg.isMixed
                               ? "italic text-slate-500"
                               : isOntology
-                                // Same ontology-anchored cue as the
-                                // FvSelect — see ONTOLOGY_ANCHOR_CLS.
-                                ? `text-emerald-900 bg-emerald-50/60 ${ONTOLOGY_ANCHOR_CLS_PL3}`
+                                ? "text-emerald-900 bg-emerald-50/60"
                                 : "text-slate-700",
                           )}
                           style={
@@ -1929,31 +1927,34 @@ function SampleTable({
                         >
                           {agg.isMixed ? (
                             <span>{agg.display}</span>
-                          ) : matchedFactor ? (
-                            <InlineFvPicker
-                              value={agg.display}
-                              placeholder="—"
-                              options={matchedFactor.factor_values.map(
-                                (fv) => fv.free_text_label,
-                              )}
-                              dirty={isDirty}
-                              onCommit={(value) => {
-                                for (const sn of allShortNames) {
-                                  onSetCharacteristic(sn, k, value);
-                                }
-                              }}
-                            />
                           ) : (
-                            <InlineText
-                              value={agg.display}
-                              placeholder="—"
-                              dirty={isDirty}
-                              onCommit={(value) => {
-                                for (const sn of allShortNames) {
-                                  onSetCharacteristic(sn, k, value);
-                                }
-                              }}
-                            />
+                            <span
+                              className={cn(
+                                "inline-flex items-baseline gap-1.5",
+                                // Ontology bookmark rides the value and is
+                                // inset from the column edge (so it reads
+                                // as a value anchor, not a column divider).
+                                // A characteristic is always edited as
+                                // plain text — never via a factor's FV
+                                // picker; a char and a same-named factor
+                                // are distinct entities.
+                                isOntology && ONTOLOGY_ANCHOR_CLS_PL2,
+                              )}
+                            >
+                              <InlineText
+                                value={agg.display}
+                                placeholder="—"
+                                dirty={isDirty}
+                                onCommit={(value) => {
+                                  for (const sn of allShortNames) {
+                                    onSetCharacteristic(sn, k, value);
+                                  }
+                                }}
+                              />
+                              {agg.valueUri ? (
+                                <CurieLink uri={agg.valueUri} />
+                              ) : null}
+                            </span>
                           )}
                         </td>
                       );
@@ -2050,6 +2051,7 @@ function SortableTh({
   onDragOver,
   onDrop,
   onDragEnd,
+  truncateLabel,
 }: {
   label: string;
   colKey: string;
@@ -2058,6 +2060,13 @@ function SortableTh({
   className?: string;
   title?: string;
   sticky?: boolean;
+  /** When true, the label wraps in an inline-block with ``truncate``
+   *  so it ellipsizes at the column's resolved width instead of
+   *  overflowing. Combine with a meaningful ``title`` so the full
+   *  text is reachable on hover. Used by factor headers where
+   *  ``factor.name`` can be lengthy (e.g. "Klf4 [mouse]
+   *  overexpression genotype"). */
+  truncateLabel?: boolean;
   /** "char" for raw biomaterial characteristics; "factor" for
    *  curated experimental factors. Renders as a tiny pill above
    *  the label so curators can tell which is which at a glance. */
@@ -2201,7 +2210,7 @@ function SortableTh({
       <button
         type="button"
         className={cn(
-          "inline-flex items-center gap-1 hover:text-slate-900 block",
+          "inline-flex items-baseline gap-1 hover:text-slate-900 block max-w-full",
           active ? "text-slate-900" : "text-slate-600",
         )}
         onClick={() =>
@@ -2211,7 +2220,15 @@ function SortableTh({
           })
         }
       >
-        {label}
+        {truncateLabel ? (
+          // Ellipsize at the column's resolved width — full text
+          // surfaces on hover via the ``<th>``'s ``title`` attribute.
+          <span className="truncate inline-block max-w-full min-w-0">
+            {label}
+          </span>
+        ) : (
+          label
+        )}
         <span className="text-[10px] tabular-nums text-slate-400">
           {dir === "asc" ? "▲" : dir === "desc" ? "▼" : ""}
         </span>
@@ -2293,7 +2310,6 @@ function FvSelect({
   factor,
   currentFvId,
   isMixed,
-  valueTint,
   onChange,
 }: {
   factor: Factor;
@@ -2303,11 +2319,6 @@ function FvSelect({
    *  cell as a curation smell — design factors should apply at the
    *  source-sample level. Picking a value commits to all siblings. */
   isMixed?: boolean;
-  /** CSS color for the cell background — assigned by the parent
-   *  panel from the per-column first-seen-value index. Parent skips
-   *  ontology / mixed / unassigned / empty so the four state
-   *  classes below stay load-bearing. */
-  valueTint?: string;
   onChange: (fvId: number) => void;
 }) {
   // Four visual states: ontology-backed (emerald — matches the
@@ -2330,13 +2341,11 @@ function FvSelect({
       ? "border-rose-300 text-rose-700"
       : isOntologyBacked
         // "Anchored in an ontology" cue — see ONTOLOGY_ANCHOR_CLS.
-        ? `border-emerald-300 text-emerald-900 bg-emerald-50 ${ONTOLOGY_ANCHOR_CLS_PL2}`
+        // Border + text colour carry the cue; the per-value wash lives
+        // on the enclosing cell, so the dropdown stays a neutral white
+        // control that reads clearly on top of it.
+        ? `border-emerald-300 text-emerald-900 ${ONTOLOGY_ANCHOR_CLS_PL2}`
         : "border-slate-300 text-slate-800";
-  // The parent passes `valueTint` already gated on (not mixed, not
-  // unassigned, not ontology-backed) — no extra check needed here.
-  // We only clear it on ontology-backed cells so the emerald
-  // bookmark + bg stays untinted.
-  const tint = isOntologyBacked ? undefined : valueTint;
   // For unassigned / mixed cells there's no FV with statements to
   // unpack; a plain native ``title`` is fine. For populated cells
   // (ontology-backed OR free-text-assigned) we render a rich
@@ -2362,7 +2371,6 @@ function FvSelect({
         "text-xs border rounded px-1 py-0.5 bg-white max-w-[14rem] truncate",
         stateCls,
       )}
-      style={tint ? { backgroundColor: tint } : undefined}
       // Native ``title`` only on cells without statements to surface —
       // the rich tooltip below replaces it on populated cells.
       title={currentFv && currentFv.statements.length > 0 ? undefined : fallbackTitle}
@@ -2371,11 +2379,20 @@ function FvSelect({
       <option value="" disabled>
         {isMixed ? "— mixed —" : "— unassigned —"}
       </option>
-      {factor.factor_values.map((fv) => (
-        <option key={fv.id} value={fv.id}>
-          {fvDisplayLabel(fv, factor.factor_values)}
-        </option>
-      ))}
+      {factor.factor_values.map((fv) => {
+        const r = fvDisplayLabel(fv, factor.factor_values, {
+          compact: fv.id === currentFvId,
+        });
+        return (
+          <option
+            key={fv.id}
+            value={fv.id}
+            title={r.title || undefined}
+          >
+            {r.text}
+          </option>
+        );
+      })}
     </select>
   );
 
@@ -2635,10 +2652,16 @@ function BulkActionBar({
 
   return (
     <div className="bg-blue-50 border-b border-blue-200 px-3 py-2 flex items-center gap-3 flex-wrap text-xs">
-      <span className="font-semibold text-blue-900">
+      <span className="font-semibold text-blue-900 inline-flex items-center gap-1">
         {selectedGroupCount != null
           ? `${selectedGroupCount} source sample${selectedGroupCount === 1 ? "" : "s"} (${selectedShortNames.length} BM${selectedShortNames.length === 1 ? "" : "s"})`
           : `${selectedShortNames.length} selected`}
+        <HelpPopup title="Selected-rows assign" size="sm">
+          <p>
+            Sets the chosen factor value on every selected sample at once.
+            For a richer column → value mapping, use <em>bulk assign…</em>.
+          </p>
+        </HelpPopup>
       </span>
       <span className="text-blue-900/70">→ set</span>
       <select
@@ -2672,11 +2695,20 @@ function BulkActionBar({
         <option value="">
           {isMixed ? "— mixed; pick to set all —" : "— unassigned —"}
         </option>
-        {factorFvOptions.map((fv) => (
-          <option key={fv.id} value={fv.id}>
-            {fvDisplayLabel(fv, factorFvOptions)}
-          </option>
-        ))}
+        {factorFvOptions.map((fv) => {
+          const r = fvDisplayLabel(fv, factorFvOptions, {
+            compact: fv.id === fvId,
+          });
+          return (
+            <option
+              key={fv.id}
+              value={fv.id}
+              title={r.title || undefined}
+            >
+              {r.text}
+            </option>
+          );
+        })}
       </select>
       {wouldChangeCount > 0 ? (
         <button
@@ -2757,7 +2789,9 @@ function sortBiomaterials(
     // empty values sort last regardless of direction
     if (av === "" && bv !== "") return 1;
     if (bv === "" && av !== "") return -1;
-    return av < bv ? -dir : dir;
+    // Numeric-aware so "3 h" precedes "8 h" precedes "24 h" rather than
+    // sorting lexically (which would float "24 h" above "3 h").
+    return compareValuesNatural(av, bv) * dir;
   };
 
   copy.sort(cmp);
@@ -2921,17 +2955,30 @@ function BulkAssignModal({
   factors,
   biomaterials,
   initialFactor,
+  selectedShortNames,
   onApply,
   onCancel,
 }: {
   factors: Factor[];
   biomaterials: Biomaterial[];
   initialFactor: Factor;
+  /** Short names of the rows the curator has selected in the table.
+   *  When non-empty, the modal scopes the buckets to just those
+   *  samples — the "select rows then bulk-assign to those" flow —
+   *  with a toggle back to the full cohort. */
+  selectedShortNames?: string[];
   onApply: (factorId: number, plan: Map<string, number>) => void;
   onCancel: () => void;
 }) {
   const [factorId, setFactorId] = useState<number>(initialFactor.id);
   const factor = factors.find((f) => f.id === factorId) ?? initialFactor;
+  const hasSelection = (selectedShortNames?.length ?? 0) > 0;
+  const [scopeToSelection, setScopeToSelection] = useState(hasSelection);
+  const scopedBiomaterials = useMemo(() => {
+    if (!scopeToSelection || !hasSelection) return biomaterials;
+    const sel = new Set(selectedShortNames);
+    return biomaterials.filter((b) => sel.has(b.short_name));
+  }, [scopeToSelection, hasSelection, selectedShortNames, biomaterials]);
   useEscape(true, onCancel);
   return (
     <div
@@ -2943,12 +2990,23 @@ function BulkAssignModal({
           GSE45642.2's ~30 subject ids) blows past the viewport top
           and bottom and the action buttons become unreachable. */}
       <div
-        className="bg-white rounded shadow-lg max-w-2xl w-full max-h-[90vh] flex flex-col"
+        className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
-          <span className="font-semibold text-slate-800 text-sm">
+          <span className="font-semibold text-slate-800 text-sm inline-flex items-center gap-1">
             Bulk assign
+            <HelpPopup title="Bulk assign" size="md">
+              <p>
+                Pick a column to <em>match on</em>; each of its distinct
+                values maps to a target factor value in one apply. Rows
+                left at <em>(skip)</em> are untouched.
+              </p>
+              <p>
+                Select rows in the table first to scope the mapping to just
+                those samples.
+              </p>
+            </HelpPopup>
           </span>
           <label className="text-xs text-slate-700 inline-flex items-center gap-1">
             target factor:
@@ -2973,13 +3031,31 @@ function BulkAssignModal({
             ×
           </button>
         </div>
+        {hasSelection ? (
+          <div className="px-3 py-1.5 border-b border-slate-200 dark:border-slate-700 bg-blue-50 dark:bg-blue-950/40 text-[11px] text-blue-900 dark:text-blue-200 flex items-center gap-2 shrink-0">
+            <span className="font-medium">
+              {scopeToSelection
+                ? `Scoped to ${selectedShortNames!.length} selected sample${selectedShortNames!.length === 1 ? "" : "s"}`
+                : `Using all ${biomaterials.length} samples`}
+            </span>
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-blue-700 dark:hover:text-blue-100"
+              onClick={() => setScopeToSelection((v) => !v)}
+            >
+              {scopeToSelection
+                ? `use all ${biomaterials.length} samples`
+                : `scope to ${selectedShortNames!.length} selected`}
+            </button>
+          </div>
+        ) : null}
         <div className="px-3 py-3 overflow-y-auto flex-1 min-h-0">
           <BulkAssignPanel
-            // Remount on factor change so suggested-plan recomputes
-            // against the new FV labels.
-            key={factor.id}
+            // Remount on factor OR scope change so the suggested plan
+            // recomputes against the new FV labels / sample set.
+            key={`${factor.id}:${scopeToSelection ? "sel" : "all"}`}
             factor={factor}
-            biomaterials={biomaterials}
+            biomaterials={scopedBiomaterials}
             onApply={(plan) => onApply(factor.id, plan)}
             onCancel={onCancel}
           />
@@ -3075,31 +3151,6 @@ function buildColumnGhost(th: HTMLElement): HTMLElement | null {
   return wrapper;
 }
 
-/**
- * Deterministic per-value text tint for categorical samples-table
- * cells. Helps the curator visually spot patterns ("all controls
- * are this blue, all treated this green") without reading every
- * label.
- *
- * Maps a per-column first-seen-value index to an HSL color. Index 0
- * is the same starting hue across every column, index 1 is the same
- * second hue, etc. — so columns that partition samples the same way
- * end up with matching color stripes regardless of label text. The
- * curator can scan two factor columns side-by-side and spot
- * agreement at a glance.
- *
- * Saturation 70%, lightness 50%, alpha 0.18 — semi-transparent so
- * the same color reads correctly on the light-mode white background
- * AND the dark-mode slate-900 background. Hue advances by the
- * golden angle (≈137.5°) so neighboring indices stay visually
- * distinct.
- *
- * Returns `undefined` for negative / non-finite indices so the cell
- * falls back to the surrounding theme background.
- */
-function tintForIndex(idx: number): string | undefined {
-  if (!Number.isFinite(idx) || idx < 0) return undefined;
-  // Start at a calm blue (220°) and walk by the golden angle.
-  const hue = (220 + idx * 137.508) % 360;
-  return `hsla(${hue.toFixed(0)}, 70%, 50%, 0.18)`;
-}
+// `tintForIndex` now lives in `@/lib/valueTint` so the Design crosstab
+// (OverviewPanel) shares the exact same per-value colour walk — see the
+// import at the top of this file.

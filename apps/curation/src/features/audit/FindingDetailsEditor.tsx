@@ -35,13 +35,25 @@
  * null and the "match Gemma" button is suppressed.
  */
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
+import { sameOntologyTerm } from "@/lib/ontologyTerm";
 import { useToast } from "@/components/ui/Toast";
-import { Term } from "@/components/ui/Term";
+import { Term, termRenderer } from "@/components/ui/Term";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
-import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
+import {
+  CONTINUATION,
+  FactorComparisonGrid,
+  type FactorComparisonPair,
+} from "./factorComparison/FactorComparisonGrid";
+import { buildPartitionMismatchPairs } from "./factorComparison/partitionRowBuilder";
+import { FvDisplayRow } from "@gemma/ontology";
+import {
+  ContinuousStrip,
+  continuousValuesFrom,
+} from "./factorComparison/FactorComparisonGrid";
 
 // The editor-scoped term renderer lives inside FindingDetailsEditor
 // — it closes over local state so "find ▸" lookups can mount an
@@ -58,6 +70,7 @@ import type {
 import type {
   Design,
   Factor,
+  FactorValue,
   Statement,
 } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
@@ -73,11 +86,20 @@ import { verdictToStructureDetails } from "./dispositionSave";
 import { consequentHint, type ConsequentHintState } from "./consequentHint";
 import { firstBacktick, trimRationaleBoilerplate } from "./rationaleText";
 import { findingLean, type DefenderLean } from "./defenderLean";
-import { actionLabels, findingActionShape } from "./actionLabels";
+import {
+  acceptLabel,
+  actionLabels,
+  findingActionShape,
+  type ActionShape,
+} from "./actionLabels";
+import { findingDisplayedGoldEmpty } from "./findingHelpers";
 import { parseTargetId, slug } from "./targetIds";
 import type { FactorProposal } from "@/api/types";
 import { useAudit } from "./AuditContext";
-import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
+import {
+  locateTooltipFor,
+  requestAuditFocus,
+} from "@/lib/scrollToAuditTarget";
 import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
 import {
   isSideEmpty,
@@ -262,6 +284,20 @@ interface Row {
 interface FvMeta {
   agentSampleCount: number;
   goldSampleCount: number | null;
+  /** Extra current-side statements beyond ``statements[0]`` — the
+   *  comparator row builder pairs the agent's single proposed
+   *  statement against gold's ``statements[0]``, but a curated FV
+   *  often carries multiple statements (subject + dose, role +
+   *  modifier, etc.). The disagreement block renders these as
+   *  "(also: S - P - O)" hints beneath the main Current line so
+   *  the curator sees gold's full structure. Per Paul 2026-06-11
+   *  (FV 4 dexamethasone case — only the first of two statements
+   *  was rendering). */
+  goldExtraStatements?: Array<{
+    subject: SideValue;
+    predicate: SideValue;
+    object: SideValue;
+  }>;
 }
 
 interface BuildResult {
@@ -272,7 +308,7 @@ interface BuildResult {
 function pairAgentGoldFv(
   agentFactor: FactorValueProposal,
   gold: Factor | null,
-): { biomaterial_short_names: string[] } | null {
+): FactorValue | null {
   if (!gold) return null;
   const agentBms = new Set(agentFactor.biomaterial_short_names ?? []);
   for (const goldFv of gold.factor_values) {
@@ -285,9 +321,7 @@ function pairAgentGoldFv(
         break;
       }
     }
-    if (allIn) {
-      return { biomaterial_short_names: goldFv.biomaterial_short_names ?? [] };
-    }
+    if (allIn) return goldFv;
   }
   return null;
 }
@@ -379,11 +413,25 @@ export function buildFactorRows(
 
   agent.factor_values.forEach((fv, fvIdx) => {
     const pairedGoldFv = pairAgentGoldFv(fv, gold);
+    // Gold-side statements beyond ``[0]`` — surface as "(also: …)"
+    // lines in the disagreement block so the curator sees the full
+    // current structure even when the comparator row builder only
+    // pairs against ``statements[0]``.
+    const goldExtraStatements = pairedGoldFv
+      ? (pairedGoldFv.statements ?? []).slice(1).map((st) => ({
+          subject: statementPart(st, "subject"),
+          predicate: statementPart(st, "predicate"),
+          object: statementPart(st, "object"),
+        }))
+      : [];
     fvMeta.set(fvIdx, {
       agentSampleCount: fv.biomaterial_short_names?.length ?? 0,
       goldSampleCount: pairedGoldFv
-        ? pairedGoldFv.biomaterial_short_names.length
+        ? (pairedGoldFv.biomaterial_short_names ?? []).length
         : null,
+      goldExtraStatements: goldExtraStatements.length
+        ? goldExtraStatements
+        : undefined,
     });
 
     // Reference statement parts — pair the agent FV to its
@@ -465,7 +513,7 @@ export function buildFactorRows(
   return { rows, fvMeta };
 }
 
-function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
+export function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
   // Recognised prefixes:
   //   - ``calibration:<bucket>:<category>/<value>`` — real calibration
   //     finding from the agent-audit pipeline.
@@ -509,29 +557,38 @@ function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
     uri: term?.uri ?? null,
   };
 
-  // Look up the gold side from the local design's tags by
-  // (category, value) match — case-insensitive, plus URI match
-  // when both sides carry one. For agent_extra findings the
-  // expected outcome is no-match (gold doesn't have the proposed
-  // tag) → explicit empty SideValue so the agreement check
-  // registers the disagreement. For match findings the lookup
-  // succeeds and rowAgreement collapses to true.
-  // Reference (Gemma) lookup deferred — no separate Gemma
-  // snapshot of tags is stored locally today (same constraint as
-  // factor reference data).
+  // Look up the gold side from the local design's tags. URI-FIRST:
+  // when the auditor's value carries a URI and a design tag carries
+  // the same URI, that's the same tag regardless of which category
+  // label the curator filed it under. Categories drift on this
+  // surface — e.g. "disease" (EFO:0000408) and "disease model" are
+  // both used for the same MONDO disease term. The pre-2026-06-12
+  // lookup required category-label equality and silently dropped
+  // tags whose categories differed, surfacing as "no entry" in the
+  // Current column even when the tag was present. Per Paul: GSE87700
+  // ``disease model: fetal alcohol spectrum disorder MONDO:0000408``
+  // was matched against design tag ``disease: fetal alcohol spectrum
+  // disorder MONDO:0000408`` — the URIs agree, the category labels
+  // don't, lookup should succeed.
+  //
+  // Match order:
+  //   1. Value URI exact match (the identity-bearing field).
+  //   2. (category-label, value-label) case-insensitive both — for
+  //      legacy / free-text tags where neither side carries a URI.
+  const lookupTags = design?.tags ?? [];
   const matchedTag =
-    design?.tags?.find((t) => {
-      const sameCategory =
-        lc(t.category?.label) === lc(agentCategory);
-      if (!sameCategory) return false;
-      const sameValueLabel =
-        lc(t.value?.label) === lc(valueProposal.label);
-      if (sameValueLabel) return true;
-      if (valueProposal.uri && t.value?.uri) {
-        return t.value.uri === valueProposal.uri;
-      }
-      return false;
-    }) ?? null;
+    (valueProposal.uri
+      ? lookupTags.find(
+          (t) =>
+            !!t.value?.uri && t.value.uri === valueProposal.uri,
+        )
+      : null) ??
+    lookupTags.find(
+      (t) =>
+        lc(t.category?.label) === lc(agentCategory) &&
+        sameOntologyTerm(t.value ?? null, valueProposal),
+    ) ??
+    null;
 
   const categoryCurrently: SideValue = matchedTag
     ? {
@@ -814,55 +871,27 @@ export function FindingDetailsEditor({
   const [saving, setSaving] = useState(false);
   // Inline Reject-with-reason prompt — Reject requires a reason
   // (Paul 2026-05-25: "reject and park should have a reason"),
-  // Agree is fire-and-forget without a notes prompt, Park already
-  // routes through ``onPark`` → NotSureDialog which gates on a
-  // structured reason chip. The note rides on the disposition
-  // PATCH and goes back to the curation agent at close-review
-  // time.
-  const [rejectPromptOpen, setRejectPromptOpen] = useState(false);
-  // Free-text term lookup — when the curator clicks "find ▸" next
-  // to an unresolved term in the comparison surface, this captures
-  // the label so we can mount an inline ``OntologyTermPicker``
-  // pre-filled with it. Result handling is browse-only for now
-  // (commit just dismisses); a follow-up will route resolved terms
-  // back into the agent's proposed FV so they ride the Apply.
-  // Per Paul 2026-05-25 ("a little search icon to do an ontology
-  // search for the term would be handy"). Non-magnifying-glass
-  // affordance — Paul's hate-list.
-  const [findTermLabel, setFindTermLabel] = useState<string | null>(null);
-  // Editor-scoped term renderer — same as the module-level
-  // ``renderEditorTerm`` but adds a small ``find ▸`` button next
-  // to free-text (URI-less) subject / object terms. Predicates and
-  // resolved terms get the bare chip.
-  const editorTermRenderer: FvTermRenderer = ({ label, uri, variant }) => {
-    const isPredicate = variant === "predicate";
-    const isFree = !uri && !isPredicate;
-    return (
-      <span className="inline-flex items-baseline gap-1">
-        <Term
-          uri={uri}
-          asLink={false}
-          variant={isPredicate ? "predicate" : "default"}
-          className="!whitespace-normal break-words"
-        >
-          {label}
-        </Term>
-        {isFree ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setFindTermLabel(label);
-            }}
-            className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 dark:text-blue-300 dark:hover:text-blue-100"
-            title={`Look up "${label}" in the ontologies`}
-          >
-            find ▸
-          </button>
-        ) : null}
-      </span>
-    );
-  };
+  // Agree is fire-and-forget without a notes prompt; Reject routes
+  // through ``onDismiss`` → ``DismissDialog`` chip picker with the
+  // per-issue-code chip set from ``dispositionChips.dismissChipsFor``;
+  // Park routes through ``onPark`` → ``NotSureDialog``. The earlier
+  // ``rejectPromptOpen`` / ``InlineNotesPrompt`` path was a bare
+  // notes textarea that bypassed the chip taxonomy — removed
+  // 2026-06-15 per Paul: "make sure there is a _uniform_ place those
+  // are coded but the choices might differ based on the situation."
+  // dispositionChips.ts IS that uniform place.
+  // Free-text term lookup state (``findTermLabel`` + ``resolvedTerms``
+  // + ``FreeTextLookup`` picker) removed 2026-06-15 — Paul: "I would
+  // prefer not to even enable editing of free text. They would have
+  // to accept it first, then they can edit in the usual place. For
+  // now, proposal pane has no editing." Re-introduce if a
+  // proposal-side editing affordance gets designed.
+  // Editor-scoped term renderer — local declaration removed
+  // 2026-06-15 in favour of the canonical ``termRenderer`` from
+  // ``@/components/ui/Term``. Every ``FvDisplayRow`` call below now
+  // plugs in the shared renderer so this surface's chips render
+  // identically to the comparison grid / audit cards. Paul: "make
+  // ALL surfaces use a single Term component."
 
   const disagreementRows = rows.filter((r) => !r.allAgree);
   const agreementRows = rows.filter((r) => r.allAgree);
@@ -926,9 +955,17 @@ export function FindingDetailsEditor({
   // ``applyHandlers.ts`` (``resolveCalibrationApply`` → adds the
   // tag); the editor's per-row details-edit path is a no-op for
   // tag findings (``applyDetailsEditsToDesign`` is factor-only).
+  //
+  // Match-downgrade: a ``calibration_match`` viewed against a baseline
+  // that lacks the tag reads as a tag-add — same render path
+  // (``hideDismiss`` cleared so the [Add, Don't add] pair shows up
+  // instead of the no-affordance ``[Agree only]`` row the bare match
+  // code rendered). Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
   const isTagAddFinding =
     finding.target_kind === "tag" &&
-    finding.issue_code === "calibration_agent_extra";
+    (finding.issue_code === "calibration_agent_extra" ||
+      (finding.issue_code === "calibration_match" &&
+        findingDisplayedGoldEmpty(finding, design) === true));
 
   const isPartitionMismatch =
     finding.issue_code === "calibration_factor_partition_mismatch" &&
@@ -946,7 +983,18 @@ export function FindingDetailsEditor({
   // label. See ./actionLabels.ts. Paul 2026-05-21 — an "Add tag"
   // finding's keep button shouldn't read "keep current" when there
   // IS no current; it should read "don't add".
-  const actionShape = findingActionShape(finding);
+  // Match-downgrade signal: when the curator's displayed gold
+  // baseline doesn't carry the entity even though the audit-time
+  // baseline did, a ``*_match`` finding's action shape downgrades to
+  // ``"add"`` — the row becomes [Agree, Don't add] and the apply path
+  // routes through the add mutator. Mirrors the title downgrade in
+  // ``findingCard.tsx`` (``goldEmptyForTitle``). Per
+  // MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  const displayedGoldEmpty =
+    findingDisplayedGoldEmpty(finding, design) === true;
+  const actionShape = findingActionShape(finding, {
+    goldEmpty: displayedGoldEmpty,
+  });
   const actionLbls = actionLabels(actionShape);
 
   function setPick(path: string, patch: Partial<RowState>): void {
@@ -1077,13 +1125,23 @@ export function FindingDetailsEditor({
   // is NARROWER than ``isCloseFactorMatch`` — close / near matches
   // still need the curator's eyes (URI variant, FV-count drift),
   // so they keep their buttons even when the per-row diff is empty.
-  const auditorSaysExactlyRight =
+  // Match-downgrade exception: a ``*_match`` finding viewed against
+  // an empty displayed gold baseline is NOT "exactly right" — the
+  // curator's action is to add the entity. The action-row collapse
+  // to ``[Agree]`` only is wrong; the editor must render the
+  // [Agree, Don't add] pair. ``displayedGoldEmpty`` is already
+  // computed below for ``actionShape``. Per
+  // MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  const auditorSaysExactlyRightRaw =
     finding.severity === "ok" ||
     isExactFactorMatch(finding) ||
     finding.issue_code === "calibration_factor_match_exact" ||
     (finding.target_kind === "tag" &&
       finding.issue_code === "calibration_match" &&
       disagreementRows.length === 0);
+  const auditorSaysExactlyRight =
+    auditorSaysExactlyRightRaw &&
+    findingDisplayedGoldEmpty(finding, design) !== true;
 
   // Partition-mismatch findings — agent and gold disagree on the
   // partition shape of a same-label factor along a clean
@@ -1093,42 +1151,249 @@ export function FindingDetailsEditor({
   // renders as a parent→children table.
   if (isPartitionMismatch) {
     const pm = finding.partition_mismatch!;
+    // Cross-cutting partition_mismatch — the agent's factor
+    // partitions samples along an axis that cross-cuts multiple gold
+    // factors of the same category. Neither finer nor coarser; the
+    // ``fv_pairs`` list is intentionally empty and the per-FV
+    // overlap evidence lives in ``cross_cutting_overlaps``. This
+    // branch ships ahead of Paul speccing the verb/action labels —
+    // the actions are stubbed disabled with a TODO note so curators
+    // see the right shape now (instead of the broken 0-level
+    // fallthrough flagged on GSE79061) and we can drop the
+    // affordance in without touching the card body again. */
+    if (pm.direction === "cross_cutting") {
+      const ccGolds = pm.cross_cutting_golds ?? [];
+      const ccOverlaps = pm.cross_cutting_overlaps ?? [];
+      const categoryLabel =
+        pm.agent.category.label ||
+        pm.gold.category.label ||
+        finding.target_id;
+      // Degenerate "cross-cutting" — only ONE gold factor spanned.
+      // This isn't actually cross-cutting; the agent classified it
+      // ``cross_cutting`` because no FV pair hit Jaccard ≥ 0.8, but
+      // there's still just one gold factor in scope. Treat as a
+      // regular partition_mismatch (adopt-shaped action), drop the
+      // misleading "spans multiple" copy. Paul 2026-06-14 (GSE448).
+      const isDegenerate = ccGolds.length <= 1;
+      return (
+        <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+          {/* Title row. */}
+          <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+            <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              Factor
+            </span>
+            <span className="font-mono text-slate-800 dark:text-slate-100">
+              {categoryLabel}
+            </span>
+            <span className="text-slate-400 dark:text-slate-500">·</span>
+            <span className="text-amber-700 dark:text-amber-300">
+              <strong>
+                {isDegenerate
+                  ? `partition disagreement — no clean per-FV correspondence between ${identities.goldCurator} and ${identities.proposer}`
+                  : `cross-cutting partition — ${identities.proposer}'s factor spans multiple ${identities.goldCurator} factors of the same category`}
+              </strong>
+            </span>
+          </div>
+
+          {/* Gold-factor list — the agent factor cross-cuts these N
+              gold factors. Single-line chips matching the design-
+              editor convention. */}
+          {ccGolds.length > 0 ? (
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+                {identities.goldCurator} factors spanned ({ccGolds.length})
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-[11px]">
+                {ccGolds.map((g, gi) => (
+                  <Term
+                    key={gi}
+                    uri={g.category?.uri ?? null}
+                    asLink={false}
+                    className="!whitespace-normal break-words"
+                  >
+                    {g.category?.label || `factor ${gi + 1}`}
+                  </Term>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Per-FV overlap rows — agent FV ↔ gold factor's FV with
+              Jaccard ≥ 0.8. Tabular so curators can scan the
+              "agent's X covers gold-A's X1 + gold-B's X2" pattern at
+              a glance. */}
+          {ccOverlaps.length > 0 ? (
+            <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+                FV-level overlaps (Jaccard ≥ 0.8)
+              </div>
+              <div className="grid grid-cols-[1fr_auto_1fr_auto_auto] gap-x-2 gap-y-1 text-[11px] items-baseline">
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500">
+                  {identities.goldCurator}
+                </div>
+                <div />
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500">
+                  {identities.proposer}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 text-right">
+                  Jaccard
+                </div>
+                <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 dark:text-slate-500 text-right">
+                  n
+                </div>
+                {ccOverlaps.map((row, ri) => (
+                  <Fragment key={ri}>
+                    <div className="flex items-baseline gap-1 min-w-0">
+                      <Term
+                        uri={row.gold_fv?.uri ?? null}
+                        asLink={false}
+                        className="!whitespace-normal break-words"
+                      >
+                        {row.gold_fv?.label || "(unnamed)"}
+                      </Term>
+                      <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">
+                        · {row.gold_factor?.category?.label || ""}
+                      </span>
+                    </div>
+                    <span
+                      className="text-slate-400 dark:text-slate-500"
+                      aria-hidden
+                    >
+                      ↔
+                    </span>
+                    <div className="min-w-0">
+                      <Term
+                        uri={row.agent_fv?.uri ?? null}
+                        asLink={false}
+                        className="!whitespace-normal break-words"
+                      >
+                        {row.agent_fv?.label || "(unnamed)"}
+                      </Term>
+                    </div>
+                    <div className="text-right tabular-nums text-slate-600 dark:text-slate-300">
+                      {row.jaccard.toFixed(2)}
+                    </div>
+                    <div className="text-right tabular-nums text-slate-500 dark:text-slate-400 text-[10px]">
+                      {row.n_overlap}/{row.n_gold} ∩ {row.n_agent}
+                    </div>
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] italic text-slate-500 dark:text-slate-400">
+              No FV-level overlaps shipped — the partition is genuinely
+              cross-cutting with no clean per-FV correspondence.
+            </div>
+          )}
+
+          {/* Action row. Degenerate cross-cutting (single gold
+              spanned) routes through the same partition_mismatch
+              adopt path the agent_finer / agent_coarser variants
+              use — ``applyHandlers.resolveFactorCalibrationApply``
+              picks up the ``calibration_factor_partition_mismatch``
+              issue_code and runs ``adoptNearMatchAgentFactor`` on
+              accept. True cross-cutting (multiple golds spanned)
+              stays disabled with the "verbs pending" tooltip —
+              adopting agent's shape would clobber one of the gold
+              factors without touching the others, which is not a
+              safe one-click action. */}
+          <ActionRow
+            saving={saving}
+            disabled={!isDegenerate}
+            buttons={[
+              {
+                key: "keep",
+                kind: "primary-keep",
+                label: isDegenerate
+                  ? `Keep ${identities.goldCurator}'s partition`
+                  : `Keep ${identities.goldCurator}'s separate factors`,
+                onClick: () => dispatchSave("currently"),
+                title: isDegenerate
+                  ? `Reject ${identities.proposer}'s repartition; keep the existing factor as-is.`
+                  : "Cross-cutting affordance pending — adopt would clobber one of the spanned gold factors silently. Park / Dismiss for now.",
+              },
+              {
+                key: "accept",
+                kind: "primary-accept",
+                label: isDegenerate
+                  ? `Adopt ${identities.proposer}'s partition`
+                  : `Adopt ${identities.proposer}'s cross-cutting shape`,
+                onClick: () => dispatchSave("proposal"),
+                title: isDegenerate
+                  ? `Replace the existing factor's FV breakdown with ${identities.proposer}'s.`
+                  : "Cross-cutting affordance pending — adopt would clobber one of the spanned gold factors silently. Park / Dismiss for now.",
+              },
+            ]}
+            onDismiss={onDismiss}
+            onPark={onPark}
+            onUndo={
+              currentDisposition !== "pending" ? onUndo : undefined
+            }
+          />
+        </div>
+      );
+    }
     const isAgentFiner = pm.direction === "agent_finer";
-    // Direction-aware label fragment for the title + button.
-    // Avoids the older "split / combine" verbs that read as
-    // "split/merge two factors" — partition_mismatch is a
-    // within-factor FV reorg. Per Paul 2026-05-21.
-    const directionPhrase = isAgentFiner ? "finer levels" : "fewer levels";
     const agentVerb = "says";
     const goldVerb = currentlyVerb(identities.goldCurator);
+    // 1:1 detection — when every parent has exactly one child the
+    // agent's "finer/fewer" direction tag is a misclassification.
+    // Frame as label drift. Group by the umbrella side (gold for
+    // agent_finer; agent for agent_coarser); 1:1 means every group
+    // has exactly one entry.
+    const umbrellaKeyForPair = (
+      p: typeof pm.fv_pairs[number],
+    ): string =>
+      isAgentFiner
+        ? `${p.gold.label}|${p.gold.uri ?? ""}`
+        : `${p.agent.label}|${p.agent.uri ?? ""}`;
+    const umbrellaCounts = (() => {
+      const m = new Map<string, number>();
+      for (const p of pm.fv_pairs) {
+        const k = umbrellaKeyForPair(p);
+        m.set(k, (m.get(k) ?? 0) + 1);
+      }
+      return m;
+    })();
+    const distinctUmbrellaCount = umbrellaCounts.size;
+    const is1to1 =
+      pm.fv_pairs.length > 0 &&
+      distinctUmbrellaCount === pm.fv_pairs.length;
+    // Counts for the headline summary. Auditor (agent) side count
+    // = distinct agent FVs; current (gold) side count = distinct
+    // gold FVs. Computed independently of umbrella direction so the
+    // "Auditor says N levels / Current says M levels" headline
+    // reads consistently.
+    const distinctAgentCount = new Set(
+      pm.fv_pairs.map((p) => `${p.agent.label}|${p.agent.uri ?? ""}`),
+    ).size;
+    const distinctGoldCount = new Set(
+      pm.fv_pairs.map((p) => `${p.gold.label}|${p.gold.uri ?? ""}`),
+    ).size;
+    const directionPhrase = is1to1
+      ? "different labels (same partition)"
+      : isAgentFiner
+        ? "finer levels"
+        : "fewer levels";
     // partition_mismatch is a `change` shape (FV reorg within an
     // existing factor). The "keep" reads "don't change"; the
     // "accept" reads "adopt <proposer>'s <directionPhrase>" so the
     // curator still sees WHICH direction they're adopting.
     const keepLabel = actionLbls.keep;
-    const acceptLabel = `${actionLbls.adopt} ${identities.proposer}'s ${directionPhrase}`;
-    const acceptTitle = isAgentFiner
-      ? `Use the finer factor-value partition ${identities.proposer} proposed.`
-      : `Use the simpler factor-value partition ${identities.proposer} proposed.`;
-    // Group fv_pairs by the PARENT side. For agent_finer the
-    // parent is gold; for agent_coarser the parent is agent.
-    // Repeated entries with the same parent collapse into a
-    // single row with multiple children.
-    const groups = (() => {
-      const map = new Map<
-        string,
-        { parent: { label: string; uri: string | null }; children: Array<{ label: string; uri: string | null }> }
-      >();
-      for (const pair of pm.fv_pairs) {
-        const parent = isAgentFiner ? pair.gold : pair.agent;
-        const child = isAgentFiner ? pair.agent : pair.gold;
-        const key = `${parent.label}|${parent.uri ?? ""}`;
-        const entry = map.get(key) ?? { parent, children: [] };
-        entry.children.push(child);
-        map.set(key, entry);
-      }
-      return Array.from(map.values());
-    })();
+    // Partition-mismatch is always a "change" shape so the
+    // possessive form ("adopt Auditor's …") reads correctly. We
+    // append the direction phrase by hand here rather than going
+    // through acceptLabel() because the directional cue belongs
+    // only on this specific finding type.
+    const acceptButtonLabel = is1to1
+      ? `${actionLbls.adopt} ${identities.proposer}'s labels`
+      : `${actionLbls.adopt} ${identities.proposer}'s ${directionPhrase}`;
+    const acceptTitle = is1to1
+      ? `Use ${identities.proposer}'s FV labels — the partition (sample groupings) is identical, only the level names differ.`
+      : isAgentFiner
+        ? `Use the finer factor-value partition ${identities.proposer} proposed.`
+        : `Use the simpler factor-value partition ${identities.proposer} proposed.`;
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
         {/* Title row — matches the factor-card title shape. */}
@@ -1141,7 +1406,11 @@ export function FindingDetailsEditor({
           </span>
           <span className="text-slate-400 dark:text-slate-500">·</span>
           <span className="text-amber-700 dark:text-amber-300">
-            <strong>partition mismatch — {identities.proposer} proposes {directionPhrase}</strong>
+            <strong>
+              {is1to1
+                ? `label drift — ${identities.proposer} proposes ${directionPhrase}`
+                : `partition mismatch — ${identities.proposer} proposes ${directionPhrase}`}
+            </strong>
           </span>
         </div>
 
@@ -1157,28 +1426,28 @@ export function FindingDetailsEditor({
             disease factor in the GSE28300 example has 3 levels in
             one factor, not "across 2 factors". */}
         <div className="space-y-1">
-          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+          <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
             <span className="text-slate-600 dark:text-slate-300">
               <strong>{identities.proposer}</strong> {agentVerb}
             </span>
             <span className="flex items-baseline gap-x-1.5">
               <span className="text-xl font-bold text-amber-700 dark:text-amber-300 leading-none">
-                {isAgentFiner ? pm.fv_pairs.length : groups.length}
+                {distinctAgentCount}
               </span>
               <span className="text-slate-600 dark:text-slate-300">
                 levels
               </span>
             </span>
           </div>
-          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
+          <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
             <span className="text-slate-600 dark:text-slate-300">
               <strong>{identities.goldCurator}</strong>
               {goldVerb ? ` ${goldVerb}` : null}
               <button
                 type="button"
                 onClick={onLocateCurrent}
-                title="show in Design tab"
-                aria-label="locate in design"
+                title={locateTooltipFor(finding.target_id)}
+                aria-label={locateTooltipFor(finding.target_id)}
                 className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
               >
                 🔍
@@ -1186,7 +1455,7 @@ export function FindingDetailsEditor({
             </span>
             <span className="flex items-baseline gap-x-1.5">
               <span className="text-xl font-bold text-slate-700 dark:text-slate-200 leading-none">
-                {isAgentFiner ? groups.length : pm.fv_pairs.length}
+                {distinctGoldCount}
               </span>
               <span className="text-slate-600 dark:text-slate-300">
                 levels
@@ -1195,50 +1464,52 @@ export function FindingDetailsEditor({
           </div>
         </div>
 
-        {/* Mapping — grouped by parent (umbrella) so when multiple
-            child levels collapse onto a single parent the parent
-            is shown ONCE on the right with a merged arrow. Avoids
-            visual duplication (the curator was reading "ICU-
-            acquired weakness MONDO:0001957" twice in a row and
-            having to compare the URIs to confirm they were the
-            same target — Paul 2026-05-21). For 1→1 groups this
-            renders identical to the old row-per-pair shape. */}
-        {groups.length > 0 ? (
-          <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
-            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
-              {isAgentFiner
-                ? `Mapping (${identities.proposer}'s level → ${identities.goldCurator}'s umbrella)`
-                : `Mapping (${identities.goldCurator}'s level → ${identities.proposer}'s umbrella)`}
-            </div>
-            <div className="space-y-1.5 text-[11px]">
-              {groups.map((g, gi) => (
-                <div
-                  key={gi}
-                  className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center"
-                >
-                  <div className="flex flex-col gap-1 min-w-0">
-                    {g.children.map((c, ci) => (
-                      <MappingChip key={ci} term={c} />
-                    ))}
-                  </div>
-                  <span
-                    className="text-slate-400 dark:text-slate-500"
-                    aria-hidden
-                    title={
-                      g.children.length > 1
-                        ? `${g.children.length} levels collapse to one`
-                        : undefined
-                    }
-                  >
-                    {g.children.length > 1 ? "⇒" : "→"}
-                  </span>
-                  <div className="min-w-0">
-                    <MappingChip term={g.parent} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* FV mapping — SAME FactorComparisonGrid used by the
+            factor-match card. ONE shared component for every
+            factor-side comparison; partition_mismatch is just a
+            different fill of the same pairs slot. Paul 2026-06-16:
+            "I want ONE component for factors and ONE component for
+            TAGS." Cost of unification: when the partition is M:1
+            (agent_coarser) the agent FV label repeats across each
+            gold child row instead of rowspanning — accepted. */}
+        {pm.fv_pairs.length > 0 ? (
+          <FactorComparisonGrid
+            leftHeader={{
+              label: identities.goldCurator,
+              category: {
+                label: pm.gold.category.label ?? null,
+                uri: pm.gold.category.uri ?? null,
+              },
+            }}
+            rightHeader={{
+              label: identities.proposer,
+              category: {
+                label: pm.agent.category.label ?? null,
+                uri: pm.agent.category.uri ?? null,
+              },
+            }}
+            pairs={buildPartitionMismatchPairs({
+              direction: pm.direction,
+              fvPairs: pm.fv_pairs.map((p) => ({
+                agent: { label: p.agent.label, uri: p.agent.uri ?? null },
+                gold: { label: p.gold.label, uri: p.gold.uri ?? null },
+                agent_statement: p.agent_statement,
+                gold_statement: p.gold_statement,
+                agent_biomaterial_short_names:
+                  p.agent_biomaterial_short_names ?? null,
+                gold_biomaterial_short_names:
+                  p.gold_biomaterial_short_names ?? null,
+              })),
+              project: (term, stmt, samples) =>
+                _fvDisplayFromMapping(
+                  term,
+                  stmt as StatementParts | null,
+                  samples,
+                ) as FactorComparisonPair["left"],
+            })}
+            termRenderer={termRenderer}
+            onLeftLocate={onLocateCurrent}
+          />
         ) : null}
 
         {hint ? (
@@ -1265,7 +1536,7 @@ export function FindingDetailsEditor({
             {
               key: "accept",
               kind: leanKinds.accept,
-              label: acceptLabel,
+              label: acceptButtonLabel,
               onClick: () => dispatchSave("proposal"),
               title: acceptTitle,
             },
@@ -1342,41 +1613,62 @@ export function FindingDetailsEditor({
           </span>
         </div>
 
+        {/* FreeTextLookup mount removed 2026-06-15 with the rest of
+            the free-text edit affordance. See state-declaration
+            comment above. */}
+
+        {/* Continuous-mode swap: a continuous factor's FVs are
+            per-measurement (one FV per unique numeric reading), so
+            rendering each as its own labelled row produces a vertical
+            list of 20+ identical-looking rows — useless for grokking
+            the distribution. Render the ContinuousStrip rug instead
+            so the curator sees the value distribution + range at a
+            glance. Left lane stays empty (this is ADD FACTOR — no
+            current side); the strip's axis builds from the agent's
+            values alone. Paul 2026-06-14: "this should display the
+            factor using the plot like before — not a long list." */}
         {fvs.length > 0 ? (
-          <div className="space-y-1">
-            {fvs.map((fv, i) => (
-              <FvDisplayRow
-                key={i}
-                fv={fv}
-                termRenderer={editorTermRenderer}
-                indexLabel={i + 1}
-              />
-            ))}
-          </div>
+          (() => {
+            const factorType = (
+              agentFactor as { factor_type?: string } | null
+            )?.factor_type;
+            const isContinuous =
+              factorType === "continuous" ||
+              (fvs.length >= 3 &&
+                fvs.every(
+                  (fv) =>
+                    (fv as { numeric_value?: number | null }).numeric_value !=
+                    null,
+                ));
+            if (isContinuous) {
+              const right = continuousValuesFrom(
+                fvs as Parameters<typeof continuousValuesFrom>[0],
+              );
+              return (
+                <ContinuousStrip
+                  left={[]}
+                  right={right}
+                  leftLabel="—"
+                  rightLabel={identities.proposer.toLowerCase()}
+                />
+              );
+            }
+            return (
+              <div className="space-y-1.5">
+                {fvs.map((fv, i) => (
+                  <FvDisplayRow
+                    key={i}
+                    fv={fv}
+                    termRenderer={termRenderer}
+                    indexLabel={i + 1}
+                  />
+                ))}
+              </div>
+            );
+          })()
         ) : null}
 
-        {findTermLabel ? (
-          <FreeTextLookup
-            label={findTermLabel}
-            onClose={() => setFindTermLabel(null)}
-          />
-        ) : null}
-
-        {rejectPromptOpen ? (
-          <InlineNotesPrompt
-            primaryLabel="Reject"
-            primaryTone="reject"
-            saving={saving}
-            onCancel={() => setRejectPromptOpen(false)}
-            onConfirm={async (notes) => {
-              setRejectPromptOpen(false);
-              // "currently" verdict on a factor-extra collapses to
-              // status=dismissed via verdictToStructureDetails —
-              // same wire shape the legacy Disagree path used.
-              await dispatchSave("currently", notes);
-            }}
-          />
-        ) : (
+        {(
           <ActionRow
             saving={saving}
             disabled={currentDisposition !== "pending"}
@@ -1386,8 +1678,11 @@ export function FindingDetailsEditor({
                 kind: "primary-accept" as const,
                 label: "Agree",
                 // Agree is fire-and-forget — no notes prompt. Per
-                // Paul 2026-05-25: "just agree". Reject + Park
-                // still require a reason.
+                // Paul 2026-05-25: "just agree". Reject opens the
+                // shared DismissDialog chip picker via onDismiss —
+                // chips come from ``dispositionChips.dismissChipsFor``
+                // (CAL_EXTRA_FACTOR_DISMISS_CHIPS for factor-extra:
+                // "Already covered" / "Wrong shape" / "FVs wrong" / …).
                 onClick: () => runApply(""),
                 title: `Agree with ${identities.proposer}: add the proposed factor to the design.`,
               } satisfies ActionButton,
@@ -1395,9 +1690,9 @@ export function FindingDetailsEditor({
                 key: "reject",
                 kind: "secondary" as const,
                 label: "Reject…",
-                onClick: () => setRejectPromptOpen(true),
+                onClick: onDismiss,
                 title:
-                  "Record an explicit rejection (optional explanation). Goes back to the curation agent at close-review time.",
+                  "Reject with a reason chip (Already covered / Wrong shape / FVs wrong / Other) — goes back to the curation agent at close-review time.",
               } satisfies ActionButton,
             ]}
             onDismiss={onDismiss}
@@ -1480,35 +1775,15 @@ export function FindingDetailsEditor({
       };
     })();
     const categoryUri = goldFactor?.category?.uri ?? null;
-    // Per-FV row data for the removal card's gold side. Each FV
-    // gets its own row (S - P - O shape, predicate + object
-    // omitted when empty) below the "you have" line so multi-FV
-    // factors like cell-line don't crush into an unreadable
-    // wrap of long labels. The subject falls back to the FV's
-    // free_text_label when there's no structured statement
-    // attached (the curation-style "label-only" FV shape).
-    const removalFvRows =
+    // Gold-side FVs render via the shared FvDisplayRow per FV. That
+    // gives us multi-statement stacking (head + indented rest sublines)
+    // out of the box — earlier shape collected only `statements[0]` into
+    // an intermediate `removalFvRows` array and rendered inline, which
+    // silently dropped statements[1:] for combined-treatment / multi-
+    // statement FVs.
+    const removalFvList =
       goldFactor && goldFactor.factor_values.length > 0
-        ? goldFactor.factor_values.map((fv) => {
-            const st = fv.statements?.[0] as unknown as Statement | undefined;
-            const subjLabel =
-              st?.subject?.label?.trim() ||
-              fv.free_text_label?.trim() ||
-              `FV ${fv.id}`;
-            const subjUri = st?.subject?.uri ?? null;
-            const predLabel = st?.predicate?.label?.trim() ?? "";
-            const predUri = st?.predicate?.uri ?? null;
-            const objLabel = st?.object?.label?.trim() ?? "";
-            const objUri = st?.object?.uri ?? null;
-            return {
-              key: fv.id,
-              subject: { label: subjLabel, uri: subjUri },
-              predicate: predLabel ? { label: predLabel, uri: predUri } : null,
-              object: objLabel ? { label: objLabel, uri: objUri } : null,
-              count: fv.biomaterial_short_names?.length ?? 0,
-              isBaseline: !!fv.is_baseline,
-            };
-          })
+        ? goldFactor.factor_values
         : null;
     // The tag/factor being voted on. For tags it's a single
     // category:value chip; for factor removals it's the category
@@ -1516,7 +1791,9 @@ export function FindingDetailsEditor({
     // binary). The proposer's row shows nothing (their proposal
     // IS removal); the gold curator's row shows what's there.
     const currentTermLabel = removeTargetLabel ?? "";
-    const proposerVerb = "says";
+    // proposerVerb removed 2026-06-16 with the "Auditor says (proposes
+    // removing — no entry)" placeholder line — see comment block in
+    // the JSX below for context.
     const goldVerb = currentlyVerb(identities.goldCurator);
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
@@ -1537,31 +1814,32 @@ export function FindingDetailsEditor({
 
         {/* Comparator-row lines — same labeled-identity shape the
             disagreement blocks use, so curators read both surfaces
-            with the same convention. */}
-        <div className="space-y-1.5">
-          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
-            <span className="text-slate-600 dark:text-slate-300">
-              <strong>{identities.proposer}</strong> {proposerVerb}
-            </span>
-            <span className="italic text-slate-400">
-              (proposes removing — no entry)
-            </span>
-          </div>
-          <div className="grid grid-cols-[8rem_1fr] gap-x-2 items-baseline text-[12px]">
-            <span className="text-slate-600 dark:text-slate-300">
+            with the same convention. Tight 5rem gutter (was 8rem) and
+            the category chip sits inline next to "Current 🔍" so the
+            FV chips below can fit on one line at 11px. */}
+        <div className="space-y-1">
+          {/* Auditor's "(proposes removing — no entry)" line removed
+              2026-06-16 — placeholder anti-pattern flagged by Paul.
+              The card header ("REMOVE TAG") and the body's "removal
+              proposed" tag already convey the auditor's ask; a
+              labeled empty-state row added noise. Per the
+              three-phase spec: omit empty sections, never render
+              "(no entry)" placeholders. */}
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px]">
+            <span className="text-slate-600 dark:text-slate-300 whitespace-nowrap">
               <strong>{identities.goldCurator}</strong>
               {goldVerb ? ` ${goldVerb}` : null}
               <button
                 type="button"
                 onClick={onLocateCurrent}
-                title="show in Design tab"
-                aria-label="locate in design"
-                className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
+                title={locateTooltipFor(finding.target_id)}
+                aria-label={locateTooltipFor(finding.target_id)}
+                className="ml-1 align-baseline text-[10px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
               >
                 🔍
               </button>
             </span>
-            <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+            <span className="flex items-baseline gap-x-1.5">
               {goldTagParts ? (
                 // Tag removal — render category + value as two
                 // separate ontology chips so each can resolve to
@@ -1570,7 +1848,7 @@ export function FindingDetailsEditor({
                   <Term
                     uri={goldTagParts.category.uri}
                     asLink={false}
-                    className="!whitespace-normal break-words"
+                    className="!whitespace-nowrap"
                   >
                     {goldTagParts.category.label}
                   </Term>
@@ -1580,7 +1858,7 @@ export function FindingDetailsEditor({
                   <Term
                     uri={goldTagParts.value.uri}
                     asLink={false}
-                    className="!whitespace-normal break-words"
+                    className="!whitespace-nowrap"
                   >
                     {goldTagParts.value.label}
                   </Term>
@@ -1589,7 +1867,7 @@ export function FindingDetailsEditor({
                 <Term
                   uri={categoryUri}
                   asLink={false}
-                  className="!whitespace-normal break-words"
+                  className="!whitespace-nowrap"
                 >
                   {currentTermLabel}
                 </Term>
@@ -1602,63 +1880,17 @@ export function FindingDetailsEditor({
           </div>
 
           {/* Per-FV rows for the gold side — each FV on its own line
-              in S - P - O shape so the curator can read a multi-FV
-              factor (e.g. cell line with 4 cell-line subtypes)
-              without the labels colliding into an inline wrap. */}
-          {removalFvRows && removalFvRows.length > 0 ? (
-            <div className="grid grid-cols-[8rem_1fr] gap-x-2 gap-y-1 items-baseline text-[12px]">
-              <span aria-hidden />
-              <div className="space-y-1">
-                {removalFvRows.map((fv) => (
-                  <div
-                    key={fv.key}
-                    className="flex flex-wrap items-baseline gap-x-1.5"
-                  >
-                    <Term
-                      uri={fv.subject.uri}
-                      asLink={false}
-                      className="!whitespace-normal break-words"
-                    >
-                      {fv.subject.label}
-                    </Term>
-                    {fv.predicate ? (
-                      <>
-                        <span className="text-slate-400 dark:text-slate-500">
-                          {" - "}
-                        </span>
-                        <span
-                          className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
-                          title={fv.predicate.uri || undefined}
-                        >
-                          {fv.predicate.label}
-                        </span>
-                      </>
-                    ) : null}
-                    {fv.object ? (
-                      <>
-                        <span className="text-slate-400 dark:text-slate-500">
-                          {" - "}
-                        </span>
-                        <Term
-                          uri={fv.object.uri}
-                          asLink={false}
-                          className="!whitespace-normal break-words"
-                        >
-                          {fv.object.label}
-                        </Term>
-                      </>
-                    ) : null}
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                      ({fv.count})
-                    </span>
-                    {fv.isBaseline ? (
-                      <span className="text-[9px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 ml-0.5">
-                        ★ baseline
-                      </span>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
+              via the shared FvDisplayRow renderer (Subj · Pred · Obj
+              head, indented sublines for any statements[1:]). */}
+          {removalFvList && removalFvList.length > 0 ? (
+            <div className="pl-3 space-y-1.5">
+              {removalFvList.map((fv) => (
+                <FvDisplayRow
+                  key={fv.id}
+                  fv={fv}
+                  termRenderer={termRenderer}
+                />
+              ))}
             </div>
           ) : null}
         </div>
@@ -1679,13 +1911,31 @@ export function FindingDetailsEditor({
               key: "keep",
               kind: leanKinds.keep,
               label: keepLabel,
-              onClick: () => dispatchSave("currently"),
+              // Reject-the-removal opens the shared DismissDialog chip
+              // picker via onDismiss — chips come from
+              // ``dispositionChips.dismissChipsFor`` (CAL_MISS_DISMISS_CHIPS
+              // for removal findings: "Factor needed" / "Structure
+              // correct, FVs wrong" / "Wrong partition" / "Missed
+              // evidence" / …). Paul 2026-06-15: REMOVE TAG cards had
+              // no disposition prompt at all — fire-and-forget on Keep
+              // dropped the curator's reason on the floor.
+              onClick: onDismiss,
+              title: `Reject ${identities.proposer}'s removal with a reason chip.`,
             },
             {
               key: "remove",
               kind: leanKinds.accept,
-              label: `${actionLbls.adopt} ${identities.proposer}'s`,
-              onClick: () => dispatchSave("proposal"),
+              label: acceptLabel(actionShape, identities.proposer),
+              // Accept-the-removal opens the shared accept chip
+              // picker via onAgree — chips come from
+              // ``dispositionChips.acceptChipsFor`` (CAL_MISS_ACCEPT_CHIPS
+              // for removal findings: "Gold wrong" / "Borderline" /
+              // "Other"). Paul 2026-06-15: a destructive action
+              // (actually drops the tag/factor from the draft)
+              // deserves a reason prompt; fire-and-forget on the
+              // green button was wrong here.
+              onClick: onAgree ?? (() => dispatchSave("proposal")),
+              title: `Accept ${identities.proposer}'s removal with a reason chip.`,
             },
           ]}
           onDismiss={onDismiss}
@@ -1772,6 +2022,7 @@ export function FindingDetailsEditor({
           rows={rows}
           identities={identities}
           onLocateCurrent={onLocateCurrent}
+          locateTooltip={locateTooltipFor(finding.target_id)}
         />
       ) : null}
 
@@ -1825,7 +2076,15 @@ export function FindingDetailsEditor({
       finding.severity !== "ok" &&
       !isCloseFactorMatch(finding) &&
       !isExactFactorMatch(finding) &&
-      finding.issue_code !== "calibration_match" ? (
+      finding.issue_code !== "calibration_match" &&
+      // Suppress once the curator has decided — the explainer is for
+      // helping the curator understand a "looks no-op but isn't"
+      // finding before acting; after Agree/Reject lands it's noise,
+      // and on ADD TAG cards it surfaces as an amber wrapper because
+      // accepting moves the tag into the draft and the row matcher
+      // (rightly) sees both sides agreeing. Paul 2026-06-15: "why
+      // does 'agree' leave this amber-coloured thing?"
+      currentDisposition === "pending" ? (
         <ActionableNoDeltaExplainer finding={finding} />
       ) : null}
 
@@ -1873,9 +2132,11 @@ export function FindingDetailsEditor({
             identities={identities}
             rowState={rowState}
             onLocateCurrent={onLocateCurrent}
+            locateTooltip={locateTooltipFor(finding.target_id)}
             editCategory={firstBacktick(finding.rationale) ?? null}
             leanKinds={leanKinds}
             actionLbls={actionLbls}
+            actionShape={actionShape}
             judgeText={judgeForBlock}
             judgeCitation={judgeCitationForBlock}
             onPick={(pick) => {
@@ -1909,27 +2170,29 @@ export function FindingDetailsEditor({
           action row while the curator decides; Dismiss + "keep"
           are dropped (non-application records itself via the
           close-review summary). Per Paul 2026-05-25. */}
-      {isTagAddFinding && rejectPromptOpen ? (
-        <InlineNotesPrompt
-          primaryLabel="Reject"
-          primaryTone="reject"
-          saving={saving}
-          onCancel={() => setRejectPromptOpen(false)}
-          onConfirm={async (notes) => {
-            setRejectPromptOpen(false);
-            await dispatchSave("currently", notes);
-          }}
-        />
-      ) : (
+      {(
       <ActionRow
         saving={saving}
         disabled={currentDisposition !== "pending"}
         buttons={
           auditorSaysExactlyRight
-            ? // Auditor says exactly right — nothing to act on.
-              // ``showEscapeHatches`` below also flips off so the
-              // whole row collapses.
-              []
+            ? // Auditor says exactly right — the curator's verdict is
+              // still a real disposition (accept / reject / park).
+              // Per Paul 2026-06-11 on TAG MATCH cards: "should be
+              // agree and reject" — the earlier "no buttons" branch
+              // left curators with only Reject/Park, which felt
+              // lopsided. Agree records acceptance without mutating
+              // the draft (there's nothing to mutate on a match).
+              [
+                {
+                  key: "agree",
+                  kind: "primary-accept" as const,
+                  label: "Agree",
+                  onClick: () => dispatchSave("proposal"),
+                  title:
+                    `Agree with ${identities.proposer}: this is the right curation as-is.`,
+                } satisfies ActionButton,
+              ]
             : isTagAddFinding
               ? [
                   {
@@ -1946,9 +2209,20 @@ export function FindingDetailsEditor({
                     key: "reject",
                     kind: "secondary" as const,
                     label: "Reject…",
-                    onClick: () => setRejectPromptOpen(true),
+                    // Reject opens the shared DismissDialog chip picker
+                    // via onDismiss — chips come from
+                    // ``dispositionChips.dismissChipsFor``
+                    // (CAL_EXTRA_TAG_DISMISS_CHIPS for tag-add:
+                    // "Subset only" / "No evidence" / "Redundant" /
+                    // "Out of scope" / …). Paul 2026-06-15: a bare
+                    // notes textarea here dropped the curator's
+                    // structured reason on the floor — the chip set
+                    // already existed in dispositionChips.ts and was
+                    // routed by issue_code; the InlineNotesPrompt was
+                    // just bypassing it.
+                    onClick: onDismiss,
                     title:
-                      "Record an explicit rejection (optional explanation). Goes back to the curation agent at close-review time.",
+                      "Reject with a reason chip (Subset only / No evidence / Redundant / Other) — goes back to the curation agent at close-review time.",
                   } satisfies ActionButton,
                 ]
             : noActionableDelta
@@ -1968,6 +2242,25 @@ export function FindingDetailsEditor({
                     } satisfies ActionButton,
                   ]
                 : []
+            : actionShape === "match"
+              ? [
+                  // Match findings: keep + adopt collapse to the same
+                  // "confirm" verb (both sides already agree). Render
+                  // ONE Confirm-all button instead of two identical
+                  // ones — Paul 2026-06-11: "having 'confirm' and
+                  // 'confirm' on every card is dumb." Acts as the
+                  // factor-level "overall" the curator wants: fills
+                  // any un-picked per-FV blocks with the same verdict.
+                  {
+                    key: "confirm",
+                    kind: "primary-accept" as const,
+                    label: "Confirm all",
+                    onClick: () => dispatchSave("proposal"),
+                    title:
+                      `Confirm every FV — auditor's claim and current curation already agree. ` +
+                      `Skips the per-FV walkthrough.`,
+                  } satisfies ActionButton,
+                ]
             : [
                 {
                   key: "keep",
@@ -1985,7 +2278,7 @@ export function FindingDetailsEditor({
                 {
                   key: "accept",
                   kind: leanKinds.accept,
-                  label: `${actionLbls.adopt} ${identities.proposer}'s`,
+                  label: acceptLabel(actionShape, identities.proposer),
                   onClick: () => dispatchSave("proposal"),
                   title: `Take ${identities.proposer}'s value on every disagreement.`,
                 },
@@ -2022,14 +2315,13 @@ export function FindingDetailsEditor({
         onDismiss={onDismiss}
         onPark={onPark}
         onUndo={currentDisposition !== "pending" ? onUndo : undefined}
-        // Hide Dismiss / Park for exact matches with no actionable
-        // delta — the proposal is identical to current, so there's
-        // literally nothing to dismiss or park. Other no-actionable
-        // cases (close match where the agent flagged something
-        // subtle, calibration_match tags) keep the escape hatches
-        // so the curator can flag the finding as wrong. Per Paul
-        // 2026-05-21.
-        showEscapeHatches={!auditorSaysExactlyRight}
+        // Reject + Park stay available on every finding — including
+        // exact matches and close matches. Paul 2026-06-11: "reject
+        // should be an option, even if the proposal is 'close'." The
+        // earlier gate ("nothing to dismiss") was wrong: the curator
+        // may still disagree that the auditor's match assessment is
+        // correct, and Reject is how they say so.
+        showEscapeHatches={true}
         hideDismiss={isTagAddFinding}
       />
       )}
@@ -2040,6 +2332,103 @@ export function FindingDetailsEditor({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+/** Subject-shared statement group used by AgreementSummary so multiple
+ *  statements on the same subject ("APP has_genotype Overexpression"
+ *  + "APP has_genotype V717F, KM670/671NL, E22G") collapse to one
+ *  subject chip with the predicate/object pairs stacked beneath.
+ *  Eye reads the subject ONCE, then walks the list. Per Paul
+ *  2026-06-12 GSE93824 genotype walkthrough — the prior render
+ *  repeated the subject on every line and made the inconsistent
+ *  agent-side labelling (same URI, two different display strings)
+ *  jump out as visual noise. */
+function AgreementStatementGroup({
+  subject,
+  entries,
+}: {
+  subject: SideValue;
+  entries: Array<{ predicate: SideValue; object: SideValue }>;
+}) {
+  if (!subject.label && entries.length === 0) return null;
+  // CSS grid with three columns (subject / predicate / object) so
+  // the predicates stack into a single visual column and the eye
+  // can scan them. The subject column sizes to its widest content
+  // (the row 0 chip), and ``⤷`` continuation rows occupy the same
+  // column width, which is what makes the predicate column line up
+  // vertically. Per Paul 2026-06-12: "you could make the
+  // has_genotype align vertically."
+  return (
+    <span
+      className="grid items-baseline gap-x-1.5 gap-y-0.5 min-w-0"
+      style={{ gridTemplateColumns: "max-content max-content 1fr" }}
+    >
+      {entries.map((e, i) => (
+        <Fragment key={`e-${i}`}>
+          {/* Subject column. Row 0: the canonical subject chip.
+              Row 1+: a small ⤷ glyph anchored to the subject column
+              so the predicate column starts at the same x on every
+              row. */}
+          <span className="inline-flex items-baseline">
+            {i === 0 ? (
+              <Term
+                uri={subject.uri ?? null}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                {subject.label}
+              </Term>
+            ) : (
+              <span
+                className="text-slate-400 dark:text-slate-500 pl-1"
+                aria-hidden
+                title={subject.label}
+              >
+                ⤷
+              </span>
+            )}
+          </span>
+          {/* Predicate column — same vertical x across every row. */}
+          <span className="inline-flex items-baseline">
+            {e.predicate.label ? (
+              <>
+                <span
+                  className="text-slate-400 dark:text-slate-500 mr-1"
+                  aria-hidden
+                >
+                  -
+                </span>
+                <span
+                  className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+                  title={e.predicate.uri || undefined}
+                >
+                  {e.predicate.label}
+                </span>
+                <span
+                  className="text-slate-400 dark:text-slate-500 ml-1"
+                  aria-hidden
+                >
+                  -
+                </span>
+              </>
+            ) : null}
+          </span>
+          {/* Object column — fills the remaining width. */}
+          <span className="inline-flex items-baseline flex-wrap min-w-0">
+            {e.object.label ? (
+              <Term
+                uri={e.object.uri ?? null}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                {e.object.label}
+              </Term>
+            ) : null}
+          </span>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
 
 function AgreementSummary({
   rows,
@@ -2064,22 +2453,130 @@ function AgreementSummary({
     }
   }
   const fvIndices = Array.from(byFv.keys()).sort((a, b) => a - b);
-  const items: string[] = [];
-  for (const r of factorRows) {
-    items.push(`${r.rowLabel.toLowerCase()} · ${r.proposal.label}`);
-  }
-  for (const idx of fvIndices) {
-    const meta = fvMeta.get(idx);
-    const sampleHint = meta ? ` (${meta.agentSampleCount})` : "";
-    items.push(`FV ${idx + 1}${sampleHint}`);
-  }
-  if (items.length === 0) return null;
+  if (fvIndices.length === 0 && factorRows.length === 0) return null;
+  // Factor-level agreements (e.g. shared category) stay inline.
+  const factorChips = factorRows.map(
+    (r) => `${r.rowLabel.toLowerCase()} · ${r.proposal.label}`,
+  );
   return (
-    <div className="text-[11px] text-slate-600 dark:text-slate-400 italic">
-      <span className="text-emerald-600 dark:text-emerald-400 font-bold not-italic mr-1">
-        ✓
-      </span>
-      Everyone agrees: {items.join(" · ")}
+    <div className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+      <div className="italic">
+        <span className="text-emerald-600 dark:text-emerald-400 font-bold not-italic mr-1">
+          ✓
+        </span>
+        Everyone agrees:
+        {factorChips.length > 0 ? (
+          <span className="ml-1">{factorChips.join(" · ")}</span>
+        ) : null}
+      </div>
+      {/* Per-agreed-FV detail — Paul 2026-06-11: "all factor values
+          should be shown — 'Everyone agrees: ... FV 2 (6)' is not
+          good enough." Spell out the proposal labels for each agreed
+          row so the curator sees the actual content of the FV they're
+          not being asked to act on, not just the index. */}
+      {fvIndices.length > 0 ? (
+        <ul className="mt-0.5 pl-4 space-y-0.5">
+          {fvIndices.map((idx) => {
+            const meta = fvMeta.get(idx);
+            const sampleHint = meta ? ` (${meta.agentSampleCount})` : "";
+            const fvRows = byFv.get(idx) ?? [];
+            const extras = meta?.goldExtraStatements ?? [];
+            const subj = fvRows.find((r) => r.rowLabel === "Subject")
+              ?.proposal;
+            const pred = fvRows.find((r) => r.rowLabel === "Predicate")
+              ?.proposal;
+            const obj = fvRows.find((r) => r.rowLabel === "Object")?.proposal;
+            // Collect every statement on this FV (primary + extras),
+            // then group by subject URI/label so the eye can read
+            // "subject X has predicates A, B, C" instead of repeating
+            // the same subject chip every line. Paul 2026-06-12 on
+            // GSE93824 genotype: "the label should be the same for the
+            // same ontology term (gene) NCBI:gene:351, do you know
+            // why it isn't?" Producer ships different display strings
+            // ("APP" vs "APP [human] amyloid beta (A4) precursor
+            // protein") for the same URI; collapsing them here picks
+            // the SHORTER label as the visual stand-in so the
+            // comparison reads cleanly. (Producer canonicalisation is
+            // out for a separate handoff.)
+            const allStatements: Array<{
+              subject: SideValue;
+              predicate: SideValue;
+              object: SideValue;
+            }> = [];
+            if (subj?.label || pred?.label || obj?.label) {
+              allStatements.push({
+                subject: subj ?? { label: "", uri: null },
+                predicate: pred ?? { label: "", uri: null },
+                object: obj ?? { label: "", uri: null },
+              });
+            }
+            for (const e of extras) allStatements.push(e);
+            // Group by subject identity. Two statements share a group
+            // when their subject URIs match (URI-first) or, when URIs
+            // are absent on both sides, their lowercased labels match.
+            type StmtGroup = {
+              subject: SideValue;
+              entries: Array<{ predicate: SideValue; object: SideValue }>;
+            };
+            const groups: StmtGroup[] = [];
+            for (const s of allStatements) {
+              const existing = groups.find((g) =>
+                sameOntologyTerm(g.subject, s.subject),
+              );
+              if (existing) {
+                // Same subject — prefer the shorter label (the canonical
+                // short form is almost always the cleaner read).
+                if (
+                  s.subject.label &&
+                  s.subject.label.length < existing.subject.label.length
+                ) {
+                  existing.subject = s.subject;
+                }
+                existing.entries.push({
+                  predicate: s.predicate,
+                  object: s.object,
+                });
+              } else {
+                groups.push({
+                  subject: s.subject,
+                  entries: [{ predicate: s.predicate, object: s.object }],
+                });
+              }
+            }
+            return (
+              <li key={idx} className="flex flex-col gap-y-0.5">
+                {groups.map((g, gix) => (
+                  <div
+                    key={`g-${gix}`}
+                    className={cn(
+                      "flex items-baseline gap-x-1.5 flex-wrap",
+                      gix > 0 && "pl-12",
+                    )}
+                  >
+                    {gix === 0 ? (
+                      <>
+                        <span className="text-amber-700 dark:text-amber-400 font-semibold not-italic shrink-0">
+                          FV {idx + 1}
+                        </span>
+                        <span className="text-slate-400 dark:text-slate-500 shrink-0">
+                          {sampleHint}
+                        </span>
+                        <span className="text-slate-400 dark:text-slate-500 shrink-0">
+                          ·
+                        </span>
+                      </>
+                    ) : null}
+                    <AgreementStatementGroup
+                      subject={g.subject}
+                      entries={g.entries}
+                    />
+                  </div>
+                ))}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -3184,6 +3681,73 @@ function NearMatchExplainer({ finding }: { finding: AuditFinding }) {
   );
 }
 
+/** Renders a single extra current-side statement (statements[1+])
+ *  inline beneath the main Current comparator line. The row builder
+ *  pairs the agent's one proposed statement against gold's
+ *  ``statements[0]``; this surfaces the remaining ones so the curator
+ *  sees the full current structure (e.g. dexamethasone FV with both
+ *  a "delivered at dose · 100 nmol/kg" and a "has modifier · …"
+ *  statement). Per Paul 2026-06-11. */
+function ExtraCurrentStatement({
+  extra,
+}: {
+  extra: {
+    subject: SideValue;
+    predicate: SideValue;
+    object: SideValue;
+  };
+}) {
+  const parts: Array<{ kind: "subject" | "predicate" | "object"; value: SideValue }> = [];
+  if (extra.subject.label) parts.push({ kind: "subject", value: extra.subject });
+  if (extra.predicate.label) parts.push({ kind: "predicate", value: extra.predicate });
+  if (extra.object.label) parts.push({ kind: "object", value: extra.object });
+  if (parts.length === 0) return null;
+  return (
+    <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
+      <span />
+      <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+        {parts.map((p, i) => {
+          const sep =
+            i === 0 ? null : (
+              <span
+                key={`sep-${i}`}
+                className="text-slate-400 dark:text-slate-500"
+                aria-hidden
+              >
+                {" - "}
+              </span>
+            );
+          if (p.kind === "predicate") {
+            return (
+              <span key={`p-${i}`} className="inline-flex items-baseline">
+                {sep}
+                <span
+                  className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
+                  title={p.value.uri || undefined}
+                >
+                  {p.value.label}
+                </span>
+              </span>
+            );
+          }
+          return (
+            <span key={`p-${i}`} className="inline-flex items-baseline">
+              {sep}
+              <Term
+                uri={p.value.uri ?? null}
+                asLink={false}
+                className="!whitespace-normal break-words"
+              >
+                {p.value.label}
+              </Term>
+            </span>
+          );
+        })}
+      </span>
+    </div>
+  );
+}
+
 /** One block per *statement*. Takes one or more rows that share an
  *  FV+statement (or the single Category row). Renders:
  *   - Header: "FV N · X samples" (or "Category")
@@ -3201,9 +3765,11 @@ function DisagreementBlock({
   onPick,
   onEditCommit,
   onLocateCurrent,
+  locateTooltip,
   editCategory,
   leanKinds,
   actionLbls,
+  actionShape,
   judgeText,
   judgeCitation,
 }: {
@@ -3223,6 +3789,10 @@ function DisagreementBlock({
   onEditCommit: (label: string, uri: string | null) => void;
   /** Forwarded to the "currently" ComparatorLine's locate button. */
   onLocateCurrent?: () => void;
+  /** Tooltip + aria-label for the locate button — passed in so it
+   *  names the actual tab (Overview / Design / Samples) the focus
+   *  jumps to. Defaults to a generic "locate" when omitted. */
+  locateTooltip?: string;
   /** Category label used to filter the ontology-term picker's
    *  typeahead when the curator opens the "edit…" affordance. */
   editCategory?: string | null;
@@ -3240,6 +3810,11 @@ function DisagreementBlock({
    *  row exactly — both rows derive from the same finding-level
    *  action shape (see ./actionLabels.ts). Per Paul 2026-05-21. */
   actionLbls: { keep: string; adopt: string };
+  /** Action shape — same finding-level shape the parent computes.
+   *  Threaded so the accept button can suppress the possessive
+   *  suffix when shape is "remove" / "match" (per Paul 2026-06-08,
+   *  the "remove Auditor's" hanging-possessive bug). */
+  actionShape: ActionShape;
   /** Optional "Judge:" rationale to render INSIDE this FV block.
    *  Threaded from the parent on near-match findings (Paul 2026-05-21
    *  redesign — GSE93824 case): the factor-card-level
@@ -3327,7 +3902,12 @@ function DisagreementBlock({
   // `keepLabelFor(identities.goldCurator)` ("keep current" /
   // "keep amanda's") — those didn't carry the action verb.
   const keepLabel = actionLbls.keep;
-  const adoptLabel = actionLbls.adopt;
+  // For action shapes where the accept verb stands on its own
+  // ("remove" / "confirm"), the trailing "<Proposer>'s" was reading
+  // as a hanging possessive ("remove Auditor's"). Use the helper
+  // so the suffix only appears for add/change actions where it
+  // makes grammatical sense.
+  const adoptLabel = acceptLabel(actionShape, identities.proposer);
 
   return (
     <div
@@ -3383,7 +3963,17 @@ function DisagreementBlock({
         side="currently"
         picked={blockPick === "currently"}
         onLocate={onLocateCurrent}
+        locateTooltip={locateTooltip}
       />
+      {/* Extra current-side statements beyond ``statements[0]`` — a
+          curated FV often layers multiple statements (subject + dose,
+          role + modifier, etc.) but the row builder only pairs against
+          the first. Surface the rest here as "(also: S - P - O)" hints
+          so the curator sees the full current structure. Per Paul
+          2026-06-11. */}
+      {meta?.goldExtraStatements?.map((extra, ix) => (
+        <ExtraCurrentStatement key={`extra-${ix}`} extra={extra} />
+      ))}
       {hasReferenceCtx ? (
         <ComparatorLine
           who={identities.reference}
@@ -3395,22 +3985,44 @@ function DisagreementBlock({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
-        <PickButton
-          active={blockPick === "currently"}
-          recommended={leanKinds.keep === "primary-keep"}
-          onClick={() => onPick("currently")}
-          tone="keep"
-        >
-          {keepLabel}
-        </PickButton>
-        <PickButton
-          active={blockPick === "proposal"}
-          recommended={leanKinds.accept === "primary-accept"}
-          onClick={() => onPick("proposal")}
-          tone="accept"
-        >
-          {adoptLabel} {identities.proposer}'s
-        </PickButton>
+        {actionShape === "match" ? (
+          // Match findings — auditor's claim and current row already
+          // agree, so both keep/adopt labels resolve to "confirm".
+          // Rendering both was Paul's "having 'confirm' and 'confirm'
+          // on every card is dumb" (2026-06-11): two buttons doing
+          // the same thing under different colours. Collapse to a
+          // single Confirm that records the agreement. The outer
+          // Agree button on FindingActionRow already serves as the
+          // factor-level "confirm all" when the curator wants to
+          // skip the per-FV walkthrough.
+          <PickButton
+            active={blockPick === "proposal" || blockPick === "currently"}
+            recommended={true}
+            onClick={() => onPick("proposal")}
+            tone="accept"
+          >
+            Confirm
+          </PickButton>
+        ) : (
+          <>
+            <PickButton
+              active={blockPick === "currently"}
+              recommended={leanKinds.keep === "primary-keep"}
+              onClick={() => onPick("currently")}
+              tone="keep"
+            >
+              {keepLabel}
+            </PickButton>
+            <PickButton
+              active={blockPick === "proposal"}
+              recommended={leanKinds.accept === "primary-accept"}
+              onClick={() => onPick("proposal")}
+              tone="accept"
+            >
+              {adoptLabel}
+            </PickButton>
+          </>
+        )}
         {hasReferenceCtx ? (
           <PickButton
             active={blockPick === "reference"}
@@ -3490,10 +4102,12 @@ function TagDetailBlock({
   rows,
   identities,
   onLocateCurrent,
+  locateTooltip,
 }: {
   rows: Row[];
   identities: AuditIdentities;
   onLocateCurrent?: () => void;
+  locateTooltip?: string;
 }) {
   const catRow = rows.find((r) => r.rowLabel === "Category");
   const valRow = rows.find((r) => r.rowLabel === "Value");
@@ -3539,13 +4153,13 @@ function TagDetailBlock({
   const goldVerb = currentlyVerb(identities.goldCurator);
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]">
+      <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
         <span className="text-slate-600 dark:text-slate-300">
           <strong>{identities.proposer}</strong> says
         </span>
         {renderSide("proposal")}
       </div>
-      <div className="grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]">
+      <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
         <span className="text-slate-600 dark:text-slate-300">
           <strong>{identities.goldCurator}</strong>
           {goldVerb ? ` ${goldVerb}` : null}
@@ -3553,8 +4167,8 @@ function TagDetailBlock({
             <button
               type="button"
               onClick={onLocateCurrent}
-              title="show in Design tab"
-              aria-label="locate in design"
+              title={locateTooltip ?? "locate"}
+              aria-label={locateTooltip ?? "locate"}
               className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
             >
               🔍
@@ -3574,6 +4188,7 @@ function ComparatorLine({
   side,
   picked,
   onLocate,
+  locateTooltip,
 }: {
   who: string;
   /** Optional verb after the identity label ("says" / "have" /
@@ -3589,6 +4204,10 @@ function ComparatorLine({
    *  the ``currently`` side (the gold curator's design data is
    *  what the Design tab shows). */
   onLocate?: () => void;
+  /** Tooltip for the locate button — usually the dynamic
+   *  ``locateTooltipFor(targetId)`` string ("show in Design tab" /
+   *  "show in Overview tab" / "show in Samples tab"). */
+  locateTooltip?: string;
 }) {
   // Sort within the group by part order. Category is filtered
   // out when the group has OTHER rows (subject/predicate/object)
@@ -3665,7 +4284,7 @@ function ComparatorLine({
   return (
     <div
       className={cn(
-        "grid grid-cols-[6rem_1fr] gap-x-2 items-baseline text-[12px]",
+        "grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]",
         picked && "rounded bg-blue-50 dark:bg-blue-900/30 px-1 py-0.5",
       )}
     >
@@ -3675,8 +4294,8 @@ function ComparatorLine({
           <button
             type="button"
             onClick={onLocate}
-            title="show in Design tab"
-            aria-label="locate in design"
+            title={locateTooltip ?? "locate"}
+            aria-label={locateTooltip ?? "locate"}
             className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
           >
             🔍
@@ -3809,33 +4428,40 @@ export function leanButtonKinds(lean: DefenderLean): {
   return { keep: "primary-keep", accept: "primary-accept" };
 }
 
-/** Compact chip for the partition_mismatch mapping block. Drops
- *  the URI annotation that `Term` renders inline (full URI still
- *  surfaces on hover via the title attribute) and uses tighter
- *  padding + text so a parent + several children fit on one
- *  line. Ontology-resolved terms use the emerald palette;
- *  free-text falls through to grey italic — same convention as
- *  Term. */
-function MappingChip({ term }: { term: { label: string; uri: string | null } }) {
-  const hasUri = !!term.uri;
-  return (
-    <span
-      title={term.uri ? `${term.label} — ${term.uri}` : term.label}
-      className={cn(
-        "inline-flex items-baseline gap-1 px-1 py-0 rounded text-[11px] leading-[1.3rem] border",
-        hasUri
-          ? "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-700"
-          : "bg-stone-50 text-stone-600 border-stone-200 italic dark:bg-stone-800 dark:text-stone-300 dark:border-stone-600",
-      )}
-    >
-      <span>{term.label}</span>
-      {hasUri ? (
-        <span className="text-slate-400 font-mono text-[10px] whitespace-nowrap">
-          {shortenUri(term.uri!)}
-        </span>
-      ) : null}
-    </span>
-  );
+/** Synthesise an ``FvDisplayLike`` for the partition_mismatch mapping
+ *  block from a side's ``OntologyTerm`` (FV-level label / URI) plus
+ *  the wire's optional ``StatementParts`` decomposition. Hands the
+ *  result to ``FvDisplayRow`` so the mapping rows render statement
+ *  chips (subject · predicate · object) instead of just the FV's
+ *  free-text name — matching the design-editor's per-FV display
+ *  surface. ``biomaterial_short_names`` is left empty (the wire
+ *  doesn't carry per-pair sample sets here); the ``(n)`` count
+ *  simply doesn't render. */
+function _fvDisplayFromMapping(
+  term: { label: string; uri: string | null },
+  stmt: StatementParts | null | undefined,
+  samples: readonly string[] | null = null,
+) {
+  const statements = stmt
+    ? [
+        {
+          subject: stmt.subject
+            ? { label: stmt.subject.label, uri: stmt.subject.uri ?? null }
+            : null,
+          predicate: stmt.predicate
+            ? { label: stmt.predicate.label, uri: stmt.predicate.uri ?? null }
+            : null,
+          object: stmt.object
+            ? { label: stmt.object.label, uri: stmt.object.uri ?? null }
+            : null,
+        },
+      ]
+    : [];
+  return {
+    free_text_label: term.label,
+    statements,
+    biomaterial_short_names: samples ? [...samples] : [],
+  };
 }
 
 /** Inline suggestion banner for findings linked through
@@ -3916,152 +4542,16 @@ function ConsequentHintBanner({
   );
 }
 
-/** Mounts the OntologyTermPicker pre-filled with a free-text label
- *  the curator clicked "find ▸" on. Browse-only for v1: commit just
- *  closes; a follow-up will route the resolved term back into the
- *  agent's proposed FV so it rides the Apply. Per Paul 2026-05-25. */
-function FreeTextLookup({
-  label,
-  onClose,
-}: {
-  label: string;
-  onClose: () => void;
-}) {
-  return (
-    <div className="rounded border border-blue-300 dark:border-blue-700 bg-blue-50/60 dark:bg-blue-900/15 p-2 space-y-1.5">
-      <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="text-blue-900 dark:text-blue-100">
-          Ontology lookup for{" "}
-          <span className="font-mono italic">"{label}"</span>
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-[10px] text-blue-700 hover:text-blue-900 underline-offset-2 hover:underline dark:text-blue-300 dark:hover:text-blue-100"
-        >
-          close
-        </button>
-      </div>
-      <OntologyTermPicker
-        value={{ label, uri: null }}
-        category={null}
-        autoOpen
-        onCommit={() => {
-          // Browse-only — v1 doesn't apply the resolved term back
-          // to the agent's proposed FV. Just dismiss; the curator
-          // saw what they came to see.
-          onClose();
-        }}
-      />
-    </div>
-  );
-}
+// FreeTextLookup component removed 2026-06-15 with the
+// proposal-pane editing affordance. Recover from git history
+// (commit c687592) if/when it's needed again.
 
-/** Inline optional-explanation prompt — replaces the action row on
- *  factor-extra / tag-extra cards for both Apply and Reject so the
- *  two verdicts share visual shape (Paul 2026-05-25 harmonization).
- *  Textarea accepts free text; empty is fine — the explanation is
- *  optional. The note rides on the disposition PATCH and goes back
- *  to the curation agent at close-review time. */
-function InlineNotesPrompt({
-  primaryLabel,
-  primaryTone = "accept",
-  placeholder,
-  saving,
-  onCancel,
-  onConfirm,
-  savingLabel,
-  notesRequired = false,
-}: {
-  primaryLabel: string;
-  /** ``"accept"`` = blue (default; Apply path). ``"reject"`` = rose
-   *  (Reject path) so the curator sees the verdict colour-coded
-   *  before they confirm. */
-  primaryTone?: "accept" | "reject";
-  placeholder?: string;
-  saving: boolean;
-  /** Optional override for the in-flight button label — defaults
-   *  to "applying…" / "rejecting…" based on tone. */
-  savingLabel?: string;
-  /** When true, the confirm button stays disabled until the
-   *  textarea has at least one non-whitespace character. Use for
-   *  Reject — curator should record WHY they declined. Apply is
-   *  optional-notes. */
-  notesRequired?: boolean;
-  onCancel: () => void;
-  onConfirm: (notes: string) => void | Promise<void>;
-}) {
-  const [notes, setNotes] = useState("");
-  const tonedClass =
-    primaryTone === "reject"
-      ? saving
-        ? "bg-rose-200 text-rose-700 cursor-progress"
-        : "bg-rose-700 text-white hover:bg-rose-800"
-      : saving
-        ? "bg-blue-200 text-blue-700 cursor-progress"
-        : "bg-blue-700 text-white hover:bg-blue-800";
-  const defaultSavingLabel =
-    primaryTone === "reject" ? "rejecting…" : "applying…";
-  const trimmed = notes.trim();
-  const blockedByEmpty = notesRequired && trimmed.length === 0;
-  return (
-    // ``max-w-sm`` (24rem ~ 384px) keeps the textarea + buttons in a
-    // single readable cluster instead of stretching across the full
-    // card width (Paul 2026-05-25: "this box is so wide, the Reject
-    // confirm button is waaaay over there").
-    <div className="border border-slate-300 dark:border-slate-600 rounded p-2 space-y-2 bg-slate-50 dark:bg-slate-900/60 max-w-sm">
-      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-200">
-        {notesRequired ? "Explain" : "Optional explanation"}
-        <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
-          — rides to the curation agent at close-review time
-        </span>
-      </label>
-      <textarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        rows={2}
-        placeholder={
-          placeholder ??
-          (primaryTone === "reject"
-            ? notesRequired
-              ? "why you're rejecting this"
-              : "(optional) why you're rejecting this — leave blank if no comment"
-            : notesRequired
-              ? "why you're applying this"
-              : "(optional) why you're applying this — leave blank if no comment")
-        }
-        autoFocus
-        className="w-full text-[11px] border border-slate-300 dark:border-slate-600 rounded px-1.5 py-1 resize-y bg-white dark:bg-slate-900"
-      />
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={saving}
-          className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-700"
-        >
-          cancel
-        </button>
-        <button
-          type="button"
-          onClick={() => onConfirm(notes)}
-          disabled={saving || blockedByEmpty}
-          title={
-            blockedByEmpty
-              ? "enter a reason first"
-              : undefined
-          }
-          className={cn(
-            "text-[11px] px-2 py-0.5 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed",
-            tonedClass,
-          )}
-        >
-          {saving ? (savingLabel ?? defaultSavingLabel) : primaryLabel}
-        </button>
-      </div>
-    </div>
-  );
-}
+// InlineNotesPrompt deleted 2026-06-15 — Reject paths now route
+// through ``onDismiss`` → ``DismissDialog`` chip picker, sourcing
+// per-issue-code chips from ``dispositionChips.dismissChipsFor``.
+// Paul: "make sure there is a _uniform_ place those are coded but
+// the choices might differ based on the situation." Recover from
+// git history if a future surface wants a free-text-only prompt.
 
 
 function ActionRow({
@@ -4141,30 +4631,43 @@ function ActionRow({
           {saving ? "Saving…" : b.label}
         </button>
       ))}
-      {buttons.length > 0 && showEscapeHatches ? (
-        <span className="text-slate-300 dark:text-slate-600">·</span>
-      ) : null}
-      {showEscapeHatches ? (
+      {/* Escape hatches — historically rendered Reject + Park
+          alongside the primary buttons. Paul 2026-06-14 (and the
+          earlier findingCard refactor):
+            - When the primary buttons already include the disagree
+              action (e.g. "don't remove" sits next to "remove"),
+              Reject is redundant — drop it.
+            - Park is hidden across the audit/proposal surface until
+              the mid-curation handoff flow that needs it lands;
+              handlers + dialog stay wired so flipping the gate
+              restores the button.
+          Reject still shows when the primary row has only ONE
+          button (the "Agree-only" surfaces like single-tag add):
+          there's no opposite action button there, so the curator
+          needs an escape hatch. */}
+      {showEscapeHatches && buttons.length < 2 && !hideDismiss ? (
         <>
-          {!hideDismiss ? (
-            <button
-              type="button"
-              onClick={onDismiss}
-              disabled={saving}
-              className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              Reject…
-            </button>
-          ) : null}
+          <span className="text-slate-300 dark:text-slate-600">·</span>
           <button
             type="button"
-            onClick={onPark}
+            onClick={onDismiss}
             disabled={saving}
             className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
           >
-            Park…
+            Reject…
           </button>
         </>
+      ) : null}
+      {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
+      {false && showEscapeHatches ? (
+        <button
+          type="button"
+          onClick={onPark}
+          disabled={saving}
+          className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+        >
+          Park…
+        </button>
       ) : null}
       {onUndo ? (
         <button

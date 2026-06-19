@@ -48,6 +48,10 @@ export interface GemmaModeInfo {
    *  Gemma 2.0 stack serves everything else). Drives the
    *  OntologyTermPicker's "ontology source" footer. */
   ontologyHost: string;
+  /** Full base URL serving ``/rest/v2/annotations/{search,term}``.
+   *  Surfaced in the ModeChip popover so curators can see exactly
+   *  where term search resolves (e.g. a local Frink instance). */
+  ontologyUrl: string;
   /** True when the ontology routing split is active —
    *  ``ontologyHost !== baseHost``. Gates the UI indicator. */
   ontologySplit: boolean;
@@ -120,6 +124,7 @@ export function resolveGemmaMode(): GemmaModeInfo {
     isStaging,
     authLabel,
     ontologyHost,
+    ontologyUrl,
     ontologySplit,
   };
 }

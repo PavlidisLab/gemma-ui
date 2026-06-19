@@ -1,0 +1,69 @@
+import { describe, expect, it } from "vitest";
+import { curieToUrl } from "./curie";
+
+/**
+ * Tests for curieToUrl() — the CURIE-to-clickable-URL router used by
+ * every surface that renders ontology term chips, picker dropdowns, and
+ * statement subject/object suffixes.
+ *
+ * Key invariant: NCBI gene CURIEs carry TWO colons (``NCBI:gene:948``)
+ * and must route to the canonical NCBI Gene page. A naive single-colon
+ * split would interpret ``NCBI`` as the prefix and ``gene:948`` as the
+ * local id, producing a wrong OLS fallback URL.
+ */
+describe("curieToUrl", () => {
+  it("routes NCBI gene CURIE (two-colon form) to the NCBI Gene page — NOT a generic obolibrary or OLS URL", () => {
+    const result = curieToUrl("NCBI:gene:1234");
+    expect(result).toBe("https://www.ncbi.nlm.nih.gov/gene/1234");
+    // Sanity-check: a naive single-colon split would produce something
+    // containing "gene:1234" as the local part — make sure we don't.
+    expect(result).not.toContain("gene:1234");
+    expect(result).not.toContain("obolibrary");
+    expect(result).not.toContain("ols4");
+  });
+
+  it("routes generic OBO CURIE (single colon) to the correct obolibrary URL", () => {
+    expect(curieToUrl("MONDO:0000001")).toBe(
+      "http://purl.obolibrary.org/obo/MONDO_0000001",
+    );
+  });
+
+  it("routes HP CURIE to obolibrary", () => {
+    expect(curieToUrl("HP:0002511")).toBe(
+      "http://purl.obolibrary.org/obo/HP_0002511",
+    );
+  });
+
+  it("returns null for null input", () => {
+    expect(curieToUrl(null)).toBeNull();
+  });
+
+  it("returns null for undefined input", () => {
+    expect(curieToUrl(undefined)).toBeNull();
+  });
+
+  it("returns null for empty string input", () => {
+    expect(curieToUrl("")).toBeNull();
+  });
+
+  it("returns full URLs unchanged (no double-expansion)", () => {
+    const url = "http://purl.obolibrary.org/obo/MONDO_0004975";
+    expect(curieToUrl(url)).toBe(url);
+  });
+
+  it("handles ENSEMBL-style CURIE where local id contains letters+digits after the colon", () => {
+    // ENSEMBL is not in the known prefix table — falls back to OLS search.
+    const result = curieToUrl("ENSEMBL:ENSG00000123");
+    expect(result).toBeTruthy();
+    // Should NOT be null or the raw CURIE passed through as a relative link.
+    expect(result).not.toBeNull();
+    // The OLS fallback URL encodes the full CURIE in the query param.
+    expect(result).toContain("ENSG00000123");
+  });
+
+  it("handles EFO CURIE correctly (known prefix with numeric local id)", () => {
+    expect(curieToUrl("EFO:0000513")).toBe(
+      "http://www.ebi.ac.uk/efo/EFO_0000513",
+    );
+  });
+});

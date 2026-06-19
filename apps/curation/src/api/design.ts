@@ -11,6 +11,49 @@ const KEY = {
   byExperiment: (experimentId: number | string) => ["design", experimentId] as const,
 };
 
+/** Fill in `statement.category` from the parent factor's `category`
+ *  whenever it's null on the wire. The server's design endpoint
+ *  doesn't persist statement-level categories — they're inherited
+ *  from the parent factor at composition time and on commit-side
+ *  normalisation — so the round-trip returns null categories even
+ *  when the curator's last commit sent them explicitly. Filling
+ *  them client-side at every Design boundary (read + commit
+ *  response) keeps the validator from flagging "N statements
+ *  missing category" on freshly-fetched data and keeps the commit
+ *  bar from re-firing immediately after a successful PUT.
+ *  Idempotent — already-filled statements pass through unchanged.
+ *
+ *  Paul 2026-06-10: "commit still doesn't seem to work, at least,
+ *  the ui doesn't show that it's been committed". The bar was
+ *  showing because of the inherited-category warning, then not
+ *  going away after commit because the server response still had
+ *  the same nulls. */
+export function fillStatementCategoriesFromParent(d: Design): Design {
+  return {
+    ...d,
+    factors: d.factors.map((f) => ({
+      ...f,
+      factor_values: f.factor_values.map((fv) => ({
+        ...fv,
+        statements: fv.statements.map((s) => {
+          // `composeStatement` ALWAYS hands us a `category` object,
+          // possibly with `{ label: "", uri: null }` when the wire
+          // payload didn't carry one. The earlier `s.category ? s :
+          // ...` check passed those through untouched and the
+          // validator kept flagging "N statements missing category"
+          // post-commit (Paul 2026-06-11 follow-up). Treat
+          // missing-OR-empty-label the same — both inherit from the
+          // parent factor.
+          const hasCategoryLabel = !!s.category?.label?.trim();
+          if (hasCategoryLabel) return s;
+          if (!f.category?.label) return s;
+          return { ...s, category: { ...f.category } };
+        }),
+      })),
+    })),
+  };
+}
+
 /** Per bro's `STATUS_CURATION_TO_GEMMA_2_0.md` §2 reply: compose the
  *  curation `Design` client-side from Gemma 2.0's canonical
  *  `/datasets/{id}/design` + the latest curation-proposal overlay,
@@ -31,7 +74,7 @@ export async function fetchDesignSnapshot(
     fetchLatestProposalOverlay(experimentId),
     fetchDatasetMeta(experimentId),
   ]);
-  return composeCurationDesign(
+  const composed = composeCurationDesign(
     g2,
     experimentId,
     datasetMeta.short_name ?? "",
@@ -45,6 +88,7 @@ export async function fetchDesignSnapshot(
       : null,
     datasetMeta,
   );
+  return fillStatementCategoriesFromParent(composed);
 }
 
 /** Fetch a curator's polished Design for an experiment from
@@ -252,7 +296,11 @@ function normaliseDesignForSave(design: Design): Design {
   const out: Design = {
     ...design,
     tags: (design.tags ?? []).map((raw) => {
-      const t = raw as Record<string, unknown>;
+      // ``Tag`` has no index signature, so TS rejects a direct cast to
+      // ``Record<string, unknown>``; route through ``unknown`` — the
+      // producers feeding this normaliser are deliberately loosely
+      // typed (flat-shape tags from several call sites).
+      const t = raw as unknown as Record<string, unknown>;
       const cat = t.category;
       const val = t.value;
       let normalizedCategory: { label: string; uri: string | null };
@@ -287,16 +335,32 @@ function normaliseDesignForSave(design: Design): Design {
       } else {
         normalizedValue = { label: "", uri: null };
       }
-      let id = (t as { id?: unknown }).id;
-      if (typeof id !== "number") {
+      const rawId = (t as { id?: unknown }).id;
+      let id: number;
+      if (typeof rawId === "number") {
+        id = rawId;
+      } else {
         while (existingIds.has(nextSyntheticId)) nextSyntheticId++;
         id = nextSyntheticId++;
         existingIds.add(id);
       }
+      // ``statements`` is optional and round-trips through the wire
+      // as the (predicate, object) + (secondPredicate, secondObject)
+      // pairs on AnnotationTagInput; canonical UI shape is an array of
+      // ``Statement`` rows with the subject mirroring ``value`` (per
+      // UIB_HANDOFF_2026_06_17_TAG_AND_BM_STATEMENT_ENDPOINTS). Pass
+      // it through verbatim if the source already produced canonical
+      // rows; otherwise drop to undefined and let the read side rehydrate.
+      const rawStmts = (t as { statements?: unknown }).statements;
+      const normalizedStatements =
+        Array.isArray(rawStmts) && rawStmts.length > 0
+          ? (rawStmts as Design["tags"][number]["statements"])
+          : undefined;
       return {
         id,
         category: normalizedCategory,
         value: normalizedValue,
+        statements: normalizedStatements,
         inferred: Boolean(
           (t as { inferred?: unknown }).inferred,
         ),
@@ -318,14 +382,20 @@ function normaliseDesignForSave(design: Design): Design {
 export function useUpdateDesign(experimentId: number | string, reviewer = "") {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (design: Design) => {
+    mutationFn: async (design: Design) => {
       const params = reviewer
         ? `?reviewer=${encodeURIComponent(reviewer)}`
         : "";
-      return api.put<Design>(
+      const server = await api.put<Design>(
         `/rest/v2/datasets/${experimentId}/design${params}`,
         normaliseDesignForSave(design),
       );
+      // Server doesn't persist statement.category — fill it from the
+      // parent factor on the way back so the cache + DesignDraftContext
+      // see the same normalised shape that just went out, instead of
+      // round-tripped nulls. Mirrors the read-side normalisation in
+      // fetchDesignSnapshot.
+      return fillStatementCategoriesFromParent(server);
     },
     onSuccess: (server) => {
       qc.setQueryData(KEY.byExperiment(experimentId), server);
@@ -333,6 +403,28 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
       qc.invalidateQueries({ queryKey: ["audit-events", experimentId] });
+      // Audit + proposal lists also need to refetch — their findings'
+      // rationale text references the design we just changed (e.g.
+      // "X factor needs a baseline" warning persists in audit cards
+      // even after the curator commits the baseline fix). Without
+      // invalidating these, per-card warnings stay stale until a hard
+      // refresh. Paul 2026-06-11 review-workflow handoff #7.
+      //
+      // Broad invalidation (prefix-only) mirrors the precedent in
+      // `api/datasets.ts:181` — the alternative is enumerating every
+      // (experiment, status) tuple in the proposals KEY shape, which
+      // is fragile. The refetch is cheap; staleTime keeps the rest of
+      // the app from re-fetching unrelated experiments.
+      qc.invalidateQueries({ queryKey: ["audits"] });
+      qc.invalidateQueries({ queryKey: ["proposals"] });
+      // The unified /curations row backs the chip-strip baseline view
+      // (Live Gemma / preboard / consensus). After a commit to
+      // /design, the chip-strip rendering of "consensus" or
+      // "curator_polish_<x>" stayed at the pre-commit snapshot until
+      // the next mount. Per the 2026-06-13 continuity sweep —
+      // memory'd in the code comment at the time but never
+      // invalidated.
+      qc.invalidateQueries({ queryKey: ["curations", experimentId] });
     },
   });
 }

@@ -30,6 +30,13 @@ export interface OntologyTerm {
 export interface TagProposal {
   category: OntologyTerm;
   value: OntologyTerm;
+  /** Structured (subject · predicate · object) statements proposed
+   *  for this experiment-level tag. Mirrors the post-2026-06-14
+   *  rich-tag shape on ``Design.Tag.statements``. Optional + empty
+   *  on flat agent proposals; populated when the agent's tag
+   *  proposer decomposes a value into S-P-O (e.g. genotype tag
+   *  with ``Abca4 · has_genotype · Homozygous negative``). */
+  statements?: StatementProposal[];
   evidence_quote: string;
   confidence: string;
   /** Debate-loop outcome. ``"platinum"`` = human-verified,
@@ -62,6 +69,19 @@ export interface StatementProposal {
   subject: OntologyTerm;
   predicate: OntologyTerm | null;
   object: OntologyTerm | null;
+  /** Original free-text the statement came from when there was one
+   *  (matches Gemma's ``Characteristic.originalValue``). Often null
+   *  when the agent constructs statements from paper text / BM
+   *  columns directly. */
+  original_value?: string | null;
+  /** Per-statement justification slice. Mirrors the FV-level fields;
+   *  populated when statement-level evidence is genuinely distinct
+   *  from the parent FV's. Empty on payloads from before producer-
+   *  migration 4b. */
+  rationale?: string;
+  citation?: string;
+  citation_url?: string;
+  supporting_evidence?: FindingEvidence[];
   /** Subtask decisions targeted at this statement (target_id format
    *  e.g. `factor:0/fv:1/subject`). Populated today. */
   subtask_decisions?: SubtaskDecision[];
@@ -148,6 +168,10 @@ export interface FactorValueProposal {
 export interface FactorProposal {
   category: OntologyTerm;
   name_in_design: string;
+  /** ≤80-char LLM-emitted summary of what the factor encodes, used
+   *  as a subtitle in factor headers. Optional; may be empty. Per
+   *  UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md. */
+  description?: string;
   /** ``"categorical"`` (default) or ``"continuous"``. Continuous
    *  factors emit one FV per distinct numeric measurement, with
    *  ``numeric_value`` populated and ``is_baseline=false`` on every
@@ -202,6 +226,33 @@ export interface FactorProposal {
 // that still import from `./types`.
 export type { SubtaskDecision } from "./justification";
 
+/** One constant-BM-characteristic the proposer's deterministic
+ *  refine-tags pass considered but did NOT emit as a tag. Surfaces
+ *  in the UI so the curator isn't blind to why an obvious free-text
+ *  BM column (e.g. `strain: TALLYHO`) didn't make it onto the
+ *  proposed tag list. Wire shape per
+ *  UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md. */
+export interface ConstantKeyConsidered {
+  key: string;
+  value: string;
+  n_samples: number;
+  /** "missed" — resolver chain ran but couldn't ground the value to
+   *  an ontology URI (free-text BM, no matching resolver). Only
+   *  "missed" surfaces here today; "resolved" cases ship as actual
+   *  tag proposals. */
+  resolver_result: "missed" | "resolved";
+  /** Curator-readable one-liner explaining the suppression. */
+  reason: string;
+}
+
+/** "What the agent looked at but didn't propose" — quiet curator
+ *  signal. Not a finding (no disposition, no accept/dismiss). Lives
+ *  on the proposal evidence envelope so the curator sees the agent's
+ *  inspection scope alongside paper / preboarding excerpts. */
+export interface AgentConsidered {
+  constant_keys?: ConstantKeyConsidered[];
+}
+
 export interface ProposalEvidence {
   preboarding_excerpt: string;
   paper_source: string | null;
@@ -211,6 +262,10 @@ export interface ProposalEvidence {
   /** Per-decision provenance from the new sub-agent chain. Absent
    *  on proposals submitted by the legacy single-shot pipeline. */
   subtask_decisions?: SubtaskDecision[];
+  /** Things the agent inspected but chose NOT to surface as a
+   *  proposal. Wire shape per
+   *  ``UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md``. */
+  agent_considered?: AgentConsidered;
 }
 
 export interface Proposal {
@@ -229,6 +284,40 @@ export interface Proposal {
   subtask_decisions?: SubtaskDecision[];
   /** Top-level Boss verdict. Stub-only on today's payloads. */
   boss_verdict?: import("./justification").BossVerdict | null;
+  /** Curator-facing prose paragraph from the orchestrator — what
+   *  the agent observed, any intervention it ran, what the final
+   *  design + tags look like. Renders via ``OrientationProse`` at
+   *  the top of ``ProposalReviewCard``. Per
+   *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``.
+   *
+   *  Dual-state per agents-side commit ``5d6e069``: THIS field is
+   *  canonical. ``AuditEvidence.experiment_summary`` is a back-
+   *  compat mirror; UIB readers should prefer Proposal-side and
+   *  fall through to the mirror. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+  experiment_summary?: string | null;
+  /** v5 supervisor's audit-trail prose — narrative of what the
+   *  orchestrator observed, intervened on, deferred. Canonical
+   *  source; mirrored to ``AuditEvidence.experiment_notes`` for
+   *  back-compat. Rendered as a collapsible "Pipeline audit
+   *  trail" section at the bottom of the findings list. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+  experiment_notes?: string | null;
+  /** v5 curator-follow-up requests. Canonical source; mirrored
+   *  to ``AuditEvidence.escalation_requests``. Each entry carries
+   *  ``blocks_correction`` — true entries render loud red,
+   *  false entries amber. Suppressed when empty. */
+  escalation_requests?: import("./auditTypes").EscalationRequest[];
+  /** v5 supervisor's headline assessment (1-2 line summary).
+   *  Canonical source; mirrored to
+   *  ``AuditEvidence.overall_assessment``. Render target not yet
+   *  defined; rides for forward-compat. */
+  overall_assessment?: string | null;
+  /** Schema-discriminator stamped by the agent build process,
+   *  format ``agents@<short-sha>/<schema-tag>``. Canonical
+   *  source; mirrored to ``AuditEvidence.agent_version`` and
+   *  ``AuditReport.agent_version``. */
+  agent_version?: string | null;
 }
 
 export interface CuratorCheckboxes {

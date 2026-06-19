@@ -29,18 +29,18 @@ export function useFlow(): FlowKind {
 /** Returns ``true`` when the curator should be prevented from
  *  mutating server state.
  *
- *  Rule (Paul 2026-06-02): in our offline method-evaluation work,
- *  the point is to converge on polished gold — whatever sits on
- *  the left chip is editable. The curator can pick any baseline and
- *  refine it; the gate is implicit in what writes the chosen
- *  baseline supports server-side. We don't lock the UI in offline
- *  mode.
+ *  History — Paul installed a chip-strip-baseline read-only gate on
+ *  2026-06-08 to prevent silent overwrites when viewing a non-
+ *  editable baseline (Live Gemma / preboard / agent_proposal). On
+ *  2026-06-12 Paul reversed that rule: "and make it not read only
+ *  for gottsake". The gate now returns ``false`` unconditionally;
+ *  the only callers that still see ``true`` are the ones that opt
+ *  in via an explicit prop on a per-card basis (e.g. synthetic
+ *  drift cards passing ``readOnly``).
  *
- *  Kept as a hook for forward-compat: when this code lands behind
- *  a real Gemma session that distinguishes viewer permissions
- *  (e.g. anonymous read-only access to a public ticket), the gate
- *  can be reintroduced here without changing the call sites.
- */
+ *  If the silent-overwrite concern resurfaces, the right fix is on
+ *  the WRITE path — refuse to PATCH when the visible baseline isn't
+ *  the writable store — not blanket-gating the UI. */
 export function useIsReadOnly(): boolean {
   return false;
 }

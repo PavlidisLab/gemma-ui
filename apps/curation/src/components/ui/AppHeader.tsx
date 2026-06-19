@@ -25,17 +25,33 @@ import { ModeChip } from "@/components/ui/ModeChip";
 import { HealthChip } from "@/components/ui/HealthChip";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
 import { useLogout, useMe } from "@/api/session";
+import { TicketContextChip } from "@/features/experiment/ExperimentBanner";
 import { navigate } from "@/routes";
 import { browserUrl, adminUrl } from "@/lib/appLinks";
 
 export function AppHeader({
   reviewer,
   children,
+  ticketContext,
+  experimentId,
 }: {
   reviewer: string;
   /** Optional slot for sub-route breadcrumb crumbs / context chips.
    *  Rendered immediately after the nav tab cluster. */
   children?: ReactNode;
+  /** Ticket id (numeric or numeric-string) when the current surface
+   *  was entered from a ticket detail page. When supplied with
+   *  ``experimentId``, the header renders the ``TicketContextChip``
+   *  (title + member count + popover with prev/next + filter + Open
+   *  ticket ↗) right next to the Dashboard button. Paul 2026-06-14:
+   *  consolidated from a separate breadcrumb + the experiment
+   *  banner's right-side chip into a single header-level affordance.
+   *  The breadcrumb IS the dropdown UI now. */
+  ticketContext?: number | string | null;
+  /** Numeric experiment id — required for the ticket popover's
+   *  "current member" highlight + prev/next anchor. When omitted
+   *  (non-experiment routes) the ticket chip suppresses. */
+  experimentId?: number | string | null;
 }) {
   const logout = useLogout();
   const me = useMe();
@@ -66,6 +82,14 @@ export function AppHeader({
           one-click escape that's labelled by intent. Hidden on the
           dashboard itself so it doesn't loop back on itself. */}
       <BackToDashboardLink />
+      {ticketContext != null && experimentId != null ? (
+        <span className="ml-1">
+          <TicketContextChip
+            experimentId={experimentId}
+            ticketContext={String(ticketContext)}
+          />
+        </span>
+      ) : null}
 
       {children}
 

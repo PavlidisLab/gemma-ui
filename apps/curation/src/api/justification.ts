@@ -71,6 +71,14 @@ export interface SubtaskDecision {
    *  `"factor:0/category"`, `"factor:0/fv:1"`, `"tag:0"`. */
   target_id: string;
   confidence?: "zero" | "low" | "medium" | "high";
+  /** Optional severity added by the boss-critic loop (agents-side
+   *  commit ``5d6e069``). Boss-critic decisions ride in this same
+   *  ``SubtaskDecision`` list (subtask=``"boss_critic_round_<N>"``)
+   *  and surface their severity through this field so UIB can
+   *  distinguish blockers from advisories without a new type. ``ok``
+   *  / undefined behave identically. Per
+   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+  severity?: "blocker" | "advisory" | "ok" | "escalation";
 }
 
 /** One ontology-search hit. Used for `ResolverDecision.alternatives[]`. */

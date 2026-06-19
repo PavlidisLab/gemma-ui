@@ -149,7 +149,12 @@ describe("baseline_relevance per-factor agent hint", () => {
   });
 
   it("required preserves existing behaviour", () => {
-    const f = categoricalFactor(1, "treatment");
+    // 2+ FVs needed for factorBaselineBlocksCommit — no-contrast
+    // factors (≤1 FV) short-circuit to false regardless of category.
+    const f = categoricalFactor(1, "treatment", [
+      fv(1, "wt", ["s1"]),
+      fv(2, "drug", ["s2"]),
+    ]);
     f.baseline_relevance = "required";
     expect(factorRequiresBaseline(f)).toBe(true);
     expect(factorBaselineBlocksCommit(f)).toBe(true);
@@ -197,8 +202,11 @@ describe("factorBaselineBlocksCommit — basic cases", () => {
   });
 
   it("returns true for normal categories — commit blocks on missing baseline", () => {
-    expect(factorBaselineBlocksCommit(categoricalFactor(1, "treatment"))).toBe(true);
-    expect(factorBaselineBlocksCommit(categoricalFactor(1, "genotype"))).toBe(true);
+    // 2+ FVs needed — no-contrast factors (≤1 FV) short-circuit to
+    // false regardless of category (commit `f8b165a`).
+    const twoFvs = [fv(1, "wt", ["s1"]), fv(2, "drug", ["s2"])];
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "treatment", twoFvs))).toBe(true);
+    expect(factorBaselineBlocksCommit(categoricalFactor(1, "genotype", twoFvs))).toBe(true);
   });
 
   it("returns false for continuous factors", () => {
