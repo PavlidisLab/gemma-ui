@@ -16,8 +16,11 @@ import type { FindingEvidence } from "@/api/auditTypes";
 export type EvidenceSourceKey = FindingEvidence["source"];
 
 export interface EvidenceSourceMeta {
-  /** Curator-facing source label (chip text). */
+  /** Curator-facing source label (chip text). GEO-curator vocabulary,
+   *  not the wire enum — per UIB_HANDOFF_2026_06_19_EVIDENCE_SOURCE_LABELS. */
   label: string;
+  /** Long-form hover description — the full "what is this pointing at". */
+  description: string;
   /** Left-border accent on the blockquote / popover row. */
   borderCls: string;
   /** Source-label header text colour. */
@@ -35,7 +38,11 @@ export interface EvidenceSourceMeta {
 const BASE: Record<EvidenceSourceKey, EvidenceSourceMeta> = {
   // BM characteristic — the most direct, trustworthy provenance.
   characteristic: {
-    label: "characteristic",
+    label: "sample characteristic",
+    description:
+      "From a GEO sample characteristic row — every sample's " +
+      "BioMaterial.characteristics dict carries (key, value) pairs the " +
+      "GEO submitter recorded.",
     borderCls: "border-sky-300 dark:border-sky-600",
     headerCls: "text-sky-700/90 dark:text-sky-300/90",
     linkCls: "text-sky-700/90 hover:text-sky-900 dark:text-sky-300",
@@ -43,13 +50,17 @@ const BASE: Record<EvidenceSourceKey, EvidenceSourceMeta> = {
   },
   paper: {
     label: "paper",
+    description: "From the linked publication's text.",
     borderCls: "border-violet-300 dark:border-violet-600",
     headerCls: "text-violet-700/90 dark:text-violet-300/90",
     linkCls: "text-violet-700/90 hover:text-violet-900 dark:text-violet-300",
     contextBgCls: "bg-violet-50/70 dark:bg-violet-900/30",
   },
   geo_metadata: {
-    label: "GEO",
+    label: "GEO metadata",
+    description:
+      "From GEO sample metadata outside the characteristics dict " +
+      "(protocols, source name, treatment description, etc.).",
     borderCls: "border-teal-300 dark:border-teal-600",
     headerCls: "text-teal-700/90 dark:text-teal-300/90",
     linkCls: "text-teal-700/90 hover:text-teal-900 dark:text-teal-300",
@@ -57,13 +68,18 @@ const BASE: Record<EvidenceSourceKey, EvidenceSourceMeta> = {
   },
   sample_names: {
     label: "sample names",
+    description:
+      "From the sample short-name pattern (e.g. `Sox2_KO_brain_rep1`).",
     borderCls: "border-amber-300 dark:border-amber-600",
     headerCls: "text-amber-700/90 dark:text-amber-300/90",
     linkCls: "text-amber-700/90 hover:text-amber-900 dark:text-amber-300",
     contextBgCls: "bg-amber-50/70 dark:bg-amber-900/30",
   },
   preboarding: {
-    label: "preboarding",
+    label: "lab catalog",
+    description:
+      "From a lab-maintained catalog (Cellosaurus cell-line catalog, " +
+      "TGEMO derivations, value-string mappings).",
     borderCls: "border-indigo-300 dark:border-indigo-600",
     headerCls: "text-indigo-700/90 dark:text-indigo-300/90",
     linkCls: "text-indigo-700/90 hover:text-indigo-900 dark:text-indigo-300",
@@ -87,7 +103,9 @@ export function evidenceSourceMeta(
     source === "preboarding" &&
     (location ?? "").trim().toLowerCase() === "cellosaurus_catalog"
   ) {
-    return { ...BASE.preboarding, label: "Cellosaurus", badge: "catalog" };
+    // Label stays "lab catalog" (curator vocab); a badge names the
+    // specific catalog so the inferred-not-verbatim nature is clear.
+    return { ...BASE.preboarding, badge: "Cellosaurus" };
   }
   return BASE[source] ?? BASE.characteristic;
 }

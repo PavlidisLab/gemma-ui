@@ -615,7 +615,7 @@ export function FindingEvidenceBlock({
         )}
       >
         <span className="inline-flex items-baseline gap-1.5">
-          <span>{meta.label}</span>
+          <span title={meta.description}>{meta.label}</span>
           {meta.badge ? (
             <span className="not-italic normal-case text-[8px] px-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
               {meta.badge}
