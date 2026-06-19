@@ -1143,12 +1143,14 @@ function MainGrid({
               // on the aside) only reaches as far as the content
               // does, leaving the bottom of the page un-grabbable
               // when there are few findings.
-              // ``lg:pb-24`` gives the last finding card room to scroll
-              // clear of the viewport bottom — without it the bottom card
-              // sits jammed against the edge (Paul 2026-06-19: "very
-              // crowded"). Padding lives inside the overflow-y-auto box so
-              // it's part of the scrollable extent.
-              "shrink-0 space-y-3 relative lg:sticky lg:top-2 lg:self-start lg:h-[calc(100vh-1rem)] lg:overflow-y-auto lg:pb-24"
+              // Fixed-height flex column: the header chrome stays pinned
+              // at top while the panel scrolls in its own box below (the
+              // wrapper further down). The aside itself does NOT scroll,
+              // so the absolute resize gutter spans the full visible
+              // height instead of scrolling away with the cards (Paul
+              // 2026-06-19). The inner scroll box carries ``lg:pb-24`` so
+              // the bottom card clears the viewport edge.
+              "shrink-0 space-y-3 relative lg:sticky lg:top-2 lg:self-start lg:h-[calc(100vh-1rem)] lg:flex lg:flex-col"
             : "lg:w-10 shrink-0 flex flex-col items-stretch relative lg:sticky lg:top-2 lg:self-start lg:h-[calc(100vh-1rem)]"
         }
         style={
@@ -1270,7 +1272,10 @@ function MainGrid({
         )}
 
         {sidebarOpen ? (
-          sidebarView === "audit" ? (
+          // Inner scroll box — the panel's cards scroll here while the
+          // aside (and its full-height resize gutter) stay put.
+          <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pb-24">
+            {sidebarView === "audit" ? (
             <AuditSidebarPanel experimentId={experimentId} stream={auditStream} />
           ) : (
             // Proposal review. Nested AuditProvider keyed to
@@ -1309,7 +1314,8 @@ function MainGrid({
                 stream={auditStream}
               />
             </AuditProvider>
-          )
+          )}
+          </div>
         ) : null}
       </aside>
       {/* Reset-experiment affordance retired 2026-05-23 — was a
