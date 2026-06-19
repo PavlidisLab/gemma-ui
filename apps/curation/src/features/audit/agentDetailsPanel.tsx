@@ -247,7 +247,7 @@ export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   // copy.
   const verdictFix = shortFixForVerdict(finding.defender_verdict);
   return (
-    <div className="px-1.5 py-1 space-y-2">
+    <div className="px-1.5 py-1 space-y-1">
       <ThreePhaseFindingBody finding={finding} report={report} />
       {verdictFix ? (
         <div className="text-[11px] text-slate-800 dark:text-slate-200 leading-snug italic">
@@ -558,8 +558,13 @@ function shortFixForVerdict(
  *       the source-label header strip. */
 export function FindingEvidenceBlock({
   evidence,
+  compact = false,
 }: {
   evidence: NonNullable<AuditFinding["supporting_evidence"]>[number];
+  /** Dense one-line form for the three-phase "Why proposed" row:
+   *  ``source "quote" ↗ location`` on a single line, context behind an
+   *  inline toggle. Skips the bordered blockquote chrome. */
+  compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   // Source label + per-type accent colour live in evidenceSource so the
@@ -600,6 +605,63 @@ export function FindingEvidenceBlock({
   // sentence — empty contexts and contexts that just are the quote
   // don't warrant the affordance.
   const hasMore = !!context && context !== quote;
+  if (compact) {
+    return (
+      <span className="leading-snug">
+        <span className="inline-flex items-baseline gap-1.5 flex-wrap">
+          <span
+            className={cn("text-[9px] uppercase tracking-wide", meta.headerCls)}
+            title={meta.description}
+          >
+            {meta.label}
+          </span>
+          {meta.badge ? (
+            <span className="normal-case text-[8px] px-1 rounded bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+              {meta.badge}
+            </span>
+          ) : null}
+          <span className="italic text-slate-700 dark:text-slate-200">
+            &ldquo;{quote}&rdquo;
+          </span>
+          {evidence.source_url ? (
+            <a
+              href={evidence.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={cn("hover:underline text-[10px]", meta.linkCls)}
+              title={`open source: ${evidence.source_url}`}
+            >
+              ↗
+            </a>
+          ) : null}
+          <EvidenceLocationLabel location={location} />
+          {hasMore ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded((v) => !v);
+              }}
+              className={cn("text-[10px] hover:underline", meta.headerCls)}
+            >
+              {expanded ? "less" : "context"}
+            </button>
+          ) : null}
+        </span>
+        {expanded && hasMore ? (
+          <pre
+            className={cn(
+              "mt-1 px-1.5 py-1 rounded text-[11px] leading-snug whitespace-pre-wrap break-words font-sans text-slate-800 dark:text-slate-200 max-h-72 overflow-y-auto",
+              meta.contextBgCls,
+            )}
+          >
+            {renderHighlightedContext(context, highlights)}
+          </pre>
+        ) : null}
+      </span>
+    );
+  }
   return (
     <blockquote
       className={cn(

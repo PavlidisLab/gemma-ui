@@ -128,31 +128,34 @@ function PhaseSection({
   const hasBrief = brief != null && brief !== false && brief !== "";
   const hasDetail = detail != null && detail !== false && detail !== "";
   if (!hasBrief && !hasDetail && !alwaysShowHeader) return null;
+  // Compact: the label is an inline lead-in, not a heading on its own
+  // row. ``LABEL  content………  [more]`` keeps a one-line fact to one
+  // line and only spends vertical space on genuinely-folded detail.
   return (
-    <section className="space-y-1">
-      <header className="flex items-baseline gap-1.5">
-        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300">
+    <section className="leading-snug">
+      <div className="flex items-baseline gap-x-2 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 shrink-0">
           {header}
         </span>
+        {hasBrief ? (
+          <div className="flex-1 min-w-0 text-[11px] text-slate-700 dark:text-slate-200">
+            {brief}
+          </div>
+        ) : null}
         {hasDetail ? (
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline dark:text-slate-400 dark:hover:text-slate-100"
+            className="text-[10px] text-slate-400 hover:text-slate-700 underline-offset-2 hover:underline dark:text-slate-500 dark:hover:text-slate-200 shrink-0"
             aria-label={open ? `hide ${header} details` : `show ${header} details`}
             title={open ? "hide details" : "show details"}
           >
-            {open ? "hide" : "show"}
+            {open ? "less" : "more"}
           </button>
         ) : null}
-      </header>
-      {hasBrief ? (
-        <div className="text-[11px] text-slate-700 dark:text-slate-200 leading-snug">
-          {brief}
-        </div>
-      ) : null}
+      </div>
       {open && hasDetail ? (
-        <div className="text-[11px] text-slate-700 dark:text-slate-200 leading-snug space-y-1">
+        <div className="mt-0.5 pl-1 text-[11px] text-slate-700 dark:text-slate-200 space-y-1">
           {detail}
         </div>
       ) : null}
@@ -170,18 +173,21 @@ function WhyPhase({ why }: { why: WhyBlock | null }): JSX.Element | null {
   const evidence = why.evidence ?? [];
   const citation = (why.citation ?? "").trim();
   const citationUrl = (why.citation_url ?? "").trim();
-  const brief = rationale ? <span>{rationale}</span> : null;
-  const hasDetail =
-    evidence.length > 0 || !!citation || !!citationUrl;
-  const detail = hasDetail ? (
-    <>
-      {evidence.length > 0 ? (
-        <div className="space-y-1">
-          {evidence.map((ev, i) => (
-            <FindingEvidenceBlock key={i} evidence={ev} />
-          ))}
-        </div>
-      ) : null}
+  // Dedupe: when the rationale is just the lone evidence quote (e.g.
+  // ``TOV112D (8)`` for a characteristic-sourced tag), the compact
+  // evidence line below already shows it — don't print it twice.
+  const soleQuote =
+    evidence.length === 1 ? (evidence[0].quote ?? "").trim() : null;
+  const showRationale = rationale && rationale !== soleQuote;
+  // Evidence is the 411 — show it inline + compact, no fold. Context
+  // (when present) hides behind the per-line "context" toggle inside
+  // FindingEvidenceBlock's compact mode.
+  const brief = (
+    <div className="space-y-0.5">
+      {showRationale ? <div>{rationale}</div> : null}
+      {evidence.map((ev, i) => (
+        <FindingEvidenceBlock key={i} evidence={ev} compact />
+      ))}
       {citation || citationUrl ? (
         <div className="text-[10px] text-slate-500 dark:text-slate-400">
           §{" "}
@@ -200,15 +206,10 @@ function WhyPhase({ why }: { why: WhyBlock | null }): JSX.Element | null {
           )}
         </div>
       ) : null}
-    </>
-  ) : null;
+    </div>
+  );
   return (
-    <PhaseSection
-      header="Why proposed"
-      brief={brief}
-      detail={detail}
-      defaultOpen={false}
-    />
+    <PhaseSection header="Why proposed" brief={brief} detail={null} />
   );
 }
 
@@ -407,7 +408,7 @@ export function ThreePhaseFindingBody({
   const reviews = deriveReviews(finding, report);
   const comparison = finding.comparison ?? null;
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       <WhyPhase why={why} />
       <ReviewsPhase reviews={reviews} />
       <ComparisonJudgePhase comparison={comparison} />
