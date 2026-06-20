@@ -44,16 +44,25 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
 
   const gemmaDone = !gemma.isLoading;
   const gemmaHit = !!gemma.data;
-  // Show OLS results when the curator explicitly requested them.
-  // Falls back to Gemma's result whenever both are present and OLS
-  // wasn't requested (so we don't surprise the curator by switching
-  // sources after they didn't ask).
+  // A prior "Fetch from OLS" click leaves the result in the query
+  // cache (keyed on the URI, long ``gcTime``). ``useOlsTerm`` returns
+  // that cached value even while disabled, so ``ols.data`` is the
+  // durable signal — read it directly instead of the per-mount
+  // ``olsRequested`` flag, which resets to ``false`` every time the
+  // popover is reopened and used to drop the already-fetched result
+  // back to the "Fetch from OLS" CTA (Paul 2026-06-19).
+  const olsHit = !!ols.data;
+  // Gemma stays the primary source when it knows the term (don't
+  // surprise the curator by switching sources after they didn't ask);
+  // fall back to a cached/just-fetched OLS result only when Gemma misses.
   const detail = isNcbiGene
     ? ncbi.data ?? null
-    : olsRequested && ols.data
-      ? ols.data
-      : gemma.data ?? null;
-  const showOlsCta = !isNcbiGene && gemmaDone && !gemmaHit && !olsRequested;
+    : gemma.data ?? (olsHit ? ols.data : null);
+  // Show the CTA only when Gemma missed AND we have no OLS result yet.
+  // ``!olsRequested`` keeps the CTA from flashing back during the
+  // in-flight fetch (before ``ols.data`` resolves).
+  const showOlsCta =
+    !isNcbiGene && gemmaDone && !gemmaHit && !olsRequested && !olsHit;
   const primaryLoading = isNcbiGene ? ncbi.isLoading : gemma.isLoading;
 
   // Position: below the chip if there's room, else above. Width

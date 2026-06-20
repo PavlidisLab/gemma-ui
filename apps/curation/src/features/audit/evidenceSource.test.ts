@@ -44,4 +44,14 @@ describe("evidenceSourceMeta", () => {
     );
     expect(evidenceSourceMeta("preboarding").badge).toBeUndefined();
   });
+
+  it("falls back to a neutral label for an unknown/missing source — never 'sample characteristic'", () => {
+    // Wire could carry a source the UI doesn't model yet (or an empty
+    // string). Defaulting to the authoritative "sample characteristic"
+    // misrepresents unknown provenance (Paul 2026-06-19); stay neutral.
+    const unknown = evidenceSourceMeta("totally_new_source" as never);
+    expect(unknown.label).toBe("source");
+    expect(unknown.label).not.toBe("sample characteristic");
+    expect(evidenceSourceMeta("" as never).label).toBe("source");
+  });
 });

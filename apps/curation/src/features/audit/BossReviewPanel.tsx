@@ -158,7 +158,6 @@ function BossReviewPanelBody({
   reviews: BossCriticReview[];
   className?: string;
 }): JSX.Element {
-  const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const counts = countSeverities(reviews);
   const maxRoundByT = maxRoundByTarget(reviews);
   const onlyOneRound = reviews.every((r) => maxRoundByT[r.target_id] === 1);
@@ -238,7 +237,6 @@ function BossReviewPanelBody({
         {ordered.map((row, i) => {
           const sev = classifySeverity(row.severity);
           const unresolved = isUnresolvedBlocker(row, maxRoundByT[row.target_id] ?? 1);
-          const open = expandedRow === i;
           return (
             <li
               key={i}
@@ -266,19 +264,9 @@ function BossReviewPanelBody({
                     proposer didn't address
                   </span>
                 ) : null}
-                {row.verdict.length > row.brief.length ? (
-                  <button
-                    type="button"
-                    onClick={() => setExpandedRow(open ? null : i)}
-                    className="text-[10px] ml-auto text-blue-600 hover:underline underline-offset-2 dark:text-blue-300"
-                    aria-label={open ? "Collapse verdict" : "Show full verdict"}
-                  >
-                    {open ? "show less" : "show more"}
-                  </button>
-                ) : null}
               </div>
               <div className="text-[12px] leading-snug text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                {open ? row.verdict : row.brief}
+                {row.verdict}
               </div>
             </li>
           );

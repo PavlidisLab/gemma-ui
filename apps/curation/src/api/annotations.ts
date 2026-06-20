@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "./client";
 import { curieToUrl, ncbiGeneIdFromUri, ncbiGeneUrl } from "@/lib/curie";
 import { taxonSortPriority } from "@/lib/taxon";
+import { readTermCache, writeTermCache } from "@/lib/termCache";
 
 /**
  * One typeahead candidate. Shape mirrors what the curation mock /
@@ -216,21 +217,41 @@ const GEMMA_TERM_KEY = (uri: string | null) =>
  *  term — caller falls through to the OLS lookup on explicit
  *  curator click. */
 export function useGemmaTerm(uri: string | null | undefined) {
+  const cached = readTermCache("gemma", uri);
   return useQuery<AnnotationTermDetail | null>({
     queryKey: GEMMA_TERM_KEY(uri ?? null),
     queryFn: async () => {
       if (!uri) return null;
-      const params = new URLSearchParams({ uri });
+      // Gemma's ``/annotations/term`` keys on the full IRI, not the
+      // CURIE. Chips carry CURIEs (``EFO:0600015``), and passing that
+      // raw made Gemma 404 with "No ontology term with URI …" — which
+      // the popover rendered as the misleading "Gemma doesn't know this
+      // term" (Paul 2026-06-19; frink resolves the same term fine when
+      // asked by IRI). Expand to IRI first, exactly like ``useOlsTerm``.
+      const iri = curieToUrl(uri) ?? uri;
+      const params = new URLSearchParams({ uri: iri });
       try {
         const raw = await api.get<unknown>(
           `/rest/v2/annotations/term?${params.toString()}`,
         );
-        return parseGemmaTerm(raw, uri);
+        const detail = parseGemmaTerm(raw, uri);
+        if (detail) writeTermCache("gemma", uri, detail);
+        return detail;
       } catch {
         return null;
       }
     },
-    staleTime: 1000 * 60 * 60, // 1h — term definitions barely move
+    // 24h — term definitions barely move; matches the persisted cache
+    // TTL so a localStorage-seeded result counts as fresh and skips the
+    // refetch.
+    staleTime: 1000 * 60 * 60 * 24,
+    // Keep the result well past the 5-min default after the popover
+    // unmounts so reopening the chip shows the term without a refetch.
+    gcTime: 1000 * 60 * 60 * 24,
+    // Seed from the cross-session localStorage cache so a reopened chip
+    // (or a fresh page load) shows the term immediately without a hit.
+    initialData: cached?.data,
+    initialDataUpdatedAt: cached?.updatedAt,
     enabled: !!uri,
   });
 }
@@ -295,6 +316,7 @@ export function useOlsTerm(
   uri: string | null | undefined,
   enabled: boolean,
 ) {
+  const cached = readTermCache("ols", uri);
   return useQuery<AnnotationTermDetail | null>({
     queryKey: OLS_TERM_KEY(uri ?? null),
     queryFn: async () => {
@@ -312,12 +334,23 @@ export function useOlsTerm(
         const resp = await fetch(url, { headers: { Accept: "application/json" } });
         if (!resp.ok) return null;
         const json = await resp.json();
-        return parseOlsTerm(json, uri);
+        const detail = parseOlsTerm(json, uri);
+        if (detail) writeTermCache("ols", uri, detail);
+        return detail;
       } catch {
         return null;
       }
     },
-    staleTime: 1000 * 60 * 60,
+    // Seed an already-fetched OLS result from localStorage so reopening
+    // the chip (or reloading the page) shows it without a re-click.
+    initialData: cached?.data,
+    initialDataUpdatedAt: cached?.updatedAt,
+    staleTime: 1000 * 60 * 60 * 24,
+    // OLS terms are immutable; once a curator clicks "Fetch from OLS"
+    // we keep the result for a day so reopening the popover (which
+    // remounts with a fresh ``olsRequested = false``) still shows it
+    // from cache rather than dropping back to the CTA.
+    gcTime: 1000 * 60 * 60 * 24,
     enabled: !!uri && enabled,
   });
 }

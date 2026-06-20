@@ -550,8 +550,28 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
     return [];
   }
   const term = finding.proposer_term ?? null;
+  const lookupTags = design?.tags ?? [];
 
-  const categoryProposal: SideValue = { label: agentCategory, uri: null };
+  // The calibration ``target_id`` carries only the category *label*
+  // ("organism part"), never its URI, and ``proposer_term`` is the
+  // value side only — so the proposer category has no URI on the wire
+  // and rendered as plain italic text while the Current column showed a
+  // proper term chip (Paul 2026-06-19). Category labels are a small
+  // controlled vocabulary that resolves to the same ontology term across
+  // the whole experiment ("organism part" → EFO:0000635), so borrow the
+  // URI from any design tag filed under the same category label. Mirrors
+  // the value-side / findingCard.tsx category-fallback pattern; when no
+  // design tag uses the label (genuinely novel category) the URI stays
+  // null and the chip degrades to italic, which is correct.
+  const categoryUriFromDesign =
+    lookupTags.find(
+      (t) => lc(t.category?.label) === lc(agentCategory) && !!t.category?.uri,
+    )?.category?.uri ?? null;
+
+  const categoryProposal: SideValue = {
+    label: agentCategory,
+    uri: categoryUriFromDesign,
+  };
   const valueProposal: SideValue = {
     label: term?.label || agentValue,
     uri: term?.uri ?? null,
@@ -575,7 +595,6 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
   //   1. Value URI exact match (the identity-bearing field).
   //   2. (category-label, value-label) case-insensitive both — for
   //      legacy / free-text tags where neither side carries a URI.
-  const lookupTags = design?.tags ?? [];
   const matchedTag =
     (valueProposal.uri
       ? lookupTags.find(
@@ -1293,25 +1312,34 @@ export function FindingDetailsEditor({
               use — ``applyHandlers.resolveFactorCalibrationApply``
               picks up the ``calibration_factor_partition_mismatch``
               issue_code and runs ``adoptNearMatchAgentFactor`` on
-              accept. True cross-cutting (multiple golds spanned)
-              stays disabled with the "verbs pending" tooltip —
-              adopting agent's shape would clobber one of the gold
-              factors without touching the others, which is not a
-              safe one-click action. */}
+              accept.
+
+              For TRUE cross-cutting (multiple golds spanned) only the
+              ADOPT button is disabled — adopting the auditor's shape
+              means merging multiple existing same-category factors into
+              one, an unspecced design mutation with no handler yet.
+              KEEP stays enabled: keeping the current design unchanged is
+              always safe (it records "keep current" via the same
+              ``dispatchSave("currently")`` path the other partition
+              variants use, with no fix to apply), and the curator must
+              never be left with zero usable controls (Paul 2026-06-19,
+              experiment 2828 — the two spanned factors there are both
+              ``treatment``/``EFO:0000727``, a split factor the auditor
+              wants to merge). */}
           <ActionRow
             saving={saving}
-            disabled={!isDegenerate}
+            disabled={false}
             buttons={[
               {
                 key: "keep",
                 kind: "primary-keep",
                 label: isDegenerate
                   ? `Keep ${identities.goldCurator}'s partition`
-                  : `Keep ${identities.goldCurator}'s separate factors`,
+                  : "Keep",
                 onClick: () => dispatchSave("currently"),
                 title: isDegenerate
                   ? `Reject ${identities.proposer}'s repartition; keep the existing factor as-is.`
-                  : "Cross-cutting affordance pending — adopt would clobber one of the spanned gold factors silently. Park / Dismiss for now.",
+                  : `Reject ${identities.proposer}'s merge; keep the current design as-is.`,
               },
               {
                 key: "accept",
@@ -1320,9 +1348,10 @@ export function FindingDetailsEditor({
                   ? `Adopt ${identities.proposer}'s partition`
                   : `Adopt ${identities.proposer}'s cross-cutting shape`,
                 onClick: () => dispatchSave("proposal"),
+                disabled: !isDegenerate,
                 title: isDegenerate
                   ? `Replace the existing factor's FV breakdown with ${identities.proposer}'s.`
-                  : "Cross-cutting affordance pending — adopt would clobber one of the spanned gold factors silently. Park / Dismiss for now.",
+                  : "Adopt affordance pending — merging the spanned same-category factors into one isn't a safe one-click action yet. Use Keep, or Reject.",
               },
             ]}
             onDismiss={onDismiss}
@@ -4398,6 +4427,12 @@ interface ActionButton {
   label: string;
   onClick: () => void;
   title?: string;
+  /** Per-button disable, OR-ed with the row-level ``disabled``. Lets a
+   *  card disable ONE primary while leaving its sibling live — e.g. the
+   *  cross-cutting partition card disables only "Adopt" (an unspecced
+   *  design merge) while "Keep current" stays clickable, since keeping
+   *  the design unchanged is always safe (Paul 2026-06-19). */
+  disabled?: boolean;
 }
 
 /** Pick button kinds for the (keep, accept) pair based on the
@@ -4614,7 +4649,7 @@ function ActionRow({
           key={b.key}
           type="button"
           onClick={b.onClick}
-          disabled={saving || disabled}
+          disabled={saving || disabled || b.disabled}
           title={b.title}
           className={cn(
             "px-2.5 py-1 rounded text-xs font-semibold disabled:cursor-not-allowed",

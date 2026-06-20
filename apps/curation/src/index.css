@@ -42,10 +42,14 @@
   /*
     ``.term.diff`` — applied on top of any of the above variants to
     signal "this chip differs from its paired chip on the other side
-    of a side-by-side comparison." Amber palette + ring; the original
-    variant's italic / non-italic stays so the role still reads.
+    of a side-by-side comparison." The signal is concentrated in the
+    bright amber LEFT BOOKMARK stripe; the body stays a faint amber
+    wash with a soft border. A full bright-amber fill + ring on every
+    differing chip "took over" the grid (Paul 2026-06-19) — the stripe
+    carries the cue without the glow. Original variant's italic /
+    non-italic stays so the role still reads.
    */
-  .term.diff      { @apply bg-amber-100 text-amber-900 border-amber-500
+  .term.diff      { @apply bg-amber-50 text-amber-900 border-amber-200
                            border-l-amber-500; }
   /*
     ``.term.baseline`` used to apply an emerald wash, but green is
@@ -203,10 +207,12 @@ html.dark .term.category {
   border-left-color: rgb(51 65 85);
 }
 html.dark .term.diff {
-  background-color: rgb(120 53 15 / 0.6);    /* amber-900 / 60% */
+  /* Faint wash + soft border so a grid full of differing chips doesn't
+     glow amber; the cue lives in the bright left bookmark stripe. */
+  background-color: rgb(120 53 15 / 0.22);   /* amber-900 / 22% */
   color: rgb(254 243 199);                   /* amber-100 */
-  border-color: rgb(217 119 6);              /* amber-600 */
-  border-left-color: rgb(245 158 11);        /* amber-500 */
+  border-color: rgb(120 53 15 / 0.7);        /* amber-900 / 70% (blends) */
+  border-left-color: rgb(245 158 11);        /* amber-500 — the signal */
 }
 /* ``.term.baseline`` is a no-op — see the light-theme comment. */
 

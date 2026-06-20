@@ -87,6 +87,21 @@ const BASE: Record<EvidenceSourceKey, EvidenceSourceMeta> = {
   },
 };
 
+/** Neutral fallback for an unrecognized / missing ``source``. Used to
+ *  stay deliberately non-committal: defaulting an unknown provenance to
+ *  "sample characteristic" (the most authoritative label) misrepresents
+ *  it — Paul 2026-06-19, after a paper/GEO quote mislabelled
+ *  ``characteristic`` slipped through. A grey "source" chip says "we
+ *  don't know where this came from" instead of vouching for it. */
+const NEUTRAL: EvidenceSourceMeta = {
+  label: "source",
+  description: "Provenance not specified by the producer.",
+  borderCls: "border-slate-300 dark:border-slate-600",
+  headerCls: "text-slate-600/90 dark:text-slate-300/90",
+  linkCls: "text-slate-600/90 hover:text-slate-900 dark:text-slate-300",
+  contextBgCls: "bg-slate-50/70 dark:bg-slate-800/40",
+};
+
 /**
  * Resolve presentation for one evidence row. ``location`` is consulted
  * for the one special case the wire encodes positionally today: a
@@ -107,5 +122,7 @@ export function evidenceSourceMeta(
     // specific catalog so the inferred-not-verbatim nature is clear.
     return { ...BASE.preboarding, badge: "Cellosaurus" };
   }
-  return BASE[source] ?? BASE.characteristic;
+  // Unknown / missing source → neutral grey "source", never the
+  // authoritative "sample characteristic" default (Paul 2026-06-19).
+  return BASE[source] ?? NEUTRAL;
 }

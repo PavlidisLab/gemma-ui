@@ -36,12 +36,18 @@ function rollup(
     : [localApi, agent];
   if (required.some((s) => s === "unknown")) return "unknown";
   // local_api is the default upstream — if it's down the UI is
-  // mostly broken. agent down ⇒ proposals/audits fail. gemma-rest
-  // matters only when ``countGemma`` (remote/mixed mode) — in local
-  // mode the surfaces that would have fallen back to it (SVD
-  // diagnostics, real audit trail) are client-side hidden, so a
-  // dead gemma-rest doesn't degrade anything the curator can
-  // reach.
+  // mostly broken. agent down ⇒ proposals/audits fail.
+  // ``countGemma`` only folds the gemma-rest PROBE
+  // (``GEMMA_REST_URL``, the diagnostics host) into the rollup in
+  // remote/mixed mode. CAVEAT (Paul 2026-06-19): "gemma-rest is
+  // unused in local mode" was wrong — in local mode live Gemma REST
+  // still serves the SVD diagnostics fallback, AND ontology term
+  // search hits a live Gemma host. But that ontology host is
+  // ``GEMMA_ONTOLOGY_URL`` (a SEPARATE host, e.g. frink) which this
+  // probe doesn't even hit, so counting the diagnostics probe here
+  // wouldn't reflect ontology health. Left out of the local rollup
+  // for now; the label/tooltip no longer claim "unused". Monitoring
+  // the ontology host is a follow-up.
   const upCount = required.filter((s) => s === "up").length;
   if (upCount === required.length) return "ok";
   if (upCount === 0) return "down";
@@ -98,7 +104,7 @@ export function HealthChip() {
   const titleHint =
     severity === "ok"
       ? mode === "local"
-        ? "local_api + agent reachable — curation, proposals, audits all runnable. gemma-rest is unused in local mode."
+        ? "local_api + agent reachable — curation, proposals, audits all runnable. gemma-rest still serves diagnostics fallback; ontology term search uses a live Gemma host (GEMMA_ONTOLOGY_URL)."
         : "All three backends reachable — proposals, audits, diagnostics all runnable."
       : severity === "degraded"
         ? "Some backends are unreachable — click for details."
@@ -153,12 +159,12 @@ export function HealthChip() {
               status={gemma}
               path={
                 mode === "local"
-                  ? "/rest/v2 (unused in local mode)"
+                  ? "/rest/v2 (diagnostics fallback)"
                   : "/rest/v2 (fallback)"
               }
               hint={
                 mode === "local"
-                  ? "live Gemma 2.0 REST — would serve SVD diagnostics + the canonical experiment audit trail, but those surfaces are hidden in local mode. The probe stays so the chip turns green when you flip to remote mode."
+                  ? "live Gemma 2.0 REST — in local mode it still serves the SVD / sample-correlation / mean-variance diagnostics local_api doesn't. NOTE: ontology term search (/annotations/{search,term}) ALSO needs a live Gemma host, but that routes to GEMMA_ONTOLOGY_URL (a separate host, e.g. frink) which isn't monitored by this probe — so 'live REST' is NOT unused in local mode."
                   : "live Gemma 2.0 REST — diagnostics (SVD, sample-correlation, mean-variance) + canonical experiment audit trail"
               }
               muted={mode === "local"}

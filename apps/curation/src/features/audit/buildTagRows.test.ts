@@ -182,4 +182,51 @@ describe("buildTagRows — Current-side lookup", () => {
       "http://purl.obolibrary.org/obo/MONDO_0000408",
     );
   });
+
+  it("resolves the proposal-side category URI from the design so it renders as a term, not italic text", () => {
+    // The calibration target_id carries only the category LABEL
+    // ("organism part"), never its URI, so the proposer category had no
+    // URI on the wire and rendered as plain italic while the Current
+    // column showed a term chip (GSE241529, Paul 2026-06-19). Borrow the
+    // category URI from a design tag filed under the same label.
+    const d = design([
+      tag(7, "organism part", "internal ear", {
+        categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+        valueUri: "http://purl.obolibrary.org/obo/UBERON_0001846",
+      }),
+    ]);
+    const rows = buildTagRows(
+      mkFinding({
+        target_id: "calibration:match:organism part/inner ear",
+        proposer_term: {
+          label: "inner ear",
+          uri: "http://purl.obolibrary.org/obo/UBERON_0001846",
+          resolver: null,
+          score: null,
+        },
+      }),
+      d,
+    );
+    const categoryRow = rows.find((r) => r.rowLabel === "Category");
+    expect(categoryRow?.proposal.label).toBe("organism part");
+    expect(categoryRow?.proposal.uri).toBe(
+      "http://www.ebi.ac.uk/efo/EFO_0000635",
+    );
+  });
+
+  it("leaves the proposal category URI null when no design tag uses that category label", () => {
+    // Genuinely novel category → no URI to borrow → stays italic. The
+    // resolution must not invent a URI.
+    const d = design([
+      tag(7, "disease", "diabetes", {
+        categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000408",
+      }),
+    ]);
+    const rows = buildTagRows(
+      mkFinding({ target_id: "calibration:match:organism part/inner ear" }),
+      d,
+    );
+    const categoryRow = rows.find((r) => r.rowLabel === "Category");
+    expect(categoryRow?.proposal.uri ?? null).toBeNull();
+  });
 });
