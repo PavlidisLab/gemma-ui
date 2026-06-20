@@ -9,6 +9,8 @@ import {
   polishedCuratorOf,
   polishedSourceFor,
   sourceLabel,
+  sourceTooltip,
+  runProvenanceOf,
   SYSTEM_SOURCES,
   type Source,
 } from "./sources";
@@ -235,5 +237,89 @@ describe("sourceLabel", () => {
     expect(sourceLabel(AM)).toBe("Amanda polished");
     expect(sourceLabel("polished:jordan-doe")).toBe("Jordan-Doe polished");
     expect(sourceLabel("polished:cy")).toBe("Cy polished");
+  });
+
+  it("renders 'agent <sha> <m/d>' for the boss-critic-200 / GSE14910 case", () => {
+    // The headline self-documenting case: run sha d8a1725, run date
+    // 2026-06-13. Producer carries the sha; created_at supplies M/D.
+    const curations = [
+      {
+        curation_id: "agent_proposal:audit-1",
+        label: "",
+        producer: "agent:d8a1725",
+        source_kind: "agent_proposal",
+        created_at: "2026-06-13T15:16:26.516670",
+        metadata: {
+          run_provenance: {
+            run_id: "2026-06-13_boss_critic_200gse",
+            run_sha: "d8a1725",
+            ran_at: "2026-06-13T15:16:26.516670",
+            model: "claude-sonnet-4-6",
+            batch_id: "boss-critic-200gse-2026-06-13",
+            git_describe: "pre-boss-critic-2026-06-13-2-gd8a1725-dirty",
+            git_dirty: true,
+          },
+        },
+      },
+    ];
+    expect(sourceLabel("agent_proposal:audit-1", curations)).toBe(
+      "agent d8a1725 6/13",
+    );
+  });
+});
+
+describe("sourceTooltip — self-documenting run provenance", () => {
+  const curations = [
+    {
+      curation_id: "agent_proposal:audit-1",
+      label: "agent d8a1725 6/13",
+      producer: "agent:d8a1725",
+      source_kind: "agent_proposal",
+      created_at: "2026-06-13T15:16:26.516670",
+      metadata: {
+        run_provenance: {
+          run_id: "2026-06-13_boss_critic_200gse",
+          run_sha: "d8a1725",
+          ran_at: "2026-06-13T15:16:26.516670",
+          model: "claude-sonnet-4-6",
+          batch_id: "boss-critic-200gse-2026-06-13",
+          git_describe: "pre-boss-critic-2026-06-13-2-gd8a1725-dirty",
+          git_dirty: true,
+        },
+      },
+    },
+  ];
+
+  it("surfaces the full run identity on hover", () => {
+    const tip = sourceTooltip("agent_proposal:audit-1", curations);
+    expect(tip).toContain("run id: 2026-06-13_boss_critic_200gse");
+    expect(tip).toContain("sha: d8a1725");
+    expect(tip).toContain("model: claude-sonnet-4-6");
+    expect(tip).toContain("batch: boss-critic-200gse-2026-06-13");
+    expect(tip).toContain("git describe: pre-boss-critic-2026-06-13-2-gd8a1725-dirty");
+    expect(tip).toContain("git: dirty (uncommitted changes)");
+  });
+
+  it("returns empty string when no provenance / no curations", () => {
+    expect(sourceTooltip("agent_proposal:audit-1")).toBe("");
+    expect(sourceTooltip("preboard", curations)).toBe("");
+    const noProv = [
+      {
+        curation_id: "x",
+        label: "agent",
+        producer: "agent",
+        source_kind: "agent_proposal",
+      },
+    ];
+    expect(sourceTooltip("x", noProv)).toBe("");
+  });
+
+  it("runProvenanceOf reads the block defensively", () => {
+    expect(runProvenanceOf(curations[0])?.run_sha).toBe("d8a1725");
+    expect(runProvenanceOf(undefined)).toBeNull();
+    expect(runProvenanceOf({ curation_id: "y" })).toBeNull();
+    expect(
+      runProvenanceOf({ curation_id: "y", metadata: { foo: 1 } }),
+    ).toBeNull();
   });
 });

@@ -63,7 +63,7 @@ import {
   useCurations,
   type CurationRow,
 } from "@/features/comparison/useSourceAvailability";
-import type { Source } from "@/features/comparison/sources";
+import { sourceTooltip, type Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
 import {
   FactorComparisonGrid,
@@ -297,6 +297,12 @@ export interface ComparisonFactorCardProps {
   /** Column header label for the RIGHT (comparator) side. Same
    *  semantics as `leftLabel`. */
   rightLabel?: string;
+  /** Optional self-documenting tooltips for the column-header labels.
+   *  For an agent-proposal comparator this carries the full run
+   *  provenance (run id / sha / date / model / batch / git describe)
+   *  so hovering the header reveals everything. Empty → no tooltip. */
+  leftLabelTitle?: string;
+  rightLabelTitle?: string;
   /** Chip-strip baseline source token. When provided, the LEFT
    *  factor is sourced from this curation (looked up in the unified
    *  /curations list). When absent, the card falls back to
@@ -343,6 +349,8 @@ export function ComparisonFactorCard({
   title,
   leftLabel: leftLabelProp,
   rightLabel: rightLabelProp,
+  leftLabelTitle: leftLabelTitleProp,
+  rightLabelTitle: rightLabelTitleProp,
   baselineSource,
   comparatorSource,
   leftFactorOverride,
@@ -408,6 +416,17 @@ export function ComparisonFactorCard({
   // the card just renders whatever string the caller hands it.
   const leftLabel = leftLabelProp ?? "Baseline";
   const rightLabel = rightLabelProp ?? "Comparator";
+  // Self-documenting column-header tooltips. Prefer an explicit prop
+  // from the caller; otherwise derive from the chip-strip source token
+  // + the /curations row's run_provenance block, so hovering the
+  // comparator header reveals the full agent-run identity (sha / date /
+  // model / batch / git describe) without hunting through sidecars.
+  const leftLabelTitle =
+    leftLabelTitleProp ??
+    (baselineSource ? sourceTooltip(baselineSource, curations) : "");
+  const rightLabelTitle =
+    rightLabelTitleProp ??
+    (comparatorSource ? sourceTooltip(comparatorSource, curations) : "");
 
   const dispo = dispositionByTarget.get(finding.target_id) ?? null;
   const status = dispo?.status ?? "pending";
@@ -1054,8 +1073,16 @@ export function ComparisonFactorCard({
               factorsAreLoading branch the inline version inlined as
               skeleton placeholders. */}
           <FactorComparisonGrid
-            leftHeader={{ label: leftLabel, category: leftCategory }}
-            rightHeader={{ label: rightLabel, category: rightCategory }}
+            leftHeader={{
+              label: leftLabel,
+              title: leftLabelTitle,
+              category: leftCategory,
+            }}
+            rightHeader={{
+              label: rightLabel,
+              title: rightLabelTitle,
+              category: rightCategory,
+            }}
             pairs={pairs}
             termRenderer={termRenderer}
             loading={factorsAreLoading}

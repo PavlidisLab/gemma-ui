@@ -97,6 +97,38 @@ export interface CurationLabelLookup {
    *  ("agent <sha> <m/d>"). Optional — label degrades to "agent <sha>"
    *  when absent. */
   created_at?: string | null;
+  /** Source-specific extras off the /curations row. For agent
+   *  proposals this carries a self-documenting ``run_provenance`` block
+   *  (run_id / run_sha / ran_at / model / batch_id / git_describe /
+   *  git_dirty) that ``sourceTooltip`` surfaces on hover so the full
+   *  run identity is one hover away, never something to hunt for. */
+  metadata?: Record<string, unknown> | null;
+}
+
+/** The self-documenting run-provenance block stamped on an agent
+ *  proposal's /curations metadata (agents-side
+ *  ``local_api/curation_versions.py``). Every field optional — old
+ *  rows predating the provisioning carry none. */
+export interface RunProvenance {
+  run_id?: string;
+  run_sha?: string;
+  ran_at?: string;
+  model?: string;
+  batch_id?: string;
+  git_describe?: string;
+  git_dirty?: boolean;
+}
+
+/** Pull the ``run_provenance`` block off a lookup's metadata, if any.
+ *  Defensive against missing / wrong-shaped metadata. */
+export function runProvenanceOf(
+  lookup: CurationLabelLookup | undefined,
+): RunProvenance | null {
+  const meta = lookup?.metadata;
+  if (!meta || typeof meta !== "object") return null;
+  const prov = (meta as Record<string, unknown>).run_provenance;
+  if (!prov || typeof prov !== "object") return null;
+  return prov as RunProvenance;
 }
 
 /** ISO timestamp → short, tz-free "M/D" (no leading zeros, no year).
@@ -172,6 +204,43 @@ export function sourceLabel(
     return `${titleCaseCurator(curator)} polished`;
   }
   return s;
+}
+
+/** Self-documenting hover text for a source. For agent proposals
+ *  carrying a ``run_provenance`` block this is the full run identity
+ *  (run id, sha, date, model, batch, git describe, dirty flag) so
+ *  hovering the chip reveals everything without hunting through
+ *  sidecar files. Returns the empty string when there's nothing
+ *  richer to show than the label itself (callers can fall back to the
+ *  label as the title).
+ *
+ *  Plain text with newline separators — fine for a native ``title=``
+ *  attribute. Structured enough that a richer expandable popover could
+ *  later be built from the same ``runProvenanceOf`` block. */
+export function sourceTooltip(
+  s: Source,
+  curations?: readonly CurationLabelLookup[],
+): string {
+  if (!curations) return "";
+  const match = curations.find((c) => c.curation_id === s);
+  if (!match) return "";
+  const prov = runProvenanceOf(match);
+  if (!prov) return "";
+  const lines: string[] = ["Agent run provenance"];
+  const add = (k: string, v: unknown) => {
+    if (v === undefined || v === null || v === "") return;
+    lines.push(`${k}: ${v}`);
+  };
+  add("run id", prov.run_id);
+  add("sha", prov.run_sha);
+  // Prefer the provenance ran_at; fall back to the row's created_at.
+  add("date", prov.ran_at || match.created_at || "");
+  add("model", prov.model);
+  add("batch", prov.batch_id);
+  add("git describe", prov.git_describe);
+  if (prov.git_dirty) lines.push("git: dirty (uncommitted changes)");
+  // Only "Agent run provenance" header → nothing useful; return blank.
+  return lines.length > 1 ? lines.join("\n") : "";
 }
 
 /** Slot identifier — drives validity rules + default selection. */

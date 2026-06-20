@@ -89,6 +89,12 @@ export interface FactorComparisonHeaderSide {
   /** Column header label — "Current" / "Auditor said" / "Agent
    *  original proposal" / a chip-strip-driven curator name. */
   label: string;
+  /** Optional native ``title=`` tooltip for the column-header label.
+   *  Carries the self-documenting agent-run provenance (run id / sha /
+   *  date / model / batch / git describe) so hovering the comparator
+   *  header reveals the full run identity — never something to hunt
+   *  for. Empty / undefined → no tooltip. */
+  title?: string;
   /** Category chip rendered next to the column label. ``null`` →
    *  "(no factor)" placeholder. */
   category: { label: string | null; uri: string | null } | null;
@@ -239,7 +245,10 @@ export function FactorComparisonGrid({
           "[label-l] auto [chip-l] 1fr [glyph] auto [label-r] auto [chip-r] 1fr [action] auto",
       }}
     >
-      <span className="text-[9px] uppercase tracking-wide text-slate-400 dark:text-slate-500 inline-flex items-baseline gap-1">
+      <span
+        className="text-[9px] uppercase tracking-wide text-slate-400 dark:text-slate-500 inline-flex items-baseline gap-1"
+        title={leftHeader.title || undefined}
+      >
         {leftHeader.label}
         {onLeftLocate && leftHeader.category?.label ? (
           <button
@@ -261,7 +270,10 @@ export function FactorComparisonGrid({
         />
       </span>
       <span />
-      <span className="text-[9px] uppercase tracking-wide text-slate-400 dark:text-slate-500 pl-2 border-l border-slate-200 dark:border-slate-700">
+      <span
+        className="text-[9px] uppercase tracking-wide text-slate-400 dark:text-slate-500 pl-2 border-l border-slate-200 dark:border-slate-700"
+        title={rightHeader.title || undefined}
+      >
         {rightHeader.label}
       </span>
       <span className="min-w-0">

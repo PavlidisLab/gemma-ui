@@ -5,13 +5,16 @@ import {
   isSourceValidInSlot,
   modeOf,
   sourceLabel,
+  sourceTooltip,
   type SlotKind,
   type Source,
 } from "./sources";
 import { useChipState } from "./useChipState";
 import {
+  useCurations,
   useSourceUniverse,
   type AvailabilityMap,
+  type CurationRow,
 } from "./useSourceAvailability";
 import { useChipDiffSummary } from "./useChipDiff";
 import type { SemanticDiffSummary } from "@/features/design/diff";
@@ -44,6 +47,10 @@ export function ChipStrip({
   const universe = useSourceUniverse(experimentId);
   const mode = modeOf(baseline, comparator);
   const diff = useChipDiffSummary(experimentId, baseline, comparator);
+  // Full curation payloads — used only to derive the self-documenting
+  // run-provenance tooltip on the value chips (agent runs). Cheap +
+  // cached; shares the query with the finding panel.
+  const curations = useCurations(experimentId).data ?? [];
 
   // In edit mode the curator is working a calibration package; the
   // baseline they're editing IS the package's anchored state. Spec
@@ -67,7 +74,7 @@ export function ChipStrip({
       aria-label="Comparison source selection"
     >
       {baselineLocked ? (
-        <ChipLabel slotLabel="Baseline" value={baseline} />
+        <ChipLabel slotLabel="Baseline" value={baseline} curations={curations} />
       ) : (
         <ChipDropdown
           slot="baseline"
@@ -77,6 +84,7 @@ export function ChipStrip({
           onChange={setBaseline}
           sources={universe.sources}
           availability={universe.availability}
+          curations={curations}
         />
       )}
       <ChipDropdown
@@ -87,6 +95,7 @@ export function ChipStrip({
         onChange={setComparator}
         sources={universe.sources}
         availability={universe.availability}
+        curations={curations}
       />
       <DiffSummaryReadout
         summary={diff.summary}
@@ -153,11 +162,16 @@ function DiffSummaryReadout({
 function ChipLabel({
   slotLabel,
   value,
+  curations,
 }: {
   slotLabel: string;
   value: Source;
+  curations?: readonly CurationRow[];
 }) {
   const palette = SLOT_PALETTE.baseline;
+  // Prefer the self-documenting run-provenance tooltip when the value
+  // is an agent run; fall back to the fixed-baseline explanation.
+  const provTitle = sourceTooltip(value, curations);
   return (
     <div
       className="relative inline-flex items-center gap-2"
@@ -178,8 +192,9 @@ function ChipLabel({
           "inline-flex items-center gap-1 px-3 py-1 rounded border border-dashed text-[14px] font-medium opacity-90",
           palette.chip,
         )}
+        title={provTitle || undefined}
       >
-        {sourceLabel(value)}
+        {sourceLabel(value, curations)}
       </span>
     </div>
   );
@@ -229,6 +244,7 @@ function ChipDropdown({
   onChange,
   sources,
   availability,
+  curations,
 }: {
   slot: SlotKind;
   slotLabel: string;
@@ -237,6 +253,7 @@ function ChipDropdown({
   onChange: (s: Source) => void;
   sources: readonly Source[];
   availability: AvailabilityMap;
+  curations?: readonly CurationRow[];
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -284,8 +301,9 @@ function ChipDropdown({
         )}
         aria-haspopup="listbox"
         aria-expanded={open}
+        title={sourceTooltip(value, curations) || undefined}
       >
-        <span>{sourceLabel(value)}</span>
+        <span>{sourceLabel(value, curations)}</span>
         <span className="opacity-70 text-[11px]">▾</span>
       </button>
 
@@ -326,7 +344,10 @@ function ChipDropdown({
                   onChange(s);
                   setOpen(false);
                 }}
-                title={menuItemTooltip(s, slot, true, pairValid, avail)}
+                title={
+                  menuItemTooltip(s, slot, true, pairValid, avail) ??
+                  (sourceTooltip(s, curations) || undefined)
+                }
                 className={cn(
                   "w-full text-left px-3 py-1.5 flex items-baseline justify-between gap-3",
                   disabled
@@ -339,7 +360,7 @@ function ChipDropdown({
                 aria-disabled={disabled}
               >
                 <span>
-                  {sourceLabel(s)}
+                  {sourceLabel(s, curations)}
                   {avail?.comingSoon ? (
                     <span className="ml-1 text-[10px] uppercase tracking-wide opacity-60">
                       coming soon
