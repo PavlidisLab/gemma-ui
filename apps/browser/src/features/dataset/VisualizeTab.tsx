@@ -859,7 +859,6 @@ function HeatmapPanel({
       </div>
     );
   }
-
   const wire = wireQuery.data;
   if (!wire || !wire.rows || wire.rows.length === 0) {
     return (
@@ -925,6 +924,23 @@ function HeatmapPanel({
 
 // ─── Wire-to-HeatmapPayload adapter ──────────────────────────────────────────
 
+/** Coerce one wire matrix cell to ``number | null``.
+ *
+ *  Gemma's REST serializer emits a missing/undefined expression cell
+ *  as the JSON **string** ``"NaN"`` (Jackson writing ``Double.NaN`` as
+ *  a quoted token), not as ``null`` and not as a bare NaN. The widget
+ *  treats ``null`` as "missing" everywhere, but its guards are
+ *  ``v == null || Number.isNaN(v)`` — and ``Number.isNaN("NaN")`` is
+ *  false, so the string slips through and poisons row-standardization
+ *  + renders as a NaN cell. Normalise it to ``null`` here, the single
+ *  wire→widget seam. Null-check first: ``Number(null) === 0`` would
+ *  otherwise turn genuinely-missing cells into zeros. */
+function toCell(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function adaptHeatmapWire(
   wire: HeatmapWireResponse,
   origins: Record<number, GeneOrigin> = {},
@@ -932,7 +948,7 @@ function adaptHeatmapWire(
   return {
     datasetId: wire.datasetId,
     matrix: {
-      values: wire.matrix.values,
+      values: wire.matrix.values.map((row) => row.map(toCell)),
       rows: wire.matrix.rowsCount,
       cols: wire.matrix.colsCount,
       quantitationType: {

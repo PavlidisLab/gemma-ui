@@ -19,12 +19,18 @@ import { PcFactorCard } from "./PcFactorCard";
 import { MeanVarianceCard } from "./MeanVarianceCard";
 
 export function DiagnosticsRow({ datasetId }: { datasetId: number }) {
+  // At lg+ the 4-col row needs ~320px per card to render plots
+  // legibly; if the page's 1200px content cap doesn't give us that,
+  // overflow-x sideways rather than crushing the cards. md (2-col)
+  // and sm (stacked) never need scroll.
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-      <SampleCorrelationCard datasetId={datasetId} />
-      <PcaScreeCard datasetId={datasetId} />
-      <PcFactorCard datasetId={datasetId} />
-      <MeanVarianceCard datasetId={datasetId} />
+    <div className="overflow-x-auto">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[repeat(4,minmax(320px,1fr))] gap-3">
+        <SampleCorrelationCard datasetId={datasetId} />
+        <PcaScreeCard datasetId={datasetId} />
+        <PcFactorCard datasetId={datasetId} />
+        <MeanVarianceCard datasetId={datasetId} />
+      </div>
     </div>
   );
 }
