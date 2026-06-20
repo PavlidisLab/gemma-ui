@@ -93,6 +93,18 @@ export interface CurationLabelLookup {
   label?: string;
   producer?: string;
   source_kind?: string;
+  /** Run timestamp (ISO). Used to make agent-run labels human-readable
+   *  ("agent <sha> <m/d>"). Optional — label degrades to "agent <sha>"
+   *  when absent. */
+  created_at?: string | null;
+}
+
+/** ISO timestamp → short, tz-free "M/D" (no leading zeros, no year).
+ *  "2026-06-22T01:09:57Z" → "6/22". "" when absent/unparseable. */
+function shortRunDate(iso?: string | null): string {
+  if (!iso) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${+m[2]}/${+m[3]}` : "";
 }
 
 /** Human-facing label for a source.
@@ -115,6 +127,16 @@ export function sourceLabel(
       if (match.label && match.label.trim()) return match.label;
       const producer = match.producer || "";
       const kind = match.source_kind || "";
+      // Agent runs identify by run sha; drop the redundant
+      // "(agent_proposal)" kind — ``agent:<sha>`` → "agent <sha>"
+      // (Paul 2026-06-19: "proposal" is noise when a sha names the run).
+      if (kind === "agent_proposal" || /^agent[:_-]/.test(producer)) {
+        const sha = producer.replace(/^agent[:_-]?/, "").trim().slice(0, 7);
+        const date = shortRunDate(match.created_at);
+        const parts = ["agent", sha, date].filter(Boolean);
+        // Need at least a sha or date to be unique; else fall back.
+        return parts.length > 1 ? parts.join(" ") : "agent proposal";
+      }
       if (producer && kind) return `${producer} (${kind})`;
       if (producer) return producer;
       if (kind) return kind;
@@ -135,16 +157,17 @@ export function sourceLabel(
   // only when ``label`` is empty (pre-step-3b enum path). Per Paul
   // 2026-06-12.
   if (s === "live") return "Gemma";
-  if (s === "agent_proposal") return "agent original proposal";
+  if (s === "agent_proposal") return "agent proposal";
   if (isPolishedSource(s)) {
     const curator = polishedCuratorOf(s);
     // Consensus-producer rows are routed through the polished
     // channel until step 3b drops the Source enum (2026-06-08).
-    // Their tokens are slugified consensus:<id> → polished:consensus_<id>;
-    // unslug back to the canonical "consensus:<id>" form for display
-    // so the chip reads honestly.
+    // Their tokens are slugified consensus:<id> → polished:consensus_<id>.
+    // Drop the redundant "consensus" prefix and de-slug for a direct
+    // display name: ``polished:consensus_strict_consensus`` → "strict
+    // consensus" (Paul 2026-06-19 — the prefix was just noise).
     if (curator.startsWith("consensus_")) {
-      return curator.replace(/^consensus_/, "consensus:");
+      return curator.replace(/^consensus_/, "").replace(/_/g, " ");
     }
     return `${titleCaseCurator(curator)} polished`;
   }

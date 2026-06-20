@@ -198,7 +198,7 @@ describe("sourceLabel", () => {
     // /curations ``label`` field is the canonical name source; this
     // fallback only fires when label is empty.
     expect(sourceLabel("live")).toBe("Gemma");
-    expect(sourceLabel("agent_proposal")).toBe("agent original proposal");
+    expect(sourceLabel("agent_proposal")).toBe("agent proposal");
   });
 
   it("uses the curation row's label when available (step 3b)", () => {
@@ -214,8 +214,8 @@ describe("sourceLabel", () => {
     ];
     expect(sourceLabel("uuid-abc-123", curations))
       .toBe("Strict consensus (cy+am)");
-    // Falls back to "${producer} (${source_kind})" when label
-    // is empty.
+    // Agent runs render as "agent <sha>" (drop the redundant
+    // "(agent_proposal)" kind) when label is empty.
     const curationsNoLabel = [
       {
         curation_id: "uuid-xyz",
@@ -225,7 +225,7 @@ describe("sourceLabel", () => {
       },
     ];
     expect(sourceLabel("uuid-xyz", curationsNoLabel))
-      .toBe("agent:run-42 (agent_proposal)");
+      .toBe("agent run-42");
     // Unknown id falls through to legacy enum path.
     expect(sourceLabel("preboard", curations)).toBe("Gemma preboard");
   });

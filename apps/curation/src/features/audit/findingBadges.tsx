@@ -610,7 +610,15 @@ export function SeverityBadge({
  *  Returns null when the finding isn't a match code — the caller
  *  falls back to `SeverityBadge` for non-match findings. */
 export function MatchBadge({ finding }: { finding: AuditFinding }) {
-  if (isExactFactorMatch(finding)) {
+  // Tag-side exact/near (2026-06-19, GSE241529): the producer splits
+  // ``calibration_tag_match_exact`` (✓) from ``calibration_tag_match_
+  // near`` (≈, drifted label) so the curator can tell at a glance
+  // whether the bind is exact. Legacy ``calibration_match`` stays ≈
+  // (older builds didn't distinguish, so erring toward "peek").
+  if (
+    isExactFactorMatch(finding) ||
+    finding.issue_code === "calibration_tag_match_exact"
+  ) {
     return (
       <StatusBadge
         glyph="✓"
@@ -621,6 +629,7 @@ export function MatchBadge({ finding }: { finding: AuditFinding }) {
   }
   if (
     isCloseFactorMatch(finding) ||
+    finding.issue_code === "calibration_tag_match_near" ||
     finding.issue_code === "calibration_match"
   ) {
     return (

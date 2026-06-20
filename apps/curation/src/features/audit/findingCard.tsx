@@ -1294,6 +1294,8 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               // the normal match case.
               (!!action?.mutates &&
                 (finding.issue_code === "calibration_match" ||
+                  finding.issue_code === "calibration_tag_match_exact" ||
+                  finding.issue_code === "calibration_tag_match_near" ||
                   finding.issue_code === "calibration_factor_match_exact" ||
                   finding.issue_code === "calibration_factor_match_near" ||
                   finding.issue_code === "calibration_factor_match_close" ||

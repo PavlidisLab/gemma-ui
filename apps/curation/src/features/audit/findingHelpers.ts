@@ -592,6 +592,14 @@ export function isMatchFinding(f: AuditFinding): boolean {
   // gets the "peek to confirm" cue without losing the compact
   // match-row affordance.
   if (f.issue_code === "calibration_match") return f.severity === "ok";
+  // Tag-side exact/near split (2026-06-19, GSE241529). The producer
+  // now emits ``calibration_tag_match_exact`` (URI + label line up)
+  // and ``calibration_tag_match_near`` (same URI, drifted label, e.g.
+  // "inner ear" vs "internal ear") instead of a single
+  // ``calibration_match``. Both render as compact match rows; the
+  // ✓ / ≈ split is carried by MatchBadge.
+  if (f.issue_code === "calibration_tag_match_exact") return true;
+  if (f.issue_code === "calibration_tag_match_near") return true;
   // Reconciled-at-build findings — the consensus design already
   // reflects the agent's proposed change. Render as a compact match
   // row so the curator skips them by default.

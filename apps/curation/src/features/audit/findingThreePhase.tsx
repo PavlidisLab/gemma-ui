@@ -393,7 +393,21 @@ export function ThreePhaseFindingBody({
   // characteristic"), surface it as the Why brief. Better than a
   // bare empty WHY PROPOSED slot the curator has nothing to act on.
   // Per FINDING_SHORT_RATIONALE_BM_AWARE_2026_06_16.
-  if (!why) {
+  //
+  // EXCEPT match findings (Paul 2026-06-19, GSE241529): a
+  // ``calibration_match`` / ``calibration_tag_match_*`` carries a
+  // ``suggested_fix`` of "Remove tag `X` from the existing curation."
+  // — that's the action a *reject* disposition performs, NOT a
+  // proposal. Surfacing it under "WHY PROPOSED" made a confirmed match
+  // read as a removal recommendation ("TAG MATCH … Remove tag"). A
+  // match has no proposal to remove; suppress the fallback for it.
+  // (Producer also clears the text on new builds; this guard fixes
+  // already-built packages and is defence-in-depth.)
+  const isMatchCode =
+    !!finding.issue_code && /(^|_)match(_exact|_near|_close)?$/.test(
+      finding.issue_code,
+    );
+  if (!why && !isMatchCode) {
     const fix = (finding.suggested_fix ?? "").trim();
     if (fix) {
       why = {

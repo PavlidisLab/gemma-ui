@@ -779,6 +779,30 @@ export function ComparisonFactorCard({
         <span className="text-[12px] font-semibold min-w-0 truncate">
           {subjectNode}
         </span>
+        {(() => {
+          // Inline short description after the subject — prefers the
+          // curator/baseline factor's description, falls back to the
+          // comparator's. Renders as " — <desc>" continuing the same
+          // header row so the curator sees "FACTOR MATCH — genotype
+          // — cpxm2 ko" at a glance. Truncates with the parent's
+          // ``min-w-0`` flex so a long description doesn't push the
+          // status pill off the right.
+          const desc =
+            (leftFactor?.description ?? "").trim() ||
+            (rightFactor?.description ?? "").trim();
+          if (!desc) return null;
+          return (
+            <>
+              <span className="text-slate-400 dark:text-slate-500">—</span>
+              <span
+                className="text-[11px] italic text-slate-600 dark:text-slate-400 min-w-0 truncate"
+                title={desc}
+              >
+                {desc}
+              </span>
+            </>
+          );
+        })()}
       </span>
     );
 
