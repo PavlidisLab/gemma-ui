@@ -138,7 +138,11 @@ export default function App() {
     return (
       <CuratorDashboard
         reviewer={fullName || reviewer}
-        onSelect={(id) => navigate(`#/experiments/${id}`)}
+        onSelect={(id, ticketId) =>
+          navigate(
+            `#/experiments/${id}${ticketId ? `?ticket=${ticketId}` : ""}`,
+          )
+        }
       />
     );
   }

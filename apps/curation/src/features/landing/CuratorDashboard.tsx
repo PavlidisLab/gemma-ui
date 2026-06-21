@@ -106,7 +106,11 @@ export function CuratorDashboard({
   onSelect,
 }: {
   reviewer: string;
-  onSelect: (experimentId: number | string) => void;
+  /** ``ticketId`` is threaded when the experiment is opened from a
+   *  ticket, so the experiment URL keeps ``?ticket=<id>`` and the
+   *  banner can render the ticket breadcrumb / back-link. Omitted for
+   *  non-ticket opens. */
+  onSelect: (experimentId: number | string, ticketId?: number) => void;
 }) {
   const [filter, setFilter] = useState<DashboardFilter>(() =>
     readInitialFilter(),
@@ -312,18 +316,21 @@ function TicketCard({
   onOpenTarget,
 }: {
   ticket: Ticket;
-  onOpenTarget: (experimentId: number | string) => void;
+  onOpenTarget: (experimentId: number | string, ticketId?: number) => void;
 }) {
   // Whole card opens the ticket detail page. The detail page lists
   // the targets; the curator clicks from there into individual EEs.
   // Single-target tickets skip straight to the EE (the only useful
-  // landing for them).
+  // landing for them) — but carry the ticket id so the experiment
+  // keeps its ticket context (breadcrumb / back-link); without it the
+  // curator lands on the EE with no way back to the ticket (Paul
+  // 2026-06-21).
   const expTargets = ticket.targets.filter(
     (t) => t.target_type === "EXPRESSION_EXPERIMENT",
   );
   const primaryClick =
     expTargets.length === 1
-      ? () => onOpenTarget(expTargets[0].target_id)
+      ? () => onOpenTarget(expTargets[0].target_id, ticket.id)
       : () => navigate(`#/tickets/${ticket.id}`);
   // Progress: same shape as Sets used. Per-target status drives it.
   const n = ticket.targets.length;
