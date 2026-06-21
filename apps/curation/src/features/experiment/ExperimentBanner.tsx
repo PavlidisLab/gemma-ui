@@ -976,6 +976,25 @@ function SetNavigatorPopover({
   const currentIdx =
     summaries?.findIndex((s) => s.experiment_id === currentExperimentId) ?? -1;
 
+  // Open onto the current experiment — centre its row in the list
+  // viewport once it first renders (members load async, so this can't
+  // be a mount-only effect). The one-shot guard keeps later filter
+  // typing from yanking the scroll back. Scroll is contained to the
+  // <ul> so it never nudges the page or the popover.
+  const listRef = useRef<HTMLUListElement>(null);
+  const currentRowRef = useRef<HTMLLIElement>(null);
+  const didScrollRef = useRef(false);
+  useEffect(() => {
+    if (didScrollRef.current) return;
+    const list = listRef.current;
+    const row = currentRowRef.current;
+    if (!list || !row) return;
+    const offset =
+      row.offsetTop - list.clientHeight / 2 + row.clientHeight / 2;
+    list.scrollTop = Math.max(0, offset);
+    didScrollRef.current = true;
+  }, [summaries]);
+
   const goToIndex = useCallback(
     (idx: number) => {
       if (!summaries || summaries.length === 0) return;
@@ -1087,7 +1106,10 @@ function SetNavigatorPopover({
           autoFocus
         />
       </div>
-      <ul className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+      <ul
+        ref={listRef}
+        className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800"
+      >
         {isLoading || !group ? (
           <li className="px-3 py-2 text-slate-500 dark:text-slate-400 italic">
             loading members…
@@ -1111,6 +1133,11 @@ function SetNavigatorPopover({
               key={`${m.experiment_id}-${m.short_name}`}
               summary={m}
               isCurrent={m.experiment_id === currentExperimentId}
+              rowRef={
+                m.experiment_id === currentExperimentId
+                  ? currentRowRef
+                  : undefined
+              }
               hasLocalDraft={dirtyDraftIds.has(String(m.experiment_id))}
               onClick={() => {
                 if (m.experiment_id <= 0) return;
@@ -1135,10 +1162,12 @@ function SetMemberRow({
   summary,
   isCurrent,
   hasLocalDraft,
+  rowRef,
   onClick,
 }: {
   summary: ExperimentSummary;
   isCurrent: boolean;
+  rowRef?: RefObject<HTMLLIElement>;
   /** This curator has an uncommitted local draft for this
    *  experiment (presence of a ``gca:draft:<id>`` key in
    *  localStorage). Takes precedence over the server-side
@@ -1150,7 +1179,7 @@ function SetMemberRow({
   const isPlaceholder = summary.experiment_id <= 0;
   const Component = isPlaceholder ? "div" : "button";
   return (
-    <li>
+    <li ref={rowRef}>
       <Component
         type={isPlaceholder ? undefined : "button"}
         onClick={isPlaceholder ? undefined : onClick}
@@ -2009,6 +2038,22 @@ function TicketNavigatorPopover({
     (t) => t.target_id === currentExperimentId,
   );
 
+  // Open onto the current experiment — centre its row in the list
+  // viewport on mount instead of always starting at the top, so the
+  // popover reflects the "30/200" position the curator is sitting on.
+  // Scroll is contained to the <ul> (set scrollTop directly) so it
+  // never nudges the page or the absolutely-positioned popover.
+  const listRef = useRef<HTMLUListElement>(null);
+  const currentRowRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    const list = listRef.current;
+    const row = currentRowRef.current;
+    if (!list || !row) return;
+    const offset =
+      row.offsetTop - list.clientHeight / 2 + row.clientHeight / 2;
+    list.scrollTop = Math.max(0, offset);
+  }, []);
+
   const goToIndex = useCallback(
     (idx: number) => {
       if (targets.length === 0) return;
@@ -2096,7 +2141,10 @@ function TicketNavigatorPopover({
           autoFocus
         />
       </div>
-      <ul className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+      <ul
+        ref={listRef}
+        className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800"
+      >
         {filtered.length === 0 ? (
           <li className="px-3 py-2 text-slate-500 dark:text-slate-400 italic">
             No members match "{query}".
@@ -2107,6 +2155,9 @@ function TicketNavigatorPopover({
               key={t.target_id}
               target={t}
               isCurrent={t.target_id === currentExperimentId}
+              rowRef={
+                t.target_id === currentExperimentId ? currentRowRef : undefined
+              }
               onClick={() => {
                 window.location.hash = `#/experiments/${t.target_id}?ticket=${ticketId}`;
                 onClose();
@@ -2122,6 +2173,7 @@ function TicketNavigatorPopover({
 function TicketMemberRow({
   target,
   isCurrent,
+  rowRef,
   onClick,
 }: {
   target: {
@@ -2131,10 +2183,11 @@ function TicketMemberRow({
     status?: "NOT_DONE" | "UNDERWAY" | "DONE";
   };
   isCurrent: boolean;
+  rowRef?: RefObject<HTMLLIElement>;
   onClick: () => void;
 }) {
   return (
-    <li>
+    <li ref={rowRef}>
       <button
         type="button"
         onClick={onClick}
