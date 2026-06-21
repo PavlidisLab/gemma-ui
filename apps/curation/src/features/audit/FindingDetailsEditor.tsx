@@ -523,6 +523,97 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
   //     ``<category>|<value>`` pair (URI when available, label
   //     fallback) — we want the human-readable bits from
   //     ``proposer_term`` + the rationale, not the URI keys.
+
+  // Tag SWAP (``replace_tag`` near-match): the agent proposes replacing
+  // an existing baseline tag with a same-concept term under a different
+  // URI (GSE154383: ``disease model: brain ischemia`` MONDO:0005299 →
+  // ``cerebral ischemia`` MONDO:0002679). The "current" side is the
+  // REPLACED tag, addressed by ``target_id = "tag:N"`` — it is NOT
+  // discoverable by looking up the proposed value (different URI), which
+  // is why the proposer-value lookup below left the Current column empty
+  // and the "don't change" button had no referent. Resolve current from
+  // the replaced design tag instead. (my brother's
+  // UIB_HANDOFF_2026_06_20_TAG_SWAP_CURRENT_SIDE_FROM_TARGETID.md.)
+  const apply = finding.apply_action ?? null;
+  if (apply?.kind === "replace_tag") {
+    const swapTags = design?.tags ?? [];
+    const parsedSwap = parseTargetId(finding.target_id);
+    const replacedId =
+      parsedSwap?.kind === "tag" && /^\d+$/.test(parsedSwap.categorySlug)
+        ? Number(parsedSwap.categorySlug)
+        : null;
+    const baseline =
+      replacedId != null
+        ? swapTags.find((t) => t.id === replacedId) ?? null
+        : null;
+    if (baseline) {
+      const swapTerm = finding.proposer_term ?? null;
+      const a = apply as {
+        new_category?: unknown;
+        new_value?: unknown;
+        new_value_uri?: unknown;
+      };
+      const newCategory =
+        typeof a.new_category === "string" ? a.new_category : "";
+      const newValue = typeof a.new_value === "string" ? a.new_value : "";
+      const newValueUri =
+        typeof a.new_value_uri === "string" ? a.new_value_uri : null;
+
+      // Proposed (Auditor) side — prefer proposer_term, fall back to
+      // apply_action so the value chip resolves even on lean payloads.
+      const valueProposal: SideValue = {
+        label: swapTerm?.label || newValue,
+        uri: swapTerm?.uri ?? newValueUri,
+      };
+      // A swap keeps the category and only moves the value URI; borrow
+      // the baseline category's URI when the labels agree so the
+      // proposed category renders as a chip, not italic free text.
+      const proposalCategoryLabel = newCategory || baseline.category.label || "";
+      const categoryProposal: SideValue = {
+        label: proposalCategoryLabel,
+        uri:
+          (lc(proposalCategoryLabel) === lc(baseline.category.label)
+            ? baseline.category.uri ?? null
+            : null),
+      };
+      const categoryCurrently: SideValue = {
+        label: baseline.category.label || "",
+        uri: baseline.category.uri ?? null,
+      };
+      const valueCurrently: SideValue = {
+        label: baseline.value.label || "",
+        uri: baseline.value.uri ?? null,
+      };
+      return [
+        {
+          path: "tag.category",
+          rowLabel: "Category",
+          proposal: categoryProposal,
+          currently: categoryCurrently,
+          reference: null,
+          fvIndex: null,
+          statementIndex: null,
+          allAgree: rowAgreement(categoryProposal, categoryCurrently, null),
+        },
+        {
+          path: "tag.value",
+          rowLabel: "Value",
+          proposal: valueProposal,
+          currently: valueCurrently,
+          reference: null,
+          fvIndex: null,
+          statementIndex: null,
+          allAgree: rowAgreement(valueProposal, valueCurrently, null),
+        },
+      ];
+    }
+    // No baseline tag found — bare ``--gses`` build without the gold
+    // override (the design doesn't carry the replaced tag). Fall through
+    // to the legacy path; ``tag:N`` hits the ``else { return [] }`` below
+    // and renders nothing, same as before this branch. Per the handoff:
+    // those packages aren't meant to be reviewed.
+  }
+
   let agentCategory: string;
   let agentValue: string;
   if (finding.target_id.startsWith("calibration:")) {

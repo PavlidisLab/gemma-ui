@@ -257,6 +257,112 @@ describe("resolveApplyAction — ADD TAG", () => {
   });
 });
 
+describe("resolveApplyAction — SWAP TAG (replace_tag)", () => {
+  // Tag swap: replace an existing baseline tag (target_id = "tag:N")
+  // with a same-concept term under a different URI. The "current" side
+  // is the replaced tag id; the proposed side is proposer_term /
+  // apply_action. Adopt = drop baseline id N + add the replacement.
+  // (UIB_HANDOFF_2026_06_20_TAG_SWAP_CURRENT_SIDE_FROM_TARGETID.md.)
+  it("drops the baseline tag and adds the replacement", () => {
+    const d = design({
+      tags: [
+        tag(2, "disease model", "brain ischemia", {
+          valueUri: "http://purl.obolibrary.org/obo/MONDO_0005299",
+        }),
+      ],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:2",
+      proposer_term: {
+        label: "cerebral ischemia",
+        uri: "http://purl.obolibrary.org/obo/MONDO_0002679",
+        resolver: null,
+        score: null,
+      },
+      apply_action: {
+        kind: "replace_tag",
+        new_category: "disease model",
+        new_value: "cerebral ischemia",
+        new_value_uri: "http://purl.obolibrary.org/obo/MONDO_0002679",
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    // Baseline gone, replacement present with the new URI.
+    expect(next.tags.find((t) => t.id === 2)).toBeUndefined();
+    expect(next.tags).toHaveLength(1);
+    expect(next.tags[0].value.label).toBe("cerebral ischemia");
+    expect(next.tags[0].value.uri).toBe(
+      "http://purl.obolibrary.org/obo/MONDO_0002679",
+    );
+  });
+
+  it("returns idempotent 'Already applied' when the baseline is gone and the replacement is present", () => {
+    const d = design({
+      tags: [
+        tag(5, "disease model", "cerebral ischemia", {
+          valueUri: "http://purl.obolibrary.org/obo/MONDO_0002679",
+        }),
+      ],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      // Baseline id no longer on the draft (already swapped).
+      target_id: "tag:2",
+      proposer_term: {
+        label: "cerebral ischemia",
+        uri: "http://purl.obolibrary.org/obo/MONDO_0002679",
+        resolver: null,
+        score: null,
+      },
+      apply_action: {
+        kind: "replace_tag",
+        new_category: "disease model",
+        new_value: "cerebral ischemia",
+        new_value_uri: "http://purl.obolibrary.org/obo/MONDO_0002679",
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(false);
+    expect(action?.label).toContain("Already applied");
+  });
+
+  it("refuses to swap a protected (assay) tag", () => {
+    const d = design({
+      tags: [tag(9, "assay", "RNA-Seq", { valueUri: "EFO:0008896" })],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:9",
+      proposer_term: {
+        label: "RNA-seq of coding RNA",
+        uri: "EFO:0003738",
+        resolver: null,
+        score: null,
+      },
+      apply_action: {
+        kind: "replace_tag",
+        new_category: "assay",
+        new_value: "RNA-seq of coding RNA",
+        new_value_uri: "EFO:0003738",
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    // Protected — never a one-click mutating swap; the assay tag survives.
+    if (action?.mutates && action.mutate) {
+      const next = action.mutate(d);
+      expect(next.tags.find((t) => t.id === 9)).toBeDefined();
+    } else {
+      expect(action?.mutates ?? false).toBe(false);
+    }
+  });
+});
+
 describe("resolveApplyAction — REJECT / no-op cases", () => {
   it("returns null/focus-only when the finding has no apply_action and no calibration shape", () => {
     const d = design({ tags: [] });

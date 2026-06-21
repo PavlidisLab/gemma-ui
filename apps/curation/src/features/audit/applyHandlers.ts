@@ -220,7 +220,10 @@ function labelEq(a: string | null | undefined, b: string): boolean {
  *  ``apply_action`` payload from the agent.
  *
  *  Today's coverage: ``kind="add_tag"`` (proposer says "add this
- *  tag", emitted by ``missing_tag`` from the tag judge). Mirrors the
+ *  tag", emitted by ``missing_tag`` from the tag judge),
+ *  ``kind="remove_tag"`` (entity-frame proposer), and
+ *  ``kind="replace_tag"`` (tag swap — remove the baseline tag id then
+ *  add the same-concept replacement). All mirror the
  *  calibration_agent_extra path's idempotency + tooltip + appliedFix
  *  shape so the per-card Agree button reads consistently across
  *  audit and proposal modes.
@@ -271,6 +274,87 @@ function resolveProposalApply(
       successMessage: `Removed tag "${catLabel}: ${valLabel}". Commit the draft to save.`,
       mutate: (draft) => removeTagById(draft, target.id),
       appliedFix: `remove ${catLabel}: ${valLabel}`,
+    };
+  }
+  // ``replace_tag`` (tag SWAP, 2026-06-20) — agent says "replace the
+  // existing baseline tag (``target_id = "tag:N"``) with this
+  // same-concept term under a different URI". GSE154383: drop
+  // ``disease model: brain ischemia`` MONDO:0005299, add
+  // ``cerebral ischemia`` MONDO:0002679. Compose the existing remove +
+  // add mutators so the curator's "adopt" actually rewrites the draft;
+  // before this it fell through to a no-op Focus → (my brother's
+  // UIB_HANDOFF_2026_06_20_TAG_SWAP_CURRENT_SIDE_FROM_TARGETID.md).
+  if (aa.kind === "replace_tag") {
+    if (!design) return null;
+    const idMatch = finding.target_id.match(/^tag:(\d+)$/);
+    if (!idMatch) return null; // need the baseline id to swap against
+    const baselineId = Number(idMatch[1]);
+    const baseline = (design.tags ?? []).find((t) => t.id === baselineId) ?? null;
+    const a = aa as {
+      new_category?: unknown;
+      new_value?: unknown;
+      new_value_uri?: unknown;
+    };
+    // Proposed side: prefer proposer_term, fall back to apply_action.
+    const categoryLabel = (
+      typeof a.new_category === "string"
+        ? a.new_category
+        : baseline?.category?.label ?? ""
+    ).trim();
+    const valueLabel = (
+      finding.proposer_term?.label ||
+      (typeof a.new_value === "string" ? a.new_value : "")
+    ).trim();
+    const valueUri =
+      finding.proposer_term?.uri ??
+      (typeof a.new_value_uri === "string" ? a.new_value_uri : null);
+    if (!categoryLabel || !valueLabel) return null;
+    // Never swap a protected (assay / technology-type) tag, on either
+    // the baseline or the replacement side.
+    if (baseline && isProtectedTagCategory(baseline.category?.label)) {
+      return null;
+    }
+    if (isProtectedTagCategory(categoryLabel)) return null;
+    // Idempotency: baseline already gone AND replacement already on the
+    // draft → nothing to do, surface as already-applied.
+    const replacementPresent = (design.tags ?? []).some((t) => {
+      if (!labelEq(t.category?.label, categoryLabel)) return false;
+      if (!labelEq(t.value?.label, valueLabel)) return false;
+      if (valueUri && t.value?.uri) return t.value.uri === valueUri;
+      return true;
+    });
+    if (!baseline && replacementPresent) {
+      return {
+        mutates: false,
+        label: "✓ Already applied",
+        tooltip:
+          `Tag "${categoryLabel}: ${valueLabel}" already replaces the ` +
+          `baseline. Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    const baseLabel = baseline
+      ? `${baseline.category?.label}: ${baseline.value?.label}`
+      : `tag #${baselineId}`;
+    const tooltip = valueUri
+      ? `Agree → replace "${baseLabel}" with "${categoryLabel}: ${valueLabel}" (${valueUri}).`
+      : `Agree → replace "${baseLabel}" with "${categoryLabel}: ${valueLabel}" (free-text — resolve later).`;
+    return {
+      mutates: true,
+      label: "Agree (swap) →",
+      tooltip,
+      successMessage: `Swapped "${baseLabel}" → "${categoryLabel}: ${valueLabel}". Commit the draft to save.`,
+      // Remove the baseline by id, then add the replacement.
+      // ``addPopulatedTag`` dedups so a manually-present replacement
+      // won't double-add.
+      mutate: (draft) =>
+        addPopulatedTag(
+          baseline ? removeTagById(draft, baseline.id) : draft,
+          categoryLabel,
+          valueLabel,
+          valueUri,
+        ),
+      appliedFix: `replace ${baseLabel} → ${categoryLabel}: ${valueLabel}`,
     };
   }
   if (aa.kind !== "add_tag") return null;
