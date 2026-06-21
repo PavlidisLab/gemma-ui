@@ -29,22 +29,22 @@ import { navigate } from "@/routes";
 import { cn } from "@/lib/cn";
 import { AppHeader } from "@/components/ui/AppHeader";
 
-/** Dashboard ticket-list filter. Maps to a (state, progress)
- *  predicate on each Ticket. ``all`` includes RESOLVED + CANCELLED;
- *  the other three filter within the open universe. */
-type DashboardFilter = "all" | "not_started" | "started" | "completed";
+/** Dashboard ticket-list filter — just the ticket lifecycle: ``all`` /
+ *  ``open`` (not resolved/cancelled) / ``resolved`` (resolved or
+ *  cancelled). Progress (started vs not) is surfaced on the Open chip,
+ *  not as its own filter. Paul 2026-06-21. */
+type DashboardFilter = "all" | "open" | "resolved";
 
 const FILTER_OPTIONS: { id: DashboardFilter; label: string; title: string }[] = [
-  { id: "all",         label: "All",         title: "Every ticket — open, in-progress, completed, cancelled." },
-  { id: "not_started", label: "Not started", title: "Open tickets where no target has been touched yet." },
-  { id: "started",     label: "Started",     title: "Open or in-progress tickets where some targets are done or underway." },
-  { id: "completed",   label: "Completed",   title: "Resolved tickets, plus any open ticket whose targets are all done." },
+  { id: "all",      label: "All",      title: "Every ticket — open and resolved." },
+  { id: "open",     label: "Open",     title: "Tickets still being worked (not resolved or cancelled)." },
+  { id: "resolved", label: "Resolved", title: "Resolved or cancelled tickets." },
 ];
 
 const FILTER_STORAGE_KEY = "curator_dashboard.ticket_filter";
 
 function isDashboardFilter(v: string | null): v is DashboardFilter {
-  return v === "all" || v === "not_started" || v === "started" || v === "completed";
+  return v === "all" || v === "open" || v === "resolved";
 }
 
 /** Read the persisted filter from URL ``?filter=`` (wins) or fallback
@@ -67,27 +67,29 @@ function readInitialFilter(): DashboardFilter {
   return "all";
 }
 
-/** Apply the (state, progress) predicate for a dashboard filter to
- *  a single ticket. Reads progress from target counts so a backend
- *  that doesn't flip state OPEN→IN_PROGRESS still groups correctly. */
+/** A ticket is "resolved" by its lifecycle state (RESOLVED or
+ *  CANCELLED); everything else is "open". */
+function ticketIsResolved(ticket: Ticket): boolean {
+  return ticket.state === "RESOLVED" || ticket.state === "CANCELLED";
+}
+
+/** A ticket is "started" when any target has been touched (done or
+ *  underway). Used for the Open chip's "x/y started" ratio. */
+function ticketIsStarted(ticket: Ticket): boolean {
+  return ticket.targets.some(
+    (t) => t.status === "DONE" || t.status === "UNDERWAY",
+  );
+}
+
+/** Lifecycle predicate for a dashboard filter. */
 function ticketMatchesFilter(ticket: Ticket, filter: DashboardFilter): boolean {
-  const n = ticket.targets.length;
-  const nDone = ticket.targets.filter((t) => t.status === "DONE").length;
-  const nUnderway = ticket.targets.filter(
-    (t) => t.status === "UNDERWAY",
-  ).length;
-  const isClosedState =
-    ticket.state === "RESOLVED" || ticket.state === "CANCELLED";
-  const allDone = n > 0 && nDone === n;
   switch (filter) {
     case "all":
       return true;
-    case "not_started":
-      return !isClosedState && nDone === 0 && nUnderway === 0;
-    case "started":
-      return !isClosedState && (nDone > 0 || nUnderway > 0) && !allDone;
-    case "completed":
-      return isClosedState || allDone;
+    case "open":
+      return !ticketIsResolved(ticket);
+    case "resolved":
+      return ticketIsResolved(ticket);
   }
 }
 
@@ -139,9 +141,9 @@ export function CuratorDashboard({
 
   // Need RESOLVED/CANCELLED in the fetched list when the curator
   // wants to see them — otherwise the open-only filter on the hook
-  // hides every completed ticket. Two states need closed tickets:
-  // "all" and "completed".
-  const includeClosed = filter === "all" || filter === "completed";
+  // hides every resolved ticket. Two states need closed tickets:
+  // "all" and "resolved".
+  const includeClosed = filter === "all" || filter === "resolved";
   const { data: tickets, isLoading: ticketsLoading } = useMyTickets({
     includeClosed,
   });
@@ -159,17 +161,20 @@ export function CuratorDashboard({
 
   // Per-filter counts for the chip labels. Always computed over the
   // most-inclusive fetch we have on hand — when the curator's on a
-  // filter that didn't fetch closed tickets, the "completed" count
+  // filter that didn't fetch closed tickets, the "resolved" count
   // chip still shows zero. That's an honest under-count rather than
-  // a guess; flipping to "All" or "Completed" updates the chip
+  // a guess; flipping to "All" or "Resolved" updates the chip
   // labels.
   const totalForLabel = tickets ?? [];
+  const openTickets = totalForLabel.filter((t) => !ticketIsResolved(t));
   const counts: Record<DashboardFilter, number> = {
     all: totalForLabel.length,
-    not_started: totalForLabel.filter((t) => ticketMatchesFilter(t, "not_started")).length,
-    started: totalForLabel.filter((t) => ticketMatchesFilter(t, "started")).length,
-    completed: totalForLabel.filter((t) => ticketMatchesFilter(t, "completed")).length,
+    open: openTickets.length,
+    resolved: totalForLabel.filter(ticketIsResolved).length,
   };
+  // How many OPEN tickets have been started (any target touched) —
+  // surfaced on the Open chip as "x/y started". Paul 2026-06-21.
+  const startedOpen = openTickets.filter(ticketIsStarted).length;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 dark:text-slate-100">
@@ -244,7 +249,7 @@ export function CuratorDashboard({
                   : `(${sortedTickets.length})`}
             </span>
           </header>
-          {/* Filter chips — completed / started / not started / all.
+          {/* Filter chips — all / open / resolved.
               Reuses the same chip palette as the workflow page's
               FilterBar (active = blue-600 fill, inactive = neutral
               slate) so curators read one visual idiom across
@@ -275,7 +280,9 @@ export function CuratorDashboard({
                       active ? "text-blue-100" : "text-slate-400 dark:text-slate-500",
                     )}
                   >
-                    {count}
+                    {opt.id === "open" && count > 0
+                      ? `${startedOpen}/${count} started`
+                      : count}
                   </span>
                 </button>
               );
@@ -289,11 +296,9 @@ export function CuratorDashboard({
             <div className="card p-6 text-sm text-slate-500">
               {filter === "all"
                 ? "No tickets."
-                : filter === "completed"
-                  ? "No completed tickets."
-                  : filter === "started"
-                    ? "No tickets in progress."
-                    : "No open tickets waiting to start."}
+                : filter === "resolved"
+                  ? "No resolved tickets."
+                  : "No open tickets."}
             </div>
           ) : (
             <ul className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
