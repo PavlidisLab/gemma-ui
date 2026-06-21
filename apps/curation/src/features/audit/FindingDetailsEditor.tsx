@@ -1454,43 +1454,48 @@ export function FindingDetailsEditor({
             "across N factors" copy was misleading — the current
             disease factor in the GSE28300 example has 3 levels in
             one factor, not "across 2 factors". */}
-        <div className="space-y-1">
-          <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
-            <span className="text-slate-600 dark:text-slate-300">
-              <strong>{identities.proposer}</strong> {agentVerb}
+        {/* Horizontal, mirroring the CURRENT | AUDITOR columns of the
+            grid below (Current LEFT, Auditor RIGHT) so the level-count
+            asymmetry reads at a glance and lines up with the panes.
+            Per Paul 2026-06-21: horizontal beats the old vertical
+            stack (which also listed Auditor first, reversed vs the
+            columns). */}
+        <div className="grid grid-cols-2 gap-x-3 items-baseline text-[11px]">
+          {/* LEFT = Current (gold) */}
+          <span className="flex items-baseline gap-x-1.5">
+            <strong className="text-slate-600 dark:text-slate-300">
+              {identities.goldCurator}
+            </strong>
+            {goldVerb ? (
+              <span className="text-slate-600 dark:text-slate-300">{goldVerb}</span>
+            ) : null}
+            <button
+              type="button"
+              onClick={onLocateCurrent}
+              title={locateTooltipFor(finding.target_id)}
+              aria-label={locateTooltipFor(finding.target_id)}
+              className="align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
+            >
+              🔍
+            </button>
+            <span className="text-xl font-bold text-slate-700 dark:text-slate-200 leading-none">
+              {distinctGoldCount}
             </span>
-            <span className="flex items-baseline gap-x-1.5">
-              <span className="text-xl font-bold text-amber-700 dark:text-amber-300 leading-none">
-                {distinctAgentCount}
-              </span>
-              <span className="text-slate-600 dark:text-slate-300">
-                levels
-              </span>
+            <span className="text-slate-600 dark:text-slate-300">levels</span>
+          </span>
+          {/* RIGHT = Auditor (proposer) */}
+          <span className="flex items-baseline gap-x-1.5">
+            <strong className="text-slate-600 dark:text-slate-300">
+              {identities.proposer}
+            </strong>
+            {agentVerb ? (
+              <span className="text-slate-600 dark:text-slate-300">{agentVerb}</span>
+            ) : null}
+            <span className="text-xl font-bold text-amber-700 dark:text-amber-300 leading-none">
+              {distinctAgentCount}
             </span>
-          </div>
-          <div className="grid grid-cols-[5rem_1fr] gap-x-2 items-baseline text-[11px]">
-            <span className="text-slate-600 dark:text-slate-300">
-              <strong>{identities.goldCurator}</strong>
-              {goldVerb ? ` ${goldVerb}` : null}
-              <button
-                type="button"
-                onClick={onLocateCurrent}
-                title={locateTooltipFor(finding.target_id)}
-                aria-label={locateTooltipFor(finding.target_id)}
-                className="ml-1 align-baseline text-[11px] text-slate-400 hover:text-sky-700 dark:text-slate-500 dark:hover:text-sky-300"
-              >
-                🔍
-              </button>
-            </span>
-            <span className="flex items-baseline gap-x-1.5">
-              <span className="text-xl font-bold text-slate-700 dark:text-slate-200 leading-none">
-                {distinctGoldCount}
-              </span>
-              <span className="text-slate-600 dark:text-slate-300">
-                levels
-              </span>
-            </span>
-          </div>
+            <span className="text-slate-600 dark:text-slate-300">levels</span>
+          </span>
         </div>
 
         {/* FV mapping — SAME FactorComparisonGrid used by the
