@@ -56,6 +56,7 @@ import type {
 } from "@/api/auditTypes";
 import { FindingEvidenceBlock } from "./agentDetailsPanel";
 import { RuleCite } from "./RuleCite";
+import { guidelineRefForFinding } from "@/lib/guidelineRegistry";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 
 // ---------------------------------------------------------------------------
@@ -271,10 +272,8 @@ function PhaseSection({
 
 function WhyPhase({
   why,
-  finding,
 }: {
   why: WhyBlock | null;
-  finding: AuditFinding;
 }): JSX.Element | null {
   if (!why) return null;
   const rationale = (why.rationale ?? "").trim();
@@ -319,10 +318,26 @@ function WhyPhase({
   return (
     <PhaseSection
       header="Why proposed"
-      headerAccessory={<RuleCite finding={finding} />}
       brief={brief}
       detail={null}
     />
+  );
+}
+
+/** A small "GUIDELINE  ?" row that pops the precise curation rule for
+ *  the finding. Rendered at the top of the reasoning body (not gated on
+ *  a Why block) so it appears on EVERY finding that maps to a rule —
+ *  including match findings, whose Why phase is suppressed. Renders
+ *  nothing when the finding resolves to no rule. Paul 2026-06-21. */
+function GuidelineCiteRow({ finding }: { finding: AuditFinding }): JSX.Element | null {
+  if (!guidelineRefForFinding(finding)) return null;
+  return (
+    <div className="flex items-baseline gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+      <span className="uppercase tracking-wide font-semibold shrink-0">
+        guideline
+      </span>
+      <RuleCite finding={finding} size="sm" />
+    </div>
   );
 }
 
@@ -550,7 +565,8 @@ export function ThreePhaseFindingBody({
   const comparison = finding.comparison ?? null;
   return (
     <div className="space-y-1">
-      <WhyPhase why={why} finding={finding} />
+      <GuidelineCiteRow finding={finding} />
+      <WhyPhase why={why} />
       <ReviewsPhase reviews={reviews} />
       <ComparisonJudgePhase comparison={comparison} />
     </div>
