@@ -171,10 +171,15 @@ export function Term({
     >
       {/* Label shrinks + ellipsises when the chip is width-constrained so
           the CURIE (the term's identity) is never the thing clipped.
-          ``min-w-0`` lets the flex item shrink below its content size;
-          ``truncate`` adds the ellipsis. The full label stays in the
-          ``title`` tooltip + the CuriePopover. Paul 2026-06-21. */}
-      <span className="min-w-0 truncate">{labelNode}</span>
+          ``truncate`` adds the ellipsis; the full label stays in the
+          ``title`` tooltip + the CuriePopover. We floor the shrink at
+          ``min-w-[6ch]`` (was ``min-w-0``) so that in cramped columns —
+          the side-by-side comparison grid especially — short labels like
+          "astrocyte" don't collapse to "a…" while the CURIE keeps its
+          width. ``6ch`` still allows long labels to ellipsize (they
+          shrink TO 6ch, not below), so the only behaviour change is the
+          floor on over-truncation. Paul 2026-06-21. */}
+      <span className="min-w-[6ch] truncate">{labelNode}</span>
       {uri ? (
         <span className="ml-1 shrink-0">
           <CurieLink uri={uri} title={tooltipUri} />
