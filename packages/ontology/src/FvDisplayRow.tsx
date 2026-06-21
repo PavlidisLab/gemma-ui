@@ -224,6 +224,17 @@ export function FvDisplayRow({
           // is empty — when fvName is present the row already reads
           // as a named FV, even if the statement carries no subject.
           <span className="italic text-slate-400">(blank)</span>
+        ) : statements.length === 0 ? (
+          // Named FV with NO statements at all — a value-less FV (the
+          // agent named a level but never grounded it; usually an
+          // over-split). Render an explicit muted "(no value)" marker
+          // so it reads as intentional, not a render glitch. This is
+          // NOT the free-text case: a free-text value ships a statement
+          // (uri-less subject) and renders as a normal first-class chip
+          // above. Per Paul 2026-06-21.
+          <span className="italic text-slate-400 border border-dashed border-slate-300 dark:border-slate-600 rounded px-1.5 py-0.5">
+            (no value)
+          </span>
         ) : null}
         {/* Predicate/object column. When the FV has multiple
             statements sharing the head subject, stack each pair as
