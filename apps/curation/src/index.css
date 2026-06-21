@@ -40,6 +40,17 @@
   .term.category  { @apply bg-slate-50 text-slate-700 border-slate-200 italic
                            border-l border-l-slate-200 rounded-l pl-1.5; }
   /*
+    ``.term.sm`` — a one-notch-smaller framed chip. Shrinks the text
+    (``text-xs`` → ``text-[10px]``) and tightens the padding so the
+    side-by-side factor comparison can render the whole statement
+    smaller without losing the left-bookmark border / colour cues.
+    Stacks on top of any variant (default / free / predicate /
+    category / diff). Reusable size knob the TagBar / StatementChip
+    can adopt later. Paul 2026-06-21: "the text smaller for the whole
+    thing."
+   */
+  .term.sm        { @apply text-[10px] px-1 py-0; }
+  /*
     ``.term.diff`` — applied on top of any of the above variants to
     signal "this chip differs from its paired chip on the other side
     of a side-by-side comparison." The signal is concentrated in the

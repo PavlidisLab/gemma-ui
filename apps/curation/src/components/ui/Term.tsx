@@ -27,7 +27,18 @@ import type { FvTermProvenance, FvTermRenderer } from "@gemma/ontology";
  * ``<Pill variant="baseline">▂ baseline</Pill>`` chip alongside
  * the term.
  */
-export type TermVariant = "default" | "free" | "predicate" | "category";
+export type TermVariant =
+  | "default"
+  | "free"
+  | "predicate"
+  | "category"
+  /** Frameless leaf — no chip border / background / padding, just the
+   *  inline label + CURIE link, inheriting colour from the caller's
+   *  ``className``. For hosts that already provide their own frame
+   *  (e.g. the TagBar value sits INSIDE a bordered group chip, so a
+   *  second frame would double-border). Still shares the leaf logic:
+   *  CURIE popover, label truncation, tooltip. Paul 2026-06-21. */
+  | "bare";
 
 export function Term({
   children,
@@ -37,11 +48,26 @@ export function Term({
   asLink = true,
   provenance,
   diff = false,
+  title,
+  size = "default",
 }: {
   children: ReactNode;
   uri?: string | null;
   variant?: TermVariant;
   className?: string;
+  /** Chip scale. ``"sm"`` shrinks the text + padding one notch (via
+   *  the ``.term.sm`` modifier for framed variants, ``text-[10px]``
+   *  for the bare variant). Used by the side-by-side factor
+   *  comparison so the whole statement reads smaller; reusable size
+   *  knob for the TagBar / StatementChip later. Omitting it is
+   *  byte-for-byte the existing render. Paul 2026-06-21. */
+  size?: "default" | "sm";
+  /** Override the chip's hover tooltip. When omitted, the tooltip is
+   *  the URI (resolved) / provenance (free-text). Callers that
+   *  abbreviate the visible label (e.g. the TagBar) pass the full
+   *  label here so it's recoverable on hover; the CURIE link keeps
+   *  showing the URI. */
+  title?: string;
   /** Whether a URI-resolved Term renders as an `<a>` that opens the
    *  ontology page in a new tab. Default ``true`` keeps the existing
    *  behaviour for callers (proposal cards, audit reports) where the
@@ -81,7 +107,8 @@ export function Term({
   // Free-text and predicates without URIs always render as a span.
   // We open in a new tab; ``rel`` follows the standard noopener+
   // noreferrer pair to avoid window.opener leakage.
-  const isLink = asLink && !!uri && effectiveVariant !== "free";
+  const isBare = effectiveVariant === "bare";
+  const isLink = asLink && !!uri && effectiveVariant !== "free" && !isBare;
   // For free-text chips, build a multi-line tooltip from any
   // statement-level provenance the row passed in. Resolved chips
   // keep the URI as their tooltip (existing behaviour).
@@ -100,6 +127,9 @@ export function Term({
     return lines.length ? lines.join("\n") : undefined;
   })();
   const tooltipUri = uri || provenanceTooltip || undefined;
+  // Caller-supplied title wins for the chip body + label; the CURIE
+  // link keeps the URI tooltip below.
+  const outerTitle = title ?? tooltipUri;
 
   // CURIE inline → ALWAYS opens the modular CuriePopover (label /
   // definition / parents from Gemma; explicit "Fetch from OLS"
@@ -120,7 +150,7 @@ export function Term({
         href={curieToUrl(uri) ?? uri}
         target="_blank"
         rel="noopener noreferrer"
-        title={tooltipUri}
+        title={outerTitle}
         onClick={(e) => e.stopPropagation()}
         className="no-underline hover:underline"
       >
@@ -133,19 +163,35 @@ export function Term({
   return (
     <span
       className={cn(
-        "term",
-        effectiveVariant !== "default" && effectiveVariant,
-        diff && "diff",
+        // Bare = frameless leaf (the host supplies its own frame); keep
+        // only the flex + truncation scaffold so the label/CURIE split
+        // and ellipsis still work. Otherwise the full ``.term`` chip.
+        isBare
+          ? cn(
+              "inline-flex items-baseline gap-1 max-w-full overflow-hidden align-bottom",
+              size === "sm" && "text-[10px]",
+            )
+          : cn(
+              "term",
+              effectiveVariant !== "default" && effectiveVariant,
+              diff && "diff",
+              size === "sm" && "sm",
+            ),
         className,
       )}
-      title={tooltipUri}
+      title={outerTitle}
     >
       {/* Label shrinks + ellipsises when the chip is width-constrained so
           the CURIE (the term's identity) is never the thing clipped.
-          ``min-w-0`` lets the flex item shrink below its content size;
-          ``truncate`` adds the ellipsis. The full label stays in the
-          ``title`` tooltip + the CuriePopover. Paul 2026-06-21. */}
-      <span className="min-w-0 truncate">{labelNode}</span>
+          ``truncate`` adds the ellipsis; the full label stays in the
+          ``title`` tooltip + the CuriePopover. We floor the shrink at
+          ``min-w-[6ch]`` (was ``min-w-0``) so that in cramped columns —
+          the side-by-side comparison grid especially — short labels like
+          "astrocyte" don't collapse to "a…" while the CURIE keeps its
+          width. ``6ch`` still allows long labels to ellipsize (they
+          shrink TO 6ch, not below), so the only behaviour change is the
+          floor on over-truncation. Paul 2026-06-21. */}
+      <span className="min-w-[6ch] truncate">{labelNode}</span>
       {uri ? (
         <span className="ml-1 shrink-0">
           <CurieLink uri={uri} title={tooltipUri} />
@@ -177,6 +223,7 @@ export const termRenderer: FvTermRenderer = ({
   variant,
   provenance,
   diff,
+  size,
 }) => (
   <Term
     uri={uri}
@@ -184,6 +231,7 @@ export const termRenderer: FvTermRenderer = ({
     asLink={false}
     provenance={provenance}
     diff={diff}
+    size={size}
   >
     {label}
   </Term>

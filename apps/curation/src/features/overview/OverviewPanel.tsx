@@ -9,6 +9,7 @@ import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
 import { usePubmedMetadata } from "@/api/pubmed";
 import { CurieLink } from "@/components/ui/CurieLink";
+import { Term } from "@/components/ui/Term";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -2042,49 +2043,43 @@ function TagValueChip({
   demoted?: boolean;
 }) {
   const display = abbreviateValueLabel(value.label);
+  // Full label (+ category) recoverable on hover, since ``display`` is
+  // abbreviated. Threaded to the shared ``Term`` as its ``title``.
+  const title = `${value.label}${categoryLabel ? ` (${categoryLabel})` : ""}`;
+  // Render through the canonical ``Term`` (bare variant) so the leaf
+  // logic — CURIE popover, truncation, tooltip — lives in ONE place
+  // instead of being hand-rolled here. ``bare`` keeps it frameless
+  // because the value sits inside an already-bordered group chip; a
+  // second frame would double-border. The CURIE picks up Term's
+  // standard slate styling (was a one-off emerald here). ``asLink=false``
+  // keeps the label as plain text — clicking the CURIE opens the
+  // popover, matching the prior behaviour. Paul 2026-06-21.
   if (value.uri) {
-    // Ontology-resolved: label + inline CURIE (clickable, opens the
-    // term-detail popover with its own "Fetch from OLS" button).
-    // Mirrors the ``Term`` chip pattern elsewhere in the UI. Inline
-    // ↗ external link removed 2026-06-17 (Paul): it cluttered the
-    // chip and penalised misclicks; the popover already exposes the
-    // OLS fetch button when the curator actually wants the term page.
-    const curie = shortenUri(value.uri);
     return (
-      <span className="inline-flex items-baseline gap-1 align-bottom">
-        <span
-          title={`${value.label}${categoryLabel ? ` (${categoryLabel})` : ""}`}
-          className="inline-block font-medium text-emerald-700 dark:text-emerald-400 truncate max-w-[22ch]"
-        >
-          {display}
-        </span>
-        <CurieLink
-          uri={value.uri}
-          display={curie}
-          className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
-        />
-      </span>
-    );
-  }
-  // Free-text variant: italic, truncated. Full label lives on the
-  // hover title; the click-to-expand pattern dropped 2026-06-15 to
-  // match the URI variant above (Paul wants chip rendering
-  // consistent across the panel).
-  return (
-    <span className="inline-flex items-baseline gap-1 align-bottom">
-      <span
-        title={`${value.label}${categoryLabel ? ` (${categoryLabel})` : ""}`}
-        className={cn(
-          "inline-block italic truncate max-w-[22ch]",
-          // Demoted = the group has ontology-resolved siblings; free
-          // text plays a supporting role here. Solo / all-free-text
-          // groups render at normal weight so they're still readable.
-          demoted ? "opacity-50 text-[10px]" : "opacity-80",
-        )}
+      <Term
+        variant="bare"
+        uri={value.uri}
+        asLink={false}
+        title={title}
+        className="font-medium text-emerald-700 dark:text-emerald-400 max-w-[22ch]"
       >
         {display}
-      </span>
-    </span>
+      </Term>
+    );
+  }
+  // Free-text variant: italic, truncated, demoted when the group has
+  // ontology-resolved siblings.
+  return (
+    <Term
+      variant="bare"
+      title={title}
+      className={cn(
+        "italic max-w-[22ch]",
+        demoted ? "opacity-50 text-[10px]" : "opacity-80",
+      )}
+    >
+      {display}
+    </Term>
   );
 }
 
