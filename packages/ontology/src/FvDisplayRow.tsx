@@ -241,22 +241,23 @@ export function FvDisplayRow({
             its own row underneath the head pair — the subject chip on
             the left stays single, predicates line up vertically. */}
         {head && headSiblings.length > 0 ? (
-          <div className="flex flex-col gap-y-0.5 min-w-0">
-            <StatementPredicateObject
-              statement={head}
-              termRenderer={termRenderer}
-              predDiff={isDiff(0, "predicate")}
-              objDiff={isDiff(0, "object")}
-            />
-            {headSiblings.map(({ s, originalIndex }, i) => (
-              <StatementPredicateObject
-                key={i}
-                statement={s}
-                termRenderer={termRenderer}
-                predDiff={isDiff(originalIndex, "predicate")}
-                objDiff={isDiff(originalIndex, "object")}
-              />
-            ))}
+          // Two-column grid: predicate cells in col 1, object cells in
+          // col 2. ``auto`` col 1 sizes to the widest predicate, so
+          // every object starts at the same x and the objects line up
+          // vertically across stacked statements (Paul 2026-06-21:
+          // "astrocyte should be under the homozygous object").
+          <div className="grid grid-cols-[auto_auto] gap-x-1.5 gap-y-0.5 items-baseline min-w-0">
+            {[{ s: head, oi: 0 }, ...headSiblings.map(({ s, originalIndex }) => ({ s, oi: originalIndex }))].map(
+              ({ s, oi }, i) => (
+                <StatementPredObjCells
+                  key={i}
+                  statement={s}
+                  termRenderer={termRenderer}
+                  predDiff={isDiff(oi, "predicate")}
+                  objDiff={isDiff(oi, "object")}
+                />
+              ),
+            )}
           </div>
         ) : head ? (
           // Single-statement (or no siblings) — keep the original
@@ -370,9 +371,7 @@ function StatementPredicateObject({
   // see the diff against the same-position predicate on the other
   // side. The chip helper below handles the resolved-/free-text
   // subject + object slots via the term renderer.
-  const predCls = predDiff
-    ? "text-[10px] text-amber-800 dark:text-amber-200 font-mono rounded ring-1 ring-amber-400/70 dark:ring-amber-500/60 bg-amber-50/80 dark:bg-amber-900/30 px-1"
-    : "text-[10px] text-slate-500 dark:text-slate-200 font-mono";
+  const predCls = predClassName(predDiff);
   const content = (
     <>
       {predLabel ? (
@@ -407,6 +406,62 @@ function StatementPredicateObject({
   );
 }
 
+/** Predicate text styling. ``whitespace-nowrap`` keeps a two-word
+ *  predicate ("located in") on one line — without it the predicate
+ *  wrapped inside its (diff) box and threw the stacked-statement
+ *  alignment off (Paul 2026-06-21). */
+function predClassName(predDiff: boolean): string {
+  return predDiff
+    ? "text-[10px] text-amber-800 dark:text-amber-200 font-mono whitespace-nowrap rounded ring-1 ring-amber-400/70 dark:ring-amber-500/60 bg-amber-50/80 dark:bg-amber-900/30 px-1"
+    : "text-[10px] text-slate-500 dark:text-slate-200 font-mono whitespace-nowrap";
+}
+
+/** A statement's predicate + object rendered as TWO grid cells (a
+ *  ``- predicate`` cell and a ``- object`` cell). Used by the
+ *  stacked-multi-statement layout so a two-column grid lines the
+ *  objects up vertically — e.g. ``astrocyte`` sits under the head
+ *  object, not under the predicate (Paul 2026-06-21). Returns a
+ *  fragment so its two spans become direct children of the grid. */
+function StatementPredObjCells({
+  statement,
+  termRenderer,
+  predDiff = false,
+  objDiff = false,
+}: {
+  statement: FvDisplayStatement;
+  termRenderer: FvTermRenderer;
+  predDiff?: boolean;
+  objDiff?: boolean;
+}): JSX.Element {
+  const predLabel = statement.predicate?.label?.trim() ?? "";
+  const predUri = statement.predicate?.uri ?? null;
+  const objLabel = statement.object?.label?.trim() ?? "";
+  const objUri = statement.object?.uri ?? null;
+  return (
+    <>
+      <span className="flex items-baseline gap-x-1 min-w-0">
+        <span className="text-slate-400 dark:text-slate-500">-</span>
+        {predLabel ? (
+          <span className={predClassName(predDiff)} title={predUri || undefined}>
+            {predLabel}
+          </span>
+        ) : null}
+      </span>
+      <span className="flex items-baseline gap-x-1 min-w-0">
+        <span className="text-slate-400 dark:text-slate-500">-</span>
+        {objLabel
+          ? termRenderer({
+              label: objLabel,
+              uri: objUri,
+              provenance: objUri ? undefined : _statementProvenance(statement),
+              diff: objDiff,
+            })
+          : null}
+      </span>
+    </>
+  );
+}
+
 function ExtraStatementLine({
   statement,
   termRenderer,
@@ -426,9 +481,7 @@ function ExtraStatementLine({
   const predUri = statement.predicate?.uri ?? null;
   const objLabel = statement.object?.label?.trim() ?? "";
   const objUri = statement.object?.uri ?? null;
-  const predCls = predDiff
-    ? "text-[10px] text-amber-800 dark:text-amber-200 font-mono rounded ring-1 ring-amber-400/70 dark:ring-amber-500/60 bg-amber-50/80 dark:bg-amber-900/30 px-1"
-    : "text-[10px] text-slate-500 dark:text-slate-200 font-mono";
+  const predCls = predClassName(predDiff);
   return (
     <div className="flex items-baseline gap-x-1.5 text-[11px]">
       {subjLabel
