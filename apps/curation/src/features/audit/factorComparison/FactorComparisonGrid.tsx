@@ -83,6 +83,12 @@ export interface FactorComparisonPair {
    *  umbrella side carries a single N that applies to all child
    *  rows — the mid cell rowspans alongside it. */
   midRowSpan?: number;
+  /** Optional explicit mid-cell content. Overrides the per-pair
+   *  ``midCellRender`` computation — used for a CLUSTER summary on a
+   *  split umbrella row, where the count must reflect the whole group
+   *  (gold total ↔ summed agent total), not just the umbrella's own
+   *  paired FV. Default (omitted) → compute from this pair's FVs. */
+  midOverride?: { text: string; cls: string; title: string };
 }
 
 export interface FactorComparisonHeaderSide {
@@ -402,6 +408,21 @@ function PairGridBody({
     fvIndex: number,
   ) => ReactNode;
 }): JSX.Element {
+  // Rows whose mid (count) cell is covered by an umbrella's midRowSpan
+  // above — they must NOT render their own mid (the cluster shows one
+  // summary spanning the whole split).
+  const midCovered = new Array<boolean>(pairs.length).fill(false);
+  {
+    let mc = 0;
+    pairs.forEach((p, ix) => {
+      if (ix < mc) {
+        midCovered[ix] = true;
+        return;
+      }
+      const ms = Math.max(1, p.midRowSpan ?? 1);
+      if (ms > 1) mc = ix + ms;
+    });
+  }
   return (
     <div
       className="relative grid items-stretch text-[11px]"
@@ -415,26 +436,47 @@ function PairGridBody({
           reads as one self-contained unit instead of running into
           its neighbours. Stronger ring + slightly darker fill per
           Paul 2026-06-16 ("They barely [separate] right now"). */}
-      {pairs.map((_, ix) => (
-        <div
-          key={`backdrop-${ix}`}
-          aria-hidden
-          data-testid="factor-comparison-row-backdrop"
-          style={{
-            gridColumn: "1 / -1",
-            gridRow: ix + 1,
-            zIndex: 0,
-          }}
-          className="rounded bg-slate-200/50 ring-1 ring-slate-300 dark:bg-slate-800/60 dark:ring-slate-600/80"
-        />
-      ))}
+      {(() => {
+        // One backdrop per CLUSTER, not per row. A rowspan cluster
+        // (a 1->N split: umbrella row with leftRowSpan/midRowSpan = N
+        // + N-1 CONTINUATION rows) reads as ONE merged unit instead of
+        // N floating boxes with dangling arrows. Skip rows already
+        // covered by an umbrella's span above. (Paul 2026-06-21: split
+        // FVs should sit together, no floating / arrows-to-nowhere.)
+        const bg: JSX.Element[] = [];
+        let coveredUntil = 0;
+        pairs.forEach((pair, ix) => {
+          if (ix < coveredUntil) return;
+          const span = Math.max(
+            1,
+            pair.leftRowSpan ?? 1,
+            pair.rightRowSpan ?? 1,
+            pair.midRowSpan ?? 1,
+          );
+          bg.push(
+            <div
+              key={`backdrop-${ix}`}
+              aria-hidden
+              data-testid="factor-comparison-row-backdrop"
+              style={{
+                gridColumn: "1 / -1",
+                gridRow: `${ix + 1} / span ${span}`,
+                zIndex: 0,
+              }}
+              className="rounded bg-slate-200/50 ring-1 ring-slate-300 dark:bg-slate-800/60 dark:ring-slate-600/80"
+            />,
+          );
+          coveredUntil = ix + span;
+        });
+        return bg;
+      })()}
       {pairs.map((pair, ix) => {
         const glyph = statusGlyph(pair.status);
         const perFvAction = renderPerFvAction?.(pair, ix) ?? null;
         const leftFv = pair.left === CONTINUATION ? null : pair.left;
         const rightFv = pair.right === CONTINUATION ? null : pair.right;
         const { leftKeys, rightKeys } = computeFvDiff(leftFv, rightFv);
-        const mid = midCellRender(pair);
+        const mid = pair.midOverride ?? midCellRender(pair);
         const leftSpan = Math.max(1, pair.leftRowSpan ?? 1);
         const rightSpan = Math.max(1, pair.rightRowSpan ?? 1);
         const midSpan = Math.max(1, pair.midRowSpan ?? 1);
@@ -444,7 +486,8 @@ function PairGridBody({
         // continuations (umbrella above covers the entire row's
         // semantic).
         const renderMid =
-          pair.left !== CONTINUATION || pair.right !== CONTINUATION;
+          (pair.left !== CONTINUATION || pair.right !== CONTINUATION) &&
+          !midCovered[ix];
         return (
           <div key={`pair-${ix}`} className="contents">
             {renderLeft ? (

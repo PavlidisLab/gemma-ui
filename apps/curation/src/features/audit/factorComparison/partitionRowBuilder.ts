@@ -93,8 +93,35 @@ export function buildPartitionMismatchPairs(args: {
   const umbrellaIsGold = direction === "agent_finer";
   const groups = groupByUmbrella(fvPairs, umbrellaIsGold);
   const rows: FactorComparisonPair[] = [];
+  const bmCount = (arr?: string[] | null): number => (arr ?? []).length;
   for (const g of groups) {
     const span = g.pairs.length;
+    // Cluster (split) totals: the umbrella side is one FV (same across
+    // the group); the child side is the sum across the group. The mid
+    // cell shows ONE summary for the whole split (umbrellaTotal ↔
+    // childTotal) — e.g. gold "reference substance role" 60 ↔ agent
+    // "spontaneous sleep" 48 + "baseline" 12 = 60. Emerald when the
+    // totals agree (a clean split), amber otherwise.
+    const goldTotal = umbrellaIsGold
+      ? bmCount(g.pairs[0].gold_biomaterial_short_names)
+      : g.pairs.reduce((s, p) => s + bmCount(p.gold_biomaterial_short_names), 0);
+    const agentTotal = umbrellaIsGold
+      ? g.pairs.reduce((s, p) => s + bmCount(p.agent_biomaterial_short_names), 0)
+      : bmCount(g.pairs[0].agent_biomaterial_short_names);
+    const totalsKnown = goldTotal > 0 || agentTotal > 0;
+    const equal = goldTotal === agentTotal;
+    const midOverride =
+      span > 1 && totalsKnown
+        ? {
+            text: `${goldTotal} ↔ ${agentTotal}`,
+            cls: equal
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-amber-600 dark:text-amber-400",
+            title: equal
+              ? `${goldTotal} sample(s) each side — split totals agree`
+              : `${goldTotal} left vs ${agentTotal} right — split totals differ`,
+          }
+        : undefined;
     for (let i = 0; i < span; i++) {
       const p = g.pairs[i];
       const goldFv = project(
@@ -107,16 +134,19 @@ export function buildPartitionMismatchPairs(args: {
         p.agent_statement,
         p.agent_biomaterial_short_names ?? null,
       );
-      // First row in the group carries the umbrella + its rowspan;
-      // subsequent rows mark the umbrella side as CONTINUATION.
+      // First row in the group carries the umbrella + its rowspan + the
+      // cluster mid summary (midRowSpan = span); subsequent rows mark
+      // the umbrella side as CONTINUATION and let the grid suppress
+      // their own mid (covered by the umbrella's midRowSpan).
       if (umbrellaIsGold) {
         rows.push({
           left: i === 0 ? goldFv : CONTINUATION,
           right: agentFv,
           status: "drift",
-          // Gold (LEFT) is umbrella → rowspan on first row only;
-          // span > 1 means subsequent rows skip the left cell.
           leftRowSpan: i === 0 ? span : 1,
+          ...(i === 0 && span > 1
+            ? { midRowSpan: span, midOverride }
+            : {}),
         });
       } else {
         rows.push({
@@ -124,6 +154,9 @@ export function buildPartitionMismatchPairs(args: {
           right: i === 0 ? agentFv : CONTINUATION,
           status: "drift",
           rightRowSpan: i === 0 ? span : 1,
+          ...(i === 0 && span > 1
+            ? { midRowSpan: span, midOverride }
+            : {}),
         });
       }
     }
