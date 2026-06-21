@@ -26,6 +26,8 @@ export function HelpPopup({
   title,
   source,
   sourceUrl,
+  links,
+  footer,
   children,
   size = "sm",
   align = "left",
@@ -38,6 +40,12 @@ export function HelpPopup({
   source?: string;
   /** Direct link to the Confluence page. */
   sourceUrl?: string;
+  /** Optional click-out anchors rendered above the source line. Each
+   *  opens in a new tab. Used by ``RuleCite`` to surface a precise
+   *  rule's wiki links; existing snippet callers pass nothing. */
+  links?: { title: string; url: string }[];
+  /** Optional extra footer content (e.g. a "more →" topic link). */
+  footer?: ReactNode;
   /** Body content — usually a few short lines / a list. */
   children: ReactNode;
   /** Popover width. */
@@ -146,6 +154,27 @@ export function HelpPopup({
             <div className="px-3 py-2 space-y-1.5 max-h-96 overflow-auto">
               {children}
             </div>
+            {links?.length ? (
+              <div className="px-3 py-1.5 border-t border-slate-100 space-y-0.5 dark:border-slate-700">
+                {links.map((l, i) => (
+                  <div key={i}>
+                    <a
+                      href={l.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sky-700 hover:underline dark:text-sky-400"
+                    >
+                      {l.title} ↗
+                    </a>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {footer ? (
+              <div className="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                {footer}
+              </div>
+            ) : null}
             {source ? (
               <div className="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
                 Source:{" "}

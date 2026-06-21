@@ -258,7 +258,7 @@ export function SectionedJudgeChain({
       {hasInternal ? (
         <WhySection
           label="Internal review"
-          sublabel="proposer-side defence (judge / boss)"
+          sublabel="proposer's reasoning (judge / boss)"
           tone="blue"
         >
           <DefenderTile verdict={defender} />
