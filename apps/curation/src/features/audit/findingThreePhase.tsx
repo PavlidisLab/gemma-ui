@@ -55,6 +55,7 @@ import type {
   WhyBlock,
 } from "@/api/auditTypes";
 import { FindingEvidenceBlock } from "./agentDetailsPanel";
+import { RuleCite } from "./RuleCite";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 
 // ---------------------------------------------------------------------------
@@ -113,12 +114,16 @@ export function deriveReviews(
  *  scan); ``detail`` reveals on expand. */
 function PhaseSection({
   header,
+  headerAccessory,
   brief,
   detail,
   defaultOpen = false,
   alwaysShowHeader = true,
 }: {
   header: string;
+  /** Small affordance rendered immediately after the header label
+   *  (e.g. a ``<RuleCite/>`` ``?`` next to "Why proposed"). */
+  headerAccessory?: ReactNode;
   brief: ReactNode | null;
   detail: ReactNode | null;
   defaultOpen?: boolean;
@@ -137,6 +142,9 @@ function PhaseSection({
         <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 shrink-0">
           {header}
         </span>
+        {headerAccessory ? (
+          <span className="shrink-0">{headerAccessory}</span>
+        ) : null}
         {hasBrief ? (
           <div className="flex-1 min-w-0 text-[11px] text-slate-700 dark:text-slate-200">
             {brief}
@@ -167,7 +175,13 @@ function PhaseSection({
 // Phase 1 — Why proposed
 // ---------------------------------------------------------------------------
 
-function WhyPhase({ why }: { why: WhyBlock | null }): JSX.Element | null {
+function WhyPhase({
+  why,
+  finding,
+}: {
+  why: WhyBlock | null;
+  finding: AuditFinding;
+}): JSX.Element | null {
   if (!why) return null;
   const rationale = (why.rationale ?? "").trim();
   const evidence = why.evidence ?? [];
@@ -209,7 +223,12 @@ function WhyPhase({ why }: { why: WhyBlock | null }): JSX.Element | null {
     </div>
   );
   return (
-    <PhaseSection header="Why proposed" brief={brief} detail={null} />
+    <PhaseSection
+      header="Why proposed"
+      headerAccessory={<RuleCite finding={finding} />}
+      brief={brief}
+      detail={null}
+    />
   );
 }
 
@@ -423,7 +442,7 @@ export function ThreePhaseFindingBody({
   const comparison = finding.comparison ?? null;
   return (
     <div className="space-y-1">
-      <WhyPhase why={why} />
+      <WhyPhase why={why} finding={finding} />
       <ReviewsPhase reviews={reviews} />
       <ComparisonJudgePhase comparison={comparison} />
     </div>
