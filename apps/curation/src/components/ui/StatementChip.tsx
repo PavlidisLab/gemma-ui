@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import { Term } from "./Term";
+import { StatementSequence } from "./StatementSequence";
 import type { OntologyTerm } from "@/features/experiment/types";
 
 /**
@@ -94,10 +94,6 @@ export function StatementChip({
     return parts.length ? parts.join("\n") : undefined;
   })();
 
-  const activePairs = (pairs ?? []).filter(
-    (p) => (p.predicate && p.predicate.label) || (p.object && p.object.label),
-  );
-
   const isInteractive = !!onClick;
 
   return (
@@ -126,27 +122,14 @@ export function StatementChip({
         className,
       )}
     >
-      <Term uri={subject.uri ?? null} asLink={false}>
-        {subject.label}
-      </Term>
-      {activePairs.map((pair, i) => (
-        <span key={i} className="inline-flex items-baseline gap-[inherit]">
-          <span className={SEP_CLS}>·</span>
-          {pair.predicate?.label ? (
-            <span className={PRED_CLS} title={pair.predicate.uri ?? undefined}>
-              {pair.predicate.label}
-            </span>
-          ) : null}
-          {pair.object?.label ? (
-            <>
-              <span className={SEP_CLS}>·</span>
-              <Term uri={pair.object.uri ?? null} asLink={false}>
-                {pair.object.label}
-              </Term>
-            </>
-          ) : null}
-        </span>
-      ))}
+      <StatementSequence
+        subject={subject}
+        pairs={pairs}
+        separator="·"
+        separatorClassName={SEP_CLS}
+        predicateClassName={PRED_CLS}
+        asLink={false}
+      />
     </span>
   );
 }
