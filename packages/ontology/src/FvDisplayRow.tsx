@@ -438,8 +438,12 @@ function StatementPredicateObject({
  *  alignment off (Paul 2026-06-21). */
 function predClassName(predDiff: boolean, compact = false): string {
   const sizeCls = compact ? "text-[9px]" : "text-[10px]";
+  // A differing predicate is signalled by amber TEXT only — no box /
+  // ring / background. The boxed treatment read as a different KIND of
+  // chip and was visually noisy next to the plain predicates (Paul
+  // 2026-06-21). Colour alone carries the diff.
   return predDiff
-    ? `${sizeCls} text-amber-800 dark:text-amber-200 font-mono whitespace-nowrap rounded ring-1 ring-amber-400/70 dark:ring-amber-500/60 bg-amber-50/80 dark:bg-amber-900/30 px-1`
+    ? `${sizeCls} text-amber-600 dark:text-amber-400 font-mono whitespace-nowrap`
     : `${sizeCls} text-slate-500 dark:text-slate-200 font-mono whitespace-nowrap`;
 }
 
