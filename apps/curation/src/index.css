@@ -11,6 +11,15 @@
 
 @layer components {
   /*
+    Reasoning text-size classes. Replace the fixed ``text-[10px]`` /
+    ``text-[11px]`` / ``text-[13px]`` on the finding-card reasoning so
+    the curator's ``--reasoning-scale`` (set by the settings gear,
+    default 1) multiplies them together. Paul 2026-06-21.
+  */
+  .rs-10 { font-size: calc(10px * var(--reasoning-scale, 1)); }
+  .rs-11 { font-size: calc(11px * var(--reasoning-scale, 1)); }
+  .rs-13 { font-size: calc(13px * var(--reasoning-scale, 1)); }
+  /*
     Default term = resolved (URI present). Per Paul, 2026-04-28:
     resolved → green, free-text → grey italic. Replaces the old
     blue default. The Term component picks ``free`` automatically

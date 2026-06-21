@@ -234,14 +234,14 @@ function PhaseSection({
   return (
     <section className="leading-snug">
       <div className="flex items-baseline gap-x-2 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+        <span className="rs-10 uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 shrink-0">
           {header}
         </span>
         {headerAccessory ? (
           <span className="shrink-0">{headerAccessory}</span>
         ) : null}
         {hasBrief ? (
-          <div className="flex-1 min-w-0 text-[11px] text-slate-700 dark:text-slate-200">
+          <div className="flex-1 min-w-0 rs-11 text-slate-700 dark:text-slate-200">
             {brief}
           </div>
         ) : null}
@@ -249,7 +249,7 @@ function PhaseSection({
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="text-[10px] text-slate-400 hover:text-slate-700 underline-offset-2 hover:underline dark:text-slate-500 dark:hover:text-slate-200 shrink-0"
+            className="rs-10 text-slate-400 hover:text-slate-700 underline-offset-2 hover:underline dark:text-slate-500 dark:hover:text-slate-200 shrink-0"
             aria-label={open ? `hide ${header} details` : `show ${header} details`}
             title={open ? "hide details" : "show details"}
           >
@@ -258,7 +258,7 @@ function PhaseSection({
         ) : null}
       </div>
       {open && hasDetail ? (
-        <div className="mt-0.5 pl-1 text-[11px] text-slate-700 dark:text-slate-200 space-y-1">
+        <div className="mt-0.5 pl-1 rs-11 text-slate-700 dark:text-slate-200 space-y-1">
           {detail}
         </div>
       ) : null}
@@ -296,7 +296,7 @@ function WhyPhase({
         <FindingEvidenceBlock key={i} evidence={ev} compact />
       ))}
       {citation || citationUrl ? (
-        <div className="text-[10px] text-slate-500 dark:text-slate-400">
+        <div className="rs-10 text-slate-500 dark:text-slate-400">
           §{" "}
           {citationUrl ? (
             <a
@@ -332,7 +332,7 @@ function WhyPhase({
 function GuidelineCiteRow({ finding }: { finding: AuditFinding }): JSX.Element | null {
   if (!guidelineRefForFinding(finding)) return null;
   return (
-    <div className="flex items-baseline gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+    <div className="flex items-baseline gap-1 rs-10 text-slate-500 dark:text-slate-400">
       <span className="uppercase tracking-wide font-semibold shrink-0">
         guideline
       </span>
@@ -406,17 +406,17 @@ function ReviewRow({ review }: { review: ReviewVerdict }): JSX.Element {
   if (isBoss) {
     return (
       <li className="flex items-baseline gap-1.5 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+        <span className="rs-10 uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
           boss
         </span>
         <span className="text-slate-400 dark:text-slate-500">▪</span>
-        <span className="text-[11px] font-medium text-slate-700 dark:text-slate-200">
+        <span className="rs-11 font-medium text-slate-700 dark:text-slate-200">
           review resulted in changes based on feedback
         </span>
         {r ? (
           <>
             <span className="text-slate-400 dark:text-slate-500">▪</span>
-            <span className="text-[11px] italic text-slate-600 dark:text-slate-300">
+            <span className="rs-11 italic text-slate-600 dark:text-slate-300">
               {r}
             </span>
           </>
@@ -426,12 +426,12 @@ function ReviewRow({ review }: { review: ReviewVerdict }): JSX.Element {
   }
   return (
     <li className="flex items-baseline gap-1.5 flex-wrap">
-      <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+      <span className="rs-10 uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
         {reviewerLabel(review.reviewer)}
       </span>
       <span className="text-slate-400 dark:text-slate-500">▪</span>
       {v ? (
-        <span className="text-[11px] font-medium text-slate-700 dark:text-slate-200">
+        <span className="rs-11 font-medium text-slate-700 dark:text-slate-200">
           {v}
         </span>
       ) : null}
@@ -439,7 +439,7 @@ function ReviewRow({ review }: { review: ReviewVerdict }): JSX.Element {
         <span className="text-slate-400 dark:text-slate-500">▪</span>
       ) : null}
       {r ? (
-        <span className="text-[11px] italic text-slate-600 dark:text-slate-300">
+        <span className="rs-11 italic text-slate-600 dark:text-slate-300">
           {r}
         </span>
       ) : null}
@@ -483,7 +483,7 @@ export function ComparisonPhase({
     <div className="space-y-1.5">
       {chipStrip}
       {hasJudge ? (
-        <div className="text-[11px] text-slate-700 dark:text-slate-200 leading-snug">
+        <div className="rs-11 text-slate-700 dark:text-slate-200 leading-snug">
           {judgeVerdict ? (
             <span className="font-semibold mr-1">
               {verdictLabel(judgeVerdict)}.
@@ -593,7 +593,7 @@ function ComparisonJudgePhase({
     <PhaseSection
       header={`Comparison vs ${label}`}
       brief={
-        <div className="text-[11px] text-slate-700 dark:text-slate-200 leading-snug">
+        <div className="rs-11 text-slate-700 dark:text-slate-200 leading-snug">
           {v ? <span className="font-semibold mr-1">{v}.</span> : null}
           {brief ? (
             <span className="italic text-slate-600 dark:text-slate-300">
@@ -609,7 +609,7 @@ function ComparisonJudgePhase({
       }
       detail={
         brief && r && r !== brief ? (
-          <div className="text-[11px] italic text-slate-600 dark:text-slate-300">
+          <div className="rs-11 italic text-slate-600 dark:text-slate-300">
             {r}
           </div>
         ) : null

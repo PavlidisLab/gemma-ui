@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Settings } from "lucide-react";
 import { useTheme, type ThemePref } from "./useTheme";
+import {
+  useTextScale,
+  SCALE_MIN,
+  SCALE_MAX,
+  SCALE_STEP,
+  SCALE_DEFAULT,
+} from "./useTextScale";
 
 /**
  * Gear icon in the top bar. Opens a small popover with the
@@ -11,6 +18,7 @@ import { useTheme, type ThemePref } from "./useTheme";
 export function SettingsMenu() {
   const [open, setOpen] = useState(false);
   const { pref, setPref } = useTheme();
+  const { scale, setScale } = useTextScale();
   const ref = useRef<HTMLDivElement>(null);
 
   // Click-outside / Esc closes the popover. Standard pattern;
@@ -72,6 +80,48 @@ export function SettingsMenu() {
               hint="follow OS preference"
               onPick={setPref}
             />
+          </div>
+
+          <div className="section-h px-1 pt-2 pb-1">Reasoning text size</div>
+          <div className="flex items-center gap-1.5 px-2 py-1">
+            <button
+              type="button"
+              className="btn ghost px-2 py-0.5 leading-none disabled:opacity-40"
+              onClick={() => setScale(scale - SCALE_STEP)}
+              disabled={scale <= SCALE_MIN}
+              aria-label="smaller reasoning text"
+              title="smaller"
+            >
+              <span className="text-[10px]">A</span>
+              <span className="text-[13px]">A</span>
+            </button>
+            <span className="tabular-nums text-center w-10 text-slate-600 dark:text-slate-300">
+              {scale}%
+            </span>
+            <button
+              type="button"
+              className="btn ghost px-2 py-0.5 leading-none disabled:opacity-40"
+              onClick={() => setScale(scale + SCALE_STEP)}
+              disabled={scale >= SCALE_MAX}
+              aria-label="larger reasoning text"
+              title="larger"
+            >
+              <span className="text-[13px]">A</span>
+              <span className="text-[17px]">A</span>
+            </button>
+            {scale !== SCALE_DEFAULT ? (
+              <button
+                type="button"
+                className="ml-auto text-[10px] text-blue-700 hover:underline dark:text-blue-300"
+                onClick={() => setScale(SCALE_DEFAULT)}
+              >
+                reset
+              </button>
+            ) : null}
+          </div>
+          <div className="px-2 pb-1 text-[10px] text-slate-500 dark:text-slate-400">
+            Scales the finding-card reasoning text (labels, verdicts,
+            rationale).
           </div>
         </div>
       ) : null}

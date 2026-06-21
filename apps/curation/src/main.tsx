@@ -10,6 +10,7 @@ import App from "./App";
 import { ApiError } from "./api/client";
 import { saveStoredSession } from "./api/session";
 import { initTheme } from "./features/settings/useTheme";
+import { initTextScale } from "./features/settings/useTextScale";
 import { GlobalTooltips } from "./components/ui/GlobalTooltips";
 import { GemmaModeProvider } from "./contexts/GemmaModeProvider";
 import "./index.css";
@@ -46,9 +47,10 @@ const queryClient: QueryClient = new QueryClient({
   mutationCache: new MutationCache({ onError: handle401 }),
 });
 
-// Apply the saved theme before React mounts so the first paint
-// already reflects the curator's preference.
+// Apply the saved theme + reasoning text scale before React mounts so
+// the first paint already reflects the curator's preferences.
 initTheme();
+initTextScale();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
