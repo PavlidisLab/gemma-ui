@@ -182,15 +182,43 @@ export function orderCandidatesByTaxon(
 // 2026-06-13: "fallback to OLS: require another click".
 // ---------------------------------------------------------------------------
 
+/** A term reference — a label plus the URI it resolves to. Used for
+ *  parent classes so the popover can navigate into one. ``uri`` is
+ *  null when the source gave a bare label with no identifier. */
+export interface TermRef {
+  uri: string | null;
+  label: string;
+}
+
+/** A synonym with its OBO scope. ``type`` is e.g. ``exact_synonym`` /
+ *  ``related_synonym`` / ``broad_synonym`` / ``narrow_synonym``; empty
+ *  when the source didn't classify it. */
+export interface TermSynonym {
+  value: string;
+  type: string;
+}
+
 /** Minimal term-detail shape consumed by the CuriePopover. Source-
  *  agnostic — Gemma and OLS map to it via the two adapters below. */
 export interface AnnotationTermDetail {
   uri: string;
   label: string;
   definition: string;
-  /** ``rdfs:label`` of each direct parent class. Empty list when the
-   *  source didn't provide hierarchy. */
-  parents: string[];
+  /** Direct parent classes — each carries a URI (when the source
+   *  provides one) so the popover can navigate into it. Empty list
+   *  when the source didn't provide hierarchy. */
+  parents: TermRef[];
+  /** Alternate / synonymous labels for this same concept, with scope.
+   *  Empty when the source didn't ship synonyms (OLS / NCBI paths). */
+  synonyms: TermSynonym[];
+  /** Alternate ontology IDs for this concept — merged / deprecated id
+   *  redirects (CURIE or IRI strings). Each resolves to a term card.
+   *  Empty for most terms. */
+  alternativeIds: string[];
+  /** Ontology release the term was read from (e.g. a MONDO release
+   *  OWL URL). Surfaced discreetly so the curator knows the vintage.
+   *  Null when the source didn't report it. */
+  ontologyVersion: string | null;
   /** Ontology short name (e.g. ``efo``, ``uberon``, ``mondo``) when
    *  the source identifies it. Empty when unknown. */
   ontology: string;
@@ -256,7 +284,9 @@ export function useGemmaTerm(uri: string | null | undefined) {
   });
 }
 
-function parseGemmaTerm(
+/** Exported for unit tests — maps a (post-client-snakeify) Gemma
+ *  ``/annotations/term`` payload into the popover's term-detail shape. */
+export function parseGemmaTerm(
   raw: unknown,
   uri: string,
 ): AnnotationTermDetail | null {
@@ -275,16 +305,71 @@ function parseGemmaTerm(
     (r.definition as string) ??
     (r.description as string) ??
     "";
+  // Gemma 2.0 ships parents as ``{uri, label}`` objects (GemBro
+  // 2026-06-21); older shapes used bare label strings / ``parent_labels``.
+  // Tolerate both so a stale cache or an older server still renders.
   const parentsRaw = (r.parents ?? r.parent_labels ?? []) as unknown[];
-  const parents = Array.isArray(parentsRaw)
+  const parents: TermRef[] = Array.isArray(parentsRaw)
     ? parentsRaw
-        .map((p) =>
+        .map((p): TermRef =>
           typeof p === "string"
-            ? p
-            : (p as { label?: string }).label ?? "",
+            ? { uri: null, label: p }
+            : {
+                uri:
+                  typeof (p as { uri?: unknown }).uri === "string"
+                    ? ((p as { uri: string }).uri)
+                    : null,
+                label:
+                  typeof (p as { label?: unknown }).label === "string"
+                    ? ((p as { label: string }).label)
+                    : "",
+              },
         )
-        .filter((s): s is string => !!s)
+        .filter((p) => !!p.label)
     : [];
+  // Synonyms ship as ``{value, type}`` (GemBro 2026-06-21). Drop the
+  // synonym that just repeats the primary label — it's redundant on the
+  // card. Tolerate a bare-string shape and OLS-style ``{name, scope}``.
+  const synRaw = (r.synonyms ?? []) as unknown[];
+  const synonyms: TermSynonym[] = Array.isArray(synRaw)
+    ? synRaw
+        .map((s): TermSynonym => {
+          if (typeof s === "string") return { value: s, type: "" };
+          const o = s as {
+            value?: unknown;
+            name?: unknown;
+            type?: unknown;
+            scope?: unknown;
+          };
+          const value =
+            typeof o.value === "string"
+              ? o.value
+              : typeof o.name === "string"
+                ? o.name
+                : "";
+          const type =
+            typeof o.type === "string"
+              ? o.type
+              : typeof o.scope === "string"
+                ? o.scope
+                : "";
+          return { value, type };
+        })
+        .filter(
+          (s) =>
+            !!s.value && s.value.trim().toLowerCase() !== label.trim().toLowerCase(),
+        )
+    : [];
+  const altRaw = (r.alternative_ids ?? r.alternativeIds ?? []) as unknown[];
+  const alternativeIds = Array.isArray(altRaw)
+    ? altRaw.filter((x): x is string => typeof x === "string" && !!x)
+    : [];
+  const ontologyVersion =
+    typeof r.ontology_version === "string"
+      ? r.ontology_version
+      : typeof r.ontologyVersion === "string"
+        ? (r.ontologyVersion as string)
+        : null;
   const ontology =
     typeof r.ontology === "string"
       ? r.ontology
@@ -297,6 +382,9 @@ function parseGemmaTerm(
     label,
     definition,
     parents,
+    synonyms,
+    alternativeIds,
+    ontologyVersion,
     ontology,
     source: "gemma",
     canonicalUrl: curieToUrl(uri),
@@ -407,10 +495,18 @@ function parseNcbiGene(
   const description =
     typeof r.description === "string" ? r.description : "";
   const summary = typeof r.summary === "string" ? r.summary : "";
-  const aliases =
-    typeof r.otheraliases === "string" && r.otheraliases.trim()
+  // NCBI ``otheraliases`` is a comma-separated alias list
+  // ("C-K-RAS, CFC2, KRAS2, …"). Surface these as structured synonyms
+  // (rendered under an "aliases" label for genes) instead of burying
+  // them in the definition text. Paul 2026-06-21. Genes have no
+  // ontology synonyms/parents/version — this is the gene analog.
+  const aliasList =
+    typeof r.otheraliases === "string"
       ? r.otheraliases
-      : "";
+          .split(",")
+          .map((a) => a.trim())
+          .filter(Boolean)
+      : [];
   const organismObj =
     r.organism && typeof r.organism === "object"
       ? (r.organism as Record<string, unknown>)
@@ -435,20 +531,27 @@ function parseNcbiGene(
   // half is present.
   const label = [symbol, description].filter(Boolean).join(" — ");
   // Definition prefers NCBI's curated summary; falls back to the
-  // organism + alias list so the popover still says something useful
-  // for genes that don't have a written summary yet.
+  // organism so the popover still says something useful for genes that
+  // don't have a written summary yet. (Aliases used to be appended here
+  // as "Also known as: …"; they now render as a structured aliases line.)
   const defParts: string[] = [];
   if (summary) defParts.push(summary);
   else if (description) defParts.push(description);
   if (organism) defParts.push(`Organism: ${organism}.`);
-  if (aliases) defParts.push(`Also known as: ${aliases}.`);
   const definition = defParts.join(" ");
+  // Drop the primary symbol if it shows up in its own alias list.
+  const synonyms: TermSynonym[] = aliasList
+    .filter((a) => a.toLowerCase() !== symbol.toLowerCase())
+    .map((a) => ({ value: a, type: "alias" }));
   if (!label && !definition) return null;
   return {
     uri,
     label,
     definition,
     parents: [],
+    synonyms,
+    alternativeIds: [],
+    ontologyVersion: null,
     ontology: "NCBI Gene",
     source: "ncbi",
     canonicalUrl: ncbiGeneUrl(geneId),
@@ -487,6 +590,9 @@ function parseOlsTerm(
     label,
     definition,
     parents: [],
+    synonyms: [],
+    alternativeIds: [],
+    ontologyVersion: null,
     ontology,
     source: "ols",
     canonicalUrl: `https://www.ebi.ac.uk/ols4/search?q=${encodeURIComponent(uri)}`,

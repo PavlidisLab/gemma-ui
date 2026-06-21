@@ -140,9 +140,14 @@ export function Term({
       )}
       title={tooltipUri}
     >
-      {labelNode}
+      {/* Label shrinks + ellipsises when the chip is width-constrained so
+          the CURIE (the term's identity) is never the thing clipped.
+          ``min-w-0`` lets the flex item shrink below its content size;
+          ``truncate`` adds the ellipsis. The full label stays in the
+          ``title`` tooltip + the CuriePopover. Paul 2026-06-21. */}
+      <span className="min-w-0 truncate">{labelNode}</span>
       {uri ? (
-        <span className="ml-1">
+        <span className="ml-1 shrink-0">
           <CurieLink uri={uri} title={tooltipUri} />
         </span>
       ) : null}

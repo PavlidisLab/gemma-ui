@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { orderCandidatesByTaxon, type AnnotationCandidate } from "./annotations";
+import {
+  orderCandidatesByTaxon,
+  parseGemmaTerm,
+  type AnnotationCandidate,
+} from "./annotations";
 
 /**
  * Tests for orderCandidatesByTaxon — the in-memory clustering that keeps
@@ -89,5 +93,72 @@ describe("orderCandidatesByTaxon", () => {
     const input = [term("liver", 100), term("brain", 50), term("lung", 10)];
     const out = orderCandidatesByTaxon(input);
     expect(out.map((c) => c.label)).toEqual(["liver", "brain", "lung"]);
+  });
+});
+
+describe("parseGemmaTerm", () => {
+  const URI = "http://purl.obolibrary.org/obo/MONDO_0002679";
+  // Post-client-snakeify shape of GemBro's /annotations/term response
+  // (camelCase ``ontologyVersion`` / ``alternativeIds`` arrive as
+  // snake_case). Wrapped in ``{data}`` to also exercise the envelope.
+  const wire = {
+    data: {
+      uri: URI,
+      label: "cerebral infarction",
+      definition: "An ischemic condition of the brain.",
+      obsolete: false,
+      usage_count: 4,
+      parents: [
+        { uri: "http://purl.obolibrary.org/obo/MONDO_1060198", label: "ischemic stroke" },
+        { uri: "http://purl.obolibrary.org/obo/MONDO_0005394", label: "brain infarction" },
+      ],
+      synonyms: [
+        { value: "cerebral ischemia", type: "exact_synonym" },
+        { value: "cerebral infarct", type: "exact_synonym" },
+        // The primary label repeated as a synonym — should be dropped.
+        { value: "cerebral infarction", type: "exact_synonym" },
+      ],
+      alternative_ids: ["DOID:3526"],
+      ontology_version:
+        "http://purl.obolibrary.org/obo/mondo/releases/2026-06-02/mondo.owl",
+    },
+  };
+
+  it("maps parents to {uri,label} refs so they can be navigated", () => {
+    const d = parseGemmaTerm(wire, URI)!;
+    expect(d.parents).toEqual([
+      { uri: "http://purl.obolibrary.org/obo/MONDO_1060198", label: "ischemic stroke" },
+      { uri: "http://purl.obolibrary.org/obo/MONDO_0005394", label: "brain infarction" },
+    ]);
+  });
+
+  it("keeps synonyms with scope but drops the one repeating the label", () => {
+    const d = parseGemmaTerm(wire, URI)!;
+    expect(d.synonyms).toEqual([
+      { value: "cerebral ischemia", type: "exact_synonym" },
+      { value: "cerebral infarct", type: "exact_synonym" },
+    ]);
+  });
+
+  it("surfaces alternativeIds and ontologyVersion", () => {
+    const d = parseGemmaTerm(wire, URI)!;
+    expect(d.alternativeIds).toEqual(["DOID:3526"]);
+    expect(d.ontologyVersion).toBe(
+      "http://purl.obolibrary.org/obo/mondo/releases/2026-06-02/mondo.owl",
+    );
+  });
+
+  it("tolerates legacy bare-string parents + absent synonyms/version", () => {
+    const d = parseGemmaTerm(
+      { uri: URI, label: "x", definition: "d", parents: ["alpha", "beta"] },
+      URI,
+    )!;
+    expect(d.parents).toEqual([
+      { uri: null, label: "alpha" },
+      { uri: null, label: "beta" },
+    ]);
+    expect(d.synonyms).toEqual([]);
+    expect(d.alternativeIds).toEqual([]);
+    expect(d.ontologyVersion).toBeNull();
   });
 });

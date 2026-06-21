@@ -34,7 +34,11 @@ interface StoredEntry {
   data: AnnotationTermDetail;
 }
 
-const KEY_PREFIX = "gemma.termCache.v1";
+// v2 (2026-06-21): term-detail shape grew ``parents: TermRef[]`` (was
+// ``string[]``), plus ``synonyms`` / ``alternativeIds`` /
+// ``ontologyVersion``. Bumping the prefix retires v1 entries so a
+// stale ``parents: string[]`` record can't reach the new render.
+const KEY_PREFIX = "gemma.termCache.v2";
 
 function storageKey(source: TermSource, uri: string): string {
   return `${KEY_PREFIX}:${source}:${uri}`;

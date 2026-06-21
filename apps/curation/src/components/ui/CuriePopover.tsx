@@ -32,15 +32,39 @@ export interface CuriePopoverProps {
 }
 
 export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
+  // In-card navigation: clicking a parent / alternate-id term walks the
+  // popover to that term instead of stacking a second card (Paul
+  // 2026-06-21 — "opens another card … might get confusing"; an in-place
+  // trail with a back arrow keeps it to one card). The trail is the
+  // breadcrumb of URIs visited from the chip the curator clicked; the
+  // last entry is the term currently shown.
+  const [trail, setTrail] = useState<string[]>([uri]);
+  const [olsRequested, setOlsRequested] = useState(false);
+  // Reset when the anchoring chip changes (the popover is reused across
+  // chips). Drop back to a single-entry trail + clear the OLS request.
+  useEffect(() => {
+    setTrail([uri]);
+    setOlsRequested(false);
+  }, [uri]);
+  const activeUri = trail[trail.length - 1] ?? uri;
+  const navigateTo = (next: string) => {
+    if (!next || next === activeUri) return;
+    setTrail((t) => [...t, next]);
+    setOlsRequested(false);
+  };
+  const goBack = () => {
+    setTrail((t) => (t.length > 1 ? t.slice(0, -1) : t));
+    setOlsRequested(false);
+  };
+
   // NCBI gene URIs bypass Gemma + OLS entirely — they're not in OLS,
   // and Gemma's term endpoint returns nothing for them today. Hit
   // E-utilities directly so the curator sees gene symbol +
   // description + organism the first time the popover opens.
-  const isNcbiGene = !!ncbiGeneIdFromUri(uri);
-  const [olsRequested, setOlsRequested] = useState(false);
-  const gemma = useGemmaTerm(isNcbiGene ? null : uri);
-  const ols = useOlsTerm(isNcbiGene ? null : uri, olsRequested);
-  const ncbi = useNcbiGene(isNcbiGene ? uri : null);
+  const isNcbiGene = !!ncbiGeneIdFromUri(activeUri);
+  const gemma = useGemmaTerm(isNcbiGene ? null : activeUri);
+  const ols = useOlsTerm(isNcbiGene ? null : activeUri, olsRequested);
+  const ncbi = useNcbiGene(isNcbiGene ? activeUri : null);
 
   const gemmaDone = !gemma.isLoading;
   const gemmaHit = !!gemma.data;
@@ -111,7 +135,7 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
     <div
       ref={popoverRef}
       role="dialog"
-      aria-label={`Ontology term ${shortenUri(uri)}`}
+      aria-label={`Ontology term ${shortenUri(activeUri)}`}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       className="fixed z-50 rounded-md border border-slate-300 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800 max-w-sm min-w-[18rem] text-[11px]"
@@ -119,8 +143,22 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
     >
       <div className="px-3 py-2 space-y-1.5">
         <div className="flex items-baseline gap-2 flex-wrap">
+          {trail.length > 1 ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                goBack();
+              }}
+              className="text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 -ml-0.5"
+              aria-label="Back to previous term"
+              title="Back"
+            >
+              ←
+            </button>
+          ) : null}
           <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
-            {shortenUri(uri)}
+            {shortenUri(activeUri)}
           </span>
           {detail?.ontology ? (
             <span className="text-[9px] uppercase tracking-wide text-slate-400">
@@ -143,16 +181,16 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
         {primaryLoading ? (
           <Loading source={isNcbiGene ? "ncbi" : undefined} />
         ) : detail ? (
-          <Body detail={detail} />
+          <Body detail={detail} onNavigate={navigateTo} />
         ) : showOlsCta ? (
           <NotInGemmaCta
-            uri={uri}
+            uri={activeUri}
             onFetchOls={() => setOlsRequested(true)}
           />
         ) : ols.isLoading ? (
           <Loading source="ols" />
         ) : (
-          <NotFound uri={uri} />
+          <NotFound uri={activeUri} />
         )}
       </div>
     </div>,
@@ -174,8 +212,11 @@ function Loading({ source }: { source?: "ols" | "ncbi" }) {
 
 function Body({
   detail,
+  onNavigate,
 }: {
   detail: NonNullable<ReturnType<typeof useGemmaTerm>["data"]>;
+  /** Walk the popover to another term (parent / alternate id). */
+  onNavigate: (uri: string) => void;
 }) {
   return (
     <>
@@ -191,6 +232,29 @@ function Body({
               · NCBI Taxon {detail.taxonId}
             </span>
           ) : null}
+        </div>
+      ) : null}
+      {detail.synonyms.length > 0 ? (
+        // Aliases / synonyms sit directly under the label (Paul
+        // 2026-06-21) — they're identity info ("cerebral ischemia" tells
+        // the curator the chip's label IS this term), so they belong
+        // above the definition. Text, not links: a synonym is an
+        // alternate label of THIS term, there's no other term to open.
+        // Scope rides in the hover title; the primary label/symbol is
+        // filtered out upstream.
+        <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+          <span className="font-semibold">
+            {detail.source === "ncbi" ? "aliases: " : "synonyms: "}
+          </span>
+          {detail.synonyms.map((s, i) => (
+            <span
+              key={`${s.value}-${i}`}
+              title={s.type ? s.type.replace(/_/g, " ") : undefined}
+            >
+              {i > 0 ? ", " : ""}
+              {s.value}
+            </span>
+          ))}
         </div>
       ) : null}
       {detail.definition ? (
@@ -212,19 +276,62 @@ function Body({
         </div>
       )}
       {detail.parents.length > 0 ? (
-        <div className="text-[10px] text-slate-500 dark:text-slate-400">
+        <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
           <span className="font-semibold">parents: </span>
-          {detail.parents.join(", ")}
+          {detail.parents.map((p, i) => (
+            <span key={`${p.uri ?? p.label}-${i}`}>
+              {i > 0 ? ", " : ""}
+              {p.uri ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNavigate(p.uri!);
+                  }}
+                  className="text-blue-700 hover:underline dark:text-blue-300"
+                  title={`open ${shortenUri(p.uri)}`}
+                >
+                  {p.label}
+                </button>
+              ) : (
+                p.label
+              )}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {detail.alternativeIds.length > 0 ? (
+        <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+          <span className="font-semibold">also: </span>
+          {detail.alternativeIds.map((a, i) => (
+            <span key={a}>
+              {i > 0 ? ", " : ""}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigate(a);
+                }}
+                className="font-mono text-blue-700 hover:underline dark:text-blue-300"
+                title={`open ${a}`}
+              >
+                {shortenUri(a)}
+              </button>
+            </span>
+          ))}
         </div>
       ) : null}
       <div className="flex items-baseline gap-2 pt-1 border-t border-slate-200 dark:border-slate-700 mt-1">
         <span
           className={
+            // No ``uppercase`` — "Gemma" is a name, not an acronym, and
+            // shouting it (Paul 2026-06-21) read wrong. "OLS" / "NCBI"
+            // are already capitalised in the literal.
             detail.source === "ols"
-              ? "text-[9px] uppercase tracking-wide text-indigo-700 dark:text-indigo-300"
+              ? "text-[9px] tracking-wide text-indigo-700 dark:text-indigo-300"
               : detail.source === "ncbi"
-                ? "text-[9px] uppercase tracking-wide text-amber-700 dark:text-amber-300"
-                : "text-[9px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+                ? "text-[9px] tracking-wide text-amber-700 dark:text-amber-300"
+                : "text-[9px] tracking-wide text-emerald-700 dark:text-emerald-300"
           }
         >
           {detail.source === "ols"
@@ -233,6 +340,18 @@ function Body({
               ? "from NCBI"
               : "from Gemma"}
         </span>
+        {detail.ontologyVersion ? (
+          // Discreet ontology-release vintage (Paul 2026-06-21). Prefixed
+          // with the ontology name from the term's CURIE so a bare
+          // ``3.91.0`` reads as ``EFO 3.91.0`` — not an app version. The
+          // raw value rides in the hover title.
+          <span
+            className="text-[9px] text-slate-400 dark:text-slate-500 truncate max-w-[10rem]"
+            title={detail.ontologyVersion}
+          >
+            {formatOntologyVersion(detail.uri, detail.ontologyVersion)}
+          </span>
+        ) : null}
         {detail.canonicalUrl ? (
           <a
             href={detail.canonicalUrl}
@@ -303,6 +422,28 @@ function NotFound({ uri }: { uri: string }) {
       </a>
     </div>
   );
+}
+
+/** Compact, labelled display for an ontology-version string.
+ *
+ *  The value is wildly inconsistent across ontologies: EFO ships a bare
+ *  semver (``3.91.0``), MONDO a full release IRI
+ *  (``http://…/mondo/releases/2026-06-02/mondo.owl``), UBERON a date
+ *  (``2026-04-01``). A bare ``3.91.0`` with no ontology name reads like
+ *  an app version (Paul 2026-06-21), so prefix with the ontology name
+ *  taken from the term's CURIE → ``EFO 3.91.0`` / ``MONDO 2026-06-02``.
+ *  Release IRIs collapse to their embedded date (else file basename). */
+function formatOntologyVersion(uri: string, version: string): string {
+  let v = version.trim();
+  if (/^https?:\/\//.test(v)) {
+    v = v.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? (v.split("/").filter(Boolean).pop() || v);
+  }
+  // Ontology prefix from the CURIE (``EFO:0005168`` → ``EFO``); skip
+  // when the URI doesn't shorten to a clean ``PREFIX:id`` shape.
+  const curie = shortenUri(uri);
+  const prefix =
+    curie.includes(":") && !curie.includes("/") ? curie.split(":")[0] : "";
+  return prefix ? `${prefix} ${v}` : v;
 }
 
 /** Whitelist-based HTML sanitiser for ontology definitions.
