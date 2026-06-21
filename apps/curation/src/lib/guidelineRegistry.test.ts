@@ -3,6 +3,7 @@ import {
   guidelineRefForFinding,
   guidelineRefByKey,
 } from "./guidelineRegistry";
+import registry from "./guidelineRegistry.json";
 
 describe("guidelineRefForFinding — resolver precedence", () => {
   it("prefers citation over issue_code when citation is a registry key", () => {
@@ -52,12 +53,19 @@ describe("guidelineRefForFinding — resolver precedence", () => {
   });
 });
 
-describe("guidelineRefByKey — link tolerance", () => {
-  it("resolves an entry without a links field (links absent)", () => {
-    const ref = guidelineRefByKey("calibration_gold_only_miss");
-    expect(ref).not.toBeNull();
-    // Most entries don't carry links — must tolerate absence.
-    expect(ref?.links).toBeUndefined();
+describe("guidelineRefByKey — links", () => {
+  it("resolves every registry entry, each carrying at least one source link", () => {
+    // ``links`` is an optional field on the type (the resolver tolerates
+    // its absence), but every entry was backfilled with curation-wiki
+    // links — Paul 2026-06-21 ("backfill all the D rules with links").
+    // This invariant guards against an un-linked entry slipping in.
+    const keys = Object.keys(registry);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      const ref = guidelineRefByKey(key);
+      expect(ref, key).not.toBeNull();
+      expect(ref?.links?.length ?? 0, key).toBeGreaterThan(0);
+    }
   });
 
   it("surfaces links when the entry carries them (D8)", () => {

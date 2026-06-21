@@ -4,28 +4,40 @@
     "topic": "tags",
     "title": "A tag already captured by a biomaterial characteristic is redundant",
     "snippet": "Tags fill gaps the FactorValues and biomaterial characteristics don't already cover. A tag that just restates a constant BM characteristic the loader already ingests is redundant — don't add it.",
-    "doc": "09_experiment_tags.md § When tags are needed"
+    "doc": "09_experiment_tags.md § When tags are needed",
+    "links": [
+      { "title": "Curate the Experimental Tags", "url": "https://wiki.pavlab.msl.ubc.ca/pages/viewpage.action?pageId=44434048" }
+    ]
   },
   "calibration_agent_extra": {
     "rule_id": "tags.when_needed",
     "topic": "tags",
     "title": "When an experiment tag is needed",
     "snippet": "Emit a tag only when the property holds for EVERY profiled sample and falls in a tag-worthy category. What a study is 'about' or 'relevant to' is never a tagging reason.",
-    "doc": "09_experiment_tags.md § When tags are needed"
+    "doc": "09_experiment_tags.md § When tags are needed",
+    "links": [
+      { "title": "Curate the Experimental Tags", "url": "https://wiki.pavlab.msl.ubc.ca/pages/viewpage.action?pageId=44434048" }
+    ]
   },
   "calibration_tag_match_near": {
     "rule_id": "tags.same_concept_choose_one",
     "topic": "tags",
     "title": "Same concept, two bindings — choose one (a swap, not add+remove)",
     "snippet": "When the agent and the baseline name the SAME concept with different labels or URIs, that's a single relabel/swap — keep one binding — not a disconnected add + remove.",
-    "doc": "calibration tag-match (exact/near) rules"
+    "doc": "calibration tag-match (exact/near) rules",
+    "links": [
+      { "title": "Curate the Experimental Tags", "url": "https://wiki.pavlab.msl.ubc.ca/pages/viewpage.action?pageId=44434048" }
+    ]
   },
   "D8c": {
     "rule_id": "baselines.marker_on_baseline_only",
     "topic": "baselines",
     "title": "Baseline markers belong only on the baseline FV",
     "snippet": "The five canonical baseline tokens (reference substance role, reference subject role, wild type genotype, initial time point, control) belong ONLY on the baseline FV. A non-baseline FV must not carry one — neither as a bare subject nor as '<X> + has role + <token>' on a treatment arm.",
-    "doc": "invariant D8c · design baseline rules"
+    "doc": "invariant D8c · design baseline rules",
+    "links": [
+      { "title": "Curating Baseline Factor Values", "url": "https://wiki.pavlab.msl.ubc.ca/pages/viewpage.action?pageId=76023400" }
+    ]
   },
   "D8": {
     "rule_id": "baselines.factor_needs_baseline",
@@ -45,13 +57,20 @@
     "topic": "checklist",
     "title": "Is this axis an experimental factor (EFC)?",
     "snippet": "A factor must be a real experimental contrast that varies across samples and is in the EFC catalog. Tumour vs adjacent-normal of the same organ is 'disease', not 'organism part' (which distinguishes anatomical sites).",
-    "doc": "04_efc_catalog.md"
+    "doc": "04_efc_catalog.md",
+    "links": [
+      { "title": "Curating Experimental Factor Categories and Factor Values", "url": "https://wiki.pavlab.msl.ubc.ca/pages/viewpage.action?pageId=44433764" }
+    ]
   },
   "calibration_factor_gold_only_miss": {
     "rule_id": "factors.missing_axis",
     "topic": "checklist",
     "title": "A varying, DEA-relevant axis should be a factor",
     "snippet": "If an axis varies across samples and matters for the analysis, it should be an EFC. Block / batch / assay / platform are populated by the loader, not proposed by the agent.",
-    "doc": "04_efc_catalog.md · EFC priority"
+    "doc": "04_efc_catalog.md · EFC priority",
+    "links": [
+      { "title": "The Importance of a Complete Design", "url": "https://wiki.pavlab.msl.ubc.ca/pages/viewpage.action?pageId=76023355" },
+      { "title": "Curating Experimental Factor Categories and Factor Values", "url": "https://wiki.pavlab.msl.ubc.ca/pages/viewpage.action?pageId=44433764" }
+    ]
   }
 }
