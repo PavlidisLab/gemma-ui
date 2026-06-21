@@ -78,6 +78,13 @@ export type FvTermRenderer = (props: {
    *  ``diffChips`` is supplied; renderers that don't care about
    *  comparison can ignore it. Default ``false``. */
   diff?: boolean;
+  /** Chip scale. ``FvDisplayRow`` passes ``"sm"`` for every chip when
+   *  the row is rendered with ``compact`` set (the side-by-side
+   *  factor comparison wants the whole statement a notch smaller).
+   *  Renderers that don't support sizing can ignore it; the curation
+   *  ``Term`` renderer threads it to ``Term``'s ``size`` prop.
+   *  Default (``undefined``) renders at the normal size. */
+  size?: "default" | "sm";
 }) => JSX.Element;
 
 export interface FvDisplayRowProps {
@@ -108,6 +115,14 @@ export interface FvDisplayRowProps {
    *  each side is visual noise. Per Paul 2026-06-15: "the number of
    *  samples should be shown ONCE and in the MIDDLE". */
   suppressSampleCount?: boolean;
+  /** Render the whole row one notch smaller — passes ``size: "sm"``
+   *  to every term render, uses a smaller predicate text size, and
+   *  shrinks the FV-name caption + root text a step. Used only by the
+   *  side-by-side factor comparison grid (Paul 2026-06-21: "the text
+   *  smaller for the whole thing"). Default ``false`` keeps the
+   *  existing render byte-for-byte — the browser app and all other
+   *  callers are unaffected. */
+  compact?: boolean;
 }
 
 export function FvDisplayRow({
@@ -119,6 +134,7 @@ export function FvDisplayRow({
   className,
   diffChips,
   suppressSampleCount = false,
+  compact = false,
 }: FvDisplayRowProps): JSX.Element {
   const statements = fv.statements ?? [];
   const head = statements[0] ?? null;
@@ -164,7 +180,7 @@ export function FvDisplayRow({
   }
   const n = fv.biomaterial_short_names?.length ?? 0;
   return (
-    <div className={cx("text-[11px]", className)}>
+    <div className={cx(compact ? "text-[10px]" : "text-[11px]", className)}>
       {/* Optional FV-name caption — rendered ABOVE the chip row so
           the statement chips line up cleanly across LEFT/RIGHT
           panes in side-by-side comparator surfaces regardless of
@@ -190,7 +206,10 @@ export function FvDisplayRow({
             <span aria-hidden className="w-10 shrink-0" />
           ) : null}
           <span
-            className="text-[11px] italic text-slate-700 dark:text-slate-200 font-medium leading-snug"
+            className={cx(
+              compact ? "text-[10px]" : "text-[11px]",
+              "italic text-slate-700 dark:text-slate-200 font-medium leading-snug",
+            )}
             title="Factor value name"
           >
             {fvName}
@@ -218,6 +237,7 @@ export function FvDisplayRow({
             // CURIE link-out, no tooltip enrichment needed.
             provenance: subjUri ? undefined : _statementProvenance(head),
             diff: isDiff(0, "subject"),
+            size: compact ? "sm" : undefined,
           })
         ) : !fvName ? (
           // Only show the "(blank)" placeholder when the WHOLE row
@@ -255,6 +275,7 @@ export function FvDisplayRow({
                   termRenderer={termRenderer}
                   predDiff={isDiff(oi, "predicate")}
                   objDiff={isDiff(oi, "object")}
+                  compact={compact}
                 />
               ),
             )}
@@ -269,6 +290,7 @@ export function FvDisplayRow({
             inline
             predDiff={isDiff(0, "predicate")}
             objDiff={isDiff(0, "object")}
+            compact={compact}
           />
         ) : null}
         {fv.is_baseline ? (
@@ -323,6 +345,7 @@ export function FvDisplayRow({
                 subjDiff={isDiff(originalIndex, "subject")}
                 predDiff={isDiff(originalIndex, "predicate")}
                 objDiff={isDiff(originalIndex, "object")}
+                compact={compact}
               />
             </div>
           ))}
@@ -354,12 +377,14 @@ function StatementPredicateObject({
   inline = false,
   predDiff = false,
   objDiff = false,
+  compact = false,
 }: {
   statement: FvDisplayStatement;
   termRenderer: FvTermRenderer;
   inline?: boolean;
   predDiff?: boolean;
   objDiff?: boolean;
+  compact?: boolean;
 }): JSX.Element | null {
   const predLabel = statement.predicate?.label?.trim() ?? "";
   const predUri = statement.predicate?.uri ?? null;
@@ -371,7 +396,7 @@ function StatementPredicateObject({
   // see the diff against the same-position predicate on the other
   // side. The chip helper below handles the resolved-/free-text
   // subject + object slots via the term renderer.
-  const predCls = predClassName(predDiff);
+  const predCls = predClassName(predDiff, compact);
   const content = (
     <>
       {predLabel ? (
@@ -393,6 +418,7 @@ function StatementPredicateObject({
             uri: objUri,
             provenance: objUri ? undefined : _statementProvenance(statement),
             diff: objDiff,
+            size: compact ? "sm" : undefined,
           })}
         </>
       ) : null}
@@ -410,10 +436,11 @@ function StatementPredicateObject({
  *  predicate ("located in") on one line — without it the predicate
  *  wrapped inside its (diff) box and threw the stacked-statement
  *  alignment off (Paul 2026-06-21). */
-function predClassName(predDiff: boolean): string {
+function predClassName(predDiff: boolean, compact = false): string {
+  const sizeCls = compact ? "text-[9px]" : "text-[10px]";
   return predDiff
-    ? "text-[10px] text-amber-800 dark:text-amber-200 font-mono whitespace-nowrap rounded ring-1 ring-amber-400/70 dark:ring-amber-500/60 bg-amber-50/80 dark:bg-amber-900/30 px-1"
-    : "text-[10px] text-slate-500 dark:text-slate-200 font-mono whitespace-nowrap";
+    ? `${sizeCls} text-amber-800 dark:text-amber-200 font-mono whitespace-nowrap rounded ring-1 ring-amber-400/70 dark:ring-amber-500/60 bg-amber-50/80 dark:bg-amber-900/30 px-1`
+    : `${sizeCls} text-slate-500 dark:text-slate-200 font-mono whitespace-nowrap`;
 }
 
 /** A statement's predicate + object rendered as TWO grid cells (a
@@ -427,11 +454,13 @@ function StatementPredObjCells({
   termRenderer,
   predDiff = false,
   objDiff = false,
+  compact = false,
 }: {
   statement: FvDisplayStatement;
   termRenderer: FvTermRenderer;
   predDiff?: boolean;
   objDiff?: boolean;
+  compact?: boolean;
 }): JSX.Element {
   const predLabel = statement.predicate?.label?.trim() ?? "";
   const predUri = statement.predicate?.uri ?? null;
@@ -442,7 +471,7 @@ function StatementPredObjCells({
       <span className="flex items-baseline gap-x-1 min-w-0">
         <span className="text-slate-400 dark:text-slate-500">-</span>
         {predLabel ? (
-          <span className={predClassName(predDiff)} title={predUri || undefined}>
+          <span className={predClassName(predDiff, compact)} title={predUri || undefined}>
             {predLabel}
           </span>
         ) : null}
@@ -455,6 +484,7 @@ function StatementPredObjCells({
               uri: objUri,
               provenance: objUri ? undefined : _statementProvenance(statement),
               diff: objDiff,
+              size: compact ? "sm" : undefined,
             })
           : null}
       </span>
@@ -468,12 +498,14 @@ function ExtraStatementLine({
   subjDiff = false,
   predDiff = false,
   objDiff = false,
+  compact = false,
 }: {
   statement: FvDisplayStatement;
   termRenderer: FvTermRenderer;
   subjDiff?: boolean;
   predDiff?: boolean;
   objDiff?: boolean;
+  compact?: boolean;
 }): JSX.Element {
   const subjLabel = statement.subject?.label?.trim() ?? "";
   const subjUri = statement.subject?.uri ?? null;
@@ -481,9 +513,9 @@ function ExtraStatementLine({
   const predUri = statement.predicate?.uri ?? null;
   const objLabel = statement.object?.label?.trim() ?? "";
   const objUri = statement.object?.uri ?? null;
-  const predCls = predClassName(predDiff);
+  const predCls = predClassName(predDiff, compact);
   return (
-    <div className="flex items-baseline gap-x-1.5 text-[11px]">
+    <div className={cx("flex items-baseline gap-x-1.5", compact ? "text-[10px]" : "text-[11px]")}>
       {subjLabel
         ? termRenderer({
             label: subjLabel,
@@ -492,6 +524,7 @@ function ExtraStatementLine({
               ? undefined
               : _statementProvenance(statement),
             diff: subjDiff,
+            size: compact ? "sm" : undefined,
           })
         : null}
       {predLabel ? (
@@ -513,6 +546,7 @@ function ExtraStatementLine({
             uri: objUri,
             provenance: objUri ? undefined : _statementProvenance(statement),
             diff: objDiff,
+            size: compact ? "sm" : undefined,
           })}
         </>
       ) : null}

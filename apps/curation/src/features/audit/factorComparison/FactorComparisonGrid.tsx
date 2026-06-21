@@ -224,6 +224,12 @@ function FvCell({
       termRenderer={termRenderer}
       diffChips={diffChips}
       suppressSampleCount
+      // Side-by-side factor comparison — render the whole statement a
+      // notch smaller so the two columns fit more comfortably. Paul
+      // 2026-06-21: "the text smaller for the whole thing." Only the
+      // comparison grid is compact; other FvDisplayRow callers stay
+      // at the default size.
+      compact
     />
   );
 }

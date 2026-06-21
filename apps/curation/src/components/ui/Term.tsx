@@ -49,11 +49,19 @@ export function Term({
   provenance,
   diff = false,
   title,
+  size = "default",
 }: {
   children: ReactNode;
   uri?: string | null;
   variant?: TermVariant;
   className?: string;
+  /** Chip scale. ``"sm"`` shrinks the text + padding one notch (via
+   *  the ``.term.sm`` modifier for framed variants, ``text-[10px]``
+   *  for the bare variant). Used by the side-by-side factor
+   *  comparison so the whole statement reads smaller; reusable size
+   *  knob for the TagBar / StatementChip later. Omitting it is
+   *  byte-for-byte the existing render. Paul 2026-06-21. */
+  size?: "default" | "sm";
   /** Override the chip's hover tooltip. When omitted, the tooltip is
    *  the URI (resolved) / provenance (free-text). Callers that
    *  abbreviate the visible label (e.g. the TagBar) pass the full
@@ -159,11 +167,15 @@ export function Term({
         // only the flex + truncation scaffold so the label/CURIE split
         // and ellipsis still work. Otherwise the full ``.term`` chip.
         isBare
-          ? "inline-flex items-baseline gap-1 max-w-full overflow-hidden align-bottom"
+          ? cn(
+              "inline-flex items-baseline gap-1 max-w-full overflow-hidden align-bottom",
+              size === "sm" && "text-[10px]",
+            )
           : cn(
               "term",
               effectiveVariant !== "default" && effectiveVariant,
               diff && "diff",
+              size === "sm" && "sm",
             ),
         className,
       )}
@@ -211,6 +223,7 @@ export const termRenderer: FvTermRenderer = ({
   variant,
   provenance,
   diff,
+  size,
 }) => (
   <Term
     uri={uri}
@@ -218,6 +231,7 @@ export const termRenderer: FvTermRenderer = ({
     asLink={false}
     provenance={provenance}
     diff={diff}
+    size={size}
   >
     {label}
   </Term>
