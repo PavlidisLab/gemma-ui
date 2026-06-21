@@ -301,24 +301,28 @@ function Body({
         </div>
       ) : null}
       {detail.alternativeIds.length > 0 ? (
-        <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
-          <span className="font-semibold">also: </span>
-          {detail.alternativeIds.map((a, i) => (
-            <span key={a}>
-              {i > 0 ? ", " : ""}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNavigate(a);
-                }}
-                className="font-mono text-blue-700 hover:underline dark:text-blue-300"
-                title={`open ${a}`}
-              >
-                {shortenUri(a)}
-              </button>
-            </span>
-          ))}
+        // Obsolete / merged IDs that fold INTO this term — they have no
+        // class of their own, so they're informational text, NOT links.
+        // (They used to be clickable and dead-ended on an empty "No
+        // definition recorded" card — Paul 2026-06-21.)
+        <div
+          className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug"
+          title="Alternate / obsolete IDs merged into this term"
+        >
+          <span className="font-semibold">alt IDs: </span>
+          <span className="font-mono">{detail.alternativeIds.join(", ")}</span>
+        </div>
+      ) : null}
+      {detail.xrefs.length > 0 ? (
+        // Cross-references to OTHER vocabularies (DOID / ICD / UMLS / …).
+        // These live outside the ontology Gemma loaded, so they're
+        // informational text, not internally navigable. Paul 2026-06-21.
+        <div
+          className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug"
+          title="Cross-references to other vocabularies"
+        >
+          <span className="font-semibold">xrefs: </span>
+          <span className="font-mono">{detail.xrefs.join(", ")}</span>
         </div>
       ) : null}
       <div className="flex items-baseline gap-2 pt-1 border-t border-slate-200 dark:border-slate-700 mt-1">

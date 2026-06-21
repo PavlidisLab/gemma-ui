@@ -118,7 +118,11 @@ describe("parseGemmaTerm", () => {
         // The primary label repeated as a synonym — should be dropped.
         { value: "cerebral infarction", type: "exact_synonym" },
       ],
-      alternative_ids: ["DOID:3526"],
+      // Alternate/obsolete IDs of the SAME concept (same ontology).
+      alternative_ids: ["MONDO:0001234"],
+      // Cross-references to OTHER vocabularies (GemBro's dbXrefs field,
+      // snakeified to db_xrefs).
+      db_xrefs: ["DOID:3526", "ICD10CM:I63", "UMLS:C0007785"],
       ontology_version:
         "http://purl.obolibrary.org/obo/mondo/releases/2026-06-02/mondo.owl",
     },
@@ -140,9 +144,10 @@ describe("parseGemmaTerm", () => {
     ]);
   });
 
-  it("surfaces alternativeIds and ontologyVersion", () => {
+  it("surfaces alternativeIds, dbXrefs (as xrefs), and ontologyVersion", () => {
     const d = parseGemmaTerm(wire, URI)!;
-    expect(d.alternativeIds).toEqual(["DOID:3526"]);
+    expect(d.alternativeIds).toEqual(["MONDO:0001234"]);
+    expect(d.xrefs).toEqual(["DOID:3526", "ICD10CM:I63", "UMLS:C0007785"]);
     expect(d.ontologyVersion).toBe(
       "http://purl.obolibrary.org/obo/mondo/releases/2026-06-02/mondo.owl",
     );
@@ -159,6 +164,7 @@ describe("parseGemmaTerm", () => {
     ]);
     expect(d.synonyms).toEqual([]);
     expect(d.alternativeIds).toEqual([]);
+    expect(d.xrefs).toEqual([]);
     expect(d.ontologyVersion).toBeNull();
   });
 });

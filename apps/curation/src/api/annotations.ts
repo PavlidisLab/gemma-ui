@@ -212,9 +212,18 @@ export interface AnnotationTermDetail {
    *  Empty when the source didn't ship synonyms (OLS / NCBI paths). */
   synonyms: TermSynonym[];
   /** Alternate ontology IDs for this concept — merged / deprecated id
-   *  redirects (CURIE or IRI strings). Each resolves to a term card.
+   *  redirects (CURIE or IRI strings) that fold INTO this term. They do
+   *  NOT resolve to a card of their own (the obsolete id has no class),
+   *  so the popover renders them as plain informational text, not links.
    *  Empty for most terms. */
   alternativeIds: string[];
+  /** Database cross-references to OTHER ontologies / vocabularies
+   *  (``DOID:3526``, ``ICD10CM:I63``, ``UMLS:...``, ``MESH:...``). From
+   *  Gemma's ``dbXrefs`` wire field. These live outside the ontology
+   *  Gemma loaded, so they're informational text — not internally
+   *  navigable (Gemma has no card for a DOID/ICD term). Empty when the
+   *  source didn't ship xrefs. */
+  xrefs: string[];
   /** Ontology release the term was read from (e.g. a MONDO release
    *  OWL URL). Surfaced discreetly so the curator knows the vintage.
    *  Null when the source didn't report it. */
@@ -364,6 +373,13 @@ export function parseGemmaTerm(
   const alternativeIds = Array.isArray(altRaw)
     ? altRaw.filter((x): x is string => typeof x === "string" && !!x)
     : [];
+  // Cross-references to other vocabularies. GemBro ships them under
+  // ``dbXrefs`` (snakeified to ``db_xrefs``); accept a few plausible
+  // aliases. Plain CURIE strings ("DOID:3526", "ICD10CM:I63").
+  const xrefRaw = (r.db_xrefs ?? r.dbXrefs ?? r.xrefs ?? []) as unknown[];
+  const xrefs = Array.isArray(xrefRaw)
+    ? xrefRaw.filter((x): x is string => typeof x === "string" && !!x)
+    : [];
   const ontologyVersion =
     typeof r.ontology_version === "string"
       ? r.ontology_version
@@ -384,6 +400,7 @@ export function parseGemmaTerm(
     parents,
     synonyms,
     alternativeIds,
+    xrefs,
     ontologyVersion,
     ontology,
     source: "gemma",
@@ -551,6 +568,7 @@ function parseNcbiGene(
     parents: [],
     synonyms,
     alternativeIds: [],
+    xrefs: [],
     ontologyVersion: null,
     ontology: "NCBI Gene",
     source: "ncbi",
@@ -592,6 +610,7 @@ function parseOlsTerm(
     parents: [],
     synonyms: [],
     alternativeIds: [],
+    xrefs: [],
     ontologyVersion: null,
     ontology,
     source: "ols",
