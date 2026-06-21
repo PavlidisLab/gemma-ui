@@ -401,7 +401,6 @@ function StatementPredicateObject({
     <>
       {predLabel ? (
         <>
-          <span className="text-slate-400 dark:text-slate-500"> - </span>
           <span
             className={predCls}
             title={predUri || undefined}
@@ -412,7 +411,6 @@ function StatementPredicateObject({
       ) : null}
       {objLabel ? (
         <>
-          <span className="text-slate-400 dark:text-slate-500"> - </span>
           {termRenderer({
             label: objLabel,
             uri: objUri,
@@ -473,7 +471,6 @@ function StatementPredObjCells({
   return (
     <>
       <span className="flex items-baseline gap-x-1 min-w-0">
-        <span className="text-slate-400 dark:text-slate-500">-</span>
         {predLabel ? (
           <span className={predClassName(predDiff, compact)} title={predUri || undefined}>
             {predLabel}
@@ -481,7 +478,6 @@ function StatementPredObjCells({
         ) : null}
       </span>
       <span className="flex items-baseline gap-x-1 min-w-0">
-        <span className="text-slate-400 dark:text-slate-500">-</span>
         {objLabel
           ? termRenderer({
               label: objLabel,
@@ -533,7 +529,6 @@ function ExtraStatementLine({
         : null}
       {predLabel ? (
         <>
-          <span className="text-slate-400 dark:text-slate-500"> - </span>
           <span
             className={predCls}
             title={predUri || undefined}
@@ -544,7 +539,6 @@ function ExtraStatementLine({
       ) : null}
       {objLabel ? (
         <>
-          <span className="text-slate-400 dark:text-slate-500"> - </span>
           {termRenderer({
             label: objLabel,
             uri: objUri,
