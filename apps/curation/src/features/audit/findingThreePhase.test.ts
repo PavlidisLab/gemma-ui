@@ -82,11 +82,64 @@ describe("verdictLabel", () => {
     );
   });
 
-  it("passes through wire-debug strings unchanged (no translation)", () => {
-    // Phase 3: producer is responsible for shipping the right
-    // string. If a finding still has a raw debug label, the UI
-    // surfaces it as-is so we can see the wire issue.
+  it("passes through upper-case wire-debug strings unchanged", () => {
+    // Upper-case codes don't match the snake_case humanizer (which
+    // only fires on lower-case codes) so they surface verbatim and
+    // the wire issue stays visible.
     expect(verdictLabel("AGENT_MISSED_GOLD")).toBe("AGENT_MISSED_GOLD");
+  });
+
+  it("maps proposer-reasoning codes to a confidence read (no gold ref)", () => {
+    // No-gold codes: the proposer's confidence in its OWN reasoning.
+    expect(verdictLabel("extra_genuine_new")).toBe("strongly supported");
+    expect(verdictLabel("extra_borderline")).toBe("borderline");
+    expect(verdictLabel("extra_unsupported")).toBe("weakly supported");
+    expect(verdictLabel("miss_borderline")).toBe("borderline");
+    expect(verdictLabel("agent_correct_inherited")).toBe(
+      "supported (inherited)",
+    );
+    // None of the proposer-reasoning labels reference current/gold.
+    for (const code of [
+      "extra_genuine_new",
+      "extra_borderline",
+      "extra_unsupported",
+      "extra_confounded",
+      "extra_inherited_redundant",
+      "agent_correct_inherited",
+      "agent_miss_genuine",
+      "miss_genuine",
+      "miss_inherited_from_design",
+      "miss_borderline",
+    ]) {
+      expect(verdictLabel(code).toLowerCase()).not.toContain("gold");
+      expect(verdictLabel(code).toLowerCase()).not.toContain("current");
+      expect(verdictLabel(code).toLowerCase()).not.toContain("ruling");
+    }
+  });
+
+  it("maps arbiter-ruling codes to a comparison ruling", () => {
+    expect(verdictLabel("gold_correct_per_rule")).toBe(
+      "Ruling: the current curation is correct",
+    );
+    expect(verdictLabel("agent_correct_per_rule")).toBe(
+      "Ruling: the proposal is correct",
+    );
+    expect(verdictLabel("equivalent_per_rule")).toBe("Ruling: equivalent");
+    expect(verdictLabel("cannot_judge")).toBe("Couldn't judge");
+    // Gold-naming codes the producer files under the "legacy
+    // defender" dict are still arbiter rulings.
+    expect(verdictLabel("concept_gold_right")).toBe(
+      "Ruling: the current curation is correct",
+    );
+    expect(verdictLabel("miss_overzealous_gold")).toBe(
+      "Ruling: the proposal is correct (current curation overzealous)",
+    );
+  });
+
+  it("humanizes unknown lower-case snake_case codes (no raw debug)", () => {
+    expect(verdictLabel("some_future_code")).toBe("Some future code");
+    // Result never contains a raw underscore.
+    expect(verdictLabel("foo_bar_baz")).not.toContain("_");
   });
 
   it("returns empty string for nullish input", () => {
@@ -97,6 +150,8 @@ describe("verdictLabel", () => {
 
   it("trims whitespace", () => {
     expect(verdictLabel("  Real new factor  ")).toBe("Real new factor");
+    // Known codes resolve after trimming too.
+    expect(verdictLabel("  extra_genuine_new  ")).toBe("strongly supported");
   });
 });
 

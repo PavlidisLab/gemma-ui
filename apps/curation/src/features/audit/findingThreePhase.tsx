@@ -71,13 +71,107 @@ import { normalizeWikiUrl } from "@/lib/guidelines";
 // the section renders with the "no review was done" placeholder.
 // ---------------------------------------------------------------------------
 
-/** Curator-friendly label for a verdict string. The producer ships
- *  pre-translated strings on the wire (per Paul's vocab-at-producer
- *  rule), so this is now a thin pass-through. Kept as a single
- *  callable so callers don't depend on whether translation happens
- *  here or at the producer. */
+/**
+ * Curator-friendly label for a verdict code/string.
+ *
+ * Two buckets, attributed against the producer
+ * (``build_calibration_batch.py`` ``_LEGACY_LEANS`` / ``_ARBITER_LEANS``)
+ * and the framing rule
+ * (``feedback_defender_is_proposer_reasoning`` / ``[[project_three_phase_finding_card]]``):
+ *
+ *  1. **Proposer's reasoning** (no-gold codes). The proposer never
+ *     sees current/gold — its verdict is a confidence read on its OWN
+ *     reasoning ("strongly supported" / "borderline"), NOT a debate
+ *     ruling. These strings must never reference "current" or "gold".
+ *  2. **Arbiter ruling** (gold-aware codes). Emitted by the
+ *     gold-aware arbiter / comparison judge — these MAY reference
+ *     current-vs-proposal ("the current curation is correct"). Any
+ *     code that names gold/current (``*_overzealous_gold``,
+ *     ``gold_correct_per_rule``, ``concept_gold_right``, …) belongs
+ *     here, even the ones the producer files under the holdover
+ *     "legacy defender" dict.
+ *
+ * The producer also ships pre-translated curator strings on newer
+ * packages; those human strings are not keys here and fall through
+ * the trimmed pass-through unchanged (so a finding that already reads
+ * "Real new factor" stays verbatim). Unknown snake_case codes are
+ * humanized (underscores → spaces, sentence case) rather than shown
+ * raw.
+ */
+
+/** Proposer-reasoning codes — confidence read on the proposer's own
+ *  reasoning. NO current/gold reference. */
+const PROPOSER_REASONING_LABELS: Record<string, string> = {
+  // Tag agent_extra side — "the extra tag I proposed is …".
+  extra_genuine_new: "strongly supported",
+  extra_borderline: "borderline",
+  extra_unsupported: "weakly supported",
+  extra_confounded: "borderline (possible confound)",
+  extra_inherited_redundant: "weakly supported (redundant)",
+  agent_correct_inherited: "supported (inherited)",
+  // Tag/factor agent_miss side — "I may have missed this".
+  agent_miss_genuine: "borderline (possible miss)",
+  miss_genuine: "borderline (possible miss)",
+  miss_inherited_from_design: "supported (from design)",
+  miss_borderline: "borderline",
+};
+
+/** Arbiter-ruling codes — gold-aware comparison verdicts. MAY
+ *  reference current-vs-proposal. */
+const ARBITER_RULING_LABELS: Record<string, string> = {
+  // Per-rule arbiter rulings.
+  agent_correct_per_rule: "Ruling: the proposal is correct",
+  gold_correct_per_rule: "Ruling: the current curation is correct",
+  equivalent_per_rule: "Ruling: equivalent",
+  equivalent_by_judgment: "Ruling: equivalent",
+  judgment_genuine_miss: "Ruling: the current curation has it (genuine miss)",
+  judgment_unclear: "Couldn't judge",
+  guideline_omission: "Ruling: guideline gap",
+  cannot_judge: "Couldn't judge",
+  // Gold-naming verdicts the producer files under the "legacy
+  // defender" dict but which are gold-aware comparison rulings.
+  agent_correct_overzealous_gold:
+    "Ruling: the proposal is correct (current curation overzealous)",
+  miss_overzealous_gold:
+    "Ruling: the proposal is correct (current curation overzealous)",
+  // Same-category / same-partition FV-subject concept comparison.
+  concept_agent_right: "Ruling: the proposal is correct",
+  concept_gold_right: "Ruling: the current curation is correct",
+  concept_equivalent: "Ruling: equivalent",
+  concept_both_wrong: "Ruling: neither side is correct",
+  concept_borderline: "Ruling: borderline",
+};
+
+/** Humanize an unrecognized snake_case code: underscores → spaces,
+ *  first letter upper. Never surface raw ``snake_case`` to curators. */
+function humanizeVerdictCode(raw: string): string {
+  const spaced = raw.replace(/_/g, " ").trim();
+  if (!spaced) return "";
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** Curator-friendly label for a verdict code/string.
+ *
+ *  Lookup order:
+ *    1. Known proposer-reasoning code → confidence read.
+ *    2. Known arbiter-ruling code → comparison ruling.
+ *    3. Already-human producer string (no underscores, has a space or
+ *       is short prose) → pass through trimmed.
+ *    4. Unknown snake_case code → humanized.
+ *
+ *  Always exported as a single callable so callers don't depend on
+ *  whether translation happens here or at the producer. */
 export function verdictLabel(raw: string | null | undefined): string {
-  return (raw ?? "").trim();
+  const v = (raw ?? "").trim();
+  if (!v) return "";
+  if (v in PROPOSER_REASONING_LABELS) return PROPOSER_REASONING_LABELS[v];
+  if (v in ARBITER_RULING_LABELS) return ARBITER_RULING_LABELS[v];
+  // Looks like a raw snake_case code we don't know? Humanize it.
+  // (Single token with underscores, no spaces — e.g. a future
+  // ``foo_bar_baz`` verdict.) Otherwise it's already curator prose:
+  // pass through verbatim.
+  if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(v)) return humanizeVerdictCode(v);
+  return v;
 }
 
 /** Phase-1 Why block. Returns the wire block when populated; null
@@ -269,6 +363,20 @@ function ReviewsPhase({
   );
 }
 
+/** Curator-facing reviewer name. The wire still uses the producer's
+ *  internal role names (``defender`` / ``factor_defender``); the
+ *  "defender" framing reads as adversarial jargon to curators when
+ *  it's really the proposer's own reasoning ("why it says it"). Map
+ *  it to plain language; leave arbiter / boss as-is. */
+function reviewerLabel(reviewer: string | null | undefined): string {
+  const r = (reviewer ?? "").trim();
+  const key = r.toLowerCase();
+  if (key === "defender" || key === "factor_defender") {
+    return "proposer's reasoning";
+  }
+  return r;
+}
+
 function ReviewRow({ review }: { review: ReviewVerdict }): JSX.Element {
   const v = verdictLabel(review.verdict);
   const r = (review.rationale ?? "").trim();
@@ -304,7 +412,7 @@ function ReviewRow({ review }: { review: ReviewVerdict }): JSX.Element {
   return (
     <li className="flex items-baseline gap-1.5 flex-wrap">
       <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-        {review.reviewer}
+        {reviewerLabel(review.reviewer)}
       </span>
       <span className="text-slate-400 dark:text-slate-500">▪</span>
       {v ? (
