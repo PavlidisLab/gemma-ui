@@ -62,15 +62,22 @@ export function RuleCite({
     url: normalizeWikiUrl(l.url),
   }));
 
+  // When the entry carries precise wiki links, they ARE the source —
+  // so suppress both the broad-topic "more →" (it points at the generic
+  // wiki base, redundant with the precise page) and the cryptic ``doc``
+  // provenance line (an internal agent-doc ref like "calibration
+  // tag-match (exact/near) rules"). Keep them only as a fallback when no
+  // precise link exists. Paul 2026-06-21.
+  const hasLinks = links.length > 0;
   return (
     <HelpPopup
       title={ref.title}
       size={size}
       align={align}
-      links={links.length ? links : undefined}
-      source={ref.doc || undefined}
+      links={hasLinks ? links : undefined}
+      source={hasLinks ? undefined : ref.doc || undefined}
       footer={
-        topic ? (
+        !hasLinks && topic ? (
           <a
             href={topic.sourceUrl}
             target="_blank"
