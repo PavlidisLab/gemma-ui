@@ -680,14 +680,13 @@ function Shell({
   return (
     <FlowProvider flow={flow}>
     <div className="min-h-screen flex flex-col">
-      {/* Frozen top region — the app header, top bar, and experiment
-          banner (incl. tabs) stay pinned so the curator never scrolls
-          nav/context out of view on a long surface. Paul 2026-06-21.
-          The page (window) is the scroll container, so plain
-          ``sticky top-0`` pins against the viewport; bg is a fallback
-          behind the components' own backgrounds. z-40 keeps it above
-          the content while leaving room for body-portaled popovers
-          (CuriePopover @ z-50). */}
+      {/* Frozen top row — ONLY the app header (the …/live/⚙/sign-out
+          row) stays pinned; the top bar + experiment banner + tabs
+          scroll (Paul 2026-06-21: "nothing below sign out should be
+          frozen"). The window is the scroll container, so ``sticky
+          top-0`` pins against the viewport; bg is a fallback behind the
+          header's own background. z-40 keeps it above content while
+          body-portaled popovers (CuriePopover @ z-50) stay on top. */}
       <div className="sticky top-0 z-40 bg-slate-50 dark:bg-slate-950">
       <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
         {/* Chip strip folded into the header row 2026-06-14 per Paul:
@@ -704,6 +703,7 @@ function Shell({
           ticketContext={ticketContext}
         />
       </AppHeader>
+      </div>
       <TopBar
         experimentId={experimentId}
         experimentShortName={shortName}
@@ -771,7 +771,6 @@ function Shell({
           <SharedCommitBar experimentId={experimentId} reviewer={reviewer} />
         }
       />
-      </div>
       {notesOpen ? (
         <NotesDrawer
           experimentId={experimentId}

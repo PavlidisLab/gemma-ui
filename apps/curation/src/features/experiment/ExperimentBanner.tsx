@@ -154,14 +154,15 @@ export function ExperimentBanner({
     <section className="bg-white border-b border-slate-200">
       <div className="mx-auto w-full px-4 py-3 flex gap-4 flex-wrap items-start">
         <div className="flex-1 min-w-0">
+          {/* Title rides the first row (after accession + modality
+              badge) to save a row of vertical space (Paul 2026-06-21);
+              it wraps under the accession on a narrow viewport. */}
           <div className="flex items-baseline gap-3 flex-wrap">
             <ShortNameEditor
               experimentId={experimentId}
               shortName={shortName}
             />
             <ModalityIndicator />
-          </div>
-          <div className="mt-1">
             <TitleEditor title={title} />
           </div>
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
