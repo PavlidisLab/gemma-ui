@@ -643,12 +643,30 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   draft ?? null,
                 );
                 if (!subj) return null;
+                // Long factor titles (concatenated FV labels) wrap, and
+                // we step the font down as they get longer so a multi-FV
+                // factor still fits in a line or two instead of
+                // ballooning the card. The real fix — shortening the
+                // label itself — is handled separately. Paul 2026-06-21.
+                const subjSizeCls =
+                  subj.length > 80
+                    ? "text-[11px]"
+                    : subj.length > 45
+                      ? "text-xs"
+                      : "text-sm";
                 return (
-                  <span className="text-sm text-slate-800 dark:text-slate-100 mr-1 truncate">
+                  <span
+                    className={cn(
+                      "text-slate-800 dark:text-slate-100 mr-1 min-w-0 break-words",
+                      subjSizeCls,
+                    )}
+                  >
                     <span className="text-slate-400 dark:text-slate-500">
                       —{" "}
                     </span>
-                    <span className="font-mono font-semibold">{subj}</span>
+                    <span className="font-mono font-semibold break-words">
+                      {subj}
+                    </span>
                   </span>
                 );
               })()}

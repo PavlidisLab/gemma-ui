@@ -59,6 +59,7 @@ import { RuleCite } from "./RuleCite";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import { guidelineRefForFinding } from "@/lib/guidelineRegistry";
 import { normalizeWikiUrl } from "@/lib/guidelines";
+import { splitRationaleTrail } from "./rationaleText";
 
 // ---------------------------------------------------------------------------
 // Phase 3 of the rollout (Paul 2026-06-15): UI now reads the new wire
@@ -281,18 +282,26 @@ function WhyPhase({
   const evidence = why.evidence ?? [];
   const citation = (why.citation ?? "").trim();
   const citationUrl = (why.citation_url ?? "").trim();
-  // Dedupe: when the rationale is just the lone evidence quote (e.g.
+  // Split off the agent's raw reasoning trail ("— Full agent reasoning
+  // trail — [S8b_…] (target=design) …") from the curator-facing
+  // summary. Dumping the whole concatenated subtask log inline made
+  // the section an illegible wall (Paul 2026-06-21). The summary stays
+  // in ``brief``; the trail tucks behind the section's "more" toggle,
+  // formatted one step per line.
+  const { summary, trail } = splitRationaleTrail(rationale);
+  const summaryText = (summary ?? "").trim();
+  // Dedupe: when the summary is just the lone evidence quote (e.g.
   // ``TOV112D (8)`` for a characteristic-sourced tag), the compact
   // evidence line below already shows it — don't print it twice.
   const soleQuote =
     evidence.length === 1 ? (evidence[0].quote ?? "").trim() : null;
-  const showRationale = rationale && rationale !== soleQuote;
+  const showRationale = summaryText && summaryText !== soleQuote;
   // Evidence is the 411 — show it inline + compact, no fold. Context
   // (when present) hides behind the per-line "context" toggle inside
   // FindingEvidenceBlock's compact mode.
   const brief = (
     <div className="space-y-0.5">
-      {showRationale ? <div>{rationale}</div> : null}
+      {showRationale ? <div>{summaryText}</div> : null}
       {evidence.map((ev, i) => (
         <FindingEvidenceBlock key={i} evidence={ev} compact />
       ))}
@@ -330,8 +339,57 @@ function WhyPhase({
         </HelpPopup>
       }
       brief={brief}
-      detail={null}
+      detail={trail ? <ReasoningTrailDetail trail={trail} /> : null}
     />
+  );
+}
+
+/** Render the agent's concatenated reasoning trail as one readable
+ *  step per line. The agent emits it as
+ *  ``[S8b_design_opus_escalation] (target=design) <prose>
+ *  [S8_dea_usability] (target=design) <prose> …`` — one long string
+ *  with no breaks. We split at each ``[subtask] (target=…)`` marker so
+ *  each step gets its own line, with the marker in muted monospace so
+ *  the eye can scan the pipeline. Falls back to the raw text when the
+ *  markers aren't present. Paul 2026-06-21: "this is an illegible
+ *  mess." */
+function ReasoningTrailDetail({ trail }: { trail: string }): JSX.Element {
+  const segments = trail
+    .split(/(?=\[[A-Za-z0-9_]+\]\s*\(target=)/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (segments.length <= 1) {
+    return <div className="whitespace-pre-wrap">{trail}</div>;
+  }
+  return (
+    <div className="space-y-1.5">
+      {segments.map((seg, i) => {
+        const m = /^\[([A-Za-z0-9_]+)\]\s*(\(target=[^)]*\))?\s*([\s\S]*)$/.exec(
+          seg,
+        );
+        if (!m) {
+          return (
+            <div key={i} className="whitespace-pre-wrap">
+              {seg}
+            </div>
+          );
+        }
+        const [, label, target, body] = m;
+        return (
+          <div key={i}>
+            <span className="font-mono rs-10 text-slate-500 dark:text-slate-400">
+              {label}
+            </span>
+            {target ? (
+              <span className="font-mono rs-10 text-slate-400 dark:text-slate-500 ml-1">
+                {target}
+              </span>
+            ) : null}{" "}
+            <span>{body.trim()}</span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
