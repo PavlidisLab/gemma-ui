@@ -11,7 +11,8 @@
  * "given a list of findings, organise + render".
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { HelpPopup } from "@/components/ui/HelpPopup";
 import { deleteFactor } from "@/features/design/mutations";
 import type {
   AuditFinding,
@@ -72,6 +73,49 @@ export const AUDIT_PANEL_BASELINE_LABEL = "Current";
  *  card bodies it labelled. */
 const SECTION_HEADER_CLS =
   "text-xs uppercase tracking-wider font-bold text-slate-700 dark:text-slate-200 px-1 pt-2 pb-1 border-b border-slate-200 dark:border-slate-700 mb-1";
+
+/** Per-section `?` help — what the section is, in plain terms. Only the
+ *  two sections curators asked about (Paul 2026-06-21); the rest read
+ *  fine from their (renamed) titles. */
+const SECTION_HELP: Partial<Record<AuditTargetKind, { title: string; body: ReactNode }>> = {
+  factor: {
+    title: "Experimental factors",
+    body: (
+      <div className="space-y-1.5 leading-snug">
+        <p>
+          The variables the study deliberately varies across samples —
+          genotype, treatment, time point, dose, sex, and so on. Each
+          factor has <em>factor values</em> (its levels); every profiled
+          sample is assigned one, and differential expression contrasts
+          the levels against a baseline.
+        </p>
+        <p className="text-slate-500 dark:text-slate-400">
+          This section compares the proposed factors against the current
+          curation.
+        </p>
+      </div>
+    ),
+  },
+  tag: {
+    title: "Experiment tags",
+    body: (
+      <div className="space-y-1.5 leading-snug">
+        <p>
+          Experiment-level properties that hold for EVERY profiled sample
+          (e.g. a disease model, or an organism part when it's constant
+          across the study) — not what the study is "about". Tags fill
+          gaps the factor values and biomaterial characteristics don't
+          already cover; a tag that just restates a constant
+          characteristic the loader already ingests is redundant.
+        </p>
+        <p className="text-slate-500 dark:text-slate-400">
+          This section compares the proposed tags against the current
+          curation.
+        </p>
+      </div>
+    ),
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Consequent-pair reordering — keep `consequent_of` siblings adjacent
@@ -494,9 +538,9 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   // One source of truth for both render order and section headers —
   // adding a new AuditTargetKind only touches this list.
   const GROUPS: { kind: AuditTargetKind; header: string }[] = [
-    { kind: "factor",         header: "Design — factors" },
+    { kind: "factor",         header: "Experimental factors" },
     { kind: "fv",             header: "Design — factor values" },
-    { kind: "tag",            header: "Tags" },
+    { kind: "tag",            header: "Experiment tags" },
     { kind: "characteristic", header: "Characteristics" },
     { kind: "assignment",     header: "Sample assignments" },
     { kind: "statement",      header: "Statements" },
@@ -650,6 +694,16 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
           <div key={groupKind} className="space-y-1.5">
             <div className={SECTION_HEADER_CLS}>
               {header}
+              {SECTION_HELP[groupKind] ? (
+                <span className="ml-1.5 normal-case tracking-normal font-normal">
+                  <HelpPopup
+                    title={SECTION_HELP[groupKind]!.title}
+                    size="md"
+                  >
+                    {SECTION_HELP[groupKind]!.body}
+                  </HelpPopup>
+                </span>
+              ) : null}
               {showLoadingCaption ? (
                 <span className="ml-2 text-[10px] normal-case tracking-normal font-normal italic text-slate-500 dark:text-slate-400">
                   <span className="inline-block w-2 h-2 rounded-full bg-amber-400 dark:bg-amber-500 mr-1 animate-pulse align-middle" />

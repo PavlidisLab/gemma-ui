@@ -56,6 +56,7 @@ import type {
 } from "@/api/auditTypes";
 import { FindingEvidenceBlock } from "./agentDetailsPanel";
 import { RuleCite } from "./RuleCite";
+import { HelpPopup } from "@/components/ui/HelpPopup";
 import { guidelineRefForFinding } from "@/lib/guidelineRegistry";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 
@@ -318,6 +319,16 @@ function WhyPhase({
   return (
     <PhaseSection
       header="Why proposed"
+      headerAccessory={
+        <HelpPopup title="Why proposed" size="md">
+          <div className="leading-snug">
+            The proposer's rationale + supporting evidence (quotes /
+            sources) for this proposal — the reasoning that led to it. It
+            describes the proposal on its own terms and never references
+            your current curation.
+          </div>
+        </HelpPopup>
+      }
       brief={brief}
       detail={null}
     />
@@ -370,6 +381,35 @@ function ReviewsPhase({
   return (
     <PhaseSection
       header="Reviews"
+      headerAccessory={
+        <HelpPopup title="Reviews" size="md">
+          <div className="space-y-1.5 leading-snug">
+            <p>Independent LLM reviews of this proposal:</p>
+            <ul className="space-y-1">
+              <li>
+                <span className="font-semibold">Proposer's reasoning</span>{" "}
+                — the proposer's own confidence in why it emitted this. It
+                never sees your current curation, so it reads as a quality
+                judgment ("strongly supported" / "borderline"), not a
+                comparison.
+              </li>
+              <li>
+                <span className="font-semibold">Arbiter</span> — a
+                gold-aware ruling that DOES compare the proposal to the
+                current curation ("Ruling: …").
+              </li>
+              <li>
+                <span className="font-semibold">Boss</span> — the
+                experiment-wide critic (see the Boss-critic review panel
+                for its blockers / advisories).
+              </li>
+            </ul>
+            <p className="text-slate-500 dark:text-slate-400">
+              "No review was done" means no reviewer ran for this finding.
+            </p>
+          </div>
+        </HelpPopup>
+      }
       brief={brief}
       detail={null}
       defaultOpen={false}
