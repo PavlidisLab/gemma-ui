@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { AuditFinding } from "@/api/auditTypes";
-import { findingShortRationale } from "./findingHelpers";
+import { findingShortRationale, isEchoRationale } from "./findingHelpers";
 
 function missFinding(overrides: Partial<AuditFinding> = {}): AuditFinding {
   return {
@@ -67,5 +67,45 @@ describe("findingShortRationale — gold_only_miss precedence", () => {
     expect(findingShortRationale(f)).toBe(
       "Already captured by biomaterial characteristic",
     );
+  });
+
+  it("skips a rationale that just echoes the existing curation back", () => {
+    // Paul 2026-06-21: "The existing curation has `cell type: …`" just
+    // restates the chips already on the row. Drop it and show the
+    // curated reason instead of the noise.
+    const f = missFinding({
+      rationale:
+        "The existing curation has `cell type: lymphoblastoid cell line`",
+    });
+    expect(findingShortRationale(f)).toBe("Agent did not propose");
+  });
+
+  it("keeps a rationale that actually explains why", () => {
+    const f = missFinding({
+      rationale: "Redundant with the cell line factor in the design",
+    });
+    expect(findingShortRationale(f)).toBe(
+      "Redundant with the cell line factor in the design",
+    );
+  });
+});
+
+describe("isEchoRationale", () => {
+  it("flags pure restatements of the current curation", () => {
+    expect(
+      isEchoRationale("The existing curation has `disease: Down syndrome`"),
+    ).toBe(true);
+    expect(isEchoRationale("Curation already includes this tag")).toBe(true);
+    expect(isEchoRationale("Gemma already carries `cell type: x`")).toBe(true);
+    expect(isEchoRationale("The design already contains the factor")).toBe(
+      true,
+    );
+  });
+
+  it("does NOT flag rationales that explain a reason", () => {
+    expect(isEchoRationale("Redundant with the cell line factor")).toBe(false);
+    expect(isEchoRationale("Agent did not propose this tag")).toBe(false);
+    expect(isEchoRationale("")).toBe(false);
+    expect(isEchoRationale(null)).toBe(false);
   });
 });

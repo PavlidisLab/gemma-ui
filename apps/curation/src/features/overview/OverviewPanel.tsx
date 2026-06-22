@@ -60,6 +60,7 @@ import type {
   Tag,
 } from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
+import { capitalizeCategory } from "@/lib/ontologyTerm";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
 import { experimentTarget, factorTarget, tagTarget } from "@/features/audit/targetIds";
@@ -3008,7 +3009,7 @@ function TagValuesPopover({
             >
               <div className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-600 flex items-baseline justify-between gap-2">
                 <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                  {category.label}
+                  {capitalizeCategory(category.label)}
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400">
                   {values.length} value{values.length === 1 ? "" : "s"}

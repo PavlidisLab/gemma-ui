@@ -39,7 +39,7 @@ import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
-import { sameOntologyTerm } from "@/lib/ontologyTerm";
+import { sameOntologyTerm, capitalizeCategory } from "@/lib/ontologyTerm";
 import { useToast } from "@/components/ui/Toast";
 import { Term, termRenderer } from "@/components/ui/Term";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
@@ -930,11 +930,23 @@ export function FindingDetailsEditor({
   onDismiss,
   onPark,
   onUndo,
+  isParked,
+  onResolve,
 }: {
   finding: AuditFinding;
   report: AuditReport | null;
   design: Design | null;
   currentDisposition: DispositionStatus;
+  /** True when the finding is accepted-but-not-resolved (parked via
+   *  "Agree, needs work"). Gates the "Resolve →" affordance so a
+   *  parked finding can be closed from the editor instead of
+   *  dead-ending. The editor only sees ``currentDisposition`` (the
+   *  status enum), which can't distinguish parked from resolved —
+   *  hence this explicit flag from findingCard. */
+  isParked?: boolean;
+  /** Close the two-step accept — stamp resolved_at now. Wired to the
+   *  "Resolve →" button when ``isParked``. */
+  onResolve?: () => void;
   onSave: (
     appliedFix: AppliedFix,
     structureOk: boolean | null,
@@ -944,6 +956,15 @@ export function FindingDetailsEditor({
      *  the disposition PATCH so the close-review summary carries
      *  the WHY back to the curation agent. */
     notes?: string,
+    /** When ``needsWork`` is true the accept is recorded as
+     *  "agreed, follow-up pending" — status=accepted with
+     *  ``resolved_at`` left null (the "parked" half of the two-step
+     *  accept; see findingCard's ``isParked``). The draft mutation
+     *  still runs exactly as a plain Agree; only the resolved stamp
+     *  is withheld so the finding stays in the curator's follow-up
+     *  queue (a "Resolve →" affordance closes it later). Drives the
+     *  "Agree, needs work" button. Paul 2026-06-21. */
+    opts?: { needsWork?: boolean },
   ) => Promise<void>;
   /** Plain "agree" — patch the disposition to accepted without any
    *  draft mutation. Used by the no-actionable-delta + actionable-
@@ -1119,6 +1140,9 @@ export function FindingDetailsEditor({
   async function dispatchSave(
     verdict: "proposal" | "currently" | "reference",
     notes?: string,
+    /** Record the accept as "agreed, needs work" (resolved_at null)
+     *  rather than resolved. Threaded straight through to onSave. */
+    needsWork?: boolean,
   ) {
     setSaving(true);
     try {
@@ -1141,7 +1165,7 @@ export function FindingDetailsEditor({
       // The sidebar's onSave handler derives ``status`` from
       // structure_ok / details_ok per the conventional mapping
       // (see AuditSidebarPanel.onSave); editor stays pure.
-      await onSave(fix, structureOk, detailsOk, notes);
+      await onSave(fix, structureOk, detailsOk, notes, { needsWork });
     } catch (err) {
       toast.show(
         `Save failed: ${(err as Error).message}`,
@@ -1321,7 +1345,7 @@ export function FindingDetailsEditor({
                     asLink={false}
                     className="!whitespace-normal break-words"
                   >
-                    {g.category?.label || `factor ${gi + 1}`}
+                    {capitalizeCategory(g.category?.label) || `factor ${gi + 1}`}
                   </Term>
                 ))}
               </div>
@@ -1362,7 +1386,7 @@ export function FindingDetailsEditor({
                         {row.gold_fv?.label || "(unnamed)"}
                       </Term>
                       <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">
-                        · {row.gold_factor?.category?.label || ""}
+                        · {capitalizeCategory(row.gold_factor?.category?.label)}
                       </span>
                     </div>
                     <span
@@ -1447,6 +1471,8 @@ export function FindingDetailsEditor({
             ]}
             onDismiss={onDismiss}
             onPark={onPark}
+            onNeedsWork={() => dispatchSave("proposal", undefined, true)}
+            onResolve={isParked ? onResolve : undefined}
             onUndo={
               currentDisposition !== "pending" ? onUndo : undefined
             }
@@ -1522,7 +1548,7 @@ export function FindingDetailsEditor({
             Factor
           </span>
           <span className="font-mono text-slate-800 dark:text-slate-100">
-            {pm.gold.category.label || pm.agent.category.label || finding.target_id}
+            {capitalizeCategory(pm.gold.category.label) || capitalizeCategory(pm.agent.category.label) || finding.target_id}
           </span>
           <span className="text-slate-400 dark:text-slate-500">·</span>
           <span className="text-amber-700 dark:text-amber-300">
@@ -1668,6 +1694,8 @@ export function FindingDetailsEditor({
           ]}
           onDismiss={onDismiss}
           onPark={onPark}
+          onNeedsWork={() => dispatchSave("proposal", undefined, true)}
+          onResolve={isParked ? onResolve : undefined}
           onUndo={
             currentDisposition !== "pending" ? onUndo : undefined
           }
@@ -1709,8 +1737,8 @@ export function FindingDetailsEditor({
     // Agree click to append the factor twice (found 2026-06-06 on
     // GSE319683/91664 + ticket 21: ``calibration:factor_extra:
     // stimulation`` added two stimulation factors).
-    const runApply = (notes: string) => {
-      dispatchSave("proposal", notes.trim() || undefined);
+    const runApply = (notes: string, needsWork?: boolean) => {
+      dispatchSave("proposal", notes.trim() || undefined, needsWork);
     };
     return (
       <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
@@ -1822,6 +1850,8 @@ export function FindingDetailsEditor({
             ]}
             onDismiss={onDismiss}
             onPark={onPark}
+            onNeedsWork={() => runApply("", true)}
+            onResolve={isParked ? onResolve : undefined}
             onUndo={
               currentDisposition !== "pending" ? onUndo : undefined
             }
@@ -1975,7 +2005,7 @@ export function FindingDetailsEditor({
                     asLink={false}
                     className="!whitespace-nowrap"
                   >
-                    {goldTagParts.category.label}
+                    {capitalizeCategory(goldTagParts.category.label)}
                   </Term>
                   <span className="text-slate-400 dark:text-slate-500">
                     :
@@ -2097,7 +2127,7 @@ export function FindingDetailsEditor({
             Factor
           </span>
           <span className="font-mono text-slate-800 dark:text-slate-100">
-            {factorCategoryLabel}
+            {capitalizeCategory(factorCategoryLabel)}
           </span>
         </div>
       ) : null}
@@ -2439,6 +2469,18 @@ export function FindingDetailsEditor({
         }
         onDismiss={onDismiss}
         onPark={onPark}
+        // "Agree, needs work" makes sense wherever agreeing leaves
+        // follow-up work to do. A pure MATCH / "exactly right" card
+        // has nothing to apply (both sides already agree), so there's
+        // no work to park — skip it there (mirrors findingCard's
+        // ``noFollowUp`` auto-resolve). Everywhere else (add / adopt /
+        // change / acknowledge), agreeing can leave cleanup pending.
+        onNeedsWork={
+          auditorSaysExactlyRight || actionShape === "match"
+            ? undefined
+            : () => dispatchSave("proposal", undefined, true)
+        }
+        onResolve={isParked ? onResolve : undefined}
         onUndo={currentDisposition !== "pending" ? onUndo : undefined}
         // Reject + Park stay available on every finding — including
         // exact matches and close matches. Paul 2026-06-11: "reject
@@ -3331,7 +3373,7 @@ function PartitionMismatchBlocks({
               key={i}
               header={
                 currentFactors.length > 1
-                  ? `Factor ${i + 1} · ${f.category?.label ?? "?"}`
+                  ? `Factor ${i + 1} · ${capitalizeCategory(f.category?.label) || "?"}`
                   : null
               }
               factor={f}
@@ -3354,7 +3396,7 @@ function PartitionMismatchBlocks({
               key={i}
               header={
                 auditorFactors.length > 1
-                  ? `Factor ${i + 1} · ${f.category?.label ?? "?"}`
+                  ? `Factor ${i + 1} · ${capitalizeCategory(f.category?.label) || "?"}`
                   : null
               }
               factor={f}
@@ -4692,6 +4734,8 @@ function ActionRow({
   onDismiss,
   onPark,
   onUndo,
+  onNeedsWork,
+  onResolve,
   showEscapeHatches = true,
   hideDismiss = false,
 }: {
@@ -4700,6 +4744,22 @@ function ActionRow({
   buttons: ActionButton[];
   onDismiss: () => void;
   onPark: () => void;
+  /** When provided AND the primary row carries an accept button,
+   *  renders an "Agree, needs work" button beside it. It runs the
+   *  same accept/apply as the primary Agree (the draft mutation
+   *  still lands) but records the disposition as parked
+   *  (status=accepted, resolved_at null) so the finding stays in the
+   *  curator's follow-up queue — the work happens later, not inline.
+   *  Paul 2026-06-21: "there should be an 'agree but needs work' —
+   *  no editing here, the work would be done after accepting it." */
+  onNeedsWork?: () => void;
+  /** When provided, the finding is currently parked (accepted via
+   *  "Agree, needs work" — resolved_at null) and this closes the
+   *  two-step accept: stamps resolved_at now. Rendered as a
+   *  "Resolve →" button so a parked finding never dead-ends in the
+   *  editor. Mirrors the legacy action row's Resolve affordance
+   *  (findingCard ``isParked``). */
+  onResolve?: () => void;
   /** When provided, renders an "undo" text link on the far right
    *  that reverts the disposition to ``pending``. The caller (the
    *  editor body) decides whether to pass this based on
@@ -4738,30 +4798,67 @@ function ActionRow({
     buttons.length === 0 && !showEscapeHatches && !onUndo;
   if (hasNothingToRender) return null;
 
+  // "Agree, needs work" — accept + apply exactly like the primary
+  // Agree, but park the disposition (resolved_at null) so it stays in
+  // the follow-up queue. Only meaningful when there's an ENABLED
+  // accept button to pair against (a keep-only / reject-only row, or a
+  // disabled cross-cutting Adopt, has nothing safe to "agree" to). The
+  // amber tone reads as "agreed but not done" without competing with
+  // the solid primary Agree. Rendered immediately after that accept
+  // button so the two Agree variants sit together. Paul 2026-06-21.
+  const acceptIdx = buttons.findIndex(
+    (b) => b.kind === "primary-accept" && !b.disabled,
+  );
+  const needsWorkBtn =
+    onNeedsWork && acceptIdx >= 0 ? (
+      <button
+        key="needs-work"
+        type="button"
+        onClick={onNeedsWork}
+        disabled={saving || disabled}
+        title="Agree and apply now, but flag that it still needs work — the finding stays in your follow-up queue (mark it resolved once you've done the work). No editing here."
+        className="px-2.5 py-1 rounded text-xs font-semibold bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:bg-blue-600 dark:hover:bg-blue-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
+      >
+        {saving ? "Saving…" : "Agree w/ caveats"}
+      </button>
+    ) : null;
+
   return (
     <div className="flex items-center gap-2 pt-1 text-xs flex-wrap">
-      {buttons.map((b) => (
-        <button
-          key={b.key}
-          type="button"
-          onClick={b.onClick}
-          disabled={saving || disabled || b.disabled}
-          title={b.title}
-          className={cn(
-            "px-2.5 py-1 rounded text-xs font-semibold disabled:cursor-not-allowed",
-            b.kind === "primary-keep" &&
-              "bg-emerald-700 text-white hover:bg-emerald-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
-            b.kind === "primary-accept" &&
-              "bg-blue-700 text-white hover:bg-blue-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
-            b.kind === "primary-ref" &&
-              "bg-sky-700 text-white hover:bg-sky-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
-            b.kind === "secondary" &&
-              "border border-slate-400 text-slate-700 hover:bg-slate-100 dark:border-slate-500 dark:text-slate-200 dark:hover:bg-slate-700 disabled:text-slate-400 dark:disabled:text-slate-500",
-          )}
-        >
-          {saving ? "Saving…" : b.label}
-        </button>
-      ))}
+      {buttons.map((b, i) => {
+        const btn = (
+          <button
+            key={b.key}
+            type="button"
+            onClick={b.onClick}
+            disabled={saving || disabled || b.disabled}
+            title={b.title}
+            className={cn(
+              "px-2.5 py-1 rounded text-xs font-semibold disabled:cursor-not-allowed",
+              b.kind === "primary-keep" &&
+                "bg-emerald-700 text-white hover:bg-emerald-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
+              b.kind === "primary-accept" &&
+                "bg-blue-700 text-white hover:bg-blue-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
+              b.kind === "primary-ref" &&
+                "bg-sky-700 text-white hover:bg-sky-800 disabled:bg-slate-300 disabled:text-slate-500 dark:disabled:bg-slate-700 dark:disabled:text-slate-400",
+              b.kind === "secondary" &&
+                "border border-slate-400 text-slate-700 hover:bg-slate-100 dark:border-slate-500 dark:text-slate-200 dark:hover:bg-slate-700 disabled:text-slate-400 dark:disabled:text-slate-500",
+            )}
+          >
+            {saving ? "Saving…" : b.label}
+          </button>
+        );
+        // Slot the amber "Agree, needs work" right after the primary
+        // accept so the two Agree variants read as a pair.
+        return needsWorkBtn && i === acceptIdx ? (
+          <Fragment key={b.key}>
+            {btn}
+            {needsWorkBtn}
+          </Fragment>
+        ) : (
+          btn
+        );
+      })}
       {/* Escape hatches — historically rendered Reject + Park
           alongside the primary buttons. Paul 2026-06-14 (and the
           earlier findingCard refactor):
@@ -4798,6 +4895,17 @@ function ActionRow({
           className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           Park…
+        </button>
+      ) : null}
+      {onResolve ? (
+        <button
+          type="button"
+          onClick={onResolve}
+          disabled={saving}
+          title="Mark resolved — once you've done the follow-up work. Closes the 'needs work' state."
+          className="px-2.5 py-1 rounded text-xs font-semibold border border-emerald-700 text-emerald-700 bg-white hover:bg-emerald-50 disabled:opacity-50 dark:bg-slate-900 dark:border-emerald-400 dark:text-emerald-300 dark:hover:bg-slate-800"
+        >
+          Resolve →
         </button>
       ) : null}
       {onUndo ? (

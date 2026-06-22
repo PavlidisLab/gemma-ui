@@ -97,3 +97,25 @@ export function categorisedKey(x: {
   const v = termKey(x.value ?? null);
   return `${c}|${v}`;
 }
+
+/** Display-only sentence-casing for a category label. Ontology
+ *  category labels arrive lowercase by convention (`"disease model"`,
+ *  `"biological sex"`, `"cell type"`); Paul 2026-06-21 wants them to
+ *  read with a leading capital wherever they're shown to the curator
+ *  (`"Disease model"`). This is a RENDER transform only — never mutate
+ *  the stored label, and never run it through identity / slug / lookup
+ *  paths (those stay lowercase via `normLabel`).
+ *
+ *  Only the first character is uppercased; the rest of the string is
+ *  left untouched so multi-word terms and embedded acronyms survive
+ *  (`"disease model"` → `"Disease model"`, not `"Disease Model"`;
+ *  `"mRNA expression"` keeps its `mRNA`). Empty / null input returns
+ *  `""` so callers can keep their own `|| fallback` clause:
+ *  `capitalizeCategory(f.category?.label) || "factor name"`. */
+export function capitalizeCategory(
+  label: string | null | undefined,
+): string {
+  const s = label ?? "";
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}

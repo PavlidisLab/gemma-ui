@@ -6,6 +6,7 @@ import { useAuditEvents, type AuditEvent } from "@/api/history";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { experimentPageUrl, platformPageUrl } from "@/lib/gemmaUrls";
 import { validateDesign, type Design } from "@/features/experiment/types";
+import { capitalizeCategory } from "@/lib/ontologyTerm";
 
 /**
  * Pre-publish checklist mirroring the Confluence
@@ -804,7 +805,7 @@ function buildItems({
       details: batchFactor ? (
         <Inline>
           <Chip>{batchFactor.factor_values.length} levels</Chip>
-          <Chip>{batchFactor.category.label || "—"}</Chip>
+          <Chip>{capitalizeCategory(batchFactor.category.label) || "—"}</Chip>
         </Inline>
       ) : undefined,
     },

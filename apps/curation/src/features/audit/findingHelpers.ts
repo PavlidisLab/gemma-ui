@@ -718,6 +718,27 @@ export function subsumedFvChildren(
  *  same line as the title and shorten it." Agent-side `suggested_fix`
  *  quality varies; the bro-side handoff to write more curator-readable
  *  one-liners is open. */
+/** True when a rationale just RESTATES what's already on the row
+ *  ("The existing curation has `…`", "Gemma already carries `…`", "The
+ *  design already includes `…`") instead of explaining WHY the finding
+ *  fired. The tag / factor chips are right there on the same line, so
+ *  the echo is pure noise — callers drop it and fall through to a
+ *  curated reason. Anchored at the string start so a rationale that
+ *  merely *mentions* the current curation mid-sentence still counts as
+ *  informative. */
+export function isEchoRationale(s: string | null | undefined): boolean {
+  const t = (s ?? "").trim();
+  if (!t) return false;
+  return (
+    /^(the\s+)?(existing\s+)?curation\s+(already\s+)?(has|have|carries|carry|includes|include|contains|contain)\b/i.test(
+      t,
+    ) ||
+    /^(gemma|the\s+design|the\s+existing\s+design)\s+(already\s+)?(has|have|carries|carry|includes|include|contains|contain)\b/i.test(
+      t,
+    )
+  );
+}
+
 export function findingShortRationale(finding: AuditFinding): string | null {
   const max = 50;
   const trim = (s: string | null | undefined): string => {
@@ -729,6 +750,16 @@ export function findingShortRationale(finding: AuditFinding): string | null {
     // redundancy next to the `findingActionLabel`. Paul 2026-06-11:
     // "now it says 'add tag' etc. twice!"
     if (isActionPrefixRationale(trimmed)) return "";
+    // Skip strings that merely ECHO the existing curation back at the
+    // curator ("The existing curation has `cell type: …`") — the tag /
+    // factor is already shown as chips on the same row, so the
+    // restatement carries zero information. Most common on
+    // `calibration_gold_only_miss` (REMOVE TAG/FACTOR), where the
+    // curated fallback below ("Agent did not propose") is the actually
+    // useful caption. Paul 2026-06-21: "these title bar strings are not
+    // that helpful." The real WHY (redundant / recall gap) is the
+    // agent's to emit — open one-liner handoff.
+    if (isEchoRationale(trimmed)) return "";
     // Cut at the first clause boundary — comma / semicolon / period /
     // newline. Yields the leading noun-phrase / verb-phrase rather
     // than a full sentence.

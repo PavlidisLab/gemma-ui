@@ -37,6 +37,7 @@ import {
   toggleBaseline,
 } from "./mutations";
 import { validateDesign } from "@/features/experiment/types";
+import { capitalizeCategory } from "@/lib/ontologyTerm";
 import type {
   Design, Statement, SubsetRecommendation,
 } from "@/features/experiment/types";
@@ -290,7 +291,7 @@ export function DesignEditor({
                 onClick={() => setSelectedFactorId(p.a.id)}
                 className="underline underline-offset-2 hover:text-amber-700"
               >
-                {p.a.category.label || `factor ${p.a.id}`}
+                {capitalizeCategory(p.a.category.label) || `factor ${p.a.id}`}
               </button>
               {" ≡ "}
               <button
@@ -298,7 +299,7 @@ export function DesignEditor({
                 onClick={() => setSelectedFactorId(p.b.id)}
                 className="underline underline-offset-2 hover:text-amber-700"
               >
-                {p.b.category.label || `factor ${p.b.id}`}
+                {capitalizeCategory(p.b.category.label) || `factor ${p.b.id}`}
               </button>
             </span>
           ))}

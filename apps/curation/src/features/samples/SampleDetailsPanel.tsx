@@ -38,6 +38,7 @@ import { AuditDot } from "@/features/audit/AuditDot";
 import { assignmentTarget } from "@/features/audit/targetIds";
 import { onSamplesScrollRow } from "@/lib/scrollToSample";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
+import { capitalizeCategory } from "@/lib/ontologyTerm";
 import { BiomaterialMetaPopover } from "./BiomaterialMetaPopover";
 import type {
   BiomaterialAssignmentMeta,
@@ -1477,7 +1478,7 @@ function SampleTable({
                     proposed
                   </span>
                   <div className="text-[11px] text-slate-700 truncate">
-                    {pf.category.label ||
+                    {capitalizeCategory(pf.category.label) ||
                       pf.name_in_design ||
                       `factor#${pfi}`}
                   </div>

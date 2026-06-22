@@ -27,6 +27,7 @@ const curationTermRenderer: FvTermRenderer = ({
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { DismissDialog } from "@/features/audit/DismissDialog";
 import { normalizeWikiUrl } from "@/lib/guidelines";
+import { capitalizeCategory } from "@/lib/ontologyTerm";
 import type {
   FactorProposal,
   TagProposal,
@@ -112,7 +113,7 @@ export function FactorReviewCard({
       </span>
       {factor.category?.label || factor.category?.uri ? (
         <Term uri={factor.category?.uri ?? null} asLink={false}>
-          {factor.category?.label || ""}
+          {capitalizeCategory(factor.category?.label)}
         </Term>
       ) : (
         <span className="italic text-stone-500">{label}</span>
@@ -252,7 +253,7 @@ export function TagReviewCard({
             asLink={false}
             className="italic opacity-80"
           >
-            {tag.category?.label || ""}
+            {capitalizeCategory(tag.category?.label)}
           </Term>
           <MatchTypeChip matchType={tag.match_type} />
           <DebateBadgeChip badge={tag.badge} />

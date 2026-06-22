@@ -39,6 +39,7 @@ import { navigate, experimentRoute } from "@/routes";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { factorTarget } from "@/features/audit/targetIds";
 import { MODEL_TIERS, tierForProviderModel } from "@/lib/modelTiers";
+import { capitalizeCategory } from "@/lib/ontologyTerm";
 
 /**
  * v2 layout for the agent-proposal sidebar card.
@@ -1495,7 +1496,7 @@ export function ProposalCardV2({
                     aria-label={`include factor ${f.category.label}`}
                   />
                   <span className="font-medium text-slate-700">
-                    {f.category.label}
+                    {capitalizeCategory(f.category.label)}
                   </span>
                   <span className="text-slate-400 text-[10px]">
                     {f.factor_values.length} FV
@@ -1794,7 +1795,7 @@ export function ProposalCardV2({
                         }
                         aria-label={`include tag ${t.category.label}: ${t.value.label}`}
                       />
-                      <span className="text-slate-500">{t.category.label}:</span>
+                      <span className="text-slate-500">{capitalizeCategory(t.category.label)}:</span>
                       <Term uri={t.value.uri ?? null}>{t.value.label}</Term>
                       <BadgeChip badge={t.badge} />
                       {tagDecisions.map((d, di) => (

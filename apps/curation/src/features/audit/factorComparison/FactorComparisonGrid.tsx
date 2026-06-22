@@ -37,6 +37,7 @@ import {
   type ContinuousStripValue,
 } from "./ContinuousStrip";
 import { computeFvDiff } from "./fvDiff";
+import { capitalizeCategory } from "@/lib/ontologyTerm";
 
 /** One FV on either side of the comparison. ``Factor.factor_values``
  *  (gold) and ``FactorProposal.factor_values`` (agent) both satisfy
@@ -199,7 +200,7 @@ function CategoryChip({
   if (!label) {
     return <em className="text-slate-400">(no factor)</em>;
   }
-  return termRenderer({ label, uri: uri ?? null });
+  return termRenderer({ label: capitalizeCategory(label), uri: uri ?? null });
 }
 
 function FvCell({

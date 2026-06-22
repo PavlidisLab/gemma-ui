@@ -37,7 +37,7 @@
 import { cn } from "@/lib/cn";
 import { Term } from "@/components/ui/Term";
 import { FvDisplayRow, type FvTermRenderer } from "@gemma/ontology";
-import { sameOntologyTerm } from "@/lib/ontologyTerm";
+import { sameOntologyTerm, capitalizeCategory } from "@/lib/ontologyTerm";
 import type {
   AuditFinding,
   AuditReport,
@@ -403,7 +403,7 @@ export function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 flex-wrap">
         <span>Agent factor</span>
         <span className="font-mono text-slate-700 dark:text-slate-200 normal-case tracking-normal">
-          {agentFactor.category.label}
+          {capitalizeCategory(agentFactor.category.label)}
         </span>
         {agentFactor.factor_type ? (
           <span className="text-slate-400 dark:text-slate-500 normal-case tracking-normal">
@@ -427,7 +427,7 @@ export function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
               Gemma
             </span>
             <span className="font-mono text-slate-700 dark:text-slate-200">
-              {goldFactor.category.label}
+              {capitalizeCategory(goldFactor.category.label)}
             </span>
             {goldDistinguisher ? (
               <span className="text-slate-400 dark:text-slate-500 italic">
@@ -670,7 +670,7 @@ export function GoldFactorMissEmbed({ finding }: { finding: AuditFinding }) {
               agent
             </span>
             <span className="font-mono text-slate-700 dark:text-slate-200">
-              {pairedAgentFactor.category.label}
+              {capitalizeCategory(pairedAgentFactor.category.label)}
             </span>
           </span>
         ) : null}
@@ -883,7 +883,7 @@ export function FactorReplacementHint({
       {proposed.map((f, i) => (
         <span key={i}>
           {i > 0 ? ", " : ""}
-          <span className="font-mono">{f.category.label}</span>
+          <span className="font-mono">{capitalizeCategory(f.category.label)}</span>
           {f.factor_values?.length
             ? ` (${f.factor_values.length} value${f.factor_values.length === 1 ? "" : "s"})`
             : ""}

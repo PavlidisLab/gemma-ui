@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { validateDesign } from "@/features/experiment/types";
 import { PrePublishChecklist } from "./PrePublishChecklist";
+import { capitalizeCategory } from "@/lib/ontologyTerm";
 import type { Design, Factor } from "@/features/experiment/types";
 
 /**
@@ -126,7 +127,7 @@ function Body({
                     ) : null}
                   </td>
                   <td className="px-3 py-1.5 text-emerald-800">
-                    {s.factor.category.label || (
+                    {capitalizeCategory(s.factor.category.label) || (
                       <span className="italic text-slate-400">—</span>
                     )}
                   </td>
@@ -504,7 +505,7 @@ function ValidationSummary({
               )}
               {factor.category.label ? (
                 <span className="ml-1 text-amber-900/70 font-normal">
-                  · {factor.category.label}
+                  · {capitalizeCategory(factor.category.label)}
                 </span>
               ) : null}
             </div>

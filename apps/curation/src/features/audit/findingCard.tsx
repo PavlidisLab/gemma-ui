@@ -1133,6 +1133,10 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   async function handleApply(extras?: {
     acceptReason?: AcceptReason;
     notes?: string;
+    /** "Agree, needs work": run the mutating apply exactly as a
+     *  plain Agree, but record the accept as parked (resolved_at
+     *  null) so it stays in the follow-up queue. Paul 2026-06-21. */
+    needsWork?: boolean;
   }) {
     if (!action) return;
     if (action.mutates && action.mutate) {
@@ -1182,7 +1186,9 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
       } else {
         await patch("accepted", {
           appliedFix: action.appliedFix,
-          resolvedAt: new Date().toISOString(),
+          resolvedAt: extras?.needsWork
+            ? undefined
+            : new Date().toISOString(),
           acceptReason: extras?.acceptReason,
           notes: extras?.notes,
         });
@@ -1251,13 +1257,18 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
           report={report}
           design={draft}
           currentDisposition={current}
-          onSave={async (appliedFix, structureOk, detailsOk, notes) => {
+          onSave={async (appliedFix, structureOk, detailsOk, notes, opts) => {
             // Conventional mapping lives in `dispositionSave.ts` —
             // editor computes structure_ok / details_ok per
             // `verdictToStructureDetails(verdict, issue_code)`; here we
             // derive the headline status + a default dismiss_reason
             // for the "keep gold" one-click path.
             const status = deriveStatus(structureOk, detailsOk);
+            // "Agree, needs work": same apply, but record the accept
+            // as parked (resolved_at null) so the finding stays in the
+            // follow-up queue. Only meaningful on an accept — a
+            // dismiss/keep ignores resolved_at. Paul 2026-06-21.
+            const needsWork = !!opts?.needsWork && status === "accepted";
             // Structural-apply route: findings whose canonical fix is
             // adding or removing a factor (`calibration_factor_extra` =
             // add agent's factor; `calibration_factor_gold_only_miss` =
@@ -1343,7 +1354,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                   : undefined;
                 await patch("accepted", {
                   appliedFix: action.appliedFix,
-                  resolvedAt: new Date().toISOString(),
+                  resolvedAt: needsWork ? undefined : new Date().toISOString(),
                   acceptReason,
                   notes,
                 });
@@ -1351,7 +1362,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               return;
             }
             const resolvedAt =
-              status === "accepted"
+              status === "accepted" && !needsWork
                 ? new Date().toISOString()
                 : undefined;
             const derivedDismissReason = deriveDismissReason(
@@ -1433,6 +1444,10 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             clearAllProposalStateForExperiment(experimentId);
             notifyProposalStateReset(experimentId);
           }}
+          isParked={isParked}
+          onResolve={() =>
+            patch("accepted", { resolvedAt: new Date().toISOString() })
+          }
         />
       ) : (
         <div className="flex items-center gap-1 flex-wrap">
