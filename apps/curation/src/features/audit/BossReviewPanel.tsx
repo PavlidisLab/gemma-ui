@@ -39,6 +39,7 @@
  */
 import { useState } from "react";
 import type { BossCriticReview } from "@/api/auditTypes";
+import { HelpPopup } from "@/components/ui/HelpPopup";
 
 export interface BossReviewPanelProps {
   reviews: BossCriticReview[] | null | undefined;
@@ -187,27 +188,67 @@ function BossReviewPanelBody({
         (className ? ` ${className}` : "")
       }
     >
-      <button
-        type="button"
-        onClick={() => setPanelOpen((v) => !v)}
-        aria-expanded={panelOpen}
-        aria-label={
-          panelOpen ? "Collapse boss-critic review" : "Expand boss-critic review"
-        }
-        className="flex items-baseline gap-2 w-full text-left"
-      >
-        <span
-          className="text-[10px] leading-none text-slate-400 dark:text-slate-500 shrink-0"
-          aria-hidden
+      <div className="flex items-baseline gap-2">
+        <button
+          type="button"
+          onClick={() => setPanelOpen((v) => !v)}
+          aria-expanded={panelOpen}
+          aria-label={
+            panelOpen ? "Collapse boss-critic review" : "Expand boss-critic review"
+          }
+          className="flex items-baseline gap-2 text-left"
         >
-          {panelOpen ? "▾" : "▸"}
-        </span>
-        <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-700 dark:text-slate-200">
-          Boss-critic review
-        </span>
-        <span className="text-[10px] text-slate-500 dark:text-slate-400">
-          experiment-wide
-        </span>
+          <span
+            className="text-[10px] leading-none text-slate-400 dark:text-slate-500 shrink-0"
+            aria-hidden
+          >
+            {panelOpen ? "▾" : "▸"}
+          </span>
+          <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-700 dark:text-slate-200">
+            Boss-critic review
+          </span>
+          <span className="text-[10px] text-slate-500 dark:text-slate-400">
+            experiment-wide
+          </span>
+        </button>
+        <HelpPopup title="Boss-critic review" size="md">
+          <div className="space-y-1.5 leading-snug">
+            <p>
+              An experiment-wide critic pass: the boss reviews the whole
+              proposed curation (design, factors, tags) plus the
+              proposer's reasoning, and flags issues by severity. It sees
+              the full proposed curation for this experiment — not a
+              single finding.
+            </p>
+            <ul className="space-y-1">
+              <li>
+                <span className="font-semibold text-red-700 dark:text-red-300">
+                  Blocker
+                </span>{" "}
+                — serious enough to block acceptance; resolve it before
+                you accept the curation.
+              </li>
+              <li>
+                <span className="font-semibold text-amber-700 dark:text-amber-300">
+                  Advisory
+                </span>{" "}
+                — a non-blocking note; worth considering, but it doesn't
+                gate acceptance.
+              </li>
+              <li>
+                <span className="font-semibold">Escalation</span> — a
+                round-1 blocker the proposer never re-evaluated (no
+                resolution signal). Treat it as an unresolved escalation
+                — your call.
+              </li>
+            </ul>
+            <p className="text-slate-500 dark:text-slate-400">
+              "Round 1 only" means the proposer didn't re-evaluate after
+              the boss flagged, so its blockers / escalations are still
+              open.
+            </p>
+          </div>
+        </HelpPopup>
         <div className="ml-auto flex items-baseline gap-1">
           {SEVERITY_ORDER.map((s) =>
             counts[s] ? (
@@ -223,7 +264,7 @@ function BossReviewPanelBody({
             ) : null,
           )}
         </div>
-      </button>
+      </div>
       {panelOpen ? (
        <>
       {onlyOneRound && hasUrgent ? (
