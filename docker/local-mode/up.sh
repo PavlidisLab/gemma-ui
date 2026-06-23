@@ -51,6 +51,23 @@ if [ -z "${GEMMA_CURATION_API_KEY:-}" ]; then
         || export GEMMA_CURATION_API_KEY="dev-token-123"
 fi
 
+# Read-side Gemma host for the proposer + local-api live fetches.
+# Keychain is authoritative (matches the agents repo convention); if
+# no entry and nothing pre-set, the compose defaults apply.
+if [ -z "${GEMMA_BASE_URL:-}" ]; then
+    keychain_export GEMMA_BASE_URL "GEMMA_BASE_URL" "gemma-base-url" || true
+fi
+
+# Browser UI (apps/browser) proxies /rest to its own backend var.
+# Default it to whatever GEMMA_BASE_URL resolved to so the browser
+# follows the same Gemma as the rest of the stack; the compose
+# default (host.docker.internal:8080) only applies when neither is
+# set. Override GEMMA_BROWSER_BACKEND to point the browser elsewhere.
+if [ -z "${GEMMA_BROWSER_BACKEND:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
+    export GEMMA_BROWSER_BACKEND="$GEMMA_BASE_URL"
+    echo "[up] GEMMA_BROWSER_BACKEND ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
+fi
+
 # Optional Zotero (biolit fetcher).
 if [ "${GEMMA_AGENTS_USE_ZOTERO:-}" = "1" ] \
    || [ "${GEMMA_AGENTS_USE_ZOTERO:-}" = "true" ] \
