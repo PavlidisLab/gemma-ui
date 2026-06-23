@@ -386,9 +386,24 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
       const params = reviewer
         ? `?reviewer=${encodeURIComponent(reviewer)}`
         : "";
+      // Belt-and-suspenders: the URL id is the route; re-stamp the body
+      // so ``experiment_id`` can never diverge from the path. Without
+      // this a mis-seeded buffer (cross-experiment leak,
+      // UIB_HANDOFF_2026-06-23) would PUT body.experiment_id=38401 to
+      // /datasets/91654/design and bounce on the backend path≠body
+      // guard. The route wins here regardless of how the draft was
+      // built. Idempotent when they already agree.
+      const routeEid =
+        typeof experimentId === "number"
+          ? experimentId
+          : Number.parseInt(String(experimentId), 10);
+      const body = normaliseDesignForSave(design);
+      const stamped = Number.isFinite(routeEid)
+        ? { ...body, experiment_id: routeEid }
+        : body;
       const server = await api.put<Design>(
         `/rest/v2/datasets/${experimentId}/design${params}`,
-        normaliseDesignForSave(design),
+        stamped,
       );
       // Server doesn't persist statement.category — fill it from the
       // parent factor on the way back so the cache + DesignDraftContext

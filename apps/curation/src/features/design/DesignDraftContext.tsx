@@ -86,9 +86,18 @@ function readCachedDraft(experimentId: number | string): CachedDraft | null {
     // write the previous experiment's draft under the new key. The
     // baselineHash check on rehydrate doesn't catch it (the hash is
     // of the *new* saved at write-time, not of the draft).
+    //
+    // Coerce both sides to String before comparing:
+    // ``parsed.draft.experiment_id`` is a NUMBER, ``experimentId`` is
+    // the route STRING (``route.id`` from ``routes.ts:87``), so a bare
+    // ``!==`` was always true — it discarded *every* cached draft for
+    // every experiment, silently killing resume-mid-edit AND never
+    // actually running the cross-experiment guard the comment
+    // describes (UIB_HANDOFF_2026-06-23). Mirrors the String() compare
+    // the audit-focus handler already does at ``App.tsx:469``.
     if (
       parsed.draft.experiment_id != null &&
-      parsed.draft.experiment_id !== experimentId
+      String(parsed.draft.experiment_id) !== String(experimentId)
     ) {
       window.localStorage.removeItem(DRAFT_KEY_PREFIX + experimentId);
       return null;
@@ -276,22 +285,49 @@ export function DesignDraftProvider({
     [baselineSource, curations],
   );
 
+  // The routed experiment id, coerced to a number once. The route is
+  // the single authority for which experiment we're editing
+  // (UIB_HANDOFF_2026-06-23).
+  const routeEidNumeric = useMemo(
+    () =>
+      typeof experimentId === "number"
+        ? experimentId
+        : Number.parseInt(String(experimentId), 10),
+    [experimentId],
+  );
+
   const savedFromBaseline = useMemo<Design | null>(() => {
     if (!baselineCuration) return null;
     const d = baselineCuration.design as unknown as Design | undefined;
     if (!d || typeof d !== "object") return null;
-    // The /curations response is auto-snakeified by the API
-    // client, so the shape lines up with the Design type already.
-    // Inject experiment_id when the row's design payload omits
-    // it (older agent-proposal payloads sometimes do).
-    const eidNumeric = typeof experimentId === "number"
-      ? experimentId
-      : Number.parseInt(String(experimentId), 10);
+    // The /curations response is auto-snakeified by the API client,
+    // so the shape lines up with the Design type already.
+    //
+    // The ROUTE is authoritative for experiment_id. A baseline payload
+    // that carries a *different* experiment_id is a cross-experiment
+    // buffer leak (UIB_HANDOFF_2026-06-23: editing GSE253365/91654 saw
+    // GSE248901/38401 sticking onto the buffer because the old `??`
+    // kept the foreign payload id and only fell back to the route).
+    // Stamp the routed id unconditionally; the only thing the payload's
+    // own id is good for is detecting+logging the mismatch.
+    const routeEid = Number.isFinite(routeEidNumeric) ? routeEidNumeric : null;
+    if (
+      routeEid != null &&
+      d.experiment_id != null &&
+      d.experiment_id !== routeEid
+    ) {
+      console.warn(
+        `[DesignDraft] baseline payload experiment_id=${d.experiment_id} ` +
+          `≠ route experiment_id=${routeEid}; stamping route id ` +
+          `(baselineSource=${baselineSource ?? "?"}, ` +
+          `source_kind=${baselineCuration.source_kind ?? "?"}).`,
+      );
+    }
     return {
       ...d,
-      experiment_id: d.experiment_id ?? (Number.isFinite(eidNumeric) ? eidNumeric : (d as Design).experiment_id),
+      experiment_id: routeEid ?? (d as Design).experiment_id,
     };
-  }, [baselineCuration, experimentId]);
+  }, [baselineCuration, baselineSource, routeEidNumeric]);
 
   // Editable baseline kinds — the chip targets a curation row whose
   // payload is, by convention, a snapshot of the local /design at
@@ -341,6 +377,15 @@ export function DesignDraftProvider({
 
   const [draft, setDraft] = useState<Design | null>(null);
   const [staleCacheDiscarded, setStaleCacheDiscarded] = useState(false);
+  // Set when the server-saved Design we were about to seed the buffer
+  // with belongs to a *different* experiment than the route. We refuse
+  // to seed in that case rather than silently let the curator edit the
+  // wrong dataset (UIB_HANDOFF_2026-06-23). Surfaced through
+  // ``loadError`` so the page shows an error instead of an editable
+  // foreign design.
+  const [seedMismatchError, setSeedMismatchError] = useState<string | null>(
+    null,
+  );
   // Undo / redo stacks for the design draft. Snapshot-based:
   // every ``apply()`` pushes the *prior* draft onto undoStack and
   // clears redoStack (so a fresh edit invalidates any redo branch).
@@ -370,6 +415,27 @@ export function DesignDraftProvider({
   // can tell the user.
   useEffect(() => {
     if (!saved) return;
+    // Route-vs-buffer seed assertion. The route is authoritative; if
+    // the server-saved Design resolves to a different experiment than
+    // the one we're routed to, refuse to seed the editing buffer and
+    // surface the mismatch. Without this the curator silently edits
+    // (and tries to commit) the wrong dataset — the leak the backend
+    // put_design guard caught at the very last moment
+    // (UIB_HANDOFF_2026-06-23). Only a concrete, differing id trips it;
+    // a null/absent payload id is tolerated (older payloads omit it).
+    if (
+      Number.isFinite(routeEidNumeric) &&
+      saved.experiment_id != null &&
+      saved.experiment_id !== routeEidNumeric
+    ) {
+      setSeedMismatchError(
+        `Refusing to edit: the loaded design is for experiment ` +
+          `${saved.experiment_id} but this page is experiment ` +
+          `${routeEidNumeric}. Reload the page to recover.`,
+      );
+      return;
+    }
+    if (seedMismatchError) setSeedMismatchError(null);
     if (draft === null) {
       const cached = readCachedDraft(experimentId);
       const currentHash = hashDesign(saved);
@@ -589,7 +655,7 @@ export function DesignDraftProvider({
     saving: updater.isPending,
     saveError: updater.isError ? (updater.error as Error).message : null,
     isLoading,
-    loadError: error ? (error as Error).message : null,
+    loadError: seedMismatchError ?? (error ? (error as Error).message : null),
     staleCacheDiscarded,
     usingBaseline,
     baselineSourceKind: baselineCuration?.source_kind ?? null,
