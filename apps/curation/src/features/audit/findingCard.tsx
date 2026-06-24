@@ -670,9 +670,13 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   </span>
                 );
               })()}
-              {cardOpen ? null : (
-                <FindingShortRationale finding={finding} />
-              )}
+              {/* The one-line "why" caption stays beside the title in
+                  BOTH states — collapsed and expanded. Paul 2026-06-23:
+                  the title's explanation / summary should persist as an
+                  anchor when the card is open, not vanish. The body's
+                  full "Why proposed" section is the long form; this is
+                  the always-visible gist. */}
+              <FindingShortRationale finding={finding} />
               <PairedFindingBadge finding={finding} />
               <ConsequentsBadges finding={finding} />
               <ProposerFlagsChips flags={finding.proposer_flags} />
@@ -709,9 +713,9 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                     </Term>
                   </>
                 ) : null}
-                {cardOpen ? null : (
-                  <FindingShortRationale finding={finding} />
-                )}
+                {/* Caption persists when open too — see the
+                    matching note in the editor-branch title row. */}
+                <FindingShortRationale finding={finding} />
                 <span className="ml-auto inline-flex items-baseline gap-1">
                   <IssueCodeBadge issueCode={finding.issue_code} />
                   <DebateBadgeChip
