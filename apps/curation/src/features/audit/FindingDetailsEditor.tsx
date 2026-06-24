@@ -75,6 +75,7 @@ import type {
 } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
 import {
+  factorProposalFromApplyAction,
   isCloseFactorMatch,
   isExactFactorMatch,
   isNearMatchFinding,
@@ -334,7 +335,9 @@ export function buildFactorRows(
 ): BuildResult {
   const cp = report?.evidence?.comparison_proposal ?? null;
   const labelHint = firstBacktick(finding.rationale);
-  const agent = resolveAgentFactor(finding, cp, labelHint);
+  const agent =
+    factorProposalFromApplyAction(finding) ??
+    resolveAgentFactor(finding, cp, labelHint);
   if (!agent) return { rows: [], fvMeta: new Map() };
   // ``_factor_extra`` is by definition agent-only — the builder
   // already decided there's no gold counterpart, so the UI must
@@ -768,7 +771,9 @@ export function findingHasStructuredContent(
   if (finding.target_kind === "factor") {
     const cp = report?.evidence?.comparison_proposal ?? null;
     const labelHint = firstBacktick(finding.rationale);
-    const agent = resolveAgentFactor(finding, cp, labelHint);
+    const agent =
+      factorProposalFromApplyAction(finding) ??
+      resolveAgentFactor(finding, cp, labelHint);
     if (agent) return true;
     const gold = resolveGoldFactor(finding, design?.factors ?? [], labelHint);
     return !!gold;
@@ -1723,7 +1728,14 @@ export function FindingDetailsEditor({
   if (isFactorExtraFinding) {
     const cp = report?.evidence?.comparison_proposal ?? null;
     const labelHint = firstBacktick(finding.rationale);
-    const agentFactor = resolveAgentFactor(finding, cp, labelHint);
+    // Prefer the finding's own add-factor payload so multi-same-
+    // category panels (GSE225864 ``genotype``: A152T / KO / P301S)
+    // render each card's true FVs instead of collapsing onto the
+    // first ``genotype`` factor via the label fallback. See
+    // factorProposalFromApplyAction.
+    const agentFactor =
+      factorProposalFromApplyAction(finding) ??
+      resolveAgentFactor(finding, cp, labelHint);
     const categoryLabel =
       agentFactor?.category?.label || labelHint || "";
     const categoryUri = agentFactor?.category?.uri ?? null;

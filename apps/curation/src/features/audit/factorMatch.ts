@@ -183,6 +183,49 @@ export function resolveAgentFactor(
   );
 }
 
+/** Resolve the agent ``FactorProposal`` for an *add-factor* finding
+ *  (``calibration_factor_extra`` / ``factor_proposed_new``) from the
+ *  finding's OWN ``apply_action.new_factor_payload`` — the
+ *  authoritative description of what an "Agree (add)" creates.
+ *
+ *  Preferred over ``resolveAgentFactor`` for add-factor cards. The
+ *  latter re-resolves against ``comparison_proposal`` and, on audits
+ *  that predate ``agent_target_index`` (null index), falls through to
+ *  a category-label match — which silently returns the FIRST factor
+ *  of that category. When a design has several same-category factors
+ *  (e.g. GSE225864/50518's multi-allele ``genotype`` panel: A152T /
+ *  KO / P301S), every add-factor card then resolves to the same first
+ *  factor, so they all *render* — and, via the apply path, *add* —
+ *  the wrong factor's FVs. The per-finding payload carries the right
+ *  FVs regardless of the index, so prefer it. The wire fix
+ *  (``agent_target_index`` stamping) closes this for fresh runs; this
+ *  helper hardens the display + apply path for any audit, including
+ *  replays of older ones.
+ *
+ *  The API client deep-snakeifies every response, so the camelCase
+ *  ``new_factor_payload`` already matches the ``FactorProposal`` shape
+ *  by the time it reaches the React tree. Returns ``null`` when the
+ *  finding carries no add-factor payload (non-add findings, or older
+ *  payloads that omit it) — callers fall back to
+ *  ``resolveAgentFactor``. */
+export function factorProposalFromApplyAction(
+  finding: Pick<AuditFinding, "apply_action">,
+): FactorProposal | null {
+  const action = finding.apply_action;
+  if (!action || typeof action !== "object") return null;
+  if ((action as { kind?: unknown }).kind !== "add_factor") return null;
+  const payload = (action as { new_factor_payload?: unknown })
+    .new_factor_payload;
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Partial<FactorProposal>;
+  // Minimal shape guard: a category (with a label) + an FV array.
+  // Anything missing these isn't safe to render/apply as a factor —
+  // fall back to the comparison-proposal resolver.
+  if (!p.category || typeof p.category.label !== "string") return null;
+  if (!Array.isArray(p.factor_values)) return null;
+  return p as FactorProposal;
+}
+
 /** Resolve the gold ``Factor`` the builder paired with this finding.
  *
  *  Priority order:

@@ -41,6 +41,7 @@ import { isProtectedTagCategory } from "@/features/experiment/types";
 import type { FactorProposal } from "@/api/types";
 import {
   computeFvCorrespondence,
+  factorProposalFromApplyAction,
   isCloseFactorMatch,
   isExactFactorMatch,
   pickGoldFactor,
@@ -810,7 +811,16 @@ function resolveFactorCalibrationApply(
     // so older audits without agent_target_index still resolve.
     const labelHint =
       finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
-    const proposal = resolveAgentFactor(finding, cp, labelHint);
+    // Prefer the finding's OWN add-factor payload — it carries the
+    // correct FVs regardless of agent_target_index. Falling back to
+    // the comparison-proposal resolver only when the payload is
+    // absent (older audits) avoids the multi-same-category collapse
+    // (GSE225864 ``genotype`` panel: KO/P301S Agree would otherwise
+    // ADD the first ``genotype`` factor, A152T). See
+    // factorProposalFromApplyAction.
+    const proposal =
+      factorProposalFromApplyAction(finding) ??
+      resolveAgentFactor(finding, cp, labelHint);
     if (!proposal) return null;
     // Idempotency: if an existing factor already covers this exact
     // partition + carries the same FV labels, the add would be a
