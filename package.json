@@ -8,6 +8,9 @@
     "apps/*",
     "packages/*"
   ],
+  "engines": {
+    "node": ">=20.12.0"
+  },
   "scripts": {
     "dev:curation": "npm --workspace gemma-curation-ui run dev",
     "dev:browser": "npm --workspace gembrow run dev",
