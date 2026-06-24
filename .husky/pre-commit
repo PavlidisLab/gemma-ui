@@ -13,7 +13,8 @@
 # next commit re-runs all of it). When the gate fires a false
 # positive, fix the test rather than the bypass — see the test
 # files' headers for the contract each one pins.
-set -euo pipefail
+# Husky runs this with `sh`, and Linux `/bin/sh` doesn't have `pipefail`.
+set -eu
 
 cd apps/curation
 
