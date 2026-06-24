@@ -26,7 +26,6 @@ export function AppBar() {
         to="/"
         className="flex items-center gap-2 font-semibold text-stone-900 hover:no-underline"
       >
-        <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
         <img
           src={gemmaLogoText}
           alt="Gemma"
