@@ -5,6 +5,7 @@ import { gemmaUrl } from "@/lib/gemmaConfig";
 import { curationUrl } from "@/lib/appLinks";
 import { LoginModal } from "./LoginModal";
 import { SearchBox } from "./SearchBox";
+import gemmaLogoText from "@/assets/images/logo/gemma-logo-text.png";
 
 export function AppBar() {
   const me = useMe();
@@ -26,7 +27,12 @@ export function AppBar() {
         className="flex items-center gap-2 font-semibold text-stone-900 hover:no-underline"
       >
         <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
-        <span>Gemma</span>
+        <img
+          src={gemmaLogoText}
+          alt="Gemma"
+          style={{ height: 30 }}
+          className="block w-auto"
+        />
       </Link>
 
       <nav className="flex items-center gap-1 ml-4">

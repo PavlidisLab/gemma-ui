@@ -24,6 +24,8 @@ import { useMe, useLogout } from "@/api/auth";
 import { getDatasetAnnotations } from "@/api/endpoints";
 import { LoginModal } from "@/features/shared/LoginModal";
 import { SearchBox } from "@/features/shared/SearchBox";
+import gemmaLogoText from "@/assets/images/logo/gemma-logo-text.png";
+import ubcLogo from "@/assets/images/logo/ubc-logo.png";
 import {
   useGemmaSummary,
   fmtCount,
@@ -802,25 +804,25 @@ function Masthead() {
 
   return (
     <div className="border-b border-stone-950 bg-stone-100">
-      <div className="px-6 py-3 flex items-center gap-6 flex-wrap">
+      <div className="flex items-end gap-6 flex-wrap">
         {/* Brand mark — left */}
-        <div className="flex items-baseline gap-3">
-          <span className="text-5xl leading-none font-bold tracking-tight">
-            GEMMA
-          </span>
+        <div className="flex items-end gap-3">
+          <img
+            src={gemmaLogoText}
+            alt="GEMMA"
+            style={{ height: 60 }}
+            className="block w-auto"
+          />
           <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600">
-            Curated · re-analyzed
+            Database of curated and re-analyzed gene expression studies
           </span>
         </div>
 
-        {/* Visual element placeholder — middle. Stays unobtrusive
-            until design swaps in something deliberate. */}
-        <div className="flex-1 flex justify-center min-w-0">
-          <VisualPlaceholder />
-        </div>
+        {/* Spacer — pushes the auth controls to the right. */}
+        <div className="flex-1 min-w-0" />
 
         {/* Right side — quick About link + auth. */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-end gap-4">
           <Link
             to="/about"
             className="text-xs text-stone-600 hover:text-stone-900 hover:no-underline"
@@ -851,64 +853,22 @@ function Masthead() {
               Sign in
             </button>
           )}
+          <a
+            href="https://www.ubc.ca/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img
+              src={ubcLogo}
+              alt="University of British Columbia"
+              style={{ height: 40 }}
+              className="block w-auto"
+            />
+          </a>
         </div>
       </div>
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </div>
-  );
-}
-
-/** Decorative grid placeholder for the masthead's middle slot.
- *  Six-by-three dots in the accent palette (orange / blue /
- *  emerald — the same three the GENERAL_INFO columns use). A
- *  faint hint of "annotation grid" without being a real chart.
- *  Swap in the real visual element when design ships it. */
-function VisualPlaceholder() {
-  const cols = 12;
-  const rows = 3;
-  // Stable deterministic pattern so the dots don't reshuffle on
-  // re-render. Cycle through three colours by index.
-  const COLOURS = ["#f97316", "#2563eb", "#10b981"]; // orange-500 / blue-700 / emerald-600
-  const cells: { x: number; y: number; c: string; opacity: number }[] = [];
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      // Pseudo-random hash: skip ~40% of cells to break the grid
-      // into a sparse, lacelike pattern.
-      const h = (x * 31 + y * 17) % 100;
-      if (h < 40) continue;
-      cells.push({
-        x,
-        y,
-        c: COLOURS[(x + y) % COLOURS.length]!,
-        opacity: 0.45 + ((h - 40) / 60) * 0.55,
-      });
-    }
-  }
-  const cellW = 10;
-  const cellH = 10;
-  const dotR = 2.2;
-  const w = cols * cellW;
-  const h = rows * cellH;
-  return (
-    <svg
-      viewBox={`0 0 ${w} ${h}`}
-      width={w * 1.8}
-      height={h * 1.8}
-      aria-hidden="true"
-      className="shrink-0 select-none"
-      style={{ maxWidth: "100%" }}
-    >
-      {cells.map((cell) => (
-        <circle
-          key={`${cell.x}-${cell.y}`}
-          cx={cell.x * cellW + cellW / 2}
-          cy={cell.y * cellH + cellH / 2}
-          r={dotR}
-          fill={cell.c}
-          opacity={cell.opacity}
-        />
-      ))}
-    </svg>
   );
 }
 
