@@ -41,6 +41,8 @@ const PICKER_MODE_LS_KEY = "gemma-visualize-picker-mode";
 const RECENT_SYMBOL_QUERIES_LS_KEY = "gemma-visualize-recent-symbol-queries";
 const RECENT_GO_TERMS_LS_KEY = "gemma-visualize-recent-go-terms";
 const RECENT_CAP = 8;
+// Row count for the preview when nothing is selected.
+const RANDOM_SAMPLE_SIZE = 20;
 
 type PickerMode = "symbol" | "go";
 
@@ -109,7 +111,11 @@ export function VisualizeTab({ dataset }: { dataset: Dataset }) {
     (dataset.taxon?.id != null ? String(dataset.taxon.id) : undefined);
 
   // ── selected genes — client-only state, URL-hash + localStorage backed.
-  const [selected, setSelected] = useGeneSelection(datasetId);
+  // ``selectionHydrated`` flips true once the first-paint restore from
+  // hash/localStorage has settled — the heatmap waits for it before
+  // deciding whether to fall back to a random-gene preview, so a
+  // direct visit to ``#genes=…`` doesn't flash a random heatmap first.
+  const [selected, setSelected, selectionHydrated] = useGeneSelection(datasetId);
   const [origins, setOrigins] = useGeneOrigins(datasetId);
   const [mode, setModeState] = useState<PickerMode>(readStickyPickerMode);
   // Search query shared across modes so toggling symbol↔GO doesn't
@@ -222,6 +228,7 @@ export function VisualizeTab({ dataset }: { dataset: Dataset }) {
           datasetId={datasetId}
           genes={selected}
           origins={origins}
+          selectionHydrated={selectionHydrated}
         />
       </div>
     </div>
@@ -830,29 +837,33 @@ function HeatmapPanel({
   datasetId,
   genes,
   origins,
+  selectionHydrated,
 }: {
   datasetId: number;
   genes: Gene[];
   origins: Record<number, GeneOrigin>;
+  selectionHydrated: boolean;
 }) {
   const geneIds = useMemo(() => genes.map((g) => g.id), [genes]);
+  // if nothing is selected use random genes
+  const isSample = geneIds.length === 0;
   const wireQuery = useQuery({
-    queryKey: ["heatmap-data", datasetId, geneIds.join(",")],
+    queryKey: isSample
+      ? ["heatmap-data-sample", datasetId, RANDOM_SAMPLE_SIZE]
+      : ["heatmap-data", datasetId, geneIds.join(",")],
     queryFn: ({ signal }) =>
-      getHeatmapData(datasetId, { genes: geneIds }, signal),
-    enabled: geneIds.length > 0,
+      getHeatmapData(
+        datasetId,
+        isSample ? { sampleSize: RANDOM_SAMPLE_SIZE } : { genes: geneIds },
+        signal,
+      ),
+    // Wait for the selection restore to settle before firing — avoids a
+    // throwaway random-sample fetch on a direct ``#genes=…`` visit.
+    enabled: selectionHydrated,
     staleTime: 60_000,
   });
 
-  if (genes.length === 0) {
-    return (
-      <div className="bg-white border border-slate-200 rounded px-6 py-10 text-center text-sm text-slate-500">
-        Search and add genes above to render the heatmap.
-      </div>
-    );
-  }
-
-  if (wireQuery.isLoading) {
+  if (!selectionHydrated || wireQuery.isLoading || wireQuery.isPending) {
     return (
       <div className="bg-white border border-slate-200 rounded px-6 py-10 text-center text-sm text-slate-500">
         loading expression matrix…
@@ -863,9 +874,11 @@ function HeatmapPanel({
   if (!wire || !wire.rows || wire.rows.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded px-6 py-10 text-center text-sm text-slate-500">
-        No expression data returned for the selected genes on this dataset.
-        Either the platform doesn't carry probes for these genes, or the
-        backend ACL is filtering them.
+        {isSample
+          ? "No expression data available to preview for this dataset."
+          : `No expression data returned for the selected genes on this dataset.
+             Either the platform doesn't carry probes for these genes, or the
+             backend ACL is filtering them.`}
       </div>
     );
   }
@@ -912,12 +925,21 @@ function HeatmapPanel({
     );
   };
   return (
-    <div className="bg-slate-50 border border-slate-200 rounded p-2">
-      <HeatmapWidget
-        payload={payload}
-        rowLabelGutterWidth={260}
-        rowLabelTooltip={rowLabelTooltip}
-      />
+    <div className="space-y-2">
+      {isSample ? (
+        <p className="text-[11px] text-slate-500 px-1">
+          Showing a random sample of {wire.rows.length}{" "}
+          {wire.rows.length === 1 ? "gene" : "genes"} from this dataset.
+          Search and add genes on the left to build your own set.
+        </p>
+      ) : null}
+      <div className="bg-slate-50 border border-slate-200 rounded p-2">
+        <HeatmapWidget
+          payload={payload}
+          rowLabelGutterWidth={260}
+          rowLabelTooltip={rowLabelTooltip}
+        />
+      </div>
     </div>
   );
 }
@@ -1021,46 +1043,68 @@ function adaptHeatmapWire(
  * Hold the selected gene list for this dataset's Visualize tab.
  *
  *   - Persists to ``window.location.hash`` as ``#genes=ID,ID,ID``
- *     so the URL is shareable (refresh / copy-paste restores).
+ *     (NCBI gene ids — see ``shareIdOf``) so the URL is shareable
+ *     (refresh / copy-paste restores).
  *   - Mirrors to ``localStorage`` keyed by datasetId so a same-
  *     browser revisit restores the last selection even without
  *     the hash.
  *   - Rehydrates Gene metadata (symbol / name) from the cache
  *     populated by the search query; uncached ids fall back to
- *     a per-id fetch.
+ *     a per-id fetch via ``resolveGeneIds`` (unresolvable ids are
+ *     kept as placeholders, never dropped).
  */
 function useGeneSelection(datasetId: number): [
   Gene[],
   (updater: (cur: Gene[]) => Gene[]) => void,
+  boolean,
 ] {
   const qc = useQueryClient();
   const lsKey = `${LS_PREFIX}${datasetId}`;
   const initRan = useRef(false);
   const [selected, setSelectedState] = useState<Gene[]>([]);
+  // ``hydrated`` = the first-paint restore has settled. Seed it true
+  // when there's nothing to restore, so the common no-selection case
+  // (fresh visit / tab click) renders the random preview immediately
+  // without a "restoring" flash. When there ARE ids to restore it
+  // starts false and the async resolve below flips it.
+  const [hydrated, setHydrated] = useState(() => {
+    const ids = readGeneIdsFromHash() ?? readGeneIdsFromStorage(lsKey);
+    return !ids || ids.length === 0;
+  });
 
   // First-paint hydrate: URL hash wins, then localStorage.
   useEffect(() => {
     if (initRan.current) return;
     initRan.current = true;
     const ids = readGeneIdsFromHash() ?? readGeneIdsFromStorage(lsKey);
-    if (!ids || ids.length === 0) return;
+    if (!ids || ids.length === 0) {
+      setHydrated(true);
+      return;
+    }
     void resolveGeneIds(ids, qc).then((genes) => {
       setSelectedState(genes);
+      setHydrated(true);
     });
   }, [lsKey, qc]);
 
-  // Persist on change.
+  // Persist on change — but only once hydration has settled. Gating on
+  // ``hydrated`` (state), not ``initRan`` (ref): the init effect flips
+  // the ref synchronously while ``selected`` is still empty and the
+  // async restore is in flight, so a ref-gated persist would write an
+  // empty list straight back over a ``#genes=…`` hash and clobber it.
+  // ``hydrated`` only flips true after the restore completes.
   useEffect(() => {
-    if (!initRan.current) return;
-    writeGeneIdsToHash(selected.map((g) => g.id));
-    writeGeneIdsToStorage(lsKey, selected.map((g) => g.id));
-  }, [selected, lsKey]);
+    if (!hydrated) return;
+    const shareIds = selected.map(shareIdOf);
+    writeGeneIdsToHash(shareIds);
+    writeGeneIdsToStorage(lsKey, shareIds);
+  }, [selected, lsKey, hydrated]);
 
   const setSelected = (updater: (cur: Gene[]) => Gene[]) => {
     setSelectedState((cur) => updater(cur));
   };
 
-  return [selected, setSelected];
+  return [selected, setSelected, hydrated];
 }
 
 /**
@@ -1189,6 +1233,24 @@ function RecentRow({
   );
 }
 
+/** The identifier we persist to the URL hash / localStorage for a gene.
+ *
+ *  We store the **NCBI gene id**, not Gemma's internal gene id, because
+ *  the two endpoints disagree on which they accept:
+ *    - ``/genes/{id}`` (metadata rehydrate) resolves by NCBI id only —
+ *      the internal id returns an empty list.
+ *    - ``/datasets/{id}/heatmap-data?genes=…`` wants the internal id.
+ *  Persisting the NCBI id is what makes a shared/cold-loaded link
+ *  rehydrate: ``/genes/{ncbiId}`` returns the full Gene (carrying the
+ *  internal ``id`` the heatmap then uses). It's also the more stable,
+ *  cross-instance identifier for a shareable URL. Genes with no NCBI id
+ *  fall back to the internal id — they won't cold-rehydrate metadata,
+ *  but the heatmap still renders (the internal id round-trips), so the
+ *  selection is never lost. */
+function shareIdOf(g: Gene): number {
+  return g.ncbiId ?? g.id;
+}
+
 function readGeneIdsFromHash(): number[] | null {
   if (typeof window === "undefined") return null;
   const hash = window.location.hash.replace(/^#/, "");
@@ -1240,44 +1302,61 @@ function writeGeneIdsToStorage(key: string, ids: number[]): void {
   }
 }
 
-/** Resolve a list of gene ids to full Gene records — checks the
- *  TanStack cache first (populated by typeahead queries), then
- *  falls back to a per-id fetch via /genes/{id}. */
+/** Resolve a list of persisted share-ids (see ``shareIdOf`` — NCBI ids,
+ *  or internal ids for the rare gene lacking one) to full Gene records.
+ *  Checks the TanStack cache first (populated by typeahead queries),
+ *  then falls back to a per-id fetch via ``/genes/{ncbiId}``.
+ *
+ *  Crucially, an id that can't be resolved is NOT dropped — it's kept as
+ *  a minimal ``{ id }`` placeholder. Dropping it would let the persist
+ *  effect write the shrunken list straight back over the URL hash and
+ *  silently lose the shared selection (and the placeholder's id still
+ *  drives the heatmap fetch, which renders symbols from its own
+ *  response). */
 async function resolveGeneIds(
-  ids: number[],
+  shareIds: number[],
   qc: ReturnType<typeof useQueryClient>,
 ): Promise<Gene[]> {
   const out: Gene[] = [];
+  // Key cached genes by BOTH internal id and ncbiId so a share-id (which
+  // is normally the ncbiId) finds its cached Gene on a warm tab-switch.
   const cached = new Map<number, Gene>();
+  const index = (g: Gene) => {
+    cached.set(g.id, g);
+    if (g.ncbiId != null) cached.set(g.ncbiId, g);
+  };
   // Sweep cached gene-search AND go-term-genes results for matches —
   // GO-picked genes need to rehydrate too, not just symbol-picked ones.
   const cache = qc.getQueryCache();
   for (const entry of cache.findAll({ queryKey: ["gene-search"] })) {
     const data = entry.state.data as Gene[] | undefined;
     if (!data) continue;
-    for (const g of data) cached.set(g.id, g);
+    for (const g of data) index(g);
   }
   for (const entry of cache.findAll({ queryKey: ["go-term-genes"] })) {
     const data = entry.state.data as { data?: Gene[] } | undefined;
     const list = data?.data;
     if (!list) continue;
-    for (const g of list) cached.set(g.id, g);
+    for (const g of list) index(g);
   }
-  for (const id of ids) {
-    const hit = cached.get(id);
+  for (const shareId of shareIds) {
+    const hit = cached.get(shareId);
     if (hit) {
       out.push(hit);
       continue;
     }
-    // Fall back to a single-id fetch. Skip on error so we don't
-    // block the whole restore on one missing gene.
+    // Fall back to a single-id fetch (``/genes/{ncbiId}``). Keep a
+    // placeholder on empty/error so the selection survives a cold load.
+    let resolved: Gene | undefined;
     try {
-      const r = await fetch(`/rest/v2/genes/${id}`).then((res) => res.json());
-      const g: Gene | undefined = r?.data?.[0];
-      if (g) out.push(g);
+      const r = await fetch(`/rest/v2/genes/${shareId}`).then((res) =>
+        res.json(),
+      );
+      resolved = r?.data?.[0] as Gene | undefined;
     } catch {
-      /* ignore */
+      /* network error — fall through to placeholder */
     }
+    out.push(resolved ?? { id: shareId });
   }
   return out;
 }
