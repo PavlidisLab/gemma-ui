@@ -47,18 +47,20 @@ import type {
 type TabId =
   | "overview"
   | "design"
+  | "diffex"
   | "samples"
   | "expression"
   | "visualize"
   | "downloads";
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: "overview",   label: "Overview"    },
-  { id: "design",     label: "Design"      },
-  { id: "samples",    label: "Samples"     },
-  { id: "expression", label: "Expression"  },
-  { id: "visualize",  label: "Visualize"   },
-  { id: "downloads",  label: "Downloads"   },
+  { id: "overview",   label: "Overview"               },
+  { id: "design",     label: "Design"                 },
+  { id: "diffex",     label: "Differential Expression" },
+  { id: "samples",    label: "Samples"                },
+  { id: "expression", label: "Diagnostics"            },
+  { id: "visualize",  label: "Expression"              },
+  { id: "downloads",  label: "Downloads"              },
 ];
 
 function isTabId(s: unknown): s is TabId {
@@ -95,6 +97,7 @@ export function DatasetPage() {
       <div className="mx-auto w-full max-w-[1200px] px-6 py-6 space-y-6">
         {activeTab === "overview"   && <OverviewTab   dataset={dataset} />}
         {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "diffex"     && <DifferentialExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
         {activeTab === "expression" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} />}
@@ -825,34 +828,39 @@ function FlagChip({ label, color }: { label: string; color: "red" | "amber" }) {
   );
 }
 
-// ─── Expression tab ───────────────────────────────────────────────────────────
+// ─── Differential Expression tab ──────────────────────────────────────────────
 
-function ExpressionTab({ datasetId }: { datasetId: number }) {
+function DifferentialExpressionTab({ datasetId }: { datasetId: number }) {
   const analyses = useQuery({
     queryKey: ["datasetDiffEx", datasetId],
     queryFn: ({ signal }) => getDatasetDiffExAnalyses(datasetId, signal),
   });
 
   return (
-    <>
-      <SectionCard title="Differential expression analyses"
-        subtitle={analyses.isLoading ? "loading…" : `${(analyses.data ?? []).length} analys${(analyses.data ?? []).length === 1 ? "is" : "es"}`}>
-        {analyses.isLoading ? <LoadingRow /> :
-         analyses.isError   ? <ErrorRow /> :
-         !analyses.data?.length ? <Empty msg="no differential expression analyses" /> : (
-          <DiffExAnalysesList analyses={analyses.data} datasetId={datasetId} />
-        )}
-      </SectionCard>
-      {/* Diagnostics — replaces the old standalone PCA scree.
-          Four panels (Sample correlation · PCA scree · PC × factor ·
-          Mean-variance) mirror the curation app's Diagnostics tab. */}
-      <SectionCard
-        title="Diagnostics"
-        subtitle="Sample correlation · PCA scree · PC × factor · mean-variance"
-      >
-        <DiagnosticsRow datasetId={datasetId} />
-      </SectionCard>
-    </>
+    <SectionCard title="Differential expression analyses"
+      subtitle={analyses.isLoading ? "loading…" : `${(analyses.data ?? []).length} analys${(analyses.data ?? []).length === 1 ? "is" : "es"}`}>
+      {analyses.isLoading ? <LoadingRow /> :
+       analyses.isError   ? <ErrorRow /> :
+       !analyses.data?.length ? <Empty msg="no differential expression analyses" /> : (
+        <DiffExAnalysesList analyses={analyses.data} datasetId={datasetId} />
+      )}
+    </SectionCard>
+  );
+}
+
+// ─── Diagnostics tab ──────────────────────────────────────────────────────────
+
+function ExpressionTab({ datasetId }: { datasetId: number }) {
+  return (
+    /* Diagnostics — replaces the old standalone PCA scree.
+       Four panels (Sample correlation · PCA scree · PC × factor ·
+       Mean-variance) mirror the curation app's Diagnostics tab. */
+    <SectionCard
+      title="Diagnostics"
+      subtitle="Sample correlation · PCA scree · PC × factor · mean-variance"
+    >
+      <DiagnosticsRow datasetId={datasetId} />
+    </SectionCard>
   );
 }
 
