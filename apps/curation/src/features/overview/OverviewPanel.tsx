@@ -1418,13 +1418,27 @@ function TagBar({
   // artifact. The UI re-synthesises locally so the downstream dedup
   // (FV-synth wins over direct EE tags for the same category) keeps
   // working without any further changes here.
+  // Categories the curator explicitly removed in this draft (saved-vs-
+  // draft, straight off the diff). The biomaterial augmenter must not
+  // re-synthesize a chip for these — see B3 note in augmentInferred.ts.
+  const removedTagCategories = useMemo(
+    () =>
+      new Set(
+        diff.tags.removed.map((t) => (t.category.label || "").toLowerCase()),
+      ),
+    [diff.tags.removed],
+  );
   const augmentedTags = useMemo(
     () =>
       augmentInferredFromFactors(
-        augmentInferredFromBiomaterials(tags, biomaterials),
+        augmentInferredFromBiomaterials(
+          tags,
+          biomaterials,
+          removedTagCategories,
+        ),
         draft?.factors ?? [],
       ),
-    [tags, biomaterials, draft?.factors],
+    [tags, biomaterials, draft?.factors, removedTagCategories],
   );
 
   // Drop block / batch tags here — they're nuisance variables

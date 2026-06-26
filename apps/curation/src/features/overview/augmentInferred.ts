@@ -23,6 +23,15 @@ import type { Biomaterial, Tag } from "@/features/experiment/types";
 export function augmentInferredFromBiomaterials(
   tags: Tag[],
   biomaterials: Biomaterial[],
+  /** Lowercased category labels the curator has explicitly removed in
+   *  the current draft. We never re-synthesize a biomaterial-derived
+   *  chip for these — otherwise dropping a direct ``cell type:
+   *  fibroblast`` tag (GSE161828, UIB_HANDOFF_2026_06_25 B3) just makes
+   *  an inferred ``cell type`` chip reappear from the untouched
+   *  biomaterial characteristics, duplicating what the curator removed.
+   *  Curator intent wins over the auto-projection. Defaults to empty so
+   *  non-draft callers (and the read-only overview) are unaffected. */
+  removedCategories: ReadonlySet<string> = new Set<string>(),
 ): Tag[] {
   const valuesByCat = new Map<string, Set<string>>();
   const catLabels = new Map<string, string>();
@@ -65,6 +74,9 @@ export function augmentInferredFromBiomaterials(
   let nextSynthId = -1;
   for (const [catKey, valSet] of valuesByCat.entries()) {
     if (directCats.has(catKey)) continue;
+    // The curator removed this category's tag — don't resurrect it as
+    // a biomaterial-derived synth chip (B3).
+    if (removedCategories.has(catKey)) continue;
     const sortedValues = Array.from(valSet).sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
