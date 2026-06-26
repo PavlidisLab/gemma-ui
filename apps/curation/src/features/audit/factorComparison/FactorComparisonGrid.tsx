@@ -37,6 +37,7 @@ import {
   type ContinuousStripValue,
 } from "./ContinuousStrip";
 import { computeFvDiff } from "./fvDiff";
+import { categoriesDiffer } from "./categoryDiff";
 import { capitalizeCategory } from "@/lib/ontologyTerm";
 
 /** One FV on either side of the comparison. ``Factor.factor_values``
@@ -192,15 +193,19 @@ function CategoryChip({
   label,
   uri,
   termRenderer,
+  diff,
 }: {
   label: string | null;
   uri: string | null;
   termRenderer: FvTermRenderer;
+  /** When true the two sides' categories disagree — render the chip
+   *  with the amber diff palette, same as a differing FV chip. */
+  diff?: boolean;
 }) {
   if (!label) {
     return <em className="text-slate-400">(no factor)</em>;
   }
-  return termRenderer({ label: capitalizeCategory(label), uri: uri ?? null });
+  return termRenderer({ label: capitalizeCategory(label), uri: uri ?? null, diff });
 }
 
 function FvCell({
@@ -250,6 +255,14 @@ export function FactorComparisonGrid({
   // both surfaces — moving it into the grid means we have one
   // canonical "factor identity row" rather than two slightly-
   // different inline implementations.
+  // Flag a category mismatch between the two sides (e.g. near-match
+  // ``disease`` vs ``disease model``) so the header chips tone amber
+  // like a differing FV chip, rather than reading as two unrelated
+  // green chips.
+  const categoryDiff = categoriesDiffer(
+    leftHeader.category,
+    rightHeader.category,
+  );
   const header = (
     <div
       className="grid items-baseline gap-x-2 py-1 px-1.5 rounded bg-slate-50/60 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 text-[11px]"
@@ -280,6 +293,7 @@ export function FactorComparisonGrid({
           label={leftHeader.category?.label ?? null}
           uri={leftHeader.category?.uri ?? null}
           termRenderer={termRenderer}
+          diff={categoryDiff}
         />
       </span>
       <span />
@@ -294,6 +308,7 @@ export function FactorComparisonGrid({
           label={rightHeader.category?.label ?? null}
           uri={rightHeader.category?.uri ?? null}
           termRenderer={termRenderer}
+          diff={categoryDiff}
         />
       </span>
       <span />
