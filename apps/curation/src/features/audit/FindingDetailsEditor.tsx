@@ -2046,17 +2046,22 @@ export function FindingDetailsEditor({
             </span>
           </div>
 
-          {/* Per-FV rows for the gold side — each FV on its own line
-              via the shared FvDisplayRow renderer (Subj · Pred · Obj
-              head, indented sublines for any statements[1:]). */}
+          {/* Per-FV cards for the gold side — one card per factor
+              value, matching the per-FV cell the comparison grid uses
+              (FactorComparisonGrid), so a removal card reads the same
+              as a comparison card instead of a flat run of rows that
+              jumble together for multi-statement / combined-treatment
+              FVs. Each card still renders via the shared FvDisplayRow
+              (Subj · Pred · Obj head + indented sublines). */}
           {removalFvList && removalFvList.length > 0 ? (
             <div className="pl-3 space-y-1.5">
               {removalFvList.map((fv) => (
-                <FvDisplayRow
+                <div
                   key={fv.id}
-                  fv={fv}
-                  termRenderer={termRenderer}
-                />
+                  className="rounded border border-slate-200 bg-slate-50/60 px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900/40"
+                >
+                  <FvDisplayRow fv={fv} termRenderer={termRenderer} />
+                </div>
               ))}
             </div>
           ) : null}
