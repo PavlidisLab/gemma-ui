@@ -28,11 +28,11 @@ import { InlineText } from "@/components/ui/InlineText";
  * The factor *name* is the exception: the per-measurement FVs aren't
  * meaningfully renameable (each is one sample's reading), but the
  * factor itself must be renameable here, not only via the left-hand
- * FactorList table. Cyan 2026-06-25: "I can't change the [name] of
- * some of them" — she was looking at this panel, where the name was
- * static. ``onNameChange`` wires the same inline editor the
- * FactorList row uses; when omitted (or in review mode, which
- * ``InlineText`` self-gates), the name renders read-only.
+ * FactorList table — a curator looking at this panel couldn't find a
+ * way to rename the factor, because the name was static here.
+ * ``onNameChange`` wires the same inline editor the FactorList row
+ * uses; when omitted (or in review mode, which ``InlineText``
+ * self-gates), the name renders read-only.
  */
 export function ContinuousFactorView({
   factor,

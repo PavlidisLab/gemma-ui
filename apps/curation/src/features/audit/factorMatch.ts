@@ -236,7 +236,7 @@ export function factorProposalFromApplyAction(
  *  ``null`` whenever that proposal is absent or ``agent_target_index``
  *  doesn't resolve — common on a replayed *static* calibration batch.
  *  Agree then stamps the disposition but never mutates the draft, so
- *  nothing visibly happens (Cyan: GSE35206 / GSE248901 / GSE249362 /
+ *  nothing visibly happens (GSE35206 / GSE248901 / GSE249362 /
  *  GSE252873). The ``rename`` payload, by contrast, ships ON the
  *  finding and is independent of ``comparison_proposal`` — so it lets
  *  the near-match apply work on any audit. Analogous to

@@ -671,11 +671,11 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 );
               })()}
               {/* The one-line "why" caption stays beside the title in
-                  BOTH states — collapsed and expanded. Paul 2026-06-23:
-                  the title's explanation / summary should persist as an
-                  anchor when the card is open, not vanish. The body's
-                  full "Why proposed" section is the long form; this is
-                  the always-visible gist. */}
+                  BOTH states — collapsed and expanded. The title's
+                  explanation / summary should persist as an anchor when
+                  the card is open, not vanish. The body's full "Why
+                  proposed" section is the long form; this is the
+                  always-visible gist. */}
               <FindingShortRationale finding={finding} />
               <PairedFindingBadge finding={finding} />
               <ConsequentsBadges finding={finding} />
