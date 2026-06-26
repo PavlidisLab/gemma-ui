@@ -42,6 +42,7 @@ import type { FactorProposal } from "@/api/types";
 import {
   computeFvCorrespondence,
   factorProposalFromApplyAction,
+  factorProposalFromRename,
   isCloseFactorMatch,
   isExactFactorMatch,
   pickGoldFactor,
@@ -1153,7 +1154,17 @@ function resolveNearMatchApply(
     finding.rename?.agent.category.label ??
     finding.rationale?.match(/`([^`]+)`/)?.[1] ??
     null;
-  const proposal = resolveAgentFactor(finding, cp, labelHint);
+  // Prefer the comparison-proposal resolution when it lands; fall back
+  // to the finding's own rename payload when it doesn't. On a replayed
+  // static calibration batch ``comparison_proposal`` is often absent,
+  // so ``resolveAgentFactor`` returns null and Agree was silently inert
+  // (UIB_HANDOFF_2026_06_25 B1). ``factorProposalFromRename`` rebuilds
+  // the proposal from ``finding.rename`` — which ships on the finding —
+  // so the apply mutates regardless. Path 1 of replaceFactorWithProposal
+  // then uses finding.rename.fv_pairs for the FV relabels.
+  const proposal =
+    resolveAgentFactor(finding, cp, labelHint) ??
+    factorProposalFromRename(finding);
   if (!proposal) return null;
   // Aligned gold factor — index-first via gold_target_index (agents-
   // repo 3868a09); slug + biomaterial-overlap fallback for older

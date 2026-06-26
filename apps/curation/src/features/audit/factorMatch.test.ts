@@ -4,6 +4,7 @@ import type { FactorProposal, OntologyTerm, Proposal } from "@/api/types";
 import {
   factorMatchVariant,
   factorProposalFromApplyAction,
+  factorProposalFromRename,
   isCloseFactorMatch,
   isExactFactorMatch,
   isFactorMatchCode,
@@ -364,6 +365,74 @@ describe("factorProposalFromApplyAction", () => {
             kind: "add_factor",
             new_factor_payload: { name_in_design: "genotype" },
           } as unknown as AuditFinding["apply_action"],
+        }),
+      ),
+    ).toBe(null);
+  });
+});
+
+describe("factorProposalFromRename", () => {
+  const renamePayload = (
+    agentCat: string,
+    goldCat: string,
+    fvPairs: { agent: string; gold: string; equivalence?: string }[],
+  ): FactorRenamePayload => ({
+    agent: { category: term(agentCat) },
+    gold: { category: term(goldCat) },
+    fv_pairs: fvPairs.map((p) => ({
+      agent: term(p.agent),
+      gold: term(p.gold),
+      equivalence: p.equivalence ?? "synonym",
+    })),
+    direction: "agent_correct",
+  });
+
+  it("synthesizes a proposal from the rename payload (the inert-near-match fix, B1)", () => {
+    // This is the case that was inert: comparison_proposal absent on a
+    // replayed static batch, so resolveAgentFactor → null. The rename
+    // payload ships on the finding and must drive the apply.
+    const f = finding({
+      issue_code: "calibration_factor_match_near",
+      rename: renamePayload("treatment", "treatment", [
+        { agent: "LPS", gold: "lipopolysaccharide" },
+        { agent: "vehicle", gold: "control" },
+      ]),
+    });
+    const p = factorProposalFromRename(f);
+    expect(p?.category.label).toBe("treatment");
+    expect(p?.name_in_design).toBe("treatment");
+    // FVs carry the AGENT label (what Agree adopts) with the gold side
+    // as gemma_ref so the idempotency check can pair + detect drift.
+    expect(p?.factor_values.map((fv) => fv.free_text_label)).toEqual([
+      "LPS",
+      "vehicle",
+    ]);
+    expect(p?.factor_values[0].gemma_ref?.label).toBe("lipopolysaccharide");
+    expect(p?.factor_values[0].match_type).toBe("close");
+  });
+
+  it("marks a pair exact when agent and gold labels coincide (idempotency-safe)", () => {
+    const f = finding({
+      rename: renamePayload("sex", "sex", [{ agent: "male", gold: "male" }]),
+    });
+    const p = factorProposalFromRename(f);
+    expect(p?.factor_values[0].match_type).toBe("exact");
+  });
+
+  it("returns null when there is no rename payload (callers fall back to resolveAgentFactor)", () => {
+    expect(factorProposalFromRename(finding({}))).toBe(null);
+  });
+
+  it("returns null when the rename payload has no agent category label", () => {
+    expect(
+      factorProposalFromRename(
+        finding({
+          rename: {
+            agent: { category: term("") },
+            gold: { category: term("treatment") },
+            fv_pairs: [],
+            direction: "agent_correct",
+          } as FactorRenamePayload,
         }),
       ),
     ).toBe(null);

@@ -226,6 +226,65 @@ export function factorProposalFromApplyAction(
   return p as FactorProposal;
 }
 
+/** Synthesize the agent ``FactorProposal`` for a factor *near-match /
+ *  rename* finding from the finding's OWN ``rename`` payload — the
+ *  authoritative (agent ↔ gold) pairing the builder committed.
+ *
+ *  Why this exists (UIB_HANDOFF_2026_06_25, item B1): near-match Agree
+ *  routes through ``resolveNearMatchApply`` → ``resolveAgentFactor``,
+ *  which re-resolves against ``comparison_proposal`` and returns
+ *  ``null`` whenever that proposal is absent or ``agent_target_index``
+ *  doesn't resolve — common on a replayed *static* calibration batch.
+ *  Agree then stamps the disposition but never mutates the draft, so
+ *  nothing visibly happens (Cyan: GSE35206 / GSE248901 / GSE249362 /
+ *  GSE252873). The ``rename`` payload, by contrast, ships ON the
+ *  finding and is independent of ``comparison_proposal`` — so it lets
+ *  the near-match apply work on any audit. Analogous to
+ *  ``factorProposalFromApplyAction`` for the add-factor branch.
+ *
+ *  ``replaceFactorWithProposal`` Path 1 uses only ``category`` +
+ *  ``name_in_design`` from the returned proposal (the FV relabels come
+ *  from ``finding.rename.fv_pairs`` directly). We still populate
+ *  ``factor_values`` from each pair's *agent* side — carrying the
+ *  *gold* side as ``gemma_ref`` — so the idempotency check
+ *  (``computeFvCorrespondence``) can pair agent↔gold and detect drift
+ *  without a comparison proposal. Synthesizing the gold-ref this way
+ *  makes ``hasDrift`` err toward ``true`` (a harmless re-apply) rather
+ *  than a false "Already applied" that would re-introduce the inert
+ *  bug. Returns ``null`` when the finding carries no usable rename
+ *  payload — callers fall back to ``resolveAgentFactor``. */
+export function factorProposalFromRename(
+  finding: Pick<AuditFinding, "rename">,
+): FactorProposal | null {
+  const rename = finding.rename;
+  if (!rename || typeof rename !== "object") return null;
+  const cat = rename.agent?.category;
+  if (!cat || typeof cat.label !== "string" || !cat.label.trim()) return null;
+  const pairs = Array.isArray(rename.fv_pairs) ? rename.fv_pairs : [];
+  const factor_values: FactorValueProposal[] = pairs
+    .filter((p) => p.agent?.label)
+    .map((p) => ({
+      free_text_label: p.agent.label,
+      is_baseline: false,
+      statements: [],
+      biomaterial_short_names: p.agent_biomaterial_short_names ?? [],
+      gemma_ref: p.gold?.label
+        ? { label: p.gold.label, uri: p.gold.uri ?? "" }
+        : null,
+      match_type:
+        p.agent.label === p.gold?.label || p.equivalence === "exact"
+          ? "exact"
+          : "close",
+    }));
+  return {
+    // ``cat`` is already an ``OntologyTerm`` (FactorRef.category) —
+    // spread it so resolver/score survive; just normalise the uri.
+    category: { ...cat, uri: cat.uri ?? null },
+    name_in_design: cat.label,
+    factor_values,
+  };
+}
+
 /** Resolve the gold ``Factor`` the builder paired with this finding.
  *
  *  Priority order:
