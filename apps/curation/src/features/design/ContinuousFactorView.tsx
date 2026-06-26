@@ -1,4 +1,5 @@
 import type { Factor } from "@/features/experiment/types";
+import { InlineText } from "@/components/ui/InlineText";
 
 /**
  * Read-side view for a continuous factor. Continuous factors carry
@@ -23,8 +24,23 @@ import type { Factor } from "@/features/experiment/types";
  * tab, where the per-sample characteristic is the real source of
  * truth. The Design tab's job for continuous factors is overview +
  * sanity-check, not bulk editing.
+ *
+ * The factor *name* is the exception: the per-measurement FVs aren't
+ * meaningfully renameable (each is one sample's reading), but the
+ * factor itself must be renameable here, not only via the left-hand
+ * FactorList table. Cyan 2026-06-25: "I can't change the [name] of
+ * some of them" — she was looking at this panel, where the name was
+ * static. ``onNameChange`` wires the same inline editor the
+ * FactorList row uses; when omitted (or in review mode, which
+ * ``InlineText`` self-gates), the name renders read-only.
  */
-export function ContinuousFactorView({ factor }: { factor: Factor }) {
+export function ContinuousFactorView({
+  factor,
+  onNameChange,
+}: {
+  factor: Factor;
+  onNameChange?: (name: string) => void;
+}) {
   // One measurement per FV (we promote BM characteristics 1:1 in
   // ``addContinuousFactorFromCharacteristic``). Prefer ``numeric_value``
   // (the canonical scalar populated by the agents-side continuous-
@@ -71,9 +87,18 @@ export function ContinuousFactorView({ factor }: { factor: Factor }) {
       <div className="flex items-baseline gap-3 px-3 py-2 border-b border-slate-200 flex-wrap">
         <span className="section-h">
           Continuous factor:{" "}
-          <span className="text-slate-900 normal-case font-semibold">
-            {factor.name}
-          </span>
+          {onNameChange ? (
+            <InlineText
+              value={factor.name}
+              placeholder="factor name"
+              onCommit={onNameChange}
+              className="text-slate-900 normal-case font-semibold"
+            />
+          ) : (
+            <span className="text-slate-900 normal-case font-semibold">
+              {factor.name}
+            </span>
+          )}
         </span>
         <span className="text-xs text-slate-400">
           {factor.factor_values.length} measurement

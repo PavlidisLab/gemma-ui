@@ -397,7 +397,12 @@ export function DesignEditor({
         // measurements lives on the Sample tab via the per-BM
         // characteristic.
         selectedFactor.type === "continuous" ? (
-          <ContinuousFactorView factor={selectedFactor} />
+          <ContinuousFactorView
+            factor={selectedFactor}
+            onNameChange={(name) =>
+              apply(setFactorFields(draft, selectedFactor.id, { name }))
+            }
+          />
         ) : (
           <>
             <FactorValueList
