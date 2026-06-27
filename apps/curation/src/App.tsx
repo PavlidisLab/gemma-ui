@@ -23,7 +23,6 @@ import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
 import { ChipStrip } from "@/features/comparison/ChipStrip";
 import { useChipState } from "@/features/comparison/useChipState";
-import { useChipDesignPair } from "@/features/comparison/useChipDiff";
 import { FlowProvider, useIsReadOnly } from "@/features/comparison/FlowContext";
 import { ChipOverrideMount } from "@/features/comparison/ChipOverrideMount";
 import { useTicket } from "@/api/tickets";
@@ -1002,16 +1001,6 @@ function MainGrid({
     }
     prevComparatorRef.current = chipForSidebar.comparator;
   }, [chipForSidebar.comparator]);
-  // Baseline source's Design — fed into the Design tab in review
-  // mode so the curator sees the source they chose, not the live
-  // editable draft. ``null`` while loading or when baseline=empty;
-  // the DesignEditor falls back to the live draft in that case.
-  const chipPair = useChipDesignPair(
-    experimentId,
-    chipForSidebar.baseline,
-    chipForSidebar.comparator,
-  );
-  const chipBaselineDesign = chipPair.baseline;
   // Sidebar width. Default 320 = Tailwind's old ``lg:w-80``. Curators
   // who want more room for the v2 ProposalCard's verify-N or edit
   // affordances drag the left edge wider; persists via localStorage.
@@ -1105,30 +1094,13 @@ function MainGrid({
         <div className="flex-1 min-w-0">
         <section className="space-y-4">
         {activeTab === "overview" ? (
-          // displayOverride routes the tab to render against the chip
-          // baseline (e.g. polished:cy snapshot) instead of the live
-          // editable draft. Fires only when the baseline is something
-          // OTHER than ``preboard`` — preboard IS the live draft, so
-          // overlaying it would just lock editing for no reason. Per
-          // Paul 2026-06-02 ("I would like this holdout 50 to be
-          // finalized" — the curator needs the design tab editable
-          // when baseline = consensus polished gold = preboard).
-          chipForSidebar.baseline !== "empty"
-          && chipForSidebar.baseline !== "preboard" ? (
-            <OverviewPanel displayOverride={chipBaselineDesign} />
-          ) : (
-            <OverviewPanel />
-          )
+          // The tab always renders the live editable draft so accepted
+          // edits show. A chip baseline is the draft's seed (carried in
+          // ``DesignDraftContext``) and surfaces as amber diffs — there
+          // is no frozen-snapshot view to swap in.
+          <OverviewPanel />
         ) : activeTab === "design" ? (
-          <DesignEditor
-            experimentId={experimentId}
-            displayOverride={
-              chipForSidebar.baseline !== "empty"
-              && chipForSidebar.baseline !== "preboard"
-                ? chipBaselineDesign
-                : null
-            }
-          />
+          <DesignEditor experimentId={experimentId} />
         ) : activeTab === "samples" ? (
           <SampleDetailsPanel experimentId={experimentId} />
         ) : activeTab === "qc" ? (

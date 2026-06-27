@@ -52,7 +52,6 @@ import {
 } from "@/lib/guidelines";
 import type {
   Biomaterial,
-  Design,
   Factor,
   OntologyTerm,
   Publication,
@@ -77,26 +76,16 @@ import {
  * here so the curator has somewhere to read the abstract before
  * digging into the design.
  */
-export function OverviewPanel({
-  displayOverride,
-}: {
-  /** When provided, the panel renders against this Design (a chip
-   *  source's snapshot) instead of the live editable draft. Used by
-   *  the curation comparison view's chip strip in review mode — the
-   *  curator wants to see what cy/am/preboard ACTUALLY has, not the
-   *  uncommitted draft. Caller must also be in review mode (the
-   *  panel doesn't disable its own edit affordances; the fieldset
-   *  wrapper at the call site handles that). */
-  displayOverride?: Design | null;
-} = {}) {
+export function OverviewPanel() {
   const live = useDesignDraft();
   const apply = live.apply;
   const isLoading = live.isLoading;
   const loadError = live.loadError;
-  // ``draft`` here is the DISPLAYED design; mutations still target
-  // the live draft via ``apply`` (gated by the call-site fieldset in
-  // review mode).
-  const draft = displayOverride ?? live.draft;
+  // The panel always renders the live editable draft so accepted
+  // edits are visible. (A chip baseline is carried as the draft's
+  // seed in ``DesignDraftContext``, and diffs surface in amber —
+  // there's no separate frozen-snapshot view to swap in.)
+  const draft = live.draft;
 
   // Audit "Apply & focus" handler. Tag chips and the experiment
   // header carry data-audit-target attributes that this listener

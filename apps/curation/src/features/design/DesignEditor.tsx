@@ -51,28 +51,20 @@ import type {
  */
 export function DesignEditor({
   experimentId,
-  displayOverride,
 }: {
   experimentId: number | string;
-  /** When provided AND non-null, the tab renders against this Design
-   *  instead of the live editable draft. Used by the curation
-   *  comparison view's chip strip: in review mode with a baseline
-   *  chip set, the curator wants to LOOK at that source's state,
-   *  not the locked draft. ``readOnly`` should always be true when
-   *  this is non-null (caller's responsibility). */
-  displayOverride?: Design | null;
 }) {
   const live = useDesignDraft();
-  const liveDraft = live.draft;
   const saved = live.saved;
   const diff = live.diff;
   const apply = live.apply;
   const isLoading = live.isLoading;
   const loadError = live.loadError;
-  // ``draft`` below is what the tab RENDERS against. Mutations
-  // continue to target the live draft via ``apply`` (gated by the
-  // fieldset disabled in review mode).
-  const draft = displayOverride ?? liveDraft;
+  // The tab always renders the live editable draft so accepted edits
+  // are visible. A chip baseline is carried as the draft's seed in
+  // ``DesignDraftContext`` (and surfaces as amber diffs) — there's no
+  // separate frozen-snapshot view to swap in.
+  const draft = live.draft;
 
   // Persist the selected factor per-experiment-per-tab-session so
   // switching to another tab and back doesn't reset the selection to
