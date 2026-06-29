@@ -58,13 +58,14 @@ export default defineConfig(({ mode }) => {
   // hit Gemma's ontology indexes. The local Gemma 2.0 stack
   // doesn't carry the full OBO / EFO / MONDO / UBERON / CL / CHEBI
   // corpora in memory, so the typeahead comes back near-empty
-  // against it. Until local ontology coverage matches staging,
-  // route these two paths to ``GEMMA_ONTOLOGY_URL`` (default
-  // staging-gemma); everything else stays on ``CURATION_URL``.
-  // Drop this exception when local-stack ontology coverage lands
-  // — see ``lib/gemmaMode.ts`` for the matching UI indicator.
+  // against it. Route these two paths to ``GEMMA_ONTOLOGY_URL``
+  // (default frink, the valid source); everything else stays on
+  // ``CURATION_URL``. staging-gemma is NOT valid — its
+  // /annotations/search is gene-blind (only MP phenotype terms;
+  // missed the IL7 gene on GSE137893). Drop this exception when the
+  // local-stack ontology coverage lands — see ``lib/gemmaMode.ts``.
   const ONTOLOGY_URL =
-    env.GEMMA_ONTOLOGY_URL || "https://staging-gemma.msl.ubc.ca";
+    env.GEMMA_ONTOLOGY_URL || "http://frink.msl.ubc.ca:8080";
    
   console.log(`[curation] /rest → ${CURATION_URL} (local_api default)`);
    

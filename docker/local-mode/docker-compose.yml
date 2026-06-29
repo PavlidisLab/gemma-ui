@@ -133,6 +133,11 @@ services:
       # Diagnostics-only upstream — used for the routing exceptions in
       # vite.config.ts. Override via GEMMA_REST_URL.
       GEMMA_REST_URL: ${GEMMA_REST_URL:-http://host.docker.internal:8080}
+      # Ontology-search source (/rest/v2/annotations/search). Must be a
+      # gene-aware, category-tagged Gemma — frink. staging-gemma is NOT
+      # valid (gene-blind: returns only MP phenotype, missed IL7 on
+      # GSE137893). Override via GEMMA_ONTOLOGY_URL.
+      GEMMA_ONTOLOGY_URL: ${GEMMA_ONTOLOGY_URL:-http://frink.msl.ubc.ca:8080}
       # Explicit local_api passthrough for hooks that need to bypass
       # a gemma-rest routing exception (e.g. audit-trail fallback).
       # Defaults to the same target as GEMMA_CURATION_URL.
