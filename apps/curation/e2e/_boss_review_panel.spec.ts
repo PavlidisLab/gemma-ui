@@ -25,8 +25,14 @@ test.describe("BossReviewPanel — experiment-level boss-critic surface @critica
     await page.setViewportSize({ width: 1600, height: 1400 });
     await page.goto(TARGET);
     await page.waitForSelector("#root > *", { state: "attached" });
-    // Give the audit sidebar a beat to render.
-    await page.waitForTimeout(4500);
+    // Wait for the boss panel to ACTUALLY render rather than a fixed sleep.
+    // The audit sidebar loads async; under parallel @critical load a fixed
+    // 4.5s beat loses the race (the data is correct — this was pure timing
+    // flakiness). Anchoring on the panel header makes the spec reproducible.
+    await page
+      .getByText(/boss-critic review/i)
+      .first()
+      .waitFor({ state: "visible", timeout: 30000 });
   });
 
   test("renders a single panel header reading 'Boss-critic review · experiment-wide'", async ({

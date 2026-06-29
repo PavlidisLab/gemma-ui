@@ -77,9 +77,12 @@ export interface GemmaModeInfo {
 
 const DEFAULT_LOCAL_BASE = "http://localhost:8095";
 /** Default ontology host for the routing-split exception. Mirrors
- *  the Vite proxy's ``GEMMA_ONTOLOGY_URL`` default. Temporary —
- *  drops when local Gemma 2.0 ontology coverage matches staging. */
-const DEFAULT_ONTOLOGY_BASE = "https://staging-gemma.msl.ubc.ca";
+ *  the Vite proxy's ``GEMMA_ONTOLOGY_URL`` default. frink is the valid
+ *  source: its ``/annotations/search`` is gene-aware + category-tagged.
+ *  staging-gemma is NOT valid — its ``/annotations/search`` is gene-blind
+ *  (returns only MP phenotype terms; e.g. missed the IL7 gene on
+ *  GSE137893). Override with VITE_GEMMA_ONTOLOGY_URL / runtime config. */
+const DEFAULT_ONTOLOGY_BASE = "http://frink.msl.ubc.ca:8080";
 
 /** Hosts considered "prod Gemma". Anything else with `gemma.msl.ubc.ca`
  *  in the host (e.g. ``staging-gemma.msl.ubc.ca``) is staging. */

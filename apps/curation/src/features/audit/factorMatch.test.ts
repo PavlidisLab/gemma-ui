@@ -3,6 +3,8 @@ import type { AuditFinding } from "@/api/auditTypes";
 import type { FactorProposal, OntologyTerm, Proposal } from "@/api/types";
 import {
   factorMatchVariant,
+  factorProposalFromApplyAction,
+  factorProposalFromRename,
   isCloseFactorMatch,
   isExactFactorMatch,
   isFactorMatchCode,
@@ -291,6 +293,147 @@ describe("resolveAgentFactor", () => {
         { agent_target_index: 0 },
         proposalWithFactors([]),
         "x",
+      ),
+    ).toBe(null);
+  });
+});
+
+describe("factorProposalFromApplyAction", () => {
+  /** add_factor payload as it reaches the React tree — the client
+   *  deep-snakeifies the camelCase wire payload, so keys are snake. */
+  const addFactor = (categoryLabel: string, fvLabel: string, baseN: number) =>
+    finding({
+      issue_code: "calibration_factor_extra",
+      rationale: `Add factor \`${categoryLabel}\`?`,
+      apply_action: {
+        kind: "add_factor",
+        new_category: categoryLabel,
+        fv_labels: [fvLabel, `no ${fvLabel}`],
+        new_factor_payload: {
+          category: term(categoryLabel),
+          name_in_design: categoryLabel,
+          factor_type: "categorical",
+          factor_values: [
+            { free_text_label: fvLabel, is_baseline: false, statements: [], biomaterial_short_names: [] },
+            { free_text_label: `no ${fvLabel}`, is_baseline: true, statements: [], biomaterial_short_names: new Array(baseN).fill("GSM") },
+          ],
+        },
+      } as unknown as AuditFinding["apply_action"],
+    });
+
+  it("returns the finding's OWN add-factor payload (not a comparison-proposal lookup)", () => {
+    const f = addFactor("genotype", "KO", 10);
+    const p = factorProposalFromApplyAction(f);
+    expect(p?.category.label).toBe("genotype");
+    expect(p?.factor_values.map((fv) => fv.free_text_label)).toEqual([
+      "KO",
+      "no KO",
+    ]);
+  });
+
+  it("GSE225864: each multi-allele genotype card resolves to ITS OWN FVs even though agent_target_index is null and three genotype factors share the category", () => {
+    // The bug: resolveAgentFactor's label fallback would return the
+    // first ``genotype`` factor (A152T) for BOTH of these. The payload
+    // path keeps them distinct.
+    const ko = factorProposalFromApplyAction(addFactor("genotype", "KO", 10));
+    const p301s = factorProposalFromApplyAction(
+      addFactor("genotype", "P301S", 11),
+    );
+    expect(ko?.factor_values[0].free_text_label).toBe("KO");
+    expect(p301s?.factor_values[0].free_text_label).toBe("P301S");
+    expect(ko?.factor_values[0].free_text_label).not.toBe(
+      p301s?.factor_values[0].free_text_label,
+    );
+  });
+
+  it("returns null for non-add findings (no apply_action, or a different kind) so callers fall back to resolveAgentFactor", () => {
+    expect(factorProposalFromApplyAction(finding({}))).toBe(null);
+    expect(
+      factorProposalFromApplyAction(
+        finding({
+          apply_action: { kind: "add_tag", new_category: "x", new_value: "y" },
+        }),
+      ),
+    ).toBe(null);
+  });
+
+  it("returns null when the payload is malformed (missing category or factor_values)", () => {
+    expect(
+      factorProposalFromApplyAction(
+        finding({
+          apply_action: {
+            kind: "add_factor",
+            new_factor_payload: { name_in_design: "genotype" },
+          } as unknown as AuditFinding["apply_action"],
+        }),
+      ),
+    ).toBe(null);
+  });
+});
+
+describe("factorProposalFromRename", () => {
+  const renamePayload = (
+    agentCat: string,
+    goldCat: string,
+    fvPairs: { agent: string; gold: string; equivalence?: string }[],
+  ): FactorRenamePayload => ({
+    agent: { category: term(agentCat) },
+    gold: { category: term(goldCat) },
+    fv_pairs: fvPairs.map((p) => ({
+      agent: term(p.agent),
+      gold: term(p.gold),
+      equivalence: p.equivalence ?? "synonym",
+    })),
+    direction: "agent_correct",
+  });
+
+  it("synthesizes a proposal from the rename payload (the inert-near-match fix, B1)", () => {
+    // This is the case that was inert: comparison_proposal absent on a
+    // replayed static batch, so resolveAgentFactor → null. The rename
+    // payload ships on the finding and must drive the apply.
+    const f = finding({
+      issue_code: "calibration_factor_match_near",
+      rename: renamePayload("treatment", "treatment", [
+        { agent: "LPS", gold: "lipopolysaccharide" },
+        { agent: "vehicle", gold: "control" },
+      ]),
+    });
+    const p = factorProposalFromRename(f);
+    expect(p?.category.label).toBe("treatment");
+    expect(p?.name_in_design).toBe("treatment");
+    // FVs carry the AGENT label (what Agree adopts) with the gold side
+    // as gemma_ref so the idempotency check can pair + detect drift.
+    expect(p?.factor_values.map((fv) => fv.free_text_label)).toEqual([
+      "LPS",
+      "vehicle",
+    ]);
+    expect(p?.factor_values[0].gemma_ref?.label).toBe("lipopolysaccharide");
+    expect(p?.factor_values[0].match_type).toBe("close");
+  });
+
+  it("marks a pair exact when agent and gold labels coincide (idempotency-safe)", () => {
+    const f = finding({
+      rename: renamePayload("sex", "sex", [{ agent: "male", gold: "male" }]),
+    });
+    const p = factorProposalFromRename(f);
+    expect(p?.factor_values[0].match_type).toBe("exact");
+  });
+
+  it("returns null when there is no rename payload (callers fall back to resolveAgentFactor)", () => {
+    expect(factorProposalFromRename(finding({}))).toBe(null);
+  });
+
+  it("returns null when the rename payload has no agent category label", () => {
+    expect(
+      factorProposalFromRename(
+        finding({
+          rename: {
+            agent: { category: term("") },
+            gold: { category: term("treatment") },
+            fv_pairs: [],
+            direction: "agent_correct",
+          } as FactorRenamePayload,
+        }),
       ),
     ).toBe(null);
   });

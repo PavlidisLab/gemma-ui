@@ -182,7 +182,10 @@ export async function exportTicketAsGzip(
   const blob = await gzipJson(text);
   const stamp = bundle.exported_at.replace(/[:.]/gu, "-");
   const stem = slugify(ticket.title) || `ticket-${ticket.id}`;
-  const filename = `gemma-ticket-${ticket.id}-${stem}-${stamp}.json.gz`;
+  // Curator + full timestamp → self-identifying, collision-proof name
+  // (see exportSet.ts for the rationale).
+  const filename =
+    `gemma-ticket-${ticket.id}-${stem}-${slugify(curator)}-${stamp}.json.gz`;
   triggerDownload(blob, filename);
   return bundle;
 }

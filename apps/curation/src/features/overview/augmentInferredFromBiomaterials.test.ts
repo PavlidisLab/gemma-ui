@@ -173,4 +173,40 @@ describe("augmentInferredFromBiomaterials", () => {
     const next = augmentInferredFromBiomaterials([direct], []);
     expect(next).toContainEqual(direct);
   });
+
+  // B3 (UIB_HANDOFF_2026_06_25): removing a direct tag must NOT make
+  // the biomaterial-derived synth chip reappear for that category.
+  it("does not re-synthesize a chip for a category the curator removed", () => {
+    // GSE161828: curator removes the direct ``cell type: fibroblast``
+    // tag, but the biomaterials still carry ``cell type`` — without the
+    // guard, a synth chip duplicates the just-removed annotation.
+    const bms = [
+      bm("s1", { "cell type": "fibroblast" }),
+      bm("s2", { "cell type": "fibroblast" }),
+    ];
+    const removed = new Set(["cell type"]);
+    const next = augmentInferredFromBiomaterials([], bms, removed);
+    expect(
+      next.find(
+        (t) => (t.category.label || "").toLowerCase() === "cell type",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("matches the removed-category guard case-insensitively", () => {
+    const bms = [bm("s1", { "Cell Type": "fibroblast" })];
+    const next = augmentInferredFromBiomaterials([], bms, new Set(["cell type"]));
+    expect(next).toHaveLength(0);
+  });
+
+  it("still synthesizes chips for categories that were NOT removed", () => {
+    const bms = [
+      bm("s1", { "cell type": "fibroblast", "organism part": "skin" }),
+    ];
+    const next = augmentInferredFromBiomaterials([], bms, new Set(["cell type"]));
+    // organism part survives; cell type is suppressed.
+    expect(next.map((t) => (t.category.label || "").toLowerCase())).toEqual([
+      "organism part",
+    ]);
+  });
 });

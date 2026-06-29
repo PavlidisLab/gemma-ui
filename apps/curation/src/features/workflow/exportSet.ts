@@ -320,7 +320,13 @@ export async function exportSetAsGzip(
   const text = JSON.stringify(bundle, null, 2);
   const blob = await gzipJson(text);
   const stamp = bundle.exported_at.replace(/[:.]/gu, "-");
-  const filename = `gemma-set-${slugify(group.name)}-${stamp}.json.gz`;
+  // Include the curator + the full export timestamp so two curators'
+  // exports of the same set are self-identifying AND never collide.
+  // (Without the curator, Cy's and Am's exports differ only by a
+  // sub-second timestamp and don't say who made them, which forced a
+  // manual <reviewer>_<date-only> rename that then collided on date.)
+  const filename =
+    `gemma-set-${slugify(group.name)}-${slugify(curator)}-${stamp}.json.gz`;
   triggerDownload(blob, filename);
   return bundle;
 }

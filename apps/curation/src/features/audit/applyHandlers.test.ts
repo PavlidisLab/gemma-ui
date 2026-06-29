@@ -331,6 +331,63 @@ describe("resolveApplyAction — SWAP TAG (replace_tag)", () => {
     expect(action?.label).toContain("Already applied");
   });
 
+  it("removes the baseline but does NOT add an ungrounded (no-URI) replacement (B2)", () => {
+    // GSE193284 regression: the agent flagged a hallucinated tag for
+    // removal, but the replace_tag mutator added a free-text,
+    // non-ontology replacement. With no grounded URI anywhere
+    // (proposer_term or apply_action), the swap degrades to a pure
+    // removal — the baseline drops and nothing free-text lands.
+    const d = design({
+      tags: [
+        tag(7, "disease", "depressive disorder", {
+          valueUri: "http://purl.obolibrary.org/obo/MONDO_0002050",
+        }),
+      ],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:7",
+      // No proposer_term URI, no new_value_uri → ungrounded.
+      proposer_term: {
+        label: "reference subject role",
+        uri: null,
+        resolver: null,
+        score: null,
+      },
+      apply_action: {
+        kind: "replace_tag",
+        new_category: "disease",
+        new_value: "reference subject role",
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    expect(action?.label).toBe("Agree (remove) →");
+    const next = action!.mutate!(d);
+    // Baseline gone; no free-text replacement added.
+    expect(next.tags.find((t) => t.id === 7)).toBeUndefined();
+    expect(next.tags).toHaveLength(0);
+  });
+
+  it("returns idempotent 'Already applied' for an ungrounded swap whose baseline is already gone", () => {
+    const d = design({ tags: [] });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:7",
+      proposer_term: { label: "free text", uri: null, resolver: null, score: null },
+      apply_action: {
+        kind: "replace_tag",
+        new_category: "disease",
+        new_value: "free text",
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(false);
+    expect(action?.label).toContain("Already applied");
+  });
+
   it("refuses to swap a protected (assay) tag", () => {
     const d = design({
       tags: [tag(9, "assay", "RNA-Seq", { valueUri: "EFO:0008896" })],

@@ -75,6 +75,7 @@ import type {
 } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
 import {
+  factorProposalFromApplyAction,
   isCloseFactorMatch,
   isExactFactorMatch,
   isNearMatchFinding,
@@ -334,7 +335,9 @@ export function buildFactorRows(
 ): BuildResult {
   const cp = report?.evidence?.comparison_proposal ?? null;
   const labelHint = firstBacktick(finding.rationale);
-  const agent = resolveAgentFactor(finding, cp, labelHint);
+  const agent =
+    factorProposalFromApplyAction(finding) ??
+    resolveAgentFactor(finding, cp, labelHint);
   if (!agent) return { rows: [], fvMeta: new Map() };
   // ``_factor_extra`` is by definition agent-only — the builder
   // already decided there's no gold counterpart, so the UI must
@@ -768,7 +771,9 @@ export function findingHasStructuredContent(
   if (finding.target_kind === "factor") {
     const cp = report?.evidence?.comparison_proposal ?? null;
     const labelHint = firstBacktick(finding.rationale);
-    const agent = resolveAgentFactor(finding, cp, labelHint);
+    const agent =
+      factorProposalFromApplyAction(finding) ??
+      resolveAgentFactor(finding, cp, labelHint);
     if (agent) return true;
     const gold = resolveGoldFactor(finding, design?.factors ?? [], labelHint);
     return !!gold;
@@ -1723,7 +1728,14 @@ export function FindingDetailsEditor({
   if (isFactorExtraFinding) {
     const cp = report?.evidence?.comparison_proposal ?? null;
     const labelHint = firstBacktick(finding.rationale);
-    const agentFactor = resolveAgentFactor(finding, cp, labelHint);
+    // Prefer the finding's own add-factor payload so multi-same-
+    // category panels (GSE225864 ``genotype``: A152T / KO / P301S)
+    // render each card's true FVs instead of collapsing onto the
+    // first ``genotype`` factor via the label fallback. See
+    // factorProposalFromApplyAction.
+    const agentFactor =
+      factorProposalFromApplyAction(finding) ??
+      resolveAgentFactor(finding, cp, labelHint);
     const categoryLabel =
       agentFactor?.category?.label || labelHint || "";
     const categoryUri = agentFactor?.category?.uri ?? null;
@@ -2034,17 +2046,22 @@ export function FindingDetailsEditor({
             </span>
           </div>
 
-          {/* Per-FV rows for the gold side — each FV on its own line
-              via the shared FvDisplayRow renderer (Subj · Pred · Obj
-              head, indented sublines for any statements[1:]). */}
+          {/* Per-FV cards for the gold side — one card per factor
+              value, matching the per-FV cell the comparison grid uses
+              (FactorComparisonGrid), so a removal card reads the same
+              as a comparison card instead of a flat run of rows that
+              jumble together for multi-statement / combined-treatment
+              FVs. Each card still renders via the shared FvDisplayRow
+              (Subj · Pred · Obj head + indented sublines). */}
           {removalFvList && removalFvList.length > 0 ? (
             <div className="pl-3 space-y-1.5">
               {removalFvList.map((fv) => (
-                <FvDisplayRow
+                <div
                   key={fv.id}
-                  fv={fv}
-                  termRenderer={termRenderer}
-                />
+                  className="rounded border border-slate-200 bg-slate-50/60 px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900/40"
+                >
+                  <FvDisplayRow fv={fv} termRenderer={termRenderer} />
+                </div>
               ))}
             </div>
           ) : null}

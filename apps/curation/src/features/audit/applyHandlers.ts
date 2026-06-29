@@ -41,6 +41,8 @@ import { isProtectedTagCategory } from "@/features/experiment/types";
 import type { FactorProposal } from "@/api/types";
 import {
   computeFvCorrespondence,
+  factorProposalFromApplyAction,
+  factorProposalFromRename,
   isCloseFactorMatch,
   isExactFactorMatch,
   pickGoldFactor,
@@ -315,6 +317,39 @@ function resolveProposalApply(
       return null;
     }
     if (isProtectedTagCategory(categoryLabel)) return null;
+    const baseLabel = baseline
+      ? `${baseline.category?.label}: ${baseline.value?.label}`
+      : `tag #${baselineId}`;
+    // An ungrounded replacement (no ontology URI) must NOT be added —
+    // doing so drops a free-text, non-ontology tag onto the design,
+    // which is what surfaced as "removing a hallucinated tag added a
+    // random tag instead" (GSE193284, UIB_HANDOFF_2026_06_25 B2;
+    // regression from the 2026-06-20 tag-swap landing). Degrade to a
+    // pure removal of the baseline — the curator can attach a grounded
+    // replacement manually. The grounded swap path below is unchanged.
+    const grounded = !!(valueUri && String(valueUri).trim());
+    if (!grounded) {
+      if (!baseline) {
+        return {
+          mutates: false,
+          label: "✓ Already applied",
+          tooltip: `Baseline tag "${baseLabel}" is already removed.`,
+          successMessage: "",
+        };
+      }
+      return {
+        mutates: true,
+        label: "Agree (remove) →",
+        tooltip:
+          `Agree → remove "${baseLabel}". The proposed replacement ` +
+          `"${categoryLabel}: ${valueLabel}" isn't grounded to an ontology ` +
+          `term, so it is NOT added — attach a grounded tag manually if you ` +
+          `want one.`,
+        successMessage: `Removed "${baseLabel}" (ungrounded replacement not added). Commit the draft to save.`,
+        mutate: (draft) => removeTagById(draft, baseline.id),
+        appliedFix: `remove ${baseLabel} (ungrounded replacement skipped)`,
+      };
+    }
     // Idempotency: baseline already gone AND replacement already on the
     // draft → nothing to do, surface as already-applied.
     const replacementPresent = (design.tags ?? []).some((t) => {
@@ -333,16 +368,10 @@ function resolveProposalApply(
         successMessage: "",
       };
     }
-    const baseLabel = baseline
-      ? `${baseline.category?.label}: ${baseline.value?.label}`
-      : `tag #${baselineId}`;
-    const tooltip = valueUri
-      ? `Agree → replace "${baseLabel}" with "${categoryLabel}: ${valueLabel}" (${valueUri}).`
-      : `Agree → replace "${baseLabel}" with "${categoryLabel}: ${valueLabel}" (free-text — resolve later).`;
     return {
       mutates: true,
       label: "Agree (swap) →",
-      tooltip,
+      tooltip: `Agree → replace "${baseLabel}" with "${categoryLabel}: ${valueLabel}" (${valueUri}).`,
       successMessage: `Swapped "${baseLabel}" → "${categoryLabel}: ${valueLabel}". Commit the draft to save.`,
       // Remove the baseline by id, then add the replacement.
       // ``addPopulatedTag`` dedups so a manually-present replacement
@@ -810,7 +839,16 @@ function resolveFactorCalibrationApply(
     // so older audits without agent_target_index still resolve.
     const labelHint =
       finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
-    const proposal = resolveAgentFactor(finding, cp, labelHint);
+    // Prefer the finding's OWN add-factor payload — it carries the
+    // correct FVs regardless of agent_target_index. Falling back to
+    // the comparison-proposal resolver only when the payload is
+    // absent (older audits) avoids the multi-same-category collapse
+    // (GSE225864 ``genotype`` panel: KO/P301S Agree would otherwise
+    // ADD the first ``genotype`` factor, A152T). See
+    // factorProposalFromApplyAction.
+    const proposal =
+      factorProposalFromApplyAction(finding) ??
+      resolveAgentFactor(finding, cp, labelHint);
     if (!proposal) return null;
     // Idempotency: if an existing factor already covers this exact
     // partition + carries the same FV labels, the add would be a
@@ -1143,7 +1181,17 @@ function resolveNearMatchApply(
     finding.rename?.agent.category.label ??
     finding.rationale?.match(/`([^`]+)`/)?.[1] ??
     null;
-  const proposal = resolveAgentFactor(finding, cp, labelHint);
+  // Prefer the comparison-proposal resolution when it lands; fall back
+  // to the finding's own rename payload when it doesn't. On a replayed
+  // static calibration batch ``comparison_proposal`` is often absent,
+  // so ``resolveAgentFactor`` returns null and Agree was silently inert
+  // (UIB_HANDOFF_2026_06_25 B1). ``factorProposalFromRename`` rebuilds
+  // the proposal from ``finding.rename`` — which ships on the finding —
+  // so the apply mutates regardless. Path 1 of replaceFactorWithProposal
+  // then uses finding.rename.fv_pairs for the FV relabels.
+  const proposal =
+    resolveAgentFactor(finding, cp, labelHint) ??
+    factorProposalFromRename(finding);
   if (!proposal) return null;
   // Aligned gold factor — index-first via gold_target_index (agents-
   // repo 3868a09); slug + biomaterial-overlap fallback for older
