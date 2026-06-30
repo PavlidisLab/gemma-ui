@@ -73,4 +73,11 @@ describe("curieToUrl", () => {
       curieToUrl("http://purl.obolibrary.org/obo/EFO_0022874"),
     ).toBe("http://www.ebi.ac.uk/efo/EFO_0022874");
   });
+
+  it("rewrites a mis-namespaced obo-purl TGEMO full URL to Gemma's ont namespace (TGEMO is Gemma's own ontology, not in OBO)", () => {
+    // predicates.json ships TGEMO predicate URIs under the OBO purl.
+    expect(
+      curieToUrl("http://purl.obolibrary.org/obo/TGEMO_00171"),
+    ).toBe("http://gemma.msl.ubc.ca/ont/TGEMO_00171");
+  });
 });

@@ -46,16 +46,25 @@ const CURIE_TO_URL_PREFIX: Record<string, string> = {
 
 export function curieToUrl(uri: string | null | undefined): string | null {
   if (!uri) return null;
-  // EFO accessions are sometimes mis-namespaced under the OBO purl by
-  // upstream sources (e.g. the agent ontology index emits
-  // ``http://purl.obolibrary.org/obo/EFO_0022874``). purl.obolibrary.org
-  // does NOT host EFO, so that link 404s ("Term not found / open in
-  // OBO") — rewrite to EFO's canonical namespace, matching how the
-  // ``EFO:`` CURIE prefix already resolves. GSE87281 anchor.
-  const efoMis = uri.match(
-    /^https?:\/\/purl\.obolibrary\.org\/obo\/EFO_(\d+)$/i,
+  // Some prefixes are sometimes mis-namespaced under the OBO purl by
+  // upstream sources (the agent ontology index / predicates.json emit
+  // e.g. ``http://purl.obolibrary.org/obo/EFO_0022874`` or
+  // ``…/obo/TGEMO_00171``). purl.obolibrary.org does NOT host EFO
+  // (canonical: ebi.ac.uk/efo) or TGEMO (Gemma's own ontology,
+  // canonical: gemma.msl.ubc.ca/ont) — those links 404 ("Term not
+  // found / open in OBO"). Rewrite to the canonical namespace, matching
+  // how the EFO:/TGEMO: CURIE prefixes already resolve. GSE87281 anchor.
+  const oboMis = uri.match(
+    /^https?:\/\/purl\.obolibrary\.org\/obo\/(EFO|TGEMO)_(\w+)$/i,
   );
-  if (efoMis) return `http://www.ebi.ac.uk/efo/EFO_${efoMis[1]}`;
+  if (oboMis) {
+    const pfx = oboMis[1].toUpperCase();
+    const ns =
+      pfx === "EFO"
+        ? "http://www.ebi.ac.uk/efo/EFO_"
+        : "http://gemma.msl.ubc.ca/ont/TGEMO_";
+    return `${ns}${oboMis[2]}`;
+  }
   if (/^https?:\/\//i.test(uri)) return uri;
   // NCBI gene CURIEs carry two colons (``NCBI:gene:948``) so the
   // generic single-colon split below misses them. Route to the
