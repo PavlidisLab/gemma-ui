@@ -66,4 +66,11 @@ describe("curieToUrl", () => {
       "http://www.ebi.ac.uk/efo/EFO_0000513",
     );
   });
+
+  it("rewrites a mis-namespaced obo-purl EFO full URL to EFO's canonical namespace (obo-purl does not host EFO → 404)", () => {
+    // GSE87281: agent index emitted this form; "open in OBO" 404'd.
+    expect(
+      curieToUrl("http://purl.obolibrary.org/obo/EFO_0022874"),
+    ).toBe("http://www.ebi.ac.uk/efo/EFO_0022874");
+  });
 });
