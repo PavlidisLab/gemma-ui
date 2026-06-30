@@ -177,7 +177,7 @@ describe("computeFvDiff — per-statement S-P-O slot diffing", () => {
     // and as a bare CURIE on the right should NOT produce diff keys
     // (this was the TGEMO:00001 regression Paul caught 2026-06-15).
     const left = mkFv([{
-      subject: { label: "Homozygous negative", uri: "http://purl.obolibrary.org/obo/TGEMO_00001" },
+      subject: { label: "Homozygous negative", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00001" },
       predicate: { label: "genotype", uri: null },
       object: { label: "wt", uri: null },
     }]);

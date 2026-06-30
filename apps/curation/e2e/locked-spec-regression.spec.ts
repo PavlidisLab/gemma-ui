@@ -143,7 +143,7 @@ const SYNTHETIC_AUDIT = {
                   },
                   object: {
                     label: "Homozygous negative",
-                    uri: "http://purl.obolibrary.org/obo/TGEMO_00001",
+                    uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00001",
                   },
                 },
               ],

@@ -52,7 +52,7 @@ function subjectKey(s: Statement | null | undefined): string {
 }
 
 /** Canonical CURIE form for a URI — collapses
- *  ``http://purl.obolibrary.org/obo/TGEMO_00001`` and the bare CURIE
+ *  ``http://gemma.msl.ubc.ca/ont/TGEMO_00001`` and the bare CURIE
  *  ``TGEMO:00001`` to the same string so two sides that ship the
  *  same term in different representations don't read as different.
  *  Empty / falsy → empty string. */

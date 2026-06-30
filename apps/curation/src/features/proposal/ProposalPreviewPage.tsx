@@ -72,7 +72,7 @@ const FAKE_PROPOSAL_RAW = {
               },
               object: {
                 label: "knockout",
-                uri: "http://purl.obolibrary.org/obo/TGEMO_00007",
+                uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00007",
               },
             },
           ],

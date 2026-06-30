@@ -29,11 +29,11 @@ const PRED = {
   ),
   deliveredAtDose: term(
     "delivered at dose",
-    "http://purl.obolibrary.org/obo/TGEMO_00166",
+    "http://gemma.msl.ubc.ca/ont/TGEMO_00166",
   ),
   deliveredForDuration: term(
     "delivered for duration",
-    "http://purl.obolibrary.org/obo/TGEMO_00167",
+    "http://gemma.msl.ubc.ca/ont/TGEMO_00167",
   ),
 };
 
