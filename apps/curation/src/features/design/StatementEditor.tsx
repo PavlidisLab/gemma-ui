@@ -5,6 +5,7 @@ import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { CurieLink } from "@/components/ui/CurieLink";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { PREDICATE_GUIDELINE } from "@/lib/guidelines";
+import { shortenUri } from "@/lib/curie";
 import type { OntologyTerm, Statement } from "@/features/experiment/types";
 
 /**
@@ -43,6 +44,29 @@ import { PREDICATES } from "@/generated/predicates";
  * which lives strictly under the genotype category. The typeahead
  * surfaces a category hint per row so the curator can disambiguate.
  */
+/**
+ * Resolve a statement's predicate URI to the matching `PREDICATES`
+ * option URI, comparing by canonical CURIE rather than raw URI string.
+ *
+ * The `<select>` options carry `predicates.ts`'s canonical form
+ * (`.../ont/TGEMO_00168`); a statement can arrive with the legacy
+ * obo-purl form (`.../obo/TGEMO_00168`) — from a pre-namespace-migration
+ * agent run or an older hand-authored template. `shortenUri` collapses
+ * both to `TGEMO:00168`, so the dropdown selects the right option
+ * instead of blanking to the placeholder.
+ *
+ * Returns the canonical option URI (the value the `<option>`s use), or
+ * "" when the predicate is unknown / absent.
+ */
+export function canonicalPredicateUri(uri: string | null | undefined): string {
+  if (!uri) return "";
+  const exact = PREDICATES.find((p) => p.uri === uri);
+  if (exact) return exact.uri;
+  const curie = shortenUri(uri);
+  const byCurie = PREDICATES.find((p) => shortenUri(p.uri) === curie);
+  return byCurie ? byCurie.uri : "";
+}
+
 export function StatementEditor({
   statement,
   factorCategory,
@@ -68,6 +92,8 @@ export function StatementEditor({
   // already conveys that information; tinting the subject text was
   // redundant and inconsistent with how non-baseline subjects render
   // (no special colour).
+
+  const selectedPredicateUri = canonicalPredicateUri(statement.predicate?.uri);
 
   const cat = statement.category ?? null;
   const catMismatch =
@@ -136,7 +162,7 @@ export function StatementEditor({
               ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
               : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
           }
-          value={statement.predicate?.uri ?? ""}
+          value={selectedPredicateUri}
           onChange={(e) => {
             if (e.target.value === "") {
               onChange({ ...statement, predicate: null, object: null });

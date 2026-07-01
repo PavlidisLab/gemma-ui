@@ -49,9 +49,15 @@ const HAS_DEV_STAGE = predicate("has developmental stage", "TGEMO_00168");
 
 const TGEMO = {
   homozygous_negative: term("Homozygous negative", "TGEMO_00001"),
-  heterozygous: term("Heterozygous", "TGEMO_00002"),
   overexpression: term("Overexpression", "TGEMO_00004"),
   constitutive_active: term("Constitutive active mutation", "TGEMO_00008"),
+};
+// Zygosity vocabulary is mixed-namespace: Gemma stores Heterozygous as
+// GENO_0000135 (verified against live /annotations/search, usageCount 306),
+// NOT a TGEMO term. Homozygous negative stays TGEMO_00001. Keep this GENO
+// entry separate so the namespace split is explicit.
+const GENO = {
+  heterozygous: term("Heterozygous", "GENO_0000135"),
 };
 const OBI = {
   gene_knockdown: term("gene knockdown", "OBI_0002625", "obi"),
@@ -105,13 +111,13 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "genotype-het",
     category: "genotype",
     label: "gene + has_genotype + Heterozygous",
-    description: "Heterozygous: gene + has_genotype + Heterozygous (TGEMO_00002).",
+    description: "Heterozygous: gene + has_genotype + Heterozygous (GENO_0000135).",
     subjectHint: "gene (NCBI_GENE)",
     build: (cat) =>
       withCategory(cat, {
         subject: { label: "" },
         predicate: { ...HAS_GENOTYPE },
-        object: { ...TGEMO.heterozygous },
+        object: { ...GENO.heterozygous },
       }),
   },
   {
