@@ -1303,6 +1303,31 @@ export type CurationReviewKind = "audit" | "proposal";
  *  the run's ``run_meta.json`` (proposer/design/arbiter models, every
  *  switch, the ``ablations`` dict, the ``git_provenance`` block, the CLI
  *  ``invocation``) that the popup renders. */
+/** Per-GSE paper-fetch status for one proposal. Lets a curator tell a
+ *  genuine "this dataset has no findable publication" apart from a fetch
+ *  that FAILED (rate limit / server error) — the 2026-06-30 batch shipped
+ *  0/29 papers because a keyless-NCBI 429 was swallowed as "no paper".
+ *  Snake_case after the client's ``snakeify`` (agents-side Pydantic uses
+ *  ``alias_generator=to_camel``). Every field optional: absent on
+ *  proposals predating the feature. */
+export interface PaperAvailability {
+  /** Did we resolve a publication at all (Gemma-linked or pub_finder)? */
+  paper_available?: boolean;
+  /** How it was found: "gemma_linked" | a pub_finder strategy
+   *  (geo_linked / accession_search / author_title_search /
+   *  organism_keyword_search / europepmc_preprint_search / lab_browse) |
+   *  "none" | "". */
+  source?: string;
+  strategy?: string;
+  pmid?: string;
+  /** Did the proposer get PMC FULL TEXT (vs abstract-only / nothing)? */
+  full_text_available?: boolean;
+  supplements_available?: boolean;
+  supplements_status?: string;
+  /** found | no_paper | rate_limited | error:<reason>. */
+  fetch_status?: string;
+}
+
 export interface RunProvenance {
   run_id?: string;
   run_sha?: string;
@@ -1315,6 +1340,11 @@ export interface RunProvenance {
    *  surfaces automatically instead of being dropped. Snake_case keys
    *  regardless of the envelope's casing. */
   run_meta?: Record<string, unknown> | null;
+  /** Per-GSE paper-fetch status (added 2026-06-30). Unlike the flat
+   *  fields + ``run_meta`` (batch-level, identical across a run) this is
+   *  proposal-specific. Absent on older proposals; the "Proposer details"
+   *  popup renders a "Paper" section only when present. */
+  paper_availability?: PaperAvailability | null;
 }
 
 export interface AuditReport {

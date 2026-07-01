@@ -43,7 +43,12 @@ export function hasProposerDetails(
     provenance.model ||
     provenance.batch_id
   );
-  return hasMeta || hasFlat;
+  const pa = provenance.paper_availability;
+  const hasPaper = !!(
+    pa &&
+    (pa.fetch_status || pa.paper_available || pa.source || pa.pmid)
+  );
+  return hasMeta || hasFlat || hasPaper;
 }
 
 function str(v: unknown): string {
@@ -73,6 +78,38 @@ function SwitchChip({ label, on }: { label: string; on: boolean | null }) {
     >
       <span className="opacity-70">{on ? "✓" : "–"}</span>
       {label}
+    </span>
+  );
+}
+
+/** Colour-coded pill for the paper fetch_status. found → emerald,
+ *  no_paper → slate (a real outcome, not a failure), rate_limited /
+ *  error → amber (the fetch degraded — worth a curator's attention). */
+function FetchStatusPill({ status }: { status: string }) {
+  if (!status) return null;
+  const degraded =
+    status === "rate_limited" || status.startsWith("error");
+  const good = status === "found";
+  const cls = good
+    ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-300"
+    : degraded
+      ? "bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
+      : "bg-slate-50 border-slate-200 text-slate-500 dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-400";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border font-mono",
+        cls,
+      )}
+      title={
+        degraded
+          ? "paper fetch degraded — proposal may be missing paper context"
+          : good
+            ? "paper fetched successfully"
+            : "no findable publication for this dataset"
+      }
+    >
+      {status}
     </span>
   );
 }
@@ -156,6 +193,18 @@ export function ProposerDetailsDialog({
 
   const roundsVal =
     typeof rm.rounds === "number" ? (rm.rounds as number) : null;
+
+  // Per-GSE paper-fetch status. Render the section only when there's a
+  // real signal (status / availability), not merely an empty stub.
+  const paperRaw = provenance?.paper_availability;
+  const paper =
+    paperRaw &&
+    (paperRaw.fetch_status ||
+      paperRaw.paper_available ||
+      paperRaw.source ||
+      paperRaw.pmid)
+      ? paperRaw
+      : null;
 
   const nothing = !hasProposerDetails(provenance);
 
@@ -245,6 +294,29 @@ export function ProposerDetailsDialog({
                   ) : null}
                 </div>
               </Section>
+
+              {/* Paper — per-GSE paper-fetch status. */}
+              {paper ? (
+                <Section title="Paper">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <FetchStatusPill status={str(paper.fetch_status)} />
+                    <SwitchChip
+                      label="paper"
+                      on={asBool(paper.paper_available)}
+                    />
+                    <SwitchChip
+                      label="full text"
+                      on={asBool(paper.full_text_available)}
+                    />
+                    <SwitchChip
+                      label="supplements"
+                      on={asBool(paper.supplements_available)}
+                    />
+                  </div>
+                  <Row label="source" value={str(paper.source)} />
+                  <Row label="pmid" value={str(paper.pmid)} />
+                </Section>
+              ) : null}
 
               {/* Git */}
               {shortSha || branch ? (
