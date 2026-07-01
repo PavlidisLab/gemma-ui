@@ -8,6 +8,41 @@
  */
 import type { SubtaskDecision } from "@/api/types";
 
+/** The ``(subtask, target_id)`` pairs that appear more than once in a
+ *  subtask-analysis list, as ``"<subtask>||<target_id>"`` keys (empty
+ *  when every pair is unique).
+ *
+ *  A curation-agent audit trail is expected to record each design-chain
+ *  decision exactly ONCE per target: the shipped design's chain is the
+ *  single source of truth. A duplicated ``(subtask, target_id)`` pair —
+ *  e.g. twin ``S2u_uri_bind_validation`` "reject Heterozygous" rows for
+ *  one binding — is a data defect from the producer (the boss re-run
+ *  accumulating round-1 + re-run chains instead of replacing; fixed in
+ *  agents ``db8d580``), NOT something the UI should paper over. The
+ *  reasoning-trail panel groups decisions by target, so a duplicated
+ *  pair renders the same verdict twice. This detector lets a test assert
+ *  the invariant the panel relies on.
+ *
+ *  Note: this keys on ``(subtask, target_id)`` — a stricter invariant
+ *  than ``dedupeSubtaskDecisions`` (which collapses only byte-identical
+ *  ``(subtask, verdict)`` rows). Two rows with the SAME target but
+ *  DIFFERENT verdict prose (exactly the boss re-run accumulation shape)
+ *  survive the display dedup, so the panel would show both — hence the
+ *  data must never contain them.
+ */
+export function duplicateSubtaskTargetPairs(
+  decisions: SubtaskDecision[],
+): string[] {
+  const counts = new Map<string, number>();
+  for (const d of decisions) {
+    const key = `${d.subtask}||${d.target_id || ""}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .filter(([, n]) => n > 1)
+    .map(([key]) => key);
+}
+
 /** Collapse near-duplicate ``SubtaskDecision`` rows for the
  *  ReasoningTrail panel.
  *
