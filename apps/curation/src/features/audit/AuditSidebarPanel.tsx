@@ -7,6 +7,10 @@ import { cn } from "@/lib/cn";
 import { agentPalette, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
 import { JsonViewer } from "@/components/ui/JsonViewer";
+import {
+  ProposerDetailsDialog,
+  hasProposerDetails,
+} from "./ProposerDetailsDialog";
 
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import type { useAuditStream } from "@/api/auditStream";
@@ -431,6 +435,11 @@ function SidebarHeader({
   // next to the agent identity pill so it's discoverable without
   // leaving the curation surface.
   const [rawViewerOpen, setRawViewerOpen] = useState(false);
+  // "Proposer details" popup (Paul 2026-06-30) — surfaces the run
+  // provenance baked into the proposal (models / switches / git /
+  // invocation) next to the "{ } raw" affordance. Only offered when the
+  // proposal actually carries a provenance block.
+  const [proposerDetailsOpen, setProposerDetailsOpen] = useState(false);
   const { apply: applyDraft, draft, diff: draftDiff } = useDesignDraft();
   // Ticket-target status sync on Finalize — when the curator closes
   // the review for an experiment that lives on a ticket, flip that
@@ -907,6 +916,21 @@ function SidebarHeader({
         >
           {"{ }"} raw
         </button>
+        {/* Proposer details — opens a scannable popup of the run
+            provenance baked into the proposal (models, switches, git
+            sha/branch, the full invocation). Only shown when the
+            proposal carries a provenance block; degrades to nothing on
+            older rows that predate the capture. */}
+        {hasProposerDetails(report.run_provenance) ? (
+          <button
+            type="button"
+            onClick={() => setProposerDetailsOpen(true)}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            title="Proposer details — the models, switches, git sha, and full invocation that produced this proposal."
+          >
+            proposer details
+          </button>
+        ) : null}
         {/* Audit switcher — appears only when the experiment has more
          *  than one audit (dual-agent review path). Lets the curator
          *  flip between e.g. hybrid and oneshot calibration packages
@@ -1171,6 +1195,11 @@ function SidebarHeader({
             : undefined
         }
         data={report}
+      />
+      <ProposerDetailsDialog
+        open={proposerDetailsOpen}
+        onClose={() => setProposerDetailsOpen(false)}
+        provenance={report.run_provenance}
       />
     </div>
   );

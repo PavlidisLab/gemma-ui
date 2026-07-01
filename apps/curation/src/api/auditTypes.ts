@@ -1289,6 +1289,34 @@ export interface AuditFindingDispositionPatch {
  *  for the full rename / split design. */
 export type CurationReviewKind = "audit" | "proposal";
 
+/** Self-documenting record of the pipeline run that produced a
+ *  proposal-kind ``AuditReport``. Baked into the proposal payload at
+ *  build time (agents-side ``build_calibration_batch._load_run_provenance``
+ *  → ``RunProvenance`` schema) so a curator can see exactly what
+ *  produced a proposal — models, switches, git, the full invocation —
+ *  without hunting through sidecar files.
+ *
+ *  Every field optional: proposals predating the feature carry no
+ *  ``run_provenance`` at all, and the "Proposer details" popup degrades
+ *  gracefully to nothing when it's absent. The flat fields power the
+ *  short comparison-chip label; ``run_meta`` is the full pass-through of
+ *  the run's ``run_meta.json`` (proposer/design/arbiter models, every
+ *  switch, the ``ablations`` dict, the ``git_provenance`` block, the CLI
+ *  ``invocation``) that the popup renders. */
+export interface RunProvenance {
+  run_id?: string;
+  run_sha?: string;
+  ran_at?: string;
+  model?: string;
+  batch_id?: string;
+  git_describe?: string;
+  git_dirty?: boolean;
+  /** Whole ``run_meta.json`` — opaque pass-through so a new run field
+   *  surfaces automatically instead of being dropped. Snake_case keys
+   *  regardless of the envelope's casing. */
+  run_meta?: Record<string, unknown> | null;
+}
+
 export interface AuditReport {
   /** Server-assigned. Null on a freshly-built report that hasn't been
    *  persisted yet (e.g. mid-stream). */
@@ -1315,6 +1343,12 @@ export interface AuditReport {
    *  primary reading point for the discriminator. Per
    *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
   agent_version?: string | null;
+  /** Full run provenance for proposal-kind reports — models, switches,
+   *  git sha/branch, ablations, and the CLI invocation that produced
+   *  this proposal. Baked into the proposal JSON at build time.
+   *  Optional/nullable: absent on older rows + on audit-kind reports;
+   *  the "Proposer details" popup renders nothing when it's missing. */
+  run_provenance?: RunProvenance | null;
   /** Latest curator disposition per finding (keyed by `target_id`).
    *  Empty on a freshly-produced report; populated by the read
    *  endpoints after PATCH calls. */
