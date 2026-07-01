@@ -19,6 +19,7 @@ import type { Design } from "@/features/experiment/types";
 import { firstBacktick } from "./rationaleText";
 import {
   factorMatchVariant,
+  factorProposalFromApplyAction,
   resolveAgentFactor,
   resolveGoldFactor,
 } from "./factorMatch";
@@ -497,8 +498,21 @@ export function findingSubjectLabel(
   };
 
   if (code === "calibration_factor_extra") {
+    // Prefer the finding's OWN add-factor payload — the authoritative
+    // description of what "Agree (add)" creates. ``resolveAgentFactor``
+    // re-resolves against ``comparison_proposal`` and, when
+    // ``agent_target_index`` is absent or doesn't disambiguate, falls
+    // through to a category-label match that silently returns the FIRST
+    // same-category factor. In a multi-``treatment`` design (GSE301405:
+    // decitabine (DNMTi) + RG2833 (HDACi)) that collapses BOTH add
+    // cards onto the first treatment factor's FVs, so both headers read
+    // "treatment: decitabine 100 nM 5 d +/-". The per-finding payload
+    // carries the right FVs regardless of index, mirroring the apply-
+    // path hardening this helper already backs.
     const cp = report?.evidence?.comparison_proposal ?? null;
-    const agent = resolveAgentFactor(finding, cp, backtick);
+    const agent =
+      factorProposalFromApplyAction(finding) ??
+      resolveAgentFactor(finding, cp, backtick);
     const name = agent?.category.label || backtick;
     if (!name) return null;
     const { labels, hadBaseline } = nonBaselineLabels(agent);
