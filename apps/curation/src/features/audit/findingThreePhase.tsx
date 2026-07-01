@@ -54,6 +54,7 @@ import type {
   ReviewVerdict,
   WhyBlock,
 } from "@/api/auditTypes";
+import { cn } from "@/lib/cn";
 import { FindingEvidenceBlock } from "./agentDetailsPanel";
 import { RuleCite } from "./RuleCite";
 import { HelpPopup } from "@/components/ui/HelpPopup";
@@ -411,68 +412,124 @@ function GuidelineCiteRow({ finding }: { finding: AuditFinding }): JSX.Element |
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 — Reviews
+// Phase grouping — the three VOICES, visually separated (ticket 83).
+//
+// Curator feedback (2026): the three phases "blend together and it's too
+// hard to tell what the proposer did vs. what was internal-critic vs.
+// what was based on comparison with gold." The fix is grouping +
+// labelling — NOT a data change. Every phase's voice gets a labelled
+// container so the curator instantly knows who is speaking, and the
+// load-bearing **gold-blind vs gold-seeing** distinction is made
+// unmissable (the gold-comparison group is tinted + explicitly marked
+// "sees gold — eval only", distinct from the two gold-blind groups).
+//
+// The reviewer LLMs sort into voices deterministically here (UI-side
+// classification, no data mutation): defender / factor_defender read as
+// the PROPOSER's own gold-blind reasoning; the boss is the gold-blind
+// INTERNAL CRITIC; the arbiter / comparison judge are the only
+// GOLD-SEEING voices.
 // ---------------------------------------------------------------------------
 
-function ReviewsPhase({
-  reviews,
+type PhaseKind = "proposer" | "critic" | "gold";
+
+/** Which voice a reviewer belongs to. Only the arbiter / comparison
+ *  judge see the gold standard; everything else is gold-blind. Unknown
+ *  gold-blind reviewers fall to the internal-critic group (they are, by
+ *  definition, not the proposer and not the gold judge). */
+function reviewerPhase(reviewer: string | null | undefined): PhaseKind {
+  const k = (reviewer ?? "").trim().toLowerCase();
+  if (k.includes("arbiter") || k.includes("comparison")) return "gold";
+  if (k === "defender" || k === "factor_defender") return "proposer";
+  return "critic";
+}
+
+/** Small pill marking whether the voice saw the gold standard. This is
+ *  the load-bearing eval distinction — the two gold-blind voices carry
+ *  the real signal; the gold-seeing voice is the eval crutch. */
+function GoldVisibilityBadge({ seesGold }: { seesGold: boolean }): JSX.Element {
+  return seesGold ? (
+    <span
+      data-testid="gold-visibility-sees-gold"
+      className="rs-10 font-semibold text-amber-700 dark:text-amber-300"
+    >
+      sees gold · eval only
+    </span>
+  ) : (
+    <span
+      data-testid="gold-visibility-gold-blind"
+      className="rs-10 font-medium text-emerald-700 dark:text-emerald-400"
+    >
+      gold-blind
+    </span>
+  );
+}
+
+/** A labelled container for ONE voice. Flat / minimal (matches the dark
+ *  style): a coloured left rule + a badge header. The gold-seeing group
+ *  additionally gets an amber tint so it reads as visually apart from
+ *  the two gold-blind groups at a glance. */
+function PhaseGroup({
+  kind,
+  title,
+  help,
+  children,
 }: {
-  reviews: ReviewVerdict[];
+  kind: PhaseKind;
+  title: string;
+  help?: ReactNode;
+  children: ReactNode;
 }): JSX.Element {
-  const brief =
-    reviews.length === 0 ? (
-      <span className="italic text-slate-400 dark:text-slate-500">
-        no review was done
-      </span>
-    ) : (
-      <ul className="space-y-0.5">
-        {reviews.map((r, i) => (
-          <ReviewRow key={i} review={r} />
-        ))}
-      </ul>
-    );
-  // Reviews has no per-row detail in this revision — the one-sentence
-  // rationale IS the brief AND the detail (per the spec's
-  // brief-summary-always pattern). When ``structured_action`` lands
-  // on the wire (boss-actions channel surface), we'll grow per-row
-  // expanders.
+  const seesGold = kind === "gold";
   return (
-    <PhaseSection
-      header="Reviews"
-      headerAccessory={
-        <HelpPopup title="Reviews" size="md">
-          <div className="space-y-1.5 leading-snug">
-            <p>Independent LLM reviews of this proposal:</p>
-            <ul className="space-y-1">
-              <li>
-                <span className="font-semibold">Proposer's reasoning</span>{" "}
-                — the proposer's own confidence in why it emitted this. It
-                never sees your current curation, so it reads as a quality
-                judgment ("strongly supported" / "borderline"), not a
-                comparison.
-              </li>
-              <li>
-                <span className="font-semibold">Arbiter</span> — a
-                gold-aware ruling that DOES compare the proposal to the
-                current curation ("Ruling: …").
-              </li>
-              <li>
-                <span className="font-semibold">Boss</span> — the
-                experiment-wide critic (see the Boss-critic review panel
-                for its blockers / advisories).
-              </li>
-            </ul>
-            <p className="text-slate-500 dark:text-slate-400">
-              "No review was done" means no reviewer ran for this finding.
-            </p>
-          </div>
-        </HelpPopup>
-      }
-      brief={brief}
-      detail={null}
-      defaultOpen={false}
-      alwaysShowHeader
-    />
+    <section
+      data-testid={`phase-group-${kind}`}
+      data-phase-gold={seesGold ? "sees-gold" : "gold-blind"}
+      className={cn(
+        "rounded-sm border-l-2 pl-2 pr-1 py-1",
+        seesGold
+          ? "border-amber-400 bg-amber-50/60 dark:border-amber-500/70 dark:bg-amber-950/20"
+          : "border-slate-300 dark:border-slate-600",
+      )}
+    >
+      <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+        <span
+          className={cn(
+            "rs-10 uppercase tracking-wide font-bold px-1 py-px rounded-sm",
+            seesGold
+              ? "text-amber-800 bg-amber-100 dark:text-amber-200 dark:bg-amber-900/40"
+              : "text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800",
+          )}
+        >
+          {title}
+        </span>
+        <GoldVisibilityBadge seesGold={seesGold} />
+        {help ? <span className="shrink-0">{help}</span> : null}
+      </div>
+      <div className="space-y-1">{children}</div>
+    </section>
+  );
+}
+
+/** Muted "nothing here" note for a voice that produced no content for
+ *  this finding (keeps the three-voice scaffold stable so the curator
+ *  learns the fixed layout). */
+function NoneNote({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <div className="rs-10 italic text-slate-400 dark:text-slate-500">
+      {children}
+    </div>
+  );
+}
+
+/** Flat list of reviewer rows (no per-row detail in this revision — the
+ *  one-sentence rationale IS the brief). */
+function ReviewList({ reviews }: { reviews: ReviewVerdict[] }): JSX.Element {
+  return (
+    <ul className="space-y-0.5">
+      {reviews.map((r, i) => (
+        <ReviewRow key={i} review={r} />
+      ))}
+    </ul>
   );
 }
 
@@ -661,12 +718,94 @@ export function ThreePhaseFindingBody({
   }
   const reviews = deriveReviews(finding, report);
   const comparison = finding.comparison ?? null;
+
+  // Sort reviewer LLMs into their voice (UI-side, no data mutation).
+  const proposerReviews = reviews.filter(
+    (r) => reviewerPhase(r.reviewer) === "proposer",
+  );
+  const criticReviews = reviews.filter(
+    (r) => reviewerPhase(r.reviewer) === "critic",
+  );
+  const goldReviews = reviews.filter(
+    (r) => reviewerPhase(r.reviewer) === "gold",
+  );
+
+  const hasProposer = !!why || proposerReviews.length > 0;
+  const hasGoldComparison = goldReviews.length > 0 || !!comparison;
+
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       <GuidelineCiteRow finding={finding} />
-      <WhyPhase why={why} />
-      <ReviewsPhase reviews={reviews} />
-      <ComparisonJudgePhase comparison={comparison} />
+
+      {/* Voice 1 — the proposer (gold-blind): what it proposed + why. */}
+      <PhaseGroup
+        kind="proposer"
+        title="Proposer"
+        help={
+          <HelpPopup title="Proposer — gold-blind" size="md">
+            <div className="leading-snug">
+              What the agent proposed and its own reasoning for it. The
+              proposer never sees your current curation or any gold
+              standard — its rationale and any confidence read
+              ("strongly supported" / "borderline") describe the
+              proposal on its own terms.
+            </div>
+          </HelpPopup>
+        }
+      >
+        <WhyPhase why={why} />
+        {proposerReviews.length > 0 ? (
+          <ReviewList reviews={proposerReviews} />
+        ) : null}
+        {!hasProposer ? (
+          <NoneNote>no proposer rationale recorded for this finding</NoneNote>
+        ) : null}
+      </PhaseGroup>
+
+      {/* Voice 2 — the internal critic (gold-blind boss review). */}
+      <PhaseGroup
+        kind="critic"
+        title="Internal critic"
+        help={
+          <HelpPopup title="Internal critic — gold-blind" size="md">
+            <div className="leading-snug">
+              The boss-critic's holistic review of the proposal. It is a
+              correctness reviewer that, like the proposer, never sees
+              the gold standard — see the Boss-critic review panel for
+              its experiment-wide blockers / advisories.
+            </div>
+          </HelpPopup>
+        }
+      >
+        {criticReviews.length > 0 ? (
+          <ReviewList reviews={criticReviews} />
+        ) : (
+          <NoneNote>no internal-critic review for this finding</NoneNote>
+        )}
+      </PhaseGroup>
+
+      {/* Voice 3 — the gold comparison (SEES GOLD — eval crutch). */}
+      <PhaseGroup
+        kind="gold"
+        title="Gold comparison"
+        help={
+          <HelpPopup title="Gold comparison — sees gold" size="md">
+            <div className="leading-snug">
+              The gold-seeing judges: the arbiter's ruling and the
+              comparison against the polished-gold curation. Unlike the
+              two voices above, these DID see the gold standard — this is
+              the eval crutch, present only to score the run, not a
+              gold-blind signal.
+            </div>
+          </HelpPopup>
+        }
+      >
+        {goldReviews.length > 0 ? <ReviewList reviews={goldReviews} /> : null}
+        <ComparisonJudgePhase comparison={comparison} />
+        {!hasGoldComparison ? (
+          <NoneNote>no gold comparison for this finding</NoneNote>
+        ) : null}
+      </PhaseGroup>
     </div>
   );
 }
