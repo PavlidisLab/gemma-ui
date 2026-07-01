@@ -19,8 +19,10 @@ import type {
   WhyBlock,
 } from "@/api/auditTypes";
 import {
+  dedupeReviews,
   deriveReviews,
   deriveWhy,
+  reviewerPhase,
   verdictLabel,
 } from "./findingThreePhase";
 
@@ -271,5 +273,84 @@ describe("deriveReviews", () => {
   it("returns empty array when reviews is an empty array (still empty)", () => {
     const finding = makeFinding({ reviews: [] });
     expect(deriveReviews(finding, emptyReport())).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reviewerPhase — the fv-concept adjudicator is GOLD-SEEING and must
+// route to the Gold-comparison phase, never the gold-blind Proposer
+// phase (bug: it was tagged "defender" and duplicated its ruling into
+// both phases).
+// ---------------------------------------------------------------------------
+
+describe("reviewerPhase", () => {
+  it("routes the fv-concept (vs gold) reviewer to the gold phase", () => {
+    expect(reviewerPhase("fv-concept (vs gold)")).toBe("gold");
+    expect(reviewerPhase("FV-Concept (vs gold)")).toBe("gold");
+  });
+
+  it("routes the arbiter / comparison judge to the gold phase", () => {
+    expect(reviewerPhase("arbiter")).toBe("gold");
+    expect(reviewerPhase("comparison judge")).toBe("gold");
+  });
+
+  it("keeps plain defender / factor_defender in the gold-blind proposer phase", () => {
+    expect(reviewerPhase("defender")).toBe("proposer");
+    expect(reviewerPhase("factor_defender")).toBe("proposer");
+  });
+
+  it("routes the boss and unknown reviewers to the internal-critic phase", () => {
+    expect(reviewerPhase("boss")).toBe("critic");
+    expect(reviewerPhase("boss-critic")).toBe("critic");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dedupeReviews — collapse the fv-concept full text vs the arbiter's
+// brief restatement of the same ruling (near-duplicate: one rationale a
+// normalised prefix of / contained in the other). Keep the longer row.
+// ---------------------------------------------------------------------------
+
+describe("dedupeReviews", () => {
+  function rv(reviewer: string, rationale: string): ReviewVerdict {
+    return { reviewer, verdict: "", brief: rationale, rationale } as ReviewVerdict;
+  }
+
+  it("collapses full-vs-brief near-duplicates, keeping the longer row", () => {
+    const full =
+      "The current curation binds `genotype` to Cre-driver line; the " +
+      "proposal binds the floxed allele. Both describe the same conditional " +
+      "knockout — equivalent per rule.";
+    const brief = "Both describe the same conditional knockout";
+    const out = dedupeReviews([
+      rv("fv-concept (vs gold)", full),
+      rv("arbiter", brief),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].rationale).toBe(full);
+    expect(out[0].reviewer).toBe("fv-concept (vs gold)");
+  });
+
+  it("collapses regardless of row order (brief first)", () => {
+    const full = "Alpha beta gamma delta epsilon.";
+    const brief = "Alpha beta gamma";
+    const out = dedupeReviews([rv("arbiter", brief), rv("fv-concept (vs gold)", full)]);
+    expect(out).toHaveLength(1);
+    expect(out[0].rationale).toBe(full);
+  });
+
+  it("ignores whitespace / case differences", () => {
+    const a = "Same   Concept,   different WORDING.";
+    const b = "same concept, different wording.";
+    const out = dedupeReviews([rv("fv-concept (vs gold)", a), rv("arbiter", b)]);
+    expect(out).toHaveLength(1);
+  });
+
+  it("keeps genuinely distinct rationales", () => {
+    const out = dedupeReviews([
+      rv("defender", "The proposed factor is a real new property."),
+      rv("arbiter", "Ruling: the current curation is correct; agent missed it."),
+    ]);
+    expect(out).toHaveLength(2);
   });
 });

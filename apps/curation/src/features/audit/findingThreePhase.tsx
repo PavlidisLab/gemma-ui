@@ -436,11 +436,64 @@ type PhaseKind = "proposer" | "critic" | "gold";
  *  judge see the gold standard; everything else is gold-blind. Unknown
  *  gold-blind reviewers fall to the internal-critic group (they are, by
  *  definition, not the proposer and not the gold judge). */
-function reviewerPhase(reviewer: string | null | undefined): PhaseKind {
+export function reviewerPhase(reviewer: string | null | undefined): PhaseKind {
   const k = (reviewer ?? "").trim().toLowerCase();
-  if (k.includes("arbiter") || k.includes("comparison")) return "gold";
+  // Gold-SEEING voices: the arbiter, the generic comparison judge, and
+  // the fv-concept adjudicator (label "fv-concept (vs gold)"). The
+  // fv-concept judge compares the agent's concept to GOLD — it must
+  // land in the Gold-comparison phase, never the gold-blind Proposer
+  // phase (that duplicated its ruling into both). Match on "concept"
+  // or an explicit "gold"/"vs gold" marker in the reviewer label.
+  if (
+    k.includes("arbiter") ||
+    k.includes("comparison") ||
+    k.includes("concept") ||
+    k.includes("vs gold") ||
+    k.includes("(gold")
+  ) {
+    return "gold";
+  }
   if (k === "defender" || k === "factor_defender") return "proposer";
   return "critic";
+}
+
+/** Whitespace/case-normalise a rationale for near-duplicate detection. */
+function normRationale(s: string | null | undefined): string {
+  return (s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Collapse near-duplicate review rows: when one row's normalised
+ *  rationale is a prefix of / contained in another's, keep the longer
+ *  (more-complete) row and drop the shorter. Belt-and-suspenders for the
+ *  fv-concept full-text-vs-arbiter-brief pair even if a stale package
+ *  slipped both rows through. Order-stable on the kept rows. */
+export function dedupeReviews(reviews: ReviewVerdict[]): ReviewVerdict[] {
+  const kept: ReviewVerdict[] = [];
+  for (const r of reviews) {
+    const key = normRationale(r.rationale) || normRationale(r.verdict);
+    if (!key) {
+      kept.push(r);
+      continue;
+    }
+    let replaced = false;
+    let dropped = false;
+    for (let i = 0; i < kept.length; i++) {
+      const ek =
+        normRationale(kept[i].rationale) || normRationale(kept[i].verdict);
+      if (!ek) continue;
+      if (ek === key || ek.includes(key) || key.includes(ek)) {
+        if (key.length > ek.length) {
+          kept[i] = r;
+          replaced = true;
+        } else {
+          dropped = true;
+        }
+        break;
+      }
+    }
+    if (!replaced && !dropped) kept.push(r);
+  }
+  return kept;
 }
 
 /** Small pill marking whether the voice saw the gold standard. This is
@@ -716,7 +769,10 @@ export function ThreePhaseFindingBody({
       } as WhyBlock;
     }
   }
-  const reviews = deriveReviews(finding, report);
+  // Collapse near-duplicate review rows before splitting into voices
+  // (belt-and-suspenders for the fv-concept full-text-vs-arbiter-brief
+  // pair; the build-side dedup is the primary guard).
+  const reviews = dedupeReviews(deriveReviews(finding, report));
   const comparison = finding.comparison ?? null;
 
   // Sort reviewer LLMs into their voice (UI-side, no data mutation).
@@ -726,9 +782,24 @@ export function ThreePhaseFindingBody({
   const criticReviews = reviews.filter(
     (r) => reviewerPhase(r.reviewer) === "critic",
   );
-  const goldReviews = reviews.filter(
-    (r) => reviewerPhase(r.reviewer) === "gold",
+  // Within the gold phase, the fv-concept review row and the
+  // comparison-judge block can restate the same ruling. Drop a gold
+  // review whose rationale near-duplicates the comparison-judge text so
+  // the phase shows the ruling once.
+  const comparisonText = normRationale(
+    comparison?.judge_rationale || comparison?.judge_brief || "",
   );
+  const goldReviews = reviews.filter((r) => {
+    if (reviewerPhase(r.reviewer) !== "gold") return false;
+    if (!comparisonText) return true;
+    const rk = normRationale(r.rationale);
+    if (!rk) return true;
+    return !(
+      rk === comparisonText ||
+      rk.includes(comparisonText) ||
+      comparisonText.includes(rk)
+    );
+  });
 
   const hasProposer = !!why || proposerReviews.length > 0;
   const hasGoldComparison = goldReviews.length > 0 || !!comparison;
