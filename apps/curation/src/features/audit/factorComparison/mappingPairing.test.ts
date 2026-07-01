@@ -285,6 +285,90 @@ describe("fvPairsViaMapping", () => {
     expect(pairs?.[2].right?.free_text_label).toBe("agent-only");
   });
 
+  it("id-join: resolves the gold FV by b_fv_id even when a_fv_idx is wrong / reordered", () => {
+    const mapping = emptyMapping();
+    // a_fv_idx points at the WRONG gold FV (index 0 = 'control'), but
+    // b_fv_id names the real paired gold FV id (2 = 'treated'). The id
+    // join must win over the stale positional index.
+    mapping.fv_pairs = [
+      {
+        factor_pair: [0, 0],
+        a_fv_idx: 0,
+        b_fv_idx: 0,
+        b_fv_id: 2,
+        score: 1,
+        kind: "exact",
+      },
+    ];
+    const report = mkReportWithMapping(mapping);
+    const factorPair = {
+      a_idx: 0,
+      b_idx: 0,
+      score: 1,
+      kind: "exact" as const,
+      features: {
+        score: 1,
+        category_label: 1,
+        fv_partition: 1,
+        uri_overlap: 1,
+      },
+    };
+    // Gold FV order drifted relative to the audit-time snapshot the
+    // a_fv_idx was computed against.
+    const left = mkFactor(0, [mkFv(1, "control", []), mkFv(2, "treated", [])]);
+    const right = mkFactor(1, [mkFv(3, "treated", [])]);
+    const pairs = fvPairsViaMapping(report, factorPair, left, right);
+    expect(pairs).not.toBeNull();
+    // The paired row must carry the id-2 gold FV ('treated'), NOT the
+    // positional index-0 'control'.
+    const paired = pairs?.find((p) => p.status === "same" || p.status === "drift");
+    expect((paired?.left as { id?: number })?.id).toBe(2);
+    expect((paired?.left as { free_text_label?: string })?.free_text_label).toBe(
+      "treated",
+    );
+    // 'control' (unclaimed) surfaces as a left_only straggler.
+    expect(
+      pairs?.some(
+        (p) =>
+          p.status === "left_only" &&
+          (p.left as { id?: number })?.id === 1,
+      ),
+    ).toBe(true);
+  });
+
+  it("id-join fallback: no b_fv_id → resolves the gold FV positionally (no regression)", () => {
+    const mapping = emptyMapping();
+    mapping.fv_pairs = [
+      {
+        factor_pair: [0, 0],
+        a_fv_idx: 1,
+        b_fv_idx: 0,
+        // no b_fv_id — older package
+        score: 1,
+        kind: "exact",
+      },
+    ];
+    const report = mkReportWithMapping(mapping);
+    const factorPair = {
+      a_idx: 0,
+      b_idx: 0,
+      score: 1,
+      kind: "exact" as const,
+      features: {
+        score: 1,
+        category_label: 1,
+        fv_partition: 1,
+        uri_overlap: 1,
+      },
+    };
+    const left = mkFactor(0, [mkFv(1, "control", []), mkFv(2, "treated", [])]);
+    const right = mkFactor(1, [mkFv(3, "treated", [])]);
+    const pairs = fvPairsViaMapping(report, factorPair, left, right);
+    const paired = pairs?.find((p) => p.status === "same" || p.status === "drift");
+    // Positional a_fv_idx=1 → gold FV id 2 ('treated').
+    expect((paired?.left as { id?: number })?.id).toBe(2);
+  });
+
   it("ignores fv_pairs whose factor_pair doesn't match the supplied pair", () => {
     const mapping = emptyMapping();
     mapping.fv_pairs = [

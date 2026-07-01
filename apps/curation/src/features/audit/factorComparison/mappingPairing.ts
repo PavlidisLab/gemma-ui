@@ -69,7 +69,15 @@ export function factorPairForFinding(
  *  Unmatched FVs on either side fill out as ``left_only`` /
  *  ``right_only`` rows so the grid still surfaces them. Returns
  *  ``null`` when the report has no mapping (caller falls through to
- *  legacy ``pairFvs``). */
+ *  legacy ``pairFvs``).
+ *
+ *  ID-first gold resolution: when an fv_pair carries the gold
+ *  ``FactorValue``'s stable Gemma id (``b_fv_id``), resolve the
+ *  gold/left FV by matching ``factor_value.id === b_fv_id`` instead of
+ *  trusting the positional ``a_fv_idx`` — the id survives FV
+ *  reordering between the audit-time snapshot and the live design the
+ *  card renders against. Falls back to the positional index when no id
+ *  is present (older packages) or the id isn't found. */
 export function fvPairsViaMapping(
   report: AuditReport | null | undefined,
   factorPair: AlignmentFactorPair,
@@ -89,9 +97,18 @@ export function fvPairsViaMapping(
   const claimedLeft = new Set<number>();
   const claimedRight = new Set<number>();
   for (const fv of relevant) {
-    const left = leftFvs[fv.a_fv_idx] ?? null;
+    // Gold/left FV: prefer the stable-id join off ``b_fv_id`` (survives
+    // reordering); fall back to the positional ``a_fv_idx``.
+    let leftIdx = fv.a_fv_idx;
+    if (fv.b_fv_id != null) {
+      const byId = leftFvs.findIndex(
+        (g) => g != null && (g as { id?: number }).id === fv.b_fv_id,
+      );
+      if (byId >= 0) leftIdx = byId;
+    }
+    const left = leftFvs[leftIdx] ?? null;
     const right = rightFvs[fv.b_fv_idx] ?? null;
-    if (left) claimedLeft.add(fv.a_fv_idx);
+    if (left) claimedLeft.add(leftIdx);
     if (right) claimedRight.add(fv.b_fv_idx);
     pairs.push({
       left,

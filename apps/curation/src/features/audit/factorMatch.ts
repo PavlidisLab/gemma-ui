@@ -332,13 +332,24 @@ export function resolveGoldFactor(
   // "Currently" reflects the curator's active baseline when it carries
   // the factor.
   const live = resolveLiveGoldFactor(finding, designFactors, labelFallback);
-  if (live) return live;
+  // A live factor is only useful if it actually carries factor values —
+  // the ``base=preboard`` skeleton (and other stripped baselines) resolve
+  // the gold factor by index but hand back a category-only SHELL with
+  // ``factor_values: []``. Returning that shell shadows the self-carried
+  // fallback below, so a real FACTOR MATCH renders its Current column as
+  // "(no FV)" for every row even though the finding carries the paired
+  // gold FVs. Prefer the live factor only when it has FVs to show.
+  if (live && (live.factor_values?.length ?? 0) > 0) return live;
 
-  // Divergent / empty baseline: the positional index pointed at nothing
-  // (out of range, or a hole in the current design). Fall back to the
-  // gold content the finding carries on itself so a real match still
-  // renders instead of collapsing to "(no factor)".
-  return synthesizeGoldFactorFromRename(finding.rename ?? null);
+  // Divergent / empty / shell baseline: the positional index pointed at
+  // nothing (out of range, a hole in the current design) or a
+  // value-less shell. Fall back to the gold content the finding carries
+  // on itself so a real match still renders instead of collapsing to
+  // "(no factor)" / "(no FV)". Keep the live shell (category only) if the
+  // self-carry has nothing richer to offer.
+  const synth = synthesizeGoldFactorFromRename(finding.rename ?? null);
+  if (synth && synth.factor_values.length > 0) return synth;
+  return live ?? synth;
 }
 
 /** Positional / slug resolution against the live ``designFactors`` —

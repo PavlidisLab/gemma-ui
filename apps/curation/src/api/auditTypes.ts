@@ -473,12 +473,32 @@ export interface FvPair {
    *  pre-2026-06-15 payloads. */
   agent_biomaterial_short_names?: string[] | null;
   gold_biomaterial_short_names?: string[] | null;
+  /** Stable Gemma id of the paired gold ``FactorValue``. Lets the UI
+   *  resolve the current/gold FV by an id join
+   *  (``factor_value.id === gold_id``) instead of re-deriving the
+   *  pairing from biomaterial-set overlap — the biomaterial fallback
+   *  can't disambiguate when two gold FVs share (or reorder) samples.
+   *  ``null`` / undefined on packages predating the id-hardening ship;
+   *  the UI then falls back to biomaterial overlap. Wire field:
+   *  ``goldId`` (camelCase). */
+  gold_id?: number | null;
+  /** Stable Gemma id of the paired agent ``FactorValue``. Usually
+   *  ``null`` — agent FVs are proposed and carry no Gemma id — but
+   *  present for completeness / symmetry with ``gold_id``. */
+  agent_id?: number | null;
 }
 
 /** Compact factor reference inside a rename payload. */
 export interface FactorRef {
   category: OntologyTerm;
   factor_type?: string;
+  /** Stable Gemma ``ExperimentalFactor`` id for this side. Lets the
+   *  UI resolve the factor by an id join when the finding's
+   *  ``target_id`` is label-based (``factor:<slug>``) rather than a
+   *  numeric ``factor:<id>``. ``null`` / undefined on packages
+   *  predating the id-hardening ship (agent-side proposed factors also
+   *  carry no id). Wire field: ``gemmaFactorId`` (camelCase). */
+  gemma_factor_id?: number | null;
 }
 
 /** Sub-flavor of a partition-equal factor pair whose labels disagree.
@@ -562,6 +582,11 @@ export interface CrossCuttingOverlapRow {
   n_overlap: number;
   n_agent: number;
   n_gold: number;
+  /** Stable Gemma id of the overlapping gold ``FactorValue``
+   *  (``gold_fv``). Lets the UI resolve the gold FV by an id join
+   *  rather than by label / biomaterial overlap. ``null`` / undefined
+   *  on packages predating the id-hardening ship. */
+  gold_fv_id?: number | null;
 }
 
 /** Structured payload for a ``calibration_factor_partition_mismatch``
@@ -725,6 +750,11 @@ export interface AlignmentFactorPair {
   score: number;
   kind: "exact" | "near" | "partition_mismatch";
   features: AlignmentFactorPairFeatures;
+  /** Stable Gemma ``ExperimentalFactor`` id of the gold-side factor in
+   *  this pair. Lets the UI resolve the gold factor by an id join
+   *  rather than by the positional ``b_idx``. ``null`` / undefined on
+   *  packages predating the id-hardening ship. */
+  b_id?: number | null;
 }
 
 /** One paired FV inside a paired factor. ``factor_pair`` keys back to
@@ -737,6 +767,17 @@ export interface AlignmentFvPair {
   b_fv_idx: number;
   score: number;
   kind: "exact" | "near";
+  /** Stable Gemma id of the gold-side ``FactorValue`` in this pair.
+   *  Lets the UI resolve the current/gold FV by an id join
+   *  (``factor_value.id === b_fv_id``) rather than by the positional
+   *  ``a_fv_idx`` / ``b_fv_idx`` into the factor's FV list — the id
+   *  survives FV reordering. ``null`` / undefined on packages
+   *  predating the id-hardening ship; the UI then falls back to the
+   *  positional index. */
+  b_fv_id?: number | null;
+  /** Stable Gemma id of the agent-side ``FactorValue``. Usually
+   *  ``null`` — agent FVs are proposed and carry no Gemma id. */
+  a_fv_id?: number | null;
 }
 
 export interface AlignmentTagPairFeatures {

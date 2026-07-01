@@ -220,12 +220,36 @@ function fvProposalStatementPart(
   return { label: "", uri: null };
 }
 
+/** Read the ``part`` (subject / predicate / object) off a gold FV's
+ *  first statement, with the same free-text-label fallback the
+ *  biomaterial path uses. Split out so the id-join and the
+ *  biomaterial-overlap paths share one rendering rule. */
+function goldFvStatementPart(
+  goldFv: FactorValue,
+  part: "subject" | "predicate" | "object",
+): SideValue {
+  const st = goldFv.statements?.[0];
+  if (st) return statementPart(st, part);
+  if (part === "subject") {
+    const label = goldFv.free_text_label?.trim() ?? "";
+    return { label, uri: null };
+  }
+  return { label: "", uri: null };
+}
+
 function pairAgentStatementToGold(
   agentFv: FactorValueProposal,
   gold: Factor | null,
   part: "subject" | "predicate" | "object",
+  goldId?: number | null,
 ): SideValue | null {
   if (!gold) return null;
+  // ID-first: resolve the paired gold FV by its stable Gemma id
+  // (``rename.fv_pairs[].gold_id``) when the wire carries one.
+  if (goldId != null && Number.isInteger(goldId)) {
+    const byId = gold.factor_values.find((g) => g.id === goldId);
+    if (byId) return goldFvStatementPart(byId, part);
+  }
   const agentBms = new Set(agentFv.biomaterial_short_names ?? []);
   for (const goldFv of gold.factor_values) {
     const gBms = new Set(goldFv.biomaterial_short_names ?? []);
@@ -238,22 +262,14 @@ function pairAgentStatementToGold(
       }
     }
     if (allIn) {
-      const st = goldFv.statements?.[0];
-      if (st) return statementPart(st, part);
-      // Gold's matching FV has no structured statement — common
+      // Gold's matching FV may have no structured statement — common
       // for free-text-only curations (e.g. timepoint FVs labeled
-      // "2 h" with no role-of-baseline statement). Fall back to
-      // ``free_text_label`` as the subject so the curator sees
-      // gold's FV identity instead of a bare "no entry", and
-      // emit explicit-empty for predicate / object so a divergent
-      // agent statement (e.g. "has role · initial time point")
-      // reads as a near-match — same subject, agent layered on
-      // extra structure — not as gold-has-nothing.
-      if (part === "subject") {
-        const label = goldFv.free_text_label?.trim() ?? "";
-        return { label, uri: null };
-      }
-      return { label: "", uri: null };
+      // "2 h" with no role-of-baseline statement). ``goldFvStatementPart``
+      // falls back to ``free_text_label`` as the subject so the curator
+      // sees gold's FV identity instead of a bare "no entry", and emits
+      // explicit-empty for predicate / object so a divergent agent
+      // statement reads as a near-match, not as gold-has-nothing.
+      return goldFvStatementPart(goldFv, part);
     }
   }
   return null;
@@ -309,8 +325,19 @@ interface BuildResult {
 function pairAgentGoldFv(
   agentFactor: FactorValueProposal,
   gold: Factor | null,
+  goldId?: number | null,
 ): FactorValue | null {
   if (!gold) return null;
+  // ID-first: when the wire carries the paired gold ``FactorValue``'s
+  // stable Gemma id (``rename.fv_pairs[].gold_id``), resolve by an id
+  // join. This survives biomaterial reordering / partial overlap that
+  // the exact-set-equality fallback below can't disambiguate.
+  if (goldId != null && Number.isInteger(goldId)) {
+    const byId = gold.factor_values.find((g) => g.id === goldId);
+    if (byId) return byId;
+  }
+  // Fallback: exact biomaterial-set equality (older packages carry no
+  // gold_id).
   const agentBms = new Set(agentFactor.biomaterial_short_names ?? []);
   for (const goldFv of gold.factor_values) {
     const gBms = new Set(goldFv.biomaterial_short_names ?? []);
@@ -360,6 +387,19 @@ export function buildFactorRows(
   // reference data; reference stays null per-row and the third
   // comparator suppresses.
   const rename = finding.rename ?? null;
+
+  // Agent-FV-label → paired gold FactorValue id, from the finding's
+  // self-carried ``rename.fv_pairs`` (id-hardening ship). Lets
+  // ``pairAgentGoldFv`` do a stable-id join instead of biomaterial-set
+  // equality. Keyed by the agent-side label so it survives FV
+  // reordering; empty on older packages (no ``gold_id``), where the
+  // biomaterial fallback stays in charge.
+  const goldIdByAgentLabel = new Map<string, number>();
+  for (const p of rename?.fv_pairs ?? []) {
+    if (p.gold_id != null && Number.isInteger(p.gold_id) && p.agent?.label) {
+      goldIdByAgentLabel.set(lc(p.agent.label), p.gold_id);
+    }
+  }
 
   const rows: Row[] = [];
   const fvMeta = new Map<number, FvMeta>();
@@ -415,7 +455,9 @@ export function buildFactorRows(
   }
 
   agent.factor_values.forEach((fv, fvIdx) => {
-    const pairedGoldFv = pairAgentGoldFv(fv, gold);
+    const goldId =
+      goldIdByAgentLabel.get(lc(fv.free_text_label || "")) ?? null;
+    const pairedGoldFv = pairAgentGoldFv(fv, gold, goldId);
     // Gold-side statements beyond ``[0]`` — surface as "(also: …)"
     // lines in the disagreement block so the curator sees the full
     // current structure even when the comparator row builder only
@@ -492,7 +534,7 @@ export function buildFactorRows(
       // pair). Otherwise pair via biomaterial-set as usual.
       const currently: SideValue | null = isAgentOnly
         ? { label: "", uri: null }
-        : pairAgentStatementToGold(fv, gold, part);
+        : pairAgentStatementToGold(fv, gold, part, goldId);
       const reference: SideValue | null = referencePart(part);
       if (part !== "subject") {
         const proposalEmpty = isSideEmpty(proposal);

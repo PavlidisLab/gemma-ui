@@ -45,3 +45,41 @@ describe("FactorComparisonGrid — category-diff header toning", () => {
     expect(html).not.toContain("term diff");
   });
 });
+
+/**
+ * Same-concept category URI reconciliation. A payload may carry the
+ * category URI on only ONE side (partition-mismatch Auditor side,
+ * self-carried gold factor). With matching labels the missing-URI side
+ * should borrow the present URI so both render as ontology chips, not the
+ * grey-italic free-text variant (``term free``). Rename cards, whose two
+ * category labels differ by design, must NOT borrow.
+ */
+describe("FactorComparisonGrid — same-label category URI reconciliation", () => {
+  it("borrows the URI onto a same-label side that lacks one (no free-text chip)", () => {
+    const html = render(
+      { label: "collection of material", uri: "EFO:0005066" },
+      { label: "Collection of material", uri: null },
+    );
+    // Both sides resolve as ontology chips — neither collapses to the
+    // grey-italic free-text variant.
+    expect(html).not.toContain("term free");
+  });
+
+  it("borrows in the other direction too (left side lacks the URI)", () => {
+    const html = render(
+      { label: "genotype", uri: null },
+      { label: "genotype", uri: "EFO:0000513" },
+    );
+    expect(html).not.toContain("term free");
+  });
+
+  it("does NOT borrow across different category labels (rename)", () => {
+    const html = render(
+      { label: "treatment", uri: "EFO:0000727" },
+      { label: "timepoint", uri: null },
+    );
+    // A rename: labels differ, so the URI must not leak across — the
+    // URI-less side stays free text.
+    expect(html).toContain("term free");
+  });
+});

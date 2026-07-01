@@ -48,7 +48,7 @@ import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
 import { useAudit } from "./AuditContext";
-import { factorTarget } from "./targetIds";
+import { factorTarget, parseTargetId } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { useDesign } from "@/api/design";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
@@ -81,7 +81,11 @@ import {
   findingDisplayedGoldEmpty,
 } from "./findingHelpers";
 import { MatchBadge, SeverityBadge } from "./findingBadges";
-import { isCloseFactorMatch, isExactFactorMatch } from "./factorMatch";
+import {
+  isCloseFactorMatch,
+  isExactFactorMatch,
+  synthesizeGoldFactorFromRename,
+} from "./factorMatch";
 import { displaySeverity } from "./auditPresentation";
 
 // Local ``Term`` renderer removed 2026-06-15. The comparison grid now
@@ -201,6 +205,66 @@ function _jaccard(a: Set<string>, b: Set<string>): number {
   for (const v of a) if (b.has(v)) inter += 1;
   const union = a.size + b.size - inter;
   return union === 0 ? 0 : inter / union;
+}
+
+/** Resolve the matched gold factor for a factor finding, ID-FIRST.
+ *
+ *  A factor-match finding names the matched Gemma factor by its STABLE
+ *  id in ``target_id`` ("factor:<id>"). Factors, FVs, and sample
+ *  assignments are all keyed by id on the wire, so an id join is the
+ *  reliable way to line the agent's factor up with the one in the
+ *  current design: it survives factor reordering and doesn't depend on
+ *  ``gold_target_index`` still matching the live design's order (that
+ *  positional index is computed against the audit-time design and
+ *  drifts — the cause of the "(no factor)" phantom-match render).
+ *
+ *  Resolve by id across the given factor pools (owning-curation design
+ *  first, then the live design). Fall back to the positional
+ *  ``gold_target_index`` only for label-based target_ids
+ *  (``calibration_factor_extra`` → "factor:<slug>") or when the id
+ *  isn't present in any pool. Pure — unit-tested in
+ *  ``ComparisonFactorCard.goldById.test.ts``. */
+export function resolveGoldFactorByIdOrIndex(
+  finding: Pick<AuditFinding, "target_id" | "gold_target_index">,
+  pools: Array<readonly Factor[] | null | undefined>,
+  explicitGoldFactorId?: number | null,
+): Factor | null {
+  const parsed = parseTargetId(finding.target_id);
+  const fidFromTarget =
+    parsed?.kind === "factor" && /^\d+$/.test(parsed.factorSlug)
+      ? Number(parsed.factorSlug)
+      : null;
+  // Prefer the id parsed out of ``target_id``; otherwise fall to the
+  // explicit ``gemma_factor_id`` carried on the rename /
+  // partition_mismatch payload. Either key is a STABLE id join that
+  // survives factor reordering, so try it before any positional
+  // fallback.
+  const idKey =
+    fidFromTarget != null
+      ? fidFromTarget
+      : explicitGoldFactorId != null && Number.isInteger(explicitGoldFactorId)
+        ? explicitGoldFactorId
+        : null;
+  if (idKey != null) {
+    for (const pool of pools) {
+      const hit = pool?.find((f) => f.id === idKey);
+      if (hit) return hit;
+    }
+    // A numeric id was named but isn't in any pool (drifted / stripped
+    // baseline). Do NOT fall back to the positional index — that's how a
+    // match card ends up showing the WRONG factor. Return null so the
+    // caller uses its self-carry (rename) fallback instead.
+    return null;
+  }
+  // Label-based target_id (e.g. calibration_factor_extra): no id to join
+  // on, so the positional gold_target_index is the best available key.
+  const ix = finding.gold_target_index;
+  if (ix == null) return null;
+  for (const pool of pools) {
+    const hit = pool?.[ix];
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** Find the factor inside a curation's design that the finding is
@@ -457,13 +521,22 @@ export function ComparisonFactorCard({
   }, [curations, finding.gold_curation_id]);
 
   const owningGoldFactor: Factor | null = useMemo(() => {
-    const ix = finding.gold_target_index;
-    if (ix == null) return null;
     const fromCuration =
       (owningGoldCuration?.design as { factors?: Factor[] } | undefined)
         ?.factors ?? null;
-    return fromCuration?.[ix] ?? design?.factors?.[ix] ?? null;
-  }, [owningGoldCuration, design, finding.gold_target_index]);
+    // Stable Gemma factor id off the rename / partition_mismatch
+    // payload — the id key used when ``target_id`` is label-based
+    // (``factor:<slug>``) rather than a numeric ``factor:<id>``.
+    const explicitGoldFactorId =
+      finding.rename?.gold?.gemma_factor_id ??
+      finding.partition_mismatch?.gold?.gemma_factor_id ??
+      null;
+    return resolveGoldFactorByIdOrIndex(
+      finding,
+      [fromCuration, design?.factors],
+      explicitGoldFactorId,
+    );
+  }, [owningGoldCuration, design, finding]);
 
   // Bro 1's caveat: the agent stamps the consensus ROW it identified
   // as the gold, but the row's ``design_payload`` may be empty if the
@@ -538,34 +611,62 @@ export function ComparisonFactorCard({
   // Explicit override (synthetic drift cards) wins over both.
   const leftFactor: Factor | null = useMemo(() => {
     if (leftFactorOverride !== undefined) return leftFactorOverride;
-    if (baselineSource !== undefined) {
-      const curation = resolveCuration(baselineSource, curations);
-      // gold_target_index was computed against the consensus polished
-      // gold that owns the finding. Authoritative only when the
-      // baseline curation is that same consensus row.
-      const indexIsAuth = curation?.source_kind === "consensus";
-      // anchor = the original gold-side factor (consensus row,
-      // resolved via gold_target_index). When the baseline curation
-      // has multiple factors with the same category URI
-      // (GSE93824 live has 2 genotype factors), findFactorInCuration
-      // scores candidates by FV-subject Jaccard against this anchor
-      // and picks the closest — otherwise the function falls back to
-      // first-match, which silently picks the wrong factor.
-      return findFactorInCuration(
-        curation,
-        leftFactorCategory,
-        finding.gold_target_index ?? null,
-        indexIsAuth,
-        owningGoldFactor,
-      );
+    // "Current" is the matched factor, resolved by its stable id
+    // (``owningGoldFactor`` is now id-first). We deliberately do NOT vary
+    // Current by the base selector: pointing it at a different baseline is
+    // effectively loading a different proposal — out of scope. Prefer the
+    // id-resolved factor whenever it carries FVs; only when the id lookup
+    // yields nothing usable do we fall through to the baseline-curation
+    // lookup and finally the self-carried ``rename`` payload.
+    if (owningGoldFactor && (owningGoldFactor.factor_values?.length ?? 0) > 0) {
+      return owningGoldFactor;
     }
-    return owningGoldFactor;
+    const resolved: Factor | null = (() => {
+      if (baselineSource !== undefined) {
+        const curation = resolveCuration(baselineSource, curations);
+        // gold_target_index was computed against the consensus polished
+        // gold that owns the finding. Authoritative only when the
+        // baseline curation is that same consensus row.
+        const indexIsAuth = curation?.source_kind === "consensus";
+        // anchor = the original gold-side factor (consensus row,
+        // resolved via gold_target_index). When the baseline curation
+        // has multiple factors with the same category URI
+        // (GSE93824 live has 2 genotype factors), findFactorInCuration
+        // scores candidates by FV-subject Jaccard against this anchor
+        // and picks the closest — otherwise the function falls back to
+        // first-match, which silently picks the wrong factor.
+        return findFactorInCuration(
+          curation,
+          leftFactorCategory,
+          finding.gold_target_index ?? null,
+          indexIsAuth,
+          owningGoldFactor,
+        );
+      }
+      return owningGoldFactor;
+    })();
+    if (resolved && (resolved.factor_values?.length ?? 0) > 0) return resolved;
+    // Self-carry fallback. A FACTOR MATCH / rename finding whose baseline
+    // lookup missed — the selected baseline is a stripped ``preboard``
+    // design, an empty consensus row, or the ``gold_target_index``
+    // misaligns — still carries the matched gold factor in
+    // ``finding.rename`` (gold FactorRef + fv_pairs, baked in by the
+    // calibration builder). Render it so a real match never collapses to
+    // "(no factor)" / "(no FV)" — the card must not badge "FACTOR MATCH"
+    // against an existing factor it then fails to show. Prefer a live
+    // baseline factor when it carries FVs (keeps "Current" reflecting the
+    // curator's own baseline); only fall back when there is nothing live
+    // to render. Mirrors ``resolveGoldFactor``'s factor-level fallback.
+    const synth = synthesizeGoldFactorFromRename(finding.rename ?? null);
+    if (synth && synth.factor_values.length > 0) return synth;
+    return resolved ?? synth;
   }, [
     leftFactorOverride,
     baselineSource,
     curations,
     leftFactorCategory,
     finding.gold_target_index,
+    finding.rename,
     owningGoldFactor,
   ]);
 
@@ -603,16 +704,29 @@ export function ComparisonFactorCard({
     owningAgentFactor,
   ]);
 
-  const leftCategory = leftFactor
-    ? {
-        label: leftFactor.category?.label ?? null,
-        uri: leftFactor.category?.uri ?? null,
-      }
-    : null;
   const rightCategory = rightFactor
     ? {
         label: rightFactor.category?.label ?? null,
         uri: rightFactor.category?.uri ?? null,
+      }
+    : null;
+  const leftCategory = leftFactor
+    ? {
+        label: leftFactor.category?.label ?? null,
+        // Self-carried gold from a rename payload can lack the category
+        // URI (the builder doesn't always mirror ``rename.gold.category.uri``);
+        // it then renders as italic free text instead of an ontology chip.
+        // When the two sides share the SAME category label — i.e. an exact
+        // category match, not a rename where the labels differ by design —
+        // borrow the comparator's URI so the baseline chip resolves as a
+        // term. Same pattern as buildFactorRows' reference-URI fallback.
+        uri:
+          leftFactor.category?.uri ??
+          (rightCategory?.uri &&
+          (leftFactor.category?.label ?? "").toLowerCase().trim() ===
+            (rightCategory.label ?? "").toLowerCase().trim()
+            ? rightCategory.uri
+            : null),
       }
     : null;
 

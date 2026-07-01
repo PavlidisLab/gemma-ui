@@ -46,6 +46,23 @@ const CURIE_TO_URL_PREFIX: Record<string, string> = {
 
 export function curieToUrl(uri: string | null | undefined): string | null {
   if (!uri) return null;
+  // Double-mangled IRI: some upstream snapshots glue the obo-purl
+  // prefix onto an ALREADY-full IRI and mangle the inner scheme's
+  // ``://`` down to ``_//`` — e.g. the shipped TGEMO.tsv synonym
+  // snapshot emits
+  // ``http://purl.obolibrary.org/obo/http_//gemma.msl.ubc.ca/ont/TGEMO_00001``
+  // for what should be ``http://gemma.msl.ubc.ca/ont/TGEMO_00001``. Left
+  // as-is this 404s in the "open in OBO" link AND misses Gemma's term
+  // endpoint (queried by IRI), so the popover wrongly reads "Gemma
+  // doesn't know this term". Peel the bogus prefix, restore the inner
+  // scheme, and re-run through this router so the recovered IRI still
+  // gets namespace-canonicalised.
+  const doubleMangled = uri.match(
+    /^https?:\/\/purl\.obolibrary\.org\/obo\/(https?)_\/\/(.+)$/i,
+  );
+  if (doubleMangled) {
+    return curieToUrl(`${doubleMangled[1]}://${doubleMangled[2]}`);
+  }
   // Some prefixes are sometimes mis-namespaced under the OBO purl by
   // upstream sources (the agent ontology index / predicates.json emit
   // e.g. ``http://purl.obolibrary.org/obo/EFO_0022874`` or

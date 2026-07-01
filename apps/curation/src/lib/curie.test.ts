@@ -80,4 +80,26 @@ describe("curieToUrl", () => {
       curieToUrl("http://purl.obolibrary.org/obo/TGEMO_00171"),
     ).toBe("http://gemma.msl.ubc.ca/ont/TGEMO_00171");
   });
+
+  it("repairs a double-mangled IRI: obo-purl prefix glued onto a full gemma IRI with the inner scheme collapsed to _//", () => {
+    // The shipped TGEMO.tsv synonym snapshot emits Homozygous negative
+    // as this butchered IRI; left as-is it 404s in "open in OBO" and
+    // misses Gemma's IRI-keyed term endpoint ("Gemma doesn't know this
+    // term"). Must recover the canonical Gemma IRI.
+    expect(
+      curieToUrl(
+        "http://purl.obolibrary.org/obo/http_//gemma.msl.ubc.ca/ont/TGEMO_00001",
+      ),
+    ).toBe("http://gemma.msl.ubc.ca/ont/TGEMO_00001");
+  });
+
+  it("re-canonicalises the inner IRI after unmangling (double-mangled obo-purl EFO → EFO's ebi host)", () => {
+    // Recursion through curieToUrl means the recovered inner IRI still
+    // gets the single-mangle EFO/TGEMO namespace fix applied.
+    expect(
+      curieToUrl(
+        "http://purl.obolibrary.org/obo/http_//purl.obolibrary.org/obo/EFO_0000513",
+      ),
+    ).toBe("http://www.ebi.ac.uk/efo/EFO_0000513");
+  });
 });

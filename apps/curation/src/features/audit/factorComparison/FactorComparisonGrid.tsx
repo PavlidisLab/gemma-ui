@@ -263,6 +263,24 @@ export function FactorComparisonGrid({
     leftHeader.category,
     rightHeader.category,
   );
+  // Same-concept URI reconciliation. Exact / partition-mismatch
+  // comparisons carry the SAME category on both sides, but a payload may
+  // populate the category URI on only one side (the other then renders as
+  // italic free text instead of an ontology chip — e.g. the partition-
+  // mismatch Auditor side, or a self-carried gold factor). When the two
+  // labels match case-insensitively and exactly one side has a URI, share
+  // it so both chips resolve. Rename / near-match cards have DIFFERENT
+  // category labels by design, so this never fires there.
+  const _lc = leftHeader.category;
+  const _rc = rightHeader.category;
+  const _sameLabel =
+    !!_lc?.label &&
+    !!_rc?.label &&
+    _lc.label.toLowerCase().trim() === _rc.label.toLowerCase().trim();
+  const leftCatUri =
+    (_lc?.uri ?? null) || (_sameLabel ? _rc?.uri ?? null : null);
+  const rightCatUri =
+    (_rc?.uri ?? null) || (_sameLabel ? _lc?.uri ?? null : null);
   const header = (
     <div
       className="grid items-baseline gap-x-2 py-1 px-1.5 rounded bg-slate-50/60 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 text-[11px]"
@@ -291,7 +309,7 @@ export function FactorComparisonGrid({
       <span className="min-w-0">
         <CategoryChip
           label={leftHeader.category?.label ?? null}
-          uri={leftHeader.category?.uri ?? null}
+          uri={leftCatUri}
           termRenderer={termRenderer}
           diff={categoryDiff}
         />
@@ -306,7 +324,7 @@ export function FactorComparisonGrid({
       <span className="min-w-0">
         <CategoryChip
           label={rightHeader.category?.label ?? null}
-          uri={rightHeader.category?.uri ?? null}
+          uri={rightCatUri}
           termRenderer={termRenderer}
           diff={categoryDiff}
         />
