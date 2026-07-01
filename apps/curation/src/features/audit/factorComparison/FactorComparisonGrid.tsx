@@ -91,6 +91,14 @@ export interface FactorComparisonPair {
    *  (gold total ↔ summed agent total), not just the umbrella's own
    *  paired FV. Default (omitted) → compute from this pair's FVs. */
   midOverride?: { text: string; cls: string; title: string };
+  /** Show the per-FV sample-count badge on the LEFT / RIGHT chip.
+   *  Off by default — the mid column normally carries the count. Turned
+   *  on for the CHILD rows of a split cluster (agent_finer / coarser),
+   *  where the mid shows one cluster total (e.g. 40 ↔ 40) that hides the
+   *  individual child counts: the two grouped Current FVs (31, 9) must
+   *  still read on their own chips. */
+  leftShowSampleCount?: boolean;
+  rightShowSampleCount?: boolean;
 }
 
 export interface FactorComparisonHeaderSide {
@@ -212,10 +220,15 @@ function FvCell({
   fv,
   termRenderer,
   diffChips,
+  showSampleCount,
 }: {
   fv: GridFv;
   termRenderer: FvTermRenderer;
   diffChips?: ReadonlySet<string>;
+  /** Render the per-FV ``(n)`` sample-count badge. Off by default (the
+   *  mid column carries the count); on for split-cluster child chips
+   *  whose count the cluster mid summary would otherwise hide. */
+  showSampleCount?: boolean;
 }) {
   if (!fv) {
     return <em className="text-slate-400">(no FV)</em>;
@@ -229,7 +242,7 @@ function FvCell({
       fv={fv}
       termRenderer={termRenderer}
       diffChips={diffChips}
-      suppressSampleCount
+      suppressSampleCount={!showSampleCount}
       // Side-by-side factor comparison — render the whole statement a
       // notch smaller so the two columns fit more comfortably. Paul
       // 2026-06-21: "the text smaller for the whole thing." Only the
@@ -544,6 +557,7 @@ function PairGridBody({
                   fv={leftFv}
                   termRenderer={termRenderer}
                   diffChips={leftKeys}
+                  showSampleCount={pair.leftShowSampleCount}
                 />
               </div>
             ) : null}
@@ -579,6 +593,7 @@ function PairGridBody({
                   fv={rightFv}
                   termRenderer={termRenderer}
                   diffChips={rightKeys}
+                  showSampleCount={pair.rightShowSampleCount}
                 />
               </div>
             ) : null}

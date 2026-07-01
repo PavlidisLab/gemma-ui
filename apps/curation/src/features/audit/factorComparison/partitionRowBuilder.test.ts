@@ -108,6 +108,21 @@ describe("buildPartitionMismatchPairs — agent_coarser", () => {
     expect(rows[1].left).not.toBe(CONTINUATION);
   });
 
+  it("shows the per-FV count on each grouped Current (left) child chip", () => {
+    // The cluster mid shows one total (20 ↔ 20); the individual grouped
+    // Current counts (10, 10 here; 31, 9 on GSE306566) must still read on
+    // their own chips. leftShowSampleCount drives the FvDisplayRow badge.
+    const rows = buildPartitionMismatchPairs({
+      direction: "agent_coarser",
+      fvPairs: input,
+      project,
+    });
+    expect(rows[0].leftShowSampleCount).toBe(true);
+    expect(rows[1].leftShowSampleCount).toBe(true);
+    // The umbrella (agent/right) side keeps its count in the cluster mid.
+    expect(rows[0].rightShowSampleCount).toBeUndefined();
+  });
+
   it("groups multiple agent umbrellas independently (3 umbrellas × 2 children = 6 rows)", () => {
     const fvPairs: PartitionFvPairInput[] = [
       makePair("frontal cortex", "frontal cortex L", 20, 10),

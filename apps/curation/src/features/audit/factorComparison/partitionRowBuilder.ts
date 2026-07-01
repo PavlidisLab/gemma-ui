@@ -139,21 +139,29 @@ export function buildPartitionMismatchPairs(args: {
       // the umbrella side as CONTINUATION and let the grid suppress
       // their own mid (covered by the umbrella's midRowSpan).
       if (umbrellaIsGold) {
+        // agent_finer: the AGENT (right) side is the child — show its
+        // per-FV count on the chip so the cluster mid summary doesn't
+        // hide the individual split members.
         rows.push({
           left: i === 0 ? goldFv : CONTINUATION,
           right: agentFv,
           status: "drift",
           leftRowSpan: i === 0 ? span : 1,
+          ...(span > 1 ? { rightShowSampleCount: true } : {}),
           ...(i === 0 && span > 1
             ? { midRowSpan: span, midOverride }
             : {}),
         });
       } else {
+        // agent_coarser: the GOLD/Current (left) side is the child — show
+        // each grouped Current FV's own count (e.g. 31 and 9) that the
+        // cluster mid total (40 ↔ 40) would otherwise hide.
         rows.push({
           left: goldFv,
           right: i === 0 ? agentFv : CONTINUATION,
           status: "drift",
           rightRowSpan: i === 0 ? span : 1,
+          ...(span > 1 ? { leftShowSampleCount: true } : {}),
           ...(i === 0 && span > 1
             ? { midRowSpan: span, midOverride }
             : {}),
