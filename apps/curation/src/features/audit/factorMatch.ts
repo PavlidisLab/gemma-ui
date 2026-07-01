@@ -25,13 +25,17 @@
  * Wire contract: agents-repo commit ``f313770``,
  * eval-repo ``docs/HANDOFF_2026-05-18_UI_FACTOR_MATCH_PAIRING.md``.
  */
-import type { AuditFinding } from "@/api/auditTypes";
+import type { AuditFinding, FactorRenamePayload } from "@/api/auditTypes";
 import type {
   FactorProposal,
   FactorValueProposal,
   Proposal,
 } from "@/api/types";
-import type { Factor, FactorValue } from "@/features/experiment/types";
+import type {
+  Factor,
+  FactorValue,
+  Statement,
+} from "@/features/experiment/types";
 
 /** Match-code variant. ``legacy`` is the pre-split
  *  ``calibration_factor_match`` code that older builds still emit.
@@ -303,8 +307,45 @@ export function factorProposalFromRename(
  *       slug-match returns multiple candidates (e.g. via
  *       ``pickGoldFactor`` + biomaterial overlap).
  *
- *  Returns ``null`` when neither path resolves. */
+ *    3. Self-carried gold content — ``finding.rename.gold`` (category)
+ *       + ``finding.rename.fv_pairs[*].gold`` (per-FV subject / samples).
+ *       The calibration builder bakes this onto factor match / rename
+ *       findings (near branch always; EXACT branch since the phantom-
+ *       factor-match fix, agents-repo 2026-07-01). Used ONLY as a
+ *       fallback when the positional / slug paths fail to resolve a
+ *       live design factor — that's exactly the "divergent active
+ *       baseline blanks a real match" case (the curator's baseline no
+ *       longer matches the design the ``gold_target_index`` was computed
+ *       against, so ``design.factors[idx]`` is empty). Preferring the
+ *       live design factor when it exists keeps the "Currently" column
+ *       reflecting the curator's own baseline; the self-carried snapshot
+ *       only kicks in when there's nothing live to show, so a real
+ *       FACTOR MATCH never renders "(no factor)".
+ *
+ *  Returns ``null`` when no path resolves. */
 export function resolveGoldFactor(
+  finding: Pick<AuditFinding, "gold_target_index" | "rename">,
+  designFactors: Factor[] | undefined,
+  labelFallback: string | null | undefined,
+): Factor | null {
+  // Positional / slug lookup against the live design — preferred so
+  // "Currently" reflects the curator's active baseline when it carries
+  // the factor.
+  const live = resolveLiveGoldFactor(finding, designFactors, labelFallback);
+  if (live) return live;
+
+  // Divergent / empty baseline: the positional index pointed at nothing
+  // (out of range, or a hole in the current design). Fall back to the
+  // gold content the finding carries on itself so a real match still
+  // renders instead of collapsing to "(no factor)".
+  return synthesizeGoldFactorFromRename(finding.rename ?? null);
+}
+
+/** Positional / slug resolution against the live ``designFactors`` —
+ *  the original ``resolveGoldFactor`` body, split out so the self-
+ *  carried fallback can compose on top. Returns ``null`` when the live
+ *  design doesn't resolve the gold factor. */
+function resolveLiveGoldFactor(
   finding: Pick<AuditFinding, "gold_target_index">,
   designFactors: Factor[] | undefined,
   labelFallback: string | null | undefined,
@@ -330,6 +371,63 @@ export function resolveGoldFactor(
       (f) => (f.category.label || "").toLowerCase().trim() === label,
     ) ?? null
   );
+}
+
+/** Build a synthetic gold ``Factor`` from a finding's self-carried
+ *  ``rename`` payload (``gold`` FactorRef + ``fv_pairs[*].gold``). This
+ *  is the content the calibration builder bakes onto the finding so the
+ *  gold side is self-describing independent of any positional index into
+ *  a possibly-divergent live design. Returns ``null`` when the payload
+ *  has no usable gold category (nothing to render). The synthesised
+ *  factor uses a negative ``id`` so it never collides with a real Gemma
+ *  factor id and callers that key off ``id`` treat it as ephemeral. */
+export function synthesizeGoldFactorFromRename(
+  rename: FactorRenamePayload | null | undefined,
+): Factor | null {
+  const goldCat = rename?.gold?.category;
+  if (!goldCat || !(goldCat.label || goldCat.uri)) return null;
+
+  const factorValues: FactorValue[] = (rename?.fv_pairs ?? []).map(
+    (pair, i) => {
+      const gs = pair.gold_statement ?? null;
+      const statements: Statement[] = [];
+      if (gs && (gs.subject || gs.predicate || gs.object)) {
+        statements.push({
+          category: goldCat,
+          subject: gs.subject ?? { label: pair.gold?.label || "" },
+          predicate: gs.predicate ?? null,
+          object: gs.object ?? null,
+        });
+      } else if (pair.gold && (pair.gold.label || pair.gold.uri)) {
+        // Fallback: no parsed statement, synthesise a subject-only one
+        // from the pair's gold OntologyTerm.
+        statements.push({
+          category: goldCat,
+          subject: pair.gold,
+          predicate: null,
+          object: null,
+        });
+      }
+      return {
+        id: -(i + 1),
+        free_text_label: pair.gold?.label || "",
+        is_baseline: false,
+        statements,
+        biomaterial_short_names: pair.gold_biomaterial_short_names ?? [],
+      };
+    },
+  );
+
+  return {
+    id: -1,
+    name: goldCat.label || "",
+    category: goldCat,
+    description: "",
+    type: rename?.gold?.factor_type === "continuous"
+      ? "continuous"
+      : "categorical",
+    factor_values: factorValues,
+  };
 }
 
 /** Per-FV pairing between an agent factor and its paired gold

@@ -22,6 +22,7 @@ import {
   factorProposalFromApplyAction,
   resolveAgentFactor,
   resolveGoldFactor,
+  synthesizeGoldFactorFromRename,
 } from "./factorMatch";
 import { isActionPrefixRationale } from "./auditorDetails";
 import { SEVERITY_RANK, TARGET_KIND_LABEL } from "./auditPresentation";
@@ -123,6 +124,14 @@ export function findingDisplayedGoldEmpty(
   // no bridge resolves so we never override a real match.
   const parsed = parseTargetId(finding.target_id);
   if (parsed?.kind === "factor") {
+    // Self-carried gold content (``finding.rename.gold`` + ``fv_pairs``)
+    // makes the displayed gold side non-empty regardless of whether the
+    // positional ``gold_target_index`` resolves against the (possibly
+    // divergent) active baseline. Mirrors ``resolveGoldFactor``'s self-
+    // carried fallback so a real FACTOR MATCH doesn't get downgraded to
+    // "Add factor" when the card renders gold from the finding's own
+    // content. Phantom-factor-match fix, 2026-07-01.
+    if (synthesizeGoldFactorFromRename(finding.rename ?? null)) return false;
     if (/^\d+$/.test(parsed.factorSlug)) {
       const idx = finding.gold_target_index;
       if (typeof idx === "number" && Number.isInteger(idx)) {

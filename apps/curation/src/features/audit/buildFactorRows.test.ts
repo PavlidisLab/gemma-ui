@@ -216,3 +216,95 @@ describe("buildFactorRows — non-extra finding still pairs via gold lookup", ()
     expect(catRow!.currently?.label).toBe("disease");
   });
 });
+
+describe("buildFactorRows — EXACT match self-carries gold (phantom-match fix)", () => {
+  // Phantom-factor-match fix (2026-07-01). An EXACT factor match ships a
+  // self-contained gold ``FactorRenamePayload`` (gold ``FactorRef`` +
+  // ``fv_pairs``) baked onto the finding. The UI must render the Current
+  // factor (category + FVs) from that self-carried content even when the
+  // curator's active design array is EMPTY / divergent so the positional
+  // ``gold_target_index`` resolves to nothing. Pre-fix: Current rendered
+  // "(no factor)" beside a real FACTOR MATCH badge.
+
+  const agent = mkAgentFactor("genotype", [
+    { label: "wild type genotype", bms: ["S1", "S2"], subject: "wild type genotype" },
+    { label: "Nrxn1 KO", bms: ["S3", "S4"], subject: "Nrxn1 KO" },
+  ]);
+
+  // Self-carried gold content — mirrors what the builder now bakes onto
+  // the exact-match finding.
+  const rename = {
+    agent: { category: { label: "genotype", uri: null }, factor_type: "categorical" },
+    gold: { category: { label: "genotype", uri: null }, factor_type: "categorical" },
+    direction: "equivalent",
+    concept_diff_kind: "none",
+    fv_pairs: [
+      {
+        agent: { label: "wild type genotype", uri: null },
+        gold: { label: "wild type genotype", uri: null },
+        equivalence: "exact",
+        gold_biomaterial_short_names: ["S1", "S2"],
+      },
+      {
+        agent: { label: "Nrxn1 KO", uri: null },
+        gold: { label: "Nrxn1 KO", uri: null },
+        equivalence: "exact",
+        gold_biomaterial_short_names: ["S3", "S4"],
+      },
+    ],
+  } as unknown as AuditFinding["rename"];
+
+  function mkExactFinding(): AuditFinding {
+    return mkFinding({
+      issue_code: "calibration_factor_match_exact",
+      target_id: "factor:55021",
+      severity: "ok",
+      rationale: "Is factor `genotype` correctly captured?",
+      // The index the builder computed — points at nothing in a
+      // divergent / empty live design.
+      gold_target_index: 0,
+      rename,
+    });
+  }
+
+  it("Current category renders from self-carried gold when design is empty", () => {
+    const finding = mkExactFinding();
+    const report = mkReport([agent]);
+    // Empty design array — positional gold_target_index=0 resolves to
+    // nothing.
+    const emptyDesign = mkDesign([]);
+    const { rows } = buildFactorRows(finding, report, emptyDesign);
+    const catRow = rows.find((r) => r.rowLabel === "Category");
+    expect(catRow).toBeDefined();
+    // NOT "(no factor)" — Current is populated from the finding itself.
+    expect(catRow!.currently).not.toBeNull();
+    expect(catRow!.currently?.label).toBe("genotype");
+    expect(catRow!.allAgree).toBe(true);
+  });
+
+  it("Current FV subjects render from self-carried gold when design diverges", () => {
+    const finding = mkExactFinding();
+    const report = mkReport([agent]);
+    // Divergent design: the index points at an UNRELATED factor bucket so
+    // design.factors[0] exists but carries none of this match's FVs.
+    const divergent = mkDesign([
+      { label: "organism part", fvs: [{ label: "liver", bms: ["Z9"] }] },
+    ]);
+    // Force the positional lookup to miss: gold_target_index out of range.
+    finding.gold_target_index = 7;
+    const { rows } = buildFactorRows(finding, report, divergent);
+    const subjectRows = rows.filter(
+      (r) => r.fvIndex !== null && r.rowLabel === "Subject",
+    );
+    expect(subjectRows.length).toBe(2);
+    // Every FV Subject row's Current side is populated from the paired
+    // self-carried gold FV (matched by biomaterial overlap), and agrees.
+    for (const r of subjectRows) {
+      expect(r.currently).not.toBeNull();
+      expect(r.currently?.label).not.toBe("");
+      expect(r.allAgree).toBe(true);
+    }
+    const koRow = subjectRows.find((r) => r.proposal.label === "Nrxn1 KO");
+    expect(koRow?.currently?.label).toBe("Nrxn1 KO");
+  });
+});
