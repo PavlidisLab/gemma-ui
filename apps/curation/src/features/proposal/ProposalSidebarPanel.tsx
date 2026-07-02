@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Proposal } from "@/api/types";
 import type { SubtaskDecision } from "@/api/justification";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { DownstreamShapeBlock } from "@/features/design/DownstreamShapeBlock";
 import {
   FactorReviewCard,
   TagReviewCard,
@@ -257,6 +258,10 @@ export function ProposalSidebarPanel({
         agentConsidered={proposal.evidence?.agent_considered}
       />
       <DecisionsStrip proposal={proposal} />
+      {/* Split / subset recommendation — shared with ProposalCardV2. Reads
+          the design draft's should_split_on_factor_id / subset_recommendations
+          (seeded at import from the live S2o/S2n machinery). */}
+      <DownstreamShapeBlock draft={draft} />
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300">
           Proposal review

@@ -294,9 +294,12 @@ describe("reviewerPhase", () => {
     expect(reviewerPhase("comparison judge")).toBe("gold");
   });
 
-  it("keeps plain defender / factor_defender in the gold-blind proposer phase", () => {
-    expect(reviewerPhase("defender")).toBe("proposer");
-    expect(reviewerPhase("factor_defender")).toBe("proposer");
+  it("routes defender / factor_defender to the gold phase (they read gold.jsonl)", () => {
+    // Corrected 2026-07-01: the defender pass is gold-AWARE (audit mode),
+    // so its advocacy belongs in the sees-gold group, not the gold-blind
+    // proposer voice (whose reasoning is the separate WHY block).
+    expect(reviewerPhase("defender")).toBe("gold");
+    expect(reviewerPhase("factor_defender")).toBe("gold");
   });
 
   it("routes the boss and unknown reviewers to the internal-critic phase", () => {

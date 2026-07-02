@@ -424,18 +424,21 @@ function GuidelineCiteRow({ finding }: { finding: AuditFinding }): JSX.Element |
 // "sees gold — eval only", distinct from the two gold-blind groups).
 //
 // The reviewer LLMs sort into voices deterministically here (UI-side
-// classification, no data mutation): defender / factor_defender read as
-// the PROPOSER's own gold-blind reasoning; the boss is the gold-blind
-// INTERNAL CRITIC; the arbiter / comparison judge are the only
-// GOLD-SEEING voices.
+// classification, no data mutation): defender / factor_defender / arbiter /
+// comparison judge are the GOLD-SEEING voices (the defender pass reads
+// gold.jsonl in audit mode, so it is gold-AWARE — corrected 2026-07-01, it
+// used to be mis-filed as the gold-blind proposer); the boss is the
+// gold-blind INTERNAL CRITIC. The PROPOSER's own gold-blind reasoning is
+// NOT a review row — it is the separate WHY block in the Proposer voice.
 // ---------------------------------------------------------------------------
 
 type PhaseKind = "proposer" | "critic" | "gold";
 
-/** Which voice a reviewer belongs to. Only the arbiter / comparison
- *  judge see the gold standard; everything else is gold-blind. Unknown
- *  gold-blind reviewers fall to the internal-critic group (they are, by
- *  definition, not the proposer and not the gold judge). */
+/** Which voice a reviewer belongs to. The arbiter / comparison judge AND
+ *  the defender / factor-defender see the gold standard (gold-aware);
+ *  ``reviewerPhase`` never returns "proposer" — the proposer's gold-blind
+ *  reasoning is the WHY block, not a review. Unknown reviewers fall to the
+ *  internal-critic group. */
 export function reviewerPhase(reviewer: string | null | undefined): PhaseKind {
   const k = (reviewer ?? "").trim().toLowerCase();
   // Gold-SEEING voices: the arbiter, the generic comparison judge, and
@@ -449,11 +452,20 @@ export function reviewerPhase(reviewer: string | null | undefined): PhaseKind {
     k.includes("comparison") ||
     k.includes("concept") ||
     k.includes("vs gold") ||
-    k.includes("(gold")
+    k.includes("(gold") ||
+    // The defender / factor-defender passes READ the gold standard
+    // (run_defender_pass.py loads gold.jsonl and runs in "audit" mode when
+    // gold is present) — they are gold-AWARE, not the gold-blind proposer.
+    // Their advocacy belongs in the sees-gold group alongside the arbiter,
+    // so a gold-referencing defender rationale ("the curator's collapse is
+    // correct") never reads as the proposer's gold-blind reasoning. The
+    // proposer's OWN gold-blind rationale is the separate WHY block, which
+    // lives in the Proposer voice group independently of these reviews.
+    k === "defender" ||
+    k === "factor_defender"
   ) {
     return "gold";
   }
-  if (k === "defender" || k === "factor_defender") return "proposer";
   return "critic";
 }
 
@@ -586,16 +598,17 @@ function ReviewList({ reviews }: { reviews: ReviewVerdict[] }): JSX.Element {
   );
 }
 
-/** Curator-facing reviewer name. The wire still uses the producer's
- *  internal role names (``defender`` / ``factor_defender``); the
- *  "defender" framing reads as adversarial jargon to curators when
- *  it's really the proposer's own reasoning ("why it says it"). Map
- *  it to plain language; leave arbiter / boss as-is. */
+/** Curator-facing reviewer name. The wire uses the producer's internal
+ *  role names (``defender`` / ``factor_defender``); "defender" reads as
+ *  adversarial jargon. It is the gold-AWARE agent-side defence (it reads
+ *  gold), so it renders in the sees-gold group — name it "agent defence",
+ *  NOT "proposer's reasoning" (the proposer is gold-blind; its reasoning is
+ *  the separate WHY block). Leave arbiter / boss as-is. */
 function reviewerLabel(reviewer: string | null | undefined): string {
   const r = (reviewer ?? "").trim();
   const key = r.toLowerCase();
   if (key === "defender" || key === "factor_defender") {
-    return "proposer's reasoning";
+    return "agent defence";
   }
   return r;
 }

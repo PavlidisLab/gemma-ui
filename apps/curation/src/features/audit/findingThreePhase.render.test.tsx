@@ -145,14 +145,15 @@ describe("ThreePhaseFindingBody — three labelled voice groups", () => {
     );
   });
 
-  it("routes reviewers into their voice (defender→proposer, boss→critic, arbiter→gold)", () => {
+  it("routes reviewers into their voice (defender→gold, boss→critic, arbiter→gold)", () => {
     renderWithProviders(
       <ThreePhaseFindingBody finding={makeFinding()} report={null} />,
     );
-    // defender relabels to "proposer's reasoning" inside the proposer group.
+    // defender is gold-aware (reads gold): relabels to "agent defence"
+    // inside the sees-gold group, NOT the gold-blind proposer group.
     expect(
-      within(screen.getByTestId("phase-group-proposer")).getByText(
-        /proposer's reasoning/i,
+      within(screen.getByTestId("phase-group-gold")).getByText(
+        /agent defence/i,
       ),
     ).toBeInTheDocument();
     // boss row lands in the internal-critic group.
