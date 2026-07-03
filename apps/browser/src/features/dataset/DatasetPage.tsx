@@ -27,6 +27,7 @@ import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { gemmaUrl, geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
+import { capitalizeFirstLetter } from "@/lib/filter";
 import type {
   Dataset,
   DatasetAnnotation,
@@ -774,6 +775,31 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
 
   const samples: BioAssay[] = q.data ?? [];
 
+  // Pivot each sample's inline factorValues into one column per
+  // experimental factor. Column order follows first appearance across
+  // the samples, except "block" (batch) factors are always sunk to the
+  // end — right before Flags — since they're bookkeeping, not biology.
+  // The header is the factor's (capitalized) category, falling back to
+  // the factor id when the category is unlabelled.
+  const factorColumns = useMemo(() => {
+    const cols = new Map<number, { label: string; isBlock: boolean }>();
+    for (const s of samples) {
+      for (const fv of s.sample?.factorValues ?? []) {
+        const fid = fv.experimentalFactorId;
+        if (fid == null || cols.has(fid)) continue;
+        const cat = fv.experimentalFactorCategory?.category;
+        cols.set(fid, {
+          label: cat ? capitalizeFirstLetter(cat) : `Factor ${fid}`,
+          isBlock: cat?.toLowerCase() === "block",
+        });
+      }
+    }
+    return [...cols.entries()]
+      .map(([id, meta]) => ({ id, ...meta }))
+      // Stable sort: non-block keep appearance order, block factors last.
+      .sort((a, b) => Number(a.isBlock) - Number(b.isBlock));
+  }, [samples]);
+
   return (
     <SectionCard title="Samples"
       subtitle={q.isLoading ? "loading…" : `${samples.length || nSamples} sample${nSamples === 1 ? "" : "s"}`}>
@@ -784,7 +810,9 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
               <tr className="border-b border-slate-200">
                 <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Name</th>
                 <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Accession</th>
-                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Platform</th>
+                {factorColumns.map((c) => (
+                  <th key={c.id} className="text-left py-1.5 pr-4 font-medium text-slate-600">{c.label}</th>
+                ))}
                 <th className="text-left py-1.5 font-medium text-slate-600">Flags</th>
               </tr>
             </thead>
@@ -803,7 +831,14 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
                           </a>
                         : "—"}
                     </td>
-                    <td className="py-1.5 pr-4 text-slate-600">{s.arrayDesign?.shortName ?? "—"}</td>
+                    {factorColumns.map((c) => {
+                      const fv = s.sample?.factorValues?.find((f) => f.experimentalFactorId === c.id);
+                      return (
+                        <td key={c.id} className="py-1.5 pr-4 text-slate-600">
+                          {fv?.summary || fv?.value || "—"}
+                        </td>
+                      );
+                    })}
                     <td className="py-1.5">
                       {s.userFlaggedOutlier && <FlagChip label="outlier" color="red" />}
                       {!s.userFlaggedOutlier && s.predictedOutlier && <FlagChip label="predicted outlier" color="amber" />}

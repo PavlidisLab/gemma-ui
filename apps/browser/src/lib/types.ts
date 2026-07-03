@@ -82,12 +82,35 @@ export interface ExperimentalDesign {
 
 // ─── Samples / BioAssay ───────────────────────────────────────────────────────
 
+/** A factor value as returned inline on a sample (BioMaterial) by the
+ *  ``/datasets/{id}/samples`` endpoint. Unlike the design-endpoint
+ *  ``FactorValueBasic``, each element here carries the owning factor's
+ *  id + category, so callers can pivot samples into one column per
+ *  experimental factor. ``summary`` is the server-composed,
+ *  human-readable label preferred for display. */
+export interface SampleFactorValue {
+  id?: number;
+  value?: string | null;
+  summary?: string | null;
+  /** The experimental factor this value belongs to — the column key
+   *  when pivoting samples into per-factor columns. */
+  experimentalFactorId?: number | null;
+  /** "categorical" | "continuous" */
+  experimentalFactorType?: string | null;
+  experimentalFactorCategory?: {
+    category?: string | null;
+    categoryUri?: string | null;
+    value?: string | null;
+    valueUri?: string | null;
+  } | null;
+}
+
 export interface BioMaterial {
   id?: number;
   name?: string | null;
   description?: string | null;
   characteristics?: Array<{ value?: string; category?: string; valueUri?: string | null }>;
-  factorValues?: Array<{ id?: number; value?: string | null }>;
+  factorValues?: SampleFactorValue[];
 }
 
 export interface BioAssay {
