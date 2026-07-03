@@ -471,6 +471,7 @@ import type {
   SvdResult,
   SampleCorrelationMatrix,
   MeanVarianceData,
+  QuantitationType,
 } from "@/lib/types";
 
 export async function getDatasetDesign(
@@ -490,6 +491,17 @@ export async function getDatasetSamples(
   signal?: AbortSignal,
 ): Promise<BioAssay[]> {
   const r = await apiGet<{ data?: BioAssay[] }>(`${BASE}/datasets/${id}/samples`, { signal });
+  return r.data ?? [];
+}
+
+export async function getDatasetQuantitationTypes(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<QuantitationType[]> {
+  const r = await apiGet<{ data?: QuantitationType[] }>(
+    `${BASE}/datasets/${id}/quantitationTypes`,
+    { signal },
+  );
   return r.data ?? [];
 }
 

@@ -12,6 +12,7 @@ import {
   getDatasetAnnotations,
   getDatasetDesign,
   getDatasetSamples,
+  getDatasetQuantitationTypes,
   getDatasetPublications,
   getDatasetPipelineStatus,
   getDatasetDiffExAnalyses,
@@ -32,6 +33,7 @@ import type {
   Dataset,
   DatasetAnnotation,
   BioAssay,
+  QuantitationType,
   ExperimentalDesign,
   ExperimentalFactorEntry,
   FactorValueBasic,
@@ -52,16 +54,21 @@ type TabId =
   | "samples"
   | "expression"
   | "visualize"
-  | "downloads";
+  | "downloads"
+  | "quantitationtypes";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "overview",   label: "Overview"               },
-  { id: "design",     label: "Design"                 },
-  { id: "diffex",     label: "Differential Expression" },
-  { id: "samples",    label: "Samples"                },
-  { id: "expression", label: "Diagnostics"            },
-  { id: "visualize",  label: "Expression"              },
-  { id: "downloads",  label: "Downloads"              },
+// ``adminOnly`` tabs are hidden from the nav for non-admins AND their
+// content is gated in DatasetPage, so a hand-typed ``?tab=`` URL can't
+// reach them either.
+const TABS: { id: TabId; label: string; adminOnly?: boolean }[] = [
+  { id: "overview",         label: "Overview"                },
+  { id: "design",           label: "Design"                  },
+  { id: "diffex",           label: "Differential Expression" },
+  { id: "samples",          label: "Samples"                 },
+  { id: "expression",       label: "Diagnostics"             },
+  { id: "visualize",        label: "Expression"              },
+  { id: "downloads",        label: "Downloads"               },
+  { id: "quantitationtypes", label: "Quantitation Types", adminOnly: true },
 ];
 
 function isTabId(s: unknown): s is TabId {
@@ -72,7 +79,15 @@ export function DatasetPage() {
   const { id } = useParams({ from: "/dataset/$id" });
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { tab?: string };
-  const activeTab: TabId = isTabId(search.tab) ? search.tab : "overview";
+  const me = useMe();
+  const isAdmin = !!me.data?.authorities?.includes("GROUP_ADMIN");
+  const requestedTab: TabId = isTabId(search.tab) ? search.tab : "overview";
+  // Fall back to Overview if a non-admin lands on an admin-only tab
+  // (e.g. via a shared / hand-typed ``?tab=`` URL).
+  const activeTab: TabId =
+    !isAdmin && TABS.find((t) => t.id === requestedTab)?.adminOnly
+      ? "overview"
+      : requestedTab;
 
   const ds = useQuery({
     queryKey: ["dataset", id],
@@ -94,7 +109,7 @@ export function DatasetPage() {
 
   return (
     <PageShell>
-      <Banner dataset={dataset} activeTab={activeTab} onTabChange={setTab} />
+      <Banner dataset={dataset} activeTab={activeTab} onTabChange={setTab} isAdmin={isAdmin} />
       <div className="mx-auto w-full max-w-[1200px] px-6 py-6 space-y-6">
         {activeTab === "overview"   && <OverviewTab   dataset={dataset} />}
         {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
@@ -103,6 +118,7 @@ export function DatasetPage() {
         {activeTab === "expression" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} />}
         {activeTab === "downloads"  && <DownloadsTab  dataset={dataset} />}
+        {activeTab === "quantitationtypes" && isAdmin && <QuantitationTypesTab datasetId={dataset.id ?? Number(id)} />}
       </div>
     </PageShell>
   );
@@ -140,9 +156,9 @@ function Empty({ msg }: { msg: string }) {
 // ─── Banner ───────────────────────────────────────────────────────────────────
 
 function Banner({
-  dataset, activeTab, onTabChange,
+  dataset, activeTab, onTabChange, isAdmin,
 }: {
-  dataset: Dataset; activeTab: TabId; onTabChange: (t: TabId) => void;
+  dataset: Dataset; activeTab: TabId; onTabChange: (t: TabId) => void; isAdmin: boolean;
 }) {
   const geo = dataset.accession?.accession;
   const geeq = dataset.geeq;
@@ -203,7 +219,7 @@ function Banner({
       </div>
       <div className="mx-auto w-full max-w-[1200px] px-6">
         <nav className="flex items-center gap-1 -mb-px overflow-x-auto">
-          {TABS.map((t) => (
+          {TABS.filter((t) => !t.adminOnly || isAdmin).map((t) => (
             <button key={t.id} type="button" onClick={() => onTabChange(t.id)}
               className={"px-3 py-2 text-sm cursor-pointer border-b-2 bg-transparent " +
                 (t.id === activeTab
@@ -877,10 +893,80 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
   );
 }
 
-function FlagChip({ label, color }: { label: string; color: "red" | "amber" }) {
-  const cls = color === "red"
-    ? "bg-red-50 text-red-700 border-red-200"
-    : "bg-amber-50 text-amber-700 border-amber-200";
+// ─── Quantitation Types tab (admin-only) ──────────────────────────────────────
+
+// Boolean QT attributes surfaced as chips — only the ``true`` ones render.
+// ``isPreferred`` / ``isMaskedPreferred`` get the sky highlight; the rest
+// are neutral. Keyed on QuantitationType so the flags stay in sync with
+// the type.
+const QT_FLAGS: { key: keyof QuantitationType; label: string; color: "sky" | "slate" }[] = [
+  { key: "isPreferred",           label: "Preferred",       color: "sky"   },
+  { key: "isMaskedPreferred",     label: "Masked preferred", color: "sky"  },
+  { key: "isNormalized",          label: "Normalized",      color: "slate" },
+  { key: "isBackgroundSubtracted", label: "Bg-subtracted",  color: "slate" },
+  { key: "isBatchCorrected",      label: "Batch-corrected", color: "slate" },
+  { key: "isRecomputedFromRawData", label: "Recomputed",    color: "slate" },
+  { key: "isRatio",               label: "Ratio",           color: "slate" },
+  { key: "isBackground",          label: "Background",      color: "slate" },
+];
+
+function QuantitationTypesTab({ datasetId }: { datasetId: number }) {
+  const q = useQuery({
+    queryKey: ["datasetQuantitationTypes", datasetId],
+    queryFn: ({ signal }) => getDatasetQuantitationTypes(datasetId, signal),
+  });
+  const qts: QuantitationType[] = q.data ?? [];
+
+  return (
+    <SectionCard title="Quantitation types"
+      subtitle={q.isLoading ? "loading…" : `${qts.length} quantitation type${qts.length === 1 ? "" : "s"}`}>
+      {q.isLoading ? <LoadingRow /> : q.isError ? <ErrorRow /> : qts.length === 0 ? <Empty msg="no quantitation types" /> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Name</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">General type</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Type</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Representation</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Scale</th>
+                <th className="text-left py-1.5 font-medium text-slate-600">Flags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {qts.map((qt) => (
+                <tr key={qt.id} className={"border-b border-slate-100 " + (qt.isPreferred ? "bg-sky-50/40" : "")}>
+                  <td className="py-1.5 pr-4 text-slate-800 align-top">
+                    <div className="font-medium">{qt.name ?? `QT ${qt.id}`}</div>
+                    {qt.description && <div className="text-slate-500 mt-0.5">{qt.description}</div>}
+                  </td>
+                  <td className="py-1.5 pr-4 text-slate-600 align-top">{qt.generalType ?? "—"}</td>
+                  <td className="py-1.5 pr-4 text-slate-600 align-top">{qt.type ?? "—"}</td>
+                  <td className="py-1.5 pr-4 text-slate-600 align-top">{qt.representation ?? "—"}</td>
+                  <td className="py-1.5 pr-4 text-slate-600 align-top">{qt.scale ?? "—"}</td>
+                  <td className="py-1.5 align-top">
+                    <div className="flex flex-wrap gap-1">
+                      {QT_FLAGS.filter((f) => qt[f.key]).map((f) => (
+                        <FlagChip key={f.key} label={f.label} color={f.color} />
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function FlagChip({ label, color }: { label: string; color: "red" | "amber" | "sky" | "slate" }) {
+  const cls =
+    color === "red"   ? "bg-red-50 text-red-700 border-red-200"   :
+    color === "amber" ? "bg-amber-50 text-amber-700 border-amber-200" :
+    color === "sky"   ? "bg-sky-50 text-sky-700 border-sky-200"   :
+                        "bg-slate-50 text-slate-600 border-slate-200";
   return (
     <span className={`text-[10px] px-1.5 py-0.5 rounded border ${cls}`}>{label}</span>
   );

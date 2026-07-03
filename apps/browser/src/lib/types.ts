@@ -127,6 +127,35 @@ export interface BioAssay {
   processingDate?: string | null;
 }
 
+// ─── Quantitation types ───────────────────────────────────────────────────────
+
+/** One quantitation type on a dataset — the "flavour" of a data vector
+ *  (e.g. raw vs. processed, log2 scale, normalized). Mirrors the Gemma
+ *  REST ``/datasets/{id}/quantitationTypes`` VO. */
+export interface QuantitationType {
+  id: number;
+  name?: string | null;
+  description?: string | null;
+  /** e.g. "QUANTITATIVE". */
+  generalType?: string | null;
+  /** e.g. "AMOUNT". */
+  type?: string | null;
+  /** e.g. "DOUBLE". */
+  representation?: string | null;
+  /** e.g. "LOG2" / "LINEAR". */
+  scale?: string | null;
+  isBackground?: boolean;
+  isBackgroundSubtracted?: boolean;
+  isBatchCorrected?: boolean;
+  isNormalized?: boolean;
+  isRatio?: boolean;
+  isRecomputedFromRawData?: boolean;
+  isPreferred?: boolean;
+  isMaskedPreferred?: boolean;
+  /** Fully-qualified Java class of the backing data vector. */
+  vectorType?: string | null;
+}
+
 // ─── Publications ─────────────────────────────────────────────────────────────
 
 export interface Publication {
