@@ -773,14 +773,33 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
     queryFn: ({ signal }) => getDatasetSamples(datasetId, signal),
   });
 
+  // Shares the DesignTab's query key so the two dedupe / reuse cache.
+  // Used only to resolve each experimental factor's human-readable
+  // ``description`` for the column headers.
+  const design = useQuery({
+    queryKey: ["datasetDesign", datasetId],
+    queryFn: ({ signal }) => getDatasetDesign(datasetId, signal),
+  });
+
   const samples: BioAssay[] = q.data ?? [];
+
+  // factorId → the design endpoint's ``description`` (used as the column
+  // header). Kept separate from the samples data, which only carries the
+  // factor's category.
+  const factorDescriptions = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const ef of design.data?.experimentalFactors ?? []) {
+      if (ef.id != null && ef.description) m.set(ef.id, ef.description);
+    }
+    return m;
+  }, [design.data]);
 
   // Pivot each sample's inline factorValues into one column per
   // experimental factor. Column order follows first appearance across
   // the samples, except "block" (batch) factors are always sunk to the
   // end — right before Flags — since they're bookkeeping, not biology.
-  // The header is the factor's (capitalized) category, falling back to
-  // the factor id when the category is unlabelled.
+  // The header is the factor's design ``description``, falling back to
+  // the (capitalized) category, then the factor id.
   const factorColumns = useMemo(() => {
     const cols = new Map<number, { label: string; isBlock: boolean }>();
     for (const s of samples) {
@@ -788,17 +807,17 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
         const fid = fv.experimentalFactorId;
         if (fid == null || cols.has(fid)) continue;
         const cat = fv.experimentalFactorCategory?.category;
-        cols.set(fid, {
-          label: cat ? capitalizeFirstLetter(cat) : `Factor ${fid}`,
-          isBlock: cat?.toLowerCase() === "block",
-        });
+        const label =
+          factorDescriptions.get(fid) ||
+          (cat ? capitalizeFirstLetter(cat) : `Factor ${fid}`);
+        cols.set(fid, { label, isBlock: cat?.toLowerCase() === "block" });
       }
     }
     return [...cols.entries()]
       .map(([id, meta]) => ({ id, ...meta }))
       // Stable sort: non-block keep appearance order, block factors last.
       .sort((a, b) => Number(a.isBlock) - Number(b.isBlock));
-  }, [samples]);
+  }, [samples, factorDescriptions]);
 
   return (
     <SectionCard title="Samples"
@@ -811,7 +830,11 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
                 <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Name</th>
                 <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Accession</th>
                 {factorColumns.map((c) => (
-                  <th key={c.id} className="text-left py-1.5 pr-4 font-medium text-slate-600">{c.label}</th>
+                  <th key={c.id} className="text-left py-1.5 pr-4 font-medium text-slate-600">
+                    <span className="block max-w-[12rem] truncate" title={c.label}>
+                      {c.label}
+                    </span>
+                  </th>
                 ))}
                 <th className="text-left py-1.5 font-medium text-slate-600">Flags</th>
               </tr>
