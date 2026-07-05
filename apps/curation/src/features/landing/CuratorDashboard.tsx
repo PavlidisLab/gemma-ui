@@ -23,9 +23,9 @@ import {
   type Ticket,
   type TicketPriority,
   type TicketState,
-  type TicketTarget,
 } from "@/api/tickets";
 import { navigate } from "@/routes";
+import { CreateScreeningTicketModal } from "@/features/tickets/CreateScreeningTicketModal";
 import { cn } from "@/lib/cn";
 import { AppHeader } from "@/components/ui/AppHeader";
 
@@ -73,12 +73,42 @@ function ticketIsResolved(ticket: Ticket): boolean {
   return ticket.state === "RESOLVED" || ticket.state === "CANCELLED";
 }
 
+/** Rolled-up target status counts for a ticket. Prefers the server's
+ *  ``target_summary`` (present in both light + full list modes) so the
+ *  dashboard never needs the per-target array; falls back to deriving
+ *  from ``targets`` when talking to a backend predating the rollup. */
+function ticketRollup(ticket: Ticket): {
+  total: number;
+  done: number;
+  underway: number;
+  notDone: number;
+} {
+  const s = ticket.target_summary;
+  if (s) {
+    return {
+      total: s.total,
+      done: s.done,
+      underway: s.underway,
+      notDone: s.not_done,
+    };
+  }
+  const targets = ticket.targets ?? [];
+  let done = 0,
+    underway = 0,
+    notDone = 0;
+  for (const t of targets) {
+    if (t.status === "DONE") done++;
+    else if (t.status === "UNDERWAY") underway++;
+    else notDone++;
+  }
+  return { total: targets.length, done, underway, notDone };
+}
+
 /** A ticket is "started" when any target has been touched (done or
  *  underway). Used for the Open chip's "x/y started" ratio. */
 function ticketIsStarted(ticket: Ticket): boolean {
-  return ticket.targets.some(
-    (t) => t.status === "DONE" || t.status === "UNDERWAY",
-  );
+  const r = ticketRollup(ticket);
+  return r.underway > 0 || r.done > 0;
 }
 
 /** Lifecycle predicate for a dashboard filter. */
@@ -117,6 +147,7 @@ export function CuratorDashboard({
   const [filter, setFilter] = useState<DashboardFilter>(() =>
     readInitialFilter(),
   );
+  const [showCreateScreening, setShowCreateScreening] = useState(false);
 
   // Persist filter selection to URL + localStorage. URL wins on
   // bookmarks; localStorage is the soft default for a fresh tab.
@@ -144,8 +175,13 @@ export function CuratorDashboard({
   // hides every resolved ticket. Two states need closed tickets:
   // "all" and "resolved".
   const includeClosed = filter === "all" || filter === "resolved";
+  // Light list mode: the dashboard renders rolled-up counts only, never
+  // per-target rows — so skip the (up to ~40 MB) targets + payload_json
+  // and read ``target_summary`` instead. See ticketRollup / the
+  // TICKET_LIST_ROLLUP_COUNTS handoff.
   const { data: tickets, isLoading: ticketsLoading } = useMyTickets({
     includeClosed,
+    light: true,
   });
 
   // Apply the chip filter, then sort by priority + recency.
@@ -248,6 +284,17 @@ export function CuratorDashboard({
                   ? "—"
                   : `(${sortedTickets.length})`}
             </span>
+            {/* Create a screening ticket — a plain-language "decide
+                yes/no on datasets" task. The only ticket-create entry
+                point in the app today. */}
+            <button
+              type="button"
+              onClick={() => setShowCreateScreening(true)}
+              title="Create a screening ticket — describe in plain language what datasets to review yes/no"
+              className="ml-auto text-xs px-2.5 py-1 rounded bg-blue-700 text-white hover:bg-blue-800"
+            >
+              + New screening ticket
+            </button>
           </header>
           {/* Filter chips — all / open / resolved.
               Reuses the same chip palette as the workflow page's
@@ -311,6 +358,15 @@ export function CuratorDashboard({
           )}
         </section>
       </main>
+
+      <CreateScreeningTicketModal
+        open={showCreateScreening}
+        onClose={() => setShowCreateScreening(false)}
+        onCreated={(ticket) => {
+          setShowCreateScreening(false);
+          navigate(`#/tickets/${ticket.id}`);
+        }}
+      />
     </div>
   );
 }
@@ -330,21 +386,31 @@ function TicketCard({
   // keeps its ticket context (breadcrumb / back-link); without it the
   // curator lands on the EE with no way back to the ticket (Paul
   // 2026-06-21).
-  const expTargets = ticket.targets.filter(
+  // Single-target dataset ticket → jump straight to the experiment
+  // (carrying ?ticket= so the EE keeps its ticket context). Prefer the
+  // in-hand EE target when the full ``targets`` array is present; under
+  // light list mode it isn't, so fall back to the server-backfilled
+  // ``investigation_id`` for a single-target dataset ticket.
+  const rollup = ticketRollup(ticket);
+  const expTargets = (ticket.targets ?? []).filter(
     (t) => t.target_type === "EXPRESSION_EXPERIMENT",
   );
-  const primaryClick =
+  const singleExpId =
     expTargets.length === 1
-      ? () => onOpenTarget(expTargets[0].target_id, ticket.id)
+      ? expTargets[0].target_id
+      : rollup.total === 1 &&
+          ticket.investigation_kind === "dataset" &&
+          ticket.investigation_id
+        ? ticket.investigation_id
+        : null;
+  const primaryClick =
+    singleExpId != null
+      ? () => onOpenTarget(singleExpId, ticket.id)
       : () => navigate(`#/tickets/${ticket.id}`);
-  // Progress: same shape as Sets used. Per-target status drives it.
-  const n = ticket.targets.length;
-  const nDone = ticket.targets.filter((t) => t.status === "DONE").length;
-  const nUnderway = ticket.targets.filter(
-    (t) => t.status === "UNDERWAY",
-  ).length;
-  const pctDone = n === 0 ? 0 : Math.round((nDone / n) * 100);
-  const pctUnderway = n === 0 ? 0 : Math.round((nUnderway / n) * 100);
+  // Progress: same shape as Sets used. Rolled-up target status drives it.
+  const n = rollup.total;
+  const pctDone = n === 0 ? 0 : Math.round((rollup.done / n) * 100);
+  const pctUnderway = n === 0 ? 0 : Math.round((rollup.underway / n) * 100);
   return (
     <div
       className={cn(
@@ -404,7 +470,7 @@ function TicketCard({
         <div className="flex-1" />
       )}
       <ProgressBar pctDone={pctDone} pctUnderway={pctUnderway} />
-      <TargetList targets={ticket.targets} onOpenTarget={onOpenTarget} />
+      <TargetList rollup={rollup} />
       <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 dark:text-slate-400">
         <span>
           {ticket.assignee_name
@@ -423,12 +489,13 @@ function TicketCard({
 }
 
 function TargetList({
-  targets,
+  rollup,
 }: {
-  targets: TicketTarget[];
-  onOpenTarget: (experimentId: number | string) => void;
+  rollup: { total: number; done: number; underway: number; notDone: number };
 }) {
-  if (targets.length === 0) {
+  const { total: n, done: nDone, underway: nUnderway, notDone: nNotDone } =
+    rollup;
+  if (n === 0) {
     return (
       <div className="text-[11px] italic text-slate-400">no targets</div>
     );
@@ -436,16 +503,9 @@ function TargetList({
   // Roll up by status. Per the 2026-05-26 chip-overflow fix: don't
   // render a chip per target — even at N=20 the card gets cluttered,
   // and at N=300 it explodes. Summary count + per-status pills make
-  // the work-remaining visible in constant space.
-  const n = targets.length;
-  let nDone = 0, nUnderway = 0, nNotDone = 0;
-  for (const t of targets) {
-    switch (t.status) {
-      case "DONE":     nDone++;     break;
-      case "UNDERWAY": nUnderway++; break;
-      default:         nNotDone++;  break; // NOT_DONE or undefined
-    }
-  }
+  // the work-remaining visible in constant space. The counts come from
+  // the server's ``target_summary`` (see ticketRollup) so the card never
+  // needs the per-target array.
   const noun = n === 1 ? "experiment" : "experiments";
   return (
     <div className="flex items-baseline gap-2 flex-wrap text-xs">

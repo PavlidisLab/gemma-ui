@@ -132,6 +132,32 @@ export interface Ticket {
    *  criteria}}``. */
   payload_json?: string;
   targets: TicketTarget[];
+  /** Rolled-up target status counts, always populated by the list +
+   *  detail serializers. Lets the dashboard render progress without
+   *  the (potentially thousands-strong) per-target array — the light
+   *  list mode (``?include_targets=false``) omits ``targets`` and
+   *  relies on this. Absent only when talking to a backend predating
+   *  the rollup, in which case callers fall back to deriving from
+   *  ``targets``. */
+  target_summary?: {
+    total: number;
+    not_done: number;
+    underway: number;
+    done: number;
+  };
+  /** Rolled-up triage include/exclude/undecided counts — screening
+   *  progress for a ``SCREENING`` ticket without walking targets. */
+  disposition_summary?: {
+    include: number;
+    exclude: number;
+    undecided: number;
+  };
+  /** Legacy single-investigation pointer the server backfills from the
+   *  first EE target. Used to jump straight to the experiment for a
+   *  single-target dataset ticket when the ``targets`` array isn't in
+   *  hand (light list mode). */
+  investigation_kind?: string;
+  investigation_id?: number;
 }
 
 /** Fetch a single ticket by id.
@@ -279,13 +305,30 @@ export function useMyTickets(
      *  every state. Query cache key changes when this flips, so
      *  the two callers don't fight over a single bucket. */
     includeClosed?: boolean;
+    /** When ``true``, request the light list mode
+     *  (``?include_targets=false``): the server omits every ticket's
+     *  per-target array (and the big ``payload_json`` candidate blob)
+     *  and returns ``target_summary`` / ``disposition_summary`` rollups
+     *  instead. Cuts the dashboard fetch from ~40 MB to ~19 KB. Only the
+     *  dashboard opts in — callers that read ``ticket.targets`` from the
+     *  list (nextTask, ExperimentQueue) leave this off. Distinct cache
+     *  bucket so the two shapes don't overwrite each other. */
+    light?: boolean;
   } = {},
 ) {
   const includeClosed = options.includeClosed ?? false;
+  const light = options.light ?? false;
   return useQuery<Ticket[]>({
-    queryKey: ["tickets", "mine", includeClosed ? "all" : "open"],
+    queryKey: [
+      "tickets",
+      "mine",
+      includeClosed ? "all" : "open",
+      light ? "light" : "full",
+    ],
     queryFn: async () => {
-      const all = await api.get<Ticket[]>("/rest/v2/tickets");
+      const all = await api.get<Ticket[]>(
+        light ? "/rest/v2/tickets?include_targets=false" : "/rest/v2/tickets",
+      );
       if (includeClosed) return all ?? [];
       return (all ?? []).filter(
         (t) => t.state === "OPEN" || t.state === "IN_PROGRESS",
