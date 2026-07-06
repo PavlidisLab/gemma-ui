@@ -1057,6 +1057,12 @@ export interface HeatmapDataArgs {
   sampleSize?: number;
   /** Sub-set the matrix to a specific subSet id (filter the columns). */
   subSet?: number;
+  /** Quantitation-type selector — a QT id or name. When omitted the
+   *  server serves the dataset's processed QT (the default view). A
+   *  non-processed QT is served from its raw vectors and still supports
+   *  the genes / sampleSize selection modes. Admin-only in the UI: it
+   *  lets curators eyeball alternate QTs against the same gene set. */
+  quantitationType?: number | string;
 }
 
 /** Fetch the heatmap matrix for a user-curated gene list on this
@@ -1078,6 +1084,9 @@ export async function getHeatmapData(
   }
   if (args.sampleSize) params.sampleSize = args.sampleSize;
   if (args.subSet) params.subSet = args.subSet;
+  if (args.quantitationType != null && args.quantitationType !== "") {
+    params.quantitationType = args.quantitationType;
+  }
   try {
     const r = await apiGet<{ data?: HeatmapWireResponse }>(
       `${BASE}/datasets/${datasetId}/heatmap-data`,

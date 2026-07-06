@@ -116,7 +116,7 @@ export function DatasetPage() {
         {activeTab === "diffex"     && <DifferentialExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
         {activeTab === "expression" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
-        {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} />}
+        {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} isAdmin={isAdmin} />}
         {activeTab === "downloads"  && <DownloadsTab  dataset={dataset} />}
         {activeTab === "quantitationtypes" && isAdmin && <QuantitationTypesTab datasetId={dataset.id ?? Number(id)} />}
       </div>
