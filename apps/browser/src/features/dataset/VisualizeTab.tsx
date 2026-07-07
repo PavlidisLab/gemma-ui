@@ -113,6 +113,11 @@ export function VisualizeTab({
   // (param omitted). Kept in component state only — it's an admin
   // exploration knob, not part of the shareable ``#genes=…`` view.
   const [selectedQt, setSelectedQt] = useState<number | null>(null);
+  // Admin-only: whether outlier-flagged assay columns are masked to NaN
+  // (server default) or shown with their stored values. Most meaningful
+  // paired with a non-processed QT above — for the processed QT the
+  // server masks at creation time so the flag is usually a no-op.
+  const [maskOutliers, setMaskOutliers] = useState(true);
   // Hard-scope all gene queries to this experiment's taxon. Try
   // common name first (the visitor-facing form bro's TaxonArg
   // accepts), fall back to scientific name, then to the taxon id
@@ -241,6 +246,8 @@ export function VisualizeTab({
             datasetId={datasetId}
             selectedQt={selectedQt}
             onChange={setSelectedQt}
+            maskOutliers={maskOutliers}
+            onMaskOutliersChange={setMaskOutliers}
           />
         ) : null}
         <HeatmapPanel
@@ -249,6 +256,7 @@ export function VisualizeTab({
           origins={origins}
           selectionHydrated={selectionHydrated}
           quantitationType={selectedQt}
+          maskOutliers={maskOutliers}
         />
       </div>
     </div>
@@ -859,6 +867,7 @@ function HeatmapPanel({
   origins,
   selectionHydrated,
   quantitationType = null,
+  maskOutliers = true,
 }: {
   datasetId: number;
   genes: Gene[];
@@ -867,6 +876,9 @@ function HeatmapPanel({
   /** Admin-selected alternate QT id; ``null`` ⇒ processed default
    *  (param omitted so the server picks the processed QT). */
   quantitationType?: number | null;
+  /** Admin outlier-masking toggle; ``true`` (default) matches the
+   *  server default so the param is omitted. */
+  maskOutliers?: boolean;
 }) {
   const geneIds = useMemo(() => genes.map((g) => g.id), [genes]);
   // if nothing is selected use random genes
@@ -876,14 +888,15 @@ function HeatmapPanel({
     // (including back to the processed default) refetches rather than
     // serving a stale matrix from another QT.
     queryKey: isSample
-      ? ["heatmap-data-sample", datasetId, RANDOM_SAMPLE_SIZE, quantitationType ?? "default"]
-      : ["heatmap-data", datasetId, geneIds.join(","), quantitationType ?? "default"],
+      ? ["heatmap-data-sample", datasetId, RANDOM_SAMPLE_SIZE, quantitationType ?? "default", maskOutliers]
+      : ["heatmap-data", datasetId, geneIds.join(","), quantitationType ?? "default", maskOutliers],
     queryFn: ({ signal }) =>
       getHeatmapData(
         datasetId,
         {
           ...(isSample ? { sampleSize: RANDOM_SAMPLE_SIZE } : { genes: geneIds }),
           ...(quantitationType != null ? { quantitationType } : {}),
+          ...(maskOutliers ? {} : { maskOutliers: false }),
         },
         signal,
       ),
@@ -987,20 +1000,27 @@ function qtOptionLabel(qt: QuantitationType): string {
 }
 
 /**
- * Admin-only selector that swaps which quantitation type the heatmap
- * renders. The dataset's processed QT is the default (``null`` → param
- * omitted server-side); every other QT on the dataset is served from
- * its raw vectors. Mirrors the QT list surfaced on the admin-only
- * Quantitation Types tab, reusing ``getDatasetQuantitationTypes``.
+ * Admin-only render controls for the heatmap: which quantitation type
+ * to render, plus whether outlier assay columns are masked. The
+ * dataset's processed QT is the default (``null`` → param omitted
+ * server-side); every other QT on the dataset is served from its raw
+ * vectors. Mirrors the QT list surfaced on the admin-only Quantitation
+ * Types tab, reusing ``getDatasetQuantitationTypes``. The mask-outliers
+ * checkbox pairs with the QT choice — it's always effective on a
+ * non-processed QT and usually a no-op on the processed one.
  */
 function QuantitationTypePicker({
   datasetId,
   selectedQt,
   onChange,
+  maskOutliers,
+  onMaskOutliersChange,
 }: {
   datasetId: number;
   selectedQt: number | null;
   onChange: (qtId: number | null) => void;
+  maskOutliers: boolean;
+  onMaskOutliersChange: (mask: boolean) => void;
 }) {
   const q = useQuery({
     queryKey: ["datasetQuantitationTypes", datasetId],
@@ -1041,6 +1061,23 @@ function QuantitationTypePicker({
           served from raw vectors
         </span>
       ) : null}
+      <label
+        className="flex items-center gap-1.5 text-xs text-slate-600 ml-auto shrink-0"
+        title={
+          "When on (default), assay columns flagged as outliers are masked out. " +
+          "Turn off to render their stored expression values instead. Most " +
+          "meaningful with a non-processed QT — the processed QT is already " +
+          "masked at creation time."
+        }
+      >
+        <input
+          type="checkbox"
+          className="accent-blue-600"
+          checked={maskOutliers}
+          onChange={(e) => onMaskOutliersChange(e.target.checked)}
+        />
+        <span>Mask outliers</span>
+      </label>
     </div>
   );
 }

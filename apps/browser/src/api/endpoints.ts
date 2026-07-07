@@ -1063,6 +1063,12 @@ export interface HeatmapDataArgs {
    *  the genes / sampleSize selection modes. Admin-only in the UI: it
    *  lets curators eyeball alternate QTs against the same gene set. */
   quantitationType?: number | string;
+  /** Outlier-masking toggle. Server default is ``true`` — assay columns
+   *  flagged as outliers have their values masked to NaN. Pass ``false``
+   *  to receive the stored expression values instead. Always effective
+   *  for a non-processed QT (raw vectors); for the processed QT it's a
+   *  no-op today (values are masked at creation). Admin-only knob. */
+  maskOutliers?: boolean;
 }
 
 /** Fetch the heatmap matrix for a user-curated gene list on this
@@ -1086,6 +1092,11 @@ export async function getHeatmapData(
   if (args.subSet) params.subSet = args.subSet;
   if (args.quantitationType != null && args.quantitationType !== "") {
     params.quantitationType = args.quantitationType;
+  }
+  // Only send when overriding the server default (true) — keeps the
+  // common request URL clean.
+  if (args.maskOutliers === false) {
+    params.maskOutliers = false;
   }
   try {
     const r = await apiGet<{ data?: HeatmapWireResponse }>(
