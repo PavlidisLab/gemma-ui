@@ -24,13 +24,13 @@ export function AppBar() {
     <header className="flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
       <Link
         to="/"
-        className="flex items-center gap-2 font-semibold text-stone-900 hover:no-underline"
+        className="flex shrink-0 items-center gap-2 font-semibold text-stone-900 hover:no-underline"
       >
         <img
           src={gemmaLogoText}
           alt="Gemma"
           style={{ height: 30 }}
-          className="block w-auto"
+          className="block w-auto shrink-0"
         />
       </Link>
 
