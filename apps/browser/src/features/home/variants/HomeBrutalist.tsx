@@ -273,7 +273,7 @@ function CyclingBox({
           between panes of different lengths, and lets side-by-side
           boxes stretch to a shared row height. Shorter panes sit at
           the top. */}
-      <div className="flex-1 min-h-[20rem]">{panes[idx]}</div>
+      <div className="flex-1 min-h-[14rem]">{panes[idx]}</div>
       <div className="flex items-center justify-between border-t border-stone-300 px-4 py-2">
         <button
           type="button"
@@ -325,73 +325,85 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
   const pathogens =
     s.treatmentSubcategories.find((t) => t.key === "pathogen")?.termCount ??
     null;
-  const rows: Array<{ label: string; value: number | null; hint: string }> = [
-    {
-      label: "Approved drugs",
-      value: s.drugs,
-      hint: "Distinct CHEBI-anchored drug / chemical annotations. Narrower than the full Treatment category (which also includes pathogens, biologics, and other exposures).",
-    },
-    {
-      label: "Diseases",
-      value: c.diseases,
-      hint: "distinct disease ontology terms used to annotate experiments",
-    },
-    {
-      label: "Tissues",
-      value: c.tissues,
-      hint: "distinct organism-part terms (typically UBERON)",
-    },
-    {
-      label: "Cell types",
-      value: c.cellTypes,
-      hint: "distinct cell-type terms (typically Cell Ontology / CL)",
-    },
-    {
-      label: "Cell lines",
-      value: c.cellLines,
-      hint: "distinct cell-line ontology terms (CLO)",
-    },
-    {
-      label: "Strains",
-      value: c.strains,
-      hint: "distinct strain ontology terms (common in mouse studies)",
-    },
-    {
-      label: "Perturbed genes",
-      value: s.geneManipulated,
-      hint: "Distinct gene URIs annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression.",
-    },
-    {
-      label: "Pathogens",
-      value: pathogens,
-      hint: "Distinct NCBITaxon pathogen annotations (viruses, bacteria, parasites) used in infection / immune-response studies — a sub-bucket of the broader Treatment category.",
-    },
+  type Row = { label: string; value: number | null; hint: string };
+  // Two ordered columns (Paul's grouping): anatomical / model-system
+  // terms on the left, disease / exposure / perturbation terms on the
+  // right.
+  const columns: Row[][] = [
+    [
+      {
+        label: "Tissues",
+        value: c.tissues,
+        hint: "distinct organism-part terms (typically UBERON)",
+      },
+      {
+        label: "Cell types",
+        value: c.cellTypes,
+        hint: "distinct cell-type terms (typically Cell Ontology / CL)",
+      },
+      {
+        label: "Cell lines",
+        value: c.cellLines,
+        hint: "distinct cell-line ontology terms (CLO)",
+      },
+      {
+        label: "Strains",
+        value: c.strains,
+        hint: "distinct strain ontology terms (common in mouse studies)",
+      },
+    ],
+    [
+      {
+        label: "Diseases",
+        value: c.diseases,
+        hint: "distinct disease ontology terms used to annotate experiments",
+      },
+      {
+        label: "Pathogens",
+        value: pathogens,
+        hint: "Distinct NCBITaxon pathogen annotations (viruses, bacteria, parasites) used in infection / immune-response studies — a sub-bucket of the broader Treatment category.",
+      },
+      {
+        label: "Approved drugs",
+        value: s.drugs,
+        hint: "Distinct CHEBI-anchored drug / chemical annotations. Narrower than the full Treatment category (which also includes pathogens, biologics, and other exposures).",
+      },
+      {
+        label: "Perturbed genes",
+        value: s.geneManipulated,
+        hint: "Distinct gene URIs annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression.",
+      },
+    ],
   ];
   return (
     <div className="bg-stone-100">
       <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
         Annotation coverage · distinct ontology terms in use
       </div>
-      <table className="w-full text-sm">
-        <tbody>
-          {rows.map((r) => (
-            <tr
-              key={r.label}
-              className="border-t border-stone-200 first:border-t-0"
-            >
-              <td className="px-5 py-2 text-stone-800">
-                <span className="inline-flex items-center">
-                  {r.label}
-                  <InfoBadge hint={r.hint} />
-                </span>
-              </td>
-              <td className="px-5 py-2 text-right tabular-nums font-semibold text-stone-950">
-                {fmtCount(r.value, "full", loadingOf(r.value))}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="grid grid-cols-2 gap-px bg-stone-300">
+        {columns.map((col, ci) => (
+          <table key={ci} className="w-full text-sm bg-stone-100">
+            <tbody>
+              {col.map((r) => (
+                <tr
+                  key={r.label}
+                  className="border-t border-stone-200 first:border-t-0"
+                >
+                  <td className="px-4 py-2 text-stone-800">
+                    <span className="inline-flex items-center">
+                      {r.label}
+                      <InfoBadge hint={r.hint} />
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums font-semibold text-stone-950">
+                    {fmtCount(r.value, "full", loadingOf(r.value))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ))}
+      </div>
     </div>
   );
 }
