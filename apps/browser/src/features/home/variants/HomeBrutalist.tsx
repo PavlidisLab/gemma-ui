@@ -93,23 +93,43 @@ export function HomeBrutalist() {
             and charts below. */}
         <GeneralInfo open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
 
-        {/* Three-pane breakdown row: taxon + technology + recently
-            updated. */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-950">
-          <TaxonBreakdown rows={s.byTaxon} />
-          <TechnologyBreakdown rows={s.byTechnology} totalCells={s.totalCells} />
-          <RecentlyUpdatedCard items={s.recentDatasets} />
-        </div>
-
-        {/* Concept stats — distinct ontology terms per slot */}
-        <ConceptRow s={s} />
-
-        {/* Three-pane data row: factor values · perturbed genes ·
-            treatment subcategories. */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-950">
-          <CategoryBars s={s} />
-          <PerturbedGenesBars s={s} />
-          <TreatmentSubcategoryBars s={s} />
+        {/* Two cycling boxes in one row. Left rotates through the
+            corpus breakdowns (taxon · technology · annotation coverage
+            · recently updated); right rotates through the distribution
+            plots (factor values · perturbed genes · treatment
+            subcategories). Both auto-rotate (pause on hover, honour
+            prefers-reduced-motion); dots + arrows jump manually. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-px">
+          <CyclingBox
+            titles={[
+              "Datasets by taxon",
+              "Samples by technology",
+              "Annotation coverage",
+              "Recently updated",
+            ]}
+            panes={[
+              <TaxonBreakdown key="taxon" rows={s.byTaxon} />,
+              <TechnologyBreakdown
+                key="tech"
+                rows={s.byTechnology}
+                totalCells={s.totalCells}
+              />,
+              <AnnotationCoverageBreakdown key="annotation" s={s} />,
+              <RecentlyUpdatedCard key="recent" items={s.recentDatasets} />,
+            ]}
+          />
+          <CyclingBox
+            titles={[
+              "Factor values per category",
+              "Top genes perturbed",
+              "Treatment subcategories",
+            ]}
+            panes={[
+              <CategoryBars key="category" s={s} />,
+              <PerturbedGenesBars key="perturbed" s={s} />,
+              <TreatmentSubcategoryBars key="treatment" s={s} />,
+            ]}
+          />
         </div>
 
         {/* Surface buttons removed 2026-05-26 — Paul: redundant with
@@ -131,7 +151,7 @@ function StatsRow({ s }: { s: GemmaSummary }) {
   // 5 primary tiles. Samples nests a per-technology breakdown
   // under the headline number (footnote prop) instead of claiming
   // an extra tile for samplesByTech. Perturbed-gene coverage lives
-  // in the ConceptRow below — surfacing it again here would
+  // in the annotation-coverage breakdown below — surfacing it again here would
   // double-count and the gene-search link this tile used to carry
   // resolved to the general gene search, which was confusing.
   const homeLoading = s.datasets === null && !s.isError;
@@ -213,93 +233,165 @@ function StatsRow({ s }: { s: GemmaSummary }) {
   );
 }
 
-function ConceptRow({ s }: { s: GemmaSummary }) {
-  // Eight URI-bound counts (excludeFreeText=true). Five come from
-  // /stats/home byAnnotationCategory (disease / organism_part /
-  // cell_type / strain / cell_line); the other three pull from
-  // siblings on the same snapshot — drugCount (CHEBI subset of
-  // treatment), geneManipulatedCount (perturbed gene URIs), and
-  // the pathogen sub-bucket termCount inside treatmentSubcategories.
-  const c = s.byCategory;
-  const loadingOf = (v: number | null) => v === null && !s.isError;
-  const pathogens =
-    s.treatmentSubcategories.find((t) => t.key === "pathogen")?.termCount ??
-    null;
+function CyclingBox({
+  titles,
+  panes,
+}: {
+  // Parallel arrays — titles[i] labels panes[i] (used for the dot
+  // aria-labels). Kept as props so one component drives every home-page
+  // carousel (breakdowns on the left, distribution plots on the right).
+  titles: readonly string[];
+  panes: React.ReactNode[];
+}) {
+  // One box that cycles through its panes instead of laying them out
+  // side-by-side. Auto-advances every 7 s; hover pauses,
+  // prefers-reduced-motion locks on pane 0. Dots + arrows jump
+  // manually. Panes with their own inner cycle (e.g. RecentlyUpdated's
+  // 5 s dataset rotation) only run while they're the mounted pane.
+  const n = panes.length;
+  const [idx, setIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const go = (i: number) => setIdx(((i % n) + n) % n);
+
+  useEffect(() => {
+    if (paused) return;
+    if (typeof window !== "undefined" && window.matchMedia) {
+      const m = window.matchMedia("(prefers-reduced-motion: reduce)");
+      if (m.matches) return;
+    }
+    const t = window.setInterval(() => setIdx((i) => (i + 1) % n), 7000);
+    return () => window.clearInterval(t);
+  }, [paused, n]);
+
   return (
-    <div className="border border-stone-950 bg-stone-100">
-      <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
-        Annotation coverage · distinct ontology terms in use
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-stone-300">
-        <Concept
-          label="Approved drugs"
-          value={fmtCount(s.drugs, "full", loadingOf(s.drugs))}
-          hint="Distinct CHEBI-anchored drug / chemical annotations. Narrower than the full Treatment category (which also includes pathogens, biologics, and other exposures)."
-        />
-        <Concept
-          label="Diseases"
-          value={fmtCount(c.diseases, "full", loadingOf(c.diseases))}
-          hint="distinct disease ontology terms used to annotate experiments"
-        />
-        <Concept
-          label="Tissues"
-          value={fmtCount(c.tissues, "full", loadingOf(c.tissues))}
-          hint="distinct organism-part terms (typically UBERON)"
-        />
-        <Concept
-          label="Cell types"
-          value={fmtCount(c.cellTypes, "full", loadingOf(c.cellTypes))}
-          hint="distinct cell-type terms (typically Cell Ontology / CL)"
-        />
-        <Concept
-          label="Cell lines"
-          value={fmtCount(c.cellLines, "full", loadingOf(c.cellLines))}
-          hint="distinct cell-line ontology terms (CLO)"
-        />
-        <Concept
-          label="Strains"
-          value={fmtCount(c.strains, "full", loadingOf(c.strains))}
-          hint="distinct strain ontology terms (common in mouse studies)"
-        />
-        <Concept
-          label="Perturbed genes"
-          value={fmtCount(
-            s.geneManipulated,
-            "full",
-            loadingOf(s.geneManipulated),
-          )}
-          hint="Distinct gene URIs annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression."
-        />
-        <Concept
-          label="Pathogens"
-          value={fmtCount(pathogens, "full", loadingOf(pathogens))}
-          hint="Distinct NCBITaxon pathogen annotations (viruses, bacteria, parasites) used in infection / immune-response studies — a sub-bucket of the broader Treatment category."
-        />
+    <div
+      className="flex flex-col h-full border border-stone-950 bg-stone-100"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      {/* flex-1 + min-height keeps the box from jumping as it cycles
+          between panes of different lengths, and lets side-by-side
+          boxes stretch to a shared row height. Shorter panes sit at
+          the top. */}
+      <div className="flex-1 min-h-[20rem]">{panes[idx]}</div>
+      <div className="flex items-center justify-between border-t border-stone-300 px-4 py-2">
+        <button
+          type="button"
+          onClick={() => go(idx - 1)}
+          aria-label="Previous"
+          className="px-2 py-0.5 text-stone-500 hover:text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-600"
+        >
+          ←
+        </button>
+        <div className="flex items-center gap-2">
+          {panes.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => go(i)}
+              aria-label={`Show ${titles[i]}`}
+              aria-current={i === idx}
+              className={`w-2 h-2 border border-stone-500 transition-colors focus:outline-none focus:ring-1 focus:ring-stone-600 ${
+                i === idx
+                  ? "bg-stone-900 border-stone-900"
+                  : "bg-transparent hover:border-stone-800"
+              }`}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => go(idx + 1)}
+          aria-label="Next"
+          className="px-2 py-0.5 text-stone-500 hover:text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-600"
+        >
+          →
+        </button>
       </div>
     </div>
   );
 }
 
-function Concept({
-  label,
-  value,
-  hint,
-  hintAria,
-}: {
-  label: string;
-  value: string;
-  hint?: React.ReactNode;
-  hintAria?: string;
-}) {
+function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
+  // Eight URI-bound counts (excludeFreeText=true), rendered as a
+  // label/value list matching the taxon + technology breakdowns.
+  // Five come from /stats/home byAnnotationCategory (disease /
+  // organism_part / cell_type / strain / cell_line); the other three
+  // pull from siblings on the same snapshot — drugCount (CHEBI subset
+  // of treatment), geneManipulatedCount (perturbed gene URIs), and the
+  // pathogen sub-bucket termCount inside treatmentSubcategories.
+  const c = s.byCategory;
+  const loadingOf = (v: number | null) => v === null && !s.isError;
+  const pathogens =
+    s.treatmentSubcategories.find((t) => t.key === "pathogen")?.termCount ??
+    null;
+  const rows: Array<{ label: string; value: number | null; hint: string }> = [
+    {
+      label: "Approved drugs",
+      value: s.drugs,
+      hint: "Distinct CHEBI-anchored drug / chemical annotations. Narrower than the full Treatment category (which also includes pathogens, biologics, and other exposures).",
+    },
+    {
+      label: "Diseases",
+      value: c.diseases,
+      hint: "distinct disease ontology terms used to annotate experiments",
+    },
+    {
+      label: "Tissues",
+      value: c.tissues,
+      hint: "distinct organism-part terms (typically UBERON)",
+    },
+    {
+      label: "Cell types",
+      value: c.cellTypes,
+      hint: "distinct cell-type terms (typically Cell Ontology / CL)",
+    },
+    {
+      label: "Cell lines",
+      value: c.cellLines,
+      hint: "distinct cell-line ontology terms (CLO)",
+    },
+    {
+      label: "Strains",
+      value: c.strains,
+      hint: "distinct strain ontology terms (common in mouse studies)",
+    },
+    {
+      label: "Perturbed genes",
+      value: s.geneManipulated,
+      hint: "Distinct gene URIs annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression.",
+    },
+    {
+      label: "Pathogens",
+      value: pathogens,
+      hint: "Distinct NCBITaxon pathogen annotations (viruses, bacteria, parasites) used in infection / immune-response studies — a sub-bucket of the broader Treatment category.",
+    },
+  ];
   return (
-    <div className="bg-stone-100 px-4 py-3">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-stone-600 mb-0.5 flex items-center">
-        <span>{label}</span>
-        {hint ? <InfoBadge hint={hint} ariaLabel={hintAria} /> : null}
+    <div className="bg-stone-100">
+      <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
+        Annotation coverage · distinct ontology terms in use
       </div>
-      <div className="text-xl font-semibold tabular-nums tracking-tight text-stone-950">
-        {value}
-      </div>
+      <table className="w-full text-sm">
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.label}
+              className="border-t border-stone-200 first:border-t-0"
+            >
+              <td className="px-5 py-2 text-stone-800">
+                <span className="inline-flex items-center">
+                  {r.label}
+                  <InfoBadge hint={r.hint} />
+                </span>
+              </td>
+              <td className="px-5 py-2 text-right tabular-nums font-semibold text-stone-950">
+                {fmtCount(r.value, "full", loadingOf(r.value))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
