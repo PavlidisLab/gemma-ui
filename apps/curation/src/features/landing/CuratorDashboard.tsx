@@ -28,6 +28,7 @@ import { navigate } from "@/routes";
 import { CreateScreeningTicketModal } from "@/features/tickets/CreateScreeningTicketModal";
 import { cn } from "@/lib/cn";
 import { AppHeader } from "@/components/ui/AppHeader";
+import { Spinner } from "@/components/ui/Spinner";
 
 /** Dashboard ticket-list filter — just the ticket lifecycle: ``all`` /
  *  ``open`` (not resolved/cancelled) / ``resolved`` (resolved or
@@ -179,7 +180,11 @@ export function CuratorDashboard({
   // per-target rows — so skip the (up to ~40 MB) targets + payload_json
   // and read ``target_summary`` instead. See ticketRollup / the
   // TICKET_LIST_ROLLUP_COUNTS handoff.
-  const { data: tickets, isLoading: ticketsLoading } = useMyTickets({
+  const {
+    data: tickets,
+    isLoading: ticketsLoading,
+    isFetching: ticketsFetching,
+  } = useMyTickets({
     includeClosed,
     light: true,
   });
@@ -277,12 +282,23 @@ export function CuratorDashboard({
                 eye finds it on the same gaze as the section title.
                 Moved off the right per Paul 2026-05-27 — far-right
                 badge was too small + too disconnected. */}
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {ticketsLoading
-                ? "loading…"
-                : sortedTickets.length === 0
-                  ? "—"
-                  : `(${sortedTickets.length})`}
+            <span className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5">
+              {ticketsLoading ? (
+                <>
+                  <Spinner size={11} />
+                  loading…
+                </>
+              ) : sortedTickets.length === 0 ? (
+                "—"
+              ) : (
+                <>
+                  ({sortedTickets.length})
+                  {/* Background refetch (cache present, revalidating):
+                      keep a quiet spinner so a slow server response reads
+                      as "working", not "stuck". */}
+                  {ticketsFetching && <Spinner size={10} />}
+                </>
+              )}
             </span>
             {/* Create a screening ticket — a plain-language "decide
                 yes/no on datasets" task. The only ticket-create entry
@@ -336,9 +352,21 @@ export function CuratorDashboard({
             })}
           </div>
           {ticketsLoading ? (
-            <div className="card p-6 text-sm text-slate-500 italic">
-              loading tickets…
-            </div>
+            /* Skeleton grid — same layout + footprint as the real
+               ticket grid so the cards don't jump when data lands. The
+               ``animate-pulse`` runs on the compositor, so it keeps
+               moving even while the main thread is busy parsing a slow
+               server response — reads as "loading", never "frozen". */
+            <ul
+              className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3"
+              aria-hidden
+            >
+              {Array.from({ length: 8 }).map((_, i) => (
+                <li key={i} className="h-full">
+                  <TicketCardSkeleton />
+                </li>
+              ))}
+            </ul>
           ) : sortedTickets.length === 0 ? (
             <div className="card p-6 text-sm text-slate-500">
               {filter === "all"
@@ -371,6 +399,28 @@ export function CuratorDashboard({
   );
 }
 
+
+/** Placeholder card shown while the ticket list loads. Mirrors
+ *  ``TicketCard``'s frame (``card p-3 min-h-[220px]``) so the skeleton
+ *  grid occupies the same space the real cards will — no layout shift
+ *  on data arrival. Pulsing grey bars stand in for title / meta /
+ *  progress. */
+function TicketCardSkeleton() {
+  return (
+    <div className="card p-3 h-full flex flex-col gap-3 min-h-[220px] animate-pulse">
+      <div className="flex items-center gap-2">
+        <div className="h-4 w-16 rounded bg-slate-200 dark:bg-slate-800" />
+        <div className="h-4 w-12 rounded bg-slate-200 dark:bg-slate-800" />
+      </div>
+      <div className="h-4 w-4/5 rounded bg-slate-200 dark:bg-slate-800" />
+      <div className="h-3 w-3/5 rounded bg-slate-200 dark:bg-slate-800" />
+      <div className="mt-auto space-y-2">
+        <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800" />
+        <div className="h-3 w-2/5 rounded bg-slate-200 dark:bg-slate-800" />
+      </div>
+    </div>
+  );
+}
 
 function TicketCard({
   ticket,

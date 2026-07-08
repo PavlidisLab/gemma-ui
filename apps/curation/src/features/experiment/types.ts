@@ -486,6 +486,7 @@ export interface DesignValidationState {
 // — one source of truth for the agents Python and this UI. The
 // validator flags any URI not in this set as ``unknown_predicates``.
 import { KNOWN_PREDICATE_URIS } from "@/generated/predicates";
+import { curieToUrl } from "@/lib/curie";
 
 export function validateDesign(design: Design): DesignValidationState {
   const allBmNames = new Set(design.biomaterials.map((b) => b.short_name));
@@ -535,8 +536,19 @@ export function validateDesign(design: Design): DesignValidationState {
         seen.set(sn, (seen.get(sn) ?? 0) + 1);
       }
       for (const s of fv.statements) {
-        if (s.predicate && s.predicate.uri && !KNOWN_PREDICATE_URIS.has(s.predicate.uri)) {
-          unknownPredicates++;
+        if (s.predicate && s.predicate.uri) {
+          // Canonicalise the namespace before the allow-list check.
+          // Legacy / mis-namespaced snapshots emit TGEMO (Gemma's own
+          // ontology) under the OBO purl — e.g.
+          // ``…/obo/TGEMO_00168`` instead of the canonical
+          // ``…/gemma.msl.ubc.ca/ont/TGEMO_00168``. curieToUrl (which
+          // the rest of the app already routes URIs through) rewrites
+          // it to canonical, so a genuinely-known predicate under a
+          // stale namespace no longer false-flags as "unknown".
+          const canonicalUri = curieToUrl(s.predicate.uri) ?? s.predicate.uri;
+          if (!KNOWN_PREDICATE_URIS.has(canonicalUri)) {
+            unknownPredicates++;
+          }
         }
         if (!s.category || !(s.category.label || "").trim()) {
           stmtsMissingCategory++;

@@ -209,16 +209,6 @@ export function AuditSidebarPanel({
           <div className="flex-1 min-w-0">
             <SidebarTopBar
               accession={accession}
-              hasOpenAudit={
-                !!(report && !report.finalized_at)
-                // Suppress for synthetic chip-diff overrides — those
-                // reports carry audit_id=null and a ``chip-diff:`` model
-                // marker; they're not real "open" reviews waiting for
-                // a curator. Same gate as ChipOverrideMount uses.
-                && !(report && report.audit_id == null
-                  && typeof report.model === "string"
-                  && report.model.startsWith("chip-diff:"))
-              }
               kind={kind}
             />
           </div>
@@ -308,12 +298,9 @@ export function AuditSidebarPanel({
  *  AgentRunDialog at the App level, not here. */
 function SidebarTopBar({
   accession,
-  hasOpenAudit,
   kind,
 }: {
   accession: string;
-  /** True when a non-finalized audit already exists for this experiment. */
-  hasOpenAudit: boolean;
   kind: CurationReviewKind;
 }) {
   const copy = KIND_COPY[kind];
@@ -323,14 +310,6 @@ function SidebarTopBar({
         {copy.headerLabel}{" "}
         <span className="font-mono text-slate-700">{accession}</span>
       </span>
-      {hasOpenAudit ? (
-        <span
-          className="text-[10px] text-amber-600 dark:text-amber-400"
-          title={`this experiment already has an open (unfinished) ${copy.noun}`}
-        >
-          open {copy.noun} exists
-        </span>
-      ) : null}
     </div>
   );
 }

@@ -7,6 +7,27 @@
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     @apply bg-white text-slate-900;
   }
+
+  /*
+    The page must fit the viewport horizontally — vertical scrolling
+    only. A stray few-pixel-wide element (a non-shrinking header
+    cluster, a wide chip strip, a long unbreakable label) otherwise
+    grows the document past the viewport and lets the whole page
+    scroll sideways a little, which is annoying and makes the fixed
+    header appear to "stick out" past the right edge.
+
+    ``overflow-x: clip`` on the app mount clips that horizontal
+    overflow at the viewport edge. Unlike ``hidden`` it does NOT
+    establish a scroll container and does NOT force ``overflow-y`` to
+    ``auto`` (clip + visible is a legal pair), so the sticky app
+    header keeps pinning against the window and vertical scroll is
+    unchanged. Genuinely-wide surfaces (samples table, factor grids)
+    carry their own ``overflow-x-auto`` boxes, so their columns still
+    scroll internally — nothing is stranded by this clip.
+  */
+  #root {
+    overflow-x: clip;
+  }
 }
 
 @layer components {
