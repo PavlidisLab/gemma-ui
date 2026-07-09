@@ -80,7 +80,7 @@ import {
   findingActionLabel,
   findingDisplayedGoldEmpty,
 } from "./findingHelpers";
-import { MatchBadge, SeverityBadge } from "./findingBadges";
+import { DispositionDot, MatchBadge, SeverityBadge } from "./findingBadges";
 import {
   isCloseFactorMatch,
   isExactFactorMatch,
@@ -875,14 +875,34 @@ export function ComparisonFactorCard({
   const matchBadge = matchedButMissingFromBaseline ? null : (
     <MatchBadge finding={finding} />
   );
+  // Once the curator has dispositioned a near-match factor, the left-edge
+  // badge should read the VERDICT (✓ / ✗ / ⋯ + reviewer/reason/notes on
+  // hover), not the ambiguous ≈ "near match" badge — otherwise a reviewer
+  // (esp. on a swapped review) can't tell what was decided without
+  // expanding. Mirrors CompactFindingCard's hasDisposition precedence.
+  const dispositionBadge =
+    status !== "pending" ? (
+      <DispositionDot
+        status={status as "accepted" | "dismissed" | "needs_more_info"}
+        resolved={!!dispo?.resolved_at}
+        severity={finding.severity}
+        reason={
+          dispo?.dismiss_reason ??
+          dispo?.accept_reason ??
+          dispo?.not_sure_reason ??
+          null
+        }
+        notes={dispo?.notes ?? null}
+        reviewer={dispo?.reviewer ?? null}
+      />
+    ) : null;
   const derivedTitle =
     title ?? (
       <span className="inline-flex items-baseline gap-1.5 min-w-0">
-        {/* MatchBadge returns null for non-match codes; fall back to
-            SeverityBadge with the action glyph (Δ / + / − / etc.) so
-            partition_mismatch and extra / gold_only_miss cards still
-            get a left-edge glyph. */}
-        {matchBadge ?? (
+        {/* Dispositioned → show the verdict badge; else the match ≈ / ✓
+            badge; else fall back to SeverityBadge with the action glyph
+            (Δ / + / − / etc.) for partition_mismatch / extra / miss. */}
+        {dispositionBadge ?? matchBadge ?? (
           <SeverityBadge
             severity={displaySeverity(finding)}
             glyph={findingActionGlyph(finding)}

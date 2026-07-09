@@ -394,6 +394,14 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
             }
             resolved={!!disposition?.resolved_at}
             severity={finding.severity}
+            reason={
+              disposition?.dismiss_reason ??
+              disposition?.accept_reason ??
+              disposition?.not_sure_reason ??
+              null
+            }
+            notes={disposition?.notes ?? null}
+            reviewer={disposition?.reviewer ?? null}
           />
         ) : isMatchFinding(finding) ? (
           // Match-code findings get the ≈ / ✓ badge instead of the

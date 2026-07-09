@@ -480,10 +480,20 @@ export function DispositionDot({
   status,
   resolved,
   severity,
+  reason,
+  notes,
+  reviewer,
 }: {
   status: "accepted" | "dismissed" | "needs_more_info";
   resolved: boolean;
   severity: Severity;
+  /** The curator's reason code (dismiss/accept/not_sure). Shown on hover. */
+  reason?: string | null;
+  /** Free-text curator notes. Shown on hover. */
+  notes?: string | null;
+  /** Who dispositioned it (e.g. "cyan"). Shown on hover so a second
+   *  reviewer picking up a swapped review sees WHO decided WHAT. */
+  reviewer?: string | null;
 }) {
   // Per Paul 2026-05-27: the original tiny grey-on-grey ✓/× was
   // unreadable next to the kind-tinted card chrome. Bump to a
@@ -515,19 +525,55 @@ export function DispositionDot({
               "dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500",
             title: `parked — was ${severity}`,
           };
+  const verdictWord =
+    status === "accepted"
+      ? resolved
+        ? "Agreed & resolved"
+        : "Agreed (follow-up owed)"
+      : status === "dismissed"
+        ? // "dismissed" covers both a true reject AND the near-match
+          // "keep the agent's version, it's fine/close" verdicts — which
+          // read harshly as "Rejected". Distinguish by reason.
+          reason === "keep_agent_equivalent"
+          ? "Kept — agent equivalent"
+          : reason === "keep_agent_close"
+            ? "Kept — agent close"
+            : "Rejected"
+        : "Parked";
+  // Rich hover card: WHAT the curator decided, WHO decided it, WHY
+  // (reason code) and any free-text notes. Lets a reviewer read the
+  // decision off a collapsed / greyed-out card without expanding it —
+  // and, on a swapped review, see the other curator's call + reasoning.
+  const hover = (
+    <div className="space-y-1 text-left">
+      <div className="font-semibold">
+        {verdictWord}
+        {reviewer ? <span className="font-normal opacity-80"> · {reviewer}</span> : null}
+      </div>
+      {reason ? (
+        <div>
+          <span className="opacity-70">reason: </span>
+          {reason}
+        </div>
+      ) : null}
+      {notes ? <div className="whitespace-pre-wrap opacity-90">{notes}</div> : null}
+      <div className="opacity-60">was {severity}</div>
+    </div>
+  );
   return (
-    <span
-      className={cn(
-        "inline-flex items-center justify-center shrink-0",
-        "rounded border font-bold leading-none",
-        "h-6 w-6 text-[14px]",
-        cfg.cls,
-      )}
-      title={cfg.title}
-      aria-label={cfg.title}
-    >
-      {cfg.glyph}
-    </span>
+    <Tooltip label={hover}>
+      <span
+        className={cn(
+          "inline-flex items-center justify-center shrink-0",
+          "rounded border font-bold leading-none cursor-help",
+          "h-6 w-6 text-[14px]",
+          cfg.cls,
+        )}
+        aria-label={cfg.title}
+      >
+        {cfg.glyph}
+      </span>
+    </Tooltip>
   );
 }
 
