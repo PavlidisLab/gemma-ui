@@ -110,6 +110,15 @@ export interface Biomaterial {
    *  rows by this key — design factor values apply at the
    *  source-sample level, not the cell-type bucket. */
   source_biomaterial_id?: number | null;
+  /** Raw per-sample GEO MINiML fields (treatment_protocol,
+   *  growth_protocol, extract_protocol, source_name, title, …) captured
+   *  at GEO ingest and carried on the design. NOT curated — verbatim
+   *  submitter text. Surfaced in the sample metadata popover, labelled
+   *  "from GEO", so a curator can read whole-experiment context (e.g.
+   *  disease induction — "immunized with MOG35-55/CFA to induce EAE")
+   *  that Gemma does not promote to a characteristic. Optional / absent
+   *  for payloads predating GEO-field capture. */
+  geo_fields?: Record<string, string>;
 }
 
 export interface Tag {

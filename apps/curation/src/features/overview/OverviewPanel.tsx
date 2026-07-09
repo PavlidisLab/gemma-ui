@@ -280,6 +280,28 @@ export function OverviewPanel() {
             />
           ) : null}
           <KV k="loaded at" v={formatTimestamp(meta?.loaded_at) || "—"} />
+          {meta?.description ? (
+            <KV
+              k="design (GEO)"
+              v={
+                <Tooltip
+                  label={
+                    <div className="max-w-md max-h-80 overflow-auto whitespace-pre-wrap text-left">
+                      {meta.description}
+                    </div>
+                  }
+                >
+                  <span className="cursor-help text-slate-700">
+                    {meta.description.replace(/\s+/g, " ").trim().slice(0, 72)}
+                    {meta.description.length > 72 ? "…" : ""}
+                    <span className="ml-1 text-[10px] italic text-slate-400">
+                      from GEO — hover
+                    </span>
+                  </span>
+                </Tooltip>
+              }
+            />
+          ) : null}
         </SummaryCard>
 
         {/* Cohort card removed 2026-04-30 — its four counts were

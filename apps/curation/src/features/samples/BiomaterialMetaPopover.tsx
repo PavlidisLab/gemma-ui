@@ -115,6 +115,14 @@ export function BiomaterialMetaPopover({
   const charEntries = Object.entries(bm.characteristics ?? {}).filter(
     ([, v]) => v != null && v !== "",
   );
+  // Raw GEO MINiML fields (treatment/growth/extract protocol, source_name,
+  // title, …). Verbatim submitter text, NOT curated — surfaced so a curator
+  // can read whole-experiment context (disease induction, treatment) that
+  // Gemma doesn't promote to a characteristic. `description` is already shown
+  // up top, so drop it here to avoid duplication.
+  const geoEntries = Object.entries(bm.geo_fields ?? {}).filter(
+    ([k, v]) => k !== "description" && v != null && String(v).trim() !== "",
+  );
   const assays = bm.bio_assays ?? [];
 
   return (
@@ -264,6 +272,33 @@ export function BiomaterialMetaPopover({
                     </table>
                   )}
                 </Section>
+
+                {geoEntries.length > 0 ? (
+                  <Section label={`From GEO — raw (${geoEntries.length})`}>
+                    <div className="mb-1 text-[10px] italic text-slate-400">
+                      Verbatim GEO submitter metadata — not curated. On a split
+                      experiment, series-level text may describe the original
+                      series (samples not shown here).
+                    </div>
+                    <table className="w-full text-[11px]">
+                      <tbody>
+                        {geoEntries.map(([k, v]) => (
+                          <tr
+                            key={k}
+                            className="align-top border-b border-slate-100 last:border-b-0"
+                          >
+                            <td className="py-0.5 pr-2 text-slate-500 whitespace-nowrap">
+                              {k}
+                            </td>
+                            <td className="py-0.5 text-slate-800 break-words whitespace-pre-wrap">
+                              {v}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Section>
+                ) : null}
               </div>
             </div>,
             document.body,
