@@ -1192,21 +1192,17 @@ function ResultSetRow({
         <PvalueHistogramStrip resultSetId={resultSet.id} />
 
         <span className="ml-auto inline-flex items-center gap-2">
+          {/* Always enabled: the heatmap fetches the top-50 by
+              p-value (threshold=1), so it shows the lowest-p-value
+              genes even when nothing clears the FDR cutoff. Gating on
+              the FDR-significant count (nDE) would hide the top genes
+              for contrasts with no strictly-significant hits, which is
+              exactly the view a curator still wants to see. */}
           <button
             type="button"
             onClick={() => setHeatmapOpen(true)}
-            disabled={nDE === 0}
-            className={
-              "text-[11px] px-2 py-0.5 rounded border " +
-              (nDE === 0
-                ? "border-slate-200 bg-slate-50 text-slate-300 cursor-not-allowed"
-                : "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100")
-            }
-            title={
-              nDE === 0
-                ? "No DE genes to show at this threshold"
-                : "Pop out the top-50 differentially-expressed genes as a heatmap"
-            }
+            className="text-[11px] px-2 py-0.5 rounded border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+            title="Pop out the top-50 genes by lowest p-value as a heatmap"
           >
             Top genes ↗
           </button>
