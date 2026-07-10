@@ -12,6 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@gemma/assets": "*",
     "@gemma/diagnostics": "*",
     "@gemma/heatmap": "*",
     "@gemma/ontology": "*",

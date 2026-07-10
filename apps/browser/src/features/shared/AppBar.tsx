@@ -5,7 +5,7 @@ import { gemmaUrl } from "@/lib/gemmaConfig";
 import { curationUrl } from "@/lib/appLinks";
 import { LoginModal } from "./LoginModal";
 import { SearchBox } from "./SearchBox";
-import gemmaLogoText from "@/assets/images/logo/gemma-logo-text.png";
+import { gemmaLogoText } from "@gemma/assets";
 
 export function AppBar() {
   const me = useMe();

@@ -1,0 +1,12 @@
+{
+  "name": "@gemma/assets",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared static brand assets consumed by both apps (logos: Gemma wordmark, Gemma glyph, UBC). Each .png ships beside its editable .xcf GIMP source so the source art can never drift from — or be misplaced apart from — the exported image. Only the .png files are imported (via ./src/index.ts); the .xcf sources are co-located but never bundled. Add an asset here only when both apps/browser and apps/curation would otherwise copy it.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

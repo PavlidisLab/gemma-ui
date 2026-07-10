@@ -24,8 +24,7 @@ import { useMe, useLogout } from "@/api/auth";
 import { getDatasetAnnotations } from "@/api/endpoints";
 import { LoginModal } from "@/features/shared/LoginModal";
 import { SearchBox } from "@/features/shared/SearchBox";
-import gemmaLogoText from "@/assets/images/logo/gemma-logo-text.png";
-import ubcLogo from "@/assets/images/logo/ubc-logo.png";
+import { gemmaLogoText, ubcLogo } from "@gemma/assets";
 import {
   useGemmaSummary,
   fmtCount,

@@ -21,6 +21,7 @@
     "test:ci": "vitest run && playwright test --grep '@critical'"
   },
   "dependencies": {
+    "@gemma/assets": "*",
     "@gemma/diagnostics": "*",
     "@gemma/heatmap": "*",
     "@gemma/ontology": "*",

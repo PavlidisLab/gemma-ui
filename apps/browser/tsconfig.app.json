@@ -21,6 +21,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
+      "@gemma/assets": ["../../packages/assets/src/index.ts"],
       "@gemma/diagnostics": ["../../packages/diagnostics/src/index.ts"],
       "@gemma/heatmap": ["../../packages/heatmap/src/index.ts"],
       "@gemma/ontology": ["../../packages/ontology/src/index.ts"],
@@ -29,6 +30,7 @@
   },
   "include": [
     "src",
+    "../../packages/assets/src",
     "../../packages/diagnostics/src",
     "../../packages/heatmap/src",
     "../../packages/ontology/src",
