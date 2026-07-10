@@ -1,5 +1,6 @@
 import {
   useDatasets,
+  datasetMatchesQuery,
   type DatasetSummary,
 } from "@/api/datasets";
 import { experimentRoute, navigate, type ExperimentTab } from "@/routes";
@@ -52,7 +53,10 @@ export function ExperimentList({
   const { data, isLoading, error, refetch, isFetching } = useDatasets({
     refetchInterval: anyUnderway ? 3000 : false,
   });
-  const [filter, setFilter] = useState("");
+  // Seed the free-text filter from the ``?q=`` param so the dashboard
+  // quick-search can hand a multi-hit query off to this page with the
+  // filter already applied.
+  const [filter, setFilter] = useState(readInitialQuery);
   // Status pill filter: "all", "troubled", "needs_attention", "proposals", "notes".
   const [statusFilter, setStatusFilter] = useStickyState<StatusFilter>(
     "experiments.statusFilter",
@@ -84,13 +88,7 @@ export function ExperimentList({
       if (statusFilter === "notes" && !r.has_curation_note) return false;
       if (statusFilter === "audit_issues" && actionableAuditCount(r) === 0)
         return false;
-      const q = filter.trim().toLowerCase();
-      if (!q) return true;
-      return (
-        r.short_name.toLowerCase().includes(q) ||
-        r.title.toLowerCase().includes(q) ||
-        r.taxon.toLowerCase().includes(q)
-      );
+      return datasetMatchesQuery(r, filter);
     })
     .slice()
     .sort((a, b) => compareRows(a, b, sort.key) * (sort.dir === "asc" ? 1 : -1));
@@ -695,6 +693,19 @@ function EmptyState({
       ticket pipeline.
     </div>
   );
+}
+
+/** Read the initial free-text filter from the hash query string
+ *  (``#/all-experiments?q=<query>``). Empty when absent. */
+function readInitialQuery(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const hash = window.location.hash;
+    const qs = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    return new URLSearchParams(qs).get("q") ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function formatTimestamp(iso: string): string {

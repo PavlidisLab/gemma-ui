@@ -14,10 +14,13 @@
  * and the 404-fallback ImportPrompt, but no curator-facing UI calls
  * it directly any more.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
+import { useDatasets, datasetMatchesQuery } from "@/api/datasets";
 import {
   useMyTickets,
+  experimentTicketsQueryOptions,
   ticketTypeLabel,
   ticketPriorityRank,
   type Ticket,
@@ -150,6 +153,81 @@ export function CuratorDashboard({
   );
   const [showCreateScreening, setShowCreateScreening] = useState(false);
 
+  // Quick-search over the full curation catalogue. The list is paged in
+  // full by ``useDatasets`` so accession lookups aren't capped. On
+  // submit: a single hit jumps straight to that experiment; anything
+  // else (0 or many hits) hands the query off to the browse page with
+  // the filter pre-applied.
+  const qc = useQueryClient();
+  const { data: datasets } = useDatasets();
+  const [query, setQuery] = useState("");
+  // While resolving a single hit's ticket context (async endpoint call),
+  // disable the form so a double-submit can't fire two navigations.
+  const [resolving, setResolving] = useState(false);
+  // When a single-hit experiment is on >1 open ticket, we can't pick a
+  // ticket for the curator — the modal lets them choose which one to
+  // open live (or open with none).
+  const [ticketPicker, setTicketPicker] = useState<{
+    experimentId: number | string;
+    experimentName: string;
+    tickets: Ticket[];
+  } | null>(null);
+  const matches = useMemo(
+    () =>
+      query.trim()
+        ? (datasets ?? []).filter((r) => datasetMatchesQuery(r, query))
+        : [],
+    [datasets, query],
+  );
+
+  async function runSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = query.trim();
+    if (!q) {
+      navigate("#/all-experiments");
+      return;
+    }
+    // Many (or zero) hits → hand off to the browse table with the filter
+    // pre-applied; the curator disambiguates there.
+    if (matches.length !== 1) {
+      navigate(`#/all-experiments?q=${encodeURIComponent(q)}`);
+      return;
+    }
+    // Single hit → open the experiment, resolving ticket context first.
+    // An experiment can be a target of 0, 1, or many tickets (tickets ↔
+    // experiments is many-to-many), so we can't assume one. Resolve the
+    // OPEN tickets targeting it:
+    //   0 → open plain · 1 → open with it live · >1 → picker gateway.
+    const exp = matches[0];
+    setResolving(true);
+    let openTickets: Ticket[] = [];
+    try {
+      const tks = await qc.fetchQuery(
+        experimentTicketsQueryOptions(exp.experiment_id),
+      );
+      openTickets = tks.filter(
+        (t) => t.state === "OPEN" || t.state === "IN_PROGRESS",
+      );
+    } catch {
+      // Endpoint unavailable / transient error — degrade to opening the
+      // experiment plain rather than blocking the jump.
+      openTickets = [];
+    } finally {
+      setResolving(false);
+    }
+    if (openTickets.length === 1) {
+      onSelect(exp.experiment_id, openTickets[0].id);
+    } else if (openTickets.length > 1) {
+      setTicketPicker({
+        experimentId: exp.experiment_id,
+        experimentName: exp.short_name,
+        tickets: openTickets,
+      });
+    } else {
+      onSelect(exp.experiment_id);
+    }
+  }
+
   // Persist filter selection to URL + localStorage. URL wins on
   // bookmarks; localStorage is the soft default for a fresh tab.
   useEffect(() => {
@@ -271,6 +349,58 @@ export function CuratorDashboard({
                 reachable at #/workflow for the few set-walk cases. */}
           </nav>
         </header>
+
+        {/* Quick-search — jump straight to an experiment (single hit)
+            or into the browse table (many hits). Searches accession /
+            short name / title / taxon across the full catalogue. */}
+        <section>
+          <form onSubmit={runSearch} className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-2xl">
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find an experiment — accession (e.g. GSE277000), title, or taxon…"
+                aria-label="Find an experiment"
+                className="w-full text-sm border border-slate-300 dark:border-slate-700 rounded px-3 py-2 bg-white dark:bg-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={resolving}
+              className="text-sm px-3 py-2 rounded bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50"
+            >
+              {resolving ? "Opening…" : "Search"}
+            </button>
+            {query.trim() ? (
+              <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                {matches.length === 0
+                  ? "no matches"
+                  : matches.length === 1
+                    ? `1 match → opens ${matches[0].short_name}`
+                    : `${matches.length} matches → browse`}
+              </span>
+            ) : null}
+          </form>
+        </section>
+
+        {ticketPicker ? (
+          <TicketPickerModal
+            experimentName={ticketPicker.experimentName}
+            tickets={ticketPicker.tickets}
+            onPick={(ticketId) => {
+              const { experimentId } = ticketPicker;
+              setTicketPicker(null);
+              onSelect(experimentId, ticketId);
+            }}
+            onOpenPlain={() => {
+              const { experimentId } = ticketPicker;
+              setTicketPicker(null);
+              onSelect(experimentId);
+            }}
+            onCancel={() => setTicketPicker(null)}
+          />
+        ) : null}
 
         {/* Tickets — live from local-api /rest/v2/tickets. */}
         <section>
@@ -399,6 +529,122 @@ export function CuratorDashboard({
   );
 }
 
+
+/**
+ * Gateway shown when a quick-search single-hit experiment is on more
+ * than one open ticket — we can't pick one for the curator, so they
+ * choose which ticket to open live. Reuses the ConfirmModal shell
+ * pattern (backdrop / dialog / Escape / click-outside) and the
+ * dashboard's own PriorityPill / StatePill so a ticket row here reads
+ * the same as its card. Never a dead-end: "Open without a ticket" is
+ * always available.
+ */
+function TicketPickerModal({
+  experimentName,
+  tickets,
+  onPick,
+  onOpenPlain,
+  onCancel,
+}: {
+  experimentName: string;
+  tickets: Ticket[];
+  onPick: (ticketId: number) => void;
+  onOpenPlain: () => void;
+  onCancel: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  // Highest-priority, most-recently-updated first — same ordering idea
+  // as the dashboard ticket grid, so the curator sees the likeliest
+  // target at the top.
+  const sorted = tickets.slice().sort((a, b) => {
+    const pa = ticketPriorityRank(a.priority);
+    const pb = ticketPriorityRank(b.priority);
+    if (pa !== pb) return pa - pb;
+    return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+  });
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4"
+      onClick={onCancel}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ticket-picker-title"
+        className="bg-white dark:bg-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+          <h2
+            id="ticket-picker-title"
+            className="text-sm font-semibold text-slate-900 dark:text-slate-100"
+          >
+            {experimentName} is on {tickets.length} tickets
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Pick which ticket to open it with — the experiment opens with
+            that ticket's context live.
+          </p>
+        </div>
+        <ul className="overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+          {sorted.map((t) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                onClick={() => onPick(t.id)}
+                className="w-full text-left px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex flex-col gap-1"
+              >
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    #{t.id}
+                  </span>
+                  <PriorityPill priority={t.priority} />
+                  <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    {ticketTypeLabel(t.type)}
+                  </span>
+                  <StatePill state={t.state} />
+                </div>
+                {t.title ? (
+                  <span className="text-sm text-slate-700 dark:text-slate-200 line-clamp-1">
+                    {t.title}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex justify-between gap-2">
+          <button
+            type="button"
+            className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 underline-offset-2 hover:underline"
+            onClick={onOpenPlain}
+          >
+            Open without a ticket
+          </button>
+          <button
+            ref={closeRef}
+            type="button"
+            className="btn ghost text-xs"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Placeholder card shown while the ticket list loads. Mirrors
  *  ``TicketCard``'s frame (``card p-3 min-h-[220px]``) so the skeleton

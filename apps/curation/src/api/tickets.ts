@@ -339,6 +339,37 @@ export function useMyTickets(
   });
 }
 
+/**
+ * Query options for the light ticket rows that have a given experiment
+ * as a target. Powers the dashboard quick-search ticket gateway: when a
+ * search resolves to a single experiment, we resolve its tickets to
+ * decide the open path (0 → plain / 1 → live / >1 → picker).
+ *
+ * Backed by ``GET /rest/v2/tickets?target_id=<id>
+ * &target_type=EXPRESSION_EXPERIMENT&include_targets=false`` (Cab
+ * 2026-07-09). Membership is via the ``ticket_targets`` table, so it
+ * catches an experiment buried inside a 200-target batch ticket — which
+ * the light list's ``investigation_id`` backfill (first target only)
+ * can't. Returns ``[]`` (not 404) when nothing targets the experiment.
+ *
+ * Exposed as options (not a hook) so callers can drive it imperatively
+ * from a submit handler via ``queryClient.fetchQuery`` — we only want to
+ * hit the endpoint when the curator actually searches, not per keystroke.
+ */
+export function experimentTicketsQueryOptions(experimentId: number | string) {
+  return {
+    queryKey: ["tickets", "by-experiment", experimentId] as const,
+    queryFn: async () => {
+      const all = await api.get<Ticket[]>(
+        `/rest/v2/tickets?target_id=${encodeURIComponent(String(experimentId))}` +
+          `&target_type=EXPRESSION_EXPERIMENT&include_targets=false`,
+      );
+      return all ?? [];
+    },
+    staleTime: 1000 * 30,
+  };
+}
+
 /** Cosmetic label for a ticket type — what the dashboard chip
  *  reads. Mirrors the Java enum's javadoc in plain English. */
 export function ticketTypeLabel(t: TicketType): string {

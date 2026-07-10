@@ -76,15 +76,53 @@ export interface DatasetSummary {
 
 const KEY = ["datasets"] as const;
 
+/**
+ * Case-insensitive match of a free-text query against a dataset row's
+ * identifying fields — short_name (== the GEO accession for GEO-sourced
+ * rows), the explicit accession, title, and taxon. Shared by the
+ * dashboard quick-search and the all-experiments filter so both agree
+ * on what "matches". An empty query matches everything.
+ */
+export function datasetMatchesQuery(r: DatasetSummary, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    r.short_name.toLowerCase().includes(q) ||
+    (r.accession ?? "").toLowerCase().includes(q) ||
+    r.title.toLowerCase().includes(q) ||
+    r.taxon.toLowerCase().includes(q)
+  );
+}
+
 export function useDatasets(options: { refetchInterval?: number | false } = {}) {
   return useQuery({
     queryKey: KEY,
     refetchInterval: options.refetchInterval,
     queryFn: async () => {
-      const resp = await api.get<WorkflowDatasetListResponse>(
-        "/rest/v2/datasets?limit=100",
-      );
-      return resp.data.map(
+      // Page through the whole catalogue. The list page filters + sorts
+      // entirely client-side, so it needs every row in hand — a single
+      // capped fetch silently hides any experiment past the first page
+      // (a hardcoded ``limit=100`` left GSE277000 unreachable at row
+      // 340/430). local_api caps ``limit`` at 1000, so loop on
+      // ``offset`` until we've pulled ``total_elements``.
+      const PAGE = 1000;
+      const raw: WorkflowDatasetListResponse["data"] = [];
+      for (let offset = 0; ; offset += PAGE) {
+        const resp = await api.get<WorkflowDatasetListResponse>(
+          `/rest/v2/datasets?limit=${PAGE}&offset=${offset}`,
+        );
+        raw.push(...resp.data);
+        // Stop when the server returned a short (final) page or we've
+        // accumulated the full count. The short-page check also guards
+        // against an empty page looping forever.
+        if (
+          resp.data.length < PAGE ||
+          raw.length >= (resp.total_elements ?? raw.length)
+        ) {
+          break;
+        }
+      }
+      return raw.map(
         (r): DatasetSummary => ({
           experiment_id:      r.id,
           short_name:         r.short_name,
