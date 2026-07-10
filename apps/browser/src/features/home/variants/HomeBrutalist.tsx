@@ -923,6 +923,12 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
 // size or zoom.
 const MASTHEAD_LOGO_HEIGHT = 60;
 const MASTHEAD_LOGO_BASELINE_PAD = (371 - 293) / 371; // ≈0.210
+// Below-baseline descent of the masthead caption text (Inter, the
+// `leading-none` tagline/controls). Lifting the text by the pad alone
+// lands its box BOTTOM on the wordmark baseline; the visible baseline
+// sits one descent above that, so we settle the text back down by the
+// descent to put the baseline itself on the line. ≈0.2em at these sizes.
+const MASTHEAD_TEXT_DESCENT = 2;
 
 function Masthead() {
   const me = useMe();
@@ -932,74 +938,88 @@ function Masthead() {
 
   return (
     <div className="border-b border-stone-950 bg-stone-100">
-      <div className="flex items-end gap-6 flex-wrap">
-        {/* Brand mark — left */}
-        <div className="flex gap-3" style={{ alignItems: "last baseline" }}>
-          <img
-            src={gemmaLogoText}
-            alt="GEMMA"
-            style={{ height: MASTHEAD_LOGO_HEIGHT }}
-            className="block w-auto"
-          />
-          <span
-            style={{
-              position: "relative",
-              top: -(MASTHEAD_LOGO_HEIGHT * MASTHEAD_LOGO_BASELINE_PAD),
-            }}
-            className="text-[10px] uppercase tracking-[0.18em] text-stone-600"
-          >
+      {/* `items-end` pins BOTH logos to the masthead rule. Between them,
+          a single `items-baseline` text row holds the tagline and the
+          right-side controls, so they share one baseline (the ask), and
+          the whole text row is lifted by the wordmark's baseline pad so
+          that shared line coincides with the printed "Gemma" baseline. */}
+      <div className="flex items-end gap-3 flex-wrap">
+        <img
+          src={gemmaLogoText}
+          alt="GEMMA"
+          style={{ height: MASTHEAD_LOGO_HEIGHT }}
+          className="block w-auto"
+        />
+
+        <div
+          className="flex-1 min-w-0 flex items-baseline gap-6 leading-none"
+          style={{
+            // Land the shared text baseline on the printed wordmark
+            // baseline: lift by the wordmark's under-glyph pad, then
+            // settle back down by the text's own descent.
+            marginBottom:
+              MASTHEAD_LOGO_HEIGHT * MASTHEAD_LOGO_BASELINE_PAD -
+              MASTHEAD_TEXT_DESCENT,
+          }}
+        >
+          <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600 leading-none">
             Database of curated and re-analyzed gene expression studies
           </span>
-        </div>
 
-        {/* Spacer — pushes the auth controls to the right. */}
-        <div className="flex-1 min-w-0" />
+          <div className="flex-1 min-w-0" />
 
-        {/* Right side — quick About link + auth. */}
-        <div className="flex items-end gap-4">
-          <Link
-            to="/about"
-            className="text-xs text-stone-600 hover:text-stone-900 hover:no-underline"
-          >
-            About
-          </Link>
-          {me.isPending && !me.data ? null : user ? (
-            <span className="text-xs text-stone-600 inline-flex items-baseline gap-2">
-              <span className="opacity-70">Signed in as</span>
-              <span className="font-medium text-stone-900">
-                {user.userName || user.email || "(signed in)"}
+          {/* About + auth — same baseline as the tagline. */}
+          <div className="flex items-baseline gap-4">
+            <Link
+              to="/about"
+              className="text-[12px] text-stone-600 hover:text-stone-900 hover:no-underline"
+            >
+              About
+            </Link>
+            {me.isPending && !me.data ? null : user ? (
+              <span className="text-[12px] text-stone-600 inline-flex items-baseline gap-2">
+                <span className="opacity-70">Signed in as</span>
+                <span className="font-medium text-stone-900">
+                  {user.userName || user.email || "(signed in)"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => logout.mutate()}
+                  disabled={logout.isPending}
+                  className="opacity-70 hover:opacity-100 bg-transparent border-none cursor-pointer disabled:cursor-progress p-0"
+                >
+                  {logout.isPending ? "Signing out…" : "Sign out"}
+                </button>
               </span>
+            ) : (
               <button
                 type="button"
-                onClick={() => logout.mutate()}
-                disabled={logout.isPending}
-                className="opacity-70 hover:opacity-100 bg-transparent border-none cursor-pointer disabled:cursor-progress p-0"
+                onClick={() => setLoginOpen(true)}
+                // `leading-none -mb-1` cancels the button's below-baseline
+                // padding (mirrors `py-1`) so, in the shared baseline row,
+                // its padded box doesn't drag the tagline's baseline up off
+                // the wordmark. Visual padding is unchanged.
+                className="text-[12px] leading-none -mb-1 px-2.5 py-1 rounded bg-stone-900 text-stone-50 hover:bg-stone-800"
               >
-                {logout.isPending ? "Signing out…" : "Sign out"}
+                Sign in
               </button>
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setLoginOpen(true)}
-              className="text-xs px-2.5 py-1 rounded bg-stone-900 text-stone-50 hover:bg-stone-800"
-            >
-              Sign in
-            </button>
-          )}
-          <a
-            href="https://www.ubc.ca/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <img
-              src={ubcLogo}
-              alt="University of British Columbia"
-              style={{ height: 40 }}
-              className="block w-auto"
-            />
-          </a>
+            )}
+          </div>
         </div>
+
+        {/* UBC logo — pinned to the masthead rule like the wordmark. */}
+        <a
+          href="https://www.ubc.ca/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <img
+            src={ubcLogo}
+            alt="University of British Columbia"
+            style={{ height: 40 }}
+            className="block w-auto"
+          />
+        </a>
       </div>
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </div>
