@@ -899,6 +899,31 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
  * Visual area is a placeholder slot — a small decorative grid
  * standing in until design ships the real element.
  */
+// Rendered height of the Gemma wordmark, and the share of that image
+// that is transparent padding below the letters. gemma-logo-text.png
+// is 1350×371 with the "Gemma" baseline measured at y≈293, so ~21% of
+// the height sits empty beneath the glyphs.
+//
+// The brand row aligns on `last baseline`: flexbox aligns the tagline's
+// LAST line's baseline to the <img>'s baseline, which for a replaced
+// element is its bottom edge (y = height). That puts the tagline
+// baseline at the padded image bottom, ~21% below the wordmark
+// baseline. Nudge the tagline UP by that same fraction of the rendered
+// height so the two baselines coincide. Working baseline-to-baseline
+// (not box edges) sidesteps the tagline's own line-box descent — the
+// earlier margin-on-`items-end` version aligned the span's box bottom,
+// leaving its text baseline floating above the wordmark.
+//
+// `last baseline` (not `baseline`) matters once the tagline wraps: at
+// higher zoom the row narrows and the tagline breaks onto 2+ lines.
+// First-baseline alignment would pin line 1 and let the rest spill
+// DOWN past the wordmark; anchoring the last line instead keeps the
+// bottom line locked to the wordmark baseline and stacks earlier lines
+// upward. Expressed as a ratio of the logo height, so it holds at any
+// size or zoom.
+const MASTHEAD_LOGO_HEIGHT = 60;
+const MASTHEAD_LOGO_BASELINE_PAD = (371 - 293) / 371; // ≈0.210
+
 function Masthead() {
   const me = useMe();
   const user = me.data;
@@ -909,14 +934,20 @@ function Masthead() {
     <div className="border-b border-stone-950 bg-stone-100">
       <div className="flex items-end gap-6 flex-wrap">
         {/* Brand mark — left */}
-        <div className="flex items-end gap-3">
+        <div className="flex gap-3" style={{ alignItems: "last baseline" }}>
           <img
             src={gemmaLogoText}
             alt="GEMMA"
-            style={{ height: 60 }}
+            style={{ height: MASTHEAD_LOGO_HEIGHT }}
             className="block w-auto"
           />
-          <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600">
+          <span
+            style={{
+              position: "relative",
+              top: -(MASTHEAD_LOGO_HEIGHT * MASTHEAD_LOGO_BASELINE_PAD),
+            }}
+            className="text-[10px] uppercase tracking-[0.18em] text-stone-600"
+          >
             Database of curated and re-analyzed gene expression studies
           </span>
         </div>
