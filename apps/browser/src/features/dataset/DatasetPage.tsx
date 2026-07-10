@@ -23,7 +23,13 @@ import {
   downloadResultSetTsv,
 } from "@/api/endpoints";
 import { HeatmapWidget } from "@gemma/heatmap";
-import type { HeatmapData } from "@gemma/heatmap";
+import type {
+  HeatmapData,
+  HeatmapPayload,
+  HeatmapPayloadColumn,
+  HeatmapPayloadRow,
+  Factor,
+} from "@gemma/heatmap";
 import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
@@ -1236,6 +1242,7 @@ function ResultSetRow({
             datasetId={datasetId}
             resultSetId={resultSet.id}
             contrastLabel={contrastLabel}
+            contrastFactorId={resultSet.experimentalFactors?.[0]?.id ?? null}
             subsetSamplesLabel={subsetSamplesLabel}
           />
         </HeatmapPopup>
@@ -1521,11 +1528,15 @@ function ResultSetHeatmap({
   datasetId,
   resultSetId,
   contrastLabel,
+  contrastFactorId,
   subsetSamplesLabel,
 }: {
   datasetId: number;
   resultSetId: number;
   contrastLabel: string;
+  /** Owning contrast factor id — used to default the heatmap's group
+   *  strips to the factor this result set actually contrasts. */
+  contrastFactorId: number | null;
   subsetSamplesLabel: string | null;
 }) {
   const limit = 50;
@@ -1543,6 +1554,28 @@ function ResultSetHeatmap({
       ),
     staleTime: 5 * 60_000,
   });
+
+  // Sample factor-value assignments (per-column FV + canonical sample
+  // order) and the experimental design (canonical factor / FV order +
+  // baseline flags) — together these let the DE heatmap reproduce the
+  // Expression tab's group strips AND sample ordering. Fetched
+  // alongside the DE vectors; while either is absent the heatmap
+  // degrades to the annotation-free ``data`` path below.
+  const samplesQ = useQuery({
+    queryKey: ["dataset-samples", datasetId],
+    queryFn: ({ signal }) => getDatasetSamples(datasetId, signal),
+    staleTime: 5 * 60_000,
+  });
+  const designQ = useQuery({
+    queryKey: ["dataset-design", datasetId],
+    queryFn: ({ signal }) => getDatasetDesign(datasetId, signal),
+    staleTime: 5 * 60_000,
+  });
+
+  const payload = useMemo<HeatmapPayload | null>(() => {
+    if (!q.data || !samplesQ.data || !designQ.data) return null;
+    return buildDeHeatmapPayload(q.data, samplesQ.data, designQ.data, datasetId);
+  }, [q.data, samplesQ.data, designQ.data, datasetId]);
 
   const data = useMemo<HeatmapData | null>(() => {
     if (!q.data) return null;
@@ -1606,7 +1639,12 @@ function ResultSetHeatmap({
   return (
     <div className="min-w-0">
       <HeatmapWidget
-        data={data}
+        // Prefer the payload path once samples have joined in — it
+        // renders the per-factor group strips + grouping/gaps. Until
+        // then (or if samples fail) fall back to the annotation-free
+        // ``data`` matrix so the heatmap still shows.
+        {...(payload ? { payload } : { data })}
+        defaultMainGroupingFactorId={contrastFactorId}
         title={contrastLabel}
         caption={caption}
         // DE values (esp. row-scaled) are signed around zero — pin
@@ -1719,6 +1757,156 @@ function buildDeHeatmap(response: DiffExpressionResponse): HeatmapData {
     rowLabels,
     rowLabelColumns,
     colLabels: colOrder,
+  };
+}
+
+/** Build a full ``HeatmapPayload`` for the DE top-genes matrix so the
+ *  widget renders the same per-factor group strips + grouping/gaps —
+ *  AND the same sample ordering — as the Expression tab.
+ *
+ *  Three inputs, three roles:
+ *   - ``response`` (DE vectors): the expression values, keyed by
+ *     bioAssay name. Carries no factor / ordering info.
+ *   - ``samples`` (``/datasets/{id}/samples``): maps bioAssay name →
+ *     its factor-value assignments (``columns.factorValueIds``), and
+ *     defines the server's canonical sample sequence. We order the
+ *     columns by this sequence (restricted to the samples present in
+ *     this DE response) so the base order — and thus the within-group
+ *     tie-break in ``computeColumnOrder`` — matches the Expression
+ *     tab's, rather than the DE response's arbitrary first-seen order.
+ *   - ``design`` (``/datasets/{id}/design``): the canonical factor
+ *     metadata — declared factor-value order + ``isBaseline`` flags.
+ *     These drive group ordering (baseline first, then declared
+ *     order), so sourcing them here (instead of reconstructing from
+ *     sample-iteration order) is what makes the grouped column order
+ *     agree with the Expression tab.
+ *
+ *  Returns ``null`` when there are no expression levels, no samples, or
+ *  no design — the caller then falls back to the annotation-free
+ *  ``buildDeHeatmap`` path. */
+function buildDeHeatmapPayload(
+  response: DiffExpressionResponse,
+  samples: BioAssay[],
+  design: ExperimentalDesign,
+  datasetId: number,
+): HeatmapPayload | null {
+  const levels = response.geneExpressionLevels ?? [];
+  if (levels.length === 0) return null;
+
+  // Names present in this DE response = the columns we can render.
+  const dePresent = new Set<string>();
+  for (const lvl of levels) {
+    for (const v of lvl.vectors ?? []) {
+      for (const key of Object.keys(v.bioAssayExpressionLevels ?? {})) {
+        dePresent.add(key);
+      }
+    }
+  }
+
+  // Column order follows the samples endpoint (the server's canonical
+  // sample sequence — same base order the Expression tab sees),
+  // restricted to samples present in this DE response. DE columns with
+  // no matching sample (rare) are appended so they're never dropped.
+  const byName = new Map<string, BioAssay>();
+  for (const ba of samples) {
+    if (ba.name) byName.set(ba.name, ba);
+  }
+  const colOrder: string[] = [];
+  const usedNames = new Set<string>();
+  for (const ba of samples) {
+    if (ba.name && dePresent.has(ba.name)) {
+      colOrder.push(ba.name);
+      usedNames.add(ba.name);
+    }
+  }
+  for (const name of dePresent) {
+    if (!usedNames.has(name)) colOrder.push(name);
+  }
+
+  // Canonical factors from the design — declared FV order + baseline
+  // flags — so the grouped column order matches the Expression tab.
+  const factors: Factor[] = design.experimentalFactors.map((ef) => {
+    const label =
+      ef.category?.category ?? ef.category?.value ?? ef.name ?? `factor ${ef.id}`;
+    const isContinuous = ef.type === "continuous";
+    return {
+      id: ef.id,
+      name: ef.name ?? label,
+      category: { label, uri: ef.category?.categoryUri ?? null },
+      type: isContinuous ? "continuous" : "categorical",
+      factor_values: (ef.values ?? []).map((fv) => {
+        const numeric = isContinuous ? Number(fv.value) : NaN;
+        return {
+          id: fv.id,
+          free_text_label: fv.summary ?? fv.value ?? "",
+          is_baseline: !!fv.isBaseline,
+          statements: [],
+          numeric_value: Number.isFinite(numeric) ? numeric : undefined,
+        };
+      }),
+    };
+  });
+
+  const columns: HeatmapPayloadColumn[] = colOrder.map((name, idx) => {
+    const ba = byName.get(name);
+    const factorValueIds: Record<number, number> = {};
+    for (const fv of ba?.sample?.factorValues ?? []) {
+      if (fv.experimentalFactorId != null && fv.id != null) {
+        factorValueIds[fv.experimentalFactorId] = fv.id;
+      }
+    }
+    // Negative synthetic ids keep unmatched columns distinct without
+    // colliding with real bioAssay / bioMaterial ids.
+    return {
+      bioAssayId: ba?.id ?? -(idx + 1),
+      bioMaterialId: ba?.sample?.id ?? -(idx + 1),
+      name,
+      outlier: !!ba?.outlier,
+      factorValueIds,
+    };
+  });
+
+  const rows: HeatmapPayloadRow[] = [];
+  const values: (number | null)[][] = [];
+  for (const lvl of levels) {
+    const sym = lvl.geneOfficialSymbol || String(lvl.geneNcbiId ?? "?");
+    const vec0 = lvl.vectors?.[0];
+    const vec = vec0?.bioAssayExpressionLevels ?? {};
+    rows.push({
+      designElementId: vec0?.designElementId ?? -1,
+      designElementName: vec0?.designElementName ?? "",
+      geneIds: lvl.geneId != null ? [lvl.geneId] : [],
+      geneSymbols: [sym],
+      geneNames: [lvl.geneOfficialName ?? ""],
+    });
+    values.push(
+      colOrder.map((c) => {
+        const raw = vec[c];
+        if (raw == null) return null;
+        const n = typeof raw === "number" ? raw : Number(raw);
+        return Number.isFinite(n) ? n : null;
+      }),
+    );
+  }
+
+  return {
+    datasetId: response.datasetId ?? datasetId,
+    matrix: {
+      values,
+      rows: values.length,
+      cols: colOrder.length,
+      // Synthetic QT — the DE endpoint doesn't carry one. Row-scaling
+      // is on by default for this heatmap so the scale is cosmetic.
+      quantitationType: {
+        name: "differential expression",
+        isPreferred: true,
+        isRatio: false,
+        scale: "LINEAR",
+      },
+    },
+    rows,
+    columns,
+    factors,
   };
 }
 

@@ -46,6 +46,7 @@ export {
   parseFactorUnit,
 } from './payload';
 export { computeColumnOrder, type ColumnOrderResult } from './columnOrder';
+export { isTechnicalFactor, orderFactorsForDisplay } from './factorOrder';
 export {
   buildHeatmapDataFromPayload,
   type BuiltHeatmap,

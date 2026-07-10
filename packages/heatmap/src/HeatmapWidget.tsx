@@ -4,6 +4,7 @@ import { Legend } from './Legend';
 import { rowStandardize } from './color';
 import { PALETTES } from './palettes';
 import { buildHeatmapDataFromPayload } from './buildHeatmapData';
+import { isTechnicalFactor, orderFactorsForDisplay } from './factorOrder';
 import { HeatmapTooltip, type TooltipState } from './Tooltip';
 import { SidePanel, type SidePanelClick } from './SidePanel';
 import type {
@@ -95,6 +96,13 @@ export interface HeatmapWidgetProps {
    *  220) when ``data.rowLabelColumns`` is used so the auto-sized
    *  grid columns have room. */
   rowLabelGutterWidth?: number;
+  /** Initial main-grouping factor id (payload path only). Overrides
+   *  the widget's auto-pick so a caller can force a specific factor
+   *  (e.g. a DE result set groups by its contrast factor). The user
+   *  can still switch grouping via the strip gutters / side panel.
+   *  Falls back to the auto-pick when null / not among the payload's
+   *  factors. */
+  defaultMainGroupingFactorId?: number | null;
 }
 
 // Pavlab-style palette tokens (per CLAUDE.md).
@@ -196,6 +204,7 @@ export function HeatmapWidget({
   showDownload = true,
   rowLabelTooltip,
   rowLabelGutterWidth,
+  defaultMainGroupingFactorId,
 }: HeatmapWidgetProps): JSX.Element {
   // Root ref — used by the download-image button to locate the
   // rendered canvas inside the matrix wrapper. Avoids threading a
@@ -230,31 +239,46 @@ export function HeatmapWidget({
   // date) so the default isn't a useless bucketing.
   const autoPickedFactorId = useMemo<number | null>(() => {
     if (!payload) return null;
-    const TECHNICAL_RE = /\b(batch|collection|scan|protocol|technical|library)\b/i;
-    const eligible = (payload.factors ?? []).filter((f) => {
-      if (f.type !== 'categorical') return false;
-      const fvs = f.factor_values ?? [];
-      if (fvs.length < 2) return false;
-      const cat = f.category?.label ?? f.name ?? '';
-      if (TECHNICAL_RE.test(cat)) return false;
-      return true;
-    });
+    // Walk the factors in the same canonical order the strips render
+    // in, so ``eligible[0]`` (the default grouping) matches the first
+    // biological strip the user sees.
+    const eligible = orderFactorsForDisplay(payload.factors ?? []).filter(
+      (f) => {
+        if (f.type !== 'categorical') return false;
+        const fvs = f.factor_values ?? [];
+        if (fvs.length < 2) return false;
+        if (isTechnicalFactor(f)) return false;
+        return true;
+      },
+    );
     // Prefer a factor that has at least one declared baseline.
     const withBaseline = eligible.find((f) =>
       (f.factor_values ?? []).some((fv) => fv.is_baseline),
     );
     return (withBaseline ?? eligible[0])?.id ?? null;
   }, [payload]);
+  // Caller-forced grouping wins, but only when it names a factor that
+  // actually exists in this payload; otherwise fall back to the
+  // auto-pick so a stale / mismatched id never blanks the grouping.
+  const initialGroupingFactorId = useMemo<number | null>(() => {
+    if (
+      defaultMainGroupingFactorId != null &&
+      (payload?.factors ?? []).some((f) => f.id === defaultMainGroupingFactorId)
+    ) {
+      return defaultMainGroupingFactorId;
+    }
+    return autoPickedFactorId;
+  }, [defaultMainGroupingFactorId, payload, autoPickedFactorId]);
   const [mainGroupingFactorId, setMainGroupingFactorId] =
-    useState<number | null>(autoPickedFactorId);
-  // When a fresh payload arrives with a different auto-pick (e.g.
-  // user navigated to a different dataset, or genes loaded in
+    useState<number | null>(initialGroupingFactorId);
+  // When a fresh payload arrives with a different initial grouping
+  // (e.g. user navigated to a different dataset, or genes loaded in
   // and factors arrived for the first time), adopt it.
   const userTouchedGroupingRef = useRef(false);
   useEffect(() => {
     if (userTouchedGroupingRef.current) return;
-    setMainGroupingFactorId(autoPickedFactorId);
-  }, [autoPickedFactorId]);
+    setMainGroupingFactorId(initialGroupingFactorId);
+  }, [initialGroupingFactorId]);
   const setMainGroupingFactorIdWithTouch = (
     updater: number | null | ((prev: number | null) => number | null),
   ) => {

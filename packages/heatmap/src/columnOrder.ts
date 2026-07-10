@@ -150,9 +150,14 @@ function buildFactorChain(
     .filter((x) => x.count >= 2)
     // Stable random per (session, factor.id) — same dataset within a
     // tab gives the same tie-break order, fresh tab can reshuffle.
-    .map((x, i) => ({
+    // Keyed on factor id ONLY (not the input index): two surfaces that
+    // carry the same factors in a different array order (e.g. the
+    // Expression tab in wire order vs. the DE pop-out in design order)
+    // must resolve equal-count ties identically, or their grouped
+    // sample order would diverge.
+    .map((x) => ({
       ...x,
-      rnd: hashTo01(`${r0}:${x.f.id}:${i}`),
+      rnd: hashTo01(`${r0}:${x.f.id}`),
     }))
     .sort((a, b) => a.count - b.count || a.rnd - b.rnd);
 

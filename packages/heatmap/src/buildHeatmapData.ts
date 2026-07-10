@@ -7,6 +7,7 @@
  * Pure. Never mutates `payload`.
  */
 import { computeColumnOrder } from './columnOrder';
+import { orderFactorsForDisplay } from './factorOrder';
 import { buildCategoricalStrip } from './strips/categorical';
 import { buildContinuousStrip } from './strips/continuous';
 import type { HeatmapData, AnnotationStrip } from './types';
@@ -45,8 +46,14 @@ export function buildHeatmapDataFromPayload(
     columnOrder.map((i) => row[i] ?? null),
   );
 
-  // Build one strip per factor, in payload order.
-  const colAnnotations: AnnotationStrip[] = payload.factors.map((f) =>
+  // Build one strip per factor, in the canonical display order
+  // (biological before technical, then by factor id) so every surface
+  // that renders this payload — Expression tab, DE top-genes pop-out —
+  // shows the strips in the same sequence regardless of the order the
+  // wire / samples endpoint emitted the factors.
+  const colAnnotations: AnnotationStrip[] = orderFactorsForDisplay(
+    payload.factors,
+  ).map((f) =>
     f.type === 'continuous'
       ? buildContinuousStrip(f, cols)
       : buildCategoricalStrip(f, cols),
