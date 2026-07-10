@@ -272,7 +272,7 @@ function CyclingBox({
           between panes of different lengths, and lets side-by-side
           boxes stretch to a shared row height. Shorter panes sit at
           the top. */}
-      <div className="flex-1 min-h-[14rem]">{panes[idx]}</div>
+      <div className="flex-1 min-h-[15rem]">{panes[idx]}</div>
       <div className="flex items-center justify-between border-t border-stone-300 px-4 py-2">
         <button
           type="button"
