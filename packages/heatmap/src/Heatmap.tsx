@@ -196,6 +196,22 @@ export function Heatmap({
     [data, resolved, matrixAvailableW, matrixAvailableH],
   );
 
+  // Total width of the main-grouping gaps that render.ts inserts
+  // BEFORE each rendered column (except the first). The canvas matrix
+  // and annotation strips already space columns by these gaps via
+  // their cumulative `xs[]`; mirror the sum here so the HTML column-
+  // label row and the grid's matrix track line up with the canvas.
+  const totalColGap = useMemo(() => {
+    const gaps = data.colGapsBefore;
+    if (!gaps) return 0;
+    let acc = 0;
+    for (let r = 1; r < layout.columns.length; r++) {
+      acc += gaps[layout.columns[r].srcStart] ?? 0;
+    }
+    return acc;
+  }, [layout.columns, data.colGapsBefore]);
+  const matrixRenderW = layout.matrixW + totalColGap;
+
   const renderResultRef = useRef<ReturnType<typeof renderMatrix> | null>(null);
 
   // Draw on every layout / data change.
@@ -272,7 +288,7 @@ export function Heatmap({
           // flush against the right edge of the matrix instead of being
           // pushed out to the right by a 1fr column that filled the
           // whole container.
-          gridTemplateColumns: `${layout.matrixW}px ${rowLabelGutter}px`,
+          gridTemplateColumns: `${matrixRenderW}px ${rowLabelGutter}px`,
           width: 'fit-content',
           gridTemplateRows: `${colLabelGutter}px ${stripsH + gapAfterStrips}px auto`,
           fontFamily: resolved.fontFamily,
@@ -310,6 +326,14 @@ export function Heatmap({
                     position: 'relative',
                     overflow: 'hidden',
                     flex: '0 0 auto',
+                    // Leading main-grouping gap — mirrors the gap the
+                    // canvas draws before this column so labels stay
+                    // aligned with their matrix column. No gap on the
+                    // first rendered column (matches render.ts).
+                    marginLeft:
+                      i === 0
+                        ? 0
+                        : data.colGapsBefore?.[m.srcStart] ?? 0,
                     cursor: label ? 'help' : undefined,
                   }}
                 >
