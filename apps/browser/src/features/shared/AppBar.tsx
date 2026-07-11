@@ -4,6 +4,7 @@ import { useMe, useLogout } from "@/api/auth";
 import { gemmaUrl } from "@/lib/gemmaConfig";
 import { curationUrl } from "@/lib/appLinks";
 import { LoginModal } from "./LoginModal";
+import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "./SearchBox";
 import { gemmaLogoText } from "@gemma/assets";
 
@@ -12,6 +13,7 @@ export function AppBar() {
   const user = me.data;
   const logout = useLogout();
   const [loginOpen, setLoginOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   // Hide the AppBar search box once the curator is on /browser —
   // the unified search + filter input lives in the page itself
   // there, and the AppBar copy reads as redundant (and submitting
@@ -61,7 +63,7 @@ export function AppBar() {
 
       <div className="flex-1" />
 
-      <NavTab to="/about">About</NavTab>
+      <NavButton onClick={() => setAboutOpen(true)}>About</NavButton>
       <ExtAnchor
         href={gemmaUrl("/expressionExperiment/showAllExpressionExperiments.html")}
       >
@@ -80,6 +82,7 @@ export function AppBar() {
         signingOut={logout.isPending}
       />
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
+      <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </header>
   );
 }
@@ -188,6 +191,21 @@ function ExtGlyph() {
     <span aria-hidden className="ml-0.5 text-[0.85em] opacity-60">
       ↗
     </span>
+  );
+}
+
+/** Button styled like NavTab's resting state — for nav entries that
+ *  open an in-app modal (About) rather than navigating to a route, so
+ *  there's no active state to track. */
+function NavButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="px-2.5 py-1 text-sm rounded text-gemma-subtle hover:text-gemma-ink hover:bg-gemma-grid/40 bg-transparent border-none cursor-pointer"
+    >
+      {children}
+    </button>
   );
 }
 

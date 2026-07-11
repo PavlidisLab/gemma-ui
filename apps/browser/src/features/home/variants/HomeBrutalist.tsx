@@ -23,6 +23,7 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { useMe, useLogout } from "@/api/auth";
 import { getDatasetAnnotations } from "@/api/endpoints";
 import { LoginModal } from "@/features/shared/LoginModal";
+import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import { gemmaLogoText, ubcLogo } from "@gemma/assets";
 import {
@@ -935,6 +936,7 @@ function Masthead() {
   const user = me.data;
   const logout = useLogout();
   const [loginOpen, setLoginOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   return (
     <div className="border-b border-stone-950 bg-stone-100">
@@ -970,12 +972,13 @@ function Masthead() {
 
           {/* About + auth — same baseline as the tagline. */}
           <div className="flex items-baseline gap-4">
-            <Link
-              to="/about"
-              className="text-[12px] text-stone-600 hover:text-stone-900 hover:no-underline"
+            <button
+              type="button"
+              onClick={() => setAboutOpen(true)}
+              className="text-[12px] text-stone-600 hover:text-stone-900 hover:no-underline bg-transparent border-none cursor-pointer p-0"
             >
               About
-            </Link>
+            </button>
             {me.isPending && !me.data ? null : user ? (
               <span className="text-[12px] text-stone-600 inline-flex items-baseline gap-2">
                 <span className="opacity-70">Signed in as</span>
@@ -1022,6 +1025,7 @@ function Masthead() {
         </a>
       </div>
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
+      <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </div>
   );
 }

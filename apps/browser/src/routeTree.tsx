@@ -23,7 +23,6 @@ import { HeatmapDemoV2 } from "@/features/heatmap-demo/HeatmapDemoV2";
 import { DatasetPage } from "@/features/dataset/DatasetPage";
 import { GenePage } from "@/features/gene/GenePage";
 import { GenesPage } from "@/features/gene/GenesPage";
-import { AboutPage } from "@/features/about/AboutPage";
 import { McpPage } from "@/features/mcp/McpPage";
 import { ExtjsMockup } from "@/features/mockup-extjs/ExtjsMockup";
 import { SystemMonitoringPage } from "@/features/admin/SystemMonitoringPage";
@@ -130,12 +129,6 @@ const geneRoute = createRoute({
   component: () => <GenePage />,
 });
 
-const aboutRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/about",
-  component: () => <AboutPage />,
-});
-
 const mcpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/mcp",
@@ -175,7 +168,6 @@ export const routeTree = rootRoute.addChildren([
   datasetRoute,
   genesRoute,
   geneRoute,
-  aboutRoute,
   mcpRoute,
   extjsMockupRoute,
   adminSystemRoute,
