@@ -23,10 +23,10 @@ export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: num
   const { ref, width, height } = useContainerSize<SVGSVGElement>();
   const W = width > 0 ? width : 220;
   const H = height > 0 ? height : 180;
-  const padL = 22;
+  const padL = 32;
   const padR = 6;
   const padT = 8;
-  const padB = 38;
+  const padB = 48;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
   const groupGap = 4;
@@ -54,9 +54,9 @@ export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: num
             strokeWidth={0.5}
           />
           <text
-            x={padL - 3}
-            y={padT + innerH * (1 - t) + 3}
-            fontSize={7}
+            x={padL - 4}
+            y={padT + innerH * (1 - t) + 3.5}
+            fontSize={10}
             fill={SUBTLE}
             textAnchor="end"
             fontFamily="-apple-system, sans-serif"
@@ -87,12 +87,12 @@ export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: num
             })}
             <text
               x={gx + groupW / 2}
-              y={padT + innerH + 10}
-              fontSize={7}
+              y={padT + innerH + 14}
+              fontSize={10}
               fill={TEXT}
               textAnchor="middle"
               fontFamily="-apple-system, sans-serif"
-              transform={`rotate(-25 ${gx + groupW / 2} ${padT + innerH + 10})`}
+              transform={`rotate(-25 ${gx + groupW / 2} ${padT + innerH + 14})`}
             >
               {truncate(r.label, 14)}
             </text>
@@ -100,12 +100,12 @@ export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: num
         );
       })}
       <text
-        x={6}
+        x={10}
         y={padT + innerH / 2}
-        fontSize={7.5}
+        fontSize={10.5}
         fill={TEXT}
         textAnchor="middle"
-        transform={`rotate(-90 6 ${padT + innerH / 2})`}
+        transform={`rotate(-90 10 ${padT + innerH / 2})`}
         fontFamily="-apple-system, sans-serif"
       >
         association
@@ -113,11 +113,11 @@ export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: num
       <g>
         {PC_COLORS.slice(0, nPcs).map((c, i) => (
           <g key={i}>
-            <rect x={padL + i * 38} y={H - 8} width={8} height={5} fill={c} />
+            <rect x={padL + i * 46} y={H - 11} width={10} height={8} fill={c} />
             <text
-              x={padL + i * 38 + 10}
-              y={H - 4}
-              fontSize={7}
+              x={padL + i * 46 + 13}
+              y={H - 3}
+              fontSize={10}
               fill={TEXT}
               fontFamily="-apple-system, sans-serif"
             >

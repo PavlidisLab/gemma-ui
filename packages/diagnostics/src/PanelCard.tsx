@@ -12,6 +12,19 @@
 
 import type { ReactNode } from "react";
 
+/** Fixed inner-body height (CSS px) shared by every diagnostics tile,
+ *  so the four cards stay uniform and compact. Bumped 280 → 308
+ *  (+10%) on 2026-07-11. */
+export const DIAGNOSTICS_PANEL_BODY_PX = 308;
+
+/** Vertical space (CSS px) consumed above a heatmap's matrix inside the
+ *  panel body — the sequential legend strip + its labels + the body's
+ *  top padding. Measured empirically (matrix top offset ≈ 77px). The
+ *  sample-correlation card subtracts this from the body height to size
+ *  its square cells so the matrix fills the remaining box regardless of
+ *  sample count. */
+export const HEATMAP_LEGEND_ZONE_PX = 77;
+
 export function PanelCard({
   title,
   children,
@@ -31,7 +44,18 @@ export function PanelCard({
           {title}
         </span>
       </div>
-      <div className="flex-1 min-h-[300px] p-2 flex items-stretch justify-stretch bg-white dark:bg-slate-900">
+      {/* Fixed body height keeps all four diagnostics tiles uniform and
+          compact. The chart bodies (w-full h-full SVGs) fill it exactly;
+          the correlation heatmap sizes itself by its cell cap and sits
+          within it. Was `flex-1 min-h-[300px]`, which let the SVG charts
+          balloon to ~450-650px via an aspect-ratio feedback with their
+          resize hook. Height is an inline style, not `h-[280px]`: the
+          apps' Tailwind `content` globs only scan `./src`, so arbitrary
+          utilities used solely in this package never get generated. */}
+      <div
+        className="p-2 flex items-stretch justify-stretch overflow-hidden bg-white dark:bg-slate-900"
+        style={{ height: DIAGNOSTICS_PANEL_BODY_PX }}
+      >
         {children}
       </div>
       {footer ? (

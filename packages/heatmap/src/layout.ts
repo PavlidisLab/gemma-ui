@@ -33,6 +33,7 @@ export function resolveConfig(data: HeatmapData, config: HeatmapConfig | undefin
     showColLabels: c.showColLabels ?? 'auto',
     cell,
     fit: c.fit ?? 'fit',
+    square: c.square ?? false,
     fontFamily: c.fontFamily ?? 'Helvetica, Arial, sans-serif',
     maxColLabelPx: c.maxColLabelPx ?? 120,
     annotationStripHeight: c.annotationStripHeight ?? 12,
@@ -121,6 +122,16 @@ export function computeLayout(
         columns.push({ srcStart: i, srcCount: Math.min(increment, numCols - i) });
       }
     }
+  }
+
+  // Square cells: pin height to the computed width (clamped to the
+  // configured height bounds) so a symmetric matrix renders 1:1 instead
+  // of tall/narrow. Overrides the availableH-driven cellH above.
+  if (config.square) {
+    cellH = Math.min(
+      config.cell.maxHeight,
+      Math.max(config.cell.minHeight, Math.round(cellW)),
+    );
   }
 
   return {

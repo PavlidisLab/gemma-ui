@@ -7,6 +7,26 @@
  */
 
 import type { HeatmapData } from "@gemma/heatmap";
+import { DIAGNOSTICS_PANEL_BODY_PX, HEATMAP_LEGEND_ZONE_PX } from "./PanelCard";
+
+/**
+ * Cell size (CSS px) for the square sample-correlation matrix so it
+ * fills the fixed-height panel body for ANY sample count. The matrix is
+ * square (N×N) and lives below a fixed legend/padding zone; sizing each
+ * cell to `(bodyHeight − legendZone) / N` makes the matrix span the
+ * remaining box height whether there are 6 samples or 300. Falls back to
+ * a small default when the count is unknown/zero. Fed to the heatmap
+ * widget as `defaultMaxWidth`/`defaultMaxHeight`; on narrow viewports the
+ * widget still clamps width-first, so the square just shrinks (leaving
+ * vertical slack) rather than overflowing.
+ */
+export function sampleCorrelationCellPx(
+  sampleCount: number | undefined | null,
+): number {
+  if (!sampleCount || sampleCount <= 0) return 6;
+  const matrixAreaPx = DIAGNOSTICS_PANEL_BODY_PX - HEATMAP_LEGEND_ZONE_PX;
+  return matrixAreaPx / sampleCount;
+}
 
 export interface SampleCorrelationInput {
   bioAssayIds: number[];

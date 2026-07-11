@@ -84,9 +84,9 @@ export function DiagnosticsPanel({ experimentId }: { experimentId: number | stri
   }
   return (
     <div className="space-y-3">
-      {/* 4-up on lg, 2×2 on md, stacked on sm. The legacy tab was
-          always 4-up; on a 13" laptop that crowds the matrix. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      {/* 2×2 on md+, stacked on sm — two rows of two. The legacy tab
+          was always 4-up; on a 13" laptop that crowds the matrix. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <SampleCorrelationCard experimentId={experimentId} />
         <PcaScreeCard experimentId={experimentId} />
         <PcFactorCard experimentId={experimentId} />

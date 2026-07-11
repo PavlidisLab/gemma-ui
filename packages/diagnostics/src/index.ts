@@ -11,7 +11,14 @@
  * chart body.
  */
 
-export { PanelCard, PanelEmpty, PanelLoading, PanelError } from "./PanelCard";
+export {
+  PanelCard,
+  PanelEmpty,
+  PanelLoading,
+  PanelError,
+  DIAGNOSTICS_PANEL_BODY_PX,
+  HEATMAP_LEGEND_ZONE_PX,
+} from "./PanelCard";
 
 export { ScreeChart, MAX_SCREE_BARS } from "./ScreeChart";
 
@@ -40,6 +47,7 @@ export {
   buildSampleCorrelationHeatmapData,
   computeSampleCorrelationDomain,
   summariseOutliers,
+  sampleCorrelationCellPx,
   type SampleCorrelationInput,
 } from "./sampleCorrelation";
 

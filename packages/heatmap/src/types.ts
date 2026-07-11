@@ -136,6 +136,13 @@ export interface HeatmapConfig {
    * Default 'fit'.
    */
   fit?: 'fit' | 'expand';
+  /** Lock cells to a 1:1 aspect ratio — cell height follows the computed
+   *  cell width (clamped to `cell.minHeight`/`maxHeight`) instead of
+   *  pinning to `maxHeight`. Use for symmetric N×N matrices (e.g. sample
+   *  correlation) so the matrix renders square rather than tall/narrow
+   *  when the container is wider or narrower than it is tall. Default
+   *  false. */
+  square?: boolean;
   /** Font family for labels. Default 'Helvetica, Arial, sans-serif'. */
   fontFamily?: string;
   /** Max pixels reserved for column labels. Default 220. */
@@ -158,6 +165,7 @@ export interface ResolvedConfig {
   showColLabels: boolean | 'auto';
   cell: Required<NonNullable<HeatmapConfig['cell']>>;
   fit: 'fit' | 'expand';
+  square: boolean;
   fontFamily: string;
   maxColLabelPx: number;
   annotationStripHeight: number;

@@ -30,10 +30,10 @@ export function ScreeChart({
   const { ref, width, height } = useContainerSize<SVGSVGElement>();
   const W = width > 0 ? width : 220;
   const H = height > 0 ? height : 180;
-  const padL = 26;
+  const padL = 36;
   const padR = 6;
   const padT = 8;
-  const padB = 22;
+  const padB = 34;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
   const max = Math.max(...shown, 0.05);
@@ -54,9 +54,9 @@ export function ScreeChart({
           <g key={t}>
             <line x1={padL} x2={padL + innerW} y1={y} y2={y} stroke={GRID} strokeWidth={0.5} />
             <text
-              x={padL - 3}
-              y={y + 3}
-              fontSize={7}
+              x={padL - 4}
+              y={y + 3.5}
+              fontSize={10}
               fill={SUBTLE}
               textAnchor="end"
               fontFamily="-apple-system, sans-serif"
@@ -102,8 +102,8 @@ export function ScreeChart({
             />
             <text
               x={x + barW / 2}
-              y={padT + innerH + 8}
-              fontSize={7}
+              y={padT + innerH + 15}
+              fontSize={10}
               fill={SUBTLE}
               textAnchor="middle"
               fontFamily="-apple-system, sans-serif"
@@ -114,20 +114,20 @@ export function ScreeChart({
         );
       })}
       <text
-        x={6}
+        x={10}
         y={padT + innerH / 2}
-        fontSize={7.5}
+        fontSize={10.5}
         fill={TEXT}
         textAnchor="middle"
-        transform={`rotate(-90 6 ${padT + innerH / 2})`}
+        transform={`rotate(-90 10 ${padT + innerH / 2})`}
         fontFamily="-apple-system, sans-serif"
       >
         fraction of variance
       </text>
       <text
         x={padL + innerW / 2}
-        y={H - 4}
-        fontSize={7.5}
+        y={H - 6}
+        fontSize={10.5}
         fill={TEXT}
         textAnchor="middle"
         fontFamily="-apple-system, sans-serif"

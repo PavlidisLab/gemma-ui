@@ -56,6 +56,10 @@ export interface HeatmapWidgetProps {
    *  - `'expand'`:  cells stay at their max readable size; matrix may
    *    overflow horizontally and the surrounding container scrolls. */
   defaultFitMode?: FitMode;
+  /** Lock cells to a 1:1 aspect ratio (cell height follows cell width).
+   *  Use for symmetric N×N matrices (sample correlation) so they render
+   *  square instead of tall/narrow. Default `false`. */
+  defaultSquareCells?: boolean;
   /** Show row labels. Default `'auto'`. Pass `false` to hide the row
    *  label gutter entirely (labels still feed the tooltip + TSV). */
   defaultShowRowLabels?: boolean | 'auto';
@@ -198,6 +202,7 @@ export function HeatmapWidget({
   defaultMaxHeight = 12,
   defaultMaxWidth = 13,
   defaultFitMode = 'squeeze',
+  defaultSquareCells = false,
   defaultShowRowLabels = 'auto',
   defaultShowColLabels = 'auto',
   showControls = true,
@@ -382,6 +387,7 @@ export function HeatmapWidget({
       ...(seqDomain ? { domain: seqDomain } : {}),
       cell: { maxHeight: maxH, maxWidth: maxW },
       fit: fitMode === 'expand' ? 'expand' : 'fit',
+      square: defaultSquareCells,
       showRowLabels: defaultShowRowLabels,
       showColLabels: defaultShowColLabels,
     }),
@@ -393,6 +399,7 @@ export function HeatmapWidget({
       fitMode,
       seqDomain?.[0],
       seqDomain?.[1],
+      defaultSquareCells,
       defaultShowRowLabels,
       defaultShowColLabels,
     ],

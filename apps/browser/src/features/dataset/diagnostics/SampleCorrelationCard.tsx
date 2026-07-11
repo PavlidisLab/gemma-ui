@@ -16,6 +16,7 @@ import {
   buildSampleCorrelationHeatmapData,
   computeSampleCorrelationDomain,
   summariseOutliers,
+  sampleCorrelationCellPx,
 } from "@gemma/diagnostics";
 import { getDatasetSampleCorrelation } from "@/api/endpoints";
 
@@ -34,6 +35,9 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
     () => computeSampleCorrelationDomain(data?.values),
     [data],
   );
+  // Size each square cell so the matrix fills the panel body regardless
+  // of sample count — few-sample datasets otherwise leave the box empty.
+  const cellPx = sampleCorrelationCellPx(data?.bioAssayIds.length);
 
   let body;
   if (isLoading) {
@@ -57,10 +61,11 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
         defaultClip={1}
         defaultDomain={seqDomain}
         defaultRowScale={false}
+        defaultSquareCells={true}
         defaultShowRowLabels={false}
         defaultShowColLabels={false}
-        defaultMaxHeight={16}
-        defaultMaxWidth={16}
+        defaultMaxHeight={cellPx}
+        defaultMaxWidth={cellPx}
         defaultFitMode="squeeze"
       />
     );
