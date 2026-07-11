@@ -57,6 +57,8 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
         defaultClip={1}
         defaultDomain={seqDomain}
         defaultRowScale={false}
+        defaultShowRowLabels={false}
+        defaultShowColLabels={false}
         defaultMaxHeight={16}
         defaultMaxWidth={16}
         defaultFitMode="squeeze"
