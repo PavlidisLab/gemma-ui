@@ -20,6 +20,7 @@ import { firstBacktick } from "./rationaleText";
 import {
   factorMatchVariant,
   factorProposalFromApplyAction,
+  isSamePartitionTermDiff,
   resolveAgentFactor,
   resolveGoldFactor,
   synthesizeGoldFactorFromRename,
@@ -179,6 +180,11 @@ export function findingActionLabel(
   // packages without the field fall through to the issue_code path.
   const isTag = finding.target_kind === "tag";
   const goldEmpty = !!ctx?.goldEmpty;
+  // Identical partition, near-synonym term only — not a factor-value
+  // modification. Title it as the term choice it actually is, ahead of
+  // both the alignment-kind and issue-code paths (which would both say
+  // "Modify factor values").
+  if (isSamePartitionTermDiff(finding)) return "Term difference";
   const ak = finding.alignment_kind;
   if (ak) {
     if (ak === "exact") {

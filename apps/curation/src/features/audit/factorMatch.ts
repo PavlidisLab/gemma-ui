@@ -136,6 +136,82 @@ export function isNearMatchFinding(f: AuditFinding): boolean {
   return false;
 }
 
+/** True when a ``calibration_factor_partition_mismatch`` finding is in
+ *  fact NOT a partition disagreement at all — the two sides carve the
+ *  samples into the identical groups and the only difference is which
+ *  (near-synonym) ontology term names each group.
+ *
+ *  The builder can classify such a finding ``direction="cross_cutting"``
+ *  (no FV pair cleared the Jaccard ≥ 0.8 pairing threshold at the
+ *  factor level, so it fell through to the cross-cutting bucket) even
+ *  when the per-FV overlaps are a perfect bijection. Rendering that as
+ *  "partition disagreement — no clean per-FV correspondence" with the
+ *  orange ⚠ over-states the problem: a same-partition swap between two
+ *  ontology-valid near-synonyms (``depressive disorder`` MONDO:0002050
+ *  ↔ ``depression`` MONDO:0012048 on GSE35977) is a minor TERM choice,
+ *  not a structural mismatch. This predicate gates the lightweight
+ *  term-diff framing + quiet severity for that case.
+ *
+ *  True requires ALL of:
+ *   - ``direction === "cross_cutting"`` with at most one gold factor
+ *     spanned (the degenerate single-gold case — spanning several gold
+ *     factors is a genuine cross-cut, never a term diff).
+ *   - at least one ``cross_cutting_overlaps`` row, and EVERY row covers
+ *     an identical sample set (Jaccard = 1.0, both sides fully
+ *     overlapped: ``n_overlap === n_agent === n_gold``).
+ *   - the overlap rows form a bijection — no agent FV or gold FV reused
+ *     across rows — so the two partitions line up 1:1. */
+export function isSamePartitionTermDiff(f: AuditFinding): boolean {
+  const pm = f.partition_mismatch;
+  if (!pm || pm.direction !== "cross_cutting") return false;
+  if ((pm.cross_cutting_golds?.length ?? 0) > 1) return false;
+  const rows = pm.cross_cutting_overlaps ?? [];
+  if (rows.length === 0) return false;
+  const agentKeys = new Set<string>();
+  const goldKeys = new Set<string>();
+  for (const r of rows) {
+    const identical =
+      r.jaccard >= 0.999 &&
+      r.n_overlap === r.n_agent &&
+      r.n_overlap === r.n_gold;
+    if (!identical) return false;
+    const aKey = r.agent_fv?.uri || r.agent_fv?.label || "";
+    const gKey =
+      r.gold_fv_id != null
+        ? `id:${r.gold_fv_id}`
+        : r.gold_fv?.uri || r.gold_fv?.label || "";
+    if (!aKey || !gKey) return false;
+    if (agentKeys.has(aKey) || goldKeys.has(gKey)) return false;
+    agentKeys.add(aKey);
+    goldKeys.add(gKey);
+  }
+  return true;
+}
+
+/** True when a ``cross_cutting`` partition_mismatch spans at most one
+ *  current factor AND ships no per-FV overlap evidence at all
+ *  (``cross_cutting_overlaps`` empty). This is the ``biological sex``
+ *  shape on GSE35977: a single factor is named, but there's no
+ *  FV-level data to show, so the card can neither prove a disagreement
+ *  nor call the partition "genuinely cross-cutting" (cross-cutting
+ *  needs ≥ 2 factors — a single factor can't cross-cut anything). The
+ *  empty overlaps usually mean the agent factor's FVs carried no
+ *  sample memberships at this pipeline stage, so no Jaccard overlap
+ *  could be computed — the same empty-membership root cause behind
+ *  continuous factors rendering as "all unassigned."
+ *
+ *  Used to (a) quiet the severity — an evidence-free flag shouldn't
+ *  wear the orange ⚠ major bump — and (b) swap the contradictory
+ *  "genuinely cross-cutting" copy for an honest "detail unavailable"
+ *  line. GENUINE cross-cuts (≥ 2 factors spanned) are excluded and
+ *  keep their structural treatment even when overlaps are empty. */
+export function isEvidencelessCrossCut(f: AuditFinding): boolean {
+  const pm = f.partition_mismatch;
+  if (!pm || pm.direction !== "cross_cutting") return false;
+  if ((pm.cross_cutting_golds?.length ?? 0) > 1) return false;
+  return (pm.cross_cutting_overlaps?.length ?? 0) === 0;
+}
+
 /** Resolve the agent ``FactorProposal`` the builder paired with this
  *  gold match finding.
  *

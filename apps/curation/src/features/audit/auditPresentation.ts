@@ -19,6 +19,10 @@ import type {
   AuditTargetKind,
   Severity,
 } from "@/api/auditTypes";
+import {
+  isEvidencelessCrossCut,
+  isSamePartitionTermDiff,
+} from "./factorMatch";
 
 // ---------------------------------------------------------------------------
 // Target kinds — ordering and human-facing labels
@@ -70,6 +74,16 @@ export const SEVERITY_RANK: Record<Severity, number> = {
  *  reads correctly even when the wire severity drifts. */
 export function displaySeverity(finding: AuditFinding): Severity {
   const code = finding.issue_code;
+  // Same-partition term diffs wear the partition_mismatch code but are
+  // NOT structural — the sample grouping is identical and only the
+  // near-synonym term differs. Don't bump them; keep the quiet minor
+  // treatment so they read as a term choice, not an orange ⚠ defect.
+  if (isSamePartitionTermDiff(finding)) return finding.severity;
+  // A degenerate cross-cut with no per-FV overlap evidence can't
+  // justify the structural bump either — there's nothing to show.
+  // Keep the wire severity rather than escalating an evidence-free
+  // flag to the orange ⚠.
+  if (isEvidencelessCrossCut(finding)) return finding.severity;
   const structural =
     code === "calibration_factor_gold_only_miss" ||
     code === "calibration_factor_extra" ||

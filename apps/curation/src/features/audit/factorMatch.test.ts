@@ -8,10 +8,16 @@ import {
   isCloseFactorMatch,
   isExactFactorMatch,
   isFactorMatchCode,
+  isEvidencelessCrossCut,
   isNearMatchFinding,
+  isSamePartitionTermDiff,
   resolveAgentFactor,
 } from "./factorMatch";
-import type { FactorRenamePayload } from "@/api/auditTypes";
+import type {
+  CrossCuttingOverlapRow,
+  FactorRenamePayload,
+  PartitionMismatchPayload,
+} from "@/api/auditTypes";
 
 /** Minimal ``OntologyTerm`` factory — only ``label`` matters for these
  *  tests; ``uri`` / ``resolver`` / ``score`` are present to satisfy
@@ -508,5 +514,145 @@ describe("GSE224970 multi-factor-same-category scenario", () => {
     expect(isCloseFactorMatch(goldCard0)).toBe(true);
     expect(isCloseFactorMatch(goldCard1)).toBe(true);
     expect(isExactFactorMatch(goldCard0)).toBe(false);
+  });
+});
+
+describe("isSamePartitionTermDiff", () => {
+  /** OntologyTerm with a real URI (the ``term()`` helper above forces
+   *  ``uri: null``, which the bijection keys need to differ). */
+  function termU(label: string, uri: string): OntologyTerm {
+    return { label, uri, resolver: null, score: null };
+  }
+  function overlap(
+    partial: Partial<CrossCuttingOverlapRow> & {
+      agent_fv: OntologyTerm;
+      gold_fv: OntologyTerm;
+    },
+  ): CrossCuttingOverlapRow {
+    return {
+      gold_factor: { category: term("disease") },
+      jaccard: 1,
+      n_overlap: 14,
+      n_agent: 14,
+      n_gold: 14,
+      ...partial,
+    };
+  }
+  function pmFinding(pm: Partial<PartitionMismatchPayload>): AuditFinding {
+    return finding({
+      issue_code: "calibration_factor_partition_mismatch",
+      severity: "minor",
+      partition_mismatch: {
+        agent: { category: term("disease") },
+        gold: { category: term("disease") },
+        direction: "cross_cutting",
+        fv_pairs: [],
+        cross_cutting_golds: [],
+        cross_cutting_overlaps: [],
+        ...pm,
+      },
+    });
+  }
+
+  it("is true for GSE35977: identical 14/14 partition, only the term differs", () => {
+    const f = pmFinding({
+      cross_cutting_overlaps: [
+        overlap({
+          gold_fv: termU(
+            "depressive disorder",
+            "http://purl.obolibrary.org/obo/MONDO_0002050",
+          ),
+          agent_fv: termU(
+            "depression",
+            "http://purl.obolibrary.org/obo/MONDO_0012048",
+          ),
+        }),
+      ],
+    });
+    expect(isSamePartitionTermDiff(f)).toBe(true);
+  });
+
+  it("is false when a row's sample sets differ (Jaccard < 1)", () => {
+    const f = pmFinding({
+      cross_cutting_overlaps: [
+        overlap({
+          gold_fv: termU("a", "OBO:1"),
+          agent_fv: termU("b", "OBO:2"),
+          jaccard: 0.9,
+          n_overlap: 12,
+        }),
+      ],
+    });
+    expect(isSamePartitionTermDiff(f)).toBe(false);
+  });
+
+  it("is false when the overlaps are not a bijection (an agent FV reused)", () => {
+    const shared = termU("depression", "OBO:2");
+    const f = pmFinding({
+      cross_cutting_overlaps: [
+        overlap({ gold_fv: termU("g1", "OBO:1"), agent_fv: shared }),
+        overlap({ gold_fv: termU("g2", "OBO:3"), agent_fv: shared }),
+      ],
+    });
+    expect(isSamePartitionTermDiff(f)).toBe(false);
+  });
+
+  it("is false for a genuine cross-cut spanning multiple gold factors", () => {
+    const f = pmFinding({
+      cross_cutting_golds: [
+        { category: term("disease") },
+        { category: term("treatment") },
+      ],
+      cross_cutting_overlaps: [
+        overlap({ gold_fv: termU("a", "OBO:1"), agent_fv: termU("b", "OBO:2") }),
+      ],
+    });
+    expect(isSamePartitionTermDiff(f)).toBe(false);
+  });
+
+  it("is false for finer/coarser partition_mismatch and non-partition findings", () => {
+    expect(
+      isSamePartitionTermDiff(pmFinding({ direction: "agent_finer" })),
+    ).toBe(false);
+    expect(
+      isSamePartitionTermDiff(finding({ issue_code: "calibration_factor_match_exact" })),
+    ).toBe(false);
+  });
+
+  describe("isEvidencelessCrossCut", () => {
+    it("is true for GSE35977 biological sex: 1 factor spanned, no overlaps shipped", () => {
+      const f = pmFinding({
+        cross_cutting_golds: [{ category: term("biological sex") }],
+        cross_cutting_overlaps: [],
+      });
+      expect(isEvidencelessCrossCut(f)).toBe(true);
+    });
+
+    it("is false when overlap evidence IS shipped (a real per-FV comparison)", () => {
+      const f = pmFinding({
+        cross_cutting_overlaps: [
+          overlap({ gold_fv: termU("a", "OBO:1"), agent_fv: termU("b", "OBO:2") }),
+        ],
+      });
+      expect(isEvidencelessCrossCut(f)).toBe(false);
+    });
+
+    it("is false for a genuine cross-cut spanning ≥2 factors (keeps its warning)", () => {
+      const f = pmFinding({
+        cross_cutting_golds: [
+          { category: term("biological sex") },
+          { category: term("genotype") },
+        ],
+        cross_cutting_overlaps: [],
+      });
+      expect(isEvidencelessCrossCut(f)).toBe(false);
+    });
+
+    it("is false for finer/coarser and non-partition findings", () => {
+      expect(isEvidencelessCrossCut(pmFinding({ direction: "agent_coarser" }))).toBe(
+        false,
+      );
+      expect(isEvidencelessCrossCut(finding({}))).toBe(false);
+    });
   });
 });

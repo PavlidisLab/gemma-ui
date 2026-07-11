@@ -79,6 +79,7 @@ import {
   isCloseFactorMatch,
   isExactFactorMatch,
   isNearMatchFinding,
+  isSamePartitionTermDiff,
   resolveAgentFactor,
   resolveGoldFactor,
 } from "./factorMatch";
@@ -1356,6 +1357,142 @@ export function FindingDetailsEditor({
       // regular partition_mismatch (adopt-shaped action), drop the
       // misleading "spans multiple" copy. Paul 2026-06-14 (GSE448).
       const isDegenerate = ccGolds.length <= 1;
+
+      // Same partition, different term — NOT a partition disagreement.
+      // Every FV lines up 1:1 on identical sample sets (Jaccard 1.0);
+      // the only difference is which near-synonym term names the group
+      // (GSE35977 disease: ``depressive disorder`` MONDO:0002050 ↔
+      // ``depression`` MONDO:0012048). Render a quiet term-diff card —
+      // no orange ⚠, no "combined partition" framing, and the actions
+      // are a TERM choice (keep current term / adopt proposed term),
+      // not a partition adjudication. Reserve the heavy cross-cutting
+      // treatment below for genuine structural mismatches.
+      if (isSamePartitionTermDiff(finding)) {
+        // Pick the row whose terms actually differ for the headline /
+        // button labels; fall back to the first row.
+        const diffRow =
+          ccOverlaps.find(
+            (r) =>
+              (r.gold_fv?.uri ?? r.gold_fv?.label) !==
+              (r.agent_fv?.uri ?? r.agent_fv?.label),
+          ) ?? ccOverlaps[0];
+        const goldTerm = diffRow?.gold_fv?.label || "current term";
+        const agentTerm = diffRow?.agent_fv?.label || "proposed term";
+        // Share an ontology → factual "same ontology" chip (we don't
+        // have ontology-distance data, so we don't over-claim "sibling"
+        // / "subclass"). Prefix = the alpha ontology token in an OBO
+        // PURL (``…/obo/MONDO_0002050`` → ``MONDO``) or a CURIE prefix.
+        const ontoPrefix = (uri?: string | null): string | null => {
+          if (!uri) return null;
+          const obo = uri.match(/\/obo\/([A-Za-z]+)_/);
+          if (obo) return obo[1].toUpperCase();
+          const curie = uri.match(/^([A-Za-z]+):/);
+          return curie ? curie[1].toUpperCase() : null;
+        };
+        const gp = ontoPrefix(diffRow?.gold_fv?.uri);
+        const ap = ontoPrefix(diffRow?.agent_fv?.uri);
+        const sameOntology = gp != null && ap != null && gp === ap;
+        return (
+          <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+            {/* Title row — quiet slate, no amber warning. */}
+            <div className="flex items-baseline flex-wrap gap-2 text-[12px]">
+              <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+                Factor
+              </span>
+              <span className="font-mono text-slate-800 dark:text-slate-100">
+                {categoryLabel}
+              </span>
+              <span className="text-slate-400 dark:text-slate-500">·</span>
+              <span className="text-slate-600 dark:text-slate-300">
+                same partition — term difference only
+              </span>
+              {sameOntology ? (
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                  same ontology ({gp})
+                </span>
+              ) : null}
+            </div>
+
+            {/* Term diff front and centre — current ↔ proposed, with the
+                identical-sample-set count so the curator sees the
+                grouping matches. */}
+            <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+                Same samples, different term
+              </div>
+              <div className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-2 gap-y-1 text-[11px] items-baseline">
+                {ccOverlaps.map((row, ri) => (
+                  <Fragment key={ri}>
+                    <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      {identities.goldCurator}
+                    </span>
+                    <Term
+                      uri={row.gold_fv?.uri ?? null}
+                      asLink={false}
+                      className="!whitespace-normal break-words"
+                    >
+                      {row.gold_fv?.label || "(unnamed)"}
+                    </Term>
+                    <span
+                      className="text-slate-400 dark:text-slate-500"
+                      aria-hidden
+                    >
+                      ↔
+                    </span>
+                    <span className="flex items-baseline gap-1.5 min-w-0">
+                      <Term
+                        uri={row.agent_fv?.uri ?? null}
+                        asLink={false}
+                        className="!whitespace-normal break-words"
+                      >
+                        {row.agent_fv?.label || "(unnamed)"}
+                      </Term>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 tabular-nums whitespace-nowrap">
+                        {row.n_overlap} sample{row.n_overlap === 1 ? "" : "s"},
+                        identical set
+                      </span>
+                    </span>
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+
+            {/* Action row — a TERM choice, not a partition choice. Keep
+                the existing dispatchSave paths: "currently" keeps the
+                current term, "proposal" adopts the proposed one. The
+                shared Dismiss/Park escape hatches stay (a curator who
+                judges the two interchangeable can dismiss as
+                equivalent). */}
+            <ActionRow
+              saving={saving}
+              disabled={false}
+              buttons={[
+                {
+                  key: "keep",
+                  kind: "primary-keep",
+                  label: `Keep "${goldTerm}"`,
+                  onClick: () => dispatchSave("currently"),
+                  title: `Keep the current term (${goldTerm}); the sample grouping is unchanged either way.`,
+                },
+                {
+                  key: "accept",
+                  kind: "primary-accept",
+                  label: `Adopt "${agentTerm}"`,
+                  onClick: () => dispatchSave("proposal"),
+                  title: `Relabel to ${identities.proposer}'s term (${agentTerm}); the sample grouping is unchanged either way.`,
+                },
+              ]}
+              onDismiss={onDismiss}
+              onPark={onPark}
+              onResolve={isParked ? onResolve : undefined}
+              onUndo={
+                currentDisposition !== "pending" ? onUndo : undefined
+              }
+            />
+          </div>
+        );
+      }
+
       return (
         <div className="space-y-3 rounded border border-slate-300 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
           {/* Title row. */}
@@ -1367,10 +1504,24 @@ export function FindingDetailsEditor({
               {categoryLabel}
             </span>
             <span className="text-slate-400 dark:text-slate-500">·</span>
-            <span className="text-amber-700 dark:text-amber-300">
+            {/* Degenerate cross-cut with no overlap evidence: the card
+                can't prove a disagreement OR call a single factor
+                "cross-cutting", so drop the amber alarm for an honest,
+                quiet "detail unavailable" line. Real disagreements
+                (overlaps shipped) and genuine cross-cuts (≥2 factors)
+                keep the amber warning. */}
+            <span
+              className={
+                isDegenerate && ccOverlaps.length === 0
+                  ? "text-slate-600 dark:text-slate-300"
+                  : "text-amber-700 dark:text-amber-300"
+              }
+            >
               <strong>
                 {isDegenerate
-                  ? `partition disagreement — no clean per-FV correspondence between ${identities.goldCurator} and ${identities.proposer}`
+                  ? ccOverlaps.length === 0
+                    ? "different partition proposed — no per-FV overlap detail shipped for this factor"
+                    : `partition disagreement — no clean per-FV correspondence between ${identities.goldCurator} and ${identities.proposer}`
                   : `cross-cutting partition — ${identities.proposer}'s factor spans multiple ${identities.goldCurator} factors of the same category`}
               </strong>
             </span>
@@ -1463,8 +1614,9 @@ export function FindingDetailsEditor({
             </div>
           ) : (
             <div className="text-[11px] italic text-slate-500 dark:text-slate-400">
-              No FV-level overlaps shipped — the partition is genuinely
-              cross-cutting with no clean per-FV correspondence.
+              {isDegenerate
+                ? `No per-FV sample overlap was shipped for this factor, so the specific value-level differences can't be shown here. Review the factor side-by-side in the Design tab, or keep the current design.`
+                : `No FV-level overlaps shipped — the partition is genuinely cross-cutting with no clean per-FV correspondence.`}
             </div>
           )}
 
