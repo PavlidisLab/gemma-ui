@@ -56,6 +56,12 @@ export interface HeatmapWidgetProps {
    *  - `'expand'`:  cells stay at their max readable size; matrix may
    *    overflow horizontally and the surrounding container scrolls. */
   defaultFitMode?: FitMode;
+  /** Show row labels. Default `'auto'`. Pass `false` to hide the row
+   *  label gutter entirely (labels still feed the tooltip + TSV). */
+  defaultShowRowLabels?: boolean | 'auto';
+  /** Show column labels. Default `'auto'`. Pass `false` to hide the
+   *  column label gutter entirely (labels still feed the tooltip + TSV). */
+  defaultShowColLabels?: boolean | 'auto';
   /** Hide the controls strip entirely. Default `true`. When `true` the
    *  strip is collapsible — see `defaultControlsOpen`. */
   showControls?: boolean;
@@ -192,6 +198,8 @@ export function HeatmapWidget({
   defaultMaxHeight = 12,
   defaultMaxWidth = 13,
   defaultFitMode = 'squeeze',
+  defaultShowRowLabels = 'auto',
+  defaultShowColLabels = 'auto',
   showControls = true,
   defaultControlsOpen = false,
   showLegend = true,
@@ -374,8 +382,20 @@ export function HeatmapWidget({
       ...(seqDomain ? { domain: seqDomain } : {}),
       cell: { maxHeight: maxH, maxWidth: maxW },
       fit: fitMode === 'expand' ? 'expand' : 'fit',
+      showRowLabels: defaultShowRowLabels,
+      showColLabels: defaultShowColLabels,
     }),
-    [palette, clip, maxH, maxW, fitMode, seqDomain?.[0], seqDomain?.[1]],
+    [
+      palette,
+      clip,
+      maxH,
+      maxW,
+      fitMode,
+      seqDomain?.[0],
+      seqDomain?.[1],
+      defaultShowRowLabels,
+      defaultShowColLabels,
+    ],
   );
 
   const legendDomain: [number, number] = seqDomain ?? [-clip, clip];

@@ -444,7 +444,8 @@ export function Heatmap({
               - rowLabelColumns: CSS grid so columns auto-align across
                 rows (gene · name · …).
               - rowLabels (string-only legacy): single column per row. */}
-        {data.rowLabelColumns && data.rowLabelColumns.length > 0 ? (
+        {rowLabelGutter > 0 &&
+          (data.rowLabelColumns && data.rowLabelColumns.length > 0 ? (
           <div
             style={{
               display: 'grid',
@@ -577,7 +578,7 @@ export function Heatmap({
               );
             })}
           </div>
-        )}
+        ))}
       </div>
 
       {labelHover && rowLabelTooltip ? (
