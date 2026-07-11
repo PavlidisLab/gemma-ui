@@ -7,10 +7,11 @@
  *
  * Each card hits its own /datasets/{id}/* endpoint and renders an
  * empty state when the data isn't computed yet, so the row ships
- * before every Gemma build serves all four. Layout: 2×2 on md+,
- * stacked on sm. Went from a single 4-up row to two rows of two on
- * 2026-07-11 so each plot renders wide enough to read rather than
- * crushing four across a laptop viewport.
+ * before every Gemma build serves all four. Layout: single row on lg+
+ * with a 4:2:3:3 column ratio (heatmap : scree : PC×factor :
+ * mean-variance) so each plot gets width matched to its content — the
+ * square correlation matrix needs the widest slot, the scree the
+ * narrowest. Falls back to 2×2 on md and stacked on sm.
  */
 
 import { SampleCorrelationCard } from "./SampleCorrelationCard";
@@ -19,11 +20,11 @@ import { PcFactorCard } from "./PcFactorCard";
 import { MeanVarianceCard } from "./MeanVarianceCard";
 
 export function DiagnosticsRow({ datasetId }: { datasetId: number }) {
-  // 2×2 on md+, stacked on sm. Two rows of two give each plot roughly
-  // half the content width — enough to read on a laptop — instead of
-  // the old 4-across squeeze.
+  // One row on lg+ with a 4:2:3:3 column ratio; 2×2 on md; stacked on
+  // sm. The fr ratios distribute width by plot: heatmap widest (4),
+  // scree narrowest (2), the two others medium (3 each).
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[4fr_2fr_3fr_3fr] gap-3">
       <SampleCorrelationCard datasetId={datasetId} />
       <PcaScreeCard datasetId={datasetId} />
       <PcFactorCard datasetId={datasetId} />

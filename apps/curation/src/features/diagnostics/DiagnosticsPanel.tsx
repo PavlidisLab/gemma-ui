@@ -84,9 +84,10 @@ export function DiagnosticsPanel({ experimentId }: { experimentId: number | stri
   }
   return (
     <div className="space-y-3">
-      {/* 2×2 on md+, stacked on sm — two rows of two. The legacy tab
-          was always 4-up; on a 13" laptop that crowds the matrix. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* One row on lg+ with a 4:2:3:3 column ratio (heatmap : scree :
+          PC×factor : mean-variance) so width matches each plot's needs;
+          2×2 on md; stacked on sm. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[4fr_2fr_3fr_3fr] gap-3">
         <SampleCorrelationCard experimentId={experimentId} />
         <PcaScreeCard experimentId={experimentId} />
         <PcFactorCard experimentId={experimentId} />
