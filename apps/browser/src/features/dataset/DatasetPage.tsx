@@ -58,7 +58,7 @@ type TabId =
   | "design"
   | "diffex"
   | "samples"
-  | "expression"
+  | "diagnostics"
   | "visualize"
   | "downloads"
   | "quantitationtypes";
@@ -71,7 +71,7 @@ const TABS: { id: TabId; label: string; adminOnly?: boolean }[] = [
   { id: "design",           label: "Design"                  },
   { id: "diffex",           label: "Differential Expression" },
   { id: "samples",          label: "Samples"                 },
-  { id: "expression",       label: "Diagnostics"             },
+  { id: "diagnostics",      label: "Diagnostics"             },
   { id: "visualize",        label: "Expression"              },
   { id: "downloads",        label: "Downloads"               },
   { id: "quantitationtypes", label: "Quantitation Types", adminOnly: true },
@@ -121,7 +121,7 @@ export function DatasetPage() {
         {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "diffex"     && <DifferentialExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
-        {activeTab === "expression" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "diagnostics" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} isAdmin={isAdmin} />}
         {activeTab === "downloads"  && <DownloadsTab  dataset={dataset} />}
         {activeTab === "quantitationtypes" && isAdmin && <QuantitationTypesTab datasetId={dataset.id ?? Number(id)} />}
