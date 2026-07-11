@@ -51,7 +51,9 @@ import type {
   DiffExResultSet,
   DiffExpressionResponse,
   GeeqScores,
+  PvalueDistribution,
 } from "@/lib/types";
+import { niceTicks } from "@gemma/diagnostics";
 
 type TabId =
   | "overview"
@@ -1195,7 +1197,14 @@ function ResultSetRow({
             <span className="text-sky-600">↓{down}</span>
           </span>
         ) : null}
-        <PvalueHistogramStrip resultSetId={resultSet.id} />
+        <PvalueHistogramStrip
+          resultSetId={resultSet.id}
+          label={
+            subsetSamplesLabel
+              ? `${contrastLabel} · ${subsetSamplesLabel}`
+              : contrastLabel
+          }
+        />
 
         <span className="ml-auto inline-flex items-center gap-2">
           {/* Always enabled: the heatmap fetches the top-50 by
@@ -1429,7 +1438,15 @@ function DeCountChip({
  *  diagnostic, not load-bearing UI; failing silently keeps the row
  *  uncluttered. Tooltip carries the bar counts so the curator can
  *  hover-inspect without a popover. */
-function PvalueHistogramStrip({ resultSetId }: { resultSetId: number }) {
+function PvalueHistogramStrip({
+  resultSetId,
+  label,
+}: {
+  resultSetId: number;
+  /** Contrast label — used in the enlarged-modal title. */
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
   const q = useQuery({
     queryKey: ["resultset-pvalue-dist", resultSetId],
     queryFn: ({ signal }) =>
@@ -1463,50 +1480,246 @@ function PvalueHistogramStrip({ resultSetId }: { resultSetId: number }) {
         (b, i) =>
           `[${b.lo.toFixed(2)}, ${b.hi.toFixed(2)}${i === dist.bins.length - 1 ? "]" : ")"}) ${b.count}`,
       )
-      .join("\n");
+      .join("\n") +
+    "\n(click to enlarge)";
   return (
-    <svg
-      width={W}
-      height={H}
-      role="img"
-      aria-label="corrected p-value distribution"
-      className="inline-block align-middle"
-      style={{ display: "inline-block" }}
-    >
-      <title>{title}</title>
-      <rect x={0} y={0} width={W} height={H} fill="#f8fafc" />
-      {/* Uniform-null reference. Faint, dashed; hint at the shape a
-          well-behaved no-signal analysis would produce. */}
-      {flatY > 0 && flatY < H ? (
-        <line
-          x1={0}
-          y1={flatY}
-          x2={W}
-          y2={flatY}
-          stroke="#cbd5e1"
-          strokeWidth={0.5}
-          strokeDasharray="2 2"
-        />
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Enlarge corrected p-value distribution"
+        className="inline-flex items-center align-middle rounded p-0 cursor-pointer hover:ring-1 hover:ring-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-400"
+      >
+        <svg
+          width={W}
+          height={H}
+          role="img"
+          aria-label="corrected p-value distribution"
+          className="inline-block align-middle"
+          style={{ display: "inline-block" }}
+        >
+          <title>{title}</title>
+          <rect x={0} y={0} width={W} height={H} fill="#f8fafc" />
+          {/* Uniform-null reference. Faint, dashed; hint at the shape a
+              well-behaved no-signal analysis would produce. */}
+          {flatY > 0 && flatY < H ? (
+            <line
+              x1={0}
+              y1={flatY}
+              x2={W}
+              y2={flatY}
+              stroke="#cbd5e1"
+              strokeWidth={0.5}
+              strokeDasharray="2 2"
+            />
+          ) : null}
+          {dist.bins.map((b, i) => {
+            const h = (b.count / maxCount) * H;
+            const x = i * barW;
+            const y = H - h;
+            // Leftmost bin = smallest p-values; tinted differently so
+            // the "signal peak at zero" pattern jumps out.
+            const fill = i === 0 ? "#0284c7" : "#94a3b8";
+            return (
+              <rect
+                key={i}
+                x={x + 0.3}
+                y={y}
+                width={Math.max(0.6, barW - 0.6)}
+                height={h}
+                fill={fill}
+              />
+            );
+          })}
+        </svg>
+      </button>
+      {open ? (
+        <HeatmapPopup
+          title={
+            label
+              ? `Corrected p-value distribution · ${label}`
+              : "Corrected p-value distribution"
+          }
+          onClose={() => setOpen(false)}
+        >
+          <PvalueHistogramLarge dist={dist} />
+        </HeatmapPopup>
       ) : null}
-      {dist.bins.map((b, i) => {
-        const h = (b.count / maxCount) * H;
-        const x = i * barW;
-        const y = H - h;
-        // Leftmost bin = smallest p-values; tinted differently so
-        // the "signal peak at zero" pattern jumps out.
-        const fill = i === 0 ? "#0284c7" : "#94a3b8";
-        return (
-          <rect
-            key={i}
-            x={x + 0.3}
-            y={y}
-            width={Math.max(0.6, barW - 0.6)}
-            height={h}
-            fill={fill}
-          />
-        );
-      })}
-    </svg>
+    </>
+  );
+}
+
+/** Enlarged, axis-labelled corrected-p-value histogram shown in the
+ *  pop-out modal when a curator clicks the inline strip. Same data +
+ *  colour semantics as the strip (leftmost bin = smallest p-values,
+ *  highlighted; dashed uniform-null reference) with real axes: probe
+ *  counts on y, p-value [0, 1] on x. */
+function PvalueHistogramLarge({ dist }: { dist: PvalueDistribution }) {
+  const W = 640;
+  const H = 420;
+  const padL = 64;
+  const padR = 20;
+  const padT = 22;
+  const padB = 52;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const maxCount = dist.bins.reduce((m, b) => (b.count > m ? b.count : m), 0);
+  const yTicks = niceTicks(0, maxCount, 5);
+  const yMax = Math.max(maxCount, yTicks[yTicks.length - 1] ?? maxCount) || 1;
+  const xTicks = [0, 0.25, 0.5, 0.75, 1];
+  const barW = innerW / dist.bins.length;
+  // Uniform-null per-bar count (flat expectation for a no-signal set).
+  const flatCount = dist.n / dist.bins.length;
+  const flatY = padT + innerH * (1 - flatCount / yMax);
+  const SUBTLE = "#6b7280";
+  const GRID = "#e5e7eb";
+  const AXIS = "#334155";
+  return (
+    <div className="p-3 bg-white">
+      <svg
+        width={W}
+        height={H}
+        role="img"
+        aria-label="corrected p-value distribution, enlarged"
+      >
+        <rect x={0} y={0} width={W} height={H} fill="#ffffff" />
+        {/* y grid + tick labels */}
+        {yTicks.map((t) => {
+          const y = padT + innerH * (1 - t / yMax);
+          return (
+            <g key={`y${t}`}>
+              <line
+                x1={padL}
+                x2={padL + innerW}
+                y1={y}
+                y2={y}
+                stroke={GRID}
+                strokeWidth={0.5}
+              />
+              <text
+                x={padL - 8}
+                y={y + 4}
+                fontSize={11}
+                fill={SUBTLE}
+                textAnchor="end"
+                fontFamily="-apple-system, sans-serif"
+              >
+                {t.toLocaleString()}
+              </text>
+            </g>
+          );
+        })}
+        {/* Uniform-null reference line + label. */}
+        {maxCount > 0 && flatCount <= yMax ? (
+          <g>
+            <line
+              x1={padL}
+              x2={padL + innerW}
+              y1={flatY}
+              y2={flatY}
+              stroke="#cbd5e1"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+            />
+            <text
+              x={padL + innerW - 2}
+              y={flatY - 4}
+              fontSize={10}
+              fill="#94a3b8"
+              textAnchor="end"
+              fontFamily="-apple-system, sans-serif"
+            >
+              uniform null
+            </text>
+          </g>
+        ) : null}
+        {/* bars */}
+        {dist.bins.map((b, i) => {
+          const h = maxCount > 0 ? (b.count / yMax) * innerH : 0;
+          const x = padL + i * barW;
+          const y = padT + innerH - h;
+          const fill = i === 0 ? "#0284c7" : "#94a3b8";
+          return (
+            <rect
+              key={i}
+              x={x + 0.5}
+              y={y}
+              width={Math.max(1, barW - 1)}
+              height={h}
+              fill={fill}
+            >
+              <title>
+                {`[${b.lo.toFixed(2)}, ${b.hi.toFixed(2)}${
+                  i === dist.bins.length - 1 ? "]" : ")"
+                }) — ${b.count.toLocaleString()} probes`}
+              </title>
+            </rect>
+          );
+        })}
+        {/* axes */}
+        <line x1={padL} y1={padT} x2={padL} y2={padT + innerH} stroke={AXIS} strokeWidth={1} />
+        <line
+          x1={padL}
+          y1={padT + innerH}
+          x2={padL + innerW}
+          y2={padT + innerH}
+          stroke={AXIS}
+          strokeWidth={1}
+        />
+        {/* x ticks + labels */}
+        {xTicks.map((t) => {
+          const x = padL + innerW * t;
+          return (
+            <g key={`x${t}`}>
+              <line
+                x1={x}
+                y1={padT + innerH}
+                x2={x}
+                y2={padT + innerH + 4}
+                stroke={AXIS}
+                strokeWidth={1}
+              />
+              <text
+                x={x}
+                y={padT + innerH + 17}
+                fontSize={11}
+                fill={SUBTLE}
+                textAnchor="middle"
+                fontFamily="-apple-system, sans-serif"
+              >
+                {t.toFixed(2)}
+              </text>
+            </g>
+          );
+        })}
+        {/* axis titles */}
+        <text
+          x={padL + innerW / 2}
+          y={H - 6}
+          fontSize={12}
+          fill={AXIS}
+          textAnchor="middle"
+          fontFamily="-apple-system, sans-serif"
+        >
+          corrected p-value
+        </text>
+        <text
+          x={16}
+          y={padT + innerH / 2}
+          fontSize={12}
+          fill={AXIS}
+          textAnchor="middle"
+          transform={`rotate(-90 16 ${padT + innerH / 2})`}
+          fontFamily="-apple-system, sans-serif"
+        >
+          number of probes
+        </text>
+      </svg>
+      <p className="mt-1 text-[11px] text-slate-500 text-center">
+        n = {dist.n.toLocaleString()} probes · {dist.bins.length} bins ·
+        leftmost bin (smallest p-values) highlighted
+      </p>
+    </div>
   );
 }
 
