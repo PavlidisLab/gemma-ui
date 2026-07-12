@@ -82,12 +82,16 @@ export function FindingRecommendation({
 }) {
   const meta =
     ACTION_META[recommendation.action] ?? ACTION_META.flag_for_curator;
-  // The value to fold in only reads on the actions that carry one.
+  // The concrete value reads inline on the actions that carry one — the
+  // thing to fold in (merge), apply (adopt_proposal), or add
+  // (add_missing, e.g. "disease: Huntington disease"). keep_current /
+  // drop / flag_for_curator ship an empty value.
   const adoptValue = recommendation.adopt_value?.trim() || "";
   const showValue =
     !!adoptValue &&
     (recommendation.action === "merge" ||
-      recommendation.action === "adopt_proposal");
+      recommendation.action === "adopt_proposal" ||
+      recommendation.action === "add_missing");
 
   return (
     <div

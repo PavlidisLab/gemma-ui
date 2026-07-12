@@ -50,6 +50,22 @@ describe("FindingRecommendation", () => {
     expect(screen.getByText("delivered at dose: 25 uM")).toBeInTheDocument();
   });
 
+  it("shows the adopt_value for add_missing (the concrete thing to add)", () => {
+    // Real live-audit data: add_missing carries a meaningful value.
+    render(
+      <FindingRecommendation
+        recommendation={rec({
+          action: "add_missing",
+          adopt_value: "disease: Huntington disease",
+          confidence: "high",
+          one_line_reason: "The experiment investigates the mutant huntingtin gene.",
+        })}
+      />,
+    );
+    expect(screen.getByText("Add missing", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("disease: Huntington disease")).toBeInTheDocument();
+  });
+
   it("does NOT show an adopt_value for keep/drop even if one is present", () => {
     render(
       <FindingRecommendation
