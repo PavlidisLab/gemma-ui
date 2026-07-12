@@ -25,6 +25,7 @@ import {
   markPaperDismissed,
 } from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
+import { useStickyState } from "@/lib/useStickyState";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
@@ -1309,6 +1310,15 @@ function TagBar({
   // mutate state. Expand/collapse, legend popup, and chip select
   // stay live so the curator can still read.
   const tagReadOnly = useIsReadOnly();
+  // Free-text filter: heavily-annotated experiments bury the few
+  // ontology-resolved chips under dozens of unresolved free-text values
+  // (raw numbers, dates, batch ids, yes/no flags). This global sticky
+  // preference lets the curator collapse the view to just the
+  // ontology-anchored chips. Off by default so nothing hides silently.
+  const [hideFreeText, setHideFreeText] = useStickyState<boolean>(
+    "overview.tags.hideFreeText",
+    false,
+  );
   // Modal state: ``mode`` distinguishes add (no tag id yet) vs edit
   // (existing tag id). Initial draft is rebuilt on every open from the
   // tag at the moment of click — guarantees the modal can't show stale
@@ -1577,9 +1587,32 @@ function TagBar({
     const k = `${groupKeyOf(t)}|${valLabelLc(t)}`;
     return !uriBearingByGroupLabel.has(k);
   });
+  // A tag is "resolved" (NOT free-text) when it carries ANY ontology
+  // URI: its own ``value.uri`` (or a design-derived effective URI), OR
+  // a resolved subject / object inside one of its statements.
+  // Statement-shaped tags routinely have a free-text subject label +
+  // the ``ƒ`` inferred-from-FV glyph yet still resolve their entities
+  // in the statement (sample source → UBERON:0002371, genotype →
+  // NCBI:gene:17311, wild-type → EFO:0005168) — those must NOT be
+  // hidden. Only chips with no URI anywhere (raw numbers, dates, batch
+  // ids, yes/no flags) count as free-text.
+  const tagIsResolved = (t: Tag): boolean => {
+    if (effectiveUri(t)) return true;
+    return (t.statements ?? []).some(
+      (s) => !!s.subject?.uri || !!s.object?.uri,
+    );
+  };
+  // Count the free-text chips so the toggle can show how many the
+  // curator is hiding — and gate the switch's usefulness (no point
+  // offering it when everything already resolves).
+  const freeTextCount = dedupedAll.filter((t) => !tagIsResolved(t)).length;
+  // When the filter is on, keep only resolved chips; the purely
+  // free-text ones drop, and every ontology-anchored chip stays.
+  const dedupedShown =
+    hideFreeText ? dedupedAll.filter(tagIsResolved) : dedupedAll;
   // Split back into direct vs inferred for the bucketing below.
-  const dedupedDirect = dedupedAll.filter((t) => !t.inferred);
-  const dedupedInferred = dedupedAll.filter((t) => t.inferred);
+  const dedupedDirect = dedupedShown.filter((t) => !t.inferred);
+  const dedupedInferred = dedupedShown.filter((t) => t.inferred);
   const showHeader =
     visibleTags.length > 0 || draft != null;
   if (!showHeader) return null;
@@ -1613,6 +1646,26 @@ function TagBar({
         <HelpPopup title="Tag chip legend" size="md">
           <TagBarLegend />
         </HelpPopup>
+        {/* Hide-free-text toggle. Only offered when there's actually
+            free-text to hide — on a fully-resolved experiment the switch
+            would be a no-op. */}
+        {freeTextCount > 0 ? (
+          <label
+            className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
+            title="Hide unresolved free-text chips (raw values without an ontology term); ontology-resolved chips stay."
+          >
+            <input
+              type="checkbox"
+              className="h-3 w-3 accent-blue-600"
+              checked={hideFreeText}
+              onChange={(e) => setHideFreeText(e.target.checked)}
+            />
+            Hide free-text
+            <span className="tabular-nums text-slate-400 dark:text-slate-500">
+              ({freeTextCount})
+            </span>
+          </label>
+        ) : null}
       </div>
       {/* Render tag-group rows in order, slotting the Factors row
           right after ``sample_source`` per Paul 2026-05-21. Factors
