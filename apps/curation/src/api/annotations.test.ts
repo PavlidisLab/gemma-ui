@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   orderCandidatesByTaxon,
+  parseGemmaChildren,
   parseGemmaTerm,
   type AnnotationCandidate,
 } from "./annotations";
@@ -166,5 +167,53 @@ describe("parseGemmaTerm", () => {
     expect(d.alternativeIds).toEqual([]);
     expect(d.xrefs).toEqual([]);
     expect(d.ontologyVersion).toBeNull();
+  });
+});
+
+describe("parseGemmaChildren", () => {
+  it("maps Gemma's children list (value/valueUri) to {children, total}", () => {
+    const payload = {
+      data: [
+        {
+          value: "prefrontal cortex",
+          valueUri: "http://purl.obolibrary.org/obo/UBERON_0000451",
+        },
+        {
+          value: "gyrus",
+          valueUri: "http://purl.obolibrary.org/obo/UBERON_0000200",
+        },
+      ],
+    };
+    const res = parseGemmaChildren(payload);
+    expect(res).not.toBeNull();
+    expect(res!.total).toBe(2);
+    expect(res!.children).toEqual([
+      { label: "prefrontal cortex", uri: "http://purl.obolibrary.org/obo/UBERON_0000451" },
+      { label: "gyrus", uri: "http://purl.obolibrary.org/obo/UBERON_0000200" },
+    ]);
+  });
+
+  it("tolerates the snake_case (value_uri) and bare-list shapes", () => {
+    expect(
+      parseGemmaChildren([
+        { value: "gyrus", value_uri: "http://purl.obolibrary.org/obo/UBERON_0000200" },
+      ]),
+    ).toEqual({
+      children: [
+        { label: "gyrus", uri: "http://purl.obolibrary.org/obo/UBERON_0000200" },
+      ],
+      total: 1,
+    });
+  });
+
+  it("reports a leaf (empty list) so the popover can label it, distinct from a failed lookup", () => {
+    expect(parseGemmaChildren({ data: [] })).toEqual({ children: [], total: 0 });
+    expect(parseGemmaChildren([])).toEqual({ children: [], total: 0 });
+  });
+
+  it("returns null when the payload isn't a list (error / unexpected shape)", () => {
+    expect(parseGemmaChildren({ error: "boom" })).toBeNull();
+    expect(parseGemmaChildren(null)).toBeNull();
+    expect(parseGemmaChildren("nope")).toBeNull();
   });
 });

@@ -21,7 +21,13 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useGemmaTerm, useNcbiGene, useOlsTerm } from "@/api/annotations";
+import {
+  useGemmaTerm,
+  useNcbiGene,
+  useOlsTerm,
+  useTermChildren,
+  type TermChildren,
+} from "@/api/annotations";
 import { curieToUrl, ncbiGeneIdFromUri, shortenUri } from "@/lib/curie";
 
 export interface CuriePopoverProps {
@@ -65,6 +71,10 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   const gemma = useGemmaTerm(isNcbiGene ? null : activeUri);
   const ols = useOlsTerm(isNcbiGene ? null : activeUri, olsRequested);
   const ncbi = useNcbiGene(isNcbiGene ? activeUri : null);
+  // Immediate children — a lazy, cached OLS4 side-fetch (Gemma ships no
+  // children). Runs in parallel with the primary lookup so it never
+  // delays the card; the children line just fills in when it resolves.
+  const childrenQ = useTermChildren(activeUri, !isNcbiGene);
 
   const gemmaDone = !gemma.isLoading;
   const gemmaHit = !!gemma.data;
@@ -181,7 +191,11 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
         {primaryLoading ? (
           <Loading source={isNcbiGene ? "ncbi" : undefined} />
         ) : detail ? (
-          <Body detail={detail} onNavigate={navigateTo} />
+          <Body
+            detail={detail}
+            childrenResult={childrenQ.data ?? null}
+            onNavigate={navigateTo}
+          />
         ) : showOlsCta ? (
           <NotInGemmaCta
             uri={activeUri}
@@ -210,12 +224,21 @@ function Loading({ source }: { source?: "ols" | "ncbi" }) {
   );
 }
 
+/** How many immediate children to list inline before collapsing the
+ *  rest into a "(+N more)" tail — a couple is enough to hint that a
+ *  narrower term exists without turning the card into a subclass dump. */
+const MAX_SHOWN_CHILDREN = 4;
+
 function Body({
   detail,
+  childrenResult,
   onNavigate,
 }: {
   detail: NonNullable<ReturnType<typeof useGemmaTerm>["data"]>;
-  /** Walk the popover to another term (parent / alternate id). */
+  /** Immediate children (direct subclasses) of the term, or null while
+   *  the lazy fetch is pending / when the term has none. */
+  childrenResult: TermChildren | null;
+  /** Walk the popover to another term (parent / alternate id / child). */
   onNavigate: (uri: string) => void;
 }) {
   return (
@@ -299,6 +322,60 @@ function Body({
             </span>
           ))}
         </div>
+      ) : null}
+      {childrenResult ? (
+        childrenResult.children.length > 0 ? (
+          // Immediate children — lets the curator spot a MORE SPECIFIC
+          // term one level down. Clickable (walks the popover in-place
+          // like parents); the tail collapses to "(+N more)" so a term
+          // with 100 subclasses doesn't blow up the card. Only one level
+          // is fetched, so this stays cheap.
+          (() => {
+            const shown = childrenResult.children.slice(0, MAX_SHOWN_CHILDREN);
+            const moreCount = childrenResult.total - shown.length;
+            return (
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                <span className="font-semibold">children: </span>
+                {shown.map((c, i) => (
+                  <span key={`${c.uri ?? c.label}-${i}`}>
+                    {i > 0 ? ", " : ""}
+                    {c.uri ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onNavigate(c.uri!);
+                        }}
+                        className="text-blue-700 hover:underline dark:text-blue-300"
+                        title={`open ${shortenUri(c.uri)}`}
+                      >
+                        {c.label}
+                      </button>
+                    ) : (
+                      c.label
+                    )}
+                  </span>
+                ))}
+                {moreCount > 0 ? (
+                  <span className="text-slate-400 dark:text-slate-500">
+                    {" "}
+                    (+{moreCount} more)
+                  </span>
+                ) : null}
+              </div>
+            );
+          })()
+        ) : (
+          // Definitively no children (a well-formed empty page) — mark it
+          // a leaf so the curator knows this is the most specific term in
+          // the hierarchy, not that the lookup is still pending / failed.
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+            <span className="font-semibold">children: </span>
+            <span className="italic text-slate-400 dark:text-slate-500">
+              none — leaf term
+            </span>
+          </div>
+        )
       ) : null}
       {detail.alternativeIds.length > 0 ? (
         // Obsolete / merged IDs that fold INTO this term — they have no

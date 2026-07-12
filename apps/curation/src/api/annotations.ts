@@ -408,6 +408,98 @@ export function parseGemmaTerm(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Immediate children — the direct subclasses of a term, so a curator can
+// see at a glance whether a MORE SPECIFIC choice exists below the term the
+// chip carries. Gemma's ``/annotations/term`` ships parents but no children
+// (verified against frink 2026-07), so this is a separate, LAZY lookup
+// against Gemma's ``/annotations/children?...&direct=true`` — the SAME host
+// that serves the parents, so the hierarchy stays on one ontology release
+// instead of skewing against an external service. ``direct=true`` returns
+// only the immediate children (without it the endpoint returns the whole
+// transitive descendant set — 477 for cerebral cortex vs 32 direct). Lazy +
+// cached a day (the hierarchy is immutable within a session), so it never
+// blocks the popover's primary render.
+// ---------------------------------------------------------------------------
+
+/** Immediate-children result for the popover: the direct children plus
+ *  their count, so the UI can render "child A, child B (+N more)". */
+export interface TermChildren {
+  children: TermRef[];
+  total: number;
+}
+
+const TERM_CHILDREN_KEY = (uri: string | null) =>
+  ["annotations-term-children-gemma", uri ?? ""] as const;
+
+/** Fetch a term's IMMEDIATE children from Gemma. Lazy + cached: enable it
+ *  only while the popover is open on an ontology term. Returns ``null``
+ *  when the URI is empty or the fetch fails — the popover then simply omits
+ *  the children line rather than falsely claiming a leaf. */
+export function useTermChildren(uri: string | null | undefined, enabled: boolean) {
+  return useQuery<TermChildren | null>({
+    queryKey: TERM_CHILDREN_KEY(uri ?? null),
+    queryFn: async () => {
+      if (!uri) return null;
+      // Gemma keys ``/annotations/children`` on the full IRI, like the
+      // term endpoint. ``direct=true`` → immediate children only.
+      const iri = curieToUrl(uri) ?? uri;
+      const params = new URLSearchParams({ uri: iri, direct: "true" });
+      try {
+        const raw = await api.get<unknown>(
+          `/rest/v2/annotations/children?${params.toString()}`,
+        );
+        return parseGemmaChildren(raw);
+      } catch {
+        return null;
+      }
+    },
+    // Immutable hierarchy — hold it for a day so reopening the chip is free.
+    staleTime: 1000 * 60 * 60 * 24,
+    gcTime: 1000 * 60 * 60 * 24,
+    enabled: !!uri && enabled,
+  });
+}
+
+/** Map Gemma's ``/annotations/children`` payload into the {children,
+ *  total} shape. The endpoint returns the full immediate-children list
+ *  (no pagination), so ``total`` is just its length; the popover caps the
+ *  display and shows a "(+N more)" tail.
+ *
+ *  A well-formed EMPTY list is a genuine leaf → ``{children: [], total: 0}``
+ *  (the popover labels it "leaf term"). Returns ``null`` only when the
+ *  payload isn't a list at all (transport error / unexpected shape), so a
+ *  failed lookup never masquerades as a definitive leaf. */
+export function parseGemmaChildren(raw: unknown): TermChildren | null {
+  if (!raw || typeof raw !== "object") return null;
+  // Gemma envelope: the list may sit under ``.data`` (ResponseDataObject)
+  // or be returned bare by local_api-style servers.
+  const root = (raw as { data?: unknown }).data ?? raw;
+  if (!Array.isArray(root)) return null;
+  const children: TermRef[] = root
+    .map((x) => x as Record<string, unknown>)
+    .map((x) => ({
+      // ``value``/``valueUri`` (Gemma) with snake_case + generic fallbacks
+      // so the client's key-transform and a bare shape both parse.
+      uri:
+        typeof x.value_uri === "string"
+          ? x.value_uri
+          : typeof x.valueUri === "string"
+            ? (x.valueUri as string)
+            : typeof x.uri === "string"
+              ? x.uri
+              : null,
+      label:
+        typeof x.value === "string"
+          ? x.value
+          : typeof x.label === "string"
+            ? x.label
+            : "",
+    }))
+    .filter((c) => !!c.label);
+  return { children, total: children.length };
+}
+
 const OLS_TERM_KEY = (uri: string | null) =>
   ["annotations-term-ols", uri ?? ""] as const;
 

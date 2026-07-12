@@ -74,7 +74,7 @@ export default defineConfig(({ mode }) => {
   );
    
   console.log(
-    `[curation] /rest/v2/annotations/{search,term} → ${ONTOLOGY_URL} (ontology routing exception)`,
+    `[curation] /rest/v2/annotations/{search,term,children} → ${ONTOLOGY_URL} (ontology routing exception)`,
   );
    
   console.log(`[curation] /local-api → ${LOCAL_API_URL} (explicit local_api passthrough)`);
@@ -130,6 +130,22 @@ export default defineConfig(({ mode }) => {
           },
         },
         "/rest/v2/annotations/term": {
+          target: ONTOLOGY_URL,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
+        },
+        // ``/annotations/children`` rides the same ontology exception —
+        // the CuriePopover pulls a term's immediate children (``&direct=
+        // true``) from the SAME Gemma host that serves its parents, so
+        // the hierarchy stays consistent on one ontology release rather
+        // than skewing against an external service. local_api doesn't
+        // serve this endpoint; frink does.
+        "/rest/v2/annotations/children": {
           target: ONTOLOGY_URL,
           changeOrigin: true,
           configure: (proxy) => {
