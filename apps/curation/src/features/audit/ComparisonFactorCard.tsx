@@ -43,6 +43,7 @@ import type {
   DismissReason,
 } from "@/api/auditTypes";
 import { ThreePhaseFindingBody } from "./findingThreePhase";
+import { FindingRecommendation } from "./FindingRecommendation";
 import { FindingReasoningPanel } from "./findingReasoningPanel";
 import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
@@ -1185,6 +1186,15 @@ export function ComparisonFactorCard({
       </div>
       {cardOpen ? (
         <>
+          {/* Curator headline — the canonical "what to do" from the
+              PPE ``recommendation``, ABOVE the reasoning toggle so it's
+              the primary always-visible signal. Everything else (the
+              rationale stack, three-phase reasoning) sits in the
+              reasoning collapsible below. Null on older reports → the
+              card's legacy title header carries the signal instead. */}
+          {finding.recommendation ? (
+            <FindingRecommendation recommendation={finding.recommendation} />
+          ) : null}
           {/* Reasoning collapsible — SAME component, SAME affordance
               shape as every other finding card type (the one used by
               CompactFindingCard / FindingDetailsEditor). Renders

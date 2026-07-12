@@ -86,6 +86,35 @@ export interface FindingEvidence {
   highlights?: [number, number][];
 }
 
+/** The six canonical actions a post-proposal-evaluation finding can
+ *  recommend — the "what should I DO" the curator headline reads off.
+ *  Mirrors agents-side ``RECOMMENDATION_ACTIONS`` (gemma-curation-agents
+ *  ``a2a40f3``, ``UI_PPE_RECOMMENDATION_2026_07_11.md``). */
+export type RecommendationAction =
+  | "keep_current" //     gold/current is right; no change
+  | "adopt_proposal" //   agent is right; apply its proposal
+  | "merge" //            keep current AND fold in ``adopt_value``
+  | "drop" //             agent's extra is wrong / over-tagged
+  | "add_missing" //      gold has something the agent missed
+  | "flag_for_curator" // genuinely ambiguous; human call
+  | (string & {});
+
+/** Canonical, deterministically-derived "what to do" for a finding — the
+ *  curator headline. Collapsed agent-side from the finding's single
+ *  verdict (boss > arbiter > defender); no LLM. ``null`` / absent when no
+ *  verdict is attached, in which case the UI falls back to legacy
+ *  rendering. See ``UI_PPE_RECOMMENDATION_2026_07_11.md``. */
+export interface Recommendation {
+  action: RecommendationAction;
+  /** The ONE concrete value / statement to fold onto gold — set for
+   *  ``merge`` (and ``adopt_proposal``), null otherwise. Value-first,
+   *  never a label rename. */
+  adopt_value?: string | null;
+  confidence: "high" | "medium" | "low" | (string & {});
+  /** One-sentence "why" — renders as the headline subtitle. */
+  one_line_reason: string;
+}
+
 export interface AuditFinding {
   target_kind: AuditTargetKind;
   /** Stable id of the existing curation element this finding addresses
@@ -104,6 +133,17 @@ export interface AuditFinding {
   citation: string;
   citation_url: string;
   suggested_fix: string;
+  /** THE curator headline — the canonical "what should I do" for this
+   *  finding, derived deterministically agent-side from the collapsed
+   *  verdict (boss > arbiter > defender). Render as the card headline:
+   *  the action verb + (for merge/adopt) ``adopt_value``, with
+   *  ``one_line_reason`` as subtitle and a ``confidence`` chip; the
+   *  issue_code slug, the rationale stack, ``defender_verdict``, and the
+   *  three-phase blocks demote to the expandable detail. ``null`` /
+   *  absent when no verdict is attached — fall back to the legacy
+   *  rendering there. Mirrors agents-side ``AuditFinding.recommendation``
+   *  (``UI_PPE_RECOMMENDATION_2026_07_11.md``). */
+  recommendation?: Recommendation | null;
   /** One-line rendering of what the silent comparison proposer
    *  produced for the same target, when comparable. Empty when there's
    *  no clean correspondence (experiment-wide findings, or a tag the
@@ -669,6 +709,12 @@ export interface AttachedDefenderVerdict {
     | "miss_inherited_from_design"
     | "miss_overzealous_gold"
     | "miss_borderline"
+    // Value-fold verdict (PPE, 2026-07-11): the agent is close but
+    // captured a real value gold lacks (a dose, a duration, a
+    // ``derives from`` / ``located in`` qualifier) worth folding onto
+    // gold. Severity ``minor``; carries ``adopt_from_agent``. Drives
+    // ``recommendation.action = "merge"``.
+    | "merge"
     // Forward-compat: future producers (curator-triggered
     // "investigate further" / extra-review pass) will emit the same
     // shape with new verdict labels we don't enumerate here. UI keys
@@ -704,6 +750,11 @@ export interface AttachedDefenderVerdict {
    *  ``low``. Added by the unified justification shared/justification.py
    *  schema (2026-05-22). Omitted on older producers. */
   confidence?: string;
+  /** The ONE concrete value / statement to fold onto gold for a
+   *  ``merge`` verdict (never a label rename). Flows into
+   *  ``recommendation.adopt_value``. Null on non-merge verdicts and on
+   *  producers predating PPE (2026-07-11). */
+  adopt_from_agent?: string | null;
 }
 
 /**

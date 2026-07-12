@@ -35,6 +35,7 @@ import { Term } from "@/components/ui/Term";
 import { useToast } from "@/components/ui/Toast";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { FindingReasoningPanel } from "./findingReasoningPanel";
+import { FindingRecommendation } from "./FindingRecommendation";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
@@ -739,6 +740,12 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
         </span>
       </div>
 
+      {/* Curator headline — the PPE ``recommendation``, above the
+          reasoning toggle so it's the primary always-visible signal.
+          Null on older reports → the card's legacy title carries it. */}
+      {cardOpen && finding.recommendation ? (
+        <FindingRecommendation recommendation={finding.recommendation} />
+      ) : null}
       {/* Reasoning collapsible — shared FindingReasoningPanel so
           every finding card type (compact, factor-match, partition-
           mismatch, extra, miss) renders the SAME toggle affordance.
