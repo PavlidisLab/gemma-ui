@@ -102,7 +102,7 @@ describe("ThreePhaseFindingBody — three labelled voice groups", () => {
     ).toBeInTheDocument();
     expect(
       within(screen.getByTestId("phase-group-gold")).getByText(
-        "Gold comparison",
+        "Reference comparison",
       ),
     ).toBeInTheDocument();
   });

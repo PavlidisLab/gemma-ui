@@ -517,14 +517,14 @@ function GoldVisibilityBadge({ seesGold }: { seesGold: boolean }): JSX.Element {
       data-testid="gold-visibility-sees-gold"
       className="rs-10 font-semibold text-amber-700 dark:text-amber-300"
     >
-      sees gold · eval only
+      sees reference · eval only
     </span>
   ) : (
     <span
       data-testid="gold-visibility-gold-blind"
       className="rs-10 font-medium text-emerald-700 dark:text-emerald-400"
     >
-      gold-blind
+      reference-blind
     </span>
   );
 }
@@ -821,15 +821,15 @@ export function ThreePhaseFindingBody({
     <div className="space-y-1.5">
       <GuidelineCiteRow finding={finding} />
 
-      {/* Voice 1 — the proposer (gold-blind): what it proposed + why. */}
+      {/* Voice 1 — the proposer (reference-blind): what it proposed + why. */}
       <PhaseGroup
         kind="proposer"
         title="Proposer"
         help={
-          <HelpPopup title="Proposer — gold-blind" size="md">
+          <HelpPopup title="Proposer — reference-blind" size="md">
             <div className="leading-snug">
               What the agent proposed and its own reasoning for it. The
-              proposer never sees your current curation or any gold
+              proposer never sees your current curation or any reference
               standard — its rationale and any confidence read
               ("strongly supported" / "borderline") describe the
               proposal on its own terms.
@@ -846,16 +846,16 @@ export function ThreePhaseFindingBody({
         ) : null}
       </PhaseGroup>
 
-      {/* Voice 2 — the internal critic (gold-blind boss review). */}
+      {/* Voice 2 — the internal critic (reference-blind boss review). */}
       <PhaseGroup
         kind="critic"
         title="Internal critic"
         help={
-          <HelpPopup title="Internal critic — gold-blind" size="md">
+          <HelpPopup title="Internal critic — reference-blind" size="md">
             <div className="leading-snug">
               The boss-critic's holistic review of the proposal. It is a
               correctness reviewer that, like the proposer, never sees
-              the gold standard — see the Boss-critic review panel for
+              the reference standard — see the Boss-critic review panel for
               its experiment-wide blockers / advisories.
             </div>
           </HelpPopup>
@@ -868,18 +868,18 @@ export function ThreePhaseFindingBody({
         )}
       </PhaseGroup>
 
-      {/* Voice 3 — the gold comparison (SEES GOLD — eval crutch). */}
+      {/* Voice 3 — the reference comparison (SEES REFERENCE — eval crutch). */}
       <PhaseGroup
         kind="gold"
-        title="Gold comparison"
+        title="Reference comparison"
         help={
-          <HelpPopup title="Gold comparison — sees gold" size="md">
+          <HelpPopup title="Reference comparison — sees reference" size="md">
             <div className="leading-snug">
-              The gold-seeing judges: the arbiter's ruling and the
-              comparison against the polished-gold curation. Unlike the
-              two voices above, these DID see the gold standard — this is
-              the eval crutch, present only to score the run, not a
-              gold-blind signal.
+              The reference-seeing judges: the arbiter's ruling and the
+              comparison against the reference (polished consensus)
+              curation. Unlike the two voices above, these DID see the
+              reference standard — this is the eval crutch, present only
+              to score the run, not a reference-blind signal.
             </div>
           </HelpPopup>
         }
@@ -887,7 +887,7 @@ export function ThreePhaseFindingBody({
         {goldReviews.length > 0 ? <ReviewList reviews={goldReviews} /> : null}
         <ComparisonJudgePhase comparison={comparison} />
         {!hasGoldComparison ? (
-          <NoneNote>no gold comparison for this finding</NoneNote>
+          <NoneNote>no reference comparison for this finding</NoneNote>
         ) : null}
       </PhaseGroup>
     </div>
