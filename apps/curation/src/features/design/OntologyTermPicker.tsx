@@ -183,15 +183,22 @@ export function OntologyTermPicker({
 
   /** Commit ``text`` as free text or as a matched candidate.
    *
-   * Behaviour matches the design decision (2026-04-27):
-   * - If ``text`` exactly matches a candidate label (case-insensitive),
-   *   commit that candidate so the URI sticks.
-   * - Else if ``text`` differs from the current value's label, commit
-   *   as free text with ``uri = null`` — preserving the old URI under
-   *   a new label silently produces a label/URI mismatch.
-   * - Else (text == current label, no candidate match), commit
-   *   unchanged (preserves existing URI).
+   * Ontology binding is **opt-in**: only selecting a candidate row
+   * (or the "set URI manually" escape hatch) attaches a URI. Typing a
+   * label and committing WITHOUT picking a suggestion keeps free text,
+   * even when the label happens to match an ontology term — so a
+   * curator who deliberately wants a bare ``mdx`` isn't force-upgraded
+   * to ``mdx TGEMO:00180`` (Paul 2026-07-13: "if I explicitly don't
+   * click on the ontology term that comes up, it should keep it as free
+   * text"). Supersedes the 2026-04-27 auto-bind-on-exact-match rule.
+   *
    * - Empty text clears the term.
+   * - ``text`` == current label → commit unchanged (preserves the
+   *   existing URI — a no-op blur mustn't silently strip it). To
+   *   deliberately drop the URI and keep the same label, use the
+   *   explicit "use as free text" row (``commitExplicitFreeText``).
+   * - Otherwise commit free text with ``uri = null`` — carrying the old
+   *   URI under a new label would produce a label/URI mismatch.
    */
   function commitFreeText(text: string) {
     const t = text.trim();
@@ -200,19 +207,29 @@ export function OntologyTermPicker({
       setEditing(false);
       return;
     }
-    const exact = candidates.find(
-      (c) => c.label.toLowerCase() === t.toLowerCase(),
-    );
-    if (exact) {
-      commitCandidate(exact);
-      return;
-    }
     const sameAsCurrent =
       (value?.label ?? "").toLowerCase() === t.toLowerCase();
     onCommit({
       label: t,
       uri: sameAsCurrent ? (value?.uri ?? null) : null,
     });
+    setEditing(false);
+  }
+
+  /** Explicit "use as free text — no ontology link" commit. ALWAYS
+   *  drops the URI, even when the label matches an ontology candidate
+   *  OR the current value. This is the curator's deliberate choice to
+   *  keep a bare label; the only way to strip a URI while keeping the
+   *  same label. Wired to the free-text row click + Enter-on-free-text-
+   *  row. Paul 2026-07-13. */
+  function commitExplicitFreeText(text: string) {
+    const t = text.trim();
+    if (!t) {
+      onCommit(null);
+      setEditing(false);
+      return;
+    }
+    onCommit({ label: t, uri: null });
     setEditing(false);
   }
 
@@ -225,7 +242,12 @@ export function OntologyTermPicker({
     const hasExactCatalogMatch = candidates.some(
       (c) => c.label.toLowerCase() === draft.trim().toLowerCase(),
     );
-    const freeTextRowVisible = !!draft.trim() && !hasExactCatalogMatch;
+    // Always offer the explicit free-text row when there's draft text —
+    // even when the label matches an ontology candidate — so the curator
+    // can deliberately keep a bare label instead of the ontology term.
+    // Paul 2026-07-13: "if I explicitly don't click on the ontology term
+    // that comes up, it should keep it as free text."
+    const freeTextRowVisible = !!draft.trim();
     const freeTextRowIdx = freeTextRowVisible ? totalRows : -1;
 
     function commitHighlighted() {
@@ -238,7 +260,9 @@ export function OntologyTermPicker({
         commitTermCandidate(findCandidates[findIdx]);
         return;
       }
-      commitFreeText(draft);
+      // The free-text row is highlighted → deliberate free-text pick,
+      // drops any URI.
+      commitExplicitFreeText(draft);
     }
 
     const showKeepCurrent =
@@ -452,10 +476,15 @@ export function OntologyTermPicker({
                   : "hover:bg-slate-50")
               }
               onMouseEnter={() => setHighlight(freeTextRowIdx)}
-              onClick={() => commitFreeText(draft)}
+              onClick={() => commitExplicitFreeText(draft)}
             >
               use free text:{" "}
               <span className="not-italic">{draft.trim()}</span>
+              {hasExactCatalogMatch ? (
+                <span className="ml-1 text-slate-400 not-italic">
+                  (no ontology link)
+                </span>
+              ) : null}
               {!allowFreeText ? (
                 <span className="ml-1 text-amber-700 not-italic">
                   (off-list)

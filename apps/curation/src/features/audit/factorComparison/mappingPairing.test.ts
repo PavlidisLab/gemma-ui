@@ -5,7 +5,18 @@ import type {
   AuditReport,
 } from "@/api/auditTypes";
 import type { Factor } from "@/features/experiment/types";
+import type { FactorComparisonPair } from "./FactorComparisonGrid";
 import { factorPairForFinding, fvPairsViaMapping } from "./mappingPairing";
+
+/** Read an FV cell's label. A paired-row cell is
+ *  ``GridFv | Continuation``; the mapping helper never emits the
+ *  ``CONTINUATION`` sentinel, so narrow it away for the assertion. */
+function cellLabel(
+  cell: FactorComparisonPair["left"] | FactorComparisonPair["right"] | undefined,
+): string | undefined {
+  if (cell == null || typeof cell === "symbol") return undefined;
+  return cell.free_text_label;
+}
 
 /**
  * Contract tests for the mapping-driven pair-derivation helpers.
@@ -280,9 +291,9 @@ describe("fvPairsViaMapping", () => {
     expect(pairs).toHaveLength(3);
     expect(pairs?.[0].status).toBe("same");
     expect(pairs?.[1].status).toBe("left_only");
-    expect(pairs?.[1].left?.free_text_label).toBe("gold-only");
+    expect(cellLabel(pairs?.[1].left)).toBe("gold-only");
     expect(pairs?.[2].status).toBe("right_only");
-    expect(pairs?.[2].right?.free_text_label).toBe("agent-only");
+    expect(cellLabel(pairs?.[2].right)).toBe("agent-only");
   });
 
   it("id-join: resolves the gold FV by b_fv_id even when a_fv_idx is wrong / reordered", () => {

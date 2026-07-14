@@ -28,7 +28,7 @@ interface Toast {
   tone: ToastTone;
 }
 
-interface ToastContextValue {
+export interface ToastContextValue {
   show: (message: string, tone?: ToastTone, durationMs?: number) => void;
 }
 

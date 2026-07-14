@@ -1048,7 +1048,7 @@ function SidebarHeader({
                 await resetAllDispositions();
                 toast.show(
                   "Dispositions cleared. Findings are pending again.",
-                  { kind: "info" },
+                  "info",
                 );
               }}
               disabled={resetAllDispositionsSaving}

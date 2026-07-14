@@ -1,4 +1,5 @@
 import type { OntologyTerm, Statement } from "@/features/experiment/types";
+import { GENOTYPE_OBJECT_TERMS } from "@/generated/predicates";
 
 /**
  * Pre-baked Statement patterns from the Confluence guidelines —
@@ -47,18 +48,12 @@ const LOCATED_IN = predicate("located in", "RO_0001025");
 const SAMPLED_AFTER = predicate("sampled after", "TGEMO_00202");
 const HAS_DEV_STAGE = predicate("has developmental stage", "TGEMO_00168");
 
-const TGEMO = {
-  homozygous_negative: term("Homozygous negative", "TGEMO_00001"),
-  overexpression: term("Overexpression", "TGEMO_00004"),
-  constitutive_active: term("Constitutive active mutation", "TGEMO_00008"),
-};
-// Zygosity vocabulary is mixed-namespace: Gemma stores Heterozygous as
-// GENO_0000135 (verified against live /annotations/search, usageCount 306),
-// NOT a TGEMO term. Homozygous negative stays TGEMO_00001. Keep this GENO
-// entry separate so the namespace split is explicit.
-const GENO = {
-  heterozygous: term("Heterozygous", "GENO_0000135"),
-};
+// Allele-STATE genotype objects (Homozygous negative, Overexpression,
+// Constitutive active mutation, ...) are GENERATED from the agents SoT
+// (design_constants.GENOTYPE_OBJECT_VOCAB) — looked up via `genoObj`
+// below, so the picker can't drift from what the agent grounds. Bare
+// `Heterozygous` is intentionally NOT offered: the object needs allele
+// identity (`mHTT/+`) or an allele-state term (STATEMENT_GRAMMAR §5).
 const OBI = {
   gene_knockdown: term("gene knockdown", "OBI_0002625", "obi"),
 };
@@ -80,6 +75,15 @@ function term(label: string, lid: string, prefix: "obo" | "obi" = "obo"): Ontolo
     label,
     uri: `http://purl.obolibrary.org/${prefix}/${lid}`,
   };
+}
+
+/** Look up a sanctioned allele-state genotype object by label from the
+ *  generated (agents-SoT) table, so the genotype picker can't drift from
+ *  what the agent grounds. */
+function genoObj(label: string): OntologyTerm {
+  const t = GENOTYPE_OBJECT_TERMS.find((x) => x.label === label);
+  if (!t) throw new Error(`unknown genotype object term: ${label}`);
+  return { label: t.label, uri: t.uri };
 }
 
 function withCategory(
@@ -104,22 +108,12 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       withCategory(cat, {
         subject: { label: "" },
         predicate: { ...HAS_GENOTYPE },
-        object: { ...TGEMO.homozygous_negative },
+        object: genoObj("Homozygous negative"),
       }),
   },
-  {
-    id: "genotype-het",
-    category: "genotype",
-    label: "gene + has_genotype + Heterozygous",
-    description: "Heterozygous: gene + has_genotype + Heterozygous (GENO_0000135).",
-    subjectHint: "gene (NCBI_GENE)",
-    build: (cat) =>
-      withCategory(cat, {
-        subject: { label: "" },
-        predicate: { ...HAS_GENOTYPE },
-        object: { ...GENO.heterozygous },
-      }),
-  },
+  // NOTE: bare `genotype-het` (gene + has_genotype + Heterozygous) is
+  // RETIRED — zygosity without allele identity is under-specified. Use
+  // `genotype-mut-freetext` with allele notation (`mHTT/+`) instead.
   {
     id: "genotype-oe",
     category: "genotype",
@@ -130,7 +124,7 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       withCategory(cat, {
         subject: { label: "" },
         predicate: { ...HAS_GENOTYPE },
-        object: { ...TGEMO.overexpression },
+        object: genoObj("Overexpression"),
       }),
   },
   {
@@ -156,16 +150,19 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       withCategory(cat, {
         subject: { label: "" },
         predicate: { ...HAS_GENOTYPE },
-        object: { ...TGEMO.constitutive_active },
+        object: genoObj("Constitutive active mutation"),
       }),
   },
   {
     id: "genotype-mut-freetext",
     category: "genotype",
-    label: "gene + has_genotype + (free-text mutation)",
-    description: "Custom mutation as free-text — e.g. K23L/+, exon 3 deletion.",
+    label: "gene + has_genotype + (allele notation)",
+    description:
+      "Preferred for a specific allele: allele notation names the mutant " +
+      "allele over wild-type and implies zygosity — e.g. mHTT/+, K23L/+, " +
+      "exon 3 deletion. Use this instead of a bare zygosity term.",
     subjectHint: "gene (NCBI_GENE)",
-    objectHint: "mutation (free text)",
+    objectHint: "allele notation (free text, e.g. mHTT/+)",
     build: (cat) =>
       withCategory(cat, {
         subject: { label: "" },

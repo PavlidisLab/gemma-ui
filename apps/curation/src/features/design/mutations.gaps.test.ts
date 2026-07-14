@@ -63,10 +63,6 @@ function makeFactor(
   };
 }
 
-function emptyStatement(): Statement {
-  return { subject: { label: "" } };
-}
-
 function realStatement(subjectLabel: string, objectLabel?: string): Statement {
   return {
     subject: { label: subjectLabel },
@@ -187,7 +183,7 @@ describe("toggleBaseline — two FVs in same factor: toggling one un-baselines t
   it("does not touch is_baseline on other factors when toggling within one factor", () => {
     const fv1 = makeFv(10, { is_baseline: true, statements: [] });
     const fv2 = makeFv(11, { is_baseline: false, statements: [] });
-    const factor1 = makeFactor(1, "disease", [fv1]);
+    const factor1 = makeFactor(1, "disease", [fv1, fv2]);
     const factor2Fv = makeFv(20, { is_baseline: true, statements: [realStatement("wild type genotype")] });
     const factor2 = makeFactor(2, "genotype", [factor2Fv]);
     const design = makeDesign([factor1, factor2]);

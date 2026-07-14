@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { pairFvs } from "./pairFvs";
 import type { Factor } from "@/features/experiment/types";
+import type { FactorComparisonPair } from "./FactorComparisonGrid";
+
+/** Read an FV cell's label. A paired-row cell is
+ *  ``GridFv | Continuation``; ``pairFvs`` never emits the
+ *  ``CONTINUATION`` sentinel, so narrow it away for the assertion. */
+function cellLabel(
+  cell: FactorComparisonPair["left"] | FactorComparisonPair["right"] | undefined,
+): string | undefined {
+  if (cell == null || typeof cell === "symbol") return undefined;
+  return cell.free_text_label;
+}
 
 /**
  * Contract tests for ``pairFvs`` — the greedy Jaccard-based FV
@@ -30,7 +41,7 @@ function mkFv(
 /** Minimal factor-like wrapping an FV list. */
 function mkFactor(
   fvs: Array<Factor["factor_values"][number]>,
-): { factor_values: Factor["factor_values"] } {
+): Factor {
   return { factor_values: fvs } as unknown as Factor;
 }
 
@@ -42,8 +53,8 @@ describe("pairFvs — Jaccard biomaterial pairing (threshold ≥ 0.5)", () => {
     const pairs = pairFvs(left, right);
     expect(pairs).toHaveLength(1);
     expect(pairs[0].status).toBe("same");
-    expect(pairs[0].left?.free_text_label).toBe("control");
-    expect(pairs[0].right?.free_text_label).toBe("control");
+    expect(cellLabel(pairs[0].left)).toBe("control");
+    expect(cellLabel(pairs[0].right)).toBe("control");
   });
 
   it("drift: overlapping biomaterials (Jaccard > 0.5) pair as 'drift' when labels differ", () => {
@@ -64,7 +75,7 @@ describe("pairFvs — Jaccard biomaterial pairing (threshold ≥ 0.5)", () => {
     const pairs = pairFvs(left, right);
     expect(pairs.some((p) => p.status === "left_only")).toBe(true);
     const lOnly = pairs.find((p) => p.status === "left_only");
-    expect(lOnly?.left?.free_text_label).toBe("treated");
+    expect(cellLabel(lOnly?.left)).toBe("treated");
     expect(lOnly?.right).toBeNull();
   });
 
@@ -78,7 +89,7 @@ describe("pairFvs — Jaccard biomaterial pairing (threshold ≥ 0.5)", () => {
     const pairs = pairFvs(left, right);
     expect(pairs.some((p) => p.status === "right_only")).toBe(true);
     const rOnly = pairs.find((p) => p.status === "right_only");
-    expect(rOnly?.right?.free_text_label).toBe("treated");
+    expect(cellLabel(rOnly?.right)).toBe("treated");
     expect(rOnly?.left).toBeNull();
   });
 
@@ -143,8 +154,8 @@ describe("pairFvs — Jaccard biomaterial pairing (threshold ≥ 0.5)", () => {
     expect(pairs).toHaveLength(20);
     expect(pairs.every((p) => p.status === "same")).toBe(true);
     // Each pair should be bijective — no repeated FV on either side.
-    const usedLeft = new Set(pairs.map((p) => p.left?.free_text_label));
-    const usedRight = new Set(pairs.map((p) => p.right?.free_text_label));
+    const usedLeft = new Set(pairs.map((p) => cellLabel(p.left)));
+    const usedRight = new Set(pairs.map((p) => cellLabel(p.right)));
     expect(usedLeft.size).toBe(20);
     expect(usedRight.size).toBe(20);
   });

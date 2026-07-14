@@ -32,6 +32,7 @@ import {
 } from "react";
 import { cn } from "@/lib/cn";
 import { Term } from "@/components/ui/Term";
+import { StatementSequence } from "@/components/ui/StatementSequence";
 import { useToast } from "@/components/ui/Toast";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { FindingReasoningPanel } from "./findingReasoningPanel";
@@ -617,8 +618,75 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // the established convention (TagReviewCard,
                   // ProposalSidebarPanel) and isn't subject to that
                   // critique.
+                  // Statement-shaped tag (calibration_tag_match_near,
+                  // 2026-07-13): when the finding carries structured
+                  // statements with real S-P-O detail, render the
+                  // subject·predicate·object sequence IN PLACE OF the
+                  // bare value chip — not appended. Appending duplicated
+                  // the gene (value AND statement subject) and overflowed
+                  // the row (reverted prototype). The subject carries the
+                  // concept the value chip would have shown, so replacing
+                  // is lossless. A plain tag (no statement detail) keeps
+                  // the value-only render.
+                  const tagStatements = (
+                    finding.proposer_statements ?? []
+                  ).filter((s) => s.subject?.label);
+                  const hasStatementDetail = tagStatements.some(
+                    (s) => !!s.predicate?.label || !!s.object?.label,
+                  );
+                  // Near-match header shows the PROPOSAL, not the current
+                  // tag. The card is about adopting the proposal
+                  // ("Adopt proposal: mdx"), so a value-concept near-match
+                  // (strain: C57BL/10 → mdx) should read ``strain : mdx``
+                  // in the title, not the current ``C57BL/10``. The
+                  // Current↔Proposed delta still lives in the expanded
+                  // TagDetailBlock. Statement near-matches already render
+                  // the proposed statement (subject is the proposal), so
+                  // this only swaps the value/category for the non-
+                  // statement case. Paul 2026-07-13.
+                  if (
+                    finding.issue_code === "calibration_tag_match_near" &&
+                    !hasStatementDetail
+                  ) {
+                    const aa = finding.apply_action as
+                      | {
+                          new_value?: unknown;
+                          new_value_uri?: unknown;
+                          new_category?: unknown;
+                          new_category_uri?: unknown;
+                        }
+                      | null
+                      | undefined;
+                    const proposedValLabel =
+                      finding.proposer_term?.label ||
+                      (typeof aa?.new_value === "string" ? aa.new_value : "");
+                    if (proposedValLabel) {
+                      valLabel = proposedValLabel;
+                      valUri =
+                        finding.proposer_term?.uri ??
+                        (typeof aa?.new_value_uri === "string"
+                          ? aa.new_value_uri
+                          : null);
+                    }
+                    // Swap the category too when the proposal moves it.
+                    const proposedCatLabel =
+                      typeof aa?.new_category === "string"
+                        ? aa.new_category
+                        : "";
+                    if (
+                      proposedCatLabel &&
+                      proposedCatLabel.trim().toLowerCase() !==
+                        (catLabel ?? "").trim().toLowerCase()
+                    ) {
+                      catLabel = proposedCatLabel;
+                      catUri =
+                        typeof aa?.new_category_uri === "string"
+                          ? aa.new_category_uri
+                          : null;
+                    }
+                  }
                   return (
-                    <span className="inline-flex items-baseline gap-x-1 mr-1 min-w-0">
+                    <span className="inline-flex items-baseline gap-x-1 mr-1 min-w-0 flex-wrap">
                       <span className="text-slate-500 dark:text-slate-400">
                         —
                       </span>
@@ -636,13 +704,38 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                           </span>
                         </>
                       ) : null}
-                      <Term
-                        uri={valUri}
-                        asLink={false}
-                        className="!whitespace-normal break-words"
-                      >
-                        {valLabel}
-                      </Term>
+                      {hasStatementDetail ? (
+                        tagStatements.map((s, i) => (
+                          <span
+                            key={i}
+                            className="inline-flex items-baseline gap-x-1"
+                          >
+                            {i > 0 ? (
+                              <span className="text-slate-400 dark:text-slate-500 select-none">
+                                ;
+                              </span>
+                            ) : null}
+                            <StatementSequence
+                              subject={s.subject}
+                              pairs={[
+                                { predicate: s.predicate, object: s.object },
+                              ]}
+                              separator="·"
+                              separatorClassName="text-slate-400 dark:text-slate-600 select-none"
+                              predicateClassName="italic text-slate-500 dark:text-slate-400 font-normal"
+                              asLink={false}
+                            />
+                          </span>
+                        ))
+                      ) : (
+                        <Term
+                          uri={valUri}
+                          asLink={false}
+                          className="!whitespace-normal break-words"
+                        >
+                          {valLabel}
+                        </Term>
+                      )}
                     </span>
                   );
                 }

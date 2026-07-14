@@ -53,6 +53,12 @@ export default defineConfig(({ mode }) => {
     env.GEMMA_CURATION_API_KEY || "dev-token-123";
   const PROPOSER_URL =
     env.GEMMA_PROPOSER_URL || "http://localhost:8090";
+  // Read-only Gemma REST source for the study-preview spike. Points at
+  // a host sidecar (curation-agents-eval scripts/gemma_ro_proxy.py) that
+  // injects basic auth from the macOS keychain in memory — no creds in
+  // this config or the container. Sidecar proxies GET /datasets/* only.
+  const GEMMA_RO_PROXY =
+    env.GEMMA_RO_PROXY_URL || "http://host.docker.internal:8199";
   // Ontology-search routing exception (temporary, 2026-05-23).
   // ``/rest/v2/annotations/search`` + ``/rest/v2/annotations/term``
   // hit Gemma's ontology indexes. The local Gemma 2.0 stack
@@ -226,6 +232,13 @@ export default defineConfig(({ mode }) => {
               );
             });
           },
+        },
+        // Read-only Gemma REST (study preview) → host sidecar; strips
+        // the /gemma-ro prefix so the sidecar sees /datasets/{acc}.
+        "/gemma-ro": {
+          target: GEMMA_RO_PROXY,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/gemma-ro/, ""),
         },
         "/rest": {
           target: CURATION_URL,

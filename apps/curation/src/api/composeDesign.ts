@@ -102,12 +102,22 @@ interface LegacyBiomaterial {
     name?: string | null;
   }>;
   source_biomaterial_id?: number | null;
+  /** Raw per-sample GEO MINiML free-text (treatment/growth/extract
+   *  protocol, source_name, title…). Emitted by the local API's
+   *  ``BiomaterialD.geo_fields`` (design_schemas.py) and snakeified by
+   *  the client; forwarded to the popover's "From GEO — raw" section. */
+  geo_fields?: Record<string, string>;
 }
 
 export interface G2Design {
   id?: number;
   name?: string | null;
   description?: string | null;
+  /** GEO series "Overall design" free-text, kept separate from the
+   *  abstract/summary in ``description`` (local_api Design.overall_design;
+   *  snakeified from ``overallDesign``). Surfaced once in the UI's
+   *  "design (GEO)" row. */
+  overall_design?: string | null;
   experimental_factors?: G2ExperimentalFactor[];
   bio_material_assignments?: G2BioMaterialAssignment[];
   /** Legacy field — the local API emits it alongside
@@ -280,6 +290,7 @@ export function composeCurationDesign(
           )
           .map((a) => ({ short_name: a.short_name, name: a.name ?? "" })),
         source_biomaterial_id: legacy?.source_biomaterial_id ?? null,
+        geo_fields: legacy?.geo_fields,
       };
     },
   );
@@ -309,6 +320,7 @@ export function composeCurationDesign(
     external_source: externalSource ?? null,
     title: g2.name ?? undefined,
     description: g2.description ?? undefined,
+    overall_design: g2.overall_design ?? undefined,
     taxon: meta?.taxon_common_name ?? "",
     technology_type: meta?.technology_type ?? "",
     assay: meta?.assay ?? "",

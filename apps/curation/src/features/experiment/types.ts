@@ -255,6 +255,10 @@ export interface Design {
   // the experiment-banner display.
   title?: string;
   description?: string;
+  /** GEO series "Overall design" free-text — raw, not curated. Kept
+   *  separate from ``description`` (the abstract) so the UI shows it
+   *  exactly once, in the "design (GEO)" row. */
+  overall_design?: string;
   taxon?: string;
   assay?: string;
   /** Gemma's authoritative technology classifier from

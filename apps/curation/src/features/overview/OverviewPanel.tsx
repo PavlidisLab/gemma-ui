@@ -77,6 +77,50 @@ import {
  * here so the curator has somewhere to read the abstract before
  * digging into the design.
  */
+
+/** Legacy fallback: older stored designs FOLDED the GEO series overall
+ *  design into ``description`` as a ``\n\nOverall design: …`` tail (before
+ *  it moved to its own ``overall_design`` field). Pull it back out for
+ *  those. Returns "" when no such section is present. New ingests /
+ *  re-imported packs carry ``meta.overall_design`` directly and never hit
+ *  this. */
+export function overallDesignFromDescription(desc: string | null | undefined): string {
+  if (!desc) return "";
+  const m = desc.match(/Overall design:\s*([\s\S]*)$/i);
+  return m ? m[1].trim() : "";
+}
+
+/** GEO per-sample protocol fields that are experiment-wide facts when
+ *  they're identical across every sample (e.g. GSE99114's growth_protocol
+ *  "immunized with MOG35-55/CFA to induce EAE" — the load-bearing disease
+ *  induction). Mirrors preboarding's ``_GEO_COLLAPSIBLE_FIELDS``. Order =
+ *  render order. */
+const GEO_CONSTANT_PROTOCOLS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "growth_protocol", label: "growth (GEO)" },
+  { key: "treatment_protocol", label: "treatment (GEO)" },
+  { key: "extract_protocol", label: "extract (GEO)" },
+];
+
+/** Collect the protocol fields that carry the SAME non-empty value on
+ *  every biomaterial — those are really whole-experiment context that GEO
+ *  buried in per-sample free-text. A field that varies across samples is
+ *  genuinely per-sample and stays in the sample popover only. */
+export function constantGeoProtocols(
+  biomaterials: ReadonlyArray<{ geo_fields?: Record<string, string> }> | undefined,
+): Array<{ label: string; text: string }> {
+  const bms = biomaterials ?? [];
+  if (bms.length === 0) return [];
+  const out: Array<{ label: string; text: string }> = [];
+  for (const { key, label } of GEO_CONSTANT_PROTOCOLS) {
+    const values = bms.map((b) => (b.geo_fields ?? {})[key]?.trim() ?? "");
+    const first = values[0];
+    if (first && values.every((v) => v === first)) {
+      out.push({ label, text: first });
+    }
+  }
+  return out;
+}
+
 export function OverviewPanel() {
   const live = useDesignDraft();
   const apply = live.apply;
@@ -281,28 +325,40 @@ export function OverviewPanel() {
             />
           ) : null}
           <KV k="loaded at" v={formatTimestamp(meta?.loaded_at) || "—"} />
-          {meta?.description ? (
-            <KV
-              k="design (GEO)"
-              v={
-                <Tooltip
-                  label={
-                    <div className="max-w-md max-h-80 overflow-auto whitespace-pre-wrap text-left">
-                      {meta.description}
-                    </div>
+          {(() => {
+            const overallDesign =
+              (meta?.overall_design ?? "").trim() ||
+              overallDesignFromDescription(meta?.description);
+            const rows: Array<{ label: string; text: string }> = [];
+            if (overallDesign) rows.push({ label: "design (GEO)", text: overallDesign });
+            rows.push(...constantGeoProtocols(meta?.biomaterials));
+            return rows.map(({ label, text }) => {
+              const oneLine = text.replace(/\s+/g, " ").trim();
+              return (
+                <KV
+                  key={label}
+                  k={label}
+                  v={
+                    <Tooltip
+                      label={
+                        <div className="max-w-md max-h-80 overflow-auto whitespace-pre-wrap text-left">
+                          {text}
+                        </div>
+                      }
+                    >
+                      <span className="cursor-help text-slate-700">
+                        {oneLine.slice(0, 72)}
+                        {oneLine.length > 72 ? "…" : ""}
+                        <span className="ml-1 text-[10px] italic text-slate-400">
+                          from GEO — hover
+                        </span>
+                      </span>
+                    </Tooltip>
                   }
-                >
-                  <span className="cursor-help text-slate-700">
-                    {meta.description.replace(/\s+/g, " ").trim().slice(0, 72)}
-                    {meta.description.length > 72 ? "…" : ""}
-                    <span className="ml-1 text-[10px] italic text-slate-400">
-                      from GEO — hover
-                    </span>
-                  </span>
-                </Tooltip>
-              }
-            />
-          ) : null}
+                />
+              );
+            });
+          })()}
         </SummaryCard>
 
         {/* Cohort card removed 2026-04-30 — its four counts were

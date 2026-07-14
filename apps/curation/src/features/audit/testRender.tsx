@@ -28,7 +28,7 @@ import type { Design } from "@/features/experiment/types";
 import { AuditContext, type AuditContextValue } from "./AuditContext";
 import { DesignDraftContext } from "@/features/design/DesignDraftContext";
 import type { DesignDraftValue } from "@/features/design/DesignDraftContext";
-import { ToastContext } from "@/components/ui/Toast";
+import { ToastContext, type ToastContextValue } from "@/components/ui/Toast";
 
 /** Build a stub audit-context value populated enough for finding-
  *  card render paths. Anything else stays at a typed zero-value
@@ -123,14 +123,14 @@ export function makeDraftCtx(
 
 /** Minimal toast stub — captures the call so a test can assert on it. */
 export function makeToastCtx() {
-  const show = vi.fn();
+  const show = vi.fn<ToastContextValue["show"]>();
   return { show };
 }
 
 interface RenderWithProvidersOptions extends RenderOptions {
   audit?: AuditContextValue;
   draft?: DesignDraftValue;
-  toast?: { show: ReturnType<typeof vi.fn> };
+  toast?: ToastContextValue;
 }
 
 /** Mount a component inside the (audit, draft, toast) provider stack

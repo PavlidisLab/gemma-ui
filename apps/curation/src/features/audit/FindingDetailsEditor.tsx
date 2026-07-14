@@ -36,15 +36,14 @@
  */
 
 import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { sameOntologyTerm, capitalizeCategory } from "@/lib/ontologyTerm";
 import { useToast } from "@/components/ui/Toast";
 import { Term, termRenderer } from "@/components/ui/Term";
+import { StatementSequence } from "@/components/ui/StatementSequence";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
-  CONTINUATION,
   FactorComparisonGrid,
   type FactorComparisonPair,
 } from "./factorComparison/FactorComparisonGrid";
@@ -72,6 +71,7 @@ import type {
   Factor,
   FactorValue,
   Statement,
+  Tag,
 } from "@/features/experiment/types";
 import type { FactorValueProposal } from "@/api/types";
 import {
@@ -559,6 +559,70 @@ export function buildFactorRows(
   return { rows, fvMeta };
 }
 
+/** Statement-delta rows for a tag near-match (calibration_tag_match_near,
+ *  2026-07-13). The proposer proposes structured statements
+ *  (subject·predicate·object — e.g. a bare ``genotype: Utrn`` gains
+ *  ``Utrn · has_genotype · Heterozygous``); the curator needs the same
+ *  Current-vs-Proposed delta the FV path shows, not just the proposed
+ *  statement on the header. Mirrors the FV statement-part builder: one
+ *  Subject / Predicate / Object row for the primary statement, pairing
+ *  the proposed statement against the matched tag's current statement.
+ *
+ *  Only fires when the proposal carries real S-P-O detail (a predicate
+ *  or object) — a plain / subject-only tag has no statement delta and
+ *  keeps the Category / Value rows alone. */
+function tagStatementRows(
+  finding: AuditFinding,
+  currentTag: Tag | null,
+): Row[] {
+  const proposed = (finding.proposer_statements ?? []).filter(
+    (s) => s.subject?.label,
+  );
+  const hasDetail = proposed.some(
+    (s) => !!s.predicate?.label || !!s.object?.label,
+  );
+  if (!hasDetail) return [];
+  // Primary statement only — tags follow the one-tag-per-gene
+  // convention, and the FV path likewise compares ``statements[0]``.
+  const proposedStmt = proposed[0] as unknown as Statement;
+  const currentStmt = (currentTag?.statements ?? [])[0] ?? null;
+  const rows: Row[] = [];
+  const partOrder: Array<"subject" | "predicate" | "object"> = [
+    "subject",
+    "predicate",
+    "object",
+  ];
+  for (const part of partOrder) {
+    const proposal = statementPart(proposedStmt, part);
+    let currently: SideValue = currentStmt
+      ? statementPart(currentStmt, part)
+      : { label: "", uri: null };
+    // Current bare tag (no statements): its subject IS its value
+    // ("Subject = value" wire contract). Fall back so the Subject row
+    // shows the existing concept rather than reading as brand-new.
+    if (part === "subject" && isSideEmpty(currently) && currentTag) {
+      currently = {
+        label: currentTag.value?.label || "",
+        uri: currentTag.value?.uri ?? null,
+      };
+    }
+    if (part !== "subject") {
+      if (isSideEmpty(proposal) && isSideEmpty(currently)) continue;
+    }
+    rows.push({
+      path: `tag.statements[0].${part}`,
+      rowLabel: part[0].toUpperCase() + part.slice(1),
+      proposal,
+      currently,
+      reference: null,
+      fvIndex: null,
+      statementIndex: 0,
+      allAgree: rowAgreement(proposal, currently, null),
+    });
+  }
+  return rows;
+}
+
 export function buildTagRows(finding: AuditFinding, design: Design | null): Row[] {
   // Recognised prefixes:
   //   - ``calibration:<bucket>:<category>/<value>`` — real calibration
@@ -588,10 +652,22 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
       parsedSwap?.kind === "tag" && /^\d+$/.test(parsedSwap.categorySlug)
         ? Number(parsedSwap.categorySlug)
         : null;
-    const baseline =
+    let baseline =
       replacedId != null
         ? swapTags.find((t) => t.id === replacedId) ?? null
         : null;
+    // Slug-shaped target_id (``tag:<cat>/<val>``) — the statement
+    // near-match addresses the existing tag by category/value slug, not
+    // a numeric id. Resolve it the same way applyHandlers does so the
+    // Current column + statement delta populate.
+    if (!baseline && parsedSwap?.kind === "tag" && parsedSwap.valueSlug) {
+      baseline =
+        swapTags.find(
+          (t) =>
+            slug(t.category?.label) === parsedSwap.categorySlug &&
+            slug(t.value?.label) === parsedSwap.valueSlug,
+        ) ?? null;
+    }
     if (baseline) {
       const swapTerm = finding.proposer_term ?? null;
       const a = apply as {
@@ -651,6 +727,7 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
           statementIndex: null,
           allAgree: rowAgreement(valueProposal, valueCurrently, null),
         },
+        ...tagStatementRows(finding, baseline),
       ];
     }
     // No baseline tag found — bare ``--gses`` build without the gold
@@ -780,6 +857,7 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
       statementIndex: null,
       allAgree: rowAgreement(valueProposal, valueCurrently, null),
     },
+    ...tagStatementRows(finding, matchedTag),
   ];
 }
 
@@ -4489,15 +4567,31 @@ function TagDetailBlock({
 }) {
   const catRow = rows.find((r) => r.rowLabel === "Category");
   const valRow = rows.find((r) => r.rowLabel === "Value");
+  // Statement-delta rows (tag near-match) — when present, each side
+  // renders its subject·predicate·object IN PLACE OF the bare value,
+  // exactly as the finding-card header does. That surfaces the
+  // Current-vs-Proposed statement delta (e.g. Proposer adds
+  // ``· has_genotype · Heterozygous`` that Current lacks).
+  const subjRow = rows.find((r) => r.rowLabel === "Subject");
+  const predRow = rows.find((r) => r.rowLabel === "Predicate");
+  const objRow = rows.find((r) => r.rowLabel === "Object");
   if (!catRow && !valRow) return null;
   function renderSide(side: "proposal" | "currently"): JSX.Element {
     const pick = (r: Row | undefined): SideValue | null =>
       r ? (side === "proposal" ? r.proposal : r.currently) : null;
     const cat = pick(catRow);
     const val = pick(valRow);
+    const subj = pick(subjRow);
+    const pred = pick(predRow);
+    const obj = pick(objRow);
+    // This side carries structured statement detail iff it has a
+    // predicate or object — then render the statement instead of the
+    // value chip (no subject/value duplication). A side without detail
+    // (a bare tag) keeps the value chip.
+    const sideHasStatement = !!(pred?.label || obj?.label) && !!subj?.label;
     const catEmpty = !cat || !cat.label;
     const valEmpty = !val || !val.label;
-    if (catEmpty && valEmpty) {
+    if (catEmpty && valEmpty && !sideHasStatement) {
       return <span className="italic text-slate-400">no entry</span>;
     }
     return (
@@ -4514,7 +4608,27 @@ function TagDetailBlock({
           <span className="italic text-slate-400">(missing category)</span>
         )}
         <span className="text-slate-400 dark:text-slate-500">:</span>
-        {!valEmpty ? (
+        {sideHasStatement ? (
+          <span className="inline-flex items-baseline gap-x-1.5">
+            <StatementSequence
+              subject={{ label: subj!.label, uri: subj!.uri ?? null }}
+              pairs={[
+                {
+                  predicate: pred?.label
+                    ? { label: pred.label, uri: pred.uri ?? null }
+                    : null,
+                  object: obj?.label
+                    ? { label: obj.label, uri: obj.uri ?? null }
+                    : null,
+                },
+              ]}
+              separator="·"
+              separatorClassName="text-slate-400 dark:text-slate-600 select-none"
+              predicateClassName="italic text-slate-500 dark:text-slate-400 font-normal"
+              asLink={false}
+            />
+          </span>
+        ) : !valEmpty ? (
           <Term
             uri={val!.uri ?? null}
             asLink={false}

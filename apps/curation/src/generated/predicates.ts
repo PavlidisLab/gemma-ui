@@ -42,7 +42,6 @@ export const PREDICATES: readonly PredicateDef[] = [
   { label: "negative for product of gene", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00170", description: "Marker-negative cell type/line." },
   { label: "sampled after", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00202", description: "Timepoint sampled after a treatment / disease event." },
   { label: "toward", uri: "http://purl.obolibrary.org/obo/RO_0002503", description: "Direction of a phenotype response. E.g. response to + toward + treatment." },
-  { label: "targeted towards", uri: null, description: "A cell-type/tissue-TARGETED perturbation (conditional/Cre-lox KO, cell-type-specific knockdown, tissue-specific overexpression) is restricted to / directed at a specific cell type or tissue. SUBJECT = the perturbed gene; OBJECT = the grounded CL (cell type) or UBERON (tissue) target, e.g. S1pr1 + targeted towards + astrocyte [CL_0000127]. The target is INDEPENDENT of the experiment's profiled cell type. TODO: predicate URI (RO vs mint TGEMO) - no existing RO relation cleanly means 'perturbation restricted to cell type' (RO_0002503 'towards' is for relational qualities; RO_0001025 'located in' would wrongly assert the gene's anatomical location); URI left pending - the load-bearing win is the grounded CL/UBERON object, not the predicate URI." },
 ] as const;
 
 export const KNOWN_PREDICATE_URIS: ReadonlySet<string> = new Set(
@@ -54,3 +53,17 @@ export const KNOWN_PREDICATE_URIS: ReadonlySet<string> = new Set(
 export const OBJECT_VOCABULARY_URIS: Readonly<Record<string, readonly string[]>> = {
   "baseline_role": ["http://purl.obolibrary.org/obo/OBI_0000025", "http://purl.obolibrary.org/obo/OBI_0000220", "http://purl.obolibrary.org/obo/PATO_0000383", "http://www.ebi.ac.uk/efo/EFO_0001461", "http://www.ebi.ac.uk/efo/EFO_0004425", "http://www.ebi.ac.uk/efo/EFO_0005168"],
 };
+
+// Sanctioned allele-STATE genotype objects (has_genotype), from
+// design_constants.GENOTYPE_OBJECT_VOCAB. Bare `Heterozygous` is
+// intentionally absent — the object needs allele identity (`mHTT/+`)
+// or an allele-state term. The genotype statement templates key off
+// this so the picker can't drift from the agent's grounding.
+export interface GenotypeObjectTerm { label: string; uri: string; }
+export const GENOTYPE_OBJECT_TERMS: readonly GenotypeObjectTerm[] = [
+  { label: "Constitutive active mutation", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00008" },
+  { label: "Double-copy overexpression", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00006" },
+  { label: "Homozygous negative", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00001" },
+  { label: "Overexpression", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00004" },
+  { label: "Single-copy overexpression", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00005" },
+] as const;

@@ -272,3 +272,116 @@ describe("CompactFindingCard — cross-baseline match-downgrade (GSE110721 bug s
     expect(screen.getByText(titleMatcher("Tag match"))).toBeInTheDocument();
   });
 });
+
+describe("CompactFindingCard — tag statement rendering (calibration_tag_match_near)", () => {
+  // A tag near-match whose statements moved renders the proposed
+  // subject·predicate·object IN PLACE OF the bare value chip — not
+  // appended (the reverted 2026-07-13 prototype duplicated the gene:
+  // "Utrn protein · Utrn · has_genotype · Heterozygous", which
+  // overflowed). TAG_STATEMENT_APPLY_AND_RENDER_UI_2026_07_13.md.
+  it("shows the S·P·O sequence and does NOT duplicate the value label", () => {
+    const finding = tagFinding({
+      issue_code: "calibration_tag_match_near",
+      // Slug matches the draft tag (category "genotype", value
+      // "Utrn protein" → "utrn-protein") so the live label/URI resolve.
+      target_id: "tag:genotype/utrn-protein",
+      proposer_term: { label: "Utrn", uri: "http://gene/Utrn" },
+      proposer_statements: [
+        {
+          category: { label: "genotype", uri: null },
+          subject: { label: "Utrn", uri: "http://gene/Utrn" },
+          predicate: { label: "has_genotype", uri: "http://TGEMO/00166" },
+          object: { label: "Heterozygous", uri: "http://TGEMO/00003" },
+        },
+      ],
+    } as unknown as AuditFinding);
+    const draft = draftWithTag("genotype", "Utrn protein");
+    renderWithProviders(<CompactFindingCard finding={finding} />, {
+      audit: makeAuditCtx({ findings: [finding] }),
+      draft: makeDraftCtx(draft),
+    });
+    // Statement parts render.
+    expect(screen.getByText("has_genotype")).toBeInTheDocument();
+    expect(screen.getByText("Heterozygous")).toBeInTheDocument();
+    // Category still shows.
+    expect(screen.getByText("genotype")).toBeInTheDocument();
+    // The value chip ("Utrn protein") is REPLACED by the statement, so
+    // the full value label does not appear — no duplicate gene render.
+    expect(screen.queryByText("Utrn protein")).toBeNull();
+  });
+
+  it("shows the S·P·O on a statement-bearing ADD TAG (calibration_agent_extra), value not duplicated", () => {
+    // TAG_STATEMENT_ADD_TAG_APPLY_BUG_2026_07_13.md facet 2 — a genuinely
+    // new statement-bearing tag (Dmd) renders the same S·P·O the
+    // near-match gets, not a bare gene chip.
+    const finding = tagFinding({
+      issue_code: "calibration_agent_extra",
+      target_id: "tag:genotype/dmd",
+      proposer_term: { label: "Dmd", uri: "http://ncbi_gene/13405" },
+      proposer_statements: [
+        {
+          category: { label: "genotype", uri: null },
+          subject: { label: "Dmd", uri: "http://ncbi_gene/13405" },
+          predicate: { label: "has_genotype", uri: "http://TGEMO/00166" },
+          object: { label: "mdx", uri: null },
+        },
+      ],
+    } as unknown as AuditFinding);
+    // Dmd is a NEW tag — the draft doesn't carry it.
+    renderWithProviders(<CompactFindingCard finding={finding} />, {
+      audit: makeAuditCtx({ findings: [finding] }),
+      draft: makeDraftCtx(emptyDraft()),
+    });
+    expect(screen.getByText("has_genotype")).toBeInTheDocument();
+    expect(screen.getByText("mdx")).toBeInTheDocument();
+  });
+
+  it("shows the PROPOSED value in the header for a value-concept near-match (strain → mdx)", () => {
+    // Paul 2026-07-13: a value near-match card is about adopting the
+    // proposal, so the title should read the proposed value (mdx), not
+    // the current tag (C57BL/10). No statements on this one.
+    const finding = tagFinding({
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:strain/c57bl/10",
+      proposer_term: {
+        label: "mdx",
+        uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00180",
+      },
+      apply_action: {
+        kind: "replace_tag",
+        new_value: "mdx",
+        new_value_uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00180",
+        new_category: null,
+      },
+    } as unknown as AuditFinding);
+    const draft = draftWithTag("strain", "C57BL/10");
+    renderWithProviders(<CompactFindingCard finding={finding} />, {
+      audit: makeAuditCtx({ findings: [finding] }),
+      draft: makeDraftCtx(draft),
+    });
+    // Header shows the proposal, not the current value.
+    expect(screen.getByText("mdx")).toBeInTheDocument();
+    expect(screen.queryByText("C57BL/10")).toBeNull();
+    // Category (unchanged) still shows.
+    expect(screen.getByText("strain")).toBeInTheDocument();
+  });
+
+  it("renders value-only for a plain tag near-match with no statement detail", () => {
+    // A near-match carrying subject-only statements (no predicate /
+    // object) has nothing structured to show → falls back to the
+    // value chip, unchanged.
+    const finding = tagFinding({
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:cell-type/astrocyte",
+      proposer_statements: [
+        { category: null, subject: { label: "astrocyte", uri: null } },
+      ],
+    } as unknown as AuditFinding);
+    const draft = draftWithTag("cell type", "astrocyte");
+    renderWithProviders(<CompactFindingCard finding={finding} />, {
+      audit: makeAuditCtx({ findings: [finding] }),
+      draft: makeDraftCtx(draft),
+    });
+    expect(screen.getByText("astrocyte")).toBeInTheDocument();
+  });
+});

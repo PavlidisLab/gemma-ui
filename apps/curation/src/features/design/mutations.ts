@@ -1282,6 +1282,38 @@ export function setTagStatements(
   };
 }
 
+/**
+ * Modify an existing tag in place — replace-with-proposed. Overwrites
+ * only the fields the caller passes (preserving the tag's id + the
+ * fields left ``undefined``). Backs the ``replace_tag`` apply for a
+ * ``calibration_tag_match_near`` finding: a proposed tag that matches
+ * an existing one but differs on category / value concept OR on its
+ * structured statements (e.g. a bare ``genotype: Utrn`` gaining
+ * ``Utrn · has_genotype · Heterozygous``).
+ *
+ * Composes the existing single-field setters so the id-preserving map
+ * logic + the "empty statements → flat characteristic" rule live in
+ * one place each. Passing ``statements`` (even ``[]``) replaces the
+ * tag's statement set wholesale; omitting it leaves the existing
+ * statements untouched.
+ */
+export function modifyTag(
+  design: Design,
+  tagId: number,
+  fields: {
+    category?: OntologyTerm;
+    value?: OntologyTerm;
+    statements?: Statement[];
+  },
+): Design {
+  let next = design;
+  if (fields.category) next = setTagCategory(next, tagId, fields.category);
+  if (fields.value) next = setTagValue(next, tagId, fields.value);
+  if (fields.statements !== undefined)
+    next = setTagStatements(next, tagId, fields.statements);
+  return next;
+}
+
 // ---------------------------------------------------------------------------
 // Top-level Design metadata (Overview tab)
 // ---------------------------------------------------------------------------

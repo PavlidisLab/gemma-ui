@@ -162,6 +162,19 @@ export interface FindingActionLabelContext {
   goldEmpty?: boolean;
 }
 
+/** A ``calibration_tag_match_near`` whose VALUE or CATEGORY moved — the
+ *  concept was REPLACED (e.g. ``strain: C57BL/10`` → ``mdx``, an ontology
+ *  child), not merely refined with a statement. Paul 2026-07-13: an entire
+ *  value swap is a "tag change" (a Current→Proposed delta), NOT a near-match;
+ *  a near-match is the same tag with a statement refinement. Discriminates on
+ *  the ``apply_action`` the store already ships (``new_value``/``new_category``
+ *  present ⇒ concept moved; statements-only ⇒ true near-match). */
+export function isTagConceptChange(finding: AuditFinding): boolean {
+  const aa = finding.apply_action;
+  if (!aa || aa.kind !== "replace_tag") return false;
+  return !!(aa.new_value || aa.new_category);
+}
+
 export function findingActionLabel(
   finding: AuditFinding,
   ctx?: FindingActionLabelContext,
@@ -193,7 +206,8 @@ export function findingActionLabel(
     }
     if (ak === "near") {
       if (goldEmpty) return isTag ? "Add tag" : "Add factor";
-      return isTag ? "Tag near-match" : "Factor near-match";
+      if (isTag) return isTagConceptChange(finding) ? "Tag change" : "Tag near-match";
+      return "Factor near-match";
     }
     if (ak === "partition_mismatch") return "Modify factor values";
     if (ak === "extra") return isTag ? "Add tag" : "Add factor";
@@ -211,7 +225,8 @@ export function findingActionLabel(
   // tag fell through to the generic "TAG" title (Paul 2026-06-19:
   // "it doesn't even say add or remove").
   if (code === "calibration_tag_match_near") {
-    return goldEmpty ? "Add tag" : "Tag near-match";
+    if (goldEmpty) return "Add tag";
+    return isTagConceptChange(finding) ? "Tag change" : "Tag near-match";
   }
   if (code === "calibration_tag_match_exact" || code === "calibration_tag_match") {
     return goldEmpty ? "Add tag" : "Tag match";

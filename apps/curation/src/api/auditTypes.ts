@@ -196,10 +196,13 @@ export interface AuditFinding {
   /** Structured statement(s) for the proposer's pick — populated
    *  on FV / factor-shape findings so the UI can render the same
    *  ``StatementGlyph`` (S-P-O three-disc visualisation) the
-   *  proposal card uses. Empty for tag-shape findings (the single
-   *  ``proposer_term`` is enough; tags only have one slot) and on
-   *  older reports that pre-date the field. See
-   *  ``AUDIT_PROPOSER_STATEMENTS_HANDOFF.md``. */
+   *  proposal card uses. Also populated on ``calibration_tag_match_near``
+   *  tag findings whose statements moved (2026-07-13): the finding
+   *  card renders these as subject·predicate·object in place of the
+   *  bare value chip. Empty on plain tag findings (the single
+   *  ``proposer_term`` is enough) and on older reports that pre-date
+   *  the field. See ``AUDIT_PROPOSER_STATEMENTS_HANDOFF.md`` /
+   *  ``TAG_STATEMENT_APPLY_AND_RENDER_UI_2026_07_13.md``. */
   proposer_statements?: StatementProposal[];
   /** Defender-style "second opinion" attached to the finding when
    *  the audit ran a defender pass against this target. Populated on
@@ -464,10 +467,43 @@ export type ApplyActionPayload =
       /** Optional URI for the value when the agent grounded it.
        *  Falls back to ``proposer_term.uri`` at apply time. */
       new_value_uri?: string | null;
+      /** Structured statements for a genuinely NEW statement-bearing
+       *  tag (e.g. adding ``genotype: Dmd`` with ``Dmd · has_genotype
+       *  · mdx``). Same ``StatementProposal`` wire shape FVs use. On
+       *  accept the UI attaches these to the created tag so the design
+       *  editor can show + edit them. Distinct from the reverted
+       *  attempt to route EXISTING-tag statement mods through
+       *  ``add_tag`` (those stay on ``replace_tag``): this is add-of-new
+       *  only. See TAG_STATEMENT_ADD_TAG_APPLY_BUG_2026_07_13.md. */
+      statements?: StatementProposal[] | null;
     }
   | {
-      /** Forward-compat placeholder so non-add_tag shapes type-narrow
-       *  cleanly when they ship. */
+      /** General "modify the target tag" (2026-07-13, tag near-match).
+       *  Started life as a same-concept URI swap; now also the apply
+       *  for ``calibration_tag_match_near`` — a proposed tag that
+       *  matches an existing one but differs on category / value
+       *  concept OR on its structured statements. On accept the UI
+       *  overwrites whichever of these fields are present onto the
+       *  matched design tag (replace-with-proposed, spec §7). */
+      kind: "replace_tag";
+      /** New category label — omit / null to keep the target tag's
+       *  existing category (statement-only near-match). */
+      new_category?: string | null;
+      new_category_uri?: string | null;
+      /** New value label — omit / null to keep the existing value. */
+      new_value?: string | null;
+      new_value_uri?: string | null;
+      /** Proposed statements to overwrite onto the target tag. Carries
+       *  the same ``StatementProposal`` wire shape FVs already use
+       *  ({category?, subject, predicate?, object?}, each term
+       *  {label, uri}). Absent on a plain concept/category swap;
+       *  present when the near-match's statements moved (e.g. a bare
+       *  ``genotype: Utrn`` gains ``Utrn · has_genotype · Heterozygous``). */
+      statements?: StatementProposal[] | null;
+    }
+  | {
+      /** Forward-compat placeholder so shapes we don't model yet
+       *  type-narrow cleanly when they ship. */
       kind: string;
       [key: string]: unknown;
     };

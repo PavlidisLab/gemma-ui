@@ -146,7 +146,7 @@ describe("findingDisplayedGoldEmpty — factor side", () => {
       rationale: "",
     });
     const draft = makeDraft([], [
-      { category: { label: "genotype", uri: null }, factor_values: [] } as Design["factors"][number],
+      { category: { label: "genotype", uri: null }, factor_values: [] } as unknown as Design["factors"][number],
     ]);
     expect(findingDisplayedGoldEmpty(f, draft)).toBe(true);
   });
@@ -159,7 +159,7 @@ describe("findingDisplayedGoldEmpty — factor side", () => {
       rationale: "",
     });
     const draft = makeDraft([], [
-      { category: { label: "treatment", uri: null }, factor_values: [] } as Design["factors"][number],
+      { category: { label: "treatment", uri: null }, factor_values: [] } as unknown as Design["factors"][number],
     ]);
     expect(findingDisplayedGoldEmpty(f, draft)).toBe(false);
   });
@@ -178,7 +178,7 @@ describe("findingDisplayedGoldEmpty — factor side", () => {
       gold_target_index: 0,
     } as Partial<AuditFinding>);
     const draft = makeDraft([], [
-      { category: { label: "timepoint", uri: null }, factor_values: [] } as Design["factors"][number],
+      { category: { label: "timepoint", uri: null }, factor_values: [] } as unknown as Design["factors"][number],
     ]);
     expect(findingDisplayedGoldEmpty(f, draft)).toBe(false);
   });
@@ -191,7 +191,7 @@ describe("findingDisplayedGoldEmpty — factor side", () => {
       rationale: "",
     });
     const draft = makeDraft([], [
-      { category: { label: "timepoint", uri: null }, factor_values: [] } as Design["factors"][number],
+      { category: { label: "timepoint", uri: null }, factor_values: [] } as unknown as Design["factors"][number],
     ]);
     expect(findingDisplayedGoldEmpty(f, draft)).toBeNull();
   });
@@ -205,7 +205,7 @@ describe("findingDisplayedGoldEmpty — factor side", () => {
       gold_target_index: 5,
     } as Partial<AuditFinding>);
     const draft = makeDraft([], [
-      { category: { label: "timepoint", uri: null }, factor_values: [] } as Design["factors"][number],
+      { category: { label: "timepoint", uri: null }, factor_values: [] } as unknown as Design["factors"][number],
     ]);
     expect(findingDisplayedGoldEmpty(f, draft)).toBeNull();
   });
@@ -245,6 +245,30 @@ describe("findingActionLabel goldEmpty override", () => {
     const f = makeFinding({ issue_code: "calibration_tag_match_near" });
     expect(findingActionLabel(f)).toBe("Tag near-match");
     expect(findingActionLabel(f, { goldEmpty: true })).toBe("Add tag");
+  });
+
+  it('calibration_tag_match_near with a VALUE move → "Tag change" (Paul 2026-07-13: a whole value swap is a change, not a near-match)', () => {
+    const f = makeFinding({
+      issue_code: "calibration_tag_match_near",
+      apply_action: { kind: "replace_tag", new_value: "mdx" },
+    } as Partial<AuditFinding>);
+    expect(findingActionLabel(f)).toBe("Tag change");
+  });
+
+  it('calibration_tag_match_near with a CATEGORY move → "Tag change"', () => {
+    const f = makeFinding({
+      issue_code: "calibration_tag_match_near",
+      apply_action: { kind: "replace_tag", new_category: "disease model" },
+    } as Partial<AuditFinding>);
+    expect(findingActionLabel(f)).toBe("Tag change");
+  });
+
+  it('calibration_tag_match_near STATEMENT-only (no value/category move) → stays "Tag near-match"', () => {
+    const f = makeFinding({
+      issue_code: "calibration_tag_match_near",
+      apply_action: { kind: "replace_tag", statements: [] },
+    } as Partial<AuditFinding>);
+    expect(findingActionLabel(f)).toBe("Tag near-match");
   });
 
   it('calibration_tag_match_exact → "Tag match"', () => {

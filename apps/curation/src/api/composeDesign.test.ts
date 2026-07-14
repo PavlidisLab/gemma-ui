@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   composeCurationDesign,
   type CurationProposalOverlay,
+  type G2Design,
 } from "./composeDesign";
 
 /**
@@ -34,7 +35,11 @@ const G2_NO_FACTORS = {
   ],
   experimental_factors: [],
   tags: [],
-};
+  // Mirrors the real /design wire payload (nullable factor_value_ids,
+  // no bio_material_id on the assignment rows). Cast through unknown
+  // so the fixture keeps that shape without the strict G2Design type
+  // rejecting the wire-realistic nulls.
+} as unknown as G2Design;
 
 const OVERLAY_WITH_PROPOSED: CurationProposalOverlay = {
   design: {
@@ -127,7 +132,7 @@ describe("composeCurationDesign — materialise factors from proposal payload", 
       bio_material_assignments: [
         { bio_material_name: "GSEXX_bioMaterial_1|GSM001", factor_value_ids: [7777] },
       ],
-    };
+    } as unknown as G2Design;
     const design = composeCurationDesign(
       g2WithFactor,
       42,

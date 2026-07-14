@@ -255,6 +255,67 @@ describe("resolveApplyAction — ADD TAG", () => {
     expect(action?.mutates).toBe(false);
     expect(action?.label).toContain("Already in draft");
   });
+
+  it("attaches apply_action.statements to a genuinely-new statement-bearing tag (Dmd add)", () => {
+    // TAG_STATEMENT_ADD_TAG_APPLY_BUG_2026_07_13.md — accepting an
+    // add_tag that carries statements must materialise the statement on
+    // the new tag, not a bare gene tag. This is add-of-new (Dmd not in
+    // the design), NOT the reverted existing-tag-mod-through-add_tag.
+    const dmdStmt = {
+      category: { label: "genotype", uri: null },
+      subject: { label: "Dmd", uri: "http://ncbi_gene/13405" },
+      predicate: { label: "has_genotype", uri: "http://TGEMO/00166" },
+      object: { label: "mdx", uri: null },
+    };
+    const d = design({ tags: [] });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_agent_extra",
+      target_id: "tag:genotype/dmd",
+      proposer_term: {
+        label: "Dmd",
+        uri: "http://ncbi_gene/13405",
+        resolver: null,
+        score: null,
+      },
+      proposer_statements: [dmdStmt] as never,
+      apply_action: {
+        kind: "add_tag",
+        new_category: "genotype",
+        new_value: "Dmd",
+        new_value_uri: "http://ncbi_gene/13405",
+        statements: [dmdStmt],
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    expect(next.tags).toHaveLength(1);
+    const t = next.tags[0];
+    expect(t.value.label).toBe("Dmd");
+    expect(t.statements).toHaveLength(1);
+    expect(t.statements![0].subject.label).toBe("Dmd");
+    expect(t.statements![0].predicate?.label).toBe("has_genotype");
+    expect(t.statements![0].object?.label).toBe("mdx");
+  });
+
+  it("adds a bare tag when the add carries no statements (unchanged)", () => {
+    const d = design({ tags: [] });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "missing_tag",
+      target_id: "tag:disease/diabetes",
+      apply_action: {
+        kind: "add_tag",
+        new_category: "disease",
+        new_value: "diabetes",
+        new_value_uri: "EFO:0001360",
+      },
+    });
+    const action = resolveApplyAction(f, { design: d });
+    const next = action!.mutate!(d);
+    expect(next.tags[0].statements).toBeUndefined();
+  });
 });
 
 describe("resolveApplyAction — SWAP TAG (replace_tag)", () => {
@@ -417,6 +478,291 @@ describe("resolveApplyAction — SWAP TAG (replace_tag)", () => {
     } else {
       expect(action?.mutates ?? false).toBe(false);
     }
+  });
+});
+
+describe("resolveApplyAction — MODIFY TAG (replace_tag with statements)", () => {
+  // Tag near-match (calibration_tag_match_near, 2026-07-13): a proposed
+  // tag matches an existing one but its structured statements moved
+  // (a bare ``genotype: Utrn`` gains ``Utrn · has_genotype ·
+  // Heterozygous``). ``replace_tag`` becomes the general MODIFY — on
+  // accept the target tag is updated IN PLACE (id preserved), its
+  // statements replaced with the proposed set (replace-with-proposed).
+  // TAG_STATEMENT_APPLY_AND_RENDER_UI_2026_07_13.md.
+  const genotypeStmt = {
+    category: { label: "genotype", uri: null },
+    subject: { label: "Utrn", uri: "http://gene/Utrn" },
+    predicate: { label: "has_genotype", uri: "http://TGEMO/00166" },
+    object: { label: "Heterozygous", uri: "http://TGEMO/00003" },
+  };
+
+  it("sets the target tag's statements in place, preserving the id (not remove+add)", () => {
+    const d = design({
+      tags: [tag(3, "genotype", "Utrn", { valueUri: "http://gene/Utrn" })],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:3",
+      proposer_statements: [genotypeStmt] as never,
+      apply_action: {
+        kind: "replace_tag",
+        statements: [genotypeStmt],
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    // Same tag id survives — modify in place, not remove+add.
+    expect(next.tags).toHaveLength(1);
+    const t = next.tags.find((x) => x.id === 3);
+    expect(t).toBeDefined();
+    expect(t!.statements).toHaveLength(1);
+    expect(t!.statements![0].subject.label).toBe("Utrn");
+    expect(t!.statements![0].predicate?.label).toBe("has_genotype");
+    expect(t!.statements![0].object?.label).toBe("Heterozygous");
+  });
+
+  it("falls back to proposer_statements when apply_action.statements is null (GSE84876 Utrn bug)", () => {
+    // Live repro: the agent populates proposer_statements (so the delta
+    // renders) but leaves apply_action.statements null → the modify
+    // silently no-op'd and "adopt Auditor's" didn't update the Utrn tag.
+    // The apply must fall back to proposer_statements.
+    const d = design({
+      tags: [
+        tag(1, "genotype", "Utrn [mouse] utrophin", {
+          valueUri: "http://ncbi_gene/22288",
+        }),
+      ],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:genotype/utrn-[mouse]-utrophin",
+      proposer_term: {
+        label: "Utrn [mouse] utrophin",
+        uri: "http://ncbi_gene/22288",
+        resolver: null,
+        score: null,
+      },
+      proposer_statements: [
+        {
+          category: null,
+          subject: { label: "Utrn [mouse] utrophin", uri: "http://ncbi_gene/22288" },
+          predicate: { label: "has_genotype", uri: "http://TGEMO/00166" },
+          object: { label: "Heterozygous", uri: "http://TGEMO/00003" },
+        },
+      ] as never,
+      // Statement field ABSENT on the wire — the actual bug shape.
+      apply_action: {
+        kind: "replace_tag",
+        new_value: null,
+        new_category: null,
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    const t = next.tags.find((x) => x.id === 1)!;
+    expect(t.statements).toHaveLength(1);
+    expect(t.statements![0].predicate?.label).toBe("has_genotype");
+    expect(t.statements![0].object?.label).toBe("Heterozygous");
+  });
+
+  it("resolves the target tag from a slug-shaped target_id (tag:<cat>/<val>)", () => {
+    const d = design({
+      tags: [tag(8, "genotype", "Utrn", { valueUri: "http://gene/Utrn" })],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:genotype/utrn",
+      proposer_statements: [genotypeStmt] as never,
+      apply_action: {
+        kind: "replace_tag",
+        statements: [genotypeStmt],
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    expect(next.tags.find((x) => x.id === 8)!.statements).toHaveLength(1);
+  });
+
+  it("overwrites category / value too when the apply_action carries them", () => {
+    const d = design({
+      tags: [tag(4, "disease", "brain ischemia")],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:4",
+      proposer_term: {
+        label: "cerebral ischemia",
+        uri: "http://MONDO/0002679",
+        resolver: null,
+        score: null,
+      },
+      proposer_statements: [
+        {
+          category: { label: "disease model", uri: null },
+          subject: { label: "cerebral ischemia", uri: "http://MONDO/0002679" },
+          predicate: { label: "has_modifier", uri: null },
+          object: { label: "chronic", uri: null },
+        },
+      ] as never,
+      apply_action: {
+        kind: "replace_tag",
+        new_category: "disease model",
+        new_value: "cerebral ischemia",
+        new_value_uri: "http://MONDO/0002679",
+        statements: [
+          {
+            category: { label: "disease model", uri: null },
+            subject: {
+              label: "cerebral ischemia",
+              uri: "http://MONDO/0002679",
+            },
+            predicate: { label: "has_modifier", uri: null },
+            object: { label: "chronic", uri: null },
+          },
+        ],
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    const t = next.tags.find((x) => x.id === 4)!;
+    expect(t.category.label).toBe("disease model");
+    expect(t.value.label).toBe("cerebral ischemia");
+    expect(t.value.uri).toBe("http://MONDO/0002679");
+    expect(t.statements).toHaveLength(1);
+  });
+
+  it("is idempotent when the target tag already carries the proposed statements", () => {
+    const withStmts: Tag = {
+      ...tag(3, "genotype", "Utrn", { valueUri: "http://gene/Utrn" }),
+      statements: [
+        {
+          category: term("genotype"),
+          subject: term("Utrn", "http://gene/Utrn"),
+          predicate: term("has_genotype", "http://TGEMO/00166"),
+          object: term("Heterozygous", "http://TGEMO/00003"),
+        },
+      ],
+    };
+    const d = design({ tags: [withStmts] });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:3",
+      proposer_statements: [genotypeStmt] as never,
+      apply_action: {
+        kind: "replace_tag",
+        statements: [genotypeStmt],
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(false);
+    expect(action?.label).toContain("Already applied");
+  });
+
+  it("modifies a value-concept near-match with a SLUG target_id in place (strain C57BL/10 → mdx)", () => {
+    // GSE84876 strain near-match: replace_tag, slug target_id, NO
+    // statements, new_value "mdx". The old path required a numeric
+    // tag:N and returned null → "adopt Auditor's" did nothing (Paul
+    // 2026-07-13). Now it modifies the matched tag in place.
+    const d = design({
+      tags: [
+        tag(1, "strain", "C57BL/10", { valueUri: "http://EFO/0000604" }),
+      ],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:strain/c57bl/10",
+      proposer_term: {
+        label: "mdx",
+        uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00180",
+        resolver: null,
+        score: null,
+      },
+      apply_action: {
+        kind: "replace_tag",
+        new_value: "mdx",
+        new_value_uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00180",
+        new_category: null,
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    // Same tag id, value swapped to the proposal, category retained.
+    expect(next.tags).toHaveLength(1);
+    const t = next.tags.find((x) => x.id === 1)!;
+    expect(t.category.label).toBe("strain");
+    expect(t.value.label).toBe("mdx");
+    expect(t.value.uri).toBe("http://gemma.msl.ubc.ca/ont/TGEMO_00180");
+  });
+
+  it("refuses to modify a protected (assay) tag via statements", () => {
+    const d = design({
+      tags: [tag(9, "assay", "RNA-Seq", { valueUri: "EFO:0008896" })],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:9",
+      proposer_statements: [genotypeStmt] as never,
+      apply_action: {
+        kind: "replace_tag",
+        statements: [genotypeStmt],
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    if (action?.mutates && action.mutate) {
+      const next = action.mutate(d);
+      // Untouched — statements not attached to the assay tag.
+      expect(next.tags.find((x) => x.id === 9)!.statements).toBeUndefined();
+    } else {
+      expect(action?.mutates ?? false).toBe(false);
+    }
+  });
+
+  it("leaves a plain replace_tag (no statements) on the existing swap path", () => {
+    // Regression guard: the statement branch must NOT capture a
+    // no-statements swap — that still removes the baseline and adds the
+    // replacement (existing behaviour).
+    const d = design({
+      tags: [
+        tag(2, "disease model", "brain ischemia", {
+          valueUri: "http://MONDO/0005299",
+        }),
+      ],
+    });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:2",
+      proposer_term: {
+        label: "cerebral ischemia",
+        uri: "http://MONDO/0002679",
+        resolver: null,
+        score: null,
+      },
+      apply_action: {
+        kind: "replace_tag",
+        new_category: "disease model",
+        new_value: "cerebral ischemia",
+        new_value_uri: "http://MONDO/0002679",
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    // Baseline id 2 gone (remove+add swap), replacement present.
+    expect(next.tags.find((x) => x.id === 2)).toBeUndefined();
+    expect(next.tags[0].value.label).toBe("cerebral ischemia");
   });
 });
 

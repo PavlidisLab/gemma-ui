@@ -46,7 +46,7 @@ function factor(opts: {
     label: string;
     bms: string[];
     statements: Array<{
-      subject?: { label: string; uri?: string | null } | null;
+      subject: { label: string; uri?: string | null };
       predicate?: { label: string; uri?: string | null } | null;
       object?: { label: string; uri?: string | null } | null;
     }>;
@@ -65,9 +65,7 @@ function factor(opts: {
       biomaterial_short_names: fv.bms,
       statements: fv.statements.map((s) => ({
         category: { label: opts.categoryLabel, uri: null },
-        subject: s.subject
-          ? { label: s.subject.label, uri: s.subject.uri ?? null }
-          : null,
+        subject: { label: s.subject.label, uri: s.subject.uri ?? null },
         predicate: s.predicate
           ? { label: s.predicate.label, uri: s.predicate.uri ?? null }
           : null,
@@ -88,7 +86,7 @@ function mkReport(): AuditReport {
     model: "test",
     scope: { include: ["factors"] },
     kind: "audit",
-    summary: { n_blocker: 0, n_major: 0, n_minor: 0, n_ok: 0, overall_verdict: "ok" },
+    summary: { n_blocker: 0, n_major: 0, n_minor: 0, n_ok: 0, overall_verdict: "clean" },
     findings: [],
     evidence: {
       preboarding_excerpt: "",
@@ -102,6 +100,13 @@ function mkReport(): AuditReport {
         submitted_at: "2026-06-12T00:00:00Z",
         model: "agent",
         status: "pending",
+        evidence: {
+          preboarding_excerpt: "",
+          paper_source: null,
+          paper_excerpt: "",
+          exemplar_experiment_ids: [],
+          extra: {},
+        },
         tags: [],
         factors: [
           {

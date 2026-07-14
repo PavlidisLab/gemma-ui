@@ -21,7 +21,7 @@
  *   bucketed result; the follow-up runner (``run_triage_followup.py``)
  *   takes the included list and creates the curation ticket.
  */
-import { useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
   useFinalizeTriage,
@@ -33,6 +33,28 @@ import type {
   TicketTargetTriageDisposition,
   TriageFinalizeResponse,
 } from "@/api/tickets";
+
+/** A self-describing display field the producing agent attaches to a
+ *  candidate. The generic renderer (below) turns these into native
+ *  chips / links / prose without knowing the domain, so one TriageView
+ *  serves any screen (pub-finder, TF-perturbation, cell-line, …). The
+ *  producer supplies both the data and its presentation hint. */
+interface DisplayField {
+  label: string;
+  value: string | number | boolean | null;
+  /** How to render. Defaults to plain text. */
+  type?: "text" | "link" | "badge" | "tier" | "longtext";
+  /** For ``link``: the href. */
+  href?: string;
+  /** Which panel the field belongs in (e.g. study / paper / decision).
+   *  Fields with the same group render together. */
+  group?: string;
+  /** Terms to paint in a contrasting, theme-aware ``<mark>`` inside this
+   *  field's value — the overlap the producer computed between two sides
+   *  (shared surnames, institution tokens, summary↔abstract content words)
+   *  so the match lights up on both without eye-diffing the blurbs. */
+  highlight?: string[];
+}
 
 interface CandidateMeta {
   accession: string;
@@ -46,6 +68,10 @@ interface CandidateMeta {
    *  without leaving the triage shell. Null on tickets created
    *  before the preboard-at-scrape change landed. */
   preboarding_id?: number | null;
+  /** Ad-hoc decision-support context the producing agent computed for
+   *  this screen. When present the row renders as a generic card
+   *  driven by these fields instead of the fixed GEO-scrape table. */
+  display_fields?: DisplayField[];
 }
 
 interface ParsedPayload {
@@ -54,6 +80,17 @@ interface ParsedPayload {
     since?: string;
     until?: string;
     criteria?: string[];
+  };
+  /** Agent-authored account of what this screen did — the
+   *  reproducible-explanation slot, rendered as a banner. */
+  screen_summary?: string;
+  /** Task-specific decision verbs. The disposition data stays
+   *  include/exclude; only the labels change (e.g. Confirm / Reject
+   *  for "is this the right paper?"). Falls back to Include / Exclude. */
+  decision?: {
+    confirm_label?: string;
+    reject_label?: string;
+    prompt?: string;
   };
 }
 
@@ -64,6 +101,8 @@ function parsePayload(payload_json: string | undefined): ParsedPayload {
     return {
       candidates: (obj?.candidates as ParsedPayload["candidates"]) ?? {},
       scrape_window: obj?.scrape_window,
+      screen_summary: obj?.screen_summary,
+      decision: obj?.decision,
     };
   } catch {
     return { candidates: {} };
@@ -77,13 +116,61 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
     ticket.payload_json,
   ]);
   const [filter, setFilter] = useState<Filter>("undecided");
+  const [search, setSearch] = useState("");
+  const [facets, setFacets] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [finalized, setFinalized] = useState<TriageFinalizeResponse | null>(
     null,
   );
+  const bulkPatch = usePatchTicketTarget(ticket.id);
 
-  const triageTargets = ticket.targets.filter(
-    (t) => t.target_type === "GEO_ACCESSION",
+  const confirmLabel = parsed.decision?.confirm_label ?? "Include";
+  const rejectLabel = parsed.decision?.reject_label ?? "Exclude";
+  const PAGE_SIZE = 25;
+
+  // Every target on a screen ticket is a candidate — render them all,
+  // not just GEO accessions (mode-B/EE screens carry EXPRESSION_EXPERIMENT
+  // targets, and mixed-type tickets are legal).
+  const triageTargets = ticket.targets;
+  const metaOf = (t: TicketTarget) =>
+    parsed.candidates[String(t.target_id)];
+
+  // Generic mode: any candidate carrying ``display_fields`` opts the whole
+  // ticket into the self-describing card renderer. Legacy GEO-scrape
+  // tickets (no display_fields) keep the fixed table.
+  const generic = triageTargets.some(
+    (t) => (metaOf(t)?.display_fields?.length ?? 0) > 0,
   );
+
+  // Facet dropdowns, derived from the tier/badge fields the agent
+  // attached — one per field label with ≥2 distinct values (e.g.
+  // Confidence, Found via, LLM, Full text). Matches the original
+  // page's multi-facet filtering without hardcoding any facet.
+  const facetDefs = useMemo(() => {
+    const values = new Map<string, Set<string>>();
+    const present = new Map<string, number>();
+    let total = 0;
+    for (const t of triageTargets) {
+      total++;
+      const here = new Set<string>();
+      for (const f of metaOf(t)?.display_fields ?? []) {
+        if (f.type !== "tier" && f.type !== "badge") continue;
+        if (!values.has(f.label)) values.set(f.label, new Set());
+        values.get(f.label)!.add(String(f.value));
+        here.add(f.label);
+      }
+      for (const l of here) present.set(l, (present.get(l) ?? 0) + 1);
+    }
+    const defs: { label: string; options: string[] }[] = [];
+    for (const [label, vals] of values) {
+      const options = [...vals];
+      if ((present.get(label) ?? 0) < total) options.push("(none)");
+      if (options.length >= 2) defs.push({ label, options });
+    }
+    return defs;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triageTargets, parsed.candidates]);
 
   const counts = useMemo(() => {
     let inc = 0, exc = 0, und = 0;
@@ -96,12 +183,78 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
     return { include: inc, exclude: exc, undecided: und, total: triageTargets.length };
   }, [triageTargets]);
 
-  const visibleTargets = triageTargets.filter((t) => {
-    if (filter === "all") return true;
+  const q = search.trim().toLowerCase();
+  const filtered = triageTargets.filter((t) => {
+    // disposition tab
     const d = t.triage_disposition ?? null;
-    if (filter === "undecided") return d === null;
-    return d === filter;
+    if (filter === "undecided" && d !== null) return false;
+    if (filter === "include" && d !== "include") return false;
+    if (filter === "exclude" && d !== "exclude") return false;
+    const meta = metaOf(t);
+    // facet dropdowns (tier / badge fields)
+    for (const [label, sel] of Object.entries(facets)) {
+      if (!sel || sel === "all") continue;
+      const vals = (meta?.display_fields ?? [])
+        .filter(
+          (f) =>
+            (f.type === "tier" || f.type === "badge") && f.label === label,
+        )
+        .map((f) => String(f.value));
+      if (sel === "(none)") {
+        if (vals.length) return false;
+      } else if (!vals.includes(sel)) {
+        return false;
+      }
+    }
+    // free-text search across accession + all field values
+    if (q) {
+      const hay = [
+        meta?.accession ?? "",
+        ...(meta?.display_fields ?? []).map((f) => String(f.value ?? "")),
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
   });
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const paged = filtered.slice(
+    safePage * PAGE_SIZE,
+    safePage * PAGE_SIZE + PAGE_SIZE,
+  );
+
+  const toggleSelect = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const selectAllFiltered = () =>
+    setSelected(new Set(filtered.map((t) => t.target_id)));
+  const clearSelection = () => setSelected(new Set());
+  const applyBulk = (d: TicketTargetTriageDisposition) => {
+    if (
+      selected.size > 100 &&
+      !window.confirm(`Apply "${d}" to ${selected.size} rows?`)
+    )
+      return;
+    for (const t of triageTargets) {
+      if (!selected.has(t.target_id)) continue;
+      bulkPatch.mutate({
+        target_type: t.target_type,
+        target_id: t.target_id,
+        patch: {
+          triage_disposition: d,
+          status: d === null ? "NOT_DONE" : "DONE",
+        },
+      });
+    }
+    clearSelection();
+  };
 
   const finalize = useFinalizeTriage(ticket.id);
   const handleFinalize = async () => {
@@ -122,6 +275,15 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
 
   return (
     <section className="space-y-4">
+      {parsed.screen_summary ? (
+        <div className="card p-3 text-xs text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/50 border-l-2 border-l-blue-400">
+          <span className="font-medium text-slate-900 dark:text-slate-100">
+            What this screen did:{" "}
+          </span>
+          {parsed.screen_summary}
+        </div>
+      ) : null}
+
       {parsed.scrape_window ? (
         <div className="text-xs text-slate-600 dark:text-slate-300">
           Scrape window:{" "}
@@ -141,25 +303,49 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
 
       <div className="flex items-center gap-3 flex-wrap text-xs">
         <FilterButton
-          label={`Undecided (${counts.undecided})`}
+          label={`To review (${counts.undecided})`}
           active={filter === "undecided"}
-          onClick={() => setFilter("undecided")}
+          onClick={() => { setFilter("undecided"); setPage(0); }}
         />
         <FilterButton
-          label={`Included (${counts.include})`}
+          label={`${confirmLabel} (${counts.include})`}
           active={filter === "include"}
-          onClick={() => setFilter("include")}
+          onClick={() => { setFilter("include"); setPage(0); }}
         />
         <FilterButton
-          label={`Excluded (${counts.exclude})`}
+          label={`${rejectLabel} (${counts.exclude})`}
           active={filter === "exclude"}
-          onClick={() => setFilter("exclude")}
+          onClick={() => { setFilter("exclude"); setPage(0); }}
         />
         <FilterButton
           label={`All (${counts.total})`}
           active={filter === "all"}
-          onClick={() => setFilter("all")}
+          onClick={() => { setFilter("all"); setPage(0); }}
         />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+          placeholder="search accession, paper, text…"
+          className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 min-w-[200px]"
+        />
+        {facetDefs.map((fd) => (
+          <select
+            key={fd.label}
+            value={facets[fd.label] ?? "all"}
+            onChange={(e) => {
+              setFacets((prev) => ({ ...prev, [fd.label]: e.target.value }));
+              setPage(0);
+            }}
+            className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100"
+            title={`Filter by ${fd.label}`}
+          >
+            <option value="all">{fd.label.toLowerCase()}: all</option>
+            {fd.options.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        ))}
         <div className="grow" />
         <button
           type="button"
@@ -184,44 +370,172 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
 
       {finalized ? <FinalizedSummary res={finalized} /> : null}
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-xs">
-          <thead className="bg-slate-100 dark:bg-slate-800 text-left text-slate-700 dark:text-slate-200">
-            <tr>
-              <th className="px-3 py-2 font-medium">GSE</th>
-              <th className="px-3 py-2 font-medium">Title</th>
-              <th className="px-3 py-2 font-medium">Taxon</th>
-              <th className="px-3 py-2 font-medium">Type</th>
-              <th className="px-3 py-2 font-medium">Matched</th>
-              <th className="px-3 py-2 font-medium">Samples</th>
-              <th className="px-3 py-2 font-medium">PMIDs</th>
-              <th className="px-3 py-2 font-medium">Decision</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleTargets.length === 0 ? (
+      {generic && filtered.length > 0 ? (
+        <div
+          className={
+            "flex items-center gap-3 flex-wrap text-xs px-3 py-2 rounded " +
+            (selected.size > 0
+              ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
+              : "text-slate-600 dark:text-slate-300")
+          }
+        >
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={selected.size >= filtered.length}
+              ref={(el) => {
+                if (el)
+                  el.indeterminate =
+                    selected.size > 0 && selected.size < filtered.length;
+              }}
+              onChange={(e) =>
+                e.target.checked ? selectAllFiltered() : clearSelection()
+              }
+            />
+            Select all {filtered.length}
+          </label>
+          {selected.size > 0 ? (
+            <>
+              <span className="font-medium text-slate-800 dark:text-slate-100">
+                {selected.size} selected
+              </span>
+              <button
+                type="button"
+                className="btn primary text-xs"
+                onClick={() => applyBulk("include")}
+              >
+                {confirmLabel} selected
+              </button>
+              <button
+                type="button"
+                className="px-2 py-0.5 rounded border border-rose-300 text-rose-700 dark:border-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                onClick={() => applyBulk("exclude")}
+              >
+                {rejectLabel} selected
+              </button>
+              <button
+                type="button"
+                className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600"
+                onClick={clearSelection}
+              >
+                Clear
+              </button>
+            </>
+          ) : (
+            <span className="text-slate-400 dark:text-slate-500">
+              — tip: filter (e.g. llm: LLM), then Select all to Confirm in bulk
+            </span>
+          )}
+        </div>
+      ) : null}
+
+      <Pager
+        page={safePage}
+        pageCount={pageCount}
+        pageSize={PAGE_SIZE}
+        total={filtered.length}
+        onPage={setPage}
+      />
+
+      {filtered.length === 0 ? (
+        <div className="card px-3 py-6 text-center italic text-slate-500 text-xs">
+          No candidates match the current filter.
+        </div>
+      ) : generic ? (
+        <div className="space-y-3">
+          {paged.map((t) => (
+            <CandidateCard
+              key={t.target_id}
+              ticketId={ticket.id}
+              target={t}
+              meta={metaOf(t)}
+              confirmLabel={confirmLabel}
+              rejectLabel={rejectLabel}
+              selected={selected.has(t.target_id)}
+              onToggleSelect={() => toggleSelect(t.target_id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="card overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-100 dark:bg-slate-800 text-left text-slate-700 dark:text-slate-200">
               <tr>
-                <td
-                  colSpan={8}
-                  className="px-3 py-6 text-center italic text-slate-500"
-                >
-                  No candidates match the current filter.
-                </td>
+                <th className="px-3 py-2 font-medium">GSE</th>
+                <th className="px-3 py-2 font-medium">Title</th>
+                <th className="px-3 py-2 font-medium">Taxon</th>
+                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">Matched</th>
+                <th className="px-3 py-2 font-medium">Samples</th>
+                <th className="px-3 py-2 font-medium">PMIDs</th>
+                <th className="px-3 py-2 font-medium">Decision</th>
               </tr>
-            ) : (
-              visibleTargets.map((t) => (
+            </thead>
+            <tbody>
+              {paged.map((t) => (
                 <TriageRow
                   key={t.target_id}
                   ticketId={ticket.id}
                   target={t}
-                  meta={parsed.candidates[String(t.target_id)]}
+                  meta={metaOf(t)}
                 />
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Pager
+        page={safePage}
+        pageCount={pageCount}
+        pageSize={PAGE_SIZE}
+        total={filtered.length}
+        onPage={setPage}
+      />
     </section>
+  );
+}
+
+/** Prev / range / Next pager. Rendered both above and below the
+ *  candidate list (Paul: page-through nav belongs at the top and the
+ *  bottom). Self-hides when the whole filtered set fits one page. */
+function Pager({
+  page,
+  pageCount,
+  pageSize,
+  total,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  total: number;
+  onPage: (next: number) => void;
+}) {
+  if (total <= pageSize) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 text-xs text-slate-600 dark:text-slate-300">
+      <button
+        type="button"
+        className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 disabled:opacity-40"
+        onClick={() => onPage(page - 1)}
+        disabled={page === 0}
+      >
+        ‹ Prev
+      </button>
+      <span>
+        {page * pageSize + 1}–{Math.min(total, page * pageSize + pageSize)} of{" "}
+        {total}
+      </span>
+      <button
+        type="button"
+        className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 disabled:opacity-40"
+        onClick={() => onPage(page + 1)}
+        disabled={page >= pageCount - 1}
+      >
+        Next ›
+      </button>
+    </div>
   );
 }
 
@@ -453,10 +767,14 @@ function DispositionPicker({
   value,
   onChange,
   disabled,
+  confirmLabel = "Include",
+  rejectLabel = "Exclude",
 }: {
   value: TicketTargetTriageDisposition;
   onChange: (next: TicketTargetTriageDisposition) => void;
   disabled?: boolean;
+  confirmLabel?: string;
+  rejectLabel?: string;
 }) {
   const baseBtn =
     "px-2 py-0.5 rounded border text-[11px] font-medium transition-colors";
@@ -471,9 +789,8 @@ function DispositionPicker({
             ? `${baseBtn} border-emerald-500 bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100 dark:border-emerald-400`
             : `${baseBtn} border-slate-300 bg-slate-50 text-slate-700 hover:bg-emerald-50 hover:border-emerald-400 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600`
         }
-        title="Include this GSE in the follow-up curation ticket."
       >
-        Include
+        {confirmLabel}
       </button>
       <button
         type="button"
@@ -484,10 +801,447 @@ function DispositionPicker({
             ? `${baseBtn} border-rose-500 bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-100 dark:border-rose-400`
             : `${baseBtn} border-slate-300 bg-slate-50 text-slate-700 hover:bg-rose-50 hover:border-rose-400 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600`
         }
-        title="Reject — do not load into Gemma."
       >
-        Exclude
+        {rejectLabel}
       </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Generic display_fields renderer — the self-describing card path.
+// ---------------------------------------------------------------------------
+
+const GROUP_ORDER = ["study", "paper", "decision"];
+const GROUP_LABEL: Record<string, string> = {
+  study: "Study",
+  paper: "Candidate paper",
+  decision: "Why surfaced",
+};
+
+function tierTone(value: string): string {
+  const v = value.toLowerCase();
+  if (v === "high")
+    return "border-emerald-400 bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100";
+  if (v === "medium" || v === "med")
+    return "border-amber-400 bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
+  if (v === "low")
+    return "border-rose-400 bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-100";
+  return "border-slate-300 bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200";
+}
+
+function FieldChip({ f }: { f: DisplayField }) {
+  const text = String(f.value);
+  const tone =
+    f.type === "tier"
+      ? tierTone(text)
+      : "border-slate-300 bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
+  return (
+    <span
+      title={f.label}
+      className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${tone}`}
+    >
+      {f.type === "tier" ? `${f.label}: ${text}` : text}
+    </span>
+  );
+}
+
+// Paint producer-supplied overlap terms in a contrasting, theme-aware mark so
+// the shared surname / institution token / content word lights up on both
+// sides. Case-insensitive, word-boundary-anchored, longest-first so a term is
+// never swallowed by a shorter prefix. Returns the original string untouched
+// when there is nothing to highlight.
+function highlightTerms(
+  text: string,
+  terms: string[] | undefined,
+): ReactNode {
+  if (!terms || terms.length === 0 || !text) return text;
+  const uniq = Array.from(new Set(terms.map((t) => t.trim()).filter(Boolean)));
+  if (uniq.length === 0) return text;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = uniq
+    .sort((a, b) => b.length - a.length)
+    .map(esc)
+    .join("|");
+  // \b works for the ASCII/gene-symbol tokens the producer emits.
+  const re = new RegExp(`(\\b(?:${pattern})\\b)`, "gi");
+  const parts = text.split(re);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark
+        key={i}
+        className="rounded-sm bg-amber-200 px-0.5 text-amber-950 dark:bg-amber-400/30 dark:text-amber-100"
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
+
+function FieldRow({ f }: { f: DisplayField }) {
+  const text = String(f.value);
+  return (
+    <div>
+      <span className="text-[10px] uppercase tracking-wide text-slate-500 mr-1.5">
+        {f.label}
+      </span>
+      {f.type === "link" && f.href ? (
+        <a
+          href={f.href}
+          target="_blank"
+          rel="noreferrer"
+          className="text-blue-700 dark:text-blue-300 hover:underline break-all"
+        >
+          {text}
+        </a>
+      ) : f.type === "longtext" ? (
+        <div className="mt-0.5 text-slate-700 dark:text-slate-300 max-h-28 overflow-auto whitespace-pre-wrap">
+          {highlightTerms(text, f.highlight)}
+        </div>
+      ) : (
+        <span className="text-slate-800 dark:text-slate-200">
+          {highlightTerms(text, f.highlight)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** A candidate rendered from its self-describing ``display_fields`` —
+ *  chips (tier/badge) float to the header, everything else groups into
+ *  panels. Domain-agnostic: pub-finder, TF-perturbation, and cell-line
+ *  screens all render through this one component. */
+function CandidateCard({
+  ticketId,
+  target,
+  meta,
+  confirmLabel,
+  rejectLabel,
+  selected,
+  onToggleSelect,
+}: {
+  ticketId: number;
+  target: TicketTarget;
+  meta: CandidateMeta | undefined;
+  confirmLabel: string;
+  rejectLabel: string;
+  selected: boolean;
+  onToggleSelect: () => void;
+}) {
+  const patch = usePatchTicketTarget(ticketId);
+  const [preview, setPreview] = useState(false);
+  const fields = meta?.display_fields ?? [];
+  const accession = meta?.accession ?? `target ${target.target_id}`;
+  const studyTitle = (
+    meta?.identifying_metadata as { title?: string } | null | undefined
+  )?.title;
+  const disposition = target.triage_disposition ?? null;
+
+  const apply = (next: TicketTargetTriageDisposition) => {
+    patch.mutate({
+      target_type: target.target_type,
+      target_id: target.target_id,
+      patch: {
+        triage_disposition: next,
+        status: next === null ? "NOT_DONE" : "DONE",
+      },
+    });
+  };
+
+  // All fields group into the body panels (incl. tier/badge chips) so
+  // the header stays clean — accession + full title + actions only.
+  const seen = new Set<string>();
+  const groupKeys = [
+    ...GROUP_ORDER,
+    ...fields.map((f) => f.group ?? ""),
+  ].filter((g) => {
+    if (seen.has(g)) return false;
+    seen.add(g);
+    return fields.some((f) => (f.group ?? "") === g);
+  });
+
+  return (
+    <div
+      className={
+        "card overflow-hidden" +
+        (selected ? " ring-2 ring-blue-400 dark:ring-blue-500" : "")
+      }
+    >
+      <div className="flex items-start gap-3 px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          className="mt-1 shrink-0 cursor-pointer"
+          title="Select for bulk action"
+        />
+        <a
+          href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${accession}`}
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono font-semibold text-blue-700 dark:text-blue-300 hover:underline shrink-0 pt-0.5"
+        >
+          {accession}
+        </a>
+        {studyTitle ? (
+          <span className="text-[13px] font-medium text-slate-900 dark:text-slate-100 flex-1 min-w-0 pt-0.5">
+            {studyTitle}
+          </span>
+        ) : (
+          <div className="flex-1" />
+        )}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setPreview(true)}
+            className="text-[11px] text-blue-700 dark:text-blue-300 hover:underline"
+            title="View the study in the curation UI (read-only, pulled from Gemma REST)"
+          >
+            View study
+          </button>
+          <a
+            href={`https://gemma.msl.ubc.ca/expressionExperiment/showExpressionExperiment.html?shortName=${accession}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[11px] text-blue-700 dark:text-blue-300 hover:underline"
+            title="Open this study in Gemma"
+          >
+            Gemma ↗
+          </a>
+          <DispositionPicker
+            value={disposition}
+            onChange={apply}
+            disabled={patch.isPending}
+            confirmLabel={confirmLabel}
+            rejectLabel={rejectLabel}
+          />
+        </div>
+      </div>
+      <div className="grid md:grid-cols-3 gap-x-5 gap-y-3 px-3 py-2.5 text-xs">
+        {groupKeys.map((g) => {
+          const gfields = fields.filter((f) => (f.group ?? "") === g);
+          const gchips = gfields.filter(
+            (f) => f.type === "tier" || f.type === "badge",
+          );
+          const grows = gfields.filter(
+            (f) => f.type !== "tier" && f.type !== "badge",
+          );
+          return (
+            <div key={g} className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
+                {GROUP_LABEL[g] ?? g}
+              </div>
+              <div className="space-y-1.5">
+                {gchips.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {gchips.map((f, i) => (
+                      <FieldChip key={i} f={f} />
+                    ))}
+                  </div>
+                ) : null}
+                {grows.map((f, i) => (
+                  <FieldRow key={i} f={f} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {patch.isError ? (
+        <div className="px-3 pb-2 text-[10px] text-rose-700">
+          {(patch.error as Error).message}
+        </div>
+      ) : null}
+      {preview ? (
+        <StudyPreview accession={accession} onClose={() => setPreview(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Read-only study preview — pulls the experiment straight from Gemma REST
+// (via the /gemma-ro proxy) and renders it read-only. Spike for the
+// "view the study in the curation UI, nothing editable" requirement.
+// ---------------------------------------------------------------------------
+
+interface GemmaDataset {
+  id?: number;
+  name?: string;
+  description?: string;
+  accession?: string;
+  externalDatabase?: string;
+  numberOfBioAssays?: number;
+  numberOfArrayDesigns?: number;
+  technologyType?: string;
+  isPublic?: boolean;
+  troubled?: boolean;
+  taxon?: { scientificName?: string; commonName?: string };
+  geeq?: { publicQualityScore?: number; publicSuitabilityScore?: number };
+  characteristics?: { value?: string; valueUri?: string }[];
+}
+
+function StudyPreview({
+  accession,
+  onClose,
+}: {
+  accession: string;
+  onClose: () => void;
+}) {
+  const [state, setState] = useState<{
+    loading: boolean;
+    error?: string;
+    data?: GemmaDataset;
+  }>({ loading: true });
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/gemma-ro/datasets/${encodeURIComponent(accession)}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((j) => {
+        if (alive)
+          setState({ loading: false, data: (j?.data ?? [])[0] as GemmaDataset });
+      })
+      .catch((e) => {
+        if (alive) setState({ loading: false, error: String(e.message ?? e) });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [accession]);
+
+  const d = state.data;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="card w-full max-w-2xl max-h-[85vh] overflow-auto p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <a
+            href={`https://gemma.msl.ubc.ca/expressionExperiment/showExpressionExperiment.html?shortName=${accession}`}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono font-semibold text-blue-700 dark:text-blue-300 hover:underline"
+          >
+            {accession}
+          </a>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+              read-only · Gemma REST
+            </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-100"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        {state.loading ? (
+          <div className="text-xs italic text-slate-500 py-8 text-center">
+            loading from Gemma…
+          </div>
+        ) : state.error ? (
+          <div className="text-xs text-rose-700 py-8 text-center">
+            could not load from Gemma: {state.error}
+          </div>
+        ) : d ? (
+          <StudyReadonlyBody d={d} />
+        ) : (
+          <div className="text-xs italic text-slate-500 py-8 text-center">
+            not found in Gemma
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PreviewRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex gap-2">
+      <span className="text-slate-500 w-32 shrink-0">{label}</span>
+      <span className="text-slate-800 dark:text-slate-200">{children}</span>
+    </div>
+  );
+}
+
+function StudyReadonlyBody({ d }: { d: GemmaDataset }) {
+  const taxon = d.taxon?.scientificName ?? d.taxon?.commonName;
+  const q = d.geeq?.publicQualityScore;
+  const s = d.geeq?.publicSuitabilityScore;
+  const chars = d.characteristics ?? [];
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+        {d.name}
+      </div>
+      <div className="space-y-1">
+        <PreviewRow label="Gemma id">{d.id}</PreviewRow>
+        <PreviewRow label="Source">
+          {d.externalDatabase} {d.accession}
+        </PreviewRow>
+        {taxon ? <PreviewRow label="Taxon">{taxon}</PreviewRow> : null}
+        <PreviewRow label="Assays">{d.numberOfBioAssays ?? "—"}</PreviewRow>
+        <PreviewRow label="Platforms">
+          {d.numberOfArrayDesigns ?? "—"}
+        </PreviewRow>
+        {d.technologyType ? (
+          <PreviewRow label="Technology">{d.technologyType}</PreviewRow>
+        ) : null}
+        {q != null ? (
+          <PreviewRow label="GEEQ quality">{q.toFixed(2)}</PreviewRow>
+        ) : null}
+        {s != null ? (
+          <PreviewRow label="GEEQ suitability">{s.toFixed(2)}</PreviewRow>
+        ) : null}
+        <PreviewRow label="Public">{String(d.isPublic)}</PreviewRow>
+        <PreviewRow label="Troubled">{String(d.troubled)}</PreviewRow>
+      </div>
+      {d.description ? (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+            Description
+          </div>
+          <div className="max-h-40 overflow-auto whitespace-pre-wrap text-slate-700 dark:text-slate-300">
+            {d.description}
+          </div>
+        </div>
+      ) : null}
+      {chars.length ? (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+            Annotations ({chars.length})
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {chars.slice(0, 40).map((c, i) => (
+              <span
+                key={i}
+                className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+              >
+                {c.value ?? c.valueUri ?? "—"}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

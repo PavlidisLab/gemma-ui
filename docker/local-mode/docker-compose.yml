@@ -60,13 +60,18 @@ services:
       - "8095:8000"
     command: ["python", "-m", "gemma_curation_agents.cli", "mock-gemma", "serve", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
-      # ``/openapi.json`` is FastAPI's auto-generated schema route —
-      # exists as long as the app is up, no auth, no DB hit, no
-      # per-route handler so the probe stays cheap. The previous
-      # ``/rest/v2/`` probe 404'd (local_api routes live under
-      # specific paths, not the bare prefix) and spammed the log
-      # every 10s.
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/openapi.json", "||", "exit", "1"]
+      # ``/health`` is local_api's real liveness/readiness surface
+      # ({"status":"ok",...}, no auth, cheap) — it reports the app
+      # actually SERVING, unlike ``/openapi.json`` which FastAPI mounts
+      # at import time and returns 200 even while the app is still
+      # coming up. Must be ``CMD-SHELL``: the ``|| exit 1`` are shell
+      # operators, so the previous exec-form ``CMD`` list handed them
+      # to curl as literal URL args → curl exited 7 on the bogus
+      # "||"/"exit"/"1" hosts and the container was wrongly marked
+      # unhealthy (FailingStreak grew forever) even though it served
+      # fine. (The earlier ``/rest/v2/`` probe 404'd — routes live
+      # under specific paths, not the bare prefix.)
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 6

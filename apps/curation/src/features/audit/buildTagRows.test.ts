@@ -230,3 +230,125 @@ describe("buildTagRows — Current-side lookup", () => {
     expect(categoryRow?.proposal.uri ?? null).toBeNull();
   });
 });
+
+describe("buildTagRows — statement delta (calibration_tag_match_near)", () => {
+  // A tag near-match whose statements moved must surface the same
+  // Current-vs-Proposed delta the FV path shows — Subject / Predicate /
+  // Object rows built from finding.proposer_statements (proposal) vs the
+  // matched tag's statements (currently).
+  // TAG_STATEMENT_APPLY_AND_RENDER_UI_2026_07_13.md.
+  const utrnStmt = {
+    category: { label: "genotype", uri: null },
+    subject: { label: "Utrn", uri: "http://gene/Utrn" },
+    predicate: { label: "has_genotype", uri: "http://TGEMO/00166" },
+    object: { label: "Heterozygous", uri: "http://TGEMO/00003" },
+  };
+
+  it("emits Subject/Predicate/Object rows; the added statement disagrees with the bare current tag", () => {
+    // Current tag is bare (no statements). Proposal adds has_genotype
+    // Heterozygous → predicate + object are the delta.
+    const d = design([
+      tag(3, "genotype", "Utrn [mouse] utrophin", {
+        valueUri: "http://gene/Utrn",
+      }),
+    ]);
+    const rows = buildTagRows(
+      mkFinding({
+        issue_code: "calibration_tag_match_near",
+        target_id: "tag:genotype/utrn-[mouse]-utrophin",
+        proposer_term: {
+          label: "Utrn",
+          uri: "http://gene/Utrn",
+          resolver: null,
+          score: null,
+        },
+        proposer_statements: [utrnStmt] as never,
+        apply_action: {
+          kind: "replace_tag",
+          statements: [utrnStmt],
+        } as never,
+      }),
+      d,
+    );
+    const predRow = rows.find((r) => r.rowLabel === "Predicate");
+    const objRow = rows.find((r) => r.rowLabel === "Object");
+    expect(predRow).toBeDefined();
+    expect(objRow).toBeDefined();
+    // Proposed side carries the statement; current side is empty (bare
+    // tag) → the row disagrees, which is the near-match delta.
+    expect(predRow!.proposal.label).toBe("has_genotype");
+    expect(predRow!.currently?.label ?? "").toBe("");
+    expect(predRow!.allAgree).toBe(false);
+    expect(objRow!.proposal.label).toBe("Heterozygous");
+    expect(objRow!.allAgree).toBe(false);
+  });
+
+  it("does not emit statement rows for a plain tag match (no statement detail)", () => {
+    const d = design([
+      tag(7, "cell type", "astrocyte", { valueUri: "http://CL/0000127" }),
+    ]);
+    const rows = buildTagRows(
+      mkFinding({
+        issue_code: "calibration_match",
+        target_id: "calibration:match:cell type/astrocyte",
+        proposer_term: {
+          label: "astrocyte",
+          uri: "http://CL/0000127",
+          resolver: null,
+          score: null,
+        },
+      }),
+      d,
+    );
+    expect(rows.find((r) => r.rowLabel === "Subject")).toBeUndefined();
+    expect(rows.find((r) => r.rowLabel === "Predicate")).toBeUndefined();
+    // Category + Value still there.
+    expect(rows.find((r) => r.rowLabel === "Category")).toBeDefined();
+    expect(rows.find((r) => r.rowLabel === "Value")).toBeDefined();
+  });
+
+  it("compares against an existing statement when the current tag already has one (object changed)", () => {
+    // Current tag carries Homozygous negative; proposal changes it to
+    // Heterozygous → Object row disagrees, Subject/Predicate agree.
+    const current: Tag = {
+      ...tag(4, "genotype", "Utrn", { valueUri: "http://gene/Utrn" }),
+      statements: [
+        {
+          category: { label: "genotype", uri: null },
+          subject: { label: "Utrn", uri: "http://gene/Utrn" },
+          predicate: { label: "has_genotype", uri: "http://TGEMO/00166" },
+          object: {
+            label: "Homozygous negative",
+            uri: "http://TGEMO/00001",
+          },
+        },
+      ],
+    };
+    const d = design([current]);
+    const rows = buildTagRows(
+      mkFinding({
+        issue_code: "calibration_tag_match_near",
+        target_id: "tag:genotype/utrn",
+        proposer_term: {
+          label: "Utrn",
+          uri: "http://gene/Utrn",
+          resolver: null,
+          score: null,
+        },
+        proposer_statements: [utrnStmt] as never,
+        apply_action: {
+          kind: "replace_tag",
+          statements: [utrnStmt],
+        } as never,
+      }),
+      d,
+    );
+    const objRow = rows.find((r) => r.rowLabel === "Object");
+    expect(objRow!.proposal.label).toBe("Heterozygous");
+    expect(objRow!.currently?.label).toBe("Homozygous negative");
+    expect(objRow!.allAgree).toBe(false);
+    // Predicate agrees on both sides.
+    const predRow = rows.find((r) => r.rowLabel === "Predicate");
+    expect(predRow!.allAgree).toBe(true);
+  });
+});

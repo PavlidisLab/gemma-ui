@@ -35,10 +35,12 @@ import type {
   Design,
   Factor,
   FactorValue,
+  OntologyTerm,
+  Statement,
   Tag,
 } from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
-import type { FactorProposal } from "@/api/types";
+import type { FactorProposal, StatementProposal } from "@/api/types";
 import {
   computeFvCorrespondence,
   factorProposalFromApplyAction,
@@ -52,6 +54,7 @@ import {
 import {
   addContinuousFactorFromCharacteristic,
   adoptNearMatchAgentFactor,
+  modifyTag,
   setFactorFields,
   setFvLabel,
 } from "@/features/design/mutations";
@@ -288,6 +291,110 @@ function resolveProposalApply(
   // UIB_HANDOFF_2026_06_20_TAG_SWAP_CURRENT_SIDE_FROM_TARGETID.md).
   if (aa.kind === "replace_tag") {
     if (!design) return null;
+    // Statement-bearing modify (calibration_tag_match_near, 2026-07-13):
+    // the proposed tag matches an existing one but its structured
+    // statements moved (a bare ``genotype: Utrn`` gains
+    // ``Utrn · has_genotype · Heterozygous``). Modify the matched tag
+    // IN PLACE — preserve its id, overwrite category / value / statements
+    // with the proposed set (replace-with-proposed, spec §7). This must
+    // run before the id-based swap path below: the near-match target_id
+    // can be slug-shaped, and the swap path would remove+add (losing the
+    // id) and drop the statements.
+    const aaMod = aa as {
+      new_category?: unknown;
+      new_category_uri?: unknown;
+      new_value?: unknown;
+      new_value_uri?: unknown;
+      statements?: unknown;
+    };
+    const proposedStatements = proposedTagStatements(finding, aaMod.statements);
+    const hasStatements = proposedStatements.length > 0;
+    const isNumericTarget = /^tag:\d+$/.test(finding.target_id);
+    // Proposed category / value (OPTIONAL): a statement-only near-match
+    // keeps the tag's existing category + value; a value/concept
+    // near-match moves the value (e.g. strain: C57BL/10 → mdx).
+    const newCatLabel =
+      typeof aaMod.new_category === "string" ? aaMod.new_category.trim() : "";
+    const newCatUri =
+      typeof aaMod.new_category_uri === "string" ? aaMod.new_category_uri : null;
+    const newValLabel = (
+      finding.proposer_term?.label ||
+      (typeof aaMod.new_value === "string" ? aaMod.new_value : "")
+    ).trim();
+    const newValUri =
+      finding.proposer_term?.uri ??
+      (typeof aaMod.new_value_uri === "string" ? aaMod.new_value_uri : null);
+    const modCategory: OntologyTerm | undefined = newCatLabel
+      ? { label: newCatLabel, uri: newCatUri }
+      : undefined;
+    const modValue: OntologyTerm | undefined = newValLabel
+      ? { label: newValLabel, uri: newValUri }
+      : undefined;
+    // Modify the matched tag IN PLACE (preserve id, replace-with-proposed):
+    //  - statement near-match (statements moved) — any target shape, OR
+    //  - value / category near-match addressed by a SLUG target_id
+    //    (strain: C57BL/10 → mdx). The numeric ``tag:N`` swap path below
+    //    keeps its remove+add semantics for back-compat.
+    // Runs before the id-based swap: near-match target_ids are slug-shaped,
+    // and the swap path can't resolve them (returns null → "adopt Auditor's"
+    // silently no-op'd — Paul 2026-07-13, the strain value near-match).
+    if (hasStatements || (!isNumericTarget && (modCategory || modValue))) {
+      const targetTag = resolveTagByTarget(finding, design);
+      if (!targetTag) {
+        // Nothing to modify — the tag is gone from the draft. Surface as
+        // already-applied rather than fall through to the swap path.
+        return {
+          mutates: false,
+          label: "✓ Already applied",
+          tooltip:
+            "The tag this modifies is no longer on the draft. " +
+            "Agree to disposition without re-applying.",
+          successMessage: "",
+        };
+      }
+      if (isProtectedTagCategory(targetTag.category?.label)) return null;
+      // Never let a modify move a tag INTO a protected category.
+      if (newCatLabel && isProtectedTagCategory(newCatLabel)) return null;
+      const statements: Statement[] | undefined = hasStatements
+        ? toDesignStatements(proposedStatements)
+        : undefined;
+      const tagLabel = `${targetTag.category?.label}: ${targetTag.value?.label}`;
+      // Idempotency: nothing proposed actually differs from the tag.
+      const statementsSame =
+        !statements ||
+        statementSetsEqual(targetTag.statements ?? [], statements);
+      const categorySame =
+        !modCategory || labelEq(modCategory.label, targetTag.category?.label);
+      const valueSame =
+        !modValue ||
+        (labelEq(modValue.label, targetTag.value?.label) &&
+          (modValue.uri ?? null) === (targetTag.value?.uri ?? null));
+      if (statementsSame && categorySame && valueSame) {
+        return {
+          mutates: false,
+          label: "✓ Already applied",
+          tooltip: `Tag "${tagLabel}" already matches the proposal.`,
+          successMessage: "",
+        };
+      }
+      const fixParts: string[] = [];
+      if (modValue) fixParts.push(`value → ${modValue.label}`);
+      if (modCategory) fixParts.push(`category → ${modCategory.label}`);
+      if (statements) fixParts.push(statements.map(statementLabel).join("; "));
+      return {
+        mutates: true,
+        label: "Agree (adopt) →",
+        tooltip: `Agree → update tag "${tagLabel}" to the proposal.`,
+        successMessage: `Updated tag "${tagLabel}". Commit the draft to save.`,
+        mutate: (draft) =>
+          modifyTag(draft, targetTag.id, {
+            category: modCategory,
+            value: modValue,
+            statements,
+          }),
+        appliedFix: `modify ${tagLabel}: ${fixParts.join("; ")}`,
+      };
+    }
     const idMatch = finding.target_id.match(/^tag:(\d+)$/);
     if (!idMatch) return null; // need the baseline id to swap against
     const baselineId = Number(idMatch[1]);
@@ -395,6 +502,15 @@ function resolveProposalApply(
   // term's URI (older agents emit only the ontology term).
   const valueUri =
     action.new_value_uri ?? finding.proposer_term?.uri ?? null;
+  // Statement-bearing add (e.g. ``genotype: Dmd`` carrying
+  // ``Dmd · has_genotype · mdx``): thread the proposed statements onto
+  // the new tag so they survive apply and become visible + editable in
+  // the design editor. Distinct from the reverted existing-tag mod
+  // (those go through ``replace_tag``); this is add-of-new only. See
+  // TAG_STATEMENT_ADD_TAG_APPLY_BUG_2026_07_13.md.
+  const addStatements: Statement[] = toDesignStatements(
+    proposedTagStatements(finding, action.statements),
+  );
 
   const alreadyApplied = (design?.tags ?? []).some((tag) => {
     if (!labelEq(tag.category?.label, categoryLabel)) return false;
@@ -417,14 +533,24 @@ function resolveProposalApply(
   const tooltip = valueUri
     ? `Agree → add tag "${categoryLabel}: ${valueLabel}" (${valueUri}) to the design.`
     : `Agree → add tag "${categoryLabel}: ${valueLabel}" (free-text — resolve later) to the design.`;
+  const addFixSuffix =
+    addStatements.length > 0
+      ? `: ${addStatements.map(statementLabel).join("; ")}`
+      : "";
   return {
     mutates: true,
     label: "Agree (add) →",
     tooltip,
     successMessage: `Added tag "${categoryLabel}: ${valueLabel}". Commit the draft to save.`,
     mutate: (draft) =>
-      addPopulatedTag(draft, categoryLabel, valueLabel, valueUri),
-    appliedFix: `add ${categoryLabel}: ${valueLabel}`,
+      addPopulatedTag(
+        draft,
+        categoryLabel,
+        valueLabel,
+        valueUri,
+        addStatements,
+      ),
+    appliedFix: `add ${categoryLabel}: ${valueLabel}${addFixSuffix}`,
   };
 }
 
@@ -1516,11 +1642,103 @@ function removeFactorById(design: Design, factorId: number): Design {
  *  ``applyProposalToDesign``. Skips inferred tags when checking for
  *  duplicates so an inferred BioMaterial-source tag with the same
  *  label doesn't block the curator from promoting it. */
+/** The proposed statement set for a tag apply. Prefers
+ *  ``apply_action.statements`` but falls back to the finding's
+ *  ``proposer_statements`` — the agent reliably populates the render
+ *  field (so the card + Current↔Proposed delta show the S·P·O) but
+ *  often leaves ``apply_action.statements`` null, which silently no-op'd
+ *  the apply (Utrn near-match + Dmd add on GSE84876, 2026-07-13). Both
+ *  fields carry the same ``StatementProposal`` shape and mean the same
+ *  thing — the statements the curator is adopting — so either is
+ *  authoritative. */
+function proposedTagStatements(
+  finding: AuditFinding,
+  applyActionStatements: unknown,
+): StatementProposal[] {
+  const fromAction = Array.isArray(applyActionStatements)
+    ? (applyActionStatements as StatementProposal[])
+    : [];
+  if (fromAction.length > 0) return fromAction;
+  return finding.proposer_statements ?? [];
+}
+
+/** Convert proposer ``StatementProposal[]`` to the design ``Statement``
+ *  shape, dropping entries without a subject. */
+function toDesignStatements(proposed: StatementProposal[]): Statement[] {
+  return proposed
+    .filter((s) => s.subject?.label)
+    .map((s) => ({
+      category: s.category ?? null,
+      subject: s.subject,
+      predicate: s.predicate ?? null,
+      object: s.object ?? null,
+    }));
+}
+
+/** Resolve the existing design tag a finding targets, for the
+ *  ``replace_tag`` statement-modify path. Handles both target_id
+ *  shapes tag findings use: the numeric ``tag:<id>`` (id join) and the
+ *  slug-shaped ``tag:<cat>/<val>`` / ``calibration:*:<cat>/<val>``
+ *  (parsed by ``parseTargetId``). Returns null when neither resolves —
+ *  the caller then treats the modify as already-applied. */
+function resolveTagByTarget(finding: AuditFinding, design: Design): Tag | null {
+  const idMatch = finding.target_id.match(/^tag:(\d+)$/);
+  if (idMatch) {
+    const id = Number(idMatch[1]);
+    return (design.tags ?? []).find((t) => t.id === id) ?? null;
+  }
+  const parsed = parseTargetId(finding.target_id);
+  if (parsed?.kind === "tag") {
+    return (
+      (design.tags ?? []).find(
+        (t) =>
+          slug(t.category?.label) === parsed.categorySlug &&
+          slug(t.value?.label) === parsed.valueSlug,
+      ) ?? null
+    );
+  }
+  return null;
+}
+
+/** One statement's identity signature — ``subject|predicate|object``,
+ *  URI-or-label per slot, lowercased. Mirrors the agents-side
+ *  ``_stmt_key`` (URI-precedence) so the UI's idempotency check agrees
+ *  with the finding generator's notion of "same statement". */
+function statementSignature(s: {
+  subject?: OntologyTerm | null;
+  predicate?: OntologyTerm | null;
+  object?: OntologyTerm | null;
+}): string {
+  const part = (t?: OntologyTerm | null) =>
+    (t?.uri || t?.label || "").trim().toLowerCase();
+  return `${part(s.subject)}|${part(s.predicate)}|${part(s.object)}`;
+}
+
+/** Order-insensitive set equality over statement signatures — two tags
+ *  with the same statements in a different order are equal. */
+function statementSetsEqual(a: Statement[], b: Statement[]): boolean {
+  const sa = a.map(statementSignature).sort();
+  const sb = b.map(statementSignature).sort();
+  return sa.length === sb.length && sa.every((v, i) => v === sb[i]);
+}
+
+/** Human-readable ``subject · predicate · object`` for the
+ *  ``applied_fix`` disposition text. */
+function statementLabel(s: Statement): string {
+  return [s.subject?.label, s.predicate?.label, s.object?.label]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function addPopulatedTag(
   design: Design,
   categoryLabel: string,
   valueLabel: string,
   valueUri: string | null,
+  /** Statements for a genuinely-new statement-bearing tag (add of a
+   *  ``genotype: Dmd`` that carries ``Dmd · has_genotype · mdx``).
+   *  Empty / omitted leaves the tag flat. */
+  statements?: Statement[],
 ): Design {
   const existing = design.tags ?? [];
   const dup = existing.some(
@@ -1536,6 +1754,7 @@ function addPopulatedTag(
     id: next + 1,
     category: { label: categoryLabel, uri: null },
     value: { label: valueLabel, uri: valueUri },
+    ...(statements && statements.length > 0 ? { statements } : {}),
     inferred: false,
     evidence_code: "IC",
   };

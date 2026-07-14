@@ -38,7 +38,7 @@ function project(
     free_text_label: term.label,
     statements: [],
     biomaterial_short_names: samples ? [...samples] : [],
-  } as FactorComparisonPair["left"];
+  } as unknown as FactorComparisonPair["left"];
 }
 
 function makePair(
