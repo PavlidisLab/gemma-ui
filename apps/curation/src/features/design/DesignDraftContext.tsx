@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useDesign, useUpdateDesign } from "@/api/design";
+import { useDesign, useUpdateDesign, useUpdatePolished } from "@/api/design";
 import { diffDesign, type DesignDiff } from "./diff";
 import type { Design } from "@/features/experiment/types";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
@@ -275,6 +275,10 @@ export function DesignDraftProvider({
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const updater = useUpdateDesign(experimentId, reviewer);
+  // Durable mirror: every commit also writes the curator's design to the
+  // per-curator polished store, the one design store a calibration-batch
+  // reload does not wipe (2026-07-18 reimport-persistence fix).
+  const polisher = useUpdatePolished(experimentId, reviewer);
 
   // Resolve the chip baseline to a curation row (when one is set).
   // When the lookup hits, that row's design takes over from the
@@ -587,9 +591,22 @@ export function DesignDraftProvider({
         // state is uninteresting now. Same for discard below.
         setUndoStack([]);
         setRedoStack([]);
+        // Durability: mirror the committed design into the per-curator
+        // polished store so it survives a calibration-batch reload.
+        // Fire-and-forget — the /design commit already succeeded; a
+        // polished-write failure must not fail the commit or block the
+        // curator. No curator key ⇒ nothing to persist against, skip.
+        if (reviewer) {
+          polisher.mutate(server, {
+            onError: (err) => {
+              // eslint-disable-next-line no-console
+              console.warn("polished-design mirror write failed", err);
+            },
+          });
+        }
       },
     });
-  }, [draft, updater, experimentId]);
+  }, [draft, updater, polisher, reviewer, experimentId]);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
     setUndoStack([]);

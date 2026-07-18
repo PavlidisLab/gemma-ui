@@ -36,6 +36,7 @@ import type { Design } from "@/features/experiment/types";
 vi.mock("@/api/design", () => ({
   useDesign: vi.fn(),
   useUpdateDesign: vi.fn(),
+  useUpdatePolished: vi.fn(),
 }));
 vi.mock("@/features/comparison/useSourceAvailability", () => ({
   useCurations: vi.fn(),
@@ -49,7 +50,7 @@ vi.mock("@/features/proposal/proposalDispositions", () => ({
   notifyProposalStateReset: vi.fn(),
 }));
 
-import { useDesign, useUpdateDesign } from "@/api/design";
+import { useDesign, useUpdateDesign, useUpdatePolished } from "@/api/design";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
 import {
@@ -59,6 +60,7 @@ import {
 
 const useDesignMock = useDesign as ReturnType<typeof vi.fn>;
 const useUpdateDesignMock = useUpdateDesign as ReturnType<typeof vi.fn>;
+const useUpdatePolishedMock = useUpdatePolished as ReturnType<typeof vi.fn>;
 const useCurationsMock = useCurations as ReturnType<typeof vi.fn>;
 const resolveCurationMock = resolveCuration as ReturnType<typeof vi.fn>;
 
@@ -82,6 +84,15 @@ function makeDesign(experimentId: number, shortName: string): Design {
 /** Default the update-design hook to an inert stub. */
 function stubUpdater() {
   useUpdateDesignMock.mockReturnValue({
+    mutate: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  });
+  // The durable polished mirror is fire-and-forget; an inert stub keeps
+  // the commit path exercisable without a real network write.
+  useUpdatePolishedMock.mockReturnValue({
     mutate: vi.fn(),
     reset: vi.fn(),
     isPending: false,

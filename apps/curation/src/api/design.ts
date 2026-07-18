@@ -443,3 +443,38 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
     },
   });
 }
+
+/** Persist the curator's committed Design to the DURABLE per-curator
+ *  polished store (``/polished/{curator}``). The mutable ``/design``
+ *  row is REFRESHED from the package on a calibration-batch reload; the
+ *  backend now preserves an edited ``/design`` across a soft re-import
+ *  (2026-07-18 fix), but a full delete+reimport still rebuilds it. The
+ *  ``polished_designs`` table is the one design store a reload does NOT
+ *  wipe, so Commit writes here too — this is what lets the curator's
+ *  finalized Design survive a reload. Read back via
+ *  ``fetchPolishedSnapshot``. Callers guard on a non-empty ``curator``
+ *  (the polished store is keyed by curator; there's nothing to key on
+ *  without one). */
+export function useUpdatePolished(
+  experimentId: number | string,
+  curator = "",
+) {
+  return useMutation({
+    mutationFn: async (design: Design) => {
+      const routeEid =
+        typeof experimentId === "number"
+          ? experimentId
+          : Number.parseInt(String(experimentId), 10);
+      const body = normaliseDesignForSave(design);
+      const stamped = Number.isFinite(routeEid)
+        ? { ...body, experiment_id: routeEid }
+        : body;
+      return api.put<Design>(
+        `/rest/v2/datasets/${experimentId}/polished/${encodeURIComponent(
+          curator,
+        )}`,
+        stamped,
+      );
+    },
+  });
+}
