@@ -322,6 +322,32 @@ export function HeatmapWidget({
   }, [payload, mainGroupingFactorId]);
   const rawData: HeatmapData = built?.data ?? data ?? EMPTY_DATA;
 
+  // Factors in the SAME order the strips are built + rendered in
+  // (buildHeatmapDataFromPayload lays strips out via
+  // orderFactorsForDisplay). Strip indices reported by the canvas —
+  // hover, click, selected-grouping highlight — are indices into THIS
+  // ordered list, NOT into ``payload.factors`` whose wire order can
+  // differ. Indexing ``payload.factors`` directly mismatched a strip's
+  // label against its factor whenever the wire emitted factors in a
+  // non-display order (e.g. DevBrain emits "clinical history" first,
+  // but "biological sex" sorts first for display — so strip 0, labelled
+  // "biological sex", resolved to the clinical-history factor and read
+  // as NA). ``orderFactorsForDisplay`` is pure + deterministic, so this
+  // list is guaranteed identical to the order the strips were built in.
+  const orderedFactors = useMemo(
+    () => (payload ? orderFactorsForDisplay(payload.factors ?? []) : []),
+    [payload],
+  );
+  // Payload whose ``factors`` are in strip order — handed to the
+  // tooltip + side panel so their ``factors[stripIndex]`` lookups line
+  // up with the rendered strips. Columns / rows / matrix are untouched
+  // (only the factor array is reordered; FV lookups are keyed by
+  // factor.id, so consumers that iterate all factors stay correct).
+  const orderedPayload = useMemo<HeatmapPayload | null>(
+    () => (payload ? { ...payload, factors: orderedFactors } : null),
+    [payload, orderedFactors],
+  );
+
   const scaledData = useMemo<HeatmapData>(
     () =>
       rowScale
@@ -331,12 +357,13 @@ export function HeatmapWidget({
   );
 
   // Pinned-strip index is derived from the main-grouping factor id;
-  // factors render one strip each in `payload.factors[]` order.
+  // factors render one strip each in `orderedFactors` (display) order,
+  // so the highlight must be located in THAT list, not the wire order.
   const selectedStripIndex = useMemo<number | null>(() => {
-    if (!payload || mainGroupingFactorId == null) return null;
-    const i = payload.factors.findIndex((f) => f.id === mainGroupingFactorId);
+    if (mainGroupingFactorId == null) return null;
+    const i = orderedFactors.findIndex((f) => f.id === mainGroupingFactorId);
     return i < 0 ? null : i;
-  }, [payload, mainGroupingFactorId]);
+  }, [orderedFactors, mainGroupingFactorId]);
 
   // Close the side panel when the payload changes underneath us.
   useEffect(() => {
@@ -683,7 +710,7 @@ export function HeatmapWidget({
               onStripGutterClick={
                 payload
                   ? (i) => {
-                      const f = payload.factors[i];
+                      const f = orderedFactors[i];
                       if (!f) return;
                       // Re-click clears.
                       setMainGroupingFactorIdWithTouch((prev: number | null) =>
@@ -777,7 +804,7 @@ export function HeatmapWidget({
           </div>
           {payload && pinned ? (
             <SidePanel
-              payload={payload}
+              payload={orderedPayload ?? payload}
               click={pinned}
               onClose={() => setPinned(null)}
               rowValues={
@@ -821,7 +848,7 @@ export function HeatmapWidget({
       )}
 
       {showTooltip && payload && tooltip ? (
-        <HeatmapTooltip payload={payload} state={tooltip} formatValue={fmt} />
+        <HeatmapTooltip payload={orderedPayload ?? payload} state={tooltip} formatValue={fmt} />
       ) : null}
       {showTooltip && !payload && hover ? (
         <CursorTooltip hover={hover} data={scaledData} formatValue={fmt} />
