@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { Term } from "./Term";
@@ -63,8 +63,16 @@ export function StatementEditModal({
   const [draft, setDraft] = useState<StatementDraft>(initial);
   const [saving, setSaving] = useState(false);
 
+  // Seed the draft only on the closed→open transition. Keying a reset
+  // on ``initial`` identity wiped in-progress edits: in add mode the
+  // parent hands a fresh ``addInitial`` object literal on every render,
+  // so any re-render while the modal was open re-ran this effect and
+  // cleared the curator's category / subject / pairs. Track the prior
+  // ``open`` and re-seed only on the rising edge.
+  const wasOpen = useRef(false);
   useEffect(() => {
-    if (open) setDraft(initial);
+    if (open && !wasOpen.current) setDraft(initial);
+    wasOpen.current = open;
   }, [open, initial]);
 
   useEffect(() => {
