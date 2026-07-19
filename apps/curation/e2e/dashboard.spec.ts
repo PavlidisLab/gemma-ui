@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 /**
  * Smoke tests for the curator dashboard.
@@ -9,8 +10,9 @@ import { installErrorGuards } from "./_helpers";
  * Anything beyond "renders without crashing" lives in
  * feature-specific specs.
  */
-test.describe("Curator dashboard", () => {
+test.describe("Curator dashboard @live", () => {
   test.beforeEach(async ({ page }) => {
+    requiresBackend();
     // Use the shared helper so the suite's console-error filter list
     // stays one source of truth (the inline copy lacked the
     // 404 / "Failed to load resource" allowance the dev server emits

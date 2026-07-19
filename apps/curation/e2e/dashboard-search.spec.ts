@@ -4,6 +4,7 @@ import {
   SEED_EXPERIMENT_SHORT_NAME,
   installErrorGuards,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 /**
  * Dashboard quick-search + its handoff to the all-experiments browse
@@ -23,8 +24,11 @@ import {
  * Not tagged @critical — these run against the fresh seed DB in CI, not
  * the curator's live working DB.
  */
-test.describe("Dashboard quick-search", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Dashboard quick-search @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("renders a quick-search box with the accession-aware placeholder", async ({
     page,
@@ -71,8 +75,11 @@ test.describe("Dashboard quick-search", () => {
   });
 });
 
-test.describe("All-experiments browse — ?q handoff + accession filter", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("All-experiments browse — ?q handoff + accession filter @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("?q= seeds the browse filter box", async ({ page }) => {
     await page.goto(`/#/all-experiments?q=${SEED_EXPERIMENT_SHORT_NAME}`);

@@ -5,9 +5,13 @@ import {
   tabButton,
   expectTabActive,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("Experiment Design tab", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Experiment Design tab @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("'Design setup' tab activates when clicked", async ({ page }) => {
     await gotoSeedExperiment(page);

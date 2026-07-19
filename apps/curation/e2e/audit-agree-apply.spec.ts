@@ -29,6 +29,7 @@ import {
   installErrorGuards,
   gotoSeedExperiment,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,8 +103,11 @@ async function gotoSeedWithAuditFixture(page: Page): Promise<boolean> {
 // Test suite
 // ---------------------------------------------------------------------------
 
-test.describe("Audit sidebar — agree + disposition flow", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Audit sidebar — agree + disposition flow @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   // -------------------------------------------------------------------------
   // 1. Switching to Audit tab shows the audit empty state

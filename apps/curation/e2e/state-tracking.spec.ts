@@ -4,6 +4,7 @@ import {
   gotoSeedExperiment,
   installErrorGuards,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 /**
  * State-tracking e2e — per Paul 2026-06-14: "you need to do something
@@ -31,8 +32,11 @@ import {
  * audit, filed as a separate setup.
  */
 
-test.describe("state tracking — tab switches mutate URL and active-tab class", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("state tracking — tab switches mutate URL and active-tab class @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("clicking Design tab from Overview: URL ?tab=design + Design active", async ({
     page,
@@ -78,8 +82,11 @@ test.describe("state tracking — tab switches mutate URL and active-tab class",
   });
 });
 
-test.describe("state tracking — experiment-queue filter chips report counts", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("state tracking — experiment-queue filter chips report counts @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("filter chips render with counts (All / Started / Finished / Not started)", async ({
     page,
@@ -153,8 +160,11 @@ test.describe("state tracking — experiment-queue filter chips report counts", 
   });
 });
 
-test.describe("state tracking — overall shell continuity", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("state tracking — overall shell continuity @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("URL hash deep-links survive a tab round-trip", async ({ page }) => {
     await gotoSeedExperiment(page, "samples");

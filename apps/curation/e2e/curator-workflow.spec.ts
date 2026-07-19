@@ -5,6 +5,7 @@ import {
   installErrorGuards,
   tabButton,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 /**
  * Curator-workflow e2e — the path Paul described 2026-06-13:
@@ -27,8 +28,11 @@ import {
  * ``src/features/design/continuity.test.ts`` and
  * ``src/features/design/diff.test.ts``.
  */
-test.describe("curator workflow — disposition → edit → commit → close", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("curator workflow — disposition → edit → commit → close @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("experiment shell mounts with the seed experiment", async ({ page }) => {
     await gotoSeedExperiment(page);
@@ -123,8 +127,11 @@ test.describe("curator workflow — disposition → edit → commit → close", 
   });
 });
 
-test.describe("curator workflow — invariants on the empty seed", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("curator workflow — invariants on the empty seed @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("Overview tab renders banner + tab strip", async ({ page }) => {
     await gotoSeedExperiment(page, "overview");

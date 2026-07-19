@@ -1,8 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("Audit sidebar (EE shell)", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Audit sidebar (EE shell) @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("'Request proposal…' button is present on Overview", async ({ page }) => {
     await gotoSeedExperiment(page);

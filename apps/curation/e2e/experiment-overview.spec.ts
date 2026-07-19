@@ -1,8 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("Experiment Overview tab", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Experiment Overview tab @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("renders the Tags section heading", async ({ page }) => {
     await gotoSeedExperiment(page);

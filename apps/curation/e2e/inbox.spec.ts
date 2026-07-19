@@ -1,8 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("Inbox views", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Inbox views @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("proposals inbox at #/inbox renders without crashing", async ({ page }) => {
     await page.goto("/#/inbox");

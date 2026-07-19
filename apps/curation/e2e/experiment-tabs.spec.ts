@@ -5,6 +5,7 @@ import {
   tabButton,
   expectTabActive,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 const TABS_WITH_HASHES: { id: string; label: string }[] = [
   { id: "design", label: "Design setup" },
@@ -16,8 +17,11 @@ const TABS_WITH_HASHES: { id: string; label: string }[] = [
   { id: "pipeline", label: "Pipeline" },
 ];
 
-test.describe("Experiment shell — per-tab smoke", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Experiment shell — per-tab smoke @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   for (const { id, label } of TABS_WITH_HASHES) {
     test(`'${label}' tab mounts via deep-link without crashing`, async ({ page }) => {

@@ -5,9 +5,13 @@ import {
   tabButton,
   expectTabActive,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("Experiment shell — History tab", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Experiment shell — History tab @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("History tab deep-links via ?tab=history", async ({ page }) => {
     await gotoSeedExperiment(page, "history");
@@ -33,8 +37,11 @@ test.describe("Experiment shell — History tab", () => {
   });
 });
 
-test.describe("Experiment shell — Pipeline tab", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Experiment shell — Pipeline tab @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("Pipeline tab deep-links via ?tab=pipeline", async ({ page }) => {
     await gotoSeedExperiment(page, "pipeline");

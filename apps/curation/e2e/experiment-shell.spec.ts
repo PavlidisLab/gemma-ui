@@ -7,6 +7,7 @@ import {
   tabButton,
   expectTabActive,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 const TAB_LABELS = [
   "Overview",
@@ -19,8 +20,11 @@ const TAB_LABELS = [
   "Pipeline",
 ];
 
-test.describe("Experiment shell", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Experiment shell @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("mounts when navigated by experiment id", async ({ page }) => {
     await gotoSeedExperiment(page);

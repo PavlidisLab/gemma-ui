@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 /**
  * Smoke tests for the 2026-06-11 review-workflow handoff fixes:
@@ -16,8 +17,11 @@ import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
  * #7 ValidatorBanner invalidation fix is verified manually (involves
  * commit which mutates).
  */
-test.describe("review workflow — handoff 2026-06-11", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("review workflow — handoff 2026-06-11 @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("legacy 'Close audit' / 'Curation mode' / 'Review mode' labels are gone", async ({
     page,

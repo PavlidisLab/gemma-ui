@@ -1,8 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards, SEED_EXPERIMENT_ID } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("Routing", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Routing @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("blank hash routes to the landing page", async ({ page }) => {
     await page.goto("/");

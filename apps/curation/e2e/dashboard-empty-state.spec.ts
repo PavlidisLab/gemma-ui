@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 /**
  * Dashboard's behaviour on a fresh ``local_curation.sqlite``
@@ -7,8 +8,11 @@ import { installErrorGuards } from "./_helpers";
  * deleted in-tree MOCK_TICKETS fixture should now read as an empty
  * state, not as fixture data.
  */
-test.describe("Dashboard — fresh-DB empty state", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Dashboard — fresh-DB empty state @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("Tickets section is empty (no MOCK_TICKETS fallback)", async ({ page }) => {
     await page.goto("/");

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 /**
  * Dashboard filter-chip clicks + navigation.
@@ -72,8 +73,11 @@ function dashboardFilterChip(page: import("@playwright/test").Page, label: strin
 
 // ------------------------------------------------------------------ tests
 
-test.describe("dashboard filter chips — ticket list narrowing", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("dashboard filter chips — ticket list narrowing @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("'Not started' chip narrows the ticket list to non-started rows", async ({
     page,
@@ -217,8 +221,11 @@ test.describe("dashboard filter chips — ticket list narrowing", () => {
   });
 });
 
-test.describe("all-experiments table — search and filter", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("all-experiments table — search and filter @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("search input filters the experiment list as the curator types", async ({
     page,
@@ -325,8 +332,11 @@ test.describe("all-experiments table — search and filter", () => {
   });
 });
 
-test.describe("dashboard navigation — browse-all link", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("dashboard navigation — browse-all link @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("Browse-all link reaches the all-experiments table and experiments load", async ({
     page,

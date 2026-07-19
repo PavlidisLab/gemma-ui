@@ -1,7 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { SEED_EXPERIMENT_ID } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test("chip state survives tab switch", async ({ page }) => {
+test.beforeEach(() => requiresBackend());
+
+test("chip state survives tab switch @live", async ({ page }) => {
   // Open with explicit chip selection.
   await page.goto(
     `/#/experiments/${SEED_EXPERIMENT_ID}?tab=design&cmp=empty`,

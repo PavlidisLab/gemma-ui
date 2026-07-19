@@ -13,9 +13,13 @@
  */
 import { test, expect } from "@playwright/test";
 import { installErrorGuards, SEED_EXPERIMENT_ID } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("Sidebar + chip strip — interactivity traps", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Sidebar + chip strip — interactivity traps @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("sidebar reopen sticks even when comparator stays empty", async ({
     page,

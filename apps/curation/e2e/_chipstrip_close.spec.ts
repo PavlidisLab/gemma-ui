@@ -1,6 +1,9 @@
 import { test } from "@playwright/test";
+import { requiresBackend } from "./_backend";
 
-test("review mode is truly inert — GSE324337 design tab", async ({ page }) => {
+test.beforeEach(() => requiresBackend());
+
+test("review mode is truly inert — GSE324337 design tab @live", async ({ page }) => {
   await page.addInitScript(() => window.localStorage.clear());
   await page.setViewportSize({ width: 1280, height: 1400 });
   await page.goto(

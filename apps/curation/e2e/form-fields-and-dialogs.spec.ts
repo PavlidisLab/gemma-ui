@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
 /**
  * Form-field and dialog interaction tests.
@@ -18,8 +19,11 @@ import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
 //    This test confirms the skip is clean — no login form leaks through.
 // ---------------------------------------------------------------------------
 
-test.describe("LoginPage — local-mode skip", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("LoginPage — local-mode skip @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("login form is NOT rendered in local mode (useMe returns synthetic user)", async ({
     page,
@@ -39,8 +43,11 @@ test.describe("LoginPage — local-mode skip", () => {
 //    Requires at least one pending audit finding. Skip if none.
 // ---------------------------------------------------------------------------
 
-test.describe("DismissDialog — notes textarea + confirm", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("DismissDialog — notes textarea + confirm @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("opening any audit finding card and typing in the dismiss dialog", async ({
     page,
@@ -109,8 +116,11 @@ test.describe("DismissDialog — notes textarea + confirm", () => {
 //    draft per the draftStore), reopens, asserts text is still there.
 // ---------------------------------------------------------------------------
 
-test.describe("DismissDialog — draft survives Escape and reopens", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("DismissDialog — draft survives Escape and reopens @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("draft typed before Escape is restored when the dialog is reopened", async ({
     page,
@@ -167,8 +177,11 @@ test.describe("DismissDialog — draft survives Escape and reopens", () => {
 //    Requires a screening group in the DB. Skip if none.
 // ---------------------------------------------------------------------------
 
-test.describe("Bulk intake — accession textarea token count", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Bulk intake — accession textarea token count @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("pasting 3 accessions updates the 'Add N candidates' button label", async ({
     page,
@@ -217,8 +230,11 @@ test.describe("Bulk intake — accession textarea token count", () => {
 //    via localStorage-backed cache in NotesDrawer.
 // ---------------------------------------------------------------------------
 
-test.describe("NotesDrawer — draft persists across open/close", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("NotesDrawer — draft persists across open/close @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("typing a draft note, closing, and reopening restores the draft", async ({
     page,
@@ -320,8 +336,11 @@ test.describe("NotesDrawer — draft persists across open/close", () => {
 //    Assert the factor is still in the table.
 // ---------------------------------------------------------------------------
 
-test.describe("ConfirmModal — cancel does not perform destructive action", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("ConfirmModal — cancel does not perform destructive action @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("clicking cancel on the delete-factor modal leaves the factor intact", async ({
     page,
@@ -399,8 +418,11 @@ test.describe("ConfirmModal — cancel does not perform destructive action", () 
 //    and verify the dashboard loads instead.
 // ---------------------------------------------------------------------------
 
-test.describe("LoginPage — form field behaviour (local-mode boundary)", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("LoginPage — form field behaviour (local-mode boundary) @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("root loads the dashboard (not the login form) in local mode", async ({
     page,
@@ -428,8 +450,11 @@ test.describe("LoginPage — form field behaviour (local-mode boundary)", () => 
 //    disabled (no dirty state). Typing changes enables it.
 // ---------------------------------------------------------------------------
 
-test.describe("NotesDrawer — save-note button disabled state", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("NotesDrawer — save-note button disabled state @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("'save note' is disabled on open, enabled after typing", async ({ page }) => {
     await gotoSeedExperiment(page);

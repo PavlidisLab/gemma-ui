@@ -1,8 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { installErrorGuards } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("Workflow page", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+test.describe("Workflow page @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("renders at #/workflow without crashing", async ({ page }) => {
     await page.goto("/#/workflow");
