@@ -4,9 +4,15 @@ import {
   SEED_EXPERIMENT_SHORT_NAME,
   installErrorGuards,
 } from "./_helpers";
+import { requiresBackend } from "./_backend";
 
-test.describe("All experiments page", () => {
-  test.beforeEach(({ page }) => installErrorGuards(page));
+// @live: reads the real experiment listing from the store. Skips when
+// the backend is down (see _backend.ts); excluded from the pre-commit gate.
+test.describe("All experiments page @live", () => {
+  test.beforeEach(({ page }) => {
+    requiresBackend();
+    installErrorGuards(page);
+  });
 
   test("mounts via dashboard's 'Browse all experiments' button", async ({ page }) => {
     await page.goto("/");

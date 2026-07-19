@@ -19,6 +19,7 @@
  * Anchor experiment: GSE165287 (id 40086) ticket-55 design tab.
  */
 import { expect, test } from "@playwright/test";
+import { mockExperiment } from "./_mocks";
 
 const TARGET =
   "/#/experiments/40086?tab=design&ticket=55&base=polished%3Aconsensus_strict_consensus&cmp=agent_proposal";
@@ -32,6 +33,10 @@ async function expandAllCards(page: import("@playwright/test").Page) {
 
 test.describe("FactorComparisonGrid — the SINGLE factor visual @critical", () => {
   test.beforeEach(async ({ page }) => {
+    // Data-mocked (see mockExperiment): the ticket-55 audit sidebar for
+    // GSE165287 is frozen in a HAR so this tests the FactorComparisonGrid
+    // render, not the store/frink. Re-record with PWHAR_UPDATE=1.
+    await mockExperiment(page, "exp-40086");
     await page.addInitScript(() => window.localStorage.clear());
     await page.setViewportSize({ width: 1600, height: 1600 });
     await page.goto(TARGET);

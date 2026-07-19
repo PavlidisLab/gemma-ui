@@ -14,6 +14,9 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
+  // Probe the backend once; @live specs skip when it's down (see
+  // e2e/global-setup.ts + e2e/_backend.ts). Mocked specs are unaffected.
+  globalSetup: "./e2e/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

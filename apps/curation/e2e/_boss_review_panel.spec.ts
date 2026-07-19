@@ -16,11 +16,17 @@
  * Tagged @critical so the precommit gate runs it.
  */
 import { expect, test } from "@playwright/test";
+import { mockExperiment } from "./_mocks";
 
 const TARGET = "/#/experiments/29184";
 
 test.describe("BossReviewPanel — experiment-level boss-critic surface @critical", () => {
   test.beforeEach(async ({ page }) => {
+    // Data-mocked: the boss-critic verdicts + finding set are frozen in
+    // a HAR so this tests the panel's RENDER, not the store having
+    // GSE190221 loaded or frink being reachable. Re-record with
+    // PWHAR_UPDATE=1 (see mockExperiment).
+    await mockExperiment(page, "exp-29184");
     await page.addInitScript(() => window.localStorage.clear());
     await page.setViewportSize({ width: 1600, height: 1400 });
     await page.goto(TARGET);

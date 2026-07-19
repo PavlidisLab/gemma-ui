@@ -22,6 +22,7 @@
  * is rendered.
  */
 import { expect, test } from "@playwright/test";
+import { mockExperiment } from "./_mocks";
 
 const TARGET =
   "/#/experiments/40086?tab=design&ticket=55&base=polished%3Aconsensus_strict_consensus&cmp=agent_proposal";
@@ -41,6 +42,10 @@ async function expandAllCards(page: import("@playwright/test").Page) {
 
 test.describe("Reasoning panel — unified shell @critical", () => {
   test.beforeEach(async ({ page }) => {
+    // Data-mocked (see mockExperiment): shares the ticket-55 GSE165287
+    // HAR with the factor-grid spec — tests the reasoning-toggle render,
+    // not data access. Re-record with PWHAR_UPDATE=1.
+    await mockExperiment(page, "exp-40086");
     await page.addInitScript(() => window.localStorage.clear());
     await page.setViewportSize({ width: 1600, height: 1400 });
     await page.goto(TARGET);

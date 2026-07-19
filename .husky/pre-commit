@@ -9,6 +9,12 @@
 # action-row buttons, dismiss-dialog vocab — and would catch the
 # same shape of regression on the next commit.
 #
+# The @critical specs are DATA-MOCKED (HAR replay, see e2e/_mocks.ts),
+# so this gate is deterministic and does NOT depend on a live backend.
+# ``--grep-invert @live`` is belt-and-suspenders: backend-integration
+# specs (@live) never block a commit — they run via ``npm run e2e:live``
+# when the store is up.
+#
 # Skipping the gate: ``git commit --no-verify`` (use sparingly; the
 # next commit re-runs all of it). When the gate fires a false
 # positive, fix the test rather than the bypass — see the test
@@ -25,8 +31,8 @@ npx vitest run --silent
 # already installed (curators / freshly-cloned dev shells without
 # Chromium shouldn't be blocked). The check is cheap.
 if [ -d "$HOME/Library/Caches/ms-playwright" ] || [ -d "$HOME/.cache/ms-playwright" ]; then
-    echo "[pre-commit] playwright @critical specs"
-    npx playwright test --grep '@critical' --reporter=line || {
+    echo "[pre-commit] playwright @critical specs (mocked, no backend)"
+    npx playwright test --grep '@critical' --grep-invert '@live' --reporter=line || {
         echo "[pre-commit] @critical e2e failed."
         echo "[pre-commit] To bypass once: git commit --no-verify"
         exit 1
