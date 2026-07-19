@@ -57,6 +57,7 @@ import {
   modifyTag,
   setFactorFields,
   setFvLabel,
+  setStatement,
 } from "@/features/design/mutations";
 import {
   factorTarget,
@@ -219,6 +220,18 @@ function parseCalibrationTargetId(
  *  "c57bl/6j" — Gemma's import sometimes case-shifts.   */
 function labelEq(a: string | null | undefined, b: string): boolean {
   return (a || "").trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** Exact URI equality (trimmed). The finding's ``proposer_term.uri``
+ *  (the agent's wrong bind) and the FV's stored statement URI both
+ *  originate from the same Gemma import, so an exact compare is enough
+ *  to pin the wrong-bind FV. */
+function uriEq(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  return a.trim() === b.trim();
 }
 
 /** Apply-action for proposer-mode findings that carry a structured
@@ -898,6 +911,16 @@ function resolveFactorCalibrationApply(
   if (!design) return null;
   const goldEmpty = !!opts?.goldEmpty;
 
+  // Factual mis-binding on a MATCHED factor: the agent bound the wrong
+  // gene / strain / cell-line on one FV. Apply = rebind that single FV
+  // to the correct entity (relabel + statement subject-URI). Flag-only
+  // findings (multi-bind disagreements) ship no ``apply_action`` and
+  // fall through to focus-only. See
+  // UIB_HANDOFF_2026_07_18_FACTOR_MISBINDING_APPLY_RENAME_FV.md.
+  if (code === "calibration_factor_misbinding") {
+    return resolveFactorMisbindingApply(finding, design);
+  }
+
   // Match-downgrade (factor side): a ``*_match_*`` finding viewed
   // against an empty displayed gold baseline routes through the
   // add-factor path the ``calibration_factor_extra`` branch below
@@ -1485,6 +1508,187 @@ function replaceFactorWithProposal(
       next = setFvLabel(next, gold.id, best.id, newLabel);
     }
   }
+  return next;
+}
+
+/** Where the agent's wrong bind sits on the draft — the FV plus the
+ *  statement slot (index + subject/object role) that carries it.
+ *  ``statementIndex === -1`` means the wrong bind was on the FV label
+ *  only (no statement), so the rebind is a plain relabel. */
+type MisbindHit = {
+  factorId: number;
+  fvId: number;
+  statementIndex: number;
+  role: "subject" | "object";
+};
+
+/** Rebind a single factor value to the correct entity — the apply for
+ *  ``calibration_factor_misbinding``. The agent bound the wrong
+ *  gene / strain / cell-line on an otherwise-MATCHED factor; on Agree
+ *  we relabel the FV the agent got wrong (located by ``proposer_term``,
+ *  the wrong bind) to ``new_value`` and rebind its statement subject to
+ *  ``new_value_uri``. Returns null on a flag-only finding (no
+ *  ``apply_action``) or when the wrong-bind FV can't be located — the
+ *  caller falls back to focus-only. */
+function resolveFactorMisbindingApply(
+  finding: AuditFinding,
+  design: Design,
+): ApplyAction | null {
+  const aa = finding.apply_action;
+  if (!aa || aa.kind !== "rename_fv") return null;
+  // The union's forward-compat catch-all (``{kind: string}``) overlaps
+  // ``kind: "rename_fv"``, so narrow explicitly — same Extract cast the
+  // ``add_tag`` branch uses.
+  const action = aa as Extract<typeof aa, { kind: "rename_fv" }>;
+  const newValue = (action.new_value ?? "").trim();
+  if (!newValue) return null;
+  const newValueUri = action.new_value_uri ?? null;
+
+  const wrongUri = finding.proposer_term?.uri ?? null;
+  const wrongLabel = finding.proposer_term?.label ?? null;
+  if (!wrongUri && !wrongLabel) return null;
+
+  // Scope to the matched factor when it resolves to a real draft factor;
+  // otherwise search every factor. The wrong-bind term (a gene / strain
+  // / cell-line URI) is specific enough to locate the FV by content,
+  // which sidesteps the audit-time factor-id fragility — ``target_id``
+  // points at the gold id, not necessarily a draft id (the
+  // phantom-factor-match lesson, 2026-07-01).
+  const labelHint = finding.rationale?.match(/`([^`]+)`/)?.[1] ?? null;
+  const scoped = resolveGoldFactor(finding, design.factors, labelHint);
+  const scopedReal =
+    scoped && (design.factors ?? []).some((f) => f.id === scoped.id)
+      ? scoped
+      : null;
+
+  const locate = (factors: Factor[]): MisbindHit | null => {
+    // Pass 1: URI match on a statement role — the strongest signal.
+    if (wrongUri) {
+      for (const f of factors) {
+        for (const fv of f.factor_values) {
+          for (let i = 0; i < fv.statements.length; i++) {
+            const s = fv.statements[i];
+            if (uriEq(s.subject?.uri, wrongUri)) {
+              return { factorId: f.id, fvId: fv.id, statementIndex: i, role: "subject" };
+            }
+            if (uriEq(s.object?.uri, wrongUri)) {
+              return { factorId: f.id, fvId: fv.id, statementIndex: i, role: "object" };
+            }
+          }
+        }
+      }
+    }
+    // Pass 2: label match — a statement role label, then the FV label
+    // (older packages without a grounded proposer URI).
+    if (wrongLabel) {
+      for (const f of factors) {
+        for (const fv of f.factor_values) {
+          for (let i = 0; i < fv.statements.length; i++) {
+            const s = fv.statements[i];
+            if (labelEq(s.subject?.label, wrongLabel)) {
+              return { factorId: f.id, fvId: fv.id, statementIndex: i, role: "subject" };
+            }
+            if (labelEq(s.object?.label, wrongLabel)) {
+              return { factorId: f.id, fvId: fv.id, statementIndex: i, role: "object" };
+            }
+          }
+          if (labelEq(fv.free_text_label, wrongLabel)) {
+            return { factorId: f.id, fvId: fv.id, statementIndex: -1, role: "subject" };
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const hit =
+    (scopedReal && locate([scopedReal])) || locate(design.factors ?? []);
+
+  if (!hit) {
+    // Idempotency: the FV is already rebound to the correct entity (the
+    // wrong term is gone, the corrected one is present). Surface as
+    // "already applied" so a second Agree click isn't a dead button.
+    const alreadyRebound = (design.factors ?? []).some((f) =>
+      f.factor_values.some(
+        (fv) =>
+          labelEq(fv.free_text_label, newValue) ||
+          fv.statements.some(
+            (s) =>
+              uriEq(s.subject?.uri, newValueUri) ||
+              uriEq(s.object?.uri, newValueUri),
+          ),
+      ),
+    );
+    if (alreadyRebound) {
+      return {
+        mutates: false,
+        label: "✓ Already applied",
+        tooltip: `This factor value is already bound to "${newValue}". Agree to disposition without re-applying.`,
+        successMessage: "",
+      };
+    }
+    return null;
+  }
+
+  const factor = (design.factors ?? []).find((f) => f.id === hit.factorId);
+  const factorLabel = factor?.category.label ?? "factor";
+  const fromLabel = wrongLabel ?? "the agent's bind";
+  return {
+    mutates: true,
+    label: "Agree →",
+    tooltip:
+      `Agree → rebind the factor value from "${fromLabel}" to "${newValue}"` +
+      `${newValueUri ? ` (${newValueUri})` : ""} on factor "${factorLabel}". ` +
+      `The FV keeps its id and sample assignments; only the bound entity ` +
+      `changes. Commit the draft to save.`,
+    successMessage: `Rebound "${fromLabel}" → "${newValue}" on factor "${factorLabel}". Commit to save.`,
+    mutate: (draft) =>
+      rebindFactorValue(
+        draft,
+        hit.factorId,
+        hit.fvId,
+        hit.statementIndex,
+        hit.role,
+        newValue,
+        newValueUri,
+      ),
+    appliedFix:
+      finding.suggested_fix?.trim() || `rebind ${fromLabel} → ${newValue}`,
+  };
+}
+
+/** Rebind one FV to a corrected entity: patch the matched statement
+ *  role (subject / object) to the new (label, uri) and force the FV
+ *  label. ``statementIndex < 0`` means the wrong bind was on the FV
+ *  label only (no statement) — relabel only. */
+function rebindFactorValue(
+  design: Design,
+  factorId: number,
+  fvId: number,
+  statementIndex: number,
+  role: "subject" | "object",
+  newValue: string,
+  newValueUri: string | null,
+): Design {
+  let next = design;
+  if (statementIndex >= 0) {
+    const fv = next.factors
+      .find((f) => f.id === factorId)
+      ?.factor_values.find((v) => v.id === fvId);
+    const current = fv?.statements[statementIndex];
+    if (current) {
+      const term: OntologyTerm = { label: newValue, uri: newValueUri };
+      const patched: Statement = {
+        ...current,
+        ...(role === "object" ? { object: term } : { subject: term }),
+      };
+      next = setStatement(next, factorId, fvId, statementIndex, patched);
+    }
+  }
+  // Force the FV label regardless — ``setStatement`` only auto-syncs the
+  // label off an auto-derived primary-subject statement, so a customised
+  // label or an object-role rebind wouldn't otherwise update.
+  next = setFvLabel(next, factorId, fvId, newValue);
   return next;
 }
 

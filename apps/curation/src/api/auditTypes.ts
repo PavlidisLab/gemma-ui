@@ -502,6 +502,24 @@ export type ApplyActionPayload =
       statements?: StatementProposal[] | null;
     }
   | {
+      /** Rebind a single factor value to the correct entity — the apply
+       *  for ``calibration_factor_misbinding`` (2026-07-18). The agent
+       *  bound the wrong gene / strain / cell-line on an
+       *  otherwise-MATCHED factor; on Agree the UI relabels the FV
+       *  identified by the finding's ``proposer_term`` (the wrong bind)
+       *  to ``new_value`` and rebinds that FV's statement subject URI to
+       *  ``new_value_uri`` (the correct bind). Present ONLY on a clean
+       *  1↔1 swap; multi-bind disagreements ship flag-only (no
+       *  ``apply_action``) for the curator to reconcile by hand. See
+       *  UIB_HANDOFF_2026_07_18_FACTOR_MISBINDING_APPLY_RENAME_FV.md. */
+      kind: "rename_fv";
+      /** The correct entity label to bind (e.g. ``Gja1``). */
+      new_value: string;
+      /** URI for the correct bind — rebound onto the FV's statement
+       *  subject. Null when the agent couldn't ground it. */
+      new_value_uri?: string | null;
+    }
+  | {
       /** Forward-compat placeholder so shapes we don't model yet
        *  type-narrow cleanly when they ship. */
       kind: string;

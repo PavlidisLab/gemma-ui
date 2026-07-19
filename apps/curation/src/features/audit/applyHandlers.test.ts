@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AuditFinding } from "@/api/auditTypes";
-import type { Design, Tag, Factor, OntologyTerm } from "@/features/experiment/types";
+import type {
+  Design,
+  Tag,
+  Factor,
+  FactorValue,
+  OntologyTerm,
+} from "@/features/experiment/types";
 import { resolveApplyAction } from "./applyHandlers";
 
 /**
@@ -941,5 +947,194 @@ describe("resolveApplyAction — CONTINUOUS FACTOR add (Paul 2026-06-13)", () =>
       (f) => f.category.label === "timepoint",
     );
     expect(factor).toBeDefined();
+  });
+});
+
+/**
+ * calibration_factor_misbinding — the agent bound the wrong
+ * gene/strain/cell-line on an otherwise-MATCHED factor. Agree = rebind
+ * that ONE factor value (relabel + statement subject/object URI) to the
+ * correct entity. Only fires on a clean 1↔1 swap (apply_action present);
+ * multi-bind disagreements ship flag-only and stay focus-only.
+ * UIB_HANDOFF_2026_07_18_FACTOR_MISBINDING_APPLY_RENAME_FV.md.
+ */
+function mfv(
+  id: number,
+  label: string,
+  opts: {
+    uri?: string | null;
+    statements?: FactorValue["statements"];
+  } = {},
+): FactorValue {
+  return {
+    id,
+    free_text_label: label,
+    is_baseline: false,
+    biomaterial_short_names: [],
+    statements:
+      opts.statements ?? [{ subject: term(label, opts.uri ?? null) }],
+  };
+}
+
+function factor(id: number, categoryLabel: string, fvs: FactorValue[]): Factor {
+  return {
+    id,
+    name: categoryLabel,
+    category: term(categoryLabel, null),
+    description: "",
+    type: "categorical",
+    factor_values: fvs,
+  };
+}
+
+function misbind(opts: {
+  wrongLabel: string;
+  wrongUri?: string | null;
+  newValue: string;
+  newValueUri?: string | null;
+  suggestedFix?: string;
+  applyAction?: AuditFinding["apply_action"];
+}): AuditFinding {
+  return finding({
+    target_kind: "factor",
+    target_id: "factor:8001",
+    issue_code: "calibration_factor_misbinding",
+    severity: "major",
+    proposer_term: {
+      label: opts.wrongLabel,
+      uri: opts.wrongUri ?? null,
+      resolver: null,
+      score: null,
+    },
+    gold_target_index: 0,
+    suggested_fix: opts.suggestedFix ?? "",
+    apply_action:
+      "applyAction" in opts
+        ? opts.applyAction
+        : {
+            kind: "rename_fv",
+            new_value: opts.newValue,
+            new_value_uri: opts.newValueUri ?? null,
+          },
+  });
+}
+
+describe("resolveApplyAction — FACTOR MISBINDING (rename_fv)", () => {
+  it("rebinds the wrong-bound FV to the correct entity (URI match)", () => {
+    const d = design({
+      factors: [
+        factor(8001, "genotype", [
+          mfv(1, "Gjb6", { uri: "http://ncbi/14623" }),
+          mfv(2, "WT", { uri: null }),
+        ]),
+      ],
+    });
+    const f = misbind({
+      wrongLabel: "Gjb6",
+      wrongUri: "http://ncbi/14623",
+      newValue: "Gja1",
+      newValueUri: "http://ncbi/14609",
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    const fvOut = next.factors[0].factor_values.find((v) => v.id === 1)!;
+    expect(fvOut.free_text_label).toBe("Gja1");
+    expect(fvOut.statements[0].subject.label).toBe("Gja1");
+    expect(fvOut.statements[0].subject.uri).toBe("http://ncbi/14609");
+    // The correctly-bound sibling FV is untouched.
+    expect(
+      next.factors[0].factor_values.find((v) => v.id === 2)!.free_text_label,
+    ).toBe("WT");
+  });
+
+  it("locates the FV by label when the wrong bind carries no URI", () => {
+    const d = design({
+      factors: [factor(8001, "strain", [mfv(1, "C57BL/10", { uri: null })])],
+    });
+    const f = misbind({
+      wrongLabel: "C57BL/10",
+      newValue: "mdx",
+      newValueUri: "http://tgemo/180",
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const fvOut = action!.mutate!(d).factors[0].factor_values[0];
+    expect(fvOut.free_text_label).toBe("mdx");
+    expect(fvOut.statements[0].subject.uri).toBe("http://tgemo/180");
+  });
+
+  it("rebinds an object-role bound term", () => {
+    const d = design({
+      factors: [
+        factor(8001, "genotype", [
+          mfv(1, "Utrn het", {
+            statements: [
+              {
+                subject: term("Utrn"),
+                predicate: term("has_genotype"),
+                object: term("WrongAllele", "http://x/wrong"),
+              },
+            ],
+          }),
+        ]),
+      ],
+    });
+    const f = misbind({
+      wrongLabel: "WrongAllele",
+      wrongUri: "http://x/wrong",
+      newValue: "RightAllele",
+      newValueUri: "http://x/right",
+    });
+    const st = resolveApplyAction(f, { design: d })!.mutate!(d).factors[0]
+      .factor_values[0].statements[0];
+    expect(st.object?.label).toBe("RightAllele");
+    expect(st.object?.uri).toBe("http://x/right");
+  });
+
+  it("stays focus-only for a flag-only finding (no apply_action)", () => {
+    const d = design({
+      factors: [factor(8001, "genotype", [mfv(1, "Gjb6", { uri: "http://ncbi/14623" })])],
+    });
+    const f = misbind({
+      wrongLabel: "Gjb6",
+      wrongUri: "http://ncbi/14623",
+      newValue: "Gja1",
+      applyAction: null,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    // Falls through to focus-only — never a silent rebind.
+    expect(action?.mutates).toBe(false);
+  });
+
+  it("reports already-applied when the FV is already rebound (idempotent)", () => {
+    const d = design({
+      factors: [factor(8001, "genotype", [mfv(1, "Gja1", { uri: "http://ncbi/14609" })])],
+    });
+    const f = misbind({
+      wrongLabel: "Gjb6",
+      wrongUri: "http://ncbi/14623",
+      newValue: "Gja1",
+      newValueUri: "http://ncbi/14609",
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(false);
+    expect(action?.label).toContain("Already applied");
+  });
+
+  it("uses the finding's suggested_fix as appliedFix", () => {
+    const d = design({
+      factors: [factor(8001, "genotype", [mfv(1, "Gjb6", { uri: "http://ncbi/14623" })])],
+    });
+    const f = misbind({
+      wrongLabel: "Gjb6",
+      wrongUri: "http://ncbi/14623",
+      newValue: "Gja1",
+      newValueUri: "http://ncbi/14609",
+      suggestedFix: "Rebind FV `Gjb6` to `Gja1`.",
+    });
+    expect(resolveApplyAction(f, { design: d })?.appliedFix).toBe(
+      "Rebind FV `Gjb6` to `Gja1`.",
+    );
   });
 });
