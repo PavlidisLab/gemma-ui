@@ -421,15 +421,23 @@ function InlinePredicateObjectPair({
             ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
             : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
         }
-        value={statement.predicate?.uri ?? ""}
+        // Canonicalise so a legacy obo-purl predicate URI
+        // (``…/obo/TGEMO_00167``) still selects its ``…/ont/…`` option
+        // instead of blanking to the placeholder — same fix the
+        // singleton ``StatementEditor`` applies. Without this a real
+        // predicate like "delivered for duration" showed as an empty
+        // dropdown in the grouped editor (Paul 2026-07-20).
+        value={canonicalPredicateUri(statement.predicate?.uri)}
         onChange={(e) => {
           if (e.target.value === "") {
             onChange({ ...statement, predicate: null, object: null });
           } else {
             const def = PREDICATES.find((p) => p.uri === e.target.value)!;
+            // Project to ``{label, uri}`` — the on-wire ``predicate`` omits
+            // the picker-only ``description`` field (matches the singleton).
             onChange({
               ...statement,
-              predicate: { ...def },
+              predicate: { label: def.label, uri: def.uri },
               object: statement.object ?? { label: "" },
             });
           }
@@ -502,5 +510,27 @@ export function groupStatementsBySubject(
     b.statements.push(s);
     b.indices.push(i);
   });
-  return [...buckets.values()];
+  // Drop redundant "bare" statements — a subject with NO predicate and
+  // NO object — from any group that also carries a real (predicate/object)
+  // statement. These are spurious subject-only rows (a data artifact:
+  // e.g. GSE36409's metformin FV ships both ``metformin —delivered for
+  // duration→ 30 d`` and a second ``metformin`` with null predicate +
+  // object) that otherwise render as a dangling empty predicate editor.
+  // A group that is ENTIRELY bare keeps one row — that's the normal
+  // "subject with no predicate yet" add-a-predicate affordance. Indices
+  // stay aligned to the surviving statements so mutations map correctly.
+  // Paul 2026-07-20.
+  const isBare = (s: Statement) =>
+    !s.predicate?.label?.trim() && !s.object?.label?.trim();
+  return [...buckets.values()].map((g) => {
+    if (!g.statements.some((s) => !isBare(s))) return g;
+    const statements: Statement[] = [];
+    const indices: number[] = [];
+    g.statements.forEach((s, k) => {
+      if (isBare(s)) return;
+      statements.push(s);
+      indices.push(g.indices[k]);
+    });
+    return { statements, indices };
+  });
 }

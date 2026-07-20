@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { canonicalPredicateUri } from "./StatementEditor";
+import { canonicalPredicateUri, groupStatementsBySubject } from "./StatementEditor";
 import { PREDICATES } from "@/generated/predicates";
+import type { Statement } from "@/features/experiment/types";
 
 /**
  * Tests for canonicalPredicateUri() — the resolver behind the
@@ -51,5 +52,64 @@ describe("canonicalPredicateUri", () => {
     expect(
       canonicalPredicateUri("http://purl.obolibrary.org/obo/UBERON_0002107"),
     ).toBe("");
+  });
+});
+
+describe("groupStatementsBySubject — drops redundant bare statements", () => {
+  const term = (label: string, uri: string | null = null) => ({ label, uri });
+  const stmt = (partial: Partial<Statement>): Statement => ({
+    category: term("treatment", "http://www.ebi.ac.uk/efo/EFO_0000727"),
+    subject: term("metformin", "http://purl.obolibrary.org/obo/CHEBI_6801"),
+    predicate: null,
+    object: null,
+    ...partial,
+  });
+
+  it("drops a bare subject-only statement when the group has a real one (GSE36409 metformin)", () => {
+    // The dangling-editor repro: a complete statement + a spurious
+    // subject-only one under the same subject.
+    const complete = stmt({
+      predicate: term(
+        "delivered for duration",
+        "http://purl.obolibrary.org/obo/TGEMO_00167",
+      ),
+      object: term("30 d"),
+    });
+    const bare = stmt({}); // metformin, null predicate + object
+    const groups = groupStatementsBySubject([complete, bare]);
+    expect(groups).toHaveLength(1);
+    // Only the content-bearing statement survives; index maps to the original.
+    expect(groups[0].statements).toHaveLength(1);
+    expect(groups[0].statements[0].predicate?.label).toBe(
+      "delivered for duration",
+    );
+    expect(groups[0].indices).toEqual([0]);
+  });
+
+  it("keeps one row when a group is entirely bare (add-a-predicate affordance)", () => {
+    const groups = groupStatementsBySubject([stmt({})]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].statements).toHaveLength(1);
+    expect(groups[0].indices).toEqual([0]);
+  });
+
+  it("keeps every content-bearing statement and preserves original indices", () => {
+    const dose = stmt({
+      predicate: term("delivered at dose"),
+      object: term("0.1 MOI"),
+    });
+    const bare = stmt({});
+    const duration = stmt({
+      predicate: term("delivered for duration"),
+      object: term("48 h"),
+    });
+    const groups = groupStatementsBySubject([dose, bare, duration]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].statements.map((s) => s.object?.label)).toEqual([
+      "0.1 MOI",
+      "48 h",
+    ]);
+    // bare was index 1 → dropped; surviving indices are the originals.
+    expect(groups[0].indices).toEqual([0, 2]);
   });
 });
