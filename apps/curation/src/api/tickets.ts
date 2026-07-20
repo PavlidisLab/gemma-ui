@@ -24,6 +24,7 @@ export type TicketType =
   | "PRELOAD"
   | "CURATION"
   | "SCREENING"
+  | "REVIEW"
   | "GENERIC";
 
 export type TicketState = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CANCELLED";
@@ -386,6 +387,8 @@ export function ticketTypeLabel(t: TicketType): string {
       return "Curation";
     case "SCREENING":
       return "Screening";
+    case "REVIEW":
+      return "Review";
     case "GENERIC":
       return "General";
   }
