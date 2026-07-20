@@ -27,7 +27,7 @@
  * ``@/api/design`` here).
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import type { Design } from "@/features/experiment/types";
 
 // ---------------------------------------------------------------------------
@@ -224,5 +224,133 @@ describe("DesignDraftProvider — seed assertion refuses a cross-experiment desi
       expect(screen.getByTestId("draft-eid").textContent).toBe(String(ROUTE_EID));
     });
     expect(screen.getByTestId("load-error").textContent).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 4 — commit is not "done" until the durable /polished mirror lands
+// ---------------------------------------------------------------------------
+//
+// UIB_HANDOFF_2026_07_20_ACCEPTED_TAG_NOT_MATERIALIZED_INTO_DESIGN.md.
+// The ticket exporter reads /polished and prefers it over /design, so a
+// silently-failed mirror leaves a stale polished snapshot shadowing the
+// fresh design and the curator's accepted tag vanishes from the export.
+// commit() therefore treats the mirror as part of success: the clean
+// checkpoint (which clears the undo stack) runs ONLY after the mirror
+// lands; on mirror failure the draft stays dirty and ``saveError``
+// surfaces so the curator retries. ``canUndo`` is the checkpoint witness
+// — apply() pushes the undo stack, a completed checkpoint clears it.
+describe("DesignDraftProvider — commit gates the checkpoint on the polished mirror", () => {
+  /** A consumer that drives apply → commit and surfaces the witnesses. */
+  function CommitProbe() {
+    const { apply, commit, canUndo, saveError } = useDesignDraft();
+    return (
+      <div>
+        <span data-testid="can-undo">{canUndo ? "yes" : "no"}</span>
+        <span data-testid="commit-error">{saveError ?? ""}</span>
+        <button
+          data-testid="apply-btn"
+          onClick={() =>
+            apply((d) => ({
+              ...d,
+              tags: [
+                ...d.tags,
+                {
+                  id: 1,
+                  category: { label: "treatment", uri: null },
+                  value: {
+                    label: "neoplastic cell",
+                    uri: "http://purl.obolibrary.org/obo/CL_0001063",
+                  },
+                  inferred: false,
+                  evidence_code: "IC",
+                },
+              ],
+            }))
+          }
+        />
+        <button data-testid="commit-btn" onClick={() => commit()} />
+      </div>
+    );
+  }
+
+  beforeEach(() => {
+    useDesignMock.mockReturnValue({
+      data: makeDesign(ROUTE_EID, "GSE253365"),
+      isLoading: false,
+      error: null,
+    });
+    useCurationsMock.mockReturnValue({ data: [], isLoading: false, error: null });
+    resolveCurationMock.mockReturnValue(null);
+    // The /design PUT always succeeds here — invoke its onSuccess with
+    // the committed payload so the mirror step is reached.
+    useUpdateDesignMock.mockReturnValue({
+      mutate: vi.fn((payload, opts) => opts?.onSuccess?.(payload)),
+      reset: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    });
+  });
+
+  it("does NOT clear the undo stack when the polished mirror fails (draft stays dirty)", async () => {
+    // Mirror write fails → commit() must not checkpoint.
+    useUpdatePolishedMock.mockReturnValue({
+      mutate: vi.fn((_server, opts) => opts?.onError?.(new Error("500 store down"))),
+      reset: vi.fn(),
+      isPending: false,
+      // Static isError drives the ``saveError`` derivation the curator sees.
+      isError: true,
+      error: new Error("500 store down"),
+    });
+
+    render(
+      <DesignDraftProvider experimentId={ROUTE_ID} reviewer="cy">
+        <CommitProbe />
+      </DesignDraftProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("can-undo").textContent).toBe("no"),
+    );
+
+    fireEvent.click(screen.getByTestId("apply-btn"));
+    expect(screen.getByTestId("can-undo").textContent).toBe("yes");
+
+    fireEvent.click(screen.getByTestId("commit-btn"));
+    // Checkpoint gated: the applied edit is still undoable, i.e. NOT
+    // flushed to a clean checkpoint — the curator's work isn't silently
+    // declared saved when the export store never got it.
+    expect(screen.getByTestId("can-undo").textContent).toBe("yes");
+    // …and the failure is surfaced, not swallowed to console.
+    expect(screen.getByTestId("commit-error").textContent).toContain(
+      "export store",
+    );
+  });
+
+  it("clears the undo stack (clean checkpoint) once the polished mirror succeeds", async () => {
+    useUpdatePolishedMock.mockReturnValue({
+      mutate: vi.fn((_server, opts) => opts?.onSuccess?.()),
+      reset: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    });
+
+    render(
+      <DesignDraftProvider experimentId={ROUTE_ID} reviewer="cy">
+        <CommitProbe />
+      </DesignDraftProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("can-undo").textContent).toBe("no"),
+    );
+
+    fireEvent.click(screen.getByTestId("apply-btn"));
+    expect(screen.getByTestId("can-undo").textContent).toBe("yes");
+
+    fireEvent.click(screen.getByTestId("commit-btn"));
+    // Both writes landed → checkpoint runs → undo stack cleared.
+    expect(screen.getByTestId("can-undo").textContent).toBe("no");
+    expect(screen.getByTestId("commit-error").textContent).toBe("");
   });
 });

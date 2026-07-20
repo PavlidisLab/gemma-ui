@@ -305,6 +305,62 @@ describe("resolveApplyAction — ADD TAG", () => {
     expect(t.statements![0].object?.label).toBe("mdx");
   });
 
+  it("materialises a treatment/cell-line add_tag carrying a derives-from statement (GSE43566)", () => {
+    // UIB_HANDOFF_2026_07_20_ACCEPTED_TAG_NOT_MATERIALIZED_INTO_DESIGN.md.
+    // The exported bundle for ticket 130 dropped an accepted
+    // ``treatment: neoplastic cell`` (CL_0001063) tag that carried a
+    // ``neoplastic cell —derives from→ MMTV-PyMT`` statement. The
+    // handoff's hypothesis #1 was that the resolver silently no-ops for
+    // this shape (category ``treatment``, a CL cell-type value, predicate
+    // ``derives from`` / RO_0001000) because the tested coverage was
+    // gene-genotype-shaped (Dmd). This locks in that the add-of-new path
+    // is category/predicate-agnostic: the tag AND its statement
+    // materialise identically to the Dmd case. (The real drop is
+    // downstream in the draft→/design→/polished→export persistence
+    // chain, not here.)
+    const derivesStmt = {
+      category: { label: "treatment", uri: null },
+      subject: { label: "neoplastic cell", uri: "http://purl.obolibrary.org/obo/CL_0001063" },
+      predicate: { label: "derives from", uri: "http://purl.obolibrary.org/obo/RO_0001000" },
+      object: { label: "MMTV-PyMT", uri: null },
+    };
+    const d = design({ tags: [] });
+    const f = finding({
+      target_kind: "tag",
+      issue_code: "calibration_agent_extra",
+      target_id: "tag:treatment/neoplastic-cell",
+      proposer_term: {
+        label: "neoplastic cell",
+        uri: "http://purl.obolibrary.org/obo/CL_0001063",
+        resolver: null,
+        score: null,
+      },
+      proposer_statements: [derivesStmt] as never,
+      apply_action: {
+        kind: "add_tag",
+        new_category: "treatment",
+        new_value: "neoplastic cell",
+        new_value_uri: "http://purl.obolibrary.org/obo/CL_0001063",
+        statements: [derivesStmt],
+      } as never,
+    });
+    const action = resolveApplyAction(f, { design: d });
+    expect(action?.mutates).toBe(true);
+    const next = action!.mutate!(d);
+    expect(next.tags).toHaveLength(1);
+    const t = next.tags[0];
+    expect(t.category.label).toBe("treatment");
+    expect(t.value.label).toBe("neoplastic cell");
+    expect(t.value.uri).toBe("http://purl.obolibrary.org/obo/CL_0001063");
+    expect(t.statements).toHaveLength(1);
+    expect(t.statements![0].subject.label).toBe("neoplastic cell");
+    expect(t.statements![0].predicate?.label).toBe("derives from");
+    expect(t.statements![0].object?.label).toBe("MMTV-PyMT");
+    // The disposition's applied_fix must carry the statement text so the
+    // accept record is not a bare "add treatment: neoplastic cell".
+    expect(action!.appliedFix).toContain("neoplastic cell · derives from · MMTV-PyMT");
+  });
+
   it("adds a bare tag when the add carries no statements (unchanged)", () => {
     const d = design({ tags: [] });
     const f = finding({

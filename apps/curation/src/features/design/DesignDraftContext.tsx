@@ -583,27 +583,43 @@ export function DesignDraftProvider({
     // 2026-06-08 is moot when the curator's intent is to commit
     // their own edits — that's the whole point of clicking Commit.
     // Just let it through.
+    // Clean-checkpoint bookkeeping, run only once BOTH the /design PUT
+    // and the durable /polished mirror have landed. Every prior
+    // intermediate state is uninteresting after a full commit.
+    const finalizeCheckpoint = (server: Design) => {
+      setDraft(server);
+      clearCachedDraft(experimentId);
+      setUndoStack([]);
+      setRedoStack([]);
+    };
     updater.mutate(normalizeForCommit(draft), {
       onSuccess: (server) => {
-        setDraft(server);
-        clearCachedDraft(experimentId);
-        // Commit lands a clean checkpoint — every prior intermediate
-        // state is uninteresting now. Same for discard below.
-        setUndoStack([]);
-        setRedoStack([]);
         // Durability: mirror the committed design into the per-curator
-        // polished store so it survives a calibration-batch reload.
-        // Fire-and-forget — the /design commit already succeeded; a
-        // polished-write failure must not fail the commit or block the
-        // curator. No curator key ⇒ nothing to persist against, skip.
-        if (reviewer) {
-          polisher.mutate(server, {
-            onError: (err) => {
-              // eslint-disable-next-line no-console
-              console.warn("polished-design mirror write failed", err);
-            },
-          });
+        // polished store so it survives a calibration-batch reload. This
+        // is NOT fire-and-forget — the ticket exporter reads /polished
+        // and prefers it over /design (``polished ?? design``,
+        // exportTicket.ts), so a silently-failed mirror leaves a STALE
+        // polished snapshot shadowing the fresh design: the curator's
+        // accepted tag/factor vanishes from the export while the
+        // disposition still reads accepted. On the flaky local store the
+        // fire-and-forget write failed intermittently and dropped
+        // finalized work — UIB_HANDOFF_2026_07_20_ACCEPTED_TAG_NOT_
+        // MATERIALIZED_INTO_DESIGN.md. So we treat the mirror as part of
+        // commit success: only checkpoint once it lands, and on failure
+        // leave the draft DIRTY so CommitBar stays up with the error and
+        // the curator retries until the export store is consistent. No
+        // curator key ⇒ nothing to mirror, /design is the only store.
+        if (!reviewer) {
+          finalizeCheckpoint(server);
+          return;
         }
+        polisher.mutate(server, {
+          onSuccess: () => finalizeCheckpoint(server),
+          // onError: intentionally no checkpoint — the draft stays dirty,
+          // ``saveError`` surfaces ``polisher.error`` via CommitBar, and
+          // the curator re-commits. The /design PUT already succeeded, so
+          // the retry re-PUTs the same design (idempotent) then re-mirrors.
+        });
       },
     });
   }, [draft, updater, polisher, reviewer, experimentId]);
@@ -669,8 +685,18 @@ export function DesignDraftProvider({
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
     reload,
-    saving: updater.isPending,
-    saveError: updater.isError ? (updater.error as Error).message : null,
+    saving: updater.isPending || polisher.isPending,
+    // A failed durable-mirror (/polished) write is surfaced through the
+    // same channel as a /design save failure so CommitBar stays up and
+    // the curator retries — a stale polished snapshot would otherwise
+    // silently shadow the fresh design at ticket-export time
+    // (UIB_HANDOFF_2026_07_20_ACCEPTED_TAG_NOT_MATERIALIZED_INTO_DESIGN).
+    saveError: updater.isError
+      ? (updater.error as Error).message
+      : polisher.isError
+        ? "durable save to the export store failed — retry commit so " +
+          "your accepted changes reach the ticket export."
+        : null,
     isLoading,
     loadError: seedMismatchError ?? (error ? (error as Error).message : null),
     staleCacheDiscarded,
