@@ -73,7 +73,40 @@ export function CommitBar({
   const allOverridden = baselineProblem.every(
     (f) => overrideState[f.factor_id]?.checked,
   );
-  const blocked = hasBaselineProblem && !allOverridden;
+  // Hard validation problems that block commit with no override —
+  // Gemma rejects them (ungrounded category / off-preset predicate) or
+  // they're required curation metadata (factor description). Unlike the
+  // baseline gate there's no legitimate "commit anyway"; the only fix is
+  // to resolve them in the editor. ``hardProblemLines`` names each
+  // offending factor + its issues for the blocked message.
+  const hardProblems = validation
+    ? validation.factors
+        .map((f) => ({
+          factor: f,
+          lines: [
+            ...(f.ungrounded_categories.length > 0
+              ? [
+                  `category is free text: ${[
+                    ...new Set(f.ungrounded_categories.map((u) => u.label)),
+                  ]
+                    .map((l) => `"${l}"`)
+                    .join(", ")}`,
+                ]
+              : []),
+            ...(f.factor_missing_description ? ["no description"] : []),
+            ...(f.unknown_predicates > 0
+              ? [
+                  `${f.unknown_predicates} predicate${
+                    f.unknown_predicates === 1 ? "" : "s"
+                  } not from the preset list`,
+                ]
+              : []),
+          ],
+        }))
+        .filter((p) => p.lines.length > 0)
+    : [];
+  const hasHardProblem = hardProblems.length > 0;
+  const blocked = (hasBaselineProblem && !allOverridden) || hasHardProblem;
 
   const t = diff.totals;
   const parts: string[] = [];
@@ -172,9 +205,11 @@ export function CommitBar({
               }}
               disabled={saving || blocked}
               title={
-                blocked
-                  ? "Each factor must have exactly one baseline FV. Tick the per-factor override to commit anyway."
-                  : undefined
+                hasHardProblem
+                  ? "Fix the flagged factor problems (grounded category + predicate, factor description) to commit."
+                  : blocked
+                    ? "Each factor must have exactly one baseline FV. Tick the per-factor override to commit anyway."
+                    : undefined
               }
             >
               {saving ? "committing…" : "commit"}
@@ -242,6 +277,23 @@ export function CommitBar({
                       className="text-[11px] border border-rose-300 rounded px-1.5 py-0.5 bg-white min-w-[24ch] flex-1"
                     />
                   ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+        {hasHardProblem ? (
+          <div className="px-3 pb-2 text-[11px] text-rose-900/90 space-y-1">
+            <div className="font-semibold">Fix to commit:</div>
+            {hardProblems.map(({ factor: f, lines }) => {
+              const rawName = (
+                draft?.factors.find((x) => x.id === f.factor_id)?.name ?? ""
+              ).trim();
+              const factorLabel = rawName || `(unnamed factor#${f.factor_id})`;
+              return (
+                <div key={f.factor_id}>
+                  <span className="font-medium">{factorLabel}</span>:{" "}
+                  {lines.join("; ")}
                 </div>
               );
             })}

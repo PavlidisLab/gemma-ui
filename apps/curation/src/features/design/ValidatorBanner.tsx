@@ -215,9 +215,11 @@ function warningsFor(s: DesignValidationState["factors"][number]): string[] {
     warnings.push(
       `${s.duplicate_assignments.length} duplicate assignment(s)`,
     );
+  if (s.factor_missing_description)
+    warnings.push("no factor description — every factor must be described");
   if (s.unknown_predicates > 0)
     warnings.push(
-      `${s.unknown_predicates} statement(s) with unknown predicate URI`,
+      `${s.unknown_predicates} statement(s) whose predicate isn't a preset ontology term`,
     );
   if (s.statements_missing_category > 0)
     warnings.push(
@@ -233,6 +235,36 @@ function warningsFor(s: DesignValidationState["factors"][number]): string[] {
   }
   if (s.forbidden_category) {
     warnings.push(s.forbidden_category);
+  }
+  if (s.ungrounded_categories.length > 0) {
+    // Split factor-scope from statement-scope so the message names the
+    // right thing. Dedupe labels within each scope.
+    const factorLabels = [
+      ...new Set(
+        s.ungrounded_categories
+          .filter((u) => u.scope === "factor")
+          .map((u) => u.label),
+      ),
+    ];
+    const stmtLabels = [
+      ...new Set(
+        s.ungrounded_categories
+          .filter((u) => u.scope === "statement")
+          .map((u) => u.label),
+      ),
+    ];
+    if (factorLabels.length > 0)
+      warnings.push(
+        `factor category is free text (${factorLabels
+          .map((l) => `"${l}"`)
+          .join(", ")}) — must be a grounded ontology term`,
+      );
+    if (stmtLabels.length > 0)
+      warnings.push(
+        `statement category is free text (${stmtLabels
+          .map((l) => `"${l}"`)
+          .join(", ")}) — must be a grounded ontology term`,
+      );
   }
   if (s.ontology_violations.length > 0) {
     const grouped = new Map<string, string[]>();

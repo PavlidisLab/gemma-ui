@@ -533,7 +533,9 @@ function factorIssueCount(s: ReturnType<typeof validateDesign>["factors"][number
     (s.statements_missing_category > 0 ? 1 : 0) +
     (s.deprecated_baseline_fvs.length > 0 ? 1 : 0) +
     (s.ontology_violations.length > 0 ? 1 : 0) +
-    (s.forbidden_category != null ? 1 : 0)
+    (s.forbidden_category != null ? 1 : 0) +
+    (s.ungrounded_categories.length > 0 ? 1 : 0) +
+    (s.factor_missing_description ? 1 : 0)
   );
 }
 
@@ -558,9 +560,12 @@ function factorIssueLines(
       `${s.duplicate_assignments.length} sample${s.duplicate_assignments.length === 1 ? "" : "s"} assigned to multiple FVs`,
     );
   }
+  if (s.factor_missing_description) {
+    out.push("no factor description");
+  }
   if (s.unknown_predicates > 0) {
     out.push(
-      `${s.unknown_predicates} statement${s.unknown_predicates === 1 ? "" : "s"} use predicates outside the curated allow-list`,
+      `${s.unknown_predicates} statement${s.unknown_predicates === 1 ? "" : "s"} whose predicate isn't a preset ontology term`,
     );
   }
   if (s.statements_missing_category > 0) {
@@ -576,6 +581,9 @@ function factorIssueLines(
   }
   if (s.forbidden_category) {
     out.push(s.forbidden_category);
+  }
+  for (const label of new Set(s.ungrounded_categories.map((u) => u.label))) {
+    out.push(`category is free text (not a grounded ontology term): "${label}"`);
   }
   return out;
 }

@@ -174,33 +174,34 @@ export function FactorValueCard({
               the FV has exactly one ontology-anchored statement with
               a matching subject label — see comment above. */}
           {(() => {
-            const fvLabel = (fv.free_text_label || "").trim().toLowerCase();
+            // An FV's natural name is its own free-text label, or — when
+            // it has none — the subject label of its single statement
+            // (an FV with one "reference substance role" statement is
+            // named for that term). This header used to suppress itself
+            // in the open editor whenever the label matched the subject,
+            // which left such FVs looking nameless AND gave the curator
+            // nothing to double-click to add or edit a label. Always
+            // render a title now: when the FV has no label of its own we
+            // surface the subject label as the (editable) placeholder, so
+            // the derived name shows through and double-clicking still
+            // opens the input for an explicit override. In compact mode
+            // the statement row drops its now-redundant subject label
+            // (see hideSubjectLabel below) so the term never renders
+            // twice; in the open editor the subject stays because it IS
+            // the editable term picker.
+            const explicit = (fv.free_text_label || "").trim();
             const onlyStmt =
               fv.statements.length === 1 ? fv.statements[0] : null;
-            const redundant =
-              !!onlyStmt &&
-              !!onlyStmt.subject?.uri &&
-              (onlyStmt.subject.label || "").trim().toLowerCase() === fvLabel &&
-              !!fvLabel;
-            // Redundant-label suppression only fires in the open editor.
-            // In compact mode the statement row ALSO hides the subject
-            // label (``hideSubjectLabel`` below), so hiding the header
-            // here too would leave just the CURIE on the row — Paul
-            // 2026-06-14 caught this on the biological_sex / PATO card.
-            // Keep the FV label visible in compact mode no matter what.
-            if (redundant && !compact) {
-              // Render nothing — the statement chip below carries the
-              // label + CURIE. Keeps the FV card compact.
-              return null;
-            }
+            const subjectLabel = (onlyStmt?.subject?.label || "").trim();
+            const derivedName = !explicit && !!subjectLabel ? subjectLabel : "";
             return (
               <span className={"font-medium text-sm " + tombstoneText}>
                 {isRemoved || compact ? (
-                  <span>{fv.free_text_label || <em>(blank)</em>}</span>
+                  <span>{explicit || derivedName || <em>(blank)</em>}</span>
                 ) : (
                   <InlineText
                     value={fv.free_text_label}
-                    placeholder="free-text label"
+                    placeholder={derivedName || "free-text label"}
                     onCommit={onLabelChange}
                   />
                 )}
@@ -406,11 +407,19 @@ export function FactorValueCard({
                   // CURIE so the curator still sees the ontology
                   // resolution without the same string twice.
                   const fvLabel = (fv.free_text_label || "").trim().toLowerCase();
+                  const subjLabel = (fv.statements[0]?.subject?.label || "")
+                    .trim()
+                    .toLowerCase();
+                  // Hide the row's subject label when the header already
+                  // carries it as the FV name — either the free-text label
+                  // matches the subject, or the FV has no label of its own
+                  // and the header derives its name from this subject. Just
+                  // the CURIE stays on the row so ontology resolution is
+                  // still visible without echoing the same string twice.
                   const hideRedundantSubject =
                     fv.statements.length === 1 &&
-                    !!fvLabel &&
-                    (fv.statements[0].subject?.label || "").trim().toLowerCase() ===
-                      fvLabel;
+                    !!subjLabel &&
+                    (fvLabel === subjLabel || !fvLabel);
                   return grouped.map((group, gi) => (
                     <li key={`cgrp-${gi}`}>
                       {group.statements.length === 1 ? (

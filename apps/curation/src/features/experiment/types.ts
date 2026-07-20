@@ -448,6 +448,20 @@ export interface FactorValidationState {
   }[];
   /** Factor category itself is forbidden (e.g. `dose` as its own EFC). */
   forbidden_category: string | null;
+  /** Categories carrying a label but no ontology `uri` — i.e. free
+   *  text rather than a grounded term. Covers the factor's own category
+   *  (``scope: "factor"``) and each statement category (``scope:
+   *  "statement"``, with the ``fv_id`` it sits under). Gemma rejects
+   *  ungrounded categories on commit, so these block commit. Distinct
+   *  from ``statements_missing_category`` (no category label at all). */
+  ungrounded_categories: {
+    scope: "factor" | "statement";
+    label: string;
+    fv_id?: number;
+  }[];
+  /** Factor has no description text. Curators are expected to describe
+   *  every experimental factor; blocks commit. */
+  factor_missing_description: boolean;
 }
 
 /** Confluence-forbidden baseline labels — DEA won't pick these up
@@ -514,9 +528,21 @@ export function validateDesign(design: Design): DesignValidationState {
       label: string;
       rule: string;
     }[] = [];
+    const ungroundedCategories: {
+      scope: "factor" | "statement";
+      label: string;
+      fv_id?: number;
+    }[] = [];
+
+    // Factor category must be a grounded ontology term, not free text.
+    // A label with no ``uri`` is free text; Gemma rejects it on commit.
+    const factorCatRaw = (f.category?.label || "").trim();
+    if (factorCatRaw && !f.category?.uri) {
+      ungroundedCategories.push({ scope: "factor", label: factorCatRaw });
+    }
 
     // Factor-category itself: `dose` should never be its own EFC.
-    const factorCatLabel = (f.category?.label || "").trim().toLowerCase();
+    const factorCatLabel = factorCatRaw.toLowerCase();
     let forbiddenCategory: string | null = null;
     if (factorCatLabel === "dose") {
       forbiddenCategory =
@@ -549,6 +575,7 @@ export function validateDesign(design: Design): DesignValidationState {
         seen.set(sn, (seen.get(sn) ?? 0) + 1);
       }
       for (const s of fv.statements) {
+        // Every predicate must be a grounded preset ontology term.
         if (s.predicate && s.predicate.uri) {
           // Canonicalise the namespace before the allow-list check.
           // Legacy / mis-namespaced snapshots emit TGEMO (Gemma's own
@@ -562,9 +589,22 @@ export function validateDesign(design: Design): DesignValidationState {
           if (!KNOWN_PREDICATE_URIS.has(canonicalUri)) {
             unknownPredicates++;
           }
+        } else if (s.predicate && (s.predicate.label || "").trim()) {
+          // Predicate present as free text (label, no uri): not a preset
+          // term. Previously slipped through — the check only looked at
+          // predicates that already carried a uri.
+          unknownPredicates++;
         }
-        if (!s.category || !(s.category.label || "").trim()) {
+        const stmtCatRaw = (s.category?.label || "").trim();
+        if (!s.category || !stmtCatRaw) {
           stmtsMissingCategory++;
+        } else if (!s.category.uri) {
+          // Category present as free text (label, no ontology uri).
+          ungroundedCategories.push({
+            scope: "statement",
+            label: stmtCatRaw,
+            fv_id: fv.id,
+          });
         }
         // Ontology-quality rules per category. Apply to subject /
         // object URIs against the Statement's category (falls back
@@ -613,6 +653,8 @@ export function validateDesign(design: Design): DesignValidationState {
       deprecated_baseline_fvs: deprecatedBaselineFvs,
       ontology_violations: ontologyViolations,
       forbidden_category: forbiddenCategory,
+      ungrounded_categories: ungroundedCategories,
+      factor_missing_description: !(f.description || "").trim(),
     };
   });
   // A design with zero factors isn't "valid" — it's empty. The
@@ -634,7 +676,9 @@ export function validateDesign(design: Design): DesignValidationState {
         s.statements_missing_category === 0 &&
         s.deprecated_baseline_fvs.length === 0 &&
         s.ontology_violations.length === 0 &&
-        s.forbidden_category === null,
+        s.forbidden_category === null &&
+        s.ungrounded_categories.length === 0 &&
+        !s.factor_missing_description,
     );
   return { factors: factorStates, ok };
 }

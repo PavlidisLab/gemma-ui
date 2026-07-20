@@ -16,6 +16,17 @@ import {
  * "every sample assigned" don't apply).
  */
 
+// Categories are grounded (carry a uri) by default so fixtures don't
+// trip the ungrounded-category rule while exercising unrelated checks.
+// A synthetic OBO-shaped uri is enough — the grounding check only cares
+// that a uri is present, not which ontology it is.
+function catTerm(label: string): { label: string; uri: string } {
+  return {
+    label,
+    uri: `http://purl.obolibrary.org/obo/TEST_${label.replace(/\s+/g, "_")}`,
+  };
+}
+
 function categoricalFactor(
   id: number,
   category: string,
@@ -24,8 +35,8 @@ function categoricalFactor(
   return {
     id,
     name: category,
-    category: { label: category, uri: null },
-    description: "",
+    category: catTerm(category),
+    description: `${category} factor`,
     type: "categorical",
     factor_values: fvs,
   };
@@ -35,8 +46,8 @@ function continuousFactor(id: number, category: string, fvs: FactorValue[] = [])
   return {
     id,
     name: category,
-    category: { label: category, uri: null },
-    description: "",
+    category: catTerm(category),
+    description: `${category} factor`,
     type: "continuous",
     factor_values: fvs,
   };
@@ -271,5 +282,157 @@ describe("validateDesign — continuous factor escape hatch", () => {
       ],
     });
     expect(validateDesign(design).ok).toBe(true);
+  });
+});
+
+describe("ungrounded categories must be ontology terms, not free text", () => {
+  it("flags a factor category with a label but no uri and blocks the design", () => {
+    const cat = categoricalFactor(11, "treatment", [
+      fv(2, "drug", ["s1"], true),
+    ]);
+    cat.category = { label: "treatment", uri: null };
+    const design = emptyDesign({
+      factors: [cat],
+      biomaterials: [{ short_name: "s1", name: "s1", characteristics: {} }],
+    });
+    const v = validateDesign(design);
+    const state = v.factors.find((s) => s.factor_id === 11);
+    expect(state?.ungrounded_categories).toEqual([
+      { scope: "factor", label: "treatment" },
+    ]);
+    expect(v.ok).toBe(false);
+  });
+
+  it("flags a statement category that is free text", () => {
+    const cat = categoricalFactor(12, "treatment", [
+      {
+        id: 3,
+        free_text_label: "drug",
+        is_baseline: true,
+        biomaterial_short_names: ["s1"],
+        statements: [
+          {
+            category: { label: "treatment", uri: null },
+            subject: { label: "aspirin", uri: "http://purl.obolibrary.org/obo/CHEBI_15365" },
+          },
+        ],
+      },
+    ]);
+    const design = emptyDesign({
+      factors: [cat],
+      biomaterials: [{ short_name: "s1", name: "s1", characteristics: {} }],
+    });
+    const v = validateDesign(design);
+    const state = v.factors.find((s) => s.factor_id === 12);
+    expect(state?.ungrounded_categories).toEqual([
+      { scope: "statement", label: "treatment", fv_id: 3 },
+    ]);
+    expect(v.ok).toBe(false);
+  });
+
+  it("does not flag a grounded factor category", () => {
+    const cat = categoricalFactor(13, "treatment", [
+      fv(4, "drug", ["s1"], true),
+    ]);
+    const design = emptyDesign({
+      factors: [cat],
+      biomaterials: [{ short_name: "s1", name: "s1", characteristics: {} }],
+    });
+    const state = validateDesign(design).factors.find(
+      (s) => s.factor_id === 13,
+    );
+    expect(state?.ungrounded_categories).toEqual([]);
+  });
+});
+
+describe("factor description is required", () => {
+  it("flags a factor with no description and blocks the design", () => {
+    const cat = categoricalFactor(21, "treatment", [
+      fv(1, "drug", ["s1"], true),
+    ]);
+    cat.description = "   ";
+    const design = emptyDesign({
+      factors: [cat],
+      biomaterials: [{ short_name: "s1", name: "s1", characteristics: {} }],
+    });
+    const v = validateDesign(design);
+    expect(
+      v.factors.find((s) => s.factor_id === 21)?.factor_missing_description,
+    ).toBe(true);
+    expect(v.ok).toBe(false);
+  });
+
+  it("passes when a description is present", () => {
+    const cat = categoricalFactor(22, "treatment", [
+      fv(1, "drug", ["s1"], true),
+    ]);
+    const design = emptyDesign({
+      factors: [cat],
+      biomaterials: [{ short_name: "s1", name: "s1", characteristics: {} }],
+    });
+    expect(
+      validateDesign(design).factors.find((s) => s.factor_id === 22)
+        ?.factor_missing_description,
+    ).toBe(false);
+  });
+});
+
+describe("predicates must be grounded preset ontology terms", () => {
+  function fvWithPredicate(pred: { label: string; uri: string | null } | null) {
+    return {
+      id: 1,
+      free_text_label: "drug",
+      is_baseline: true,
+      biomaterial_short_names: ["s1"],
+      statements: [
+        {
+          category: {
+            label: "treatment",
+            uri: "http://purl.obolibrary.org/obo/TEST_treatment",
+          },
+          subject: {
+            label: "aspirin",
+            uri: "http://purl.obolibrary.org/obo/CHEBI_15365",
+          },
+          predicate: pred,
+          object: {
+            label: "x",
+            uri: "http://purl.obolibrary.org/obo/UO_0000021",
+          },
+        },
+      ],
+    };
+  }
+
+  it("flags a free-text predicate (label, no uri)", () => {
+    const cat = categoricalFactor(31, "treatment", [
+      fvWithPredicate({ label: "given as", uri: null }),
+    ]);
+    const design = emptyDesign({
+      factors: [cat],
+      biomaterials: [{ short_name: "s1", name: "s1", characteristics: {} }],
+    });
+    const v = validateDesign(design);
+    expect(v.factors.find((s) => s.factor_id === 31)?.unknown_predicates).toBe(
+      1,
+    );
+    expect(v.ok).toBe(false);
+  });
+
+  it("flags a predicate whose uri isn't in the preset allow-list", () => {
+    const cat = categoricalFactor(32, "treatment", [
+      fvWithPredicate({
+        label: "bogus",
+        uri: "http://example.org/not_a_predicate",
+      }),
+    ]);
+    const design = emptyDesign({
+      factors: [cat],
+      biomaterials: [{ short_name: "s1", name: "s1", characteristics: {} }],
+    });
+    expect(
+      validateDesign(design).factors.find((s) => s.factor_id === 32)
+        ?.unknown_predicates,
+    ).toBe(1);
   });
 });
