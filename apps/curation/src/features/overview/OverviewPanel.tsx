@@ -1,5 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   StatementEditModal,
   type StatementDraft,
@@ -60,7 +59,6 @@ import type {
   Tag,
 } from "@/features/experiment/types";
 import { isProtectedTagCategory } from "@/features/experiment/types";
-import { capitalizeCategory } from "@/lib/ontologyTerm";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
 import { experimentTarget, factorTarget, tagTarget } from "@/features/audit/targetIds";
@@ -1138,9 +1136,11 @@ function TagBarLegend() {
             stripped from the chip face; hover for the full text.
           </li>
           <li>
-            Multi-value chips collapse as{" "}
-            <span className="font-mono">N ▸ val, val +N more</span>.
-            Click to expand.
+            Every term shows as its own chip — nothing is collapsed
+            into a count. Use{" "}
+            <span className="font-medium">Hide inherited</span> /{" "}
+            <span className="font-medium">Hide free-text</span> above to
+            thin a busy row.
           </li>
         </ul>
       </div>
@@ -1369,11 +1369,25 @@ function TagBar({
   // Free-text filter: heavily-annotated experiments bury the few
   // ontology-resolved chips under dozens of unresolved free-text values
   // (raw numbers, dates, batch ids, yes/no flags). This global sticky
-  // preference lets the curator collapse the view to just the
-  // ontology-anchored chips. Off by default so nothing hides silently.
+  // preference collapses the view to just the ontology-anchored chips.
+  // On by default (Paul 2026-07-20) — free text is noise most of the
+  // time; the curator toggles it back on per session and the pref
+  // sticks app-wide.
   const [hideFreeText, setHideFreeText] = useStickyState<boolean>(
     "overview.tags.hideFreeText",
-    false,
+    true,
+  );
+  // Inherited (inferred) filter: chips bubbled up from sample
+  // characteristics / FV statements repeat what the Design tab already
+  // encodes and swamp the header on richly-annotated EEs. On by default
+  // (Paul 2026-07-20) so the header shows the curator's OWN direct tags;
+  // flip it on to see everything the design implies. Also the safety
+  // valve for the now-uncollapsed high-cardinality inferred groups
+  // (30+ cell types) — they stay hidden until explicitly shown. Sticky
+  // app-wide, same as the free-text pref.
+  const [hideInferred, setHideInferred] = useStickyState<boolean>(
+    "overview.tags.hideInferred",
+    true,
   );
   // Modal state: ``mode`` distinguishes add (no tag id yet) vs edit
   // (existing tag id). Initial draft is rebuilt on every open from the
@@ -1662,13 +1676,18 @@ function TagBar({
   // curator is hiding — and gate the switch's usefulness (no point
   // offering it when everything already resolves).
   const freeTextCount = dedupedAll.filter((t) => !tagIsResolved(t)).length;
-  // When the filter is on, keep only resolved chips; the purely
-  // free-text ones drop, and every ontology-anchored chip stays.
+  // Count the inherited (inferred) chips the same way, for its toggle.
+  const inferredCount = dedupedAll.filter((t) => t.inferred).length;
+  // When the free-text filter is on, keep only resolved chips; the
+  // purely free-text ones drop, and every ontology-anchored chip stays.
   const dedupedShown =
     hideFreeText ? dedupedAll.filter(tagIsResolved) : dedupedAll;
-  // Split back into direct vs inferred for the bucketing below.
+  // Split back into direct vs inferred for the bucketing below. The
+  // inherited filter drops the inferred chips entirely when on.
   const dedupedDirect = dedupedShown.filter((t) => !t.inferred);
-  const dedupedInferred = dedupedShown.filter((t) => t.inferred);
+  const dedupedInferred = hideInferred
+    ? []
+    : dedupedShown.filter((t) => t.inferred);
   const showHeader =
     visibleTags.length > 0 || draft != null;
   if (!showHeader) return null;
@@ -1702,25 +1721,46 @@ function TagBar({
         <HelpPopup title="Tag chip legend" size="md">
           <TagBarLegend />
         </HelpPopup>
-        {/* Hide-free-text toggle. Only offered when there's actually
-            free-text to hide — on a fully-resolved experiment the switch
-            would be a no-op. */}
-        {freeTextCount > 0 ? (
-          <label
-            className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
-            title="Hide unresolved free-text chips (raw values without an ontology term); ontology-resolved chips stay."
-          >
-            <input
-              type="checkbox"
-              className="h-3 w-3 accent-blue-600"
-              checked={hideFreeText}
-              onChange={(e) => setHideFreeText(e.target.checked)}
-            />
-            Hide free-text
-            <span className="tabular-nums text-slate-400 dark:text-slate-500">
-              ({freeTextCount})
-            </span>
-          </label>
+        {/* Tag view toggles, right-aligned. Each is offered only when
+            it would actually change the view (there's something to
+            hide). Both prefs are sticky app-wide and default ON. */}
+        {freeTextCount > 0 || inferredCount > 0 ? (
+          <div className="ml-auto inline-flex items-center gap-3">
+            {inferredCount > 0 ? (
+              <label
+                className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
+                title="Hide inherited chips (inferred from sample characteristics / factor-value statements); the curator's own direct tags stay."
+              >
+                <input
+                  type="checkbox"
+                  className="h-3 w-3 accent-blue-600"
+                  checked={hideInferred}
+                  onChange={(e) => setHideInferred(e.target.checked)}
+                />
+                Hide inherited
+                <span className="tabular-nums text-slate-400 dark:text-slate-500">
+                  ({inferredCount})
+                </span>
+              </label>
+            ) : null}
+            {freeTextCount > 0 ? (
+              <label
+                className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
+                title="Hide unresolved free-text chips (raw values without an ontology term); ontology-resolved chips stay."
+              >
+                <input
+                  type="checkbox"
+                  className="h-3 w-3 accent-blue-600"
+                  checked={hideFreeText}
+                  onChange={(e) => setHideFreeText(e.target.checked)}
+                />
+                Hide free-text
+                <span className="tabular-nums text-slate-400 dark:text-slate-500">
+                  ({freeTextCount})
+                </span>
+              </label>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {/* Render tag-group rows in order, slotting the Factors row
@@ -2273,10 +2313,12 @@ function TagGroups({
 }
 
 /** Direct-tag analogue of ``TagGroups`` with click-to-edit + delete
- *  affordances. Renders one chip per tag (curators add direct tags
- *  one annotation at a time, so comma-split synth doesn't apply
- *  here). Multi-tag categories collapse the same way as ``TagGroups``
- *  does for inferred. */
+ *  affordances. Renders ONE chip per tag — each term shown
+ *  individually, never collapsed into a "N ▸" count (Paul 2026-07-20:
+ *  "I don't like the collapsing of terms at all"). The category is
+ *  carried by the group ROW label, so per-tag chips read cleanly
+ *  without repeating it. ``EditableDirectGroupChip`` takes the
+ *  single-tag path for each. */
 function EditableDirectTagGroups({
   tags,
   addedTagIds,
@@ -2288,14 +2330,13 @@ function EditableDirectTagGroups({
   addedTagIds?: Set<number>;
 }) {
   if (tags.length === 0) return null;
-  const groups = groupTagsByCategoryLabel(tags);
   return (
     <>
-      {[...groups.values()].map((g) => (
+      {tags.map((tag) => (
         <EditableDirectGroupChip
-          key={(g.category.label || g.category.uri) + ":direct"}
-          category={g.category}
-          tags={g.tags}
+          key={tag.id}
+          category={tag.category}
+          tags={[tag]}
           addedTagIds={addedTagIds}
         />
       ))}
@@ -2930,253 +2971,43 @@ function TagGroupChip({
   // C+B chip pass (2026-05-17): drop the in-chip category section
   // (the group row already says it) and the inline source badge
   // (palette colour already encodes it). Category + source + evidence
-  // code all live in the hover title now. Result: chip = just value,
-  // bordered by the source palette.
-  const hoverTitle = (() => {
-    const base = `${category.label}${variant === "inferred" ? ` (inferred from ${sources.join(", ") || "auto"})${evTitle}` : ""}`;
-    return base;
-  })();
+  // code live in the hover title. Result: chip = just value, bordered
+  // by the source palette.
+  //
+  // Each value renders as its OWN bordered chip — no collapse into a
+  // count / "+N more" / popover. Paul 2026-07-20: "I don't like the
+  // collapsing of terms at all — this is confusing. Show each term."
+  // (Supersedes the 2026-05-23 high-cardinality popover. The new
+  // "hide inherited" default-on toggle keeps big inferred groups —
+  // 30+ cell types on single-cell EEs — out of the default view, so a
+  // curator only faces every term when they explicitly opt to show
+  // inherited tags.)
+  //
   // Demote free-text values when the group also carries at least one
   // URI-resolved value (per Paul, 2026-05-17 — free text plays a
   // supporting role in mixed groups; pure-free-text groups stay at
   // normal weight so they remain readable).
   const hasUriValue = values.some((v) => !!v.uri);
-
-  if (values.length === 1) {
-    const v = values[0];
-    return (
-      <span
-        title={`${category.label}: ${v.label}${variant === "inferred" ? ` (inferred from ${sources.join(", ") || "auto"})${evTitle}` : ""}`}
-        className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border ${evBorder} ${palette.outer}`}
-      >
-        {factorGlyph}
-        <TagValueChip
-          value={v}
-          categoryLabel={category.label}
-          demoted={hasUriValue && !v.uri}
-        />
-      </span>
-    );
-  }
-
-  // Multi-value: chip always renders the preview + "+N more" /
-  // chevron compact form. The full list reveals into a **popover**
-  // (portal-mounted, click-outside / Esc to close) rather than
-  // expanding inline — high-cardinality groups (30+ cell types
-  // on single-cell EEs) would otherwise blow out the row. Per
-  // Paul 2026-05-23: "we can't show all the cell types, so they
-  // need to be collapsed/grouped; a popup would be needed rather
-  // than an expand-in-place for that, and any other 'collapsed'
-  // one that has a high cardinality inside."
-  const PREVIEW_N = 2;
-  const shown = values.slice(0, PREVIEW_N);
-  const hidden = values.length - shown.length;
-  const titleAttr = evTitle
-    ? `${hoverTitle}${evTitle ? ` ·${evTitle.replace(/^\s·\s/, " ")}` : ""}`
-    : hoverTitle;
-  return (
-    <TagValuesPopover
-      anchorClassName={`inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border ${evBorder} ${palette.outer}`}
-      anchorTitle={titleAttr}
-      category={category}
-      values={values}
-      hasUriValue={hasUriValue}
-      sources={sources}
-      evTitle={evTitle}
-      paletteLabel={palette.label}
-    >
-      {factorGlyph}
-      <span className="inline-flex items-baseline gap-0.5 flex-wrap">
-        {shown.map((v, i) => (
-          <span key={v.key} className="inline-flex items-baseline gap-0.5">
-            {i > 0 ? <span className={palette.label}>,</span> : null}
-            <TagValueChip
-              value={v}
-              categoryLabel={category.label}
-              demoted={hasUriValue && !v.uri}
-            />
-          </span>
-        ))}
-        {hidden > 0 ? (
-          <span
-            className={`text-[10px] ${palette.label}`}
-            title={`${hidden} more ${category.label} value${hidden === 1 ? "" : "s"}`}
-          >
-            +{hidden} more
-          </span>
-        ) : null}
-      </span>
-    </TagValuesPopover>
-  );
-}
-
-/**
- * Click-target wrapper that opens a portal popover showing the full
- * list of values when the curator wants to see them all. Used for
- * multi-value tag-group chips (especially high-cardinality ones
- * like ``cell type`` on single-cell EEs — can be 30+). The popover
- * also serves the low-N cases (3-4 values) because the affordance
- * is consistent and the popover scales down cleanly to short
- * lists.
- *
- * Anchored to the trigger element; click-outside / Escape / scroll
- * close. Portal-mounted so it escapes ``overflow-hidden`` parents.
- */
-function TagValuesPopover({
-  anchorClassName,
-  anchorTitle,
-  category,
-  values,
-  hasUriValue,
-  sources,
-  evTitle,
-  paletteLabel,
-  children,
-}: {
-  anchorClassName: string;
-  anchorTitle: string;
-  category: Tag["category"];
-  values: ReturnType<typeof splitTagValues>;
-  hasUriValue: boolean;
-  sources: string[];
-  evTitle: string;
-  paletteLabel: string;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLSpanElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-
-  const WIDTH = 360;
-  const MAX_HEIGHT = 360;
-  const MARGIN = 8;
-
-  // Measure on open + re-measure on resize / scroll so the popover
-  // tracks the trigger position. Standard popover plumbing.
-  useLayoutEffect(() => {
-    if (!open) {
-      setPos(null);
-      return;
-    }
-    const measure = () => {
-      const t = triggerRef.current;
-      if (!t) return;
-      const rect = t.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      let left = rect.left;
-      if (left + WIDTH + MARGIN > vw) left = vw - WIDTH - MARGIN;
-      if (left < MARGIN) left = MARGIN;
-      let top = rect.bottom + 4;
-      if (top + MAX_HEIGHT + MARGIN > vh && rect.top > MAX_HEIGHT) {
-        top = rect.top - MAX_HEIGHT - 4;
-      }
-      if (top < MARGIN) top = MARGIN;
-      setPos({ top, left });
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    window.addEventListener("scroll", measure, true);
-    return () => {
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("scroll", measure, true);
-    };
-  }, [open]);
-
-  // Click-outside / Escape close.
-  useEffect(() => {
-    if (!open) return;
-    function onDoc(e: MouseEvent) {
-      const target = e.target as Node;
-      if (triggerRef.current?.contains(target)) return;
-      if (popoverRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
   return (
     <>
-      <span
-        ref={triggerRef}
-        className={anchorClassName + " cursor-pointer"}
-        title={anchorTitle}
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            e.stopPropagation();
-            setOpen((v) => !v);
-          }
-        }}
-      >
-        {children}
+      {values.map((v) => (
         <span
-          className={`text-[10px] ${paletteLabel} ml-auto`}
-          aria-hidden
+          key={v.key}
+          title={`${category.label}: ${v.label}${variant === "inferred" ? ` (inferred from ${sources.join(", ") || "auto"})${evTitle}` : ""}`}
+          className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border ${evBorder} ${palette.outer}`}
         >
-          {open ? "▾" : "▸"}
+          {factorGlyph}
+          <TagValueChip
+            value={v}
+            categoryLabel={category.label}
+            demoted={hasUriValue && !v.uri}
+          />
         </span>
-      </span>
-      {open && pos
-        ? createPortal(
-            <div
-              ref={popoverRef}
-              className="fixed z-[1000] bg-white border border-slate-300 ring-1 ring-black/10 rounded shadow-xl text-xs text-slate-700 dark:bg-slate-800 dark:border-slate-500 dark:ring-black/40 dark:text-slate-200"
-              style={{ top: pos.top, left: pos.left, width: WIDTH }}
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <div className="px-2 py-1.5 border-b border-slate-200 dark:border-slate-600 flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                  {capitalizeCategory(category.label)}
-                </span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                  {values.length} value{values.length === 1 ? "" : "s"}
-                  {sources.length > 0
-                    ? ` · inferred from ${sources.join(", ")}`
-                    : ""}
-                </span>
-              </div>
-              <div
-                className="p-2 flex flex-wrap gap-1.5 overflow-y-auto"
-                style={{ maxHeight: MAX_HEIGHT - 40 }}
-              >
-                {values.map((v) => (
-                  <TagValueChip
-                    key={v.key}
-                    value={v}
-                    categoryLabel={category.label}
-                    demoted={hasUriValue && !v.uri}
-                  />
-                ))}
-              </div>
-              {evTitle ? (
-                <div className="px-2 py-1 border-t border-slate-200 dark:border-slate-600 text-[10px] text-slate-500 dark:text-slate-400">
-                  {evTitle.replace(/^\s·\s/, "")}
-                </div>
-              ) : null}
-            </div>,
-            document.body,
-          )
-        : null}
+      ))}
     </>
   );
 }
+
 
 /**
  * Read mode: paragraphs split on blank lines, scrolling. Pencil
