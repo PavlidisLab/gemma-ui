@@ -385,3 +385,38 @@ describe("CompactFindingCard — tag statement rendering (calibration_tag_match_
     expect(screen.getByText("astrocyte")).toBeInTheDocument();
   });
 });
+
+describe("CompactFindingCard — slug-fallback label casing", () => {
+  it('restores "FVB/N" case from apply_action instead of the lowercased slug', () => {
+    // Regression (Paul 2026-07-19): a gold_only_miss tag whose target_id
+    // slug misses the draft falls back to the slug for its display
+    // label — and ``slug()`` lowercases, so "FVB/N" rendered as
+    // "fvb/n". The value the Add button writes (apply_action.new_value)
+    // keeps the real case, so the chip must show that, not the slug.
+    const finding = tagFinding({
+      issue_code: "calibration_gold_only_miss",
+      target_id: "tag:strain/fvb/n",
+      rationale: "",
+      // Agent didn't propose — but it resolved the term, so the chip is
+      // green via proposer_term.uri while the label came from the slug.
+      proposer_term: {
+        label: "FVB/N",
+        uri: "http://purl.obolibrary.org/obo/EFO_0022467",
+      },
+      apply_action: {
+        kind: "add_tag",
+        new_category: "strain",
+        new_value: "FVB/N",
+        new_value_uri: "http://purl.obolibrary.org/obo/EFO_0022467",
+      },
+    } as unknown as AuditFinding);
+    // Empty draft → the target_id slug misses, forcing the slug
+    // fallback that lowercases.
+    renderWithProviders(<CompactFindingCard finding={finding} />, {
+      audit: makeAuditCtx({ findings: [finding] }),
+      draft: makeDraftCtx(emptyDraft()),
+    });
+    expect(screen.getByText("FVB/N")).toBeInTheDocument();
+    expect(screen.queryByText("fvb/n")).toBeNull();
+  });
+});

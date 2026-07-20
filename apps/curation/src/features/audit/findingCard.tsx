@@ -489,6 +489,12 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   let valLabel: string | null = null;
                   let catUri: string | null = null;
                   let valUri: string | null = null;
+                  // Set when the labels below come from the lowercased
+                  // slug fallback — ``slug()`` lowercases, so the display
+                  // would read "fvb/n" instead of "FVB/N". Triggers a
+                  // case-restore pass from a case-preserving source before
+                  // the render. Paul 2026-07-19.
+                  let labelsFromSlug = false;
                   const parsed = parseTargetId(finding.target_id);
                   if (parsed?.kind === "tag") {
                     const matchedBySlug = draft?.tags?.find(
@@ -504,9 +510,12 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                     } else {
                       // Slug-only fallback: cosmetic
                       // (dashes-for-spaces) but at least the curator
-                      // sees what the finding is about.
+                      // sees what the finding is about. ``slug()``
+                      // lowercased these, so flag for the case-restore
+                      // pass below.
                       catLabel = parsed.categorySlug.replace(/-/g, " ");
                       valLabel = parsed.valueSlug.replace(/-/g, " ");
+                      labelsFromSlug = true;
                     }
                   }
                   if (!catLabel || !valLabel) {
@@ -603,6 +612,54 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                     if (sameCategoryTag) {
                       catUri = sameCategoryTag.category?.uri ?? null;
                     }
+                  }
+                  // Case-restore pass: when the labels came from the
+                  // lowercased slug fallback, recover the original case
+                  // ("FVB/N", not "fvb/n") from a case-preserving source.
+                  // Prefer the ``apply_action`` the Add button writes
+                  // (authoritative — keeps the displayed label identical
+                  // to what Add lands on the experiment), then the matched
+                  // draft tag's own label. Guarded by case-insensitive
+                  // equality so this only ever fixes casing, never swaps
+                  // the term. Paul 2026-07-19.
+                  if (labelsFromSlug) {
+                    const aa = finding.apply_action as
+                      | { new_value?: unknown; new_category?: unknown }
+                      | null
+                      | undefined;
+                    const draftTag = draft?.tags?.find(
+                      (t) =>
+                        (t.value?.label ?? "").trim().toLowerCase() ===
+                          (valLabel ?? "").trim().toLowerCase() &&
+                        (t.category?.label ?? "").trim().toLowerCase() ===
+                          (catLabel ?? "").trim().toLowerCase(),
+                    );
+                    const restoreCase = (
+                      lower: string | null,
+                      ...cands: Array<unknown>
+                    ): string | null => {
+                      const lc = (lower ?? "").trim().toLowerCase();
+                      for (const c of cands) {
+                        if (
+                          typeof c === "string" &&
+                          c.trim() &&
+                          c.trim().toLowerCase() === lc
+                        ) {
+                          return c.trim();
+                        }
+                      }
+                      return lower;
+                    };
+                    valLabel = restoreCase(
+                      valLabel,
+                      aa?.new_value,
+                      draftTag?.value?.label,
+                    );
+                    catLabel = restoreCase(
+                      catLabel,
+                      aa?.new_category,
+                      draftTag?.category?.label,
+                    );
                   }
                   // Render as ``<category> : <value>`` — matches the
                   // agent's emit format ("disease model: Alzheimer
