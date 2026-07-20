@@ -249,11 +249,16 @@ export function CuratorDashboard({
     }
   }, [filter]);
 
-  // Need RESOLVED/CANCELLED in the fetched list when the curator
-  // wants to see them — otherwise the open-only filter on the hook
-  // hides every resolved ticket. Two states need closed tickets:
-  // "all" and "resolved".
-  const includeClosed = filter === "all" || filter === "resolved";
+  // Always fetch RESOLVED/CANCELLED tickets, on every filter. The light
+  // endpoint returns the whole list regardless — ``includeClosed`` only
+  // toggles a client-side filter inside the hook (see tickets.ts), so
+  // there's no payload cost to keeping them. Fetching open-only made the
+  // chip counts lie: on the default "Open" filter the "Resolved"/"All"
+  // counts were computed over a list that never contained a resolved
+  // ticket, so a just-closed ticket vanished AND the "Resolved 0" chip
+  // said nothing had closed. We hold the full list and let
+  // ``ticketMatchesFilter`` decide what renders.
+  const includeClosed = true;
   // Light list mode: the dashboard renders rolled-up counts only, never
   // per-target rows — so skip the (up to ~40 MB) targets + payload_json
   // and read ``target_summary`` instead. See ticketRollup / the
@@ -278,12 +283,10 @@ export function CuratorDashboard({
     return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
   });
 
-  // Per-filter counts for the chip labels. Always computed over the
-  // most-inclusive fetch we have on hand — when the curator's on a
-  // filter that didn't fetch closed tickets, the "resolved" count
-  // chip still shows zero. That's an honest under-count rather than
-  // a guess; flipping to "All" or "Resolved" updates the chip
-  // labels.
+  // Per-filter counts for the chip labels. Computed over the full
+  // fetched list (``includeClosed`` is always on above), so every chip
+  // — All / Open / Resolved — shows its true total on every filter,
+  // not just the one the curator happens to be viewing.
   const totalForLabel = tickets ?? [];
   const openTickets = totalForLabel.filter((t) => !ticketIsResolved(t));
   const counts: Record<DashboardFilter, number> = {
