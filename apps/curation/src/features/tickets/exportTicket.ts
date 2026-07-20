@@ -15,7 +15,7 @@
  */
 import { fetchDesignSnapshot, fetchPolishedSnapshot } from "@/api/design";
 import type { Design } from "@/features/experiment/types";
-import type { Ticket } from "@/api/tickets";
+import type { Ticket, TicketTarget } from "@/api/tickets";
 import {
   gzipJson,
   slugify,
@@ -98,6 +98,33 @@ async function fetchLatestReviewStatus(
     reviewed_at: latest.audited_at ?? null,
     model: latest.model ?? null,
   };
+}
+
+/** EE targets on the ticket whose experiment currently has uncommitted
+ *  design edits cached in localStorage (``readDirtyExperimentIds``).
+ *
+ *  Both the ticket export and the per-experiment finalize read the
+ *  PERSISTED design (``fetchPolishedSnapshot`` → ``fetchDesignSnapshot``),
+ *  so an uncommitted draft is silently OMITTED from the bundle and
+ *  STRANDED when the ticket closes — the freehand-edit residual the
+ *  backend materialize-on-finalize net can't reconstruct (a hand-edited
+ *  focus-only card has no structured ``apply_action`` to replay). The
+ *  ticket header warns the curator before export / close using this list.
+ *
+ *  Pure over the dirty-id set so it's unit-testable without touching
+ *  localStorage; callers pass ``readDirtyExperimentIds()``. Keys compare
+ *  as strings — the draft cache is keyed by the route experiment id,
+ *  which equals the EE target's numeric ``target_id`` (the same value
+ *  ``buildTicketExport`` fetches), stringified. */
+export function dirtyExperimentTargets(
+  ticket: Ticket,
+  dirtyExperimentIds: ReadonlySet<string>,
+): TicketTarget[] {
+  return ticket.targets.filter(
+    (t) =>
+      t.target_type === "EXPRESSION_EXPERIMENT" &&
+      dirtyExperimentIds.has(String(t.target_id)),
+  );
 }
 
 /** Build the bundle. Each EE target is fetched in parallel; per-target

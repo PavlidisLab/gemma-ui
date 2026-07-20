@@ -19,14 +19,15 @@ import {
   useRunTicketAction,
   useTicket,
 } from "@/api/tickets";
-import type { Ticket, TicketMode, TicketType } from "@/api/tickets";
+import type { Ticket, TicketMode, TicketType, TicketTarget } from "@/api/tickets";
+import { readDirtyExperimentIds } from "@/features/design/draftCache";
 import { Spinner } from "@gemma/ui";
 import { ExperimentQueue } from "@/features/workflow/ExperimentQueue";
 import type { BadgeTone } from "@/features/workflow/PipelineStatusRow";
 import { TriageView } from "@/features/triage/TriageView";
 import { useMe } from "@/api/session";
 import { useToast } from "@/components/ui/Toast";
-import { exportTicketAsGzip } from "./exportTicket";
+import { dirtyExperimentTargets, exportTicketAsGzip } from "./exportTicket";
 
 export function TicketDetailPage({
   ticketId,
@@ -615,6 +616,21 @@ function TicketActionsBar({
   ).length;
 
   async function handleExport() {
+    // Freehand-edit guard: the export reads the PERSISTED design per
+    // target, so any target experiment with uncommitted draft edits is
+    // silently omitted from the bundle. Warn (don't hard-block — a
+    // partial export can be intentional) so the drop is non-silent.
+    const dirty = dirtyExperimentTargets(ticket, readDirtyExperimentIds());
+    if (dirty.length > 0) {
+      const list = dirty.map((t) => `  • ${dirtyTargetLabel(t)}`).join("\n");
+      const ok = window.confirm(
+        `${dirty.length} target experiment${dirty.length === 1 ? " has" : "s have"} ` +
+          `uncommitted design edits that are NOT saved and will be OMITTED ` +
+          `from this export:\n\n${list}\n\nOpen each and click Commit to ` +
+          `include them. Export without them anyway?`,
+      );
+      if (!ok) return;
+    }
     setExporting(true);
     try {
       const curator = me?.username || me?.full_name || "unknown";
@@ -690,6 +706,7 @@ function TicketActionsBar({
         <SimpleCloseConfirm
           ticketId={ticketId}
           busy={patch.isPending}
+          dirtyTargets={dirtyExperimentTargets(ticket, readDirtyExperimentIds())}
           onCancel={() => setConfirmingClose(false)}
           onConfirm={handleClose}
         />
@@ -698,18 +715,34 @@ function TicketActionsBar({
   );
 }
 
+/** Human label for a dirty EE target in the export / close warnings —
+ *  prefers the experiment name, always shows the id so it's findable. */
+function dirtyTargetLabel(t: TicketTarget): string {
+  const label = t.display_name || t.display_label;
+  return label ? `${label} (${t.target_id})` : `experiment ${t.target_id}`;
+}
+
 /** Minimal close-confirm modal used by the header-level Close ticket
  *  button. Distinct from ``CloseTicketConfirm`` (which offers the
  *  PRELOAD "Close & start curation" wizard); this one is just
- *  cancel + close. */
+ *  cancel + close.
+ *
+ *  ``dirtyTargets`` — EE targets with uncommitted design edits. When
+ *  non-empty the modal surfaces a warning: closing strands those edits
+ *  (the export reads the persisted design, so they never reach gold).
+ *  The backend materialize-on-finalize net recovers accepted
+ *  apply_action findings, but a hand-edited focus-only card has no
+ *  action to replay — this warning is that residual's safety net. */
 function SimpleCloseConfirm({
   ticketId,
   busy,
+  dirtyTargets = [],
   onCancel,
   onConfirm,
 }: {
   ticketId: number;
   busy: boolean;
+  dirtyTargets?: TicketTarget[];
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -735,6 +768,25 @@ function SimpleCloseConfirm({
           </h2>
         </div>
         <div className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 space-y-2">
+          {dirtyTargets.length > 0 ? (
+            <div className="rounded-md border border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/40 px-3 py-2 text-rose-900 dark:text-rose-200 space-y-1">
+              <p className="font-semibold">
+                {dirtyTargets.length} target experiment
+                {dirtyTargets.length === 1 ? " has" : "s have"} uncommitted
+                design edits.
+              </p>
+              <p className="text-rose-800 dark:text-rose-300/90">
+                Closing now strands them — the export reads the saved
+                design, so these edits never reach the bundle. Commit them
+                first (open the experiment → Commit).
+              </p>
+              <ul className="list-disc pl-5">
+                {dirtyTargets.map((t) => (
+                  <li key={t.target_id}>{dirtyTargetLabel(t)}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <p>
             The ticket will be marked RESOLVED and drop off the
             dashboard's open-tickets view. Reopen later by switching
