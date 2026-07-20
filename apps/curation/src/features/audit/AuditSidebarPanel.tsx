@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { agentPalette, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
 import { JsonViewer } from "@/components/ui/JsonViewer";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import {
   ProposerDetailsDialog,
   hasProposerDetails,
@@ -28,7 +29,13 @@ import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { useStickyState } from "@/lib/useStickyState";
 import { resolveApplyAction, type ApplyAction } from "./applyHandlers";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
-import { usePatchTicketTarget } from "@/api/tickets";
+import {
+  usePatchTicketTarget,
+  usePatchTicket,
+  useTicket,
+  isSingleTargetTicket,
+  ticketIsClosed,
+} from "@/api/tickets";
 import { parseRoute } from "@/routes";
 import { ticketTargetPatchForFinalize } from "./finalizeTicketSync";
 import { registerAppliedBatch } from "./appliedBatches";
@@ -443,6 +450,17 @@ function SidebarHeader({
   const patchTicketTarget = usePatchTicketTarget(
     finalizeTicketPatch?.ticketId ?? 0,
   );
+  // Single-experiment-ticket convenience: when the curator finalizes
+  // the review of an experiment that is the *only* target of its
+  // ticket, finishing this review finishes the ticket's whole job.
+  // There's no convenient way to resolve such a ticket otherwise (the
+  // curator would have to open the ticket detail page), so after a
+  // successful finalize we offer to resolve the ticket too. Gated on
+  // the ticket being single-target + still open — see handleClose.
+  const ticketIdForResolve = finalizeTicketPatch?.ticketId ?? null;
+  const resolveTicketQuery = useTicket(ticketIdForResolve);
+  const patchTicketState = usePatchTicket(ticketIdForResolve ?? 0);
+  const [offerResolveTicket, setOfferResolveTicket] = useState(false);
 
   // Pending findings warning gating: not a hard gate. Curators may
   // close even with pending non-ok findings, but we surface the
@@ -738,6 +756,18 @@ function SidebarHeader({
       }
       toast.show(copy.closedToast, "success");
       setConfirmClose(false);
+      // If this experiment is the sole target of its ticket, finishing
+      // this review finishes the ticket — offer to resolve it too so
+      // the curator doesn't have to detour to the ticket detail page.
+      const tk = resolveTicketQuery.data;
+      if (
+        ticketIdForResolve &&
+        tk &&
+        isSingleTargetTicket(tk) &&
+        !ticketIsClosed(tk)
+      ) {
+        setOfferResolveTicket(true);
+      }
     } catch (err) {
       // 409 here means a parallel finalize landed first — same
       // friendly path as the pre-flight guard above.
@@ -1179,6 +1209,35 @@ function SidebarHeader({
         open={proposerDetailsOpen}
         onClose={() => setProposerDetailsOpen(false)}
         provenance={report.run_provenance}
+      />
+      <ConfirmModal
+        open={offerResolveTicket}
+        destructive={false}
+        title={
+          ticketIdForResolve
+            ? `Close ticket #${ticketIdForResolve}?`
+            : "Close ticket?"
+        }
+        body={
+          "Closing this review is the only task on the ticket. Close the ticket as well?"
+        }
+        confirmLabel="Close ticket"
+        cancelLabel="Leave open"
+        onCancel={() => setOfferResolveTicket(false)}
+        onConfirm={async () => {
+          try {
+            await patchTicketState.mutateAsync({ state: "RESOLVED" });
+            toast.show(`Ticket #${ticketIdForResolve} closed.`, "success");
+          } catch (err) {
+            toast.show(
+              `Couldn't close ticket: ${(err as Error).message}`,
+              "danger",
+              6000,
+            );
+          } finally {
+            setOfferResolveTicket(false);
+          }
+        }}
       />
     </div>
   );

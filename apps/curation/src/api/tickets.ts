@@ -394,6 +394,28 @@ export function ticketTypeLabel(t: TicketType): string {
   }
 }
 
+/** Total target count for a ticket, preferring the server's rollup
+ *  (present in both light + full list modes) and falling back to the
+ *  in-hand ``targets`` array. Zero when neither is populated. */
+export function ticketTargetTotal(ticket: Ticket): number {
+  return ticket.target_summary?.total ?? ticket.targets?.length ?? 0;
+}
+
+/** True when the ticket has exactly one target — the "single-experiment
+ *  ticket" case where finishing that one experiment is the whole job.
+ *  Used to offer resolving the ticket the moment its lone review is
+ *  finalized. */
+export function isSingleTargetTicket(ticket: Ticket): boolean {
+  return ticketTargetTotal(ticket) === 1;
+}
+
+/** A ticket is closed once resolved or cancelled — the dashboard hides
+ *  these from the default open view, and the close/reopen control flips
+ *  on this. */
+export function ticketIsClosed(ticket: Ticket): boolean {
+  return ticket.state === "RESOLVED" || ticket.state === "CANCELLED";
+}
+
 export function ticketPriorityRank(p: TicketPriority): number {
   switch (p) {
     case "URGENT":

@@ -20,6 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useDatasets, datasetMatchesQuery } from "@/api/datasets";
 import {
   useMyTickets,
+  usePatchTicket,
   experimentTicketsQueryOptions,
   ticketTypeLabel,
   ticketPriorityRank,
@@ -29,6 +30,8 @@ import {
 } from "@/api/tickets";
 import { navigate } from "@/routes";
 import { CreateScreeningTicketModal } from "@/features/tickets/CreateScreeningTicketModal";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { Spinner } from "@/components/ui/Spinner";
@@ -671,6 +674,73 @@ function TicketCardSkeleton() {
   );
 }
 
+/** Close / reopen a ticket straight from its dashboard card, so the
+ *  curator doesn't have to open the detail page just to flip state.
+ *  Close (RESOLVED) asks for confirmation; reopen (OPEN) is immediate
+ *  and reversible. The whole control stops click / key propagation so
+ *  interacting with it (or the confirm modal's backdrop) never triggers
+ *  the card's open-ticket navigation. */
+function TicketCloseReopenControl({ ticket }: { ticket: Ticket }) {
+  const patch = usePatchTicket(ticket.id);
+  const toast = useToast();
+  const [confirmingClose, setConfirmingClose] = useState(false);
+  const closed = ticketIsResolved(ticket);
+
+  async function apply(state: TicketState, verb: "closed" | "reopened") {
+    try {
+      await patch.mutateAsync({ state });
+      toast.show(`Ticket #${ticket.id} ${verb}.`, "success");
+    } catch (err) {
+      toast.show(
+        `Couldn't ${verb === "reopened" ? "reopen" : "close"} ticket: ${
+          (err as Error).message
+        }`,
+        "danger",
+        6000,
+      );
+    }
+  }
+
+  return (
+    <span
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={() => {
+          if (closed) void apply("OPEN", "reopened");
+          else setConfirmingClose(true);
+        }}
+        disabled={patch.isPending}
+        title={
+          closed
+            ? "Reopen this ticket (back to Open)."
+            : "Resolve this ticket. Targets stay in the system; only the ticket closes."
+        }
+        className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {patch.isPending ? "…" : closed ? "Reopen" : "Close"}
+      </button>
+      <ConfirmModal
+        open={confirmingClose}
+        destructive={false}
+        title={`Close ticket #${ticket.id}?`}
+        body={
+          "The ticket will be marked RESOLVED and drop off the dashboard's open view. Targets stay in the system; reopen any time."
+        }
+        confirmLabel="Close ticket"
+        cancelLabel="Cancel"
+        onCancel={() => setConfirmingClose(false)}
+        onConfirm={() => {
+          setConfirmingClose(false);
+          void apply("RESOLVED", "closed");
+        }}
+      />
+    </span>
+  );
+}
+
 function TicketCard({
   ticket,
   onOpenTarget,
@@ -741,14 +811,17 @@ function TicketCard({
           </span>
           <StatePill state={ticket.state} />
         </div>
-        {ticket.due_date ? (
-          <span
-            className="text-[10px] text-slate-500 dark:text-slate-400"
-            title={`due ${ticket.due_date}`}
-          >
-            due {ticket.due_date}
-          </span>
-        ) : null}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <TicketCloseReopenControl ticket={ticket} />
+          {ticket.due_date ? (
+            <span
+              className="text-[10px] text-slate-500 dark:text-slate-400"
+              title={`due ${ticket.due_date}`}
+            >
+              due {ticket.due_date}
+            </span>
+          ) : null}
+        </div>
       </div>
       <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
         {ticket.title}
