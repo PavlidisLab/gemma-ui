@@ -85,11 +85,10 @@ describe("augmentInferredFromBiomaterials", () => {
     expect(synth?.value.label).toBe("amygdala, cerebellum, nucleus accumbens");
   });
 
-  it("skips synth for categories claimed by a direct tag", () => {
-    // Curator has attached `cell type: T cell` directly. Even
-    // though biomaterials carry three cell types, the synth must
-    // NOT fire for this category — the curator's explicit choice
-    // is the source of truth here.
+  it("synths the OTHER per-sample values of a category a direct tag partly covers", () => {
+    // Per-value cover (Paul 2026-07-20): the curator's `cell type:
+    // T cell` direct tag suppresses only T cell; the remaining
+    // biomaterial values still surface as an inherited chip.
     const directCellType = directTag(1, "cell type", "T cell");
     const tags: Tag[] = [directCellType];
     const bms = [
@@ -98,20 +97,18 @@ describe("augmentInferredFromBiomaterials", () => {
       bm("s3", { "cell type": "NK cell" }),
     ];
     const next = augmentInferredFromBiomaterials(tags, bms);
-    // Direct tag survives.
     expect(next).toContainEqual(directCellType);
-    // No synth for cell type.
     const synth = next.find(
       (t) => t.inferred && t.category.label === "cell type",
     );
-    expect(synth).toBeUndefined();
+    // T cell is covered by the direct tag; only the uncovered values synth.
+    expect(synth?.value.label).toBe("B cell, NK cell");
   });
 
-  it("when a category has both a direct tag and an existing inferred tag, the inferred tag is preserved (synth is skipped)", () => {
-    // Edge case: legacy data might have an API-feed inferred tag
-    // alongside a curator's direct tag for the same category. Skip
-    // the synth (direct claims the category), and don't touch the
-    // existing inferred tag either — let both pass through.
+  it("replaces a legacy inferred tag with the per-value synth (no duplication)", () => {
+    // Legacy API-feed inferred tag alongside a direct one for the same
+    // category: the synth is the comprehensive source, so the legacy
+    // inferred is dropped and only the uncovered value synths.
     const direct = directTag(1, "cell type", "T cell");
     const legacyInferred = inferredTag(2, "cell type", "B cell");
     const tags: Tag[] = [direct, legacyInferred];
@@ -121,9 +118,11 @@ describe("augmentInferredFromBiomaterials", () => {
     ];
     const next = augmentInferredFromBiomaterials(tags, bms);
     expect(next).toContainEqual(direct);
-    expect(next).toContainEqual(legacyInferred);
-    // No synth.
-    expect(next.filter((t) => t.id < 0)).toEqual([]);
+    // Legacy inferred replaced by the synth.
+    expect(next).not.toContainEqual(legacyInferred);
+    const synths = next.filter((t) => t.id < 0);
+    expect(synths).toHaveLength(1);
+    expect(synths[0].value.label).toBe("B cell");
   });
 
   it("emits one synth per category when biomaterials cover multiple", () => {
@@ -148,18 +147,19 @@ describe("augmentInferredFromBiomaterials", () => {
     expect(next[0].value.label).toBe("T cell");
   });
 
-  it("treats category match case-insensitively when checking for direct claim", () => {
+  it("matches the direct per-value cover case-insensitively", () => {
     const direct = directTag(1, "Cell Type", "T cell");
     const bms = [
       bm("s1", { "cell type": "T cell" }),
       bm("s2", { "cell type": "B cell" }),
     ];
     const next = augmentInferredFromBiomaterials([direct], bms);
-    // Direct claim covers the lowercased version too.
     const synth = next.find(
       (t) => t.inferred && (t.category.label || "").toLowerCase() === "cell type",
     );
-    expect(synth).toBeUndefined();
+    // "Cell Type: T cell" covers "cell type: T cell" case-insensitively;
+    // only the uncovered B cell surfaces.
+    expect(synth?.value.label).toBe("B cell");
   });
 
   it("uses negative ids for synth tags so they don't collide with server ids", () => {
@@ -174,39 +174,78 @@ describe("augmentInferredFromBiomaterials", () => {
     expect(next).toContainEqual(direct);
   });
 
-  // B3 (UIB_HANDOFF_2026_06_25): removing a direct tag must NOT make
-  // the biomaterial-derived synth chip reappear for that category.
-  it("does not re-synthesize a chip for a category the curator removed", () => {
-    // GSE161828: curator removes the direct ``cell type: fibroblast``
-    // tag, but the biomaterials still carry ``cell type`` — without the
-    // guard, a synth chip duplicates the just-removed annotation.
+  // Paul 2026-07-20 (supersedes the B3 removed-category suppression):
+  // removing a direct tag no longer stops the biomaterial-derived synth
+  // chip. The inherited chip reflects per-sample reality and reappears;
+  // the direct-wins dedup keeps the EE tag on top while both are present,
+  // and "Hide inherited" governs whether inferred chips show at all.
+  it("re-synthesizes an inferred chip when no direct tag remains for that category", () => {
     const bms = [
       bm("s1", { "cell type": "fibroblast" }),
       bm("s2", { "cell type": "fibroblast" }),
     ];
-    const removed = new Set(["cell type"]);
-    const next = augmentInferredFromBiomaterials([], bms, removed);
+    const next = augmentInferredFromBiomaterials([], bms);
+    const synth = next.find(
+      (t) => (t.category.label || "").toLowerCase() === "cell type",
+    );
+    expect(synth).toBeDefined();
+    expect(synth?.inferred).toBe(true);
+    expect(synth?.value.label).toBe("fibroblast");
+  });
+
+  it("synthesizes a chip for every biomaterial category present", () => {
+    const bms = [
+      bm("s1", { "cell type": "fibroblast", "organism part": "skin" }),
+    ];
+    const next = augmentInferredFromBiomaterials([], bms);
+    expect(
+      next.map((t) => (t.category.label || "").toLowerCase()).sort(),
+    ).toEqual(["cell type", "organism part"]);
+  });
+
+  // Per-value cover (Paul 2026-07-20): a direct tag suppresses re-synth
+  // of its OWN value only — not the whole category.
+  it("does not re-synthesize a value already carried by a direct tag", () => {
+    const direct = directTag(1, "treatment", "tamoxifen");
+    const bms = [
+      bm("s1", { treatment: "tamoxifen" }),
+      bm("s2", { treatment: "tamoxifen" }),
+    ];
+    const next = augmentInferredFromBiomaterials([direct], bms);
+    expect(next).toContainEqual(direct);
     expect(
       next.find(
-        (t) => (t.category.label || "").toLowerCase() === "cell type",
+        (t) =>
+          t.inferred && (t.category.label || "").toLowerCase() === "treatment",
       ),
     ).toBeUndefined();
   });
 
-  it("matches the removed-category guard case-insensitively", () => {
-    const bms = [bm("s1", { "Cell Type": "fibroblast" })];
-    const next = augmentInferredFromBiomaterials([], bms, new Set(["cell type"]));
-    expect(next).toHaveLength(0);
+  it("synthesizes only the uncovered per-sample values alongside a direct tag", () => {
+    const direct = directTag(1, "treatment", "tamoxifen");
+    const bms = [
+      bm("s1", { treatment: "tamoxifen" }),
+      bm("s2", { treatment: "vehicle" }),
+    ];
+    const next = augmentInferredFromBiomaterials([direct], bms);
+    const synth = next.find(
+      (t) =>
+        t.inferred && (t.category.label || "").toLowerCase() === "treatment",
+    );
+    expect(synth?.value.label).toBe("vehicle");
   });
 
-  it("still synthesizes chips for categories that were NOT removed", () => {
+  it("reveals the inherited value once the redundant direct tag is removed", () => {
     const bms = [
-      bm("s1", { "cell type": "fibroblast", "organism part": "skin" }),
+      bm("s1", { treatment: "tamoxifen" }),
+      bm("s2", { treatment: "tamoxifen" }),
     ];
-    const next = augmentInferredFromBiomaterials([], bms, new Set(["cell type"]));
-    // organism part survives; cell type is suppressed.
-    expect(next.map((t) => (t.category.label || "").toLowerCase())).toEqual([
-      "organism part",
-    ]);
+    // Curator deleted the direct tag → the inherited value now surfaces.
+    const next = augmentInferredFromBiomaterials([], bms);
+    const synth = next.find(
+      (t) =>
+        t.inferred && (t.category.label || "").toLowerCase() === "treatment",
+    );
+    expect(synth?.value.label).toBe("tamoxifen");
   });
 });

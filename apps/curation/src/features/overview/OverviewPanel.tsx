@@ -53,6 +53,7 @@ import {
 import type {
   Biomaterial,
   Factor,
+  FactorValue,
   OntologyTerm,
   Publication,
   Statement,
@@ -503,6 +504,9 @@ function DesignCardLegend() {
           Each row is one unique combination of factor values across the
           design's categorical factors. <span className="font-mono">Assays</span>{" "}
           counts biomaterials in that cell. Click any header to sort.
+          Hover a factor-value cell to see its full curation — statements,
+          which terms are ontology-anchored vs free text, baseline, and
+          sample count — without opening the Design tab.
         </p>
       </div>
       <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
@@ -607,6 +611,27 @@ function DesignSummary({
       compareValuesNatural(a.values.join(" / "), b.values.join(" / ")),
     );
   }, [standard, biomaterials]);
+
+  // Per-column ``FV label → FactorValue`` lookup so a table cell can
+  // surface the FV's full curation in a hover (statements, ontology
+  // grounding, baseline, sample count) without a trip to the Design
+  // tab. Uses the SAME label derivation as the row builder above so the
+  // cell's displayed label keys straight in. Paul 2026-07-20.
+  const fvByLabelByColumn = useMemo(
+    () =>
+      standard.map((f) => {
+        const m = new Map<string, FactorValue>();
+        for (const fv of f.factor_values) {
+          const lab =
+            fv.free_text_label ||
+            fv.statements?.[0]?.subject?.label ||
+            "(unlabelled FV)";
+          if (!m.has(lab)) m.set(lab, fv);
+        }
+        return m;
+      }),
+    [standard],
+  );
 
   // Column sort. ``null`` keeps the deterministic default (tuple
   // lexicographic) so curators see a stable layout until they
@@ -828,6 +853,10 @@ function DesignSummary({
                       v === "(unassigned)"
                         ? undefined
                         : tintForIndex(valueIdxByColumn[j]?.get(v) ?? -1);
+                    const fv =
+                      v === "(unassigned)"
+                        ? null
+                        : fvByLabelByColumn[j]?.get(v) ?? null;
                     return (
                       <td
                         key={j}
@@ -839,7 +868,19 @@ function DesignSummary({
                         }
                         style={tint ? { backgroundColor: tint } : undefined}
                       >
-                        {v}
+                        {fv ? (
+                          <Tooltip
+                            label={
+                              <FvCellTooltipBody factor={standard[j]} fv={fv} />
+                            }
+                          >
+                            <span className="cursor-help underline decoration-dotted decoration-slate-300 underline-offset-2">
+                              {v}
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          v
+                        )}
                       </td>
                     );
                   })}
@@ -1142,6 +1183,14 @@ function TagBarLegend() {
             <span className="font-medium">Hide free-text</span> above to
             thin a busy row.
           </li>
+          <li>
+            A <span className="text-violet-500 dark:text-violet-400">violet
+            glint</span> on a direct chip means every sample already carries
+            that exact ontology term as a characteristic — the tag is
+            redundant with the per-sample annotation (the tag still wins;
+            the glint just flags it). A grounded tag over free-text
+            characteristics is NOT redundant, so it does not glint.
+          </li>
         </ul>
       </div>
     </div>
@@ -1267,6 +1316,80 @@ function FactorChipTooltipBody({ factor }: { factor: Factor }) {
       <div className="text-[10px] text-slate-400 italic pt-0.5">
         Click to focus in the Design tab →
       </div>
+    </div>
+  );
+}
+
+/** Compact ontology-vs-free-text term span for the FV-cell hover.
+ *  Grounded terms (with a URI) render emerald with their CURIE; free
+ *  text renders italic slate — the same convention the tag chips use,
+ *  so "annotated with an ontology term" reads identically everywhere. */
+function FvTermSpan({ term }: { term?: OntologyTerm | null }) {
+  if (!term?.label) return null;
+  const uri = term.uri || null;
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <span className={uri ? "text-emerald-300 font-medium" : "italic text-slate-300"}>
+        {term.label}
+      </span>
+      {uri ? (
+        <span className="font-mono text-[9px] text-emerald-400/70">
+          {shortenUri(uri)}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Rich hover for a Design-summary FV cell: the factor value's actual
+ *  curation — its statements as subject · predicate · object, which
+ *  terms are ontology-anchored (CURIE) vs free text, the baseline flag,
+ *  and the sample count. Lets a curator judge the curation state
+ *  (grounded? structured?) from the overview without opening the Design
+ *  tab (Paul 2026-07-20). Rendered through the dark ``Tooltip`` portal,
+ *  same as ``FactorChipTooltipBody``. */
+function FvCellTooltipBody({ factor, fv }: { factor: Factor; fv: FactorValue }) {
+  const label = (fv.free_text_label || "").trim() || "(unlabelled FV)";
+  const n = fv.biomaterial_short_names?.length ?? 0;
+  const statements = fv.statements ?? [];
+  const catLabel = factor.category?.label || factor.name || "factor";
+  return (
+    <div className="space-y-1.5 max-w-[24rem]">
+      <div className="flex items-baseline gap-1.5">
+        <span className="font-semibold text-sky-300 break-words">{label}</span>
+        {fv.is_baseline ? (
+          <span className="text-[9px] uppercase tracking-wide text-amber-400">
+            baseline
+          </span>
+        ) : null}
+        {n > 0 ? (
+          <span className="text-[10px] text-slate-400 font-mono ml-auto shrink-0">
+            {n} sample{n === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
+      <div className="text-[10px] uppercase tracking-wide text-slate-400">
+        {catLabel}
+      </div>
+      {statements.length > 0 ? (
+        <ul className="space-y-1">
+          {statements.map((s, i) => (
+            <li key={i} className="text-[11px] flex flex-wrap items-baseline gap-1">
+              <FvTermSpan term={s.subject} />
+              {s.predicate?.label ? (
+                <span className="font-mono text-[9px] text-slate-400">
+                  · {s.predicate.label} ·
+                </span>
+              ) : null}
+              <FvTermSpan term={s.object} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="text-[11px] italic text-slate-300">
+          no structured statements — free-text value
+        </div>
+      )}
     </div>
   );
 }
@@ -1509,28 +1632,50 @@ function TagBar({
   // artifact. The UI re-synthesises locally so the downstream dedup
   // (FV-synth wins over direct EE tags for the same category) keeps
   // working without any further changes here.
-  // Categories the curator explicitly removed in this draft (saved-vs-
-  // draft, straight off the diff). The biomaterial augmenter must not
-  // re-synthesize a chip for these — see B3 note in augmentInferred.ts.
-  const removedTagCategories = useMemo(
-    () =>
-      new Set(
-        diff.tags.removed.map((t) => (t.category.label || "").toLowerCase()),
-      ),
-    [diff.tags.removed],
-  );
+  // Inferred chips reflect per-sample reality: if every sample carries
+  // an annotation, the inherited chip shows it. Removing the EE-level
+  // direct tag no longer suppresses the inherited version — it surfaces
+  // (purple) once the direct one is gone, so the curator still sees that
+  // the samples carry it. Paul 2026-07-20 (supersedes the B3 removed-
+  // category suppression; "Hide inherited" now governs visibility, and
+  // the direct-wins dedup keeps the EE tag on top when both are present).
   const augmentedTags = useMemo(
     () =>
       augmentInferredFromFactors(
-        augmentInferredFromBiomaterials(
-          tags,
-          biomaterials,
-          removedTagCategories,
-        ),
+        augmentInferredFromBiomaterials(tags, biomaterials),
         draft?.factors ?? [],
       ),
-    [tags, biomaterials, draft?.factors, removedTagCategories],
+    [tags, biomaterials, draft?.factors],
   );
+
+  // ``category|value_uri`` keys that EVERY sample carries as a GROUNDED
+  // biomaterial characteristic — i.e. an inherited EXACT ONTOLOGY-TERM
+  // match across the whole cohort. Keyed on the per-sample ``value_uri``
+  // (not the label): a tag is only redundant with the per-sample
+  // annotation when the samples carry the SAME ontology term. When the
+  // characteristics are free text (``characteristic_uris`` absent/null,
+  // e.g. GSE38066 strain "C57BL/6NTac" with no URI) the grounded tag is
+  // NOT redundant — it's the only grounding — so no key is emitted and no
+  // glint fires (Paul 2026-07-20). Redundancy cue only; the direct tag
+  // still wins the direct-priority dedup.
+  const universalCharTerms = useMemo(() => {
+    const bms = biomaterials ?? [];
+    if (bms.length === 0) return new Set<string>();
+    const counts = new Map<string, number>();
+    for (const bm of bms) {
+      const uris = bm.characteristic_uris ?? {};
+      const seen = new Set<string>();
+      for (const cat of Object.keys(bm.characteristics ?? {})) {
+        const vu = uris[cat]?.value_uri;
+        if (!vu) continue;
+        seen.add(`${(cat || "").trim().toLowerCase()}|${vu.trim()}`);
+      }
+      for (const k of seen) counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    const universal = new Set<string>();
+    for (const [key, n] of counts) if (n === bms.length) universal.add(key);
+    return universal;
+  }, [biomaterials]);
 
   // Drop block / batch tags here — they're nuisance variables
   // (date_run codes, scan-batch ids, …) and a single batch
@@ -1667,27 +1812,52 @@ function TagBar({
   // hidden. Only chips with no URI anywhere (raw numbers, dates, batch
   // ids, yes/no flags) count as free-text.
   const tagIsResolved = (t: Tag): boolean => {
-    if (effectiveUri(t)) return true;
+    // Classify by what the chip actually RENDERS. ``splitTagValues``
+    // recovers URIs from the FV / biomaterial lookups — an FV-synth
+    // ``cell type`` chip shows ``CL:…`` even though the tag's own
+    // ``value.uri`` is null. ``effectiveUri`` alone missed those, so the
+    // free-text filter wrongly dropped resolved inferred chips and the
+    // "Hide free-text" count over-counted them (Paul 2026-07-20). A tag
+    // is free-text only when NONE of its rendered values carry a URI and
+    // no statement resolves.
+    const vals = splitTagValues(
+      [t],
+      t.category,
+      charUriLookup,
+      fvUriLookup,
+      baselineLookup,
+    );
+    if (vals.some((v) => !!v.uri)) return true;
     return (t.statements ?? []).some(
       (s) => !!s.subject?.uri || !!s.object?.uri,
     );
   };
-  // Count the free-text chips so the toggle can show how many the
-  // curator is hiding — and gate the switch's usefulness (no point
-  // offering it when everything already resolves).
-  const freeTextCount = dedupedAll.filter((t) => !tagIsResolved(t)).length;
-  // Count the inherited (inferred) chips the same way, for its toggle.
+  // Two filters, PARTITIONED so each governs a disjoint set of chips —
+  // no chip is hidden by both, so each "(N)" is exactly what unchecking
+  // reveals:
+  //   • Hide inherited → ALL inferred chips (bubbled up because every
+  //     sample carries the annotation), resolved OR free-text.
+  //   • Hide free-text → DIRECT chips with no ontology URI (raw values).
+  // Inferred chips are governed ONLY by Hide inherited — so deleting a
+  // redundant direct tag surfaces its inherited underlying value even
+  // when that value is free-text, as long as inherited is shown. Paul
+  // 2026-07-20: a deleted redundant tag "goes away entirely" because the
+  // free-text filter was also hiding the (URI-less) inherited synth.
+  const isFreeText = (t: Tag) => !tagIsResolved(t);
+  const anyInferred = dedupedAll.some((t) => t.inferred);
+  const anyDirectFreeText = dedupedAll.some(
+    (t) => !t.inferred && isFreeText(t),
+  );
   const inferredCount = dedupedAll.filter((t) => t.inferred).length;
-  // When the free-text filter is on, keep only resolved chips; the
-  // purely free-text ones drop, and every ontology-anchored chip stays.
-  const dedupedShown =
-    hideFreeText ? dedupedAll.filter(tagIsResolved) : dedupedAll;
-  // Split back into direct vs inferred for the bucketing below. The
-  // inherited filter drops the inferred chips entirely when on.
-  const dedupedDirect = dedupedShown.filter((t) => !t.inferred);
+  const freeTextCount = dedupedAll.filter(
+    (t) => !t.inferred && isFreeText(t),
+  ).length;
+  const dedupedDirect = dedupedAll.filter(
+    (t) => !t.inferred && !(hideFreeText && isFreeText(t)),
+  );
   const dedupedInferred = hideInferred
     ? []
-    : dedupedShown.filter((t) => t.inferred);
+    : dedupedAll.filter((t) => t.inferred);
   const showHeader =
     visibleTags.length > 0 || draft != null;
   if (!showHeader) return null;
@@ -1721,12 +1891,14 @@ function TagBar({
         <HelpPopup title="Tag chip legend" size="md">
           <TagBarLegend />
         </HelpPopup>
-        {/* Tag view toggles, right-aligned. Each is offered only when
-            it would actually change the view (there's something to
-            hide). Both prefs are sticky app-wide and default ON. */}
-        {freeTextCount > 0 || inferredCount > 0 ? (
+        {/* Tag view toggles, right-aligned. Each is offered whenever the
+            experiment has any chip of that kind (so the toggle stays
+            available even when the other filter is currently hiding its
+            share); the "(N)" is the reveal count for the current state.
+            Both prefs are sticky app-wide and default ON. */}
+        {anyInferred || anyDirectFreeText ? (
           <div className="ml-auto inline-flex items-center gap-3">
-            {inferredCount > 0 ? (
+            {anyInferred ? (
               <label
                 className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
                 title="Hide inherited chips (inferred from sample characteristics / factor-value statements); the curator's own direct tags stay."
@@ -1743,7 +1915,7 @@ function TagBar({
                 </span>
               </label>
             ) : null}
-            {freeTextCount > 0 ? (
+            {anyDirectFreeText ? (
               <label
                 className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
                 title="Hide unresolved free-text chips (raw values without an ontology term); ontology-resolved chips stay."
@@ -1832,6 +2004,7 @@ function TagBar({
               <EditableDirectTagGroups
                 tags={directByGroup.get(g) ?? []}
                 addedTagIds={addedTagIds}
+                inheritedMatchKeys={universalCharTerms}
               />
               <TagGroups
                 tags={nonFvInferredSorted}
@@ -2322,12 +2495,17 @@ function TagGroups({
 function EditableDirectTagGroups({
   tags,
   addedTagIds,
+  inheritedMatchKeys,
 }: {
   tags: Tag[];
   /** Tag ids present in the draft but not the saved server state.
    *  Chips in this set render with an amber "new" ring so the
    *  curator can see uncommitted additions at a glance. */
   addedTagIds?: Set<number>;
+  /** ``category|value_uri`` keys every sample carries as a GROUNDED
+   *  characteristic — a flat direct chip with that exact term gets the
+   *  violet redundancy glint. */
+  inheritedMatchKeys?: ReadonlySet<string>;
 }) {
   if (tags.length === 0) return null;
   return (
@@ -2338,6 +2516,7 @@ function EditableDirectTagGroups({
           category={tag.category}
           tags={[tag]}
           addedTagIds={addedTagIds}
+          inheritedMatchKeys={inheritedMatchKeys}
         />
       ))}
     </>
@@ -2450,6 +2629,7 @@ function EditableDirectGroupChip({
   category,
   tags,
   addedTagIds,
+  inheritedMatchKeys,
 }: {
   category: Tag["category"];
   tags: Tag[];
@@ -2459,6 +2639,10 @@ function EditableDirectGroupChip({
    *  new (and the inner editable chip per-value mirrors the per-tag
    *  status when expanded). */
   addedTagIds?: Set<number>;
+  /** ``category|value_uri`` keys every sample carries as a GROUNDED
+   *  characteristic. A flat direct chip whose exact ontology term matches
+   *  gets the violet redundancy glint. */
+  inheritedMatchKeys?: ReadonlySet<string>;
 }) {
   const { draft, apply } = useDesignDraft();
   const readOnly = useIsReadOnly();
@@ -2511,6 +2695,20 @@ function EditableDirectGroupChip({
     const isNew = addedTagIds?.has(tag.id) ?? false;
     const valueDisplay = abbreviateValueLabel(tag.value.label || "");
     const canEdit = !protectedCategory && !readOnly && !!tagEdit;
+    // Inherited-exact-match glint: EVERY sample carries this tag's exact
+    // ontology term (same ``value_uri``) as a grounded characteristic, so
+    // the tag is genuinely redundant with the per-sample annotation. The
+    // direct tag wins (it's shown, not the inferred); the violet glint
+    // just flags the redundancy. Requires a grounded, flat tag: a
+    // free-text tag isn't grounded, and a statement-bearing tag carries
+    // more than a flat per-sample characteristic can match — neither is
+    // an exact-statement match, so neither glints. Paul 2026-07-20.
+    const isFlatTag = (tag.statements?.length ?? 0) === 0;
+    const inheritedKey = tag.value.uri
+      ? `${(tag.category.label || "").trim().toLowerCase()}|${tag.value.uri.trim()}`
+      : "";
+    const hasInheritedMatch =
+      isFlatTag && !!inheritedKey && !!inheritedMatchKeys?.has(inheritedKey);
     return (
       <span
         // Audit focus hook — Apply & focus on a tag finding scrolls
@@ -2540,6 +2738,11 @@ function EditableDirectGroupChip({
           // curator can see at a glance which chips are pending.
           isNew &&
             "ring-2 ring-amber-400 ring-offset-1 ring-offset-white shadow-[0_0_8px_-2px_rgba(251,191,36,0.7)] dark:ring-offset-slate-900",
+          // Inherited-exact-match glint — soft violet ring + glow. Yields
+          // to the amber "new" ring when both apply (new is more urgent).
+          !isNew &&
+            hasInheritedMatch &&
+            "ring-1 ring-violet-400/70 shadow-[0_0_6px_-1px_rgba(167,139,250,0.65)] dark:ring-violet-500/60",
         )}
         title={
           (protectedCategory
@@ -2547,7 +2750,10 @@ function EditableDirectGroupChip({
             : readOnly
               ? `${category.label}: ${tag.value.label} — read-only in review mode`
               : `${category.label}: ${tag.value.label} — click to edit`) +
-          (tag.value.uri ? ` — ${shortenUri(tag.value.uri)}` : "")
+          (tag.value.uri ? ` — ${shortenUri(tag.value.uri)}` : "") +
+          (hasInheritedMatch
+            ? " · violet glint: redundant — every sample carries this exact ontology term"
+            : "")
         }
       >
         {/* Padlock for load-time tags — explicit "this can't be

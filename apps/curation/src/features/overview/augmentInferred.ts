@@ -23,15 +23,6 @@ import type { Biomaterial, Tag } from "@/features/experiment/types";
 export function augmentInferredFromBiomaterials(
   tags: Tag[],
   biomaterials: Biomaterial[],
-  /** Lowercased category labels the curator has explicitly removed in
-   *  the current draft. We never re-synthesize a biomaterial-derived
-   *  chip for these — otherwise dropping a direct ``cell type:
-   *  fibroblast`` tag (GSE161828, UIB_HANDOFF_2026_06_25 B3) just makes
-   *  an inferred ``cell type`` chip reappear from the untouched
-   *  biomaterial characteristics, duplicating what the curator removed.
-   *  Curator intent wins over the auto-projection. Defaults to empty so
-   *  non-draft callers (and the read-only overview) are unaffected. */
-  removedCategories: ReadonlySet<string> = new Set<string>(),
 ): Tag[] {
   const valuesByCat = new Map<string, Set<string>>();
   const catLabels = new Map<string, string>();
@@ -50,11 +41,16 @@ export function augmentInferredFromBiomaterials(
   }
   if (valuesByCat.size === 0) return tags;
 
-  const directCats = new Set<string>();
+  // Per-value cover: a direct tag suppresses re-synth of its OWN value
+  // only, not the whole category — so other per-sample values still
+  // surface as inherited, and deleting a redundant direct tag reveals
+  // its inherited underlying value (Paul 2026-07-20).
+  const directPairs = new Set<string>();
   for (const t of tags) {
     if (t.inferred) continue;
-    const k = (t.category.label || "").toLowerCase();
-    if (k) directCats.add(k);
+    const c = (t.category.label || "").trim().toLowerCase();
+    const v = (t.value?.label || "").trim().toLowerCase();
+    if (c && v) directPairs.add(`${c}|${v}`);
   }
 
   const augmented: Tag[] = [];
@@ -63,8 +59,12 @@ export function augmentInferredFromBiomaterials(
       augmented.push(t);
       continue;
     }
+    // Existing inferred tag: drop it when the per-value biomaterial
+    // synth below covers its category — the synth is the comprehensive
+    // source. Pass through inferred tags for categories the
+    // biomaterials don't carry.
     const k = (t.category.label || "").toLowerCase();
-    if (valuesByCat.has(k) && !directCats.has(k)) continue;
+    if (valuesByCat.has(k)) continue;
     augmented.push(t);
   }
 
@@ -73,11 +73,14 @@ export function augmentInferredFromBiomaterials(
   // entries; never round-tripped to the server.
   let nextSynthId = -1;
   for (const [catKey, valSet] of valuesByCat.entries()) {
-    if (directCats.has(catKey)) continue;
-    // The curator removed this category's tag — don't resurrect it as
-    // a biomaterial-derived synth chip (B3).
-    if (removedCategories.has(catKey)) continue;
-    const sortedValues = Array.from(valSet).sort((a, b) =>
+    // Synth only the values NOT already carried by a direct tag; the
+    // direct wins (and gets the redundancy glint), the rest surface as
+    // inherited. Every value covered ⇒ nothing synthesized.
+    const uncovered = Array.from(valSet).filter(
+      (v) => !directPairs.has(`${catKey}|${v.trim().toLowerCase()}`),
+    );
+    if (uncovered.length === 0) continue;
+    const sortedValues = uncovered.sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
     augmented.push({
