@@ -1689,22 +1689,38 @@ function TagBar({
     return true;
   });
 
-  // FV-source synth tags (one per factor, FV labels comma-joined)
-  // are the canonical representation of a factor category. Direct
-  // experiment-level tags for the same category duplicate that
-  // information — e.g. GSE208707 ships 8 ``cell type: <X>`` direct
-  // tags AND a ``cell type: <all 8 joined>`` synth tag from the
-  // ``cell type`` factor. Hide the direct tags in those cases; the
-  // factor IS the encoding.
-  const fvSynthCats = new Set(
-    visibleTags
-      .filter((t) => t.inferred && t.inferred_source === "FactorValue")
-      .map((t) => (t.category.label || t.category.uri || "").toLowerCase()),
-  );
+  // A direct experiment-level tag is redundant with the design ONLY
+  // when its VALUE is actually one of the factor's FV values — e.g.
+  // GSE208707 ships 8 ``cell type: <X>`` direct tags beside a
+  // ``cell type`` factor whose FVs ARE those 8 cell types; the factor
+  // encodes them, so hide the duplicate direct chips. Keying on the
+  // CATEGORY alone (the old behaviour) was wrong: a ``genotype`` factor
+  // whose FVs are mouse-model conditions (``NPp53 (Nkx3-1CreERT2/+;
+  // Ptenf/f;p53f/f;…)``) does NOT make a ``genotype: Trp53`` gene tag
+  // redundant — the gene is not an FV value — yet every direct genotype
+  // tag was dropped, hiding real EE-tags the agent was proposing to
+  // remove. So suppress a direct tag only when its (category, value)
+  // matches a factor's FV value. Paul 2026-07-21 (GSE… 91268).
+  const fvSynthValues = new Set<string>();
+  for (const t of visibleTags) {
+    if (!(t.inferred && t.inferred_source === "FactorValue")) continue;
+    const catLc = (t.category.label || t.category.uri || "").toLowerCase();
+    // FV-synth value is the FV labels comma-joined (same split the
+    // renderer's ``splitTagValues`` uses).
+    for (const part of (t.value.label || "").split(",")) {
+      const p = part.trim().toLowerCase();
+      if (p) fvSynthValues.add(`${catLc}|${p}`);
+    }
+  }
   const direct = visibleTags.filter((t) => {
     if (t.inferred) return false;
-    const k = (t.category.label || t.category.uri || "").toLowerCase();
-    return !fvSynthCats.has(k);
+    // A statement-shaped EE-tag carries more than its bare value
+    // (``genotype: Trp53 has_genotype Homozygous negative``) — never
+    // suppress it, even if the bare value coincidentally matches an FV.
+    if ((t.statements ?? []).length > 0) return true;
+    const catLc = (t.category.label || t.category.uri || "").toLowerCase();
+    const valLc = (t.value.label || "").trim().toLowerCase();
+    return !fvSynthValues.has(`${catLc}|${valLc}`);
   });
   const inferred = visibleTags.filter((t) => t.inferred);
 
@@ -1775,10 +1791,37 @@ function TagBar({
       uriBearingByGroupLabel.add(`${groupKeyOf(t)}|${valLabelLc(t)}`);
     }
   }
-  // First pass: dedup by effective URI within each row. Sort so the
-  // preferred winner lands first: source rank ascending (direct >
-  // biomaterial > FV), then canonical category ascending (canonical
-  // Gemma > GEO-imported).
+  // Signature of a tag's statements (predicate/object pairs). Two
+  // statement-shaped tags that share a subject URI but assert
+  // DIFFERENT statements are different facts — e.g. ``Trp53
+  // has_genotype Homozygous negative`` vs ``Trp53 has_genotype
+  // Overexpression``, or a flat subject-only ``Trp53`` vs ``Trp53
+  // has_genotype …``. Without folding this into the dedup key, a
+  // newly-added statement-shaped tag collapsed into (and vanished
+  // behind) an existing tag on the same subject — the curator adds a
+  // genotype tag, commits it, and it never appears. URI-first so
+  // label case/whitespace drift (``homozygous negative`` vs
+  // ``Homozygous negative``, both TGEMO_00001) still dedups;
+  // order-independent. A flat tag has an empty signature, which stays
+  // distinct from any statement-bearing sibling. Paul 2026-07-21.
+  const stmtSig = (t: Tag): string =>
+    (t.statements ?? [])
+      .map((s) => {
+        const p = (s.predicate?.uri || s.predicate?.label || "")
+          .trim()
+          .toLowerCase();
+        const o = (s.object?.uri || s.object?.label || "")
+          .trim()
+          .toLowerCase();
+        return `${p}>${o}`;
+      })
+      .filter((pair) => pair !== ">")
+      .sort()
+      .join(";");
+  // First pass: dedup by effective URI + statement signature within
+  // each row. Sort so the preferred winner lands first: source rank
+  // ascending (direct > biomaterial > FV), then canonical category
+  // ascending (canonical Gemma > GEO-imported).
   const seenUriKeys = new Set<string>();
   const allSorted = [...direct, ...inferred].sort((a, b) => {
     const s = sourceRank(a) - sourceRank(b);
@@ -1789,7 +1832,7 @@ function TagBar({
   for (const t of allSorted) {
     const uri = effectiveUri(t);
     if (uri) {
-      const key = `${groupKeyOf(t)}|${uri}`;
+      const key = `${groupKeyOf(t)}|${uri}|${stmtSig(t)}`;
       if (seenUriKeys.has(key)) continue;
       seenUriKeys.add(key);
     }
@@ -3095,6 +3138,7 @@ function TagGroupChip({
   experimentId: number | string;
 }) {
   const values = splitTagValues(tags, category, charUriLookup, fvUriLookup, baselineLookup);
+  const [showAllValues, setShowAllValues] = useState(false);
 
   // Single value (after comma-split) renders flat — no collapse to
   // worry about.
@@ -3194,9 +3238,32 @@ function TagGroupChip({
   // supporting role in mixed groups; pure-free-text groups stay at
   // normal weight so they remain readable).
   const hasUriValue = values.some((v) => !!v.uri);
+
+  // Cap the FREE-TEXT tail on inherited groups. A characteristic that
+  // carries roughly one free-text value per sample — per-sample sample-
+  // source descriptions ("Human multiple myeloma patient sample 37"),
+  // GSM titles, and the like — otherwise floods the row with 100+
+  // near-identical chips that inform nothing (GSE… 8205). ``splitTagValues``
+  // already orders ontology-resolved values first, so EVERY resolved
+  // term stays visible; only the free-text overflow past the cap
+  // collapses behind an inline "+N more" toggle that expands IN PLACE
+  // (not the popover Paul retired 2026-07-20 — the terms are still all
+  // one click away, in the same row). Direct/curator tags are never
+  // capped. Paul 2026-07-21.
+  const FREETEXT_CAP = 12;
+  const resolvedVals = values.filter((v) => !!v.uri);
+  const freeTextVals = values.filter((v) => !v.uri);
+  const capActive =
+    variant === "inferred" &&
+    !showAllValues &&
+    freeTextVals.length > FREETEXT_CAP;
+  const shownValues = capActive
+    ? [...resolvedVals, ...freeTextVals.slice(0, FREETEXT_CAP)]
+    : values;
+  const hiddenCount = values.length - shownValues.length;
   return (
     <>
-      {values.map((v) => (
+      {shownValues.map((v) => (
         <span
           key={v.key}
           title={`${category.label}: ${v.label}${variant === "inferred" ? ` (inferred from ${sources.join(", ") || "auto"})${evTitle}` : ""}`}
@@ -3210,6 +3277,27 @@ function TagGroupChip({
           />
         </span>
       ))}
+      {hiddenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowAllValues(true)}
+          title={`Show ${hiddenCount} more inherited free-text value${hiddenCount === 1 ? "" : "s"} (mostly per-sample descriptions)`}
+          className="inline-flex items-baseline px-1.5 py-0.5 text-[11px] rounded border border-dashed border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800"
+        >
+          +{hiddenCount} more
+        </button>
+      ) : null}
+      {variant === "inferred" &&
+      showAllValues &&
+      freeTextVals.length > FREETEXT_CAP ? (
+        <button
+          type="button"
+          onClick={() => setShowAllValues(false)}
+          className="inline-flex items-baseline px-1.5 py-0.5 text-[11px] rounded border border-dashed border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800"
+        >
+          show fewer
+        </button>
+      ) : null}
     </>
   );
 }

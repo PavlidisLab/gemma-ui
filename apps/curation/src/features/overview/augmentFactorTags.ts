@@ -32,11 +32,30 @@ export function augmentInferredFromFactors(
   let nextSynthId = -1_000_000;
   const synth: Tag[] = [];
   for (const factor of factors) {
+    // Continuous factors carry per-sample measurements (age in months,
+    // expression level, dose curves), not a discrete category — one
+    // FV per distinct number. Projecting those floods the tag bar with
+    // dozens of meaningless numeric chips (1.691, 2.428, …). They have
+    // no place in the inferred-tag row; the Design crosstab already
+    // notes continuous factors are shown separately. Paul 2026-07-21.
+    if (factor.type === "continuous") continue;
     const catLabel = (factor.category?.label || factor.name || "").trim();
     if (!catLabel) continue;
-    const values = (factor.factor_values ?? [])
-      .map((fv) => (fv.free_text_label || "").trim())
-      .filter((s) => s.length > 0);
+    // UNIQUE FV labels only. A factor routinely has several FVs that
+    // share a label — a treatment factor with one DMSO arm per
+    // timepoint carries five FVs all labelled "DMSO" — which otherwise
+    // repeats the same chip once per arm. Case-insensitive dedup,
+    // first spelling wins. Paul 2026-07-21.
+    const seen = new Set<string>();
+    const values: string[] = [];
+    for (const fv of factor.factor_values ?? []) {
+      const label = (fv.free_text_label || "").trim();
+      if (!label) continue;
+      const k = label.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      values.push(label);
+    }
     if (values.length === 0) continue;
     // Sort case-insensitively for a stable, readable projection.
     const sorted = [...values].sort((a, b) =>
