@@ -86,6 +86,27 @@ describe("groupStatementsBySubject — drops redundant bare statements", () => {
     expect(groups[0].indices).toEqual([0]);
   });
 
+  it("KEEPS the bare sibling when dropBareWithReal:false (editable '+ pred/obj' row)", () => {
+    // The editable view passes dropBareWithReal:false so a freshly
+    // added empty predicate/object row (what "+ pred/obj" inserts on a
+    // subject that already has a real statement) isn't silently
+    // swallowed before the curator can fill it in.
+    const complete = stmt({
+      predicate: term(
+        "delivered for duration",
+        "http://purl.obolibrary.org/obo/TGEMO_00167",
+      ),
+      object: term("30 d"),
+    });
+    const bare = stmt({});
+    const groups = groupStatementsBySubject([complete, bare], {
+      dropBareWithReal: false,
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].statements).toHaveLength(2);
+    expect(groups[0].indices).toEqual([0, 1]);
+  });
+
   it("keeps one row when a group is entirely bare (add-a-predicate affordance)", () => {
     const groups = groupStatementsBySubject([stmt({})]);
     expect(groups).toHaveLength(1);

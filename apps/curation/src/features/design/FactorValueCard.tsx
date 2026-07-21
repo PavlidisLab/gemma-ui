@@ -433,7 +433,13 @@ export function FactorValueCard({
                     </li>
                   ));
                 })()
-              : groupStatementsBySubject(fv.statements).map((group, gi) => (
+              : groupStatementsBySubject(fv.statements, {
+                // Editable view: keep in-progress bare "+ pred/obj"
+                // rows so adding a second predicate to a subject that
+                // already has one isn't silently swallowed. Compact
+                // view (above) still drops them as noise.
+                dropBareWithReal: false,
+              }).map((group, gi) => (
                 <li key={`grp-${gi}`}>
                   {group.statements.length === 1 ? (
                     <StatementEditor
@@ -443,6 +449,12 @@ export function FactorValueCard({
                         onStatementChange(group.indices[0], next)
                       }
                       onDelete={() => onStatementDelete(group.indices[0])}
+                      onAddSibling={
+                        onAddSiblingStatement
+                          ? () =>
+                              onAddSiblingStatement(group.statements[0])
+                          : undefined
+                      }
                     />
                   ) : (
                     <StatementGroupEditor

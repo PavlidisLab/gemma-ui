@@ -571,6 +571,13 @@ export function OntologyTermPicker({
         // two distinct states. Baseline status is signalled only
         // by the separate ``▂ baseline`` pill.
         "rounded px-1 -mx-1 select-none font-medium",
+        // Cap runaway labels — some gene "names" are the full
+        // descriptive string ("ERBB2 [human] v-erb-b2 erythroblastic
+        // leukemia viral oncogene homolog 2, …"), which otherwise
+        // blows out the statement row. Truncate with the full text in
+        // the hover title; the CURIE chip beside it still pins the
+        // ontology id. Paul 2026-07-21.
+        !isEmpty && "inline-block align-bottom max-w-[22rem] truncate",
         // Empty slot with a placeholder reads as "fill this in" —
         // give it a dashed border + cursor-pointer so the curator
         // sees an affordance instead of just an italic-grey

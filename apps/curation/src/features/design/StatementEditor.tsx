@@ -72,6 +72,7 @@ export function StatementEditor({
   factorCategory,
   onChange,
   onDelete,
+  onAddSibling,
 }: {
   statement: Statement;
   /** The parent factor's category, used as the default for blank
@@ -80,6 +81,12 @@ export function StatementEditor({
   factorCategory: OntologyTerm | null;
   onChange: (next: Statement) => void;
   onDelete: () => void;
+  /** Add another predicate/object pair about THIS statement's subject.
+   *  When provided (and the subject is named) a "+ pred/obj" link
+   *  renders inline — the singleton-statement counterpart of the
+   *  ``StatementGroupEditor`` button, so a subject that currently has
+   *  one predicate isn't a dead-end for adding a second. Optional. */
+  onAddSibling?: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const hasContent =
@@ -230,6 +237,22 @@ export function StatementEditor({
       >
         ×
       </button>
+
+      {/* "+ pred/obj" — add a second predicate/object about the same
+          subject. Only offered once the subject is named (adding a
+          predicate to a blank subject is meaningless). Adding one
+          promotes this singleton into a StatementGroupEditor, which
+          then carries its own "+ pred/obj" for any further pairs. */}
+      {onAddSibling && statement.subject?.label?.trim() ? (
+        <button
+          type="button"
+          className="text-[11px] text-slate-500 hover:text-slate-800 px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+          onClick={onAddSibling}
+          title="Add another predicate/object pair about this subject"
+        >
+          + pred/obj
+        </button>
+      ) : null}
 
       <ConfirmModal
         open={confirming}
@@ -496,7 +519,21 @@ function InlinePredicateObjectPair({
  */
 export function groupStatementsBySubject(
   statements: Statement[],
+  opts?: { dropBareWithReal?: boolean },
 ): { statements: Statement[]; indices: number[] }[] {
+  // Whether to drop "bare" (subject-only, no predicate/object)
+  // siblings from a group that also carries a real statement.
+  //
+  // In the **read-only / compact** view this is right — a bare row
+  // there is pure noise (a dangling empty predicate) and often a data
+  // artifact (see below). But in the **editable** view an empty
+  // predicate/object row is a legitimate, intentional thing: it's
+  // exactly what the "+ pred/obj" affordance adds so the curator can
+  // fill in a second predicate. Dropping it there made "+ pred/obj"
+  // silently no-op on any subject that already had a predicate (the
+  // freshly-added row was hidden before the curator could touch it).
+  // So the editable caller passes ``false``. Paul 2026-07-21.
+  const dropBareWithReal = opts?.dropBareWithReal ?? true;
   const buckets = new Map<
     string,
     { statements: Statement[]; indices: number[] }
@@ -519,10 +556,12 @@ export function groupStatementsBySubject(
   // A group that is ENTIRELY bare keeps one row — that's the normal
   // "subject with no predicate yet" add-a-predicate affordance. Indices
   // stay aligned to the surviving statements so mutations map correctly.
-  // Paul 2026-07-20.
+  // Paul 2026-07-20. Gated on ``dropBareWithReal`` (2026-07-21) so the
+  // editable view can keep its in-progress "+ pred/obj" rows.
   const isBare = (s: Statement) =>
     !s.predicate?.label?.trim() && !s.object?.label?.trim();
   return [...buckets.values()].map((g) => {
+    if (!dropBareWithReal) return g;
     if (!g.statements.some((s) => !isBare(s))) return g;
     const statements: Statement[] = [];
     const indices: number[] = [];

@@ -839,17 +839,23 @@ export function addStatement(
   const factor = design.factors.find((f) => f.id === factorId);
   const defaultCategory = factor?.category ? { ...factor.category } : null;
   return mapFactorValue(design, factorId, fvId, (fv) => {
-    const last = fv.statements.length
-      ? fv.statements[fv.statements.length - 1]
-      : null;
-    // First-statement seed: when the FV has no statements yet but
-    // carries a free-text label (the common post-Apply shape — agent
-    // proposed an FV without resolving it to ontology), pre-fill the
-    // subject with that free text so the curator can promote it to
-    // an ontology term in place instead of re-typing.
-    const seedSubject = last?.subject
-      ? { ...last.subject }
-      : fv.free_text_label?.trim()
+    // "+ statement" = a genuinely NEW claim, with its own subject —
+    // NOT another predicate about an existing subject (that's the
+    // per-subject "+ pred/obj" affordance, ``addSiblingStatement``).
+    //
+    // So the new row starts with a BLANK subject and the factor's own
+    // category. Cloning the last statement's subject was wrong: it
+    // folded the new row into the previous statement's same-subject
+    // group, which hid the subject picker entirely and dropped the
+    // new claim under whatever subject happened to be last (e.g. a
+    // gene on a genotype statement). Paul 2026-07-21.
+    //
+    // Only the very first statement is seeded from the FV's free-text
+    // label — the post-Apply shape where the agent proposed an FV
+    // without resolving it to an ontology term, so the curator can
+    // promote that label in place instead of re-typing it.
+    const seedSubject =
+      fv.statements.length === 0 && fv.free_text_label?.trim()
         ? { label: fv.free_text_label.trim() }
         : { label: "" };
     return {
@@ -857,7 +863,7 @@ export function addStatement(
       statements: [
         ...fv.statements,
         {
-          category: last?.category ?? defaultCategory,
+          category: defaultCategory,
           subject: seedSubject,
         },
       ],

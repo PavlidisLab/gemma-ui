@@ -437,15 +437,25 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
 ];
 
 /**
- * Templates relevant for a given factor category. "*" templates
- * (generic patterns) are always included; category-keyed templates
- * are matched on the lower-cased label. Returns the full list when
- * no category is set so the curator can browse.
+ * Templates for a given factor category. Every template is always
+ * offered — a factor value routinely carries a statement from a
+ * *second* category (a timepoint FV that also asserts
+ * ``has role → baseline role``, a genotype under a treatment FV,
+ * etc.), so restricting the menu to the factor's own category hid the
+ * pattern the curator actually needed. Paul 2026-07-21.
+ *
+ * We keep the list *ordered by relevance* rather than filtered: the
+ * templates matching this factor's category (plus the generic "*"
+ * baseline patterns) float to the top, everything else follows, so
+ * the common case is still one glance away without hiding the rest.
  */
 export function templatesFor(category: OntologyTerm | null): StatementTemplate[] {
   if (!category) return STATEMENT_TEMPLATES;
   const k = category.label.trim().toLowerCase();
-  return STATEMENT_TEMPLATES.filter(
-    (t) => t.category === "*" || t.category === k,
-  );
+  const relevant = (t: StatementTemplate) =>
+    t.category === k || t.category === "*";
+  return [
+    ...STATEMENT_TEMPLATES.filter(relevant),
+    ...STATEMENT_TEMPLATES.filter((t) => !relevant(t)),
+  ];
 }
