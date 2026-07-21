@@ -685,6 +685,26 @@ function factorValueLabel(v: FactorValueBasic): string {
   return isBaselineTerm(label) ? "baseline" : label;
 }
 
+/** Label + ontology URI for a factor value, for chip rendering (the
+ *  condition side of a DE contrast). Unlike {@link factorValueLabel} this
+ *  keeps the real label (conditions are never the baseline placeholder)
+ *  and surfaces the URI so the chip can show the CURIE + link out. */
+function factorValueTerm(v: FactorValueBasic): {
+  label: string;
+  uri: string | null;
+} {
+  const char = v.characteristics?.find((c) => (c.value ?? "").trim());
+  const stmt = v.statements?.find((s) => (s.subject ?? "").trim());
+  const label = (
+    v.summary ||
+    v.value ||
+    char?.value ||
+    stmt?.subject ||
+    `FV ${v.id}`
+  ).trim();
+  return { label, uri: char?.valueUri ?? stmt?.subjectUri ?? null };
+}
+
 const UNASSIGNED = "(unassigned)";
 
 /** Sample-breakdown crosstab for the Design tab — one row per unique
@@ -1647,10 +1667,52 @@ function ResultSetRow({
     .filter(Boolean) as string[];
   const contrastLabel =
     factorLabels.length > 0 ? factorLabels.join(" × ") : `result set ${resultSet.id}`;
-  const baseline =
-    resultSet.baselineGroup?.factorValue ||
-    resultSet.baselineGroup?.characteristics?.[0]?.value ||
-    null;
+
+  // What was actually contrasted. The wire only names the factor + its
+  // baseline group ("baseline = reference subject role"), never the test
+  // condition — so cross-reference the design (same cached query as the
+  // Design tab) to recover the non-baseline level(s). A result set over
+  // >1 factor is an interaction term (no single baseline / condition).
+  const rsFactors = resultSet.experimentalFactors ?? [];
+  const isInteraction = rsFactors.length > 1;
+  const baselineFvId = resultSet.baselineGroup?.id ?? null;
+  const designQ = useQuery({
+    queryKey: ["datasetDesign", datasetId],
+    queryFn: ({ signal }) => getDatasetDesign(datasetId, signal),
+    staleTime: 5 * 60_000,
+  });
+  const { conditionTerms, baselineLabel } = useMemo(() => {
+    const bgRaw =
+      resultSet.baselineGroup?.factorValue ||
+      resultSet.baselineGroup?.characteristics?.[0]?.value ||
+      null;
+    // Cleaned baseline label — never the raw role placeholder.
+    const bgLabel = bgRaw
+      ? isBaselineTerm(bgRaw)
+        ? "baseline"
+        : bgRaw
+      : null;
+    if (isInteraction || rsFactors.length === 0) {
+      return { conditionTerms: [], baselineLabel: bgLabel };
+    }
+    const df = (designQ.data?.experimentalFactors ?? []).find(
+      (f) => f.id === rsFactors[0].id,
+    );
+    if (!df) return { conditionTerms: [], baselineLabel: bgLabel };
+    const conds = df.values.filter((v) =>
+      baselineFvId != null
+        ? v.id !== baselineFvId
+        : !isBaselineTerm(factorValueTerm(v).label),
+    );
+    const baseFv =
+      baselineFvId != null
+        ? df.values.find((v) => v.id === baselineFvId)
+        : undefined;
+    return {
+      conditionTerms: conds.map(factorValueTerm),
+      baselineLabel: baseFv ? factorValueLabel(baseFv) : bgLabel,
+    };
+  }, [designQ.data, rsFactors, isInteraction, baselineFvId, resultSet.baselineGroup]);
 
   const nDE = resultSet.numberOfDiffExpressedProbes ?? 0;
   const nTotal = resultSet.numberOfProbesAnalyzed ?? 0;
@@ -1682,12 +1744,45 @@ function ResultSetRow({
   return (
     <li className="px-3 py-2 space-y-1.5">
       <div className="flex items-baseline gap-2 flex-wrap text-sm">
-        <span className="font-medium text-slate-800">{contrastLabel}</span>
-        {baseline ? (
-          <span className="text-[11px] text-slate-500">
-            baseline = <span className="italic">{baseline}</span>
+        {/* Lead with the actual comparison — condition(s) vs baseline —
+            since that's what the contrast tested. The factor name is
+            secondary context (muted, trailing); its category matters less
+            than the levels being compared. */}
+        {isInteraction ? (
+          <span className="inline-flex items-baseline gap-1.5">
+            <span className="font-medium text-slate-800">{contrastLabel}</span>
+            <span className="text-[10px] uppercase tracking-wide text-slate-400">
+              interaction
+            </span>
           </span>
-        ) : null}
+        ) : conditionTerms.length > 0 ? (
+          <span className="inline-flex items-baseline gap-1.5 flex-wrap">
+            {conditionTerms.map((t, i) => (
+              <OntologyTermChip key={i} uri={t.uri}>
+                {t.label}
+              </OntologyTermChip>
+            ))}
+            <span className="text-[11px] text-slate-400">vs</span>
+            <span className="text-[11px] text-slate-500 italic">
+              {baselineLabel ?? "baseline"}
+            </span>
+            <span
+              className="text-[11px] text-slate-400"
+              title="experimental factor"
+            >
+              · {contrastLabel}
+            </span>
+          </span>
+        ) : (
+          <span className="inline-flex items-baseline gap-1.5">
+            <span className="font-medium text-slate-800">{contrastLabel}</span>
+            {baselineLabel ? (
+              <span className="text-[11px] text-slate-500">
+                vs <span className="italic">{baselineLabel}</span>
+              </span>
+            ) : null}
+          </span>
+        )}
         <DeCountChip nDE={nDE} nTotal={nTotal} pct={pctDE} fdr={fdr} />
         {up > 0 || down > 0 ? (
           <span className="text-[10px] font-mono">
