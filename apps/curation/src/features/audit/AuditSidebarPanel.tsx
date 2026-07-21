@@ -38,6 +38,7 @@ import {
 } from "@/api/tickets";
 import { parseRoute } from "@/routes";
 import { ticketTargetPatchForFinalize } from "./finalizeTicketSync";
+import { materializedRecoveryToasts } from "./materializedToast";
 import { registerAppliedBatch } from "./appliedBatches";
 import { severityTextCls } from "./auditPresentation";
 import { isAgentExtraIssue } from "@/api/auditTypes";
@@ -733,7 +734,7 @@ function SidebarHeader({
           }
         }
       }
-      await finalize(notes || undefined);
+      const finalizeResult = await finalize(notes || undefined);
       // Flip the ticket-target status to DONE so the ticket member
       // popover + dashboard reflect this experiment as finished.
       // Best-effort and isolated — the audit itself is already
@@ -755,6 +756,19 @@ function SidebarHeader({
         // Swallowed.
       }
       toast.show(copy.closedToast, "success");
+      // Surface any accepts the backend safety net had to
+      // re-materialize onto the polished design because the UI dropped
+      // the apply_action (ordering / reload race). Distinct WARN toast,
+      // not folded into the success line — a caught drop means the UI
+      // failed to persist something the curator explicitly accepted, and
+      // the curator should know it was recovered server-side rather than
+      // assume the click always worked. Empty on the healthy path (the
+      // field is only populated when the net genuinely caught a drop).
+      for (const t of materializedRecoveryToasts(
+        finalizeResult?.materialized ?? [],
+      )) {
+        toast.show(t.message, t.tone, t.durationMs);
+      }
       setConfirmClose(false);
       // If this experiment is the sole target of its ticket, finishing
       // this review finishes the ticket — offer to resolve it too so

@@ -132,8 +132,13 @@ interface AuditContextValue {
   /** Finalize the current audit. Optional notes carried through to
    *  the server's audit_events row. No-op + reject if no audit
    *  loaded or already finalized (caller should hide the button in
-   *  those states). */
-  finalize: (notes?: string) => Promise<void>;
+   *  those states).
+   *
+   *  Resolves to the finalize RESPONSE report when a POST fired, or
+   *  ``null`` on the no-op / override paths. The caller reads
+   *  ``report.materialized`` off it to toast any accepts the backend
+   *  safety net had to re-materialize (see ``AuditReport.materialized``). */
+  finalize: (notes?: string) => Promise<AuditReport | null>;
   /** Reopen a finalized audit so the curator can keep dispositioning.
    *  No-op + reject if no audit loaded or not finalized. */
   reopen: () => Promise<void>;
@@ -474,11 +479,11 @@ export function AuditProvider({
   // pretend there's no audit to close. Callers are gated by
   // `isFinalized` already, so this only catches stray double-clicks.
   const finalize = useCallback(
-    async (notes?: string) => {
-      if (!report || !report.audit_id) return;
-      if (isOverrideReport(report)) return;
-      if (report.finalized_at) return;
-      await finalizeAudit.mutateAsync({
+    async (notes?: string): Promise<AuditReport | null> => {
+      if (!report || !report.audit_id) return null;
+      if (isOverrideReport(report)) return null;
+      if (report.finalized_at) return null;
+      return await finalizeAudit.mutateAsync({
         auditId: report.audit_id,
         reviewer,
         notes,

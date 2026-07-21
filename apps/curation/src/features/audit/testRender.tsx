@@ -86,7 +86,7 @@ export function makeAuditCtx(
     isFinalized: false,
     finalizedAt: null,
     finalizedBy: null,
-    finalize: vi.fn().mockResolvedValue(undefined),
+    finalize: vi.fn().mockResolvedValue(null),
     reopen: vi.fn().mockResolvedValue(undefined),
     resetAllDispositions: vi.fn().mockResolvedValue(undefined),
     finalizeSaving: false,

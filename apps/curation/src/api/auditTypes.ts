@@ -1550,6 +1550,45 @@ export interface AuditReport {
    *  (AUDIT_DISPOSITION_EDIT_HANDOFF.md). UI degrades to "(no
    *  note recorded)" when undefined. */
   finalized_notes?: string | null;
+  /** Mutations the finalize-time backend safety net
+   *  (``local_api.finalize_materialize``) applied to the curator's
+   *  polished design because the UI dropped the accepted finding's
+   *  ``apply_action`` (ordering / reload race). Present on the finalize
+   *  RESPONSE only — transient, never persisted on the stored body, so
+   *  every read outside the finalize round-trip sees it empty. Only
+   *  genuinely-caught drops (``applied`` net actions) are surfaced; the
+   *  idempotent / skipped log stays server-side. The UI toasts "backend
+   *  recovered N dropped accept(s)" from it so the catch is
+   *  curator-visible, not just a server log. Mirrors the agent-side
+   *  ``MaterializedActionVO``. */
+  materialized?: MaterializedAction[];
+}
+
+/** One mutation the finalize-time backend safety net re-materialized
+ *  onto the curator's polished design (see ``AuditReport.materialized``).
+ *  Mirrors the agent-side ``MaterializedActionVO``. */
+export interface MaterializedAction {
+  /** ``apply_action`` kind: ``add_tag`` / ``remove_tag`` /
+   *  ``replace_tag`` / ``rename_fv`` / ``add_factor`` /
+   *  ``remove_factor``. */
+  kind: string;
+  /** The finding's ``target_id`` the mutation landed against. */
+  target_id: string;
+  /** Human-readable summary of what landed (e.g. "disease: HAND"). */
+  detail?: string;
+  /** Which finalize-time fold caught this action:
+   *  ``"reviewer"`` = a genuine UI persistence DROP recovered onto the
+   *  reviewer's polished design (the rare canary — the UI failed to
+   *  save an accepted change; worth a warn).
+   *  ``"gold"`` = routine accepted→gold propagation (the UI never writes
+   *  ``/polished/gold``, so on every reconcile finalize the fold records
+   *  every accepted decision to gold — expected, not a bug).
+   *
+   *  Optional: the store stamps it once the gold fold ships with the
+   *  tag. Absent ⇒ the legacy reviewer-only shape (a genuine drop), so
+   *  the UI treats untagged actions as ``"reviewer"``. See
+   *  ``UIB_REPLY_2026_07_21_MATERIALIZE_TO_GOLD_TOAST_SOURCE.md``. */
+  source?: "reviewer" | "gold";
 }
 
 /** One round in a challenger/defender/arbiter debate loop. Shared
