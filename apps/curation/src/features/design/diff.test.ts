@@ -250,3 +250,36 @@ describe("diffDesign — existing factor / tag invariants still hold", () => {
     expect(r.metadata.biomaterialsModified).toBe(0);
   });
 });
+
+describe("diffDesign — statement-shaped tag edits dirty the draft (2026-07-21)", () => {
+  const term = (label: string, uri: string | null = null) => ({ label, uri });
+  const genotypeTag = (objectLabel: string) => ({
+    id: 5,
+    category: term("genotype", "http://www.ebi.ac.uk/efo/EFO_0000513"),
+    value: term("Abca4", "http://purl.org/commons/record/ncbi_gene/11304"),
+    statements: [
+      {
+        category: term("genotype", "http://www.ebi.ac.uk/efo/EFO_0000513"),
+        subject: term("Abca4", "http://purl.org/commons/record/ncbi_gene/11304"),
+        predicate: term("has_genotype", "http://purl.obolibrary.org/obo/GENO_0000222"),
+        object: term(objectLabel),
+      },
+    ],
+  });
+
+  it("flips isDirty when only a tag's statement OBJECT changes", () => {
+    const saved = baseDesign({ tags: [genotypeTag("Homozygous negative")] });
+    const draft = baseDesign({ tags: [genotypeTag("Overexpression")] });
+    const r = diffDesign(saved, draft);
+    expect(r.isDirty).toBe(true);
+    expect(r.tags.modified).toHaveLength(1);
+  });
+
+  it("stays clean when the tag (incl. statements) is unchanged", () => {
+    const saved = baseDesign({ tags: [genotypeTag("Homozygous negative")] });
+    const draft = baseDesign({ tags: [genotypeTag("Homozygous negative")] });
+    const r = diffDesign(saved, draft);
+    expect(r.isDirty).toBe(false);
+    expect(r.tags.modified).toHaveLength(0);
+  });
+});

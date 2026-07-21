@@ -244,7 +244,18 @@ function diffTags(saved: Tag[], draft: Tag[]): TagDiff {
 }
 
 function sameTag(a: Tag, b: Tag): boolean {
-  return sameTerm(a.category, b.category) && sameTerm(a.value, b.value);
+  // Tags are statement-shaped EE-tags: category + value (the subject)
+  // PLUS an optional statement list carrying predicate/object. Editing
+  // only a tag's predicate/object changes ``statements`` but neither
+  // category nor value — so comparing those two alone left such edits
+  // invisible to the diff, the commit bar never lit, and the edit was
+  // lost on the next refetch. Compare the statement arrays too, reusing
+  // the same helper FactorValue statements use. Paul 2026-07-21.
+  return (
+    sameTerm(a.category, b.category) &&
+    sameTerm(a.value, b.value) &&
+    sameStatements(a.statements ?? [], b.statements ?? [])
+  );
 }
 
 /** Diff the non-factor / non-tag fields the curator can edit. Counts:
