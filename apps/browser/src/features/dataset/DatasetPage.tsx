@@ -479,11 +479,9 @@ function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnno
             <div key={cat} className="flex items-baseline gap-2 flex-wrap">
               <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">{cat}</span>
               {terms.map((t, i) => (
-                <span key={`${t.termUri ?? t.termName}-${i}`}
-                  className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200"
-                  title={t.termUri ?? undefined}>
+                <OntologyTermChip key={`${t.termUri ?? t.termName}-${i}`} uri={t.termUri}>
                   {t.termName}
-                </span>
+                </OntologyTermChip>
               ))}
             </div>
           ))}
@@ -722,6 +720,12 @@ function FactorValueRow({
   factor: ExperimentalFactorEntry;
 }) {
   const stmts = value.statements ?? [];
+  // FVs with no S-P-O statements still carry ontology identity in their
+  // characteristics (value + valueUri) — render those as chips so the
+  // CURIE shows, rather than flattening to the plain summary label.
+  const chars = (value.characteristics ?? []).filter(
+    (c) => (c.value ?? "").trim() || c.valueUri,
+  );
   const fallbackLabel = value.summary || value.value || `FV ${value.id}`;
   return (
     <li className="px-3 py-1.5 flex items-baseline gap-2 flex-wrap">
@@ -743,6 +747,14 @@ function FactorValueRow({
         <div className="flex flex-col gap-0.5 flex-1 min-w-0">
           {stmts.map((s, i) => (
             <StatementLine key={s.id ?? i} statement={s} />
+          ))}
+        </div>
+      ) : !value.isMeasurement && chars.length > 0 ? (
+        <div className="flex items-baseline gap-1 flex-wrap flex-1 min-w-0">
+          {chars.map((c, i) => (
+            <OntologyTermChip key={c.id ?? i} uri={c.valueUri ?? null}>
+              {c.value ?? fallbackLabel}
+            </OntologyTermChip>
           ))}
         </div>
       ) : (
