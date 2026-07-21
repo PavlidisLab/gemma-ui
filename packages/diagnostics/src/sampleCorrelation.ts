@@ -66,10 +66,14 @@ export function buildSampleCorrelationHeatmapData(
 
 /** Pick a sequential-palette domain for the heatmap. Sample
  *  correlations typically sit in [0.85, 1.0]; mapping the full
- *  [-1, 1] would collapse contrast. Floor observed off-diagonal min
- *  to the next 0.1 below (with a 0.05 cushion) and always pin the
- *  upper bound at 1.0. Returns `undefined` when there's no data so
- *  the widget falls back to its default. */
+ *  [-1, 1] would collapse contrast. Set the lower bound to hug just
+ *  below the observed off-diagonal minimum (the value furthest from
+ *  1.0) — a 0.01 cushion, rounded to two decimals — so the palette
+ *  spends its full range on the actual spread instead of a coarse 0.1
+ *  grid, while the darkest cell stays a hair inside the scale rather
+ *  than pinned to the palette's extreme end. Upper bound is always
+ *  1.0. Returns `undefined` when there's no data so the widget falls
+ *  back to its default. */
 export function computeSampleCorrelationDomain(
   values: number[][] | null | undefined,
 ): [number, number] | undefined {
@@ -83,8 +87,12 @@ export function computeSampleCorrelationDomain(
       if (typeof v === "number" && !Number.isNaN(v) && v < lo) lo = v;
     }
   }
-  const floored = Math.floor((lo - 0.05) * 10) / 10;
-  return [Math.max(-1, floored), 1.0];
+  // `Math.round` (not `Math.floor`) on the cushioned value dodges the
+  // float-precision off-by-one that `floor(x * 100) / 100` hits when
+  // `x * 100` lands a hair under an integer. The 0.01 subtraction keeps
+  // the bound strictly below `lo` even after rounding.
+  const lowerBound = Math.round((lo - 0.01) * 100) / 100;
+  return [Math.max(-1, lowerBound), 1.0];
 }
 
 /** Outlier footer caption — quiet slate when no outliers; amber when
