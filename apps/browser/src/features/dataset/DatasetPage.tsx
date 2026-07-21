@@ -613,6 +613,15 @@ function DesignTab({ datasetId }: { datasetId: number }) {
     if (isNuisanceFactor(f)) nuisance.push(f);
     else bio.push(f);
   }
+  // How many samples carry each factor value — the same
+  // per-sample→FV assignment the crosstab pivots, tallied per FV id so
+  // each detail row can show its sample count.
+  const sampleCountByFvId = new Map<number, number>();
+  for (const a of design.bioMaterialAssignments) {
+    for (const id of a.factorValueIds ?? []) {
+      sampleCountByFvId.set(id, (sampleCountByFvId.get(id) ?? 0) + 1);
+    }
+  }
   return (
     <div className="space-y-4">
       {/* Lead with the sample-breakdown crosstab — the standalone view
@@ -628,7 +637,11 @@ function DesignTab({ datasetId }: { datasetId: number }) {
       >
         <div className="space-y-3">
           {bio.map((f) => (
-            <FactorCard key={f.id} factor={f} />
+            <FactorCard
+              key={f.id}
+              factor={f}
+              sampleCountByFvId={sampleCountByFvId}
+            />
           ))}
           {nuisance.length > 0 ? (
             <div className="pt-2 mt-2 border-t border-slate-200">
@@ -637,7 +650,12 @@ function DesignTab({ datasetId }: { datasetId: number }) {
               </div>
               <div className="space-y-2">
                 {nuisance.map((f) => (
-                  <FactorCard key={f.id} factor={f} nuisance />
+                  <FactorCard
+                    key={f.id}
+                    factor={f}
+                    nuisance
+                    sampleCountByFvId={sampleCountByFvId}
+                  />
                 ))}
               </div>
             </div>
@@ -959,9 +977,11 @@ function isNuisanceFactor(f: ExperimentalFactorEntry): boolean {
 function FactorCard({
   factor,
   nuisance = false,
+  sampleCountByFvId,
 }: {
   factor: ExperimentalFactorEntry;
   nuisance?: boolean;
+  sampleCountByFvId: Map<number, number>;
 }) {
   const categoryLabel = factor.category?.category ?? null;
   const categoryUri = factor.category?.categoryUri ?? null;
@@ -1013,7 +1033,12 @@ function FactorCard({
       ) : (
         <ul className="divide-y divide-slate-100">
           {sortedValues.map((v) => (
-            <FactorValueRow key={v.id} value={v} factor={factor} />
+            <FactorValueRow
+              key={v.id}
+              value={v}
+              factor={factor}
+              sampleCount={sampleCountByFvId.get(v.id)}
+            />
           ))}
         </ul>
       )}
@@ -1028,9 +1053,13 @@ function FactorCard({
 function FactorValueRow({
   value,
   factor,
+  sampleCount,
 }: {
   value: FactorValueBasic;
   factor: ExperimentalFactorEntry;
+  /** Number of samples assigned this factor value (from the design's
+   *  per-sample assignments). Undefined when unknown. */
+  sampleCount?: number;
 }) {
   const stmts = value.statements ?? [];
   // FVs with no S-P-O statements still carry ontology identity in their
@@ -1101,6 +1130,17 @@ function FactorValueRow({
       )}
       {factor.type === "continuous" && value.isMeasurement ? (
         <span className="text-[10px] text-slate-400 font-mono">numeric</span>
+      ) : null}
+      {sampleCount != null ? (
+        <span
+          className="ml-auto shrink-0 text-[11px] text-slate-500 tabular-nums"
+          title={`${sampleCount} sample${sampleCount === 1 ? "" : "s"} assigned this value`}
+        >
+          <span className="font-mono font-semibold text-slate-700">
+            {sampleCount}
+          </span>{" "}
+          {sampleCount === 1 ? "sample" : "samples"}
+        </span>
       ) : null}
     </li>
   );
