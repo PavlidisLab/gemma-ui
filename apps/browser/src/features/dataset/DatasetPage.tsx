@@ -1,10 +1,10 @@
 // Public, read-only Expression Experiment page.
 
 import { useMemo, useRef, useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { marked } from "marked";
-import { ExternalLink, Pencil } from "lucide-react";
+import { ExternalLink, Pencil, ChevronRight } from "lucide-react";
 import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
 import {
@@ -982,11 +982,42 @@ function FlagChip({ label, color }: { label: string; color: "red" | "amber" | "s
 
 // ─── Differential Expression tab ──────────────────────────────────────────────
 
+/** Shared query options for a result set's corrected p-value histogram.
+ *  Used both by the per-row {@link PvalueHistogramStrip} and by the
+ *  tab-level prefetch below — keeping the key/args/staleTime identical
+ *  in one place so a prefetch reliably warms the cache the strips read.
+ *  The 30-min staleTime means an expand never re-hits the network for a
+ *  set already fetched this session. */
+function pvalueDistQueryOptions(resultSetId: number) {
+  return {
+    queryKey: ["resultset-pvalue-dist", resultSetId] as const,
+    queryFn: ({ signal }: QueryFunctionContext) =>
+      getPvalueDistribution(resultSetId, { bins: 20, column: "corrected" }, signal),
+    staleTime: 30 * 60_000,
+  };
+}
+
 function DifferentialExpressionTab({ datasetId }: { datasetId: number }) {
+  const queryClient = useQueryClient();
   const analyses = useQuery({
     queryKey: ["datasetDiffEx", datasetId],
     queryFn: ({ signal }) => getDatasetDiffExAnalyses(datasetId, signal),
   });
+
+  // Warm the p-value histograms for every result set as soon as the
+  // analyses arrive, so expanding a subset reads from cache instead of
+  // firing a `resultSets/{id}/pvalueDistribution` call per row on first
+  // open. React Query dedupes against the in-flight prefetch if a row
+  // mounts before it resolves.
+  const analysesData = analyses.data;
+  useEffect(() => {
+    if (!analysesData) return;
+    for (const a of analysesData) {
+      for (const rs of a.resultSets ?? []) {
+        void queryClient.prefetchQuery(pvalueDistQueryOptions(rs.id));
+      }
+    }
+  }, [analysesData, queryClient]);
 
   return (
     <SectionCard title="Differential expression analyses"
@@ -994,7 +1025,7 @@ function DifferentialExpressionTab({ datasetId }: { datasetId: number }) {
       {analyses.isLoading ? <LoadingRow /> :
        analyses.isError   ? <ErrorRow /> :
        !analyses.data?.length ? <Empty msg="no differential expression analyses" /> : (
-        <DiffExAnalysesList analyses={analyses.data} datasetId={datasetId} />
+        <DiffExAnalysesList key={datasetId} analyses={analyses.data} datasetId={datasetId} />
       )}
     </SectionCard>
   );
@@ -1047,10 +1078,45 @@ function DiffExAnalysesList({
     });
   }, [analyses]);
 
+  // Each analysis's contrasts collapse under its subset title to keep
+  // many-subset (single-cell) datasets compact. Default-open the
+  // whole-experiment analyses; collapse the subsets — there can be
+  // dozens, and the header still surfaces DE + contrast counts.
+  const [openIds, setOpenIds] = useState<Set<number>>(
+    () => new Set(sorted.filter((a) => !a.isSubset).map((a) => a.id)),
+  );
+  const toggle = (id: number) =>
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const setAll = (open: boolean) =>
+    setOpenIds(open ? new Set(sorted.map((a) => a.id)) : new Set());
+  const allOpen = sorted.every((a) => openIds.has(a.id));
+
   return (
     <div className="space-y-3">
+      {sorted.length > 1 ? (
+        <div className="flex justify-end -mb-1">
+          <button
+            type="button"
+            onClick={() => setAll(!allOpen)}
+            className="text-[11px] text-sky-700 hover:underline cursor-pointer"
+          >
+            {allOpen ? "Collapse all" : "Expand all"}
+          </button>
+        </div>
+      ) : null}
       {sorted.map((a) => (
-        <AnalysisCard key={a.id} analysis={a} datasetId={datasetId} />
+        <AnalysisCard
+          key={a.id}
+          analysis={a}
+          datasetId={datasetId}
+          open={openIds.has(a.id)}
+          onToggle={() => toggle(a.id)}
+        />
       ))}
     </div>
   );
@@ -1074,16 +1140,43 @@ function subsetLabel(a: DiffExAnalysis): string | null {
 function AnalysisCard({
   analysis,
   datasetId,
+  open,
+  onToggle,
 }: {
   analysis: DiffExAnalysis;
   datasetId: number;
+  open: boolean;
+  onToggle: () => void;
 }) {
   const resultSets = analysis.resultSets ?? [];
   const subLabel = subsetLabel(analysis);
   const subFactor = analysis.subsetFactor?.name;
+  // Total DE probes across this analysis's contrasts — surfaced in the
+  // header so a collapsed subset still conveys whether it has signal.
+  const totalDE = resultSets.reduce(
+    (sum, rs) => sum + (rs.numberOfDiffExpressedProbes ?? 0),
+    0,
+  );
+  const bodyId = `analysis-${analysis.id}-body`;
   return (
     <div className="rounded border border-slate-200 bg-white">
-      <header className="px-3 py-1.5 border-b border-slate-100 bg-slate-50/60 flex items-baseline gap-2 flex-wrap">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        className={
+          "w-full text-left px-3 py-1.5 bg-slate-50/60 hover:bg-slate-100/70 cursor-pointer flex items-baseline gap-2 flex-wrap " +
+          (open ? "border-b border-slate-100" : "")
+        }
+      >
+        <ChevronRight
+          size={13}
+          className={
+            "shrink-0 self-center text-slate-400 transition-transform " +
+            (open ? "rotate-90" : "")
+          }
+        />
         {subLabel ? (
           <span className="text-xs font-semibold text-slate-800">
             {subFactor ? (
@@ -1099,28 +1192,38 @@ function AnalysisCard({
         <span className="text-[10px] text-slate-400 font-mono">
           #{analysis.id}
         </span>
-        {resultSets.length > 1 ? (
-          <span className="ml-auto text-[10px] text-slate-500">
-            {resultSets.length} contrasts
+        <span className="ml-auto inline-flex items-baseline gap-2">
+          {totalDE > 0 ? (
+            <span className="text-[10px] text-slate-500">
+              <span className="font-mono text-slate-700">
+                {totalDE.toLocaleString()}
+              </span>{" "}
+              DE
+            </span>
+          ) : null}
+          <span className="text-[10px] text-slate-500">
+            {resultSets.length} contrast{resultSets.length === 1 ? "" : "s"}
           </span>
-        ) : null}
-      </header>
-      {resultSets.length === 0 ? (
-        <div className="px-3 py-2 text-xs text-slate-500 italic">
-          No result sets recorded.
-        </div>
-      ) : (
-        <ul className="divide-y divide-slate-100">
-          {resultSets.map((rs) => (
-            <ResultSetRow
-              key={rs.id}
-              resultSet={rs}
-              datasetId={datasetId}
-              subsetSamplesLabel={subLabel ?? null}
-            />
-          ))}
-        </ul>
-      )}
+        </span>
+      </button>
+      {open ? (
+        resultSets.length === 0 ? (
+          <div id={bodyId} className="px-3 py-2 text-xs text-slate-500 italic">
+            No result sets recorded.
+          </div>
+        ) : (
+          <ul id={bodyId} className="divide-y divide-slate-100">
+            {resultSets.map((rs) => (
+              <ResultSetRow
+                key={rs.id}
+                resultSet={rs}
+                datasetId={datasetId}
+                subsetSamplesLabel={subLabel ?? null}
+              />
+            ))}
+          </ul>
+        )
+      ) : null}
     </div>
   );
 }
@@ -1447,12 +1550,7 @@ function PvalueHistogramStrip({
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const q = useQuery({
-    queryKey: ["resultset-pvalue-dist", resultSetId],
-    queryFn: ({ signal }) =>
-      getPvalueDistribution(resultSetId, { bins: 20, column: "corrected" }, signal),
-    staleTime: 30 * 60_000,
-  });
+  const q = useQuery(pvalueDistQueryOptions(resultSetId));
   if (q.isLoading) {
     return (
       <span

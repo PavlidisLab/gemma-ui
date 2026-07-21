@@ -1210,7 +1210,11 @@ function useGeneSelection(datasetId: number): [
     return !ids || ids.length === 0;
   });
 
-  // First-paint hydrate: URL hash wins, then localStorage.
+  // First-paint hydrate: URL hash wins, then localStorage. With no
+  // prior selection at all, seed a random sample of the dataset's genes
+  // so the heatmap shows something on first open instead of an empty
+  // prompt. The seeded set persists like any manual selection (hash +
+  // localStorage), so a refresh restores it rather than re-rolling.
   useEffect(() => {
     if (initRan.current) return;
     initRan.current = true;
@@ -1223,7 +1227,7 @@ function useGeneSelection(datasetId: number): [
       setSelectedState(genes);
       setHydrated(true);
     });
-  }, [lsKey, qc]);
+  }, [lsKey, qc, datasetId]);
 
   // Persist on change — but only once hydration has settled. Gating on
   // ``hydrated`` (state), not ``initRan`` (ref): the init effect flips
