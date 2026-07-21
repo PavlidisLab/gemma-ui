@@ -1822,29 +1822,29 @@ function ResultSetRow({
           </span>
         </div>
 
-        <span className="shrink-0 inline-flex items-center gap-2">
-          {/* Always enabled: the heatmap fetches the top-50 by
-              p-value (threshold=1), so it shows the lowest-p-value
-              genes even when nothing clears the FDR cutoff. Gating on
-              the FDR-significant count (nDE) would hide the top genes
-              for contrasts with no strictly-significant hits, which is
-              exactly the view a curator still wants to see. */}
+        {/* Compact text-link actions — the bordered pills ate width and
+            forced the description to wrap. Always enabled: the heatmap
+            fetches the top-50 by p-value (threshold=1), so it shows the
+            lowest-p-value genes even when nothing clears the FDR cutoff —
+            exactly the view a reader still wants for a no-significant-hit
+            contrast. */}
+        <span className="shrink-0 inline-flex items-center gap-3 text-[11px]">
           <button
             type="button"
             onClick={() => setHeatmapOpen(true)}
-            className="text-[11px] px-2 py-0.5 rounded border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+            className="text-sky-700 hover:underline"
             title="Pop out the top-50 genes by lowest p-value as a heatmap"
           >
-            Top genes ↗
+            View top
           </button>
           <button
             type="button"
             onClick={handleDownload}
             disabled={downloading}
-            className="text-[11px] px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:text-slate-400 disabled:cursor-wait"
+            className="text-slate-500 hover:underline disabled:text-slate-300 disabled:cursor-wait"
             title="Download per-gene contrast TSV"
           >
-            {downloading ? "Preparing…" : "Download TSV"}
+            {downloading ? "…" : "TSV"}
           </button>
           <span className="text-[10px] text-slate-400 font-mono">
             #{resultSet.id}
