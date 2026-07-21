@@ -33,6 +33,7 @@ import type {
 import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
+import { isBaselineTerm } from "@/lib/baseline";
 import { gemmaUrl, geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
 import { capitalizeFirstLetter } from "@/lib/filter";
 import type {
@@ -458,22 +459,29 @@ function DescriptionSection({ dataset }: { dataset: Dataset }) {
 }
 
 function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnnotation[]; loading: boolean }) {
+  // Drop baseline / reference-level placeholders ("reference subject
+  // role" etc.) — they mark a factor's control level in curation and
+  // carry nothing for a browsing reader. Same rule the Design tab uses.
+  const visible = useMemo(
+    () => annotations.filter((a) => !isBaselineTerm(a.termName, a.termUri)),
+    [annotations],
+  );
   const grouped = useMemo(() => {
     const m = new Map<string, DatasetAnnotation[]>();
-    for (const a of annotations) {
+    for (const a of visible) {
       const key = a.className ?? "uncategorized";
       const list = m.get(key) ?? [];
       list.push(a);
       m.set(key, list);
     }
     return Array.from(m.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [annotations]);
+  }, [visible]);
 
   return (
     <SectionCard title="Annotations"
-      subtitle={loading ? "loading…" : `${annotations.length} term${annotations.length === 1 ? "" : "s"}`}>
+      subtitle={loading ? "loading…" : `${visible.length} term${visible.length === 1 ? "" : "s"}`}>
       {loading ? <div className="h-6 w-2/3 bg-slate-200 rounded animate-pulse" /> :
-       annotations.length === 0 ? <Empty msg="no annotations" /> : (
+       visible.length === 0 ? <Empty msg="no annotations" /> : (
         <div className="space-y-2">
           {grouped.map(([cat, terms]) => (
             <div key={cat} className="flex items-baseline gap-2 flex-wrap">
@@ -726,6 +734,30 @@ function FactorValueRow({
   const chars = (value.characteristics ?? []).filter(
     (c) => (c.value ?? "").trim() || c.valueUri,
   );
+  // Baseline / reference levels ("reference subject role" etc.) are
+  // curation plumbing — a browsing reader needn't see the role term, just
+  // that this is the control. Detect the baseline by its term (the wire's
+  // `isBaseline` flag is best-effort and usually absent on the Gemma 1.x
+  // design endpoint), collapse the row to a plain "baseline" marker, and
+  // drop the role term from the chips so it never renders as a value.
+  const isBaselineFv =
+    !!value.isBaseline ||
+    chars.some((c) => isBaselineTerm(c.value, c.valueUri)) ||
+    stmts.some(
+      (s) =>
+        isBaselineTerm(s.subject, s.subjectUri) ||
+        isBaselineTerm(s.object, s.objectUri),
+    );
+  const visibleChars = chars.filter(
+    (c) => !isBaselineTerm(c.value, c.valueUri),
+  );
+  const visibleStmts = stmts.filter(
+    (s) =>
+      !(
+        isBaselineTerm(s.subject, s.subjectUri) ||
+        isBaselineTerm(s.object, s.objectUri)
+      ),
+  );
   const fallbackLabel = value.summary || value.value || `FV ${value.id}`;
   return (
     <li className="px-3 py-1.5 flex items-baseline gap-2 flex-wrap">
@@ -735,7 +767,7 @@ function FactorValueRow({
       >
         ○
       </span>
-      {value.isBaseline ? (
+      {isBaselineFv ? (
         <span
           className="text-[10px] uppercase tracking-wide font-semibold px-1 py-0 rounded bg-amber-100 text-amber-800 border border-amber-300"
           title="Baseline / reference level for this factor"
@@ -743,21 +775,21 @@ function FactorValueRow({
           baseline
         </span>
       ) : null}
-      {stmts.length > 0 ? (
+      {visibleStmts.length > 0 ? (
         <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-          {stmts.map((s, i) => (
+          {visibleStmts.map((s, i) => (
             <StatementLine key={s.id ?? i} statement={s} />
           ))}
         </div>
-      ) : !value.isMeasurement && chars.length > 0 ? (
+      ) : !value.isMeasurement && visibleChars.length > 0 ? (
         <div className="flex items-baseline gap-1 flex-wrap flex-1 min-w-0">
-          {chars.map((c, i) => (
+          {visibleChars.map((c, i) => (
             <OntologyTermChip key={c.id ?? i} uri={c.valueUri ?? null}>
               {c.value ?? fallbackLabel}
             </OntologyTermChip>
           ))}
         </div>
-      ) : (
+      ) : isBaselineFv ? null : (
         <span className="text-xs text-slate-700 break-words flex-1 min-w-0">
           {fallbackLabel}
         </span>
