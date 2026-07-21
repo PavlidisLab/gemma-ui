@@ -216,7 +216,7 @@ function warningsFor(s: DesignValidationState["factors"][number]): string[] {
       `${s.duplicate_assignments.length} duplicate assignment(s)`,
     );
   if (s.factor_missing_description)
-    warnings.push("no factor description — every factor must be described");
+    warnings.push("no factor description — factors should be described");
   if (s.unknown_predicates > 0)
     warnings.push(
       `${s.unknown_predicates} statement(s) whose predicate isn't a preset ontology term`,

@@ -73,11 +73,12 @@ export function CommitBar({
   const allOverridden = baselineProblem.every(
     (f) => overrideState[f.factor_id]?.checked,
   );
-  // Hard validation problems that block commit with no override —
-  // Gemma rejects them (ungrounded category / off-preset predicate) or
-  // they're required curation metadata (factor description). Unlike the
+  // Hard validation problems that block commit with no override — Gemma
+  // rejects them (ungrounded category / off-preset predicate). Unlike the
   // baseline gate there's no legitimate "commit anyway"; the only fix is
-  // to resolve them in the editor. ``hardProblemLines`` names each
+  // to resolve them in the editor. A missing factor description is NOT
+  // here: it's advisory only — surfaced as a ValidatorBanner warning, not
+  // a commit blocker (Paul 2026-07-21). ``hardProblemLines`` names each
   // offending factor + its issues for the blocked message.
   const hardProblems = validation
     ? validation.factors
@@ -93,7 +94,6 @@ export function CommitBar({
                     .join(", ")}`,
                 ]
               : []),
-            ...(f.factor_missing_description ? ["no description"] : []),
             ...(f.unknown_predicates > 0
               ? [
                   `${f.unknown_predicates} predicate${
@@ -206,7 +206,7 @@ export function CommitBar({
               disabled={saving || blocked}
               title={
                 hasHardProblem
-                  ? "Fix the flagged factor problems (grounded category + predicate, factor description) to commit."
+                  ? "Fix the flagged factor problems (grounded category + predicate) to commit."
                   : blocked
                     ? "Each factor must have exactly one baseline FV. Tick the per-factor override to commit anyway."
                     : undefined
