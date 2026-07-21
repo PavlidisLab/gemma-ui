@@ -34,6 +34,7 @@ import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineTerm } from "@/lib/baseline";
+import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { gemmaUrl, geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
 import { capitalizeFirstLetter } from "@/lib/filter";
 import type {
@@ -42,6 +43,7 @@ import type {
   BioAssay,
   QuantitationType,
   ExperimentalDesign,
+  BioMaterialFactorValueAssignment,
   ExperimentalFactorEntry,
   FactorValueBasic,
   FactorValueStatement,
@@ -612,31 +614,334 @@ function DesignTab({ datasetId }: { datasetId: number }) {
     else bio.push(f);
   }
   return (
+    <div className="space-y-4">
+      {/* Lead with the sample-breakdown crosstab — the standalone view
+          of how samples partition across the design (mirrors the
+          curator-ui overview's Design table). The per-factor detail
+          cards stay below for the value-by-value / statement view. */}
+      <DesignBreakdown design={design} />
+      <SectionCard
+        title="Factor details"
+        subtitle={`${bio.length} biological factor${bio.length === 1 ? "" : "s"}${
+          nuisance.length ? ` · ${nuisance.length} nuisance` : ""
+        }`}
+      >
+        <div className="space-y-3">
+          {bio.map((f) => (
+            <FactorCard key={f.id} factor={f} />
+          ))}
+          {nuisance.length > 0 ? (
+            <div className="pt-2 mt-2 border-t border-slate-200">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1.5 px-1">
+                Nuisance variables
+              </div>
+              <div className="space-y-2">
+                {nuisance.map((f) => (
+                  <FactorCard key={f.id} factor={f} nuisance />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+/** Display label for a factor value in the crosstab: the server summary
+ *  / free-text label, falling back to a characteristic value or the
+ *  statement subject. Baseline-role placeholder labels ("reference
+ *  subject role" etc.) collapse to "baseline" — a reader needn't see the
+ *  role term — but a meaningful label that merely HAS a baseline URI
+ *  (e.g. "0 h") is kept as-is (we only substitute when the visible label
+ *  itself is the placeholder). */
+function factorValueLabel(v: FactorValueBasic): string {
+  const raw = (
+    v.summary ||
+    v.value ||
+    v.characteristics?.find((c) => (c.value ?? "").trim())?.value ||
+    v.statements?.find((s) => (s.subject ?? "").trim())?.subject ||
+    ""
+  ).trim();
+  const label = raw || `FV ${v.id}`;
+  return isBaselineTerm(label) ? "baseline" : label;
+}
+
+const UNASSIGNED = "(unassigned)";
+
+/** Sample-breakdown crosstab for the Design tab — one row per unique
+ *  combination of categorical factor levels, an "Assays" count column,
+ *  and colour-tinted cells so identical partitions line up visually.
+ *  Sortable by any column. Continuous + nuisance factors are noted but
+ *  kept out of the row tuples (per the curator-ui convention). Built to
+ *  stand alone as the primary design view. */
+function DesignBreakdown({ design }: { design: ExperimentalDesign }) {
+  const factors = design.experimentalFactors;
+  const assignments = design.bioMaterialAssignments;
+
+  const isContinuous = (f: ExperimentalFactorEntry) => f.type === "continuous";
+  const standard = factors.filter(
+    (f) => !isNuisanceFactor(f) && !isContinuous(f),
+  );
+  const continuous = factors.filter(isContinuous);
+  const nuisance = factors.filter(isNuisanceFactor);
+
+  // Per standard factor: fvId → display label, used both to build the
+  // row tuples and to resolve a sample's level in each column.
+  const labelByFvIdByCol = useMemo(
+    () =>
+      standard.map((f) => {
+        const m = new Map<number, string>();
+        for (const v of f.values) {
+          if (v.id != null) m.set(v.id, factorValueLabel(v));
+        }
+        return m;
+      }),
+    [standard],
+  );
+
+  // Crosstab rows: for each sample, the tuple of its level in every
+  // standard factor; identical tuples collapse into one counted row.
+  // A sample with no FV in some factor gets "(unassigned)" so the gap
+  // surfaces instead of vanishing.
+  const rows = useMemo(() => {
+    if (standard.length === 0 || assignments.length === 0) return [];
+    const buckets = new Map<string, { values: string[]; count: number }>();
+    for (const a of assignments) {
+      const assigned = new Set(a.factorValueIds ?? []);
+      const tuple = standard.map((f, j) => {
+        for (const v of f.values) {
+          if (v.id != null && assigned.has(v.id)) {
+            return labelByFvIdByCol[j].get(v.id) ?? UNASSIGNED;
+          }
+        }
+        return UNASSIGNED;
+      });
+      const key = tuple.join("␟");
+      const existing = buckets.get(key);
+      if (existing) existing.count++;
+      else buckets.set(key, { values: tuple, count: 1 });
+    }
+    return Array.from(buckets.values()).sort((a, b) =>
+      compareValuesNatural(a.values.join(" / "), b.values.join(" / ")),
+    );
+  }, [standard, assignments, labelByFvIdByCol]);
+
+  const [sort, setSort] = useState<
+    { col: "assays" | number; dir: "asc" | "desc" } | null
+  >(null);
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+    const sign = sort.dir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) =>
+      sort.col === "assays"
+        ? (a.count - b.count) * sign
+        : compareValuesNatural(a.values[sort.col], b.values[sort.col]) * sign,
+    );
+  }, [rows, sort]);
+
+  // First-seen value index per column → shared tint. Walk rows in the
+  // current display order so the tint tracks the active sort.
+  const valueIdxByCol = useMemo(() => {
+    const out: Array<Map<string, number>> = standard.map(() => new Map());
+    for (const row of sortedRows) {
+      row.values.forEach((v, j) => {
+        if (v === UNASSIGNED) return;
+        if (!out[j].has(v)) out[j].set(v, out[j].size);
+      });
+    }
+    return out;
+  }, [sortedRows, standard]);
+
+  const onSortClick = (col: "assays" | number) =>
+    setSort((cur) => {
+      if (!cur || cur.col !== col) return { col, dir: "asc" };
+      if (cur.dir === "asc") return { col, dir: "desc" };
+      return null;
+    });
+  const sortArrow = (col: "assays" | number) =>
+    !sort || sort.col !== col ? "" : sort.dir === "asc" ? " ▲" : " ▼";
+
+  const factorHeader = (f: ExperimentalFactorEntry) =>
+    f.name || f.category?.category || "(factor)";
+
+  const fvTotal = factors.reduce((n, f) => n + f.values.length, 0);
+  const confound = useMemo(
+    () => detectBatchConfound(nuisance, standard, assignments),
+    [nuisance, standard, assignments],
+  );
+
+  return (
     <SectionCard
       title="Experimental design"
-      subtitle={`${bio.length} biological factor${bio.length === 1 ? "" : "s"}${
-        nuisance.length ? ` · ${nuisance.length} nuisance` : ""
-      } · ${design.bioMaterialAssignments.length} samples`}
+      subtitle={`${assignments.length} sample${assignments.length === 1 ? "" : "s"}`}
     >
-      <div className="space-y-3">
-        {bio.map((f) => (
-          <FactorCard key={f.id} factor={f} />
-        ))}
-        {nuisance.length > 0 ? (
-          <div className="pt-2 mt-2 border-t border-slate-200">
-            <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1.5 px-1">
-              Nuisance variables
-            </div>
-            <div className="space-y-2">
-              {nuisance.map((f) => (
-                <FactorCard key={f.id} factor={f} nuisance />
-              ))}
-            </div>
-          </div>
+      {/* Cohort numbers + design notes strip. */}
+      <div className="mb-2 flex items-baseline gap-3 flex-wrap text-[11px] text-slate-600">
+        <span>
+          <span className="font-mono font-medium text-slate-800">
+            {assignments.length}
+          </span>{" "}
+          sample{assignments.length === 1 ? "" : "s"}
+        </span>
+        <span>
+          <span className="font-mono font-medium text-slate-800">
+            {factors.length}
+          </span>{" "}
+          factor{factors.length === 1 ? "" : "s"} /{" "}
+          <span className="font-mono font-medium text-slate-800">{fvTotal}</span>{" "}
+          value{fvTotal === 1 ? "" : "s"}
+        </span>
+        {confound ? (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-violet-900 border border-amber-300 font-medium"
+            title={
+              `Batch / block factor "${confound.batch.name || confound.batch.category?.category}" ` +
+              `partitions samples identically to "${confound.with.name || confound.with.category?.category}". ` +
+              "The batch effect can't be separated from the factor's effect in DEA."
+            }
+          >
+            ⚠ batch confound
+          </span>
+        ) : null}
+        {continuous.length > 0 ? (
+          <span className="text-slate-500 italic">
+            Continuous factor{continuous.length > 1 ? "s" : ""} not shown here (
+            {continuous.map((f) => f.name || f.category?.category).join(", ")}).
+          </span>
         ) : null}
       </div>
+
+      {standard.length === 0 || rows.length === 0 ? (
+        <p className="text-[11px] text-slate-500 italic">
+          No categorical factors to cross-tabulate.
+          {nuisance.length > 0
+            ? ` ${nuisance.length} nuisance factor${nuisance.length === 1 ? "" : "s"} present (block / batch).`
+            : ""}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="text-xs border-collapse w-full">
+            <thead>
+              <tr className="bg-slate-50 text-slate-700">
+                <th
+                  className="px-2 py-1.5 text-left border border-slate-200 font-medium w-16 cursor-pointer select-none hover:bg-slate-100"
+                  onClick={() => onSortClick("assays")}
+                  title="click to sort by sample count"
+                >
+                  Samples{sortArrow("assays")}
+                </th>
+                {standard.map((f, colIdx) => (
+                  <th
+                    key={f.id}
+                    className="px-2 py-1.5 text-left border border-slate-200 font-medium cursor-pointer select-none hover:bg-slate-100"
+                    onClick={() => onSortClick(colIdx)}
+                    title={`${factorHeader(f)}${f.description ? `\n${f.description}` : ""}\n\n(click to sort)`}
+                  >
+                    {factorHeader(f)}
+                    {sortArrow(colIdx)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((row, i) => (
+                <tr key={i}>
+                  <td className="px-2 py-1 border border-slate-200 font-mono text-slate-700">
+                    {row.count}
+                  </td>
+                  {row.values.map((v, j) => {
+                    const tint =
+                      v === UNASSIGNED
+                        ? undefined
+                        : tintForIndex(valueIdxByCol[j]?.get(v) ?? -1);
+                    return (
+                      <td
+                        key={j}
+                        className={
+                          "px-2 py-1 border border-slate-200 " +
+                          (v === UNASSIGNED
+                            ? "text-rose-700 italic"
+                            : "text-slate-700")
+                        }
+                        style={tint ? { backgroundColor: tint } : undefined}
+                      >
+                        {v}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {nuisance.length > 0 ? (
+        <div className="mt-2 text-[11px] text-slate-600">
+          Nuisance / covariate factor{nuisance.length > 1 ? "s" : ""}:{" "}
+          {nuisance
+            .map((f) => {
+              const k = f.values.length;
+              return `${f.name || f.category?.category} (${k} level${k === 1 ? "" : "s"})`;
+            })
+            .join(", ")}
+          .
+        </div>
+      ) : null}
     </SectionCard>
   );
+}
+
+/** Detect a confounded batch / block factor: every nuisance level
+ *  contains exactly one level of some standard factor, so the batch
+ *  effect can't be separated from that factor's effect in DEA. Returns
+ *  the first confound found, or null. Browser port of the curator-ui
+ *  check, keyed on per-sample ``factorValueIds``. */
+function detectBatchConfound(
+  nuisance: ExperimentalFactorEntry[],
+  standard: ExperimentalFactorEntry[],
+  assignments: BioMaterialFactorValueAssignment[],
+): { batch: ExperimentalFactorEntry; with: ExperimentalFactorEntry } | null {
+  if (nuisance.length === 0 || standard.length === 0) return null;
+  // sampleId → level label, for one factor.
+  const levelBySample = (f: ExperimentalFactorEntry): Map<number, string> => {
+    const fvIds = new Map<number, string>();
+    for (const v of f.values) {
+      if (v.id != null) fvIds.set(v.id, factorValueLabel(v));
+    }
+    const out = new Map<number, string>();
+    for (const a of assignments) {
+      for (const id of a.factorValueIds ?? []) {
+        const lab = fvIds.get(id);
+        if (lab !== undefined) {
+          out.set(a.bioMaterialId, lab);
+          break;
+        }
+      }
+    }
+    return out;
+  };
+  for (const batch of nuisance) {
+    const batchMap = levelBySample(batch);
+    if (batchMap.size === 0) continue;
+    for (const f of standard) {
+      const fMap = levelBySample(f);
+      const levelsByBatch = new Map<string, Set<string>>();
+      for (const [sampleId, b] of batchMap) {
+        const v = fMap.get(sampleId);
+        if (v === undefined) continue;
+        const s = levelsByBatch.get(b) ?? new Set<string>();
+        s.add(v);
+        levelsByBatch.set(b, s);
+      }
+      if (levelsByBatch.size < 2) continue;
+      const confounded = [...levelsByBatch.values()].every((s) => s.size === 1);
+      const observed = new Set(fMap.values());
+      if (confounded && observed.size >= 2) return { batch, with: f };
+    }
+  }
+  return null;
 }
 
 /** Match curation's bio-vs-nuisance partition. ``block`` and
