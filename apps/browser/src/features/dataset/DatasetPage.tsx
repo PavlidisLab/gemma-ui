@@ -1004,15 +1004,21 @@ function DifferentialExpressionTab({ datasetId }: { datasetId: number }) {
     queryFn: ({ signal }) => getDatasetDiffExAnalyses(datasetId, signal),
   });
 
-  // Warm the p-value histograms for every result set as soon as the
-  // analyses arrive, so expanding a subset reads from cache instead of
-  // firing a `resultSets/{id}/pvalueDistribution` call per row on first
-  // open. React Query dedupes against the in-flight prefetch if a row
-  // mounts before it resolves.
+  // Warm the p-value histograms for the analyses that render OPEN by
+  // default (the whole-experiment, non-subset ones — see the default
+  // openIds in DiffExAnalysesList), so their strips read from cache
+  // instead of firing a `resultSets/{id}/pvalueDistribution` per row on
+  // first paint. Subset analyses default collapsed and can number in the
+  // dozens on single-cell datasets; prefetching every one would fan out
+  // a request per contrast at once and stampede a slow / hiccuping
+  // backend. Those fetch lazily instead — a subset's strips mount (and
+  // fire the same-keyed query) only when the curator expands it. React
+  // Query dedupes against the in-flight prefetch if a row mounts first.
   const analysesData = analyses.data;
   useEffect(() => {
     if (!analysesData) return;
     for (const a of analysesData) {
+      if (a.isSubset) continue;
       for (const rs of a.resultSets ?? []) {
         void queryClient.prefetchQuery(pvalueDistQueryOptions(rs.id));
       }
