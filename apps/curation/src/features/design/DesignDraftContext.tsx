@@ -44,98 +44,18 @@ function normalizeForCommit(design: Design): Design {
 // ---------------------------------------------------------------------------
 // localStorage persistence
 //
-// Drafts survive a browser refresh. We key by experiment id and store the
-// draft alongside a hash of the saved baseline at cache time — on restore,
-// if the server's saved Design has moved on (someone else committed, or
-// the curator re-imported), we treat the cache as stale and ignore it
-// rather than diff against a baseline that no longer matches.
-//
-// ``DRAFT_KEY_PREFIX`` lives in ``./draftCache.ts`` so list-view
-// components (set navigator dots, etc.) can scan dirty drafts
-// without mounting the full provider.
-import { DRAFT_KEY_PREFIX } from "./draftCache";
-
-interface CachedDraft {
-  baselineHash: string;
-  cachedAt: string;
-  draft: Design;
-}
-
-/** FNV-1a, 32-bit. Cheap and dependency-free; collisions don't matter
- *  here — we only use this to detect baseline changes, not for security. */
-function hashDesign(d: Design | null | undefined): string {
-  if (!d) return "";
-  const s = JSON.stringify(d);
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-  }
-  return h.toString(16);
-}
-
-function readCachedDraft(experimentId: number | string): CachedDraft | null {
-  try {
-    const raw = window.localStorage.getItem(DRAFT_KEY_PREFIX + experimentId);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedDraft;
-    if (!parsed.draft || !parsed.baselineHash) return null;
-    // Reject entries where the cached draft is for a different
-    // experiment than the key. Pre-2c14caf, the provider could swap
-    // experimentId without unmounting, and the persist effect would
-    // write the previous experiment's draft under the new key. The
-    // baselineHash check on rehydrate doesn't catch it (the hash is
-    // of the *new* saved at write-time, not of the draft).
-    //
-    // Coerce both sides to String before comparing:
-    // ``parsed.draft.experiment_id`` is a NUMBER, ``experimentId`` is
-    // the route STRING (``route.id`` from ``routes.ts:87``), so a bare
-    // ``!==`` was always true — it discarded *every* cached draft for
-    // every experiment, silently killing resume-mid-edit AND never
-    // actually running the cross-experiment guard the comment
-    // describes (UIB_HANDOFF_2026-06-23). Mirrors the String() compare
-    // the audit-focus handler already does at ``App.tsx:469``.
-    if (
-      parsed.draft.experiment_id != null &&
-      String(parsed.draft.experiment_id) !== String(experimentId)
-    ) {
-      window.localStorage.removeItem(DRAFT_KEY_PREFIX + experimentId);
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedDraft(
-  experimentId: number | string,
-  baselineHash: string,
-  draft: Design,
-): void {
-  try {
-    const payload: CachedDraft = {
-      baselineHash,
-      cachedAt: new Date().toISOString(),
-      draft,
-    };
-    window.localStorage.setItem(
-      DRAFT_KEY_PREFIX + experimentId,
-      JSON.stringify(payload),
-    );
-  } catch {
-    // Quota / privacy mode / SSR — survivable, the in-memory draft
-    // still works as before.
-  }
-}
-
-function clearCachedDraft(experimentId: number | string): void {
-  try {
-    window.localStorage.removeItem(DRAFT_KEY_PREFIX + experimentId);
-  } catch {
-    // ignore
-  }
-}
+// The cache primitives (read / write / clear / hash) live in
+// ``./draftCache.ts`` so they sit in ONE place — list views (set
+// navigator dots, workflow page) reuse them without mounting this
+// provider, and the ticket export / close surfaces reconcile against
+// them. This provider is the full write path (undo/redo/commit) built
+// on top.
+import {
+  clearCachedDraft,
+  hashDesign,
+  readCachedDraft,
+  writeCachedDraft,
+} from "./draftCache";
 
 /**
  * Shared draft buffer for the experiment's Design.

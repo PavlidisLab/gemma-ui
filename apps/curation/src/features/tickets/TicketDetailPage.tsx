@@ -19,15 +19,21 @@ import {
   useRunTicketAction,
   useTicket,
 } from "@/api/tickets";
-import type { Ticket, TicketMode, TicketType, TicketTarget } from "@/api/tickets";
+import type { Ticket, TicketMode, TicketType } from "@/api/tickets";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
+import { fetchDesignSnapshot } from "@/api/design";
 import { Spinner } from "@gemma/ui";
 import { ExperimentQueue } from "@/features/workflow/ExperimentQueue";
 import type { BadgeTone } from "@/features/workflow/PipelineStatusRow";
 import { TriageView } from "@/features/triage/TriageView";
 import { useMe } from "@/api/session";
 import { useToast } from "@/components/ui/Toast";
-import { dirtyExperimentTargets, exportTicketAsGzip } from "./exportTicket";
+import {
+  dirtyExperimentTargets,
+  exportTicketAsGzip,
+  reconcileDirtyTargets,
+  type DirtyTargetReport,
+} from "./exportTicket";
 
 export function TicketDetailPage({
   ticketId,
@@ -608,7 +614,9 @@ function TicketActionsBar({
   const toast = useToast();
   const patch = usePatchTicket(ticketId);
   const [exporting, setExporting] = useState(false);
+  const [preparingClose, setPreparingClose] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
+  const [closeReports, setCloseReports] = useState<DirtyTargetReport[]>([]);
 
   const isClosed = ticket.state === "RESOLVED" || ticket.state === "CANCELLED";
   const eeTargetCount = ticket.targets.filter(
@@ -620,16 +628,25 @@ function TicketActionsBar({
     // target, so any target experiment with uncommitted draft edits is
     // silently omitted from the bundle. Warn (don't hard-block — a
     // partial export can be intentional) so the drop is non-silent.
-    const dirty = dirtyExperimentTargets(ticket, readDirtyExperimentIds());
-    if (dirty.length > 0) {
-      const list = dirty.map((t) => `  • ${dirtyTargetLabel(t)}`).join("\n");
-      const ok = window.confirm(
-        `${dirty.length} target experiment${dirty.length === 1 ? " has" : "s have"} ` +
-          `uncommitted design edits that are NOT saved and will be OMITTED ` +
-          `from this export:\n\n${list}\n\nOpen each and click Commit to ` +
-          `include them. Export without them anyway?`,
-      );
-      if (!ok) return;
+    //
+    // ``dirtyExperimentTargets`` only trusts the localStorage key, which
+    // can be STALE (server re-saved since the draft was cached — the key
+    // lingers with nothing to commit). Reconcile against the live design
+    // so we warn only about genuine uncommitted edits and don't send the
+    // curator hunting for a Commit button that isn't there.
+    const candidates = dirtyExperimentTargets(ticket, readDirtyExperimentIds());
+    if (candidates.length > 0) {
+      const dirty = await reconcileDirtyTargets(candidates, fetchDesignSnapshot);
+      if (dirty.length > 0) {
+        const list = dirty.map((r) => `  • ${dirtyReportLabel(r)}`).join("\n");
+        const ok = window.confirm(
+          `${dirty.length} target experiment${dirty.length === 1 ? " has" : "s have"} ` +
+            `uncommitted design edits that are NOT saved and will be OMITTED ` +
+            `from this export:\n\n${list}\n\nOpen each and click Commit to ` +
+            `include them. Export without them anyway?`,
+        );
+        if (!ok) return;
+      }
     }
     setExporting(true);
     try {
@@ -694,19 +711,37 @@ function TicketActionsBar({
       {isClosed ? null : (
         <button
           type="button"
-          onClick={() => setConfirmingClose(true)}
-          disabled={patch.isPending}
+          onClick={async () => {
+            // Reconcile stale keys before opening so the "uncommitted
+            // edits" warning in the confirm reflects genuine drafts, not
+            // lingering keys the server already superseded.
+            setPreparingClose(true);
+            try {
+              const candidates = dirtyExperimentTargets(
+                ticket,
+                readDirtyExperimentIds(),
+              );
+              const reports = candidates.length
+                ? await reconcileDirtyTargets(candidates, fetchDesignSnapshot)
+                : [];
+              setCloseReports(reports);
+              setConfirmingClose(true);
+            } finally {
+              setPreparingClose(false);
+            }
+          }}
+          disabled={patch.isPending || preparingClose}
           title="Resolve this ticket. The targets stay in the system; only the ticket closes. The dashboard hides resolved tickets by default."
           className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {patch.isPending ? "Closing…" : "Close ticket"}
+          {preparingClose ? "Checking…" : patch.isPending ? "Closing…" : "Close ticket"}
         </button>
       )}
       {confirmingClose ? (
         <SimpleCloseConfirm
           ticketId={ticketId}
           busy={patch.isPending}
-          dirtyTargets={dirtyExperimentTargets(ticket, readDirtyExperimentIds())}
+          dirtyReports={closeReports}
           onCancel={() => setConfirmingClose(false)}
           onConfirm={handleClose}
         />
@@ -715,11 +750,16 @@ function TicketActionsBar({
   );
 }
 
-/** Human label for a dirty EE target in the export / close warnings —
- *  prefers the experiment name, always shows the id so it's findable. */
-function dirtyTargetLabel(t: TicketTarget): string {
-  const label = t.display_name || t.display_label;
-  return label ? `${label} (${t.target_id})` : `experiment ${t.target_id}`;
+/** Human label for a dirty EE target in the export / close warnings.
+ *  Prefers the SHORT id resolved from the design (accession / short
+ *  name — e.g. "GSE28293") over the long publication title, which is
+ *  unwieldy in a list. Always shows the numeric id so it's findable;
+ *  falls back to the ticket target's own label when the design didn't
+ *  load. */
+function dirtyReportLabel(r: DirtyTargetReport): string {
+  const t = r.target;
+  const short = r.shortName || t.display_label;
+  return short ? `${short} (${t.target_id})` : `experiment ${t.target_id}`;
 }
 
 /** Minimal close-confirm modal used by the header-level Close ticket
@@ -727,22 +767,23 @@ function dirtyTargetLabel(t: TicketTarget): string {
  *  PRELOAD "Close & start curation" wizard); this one is just
  *  cancel + close.
  *
- *  ``dirtyTargets`` — EE targets with uncommitted design edits. When
- *  non-empty the modal surfaces a warning: closing strands those edits
- *  (the export reads the persisted design, so they never reach gold).
- *  The backend materialize-on-finalize net recovers accepted
- *  apply_action findings, but a hand-edited focus-only card has no
- *  action to replay — this warning is that residual's safety net. */
+ *  ``dirtyReports`` — EE targets with GENUINE uncommitted design edits
+ *  (already reconciled against the live server design, so stale keys are
+ *  filtered out). When non-empty the modal surfaces a warning: closing
+ *  strands those edits (the export reads the persisted design, so they
+ *  never reach gold). The backend materialize-on-finalize net recovers
+ *  accepted apply_action findings, but a hand-edited focus-only card has
+ *  no action to replay — this warning is that residual's safety net. */
 function SimpleCloseConfirm({
   ticketId,
   busy,
-  dirtyTargets = [],
+  dirtyReports = [],
   onCancel,
   onConfirm,
 }: {
   ticketId: number;
   busy: boolean;
-  dirtyTargets?: TicketTarget[];
+  dirtyReports?: DirtyTargetReport[];
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -768,11 +809,11 @@ function SimpleCloseConfirm({
           </h2>
         </div>
         <div className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 space-y-2">
-          {dirtyTargets.length > 0 ? (
+          {dirtyReports.length > 0 ? (
             <div className="rounded-md border border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/40 px-3 py-2 text-rose-900 dark:text-rose-200 space-y-1">
               <p className="font-semibold">
-                {dirtyTargets.length} target experiment
-                {dirtyTargets.length === 1 ? " has" : "s have"} uncommitted
+                {dirtyReports.length} target experiment
+                {dirtyReports.length === 1 ? " has" : "s have"} uncommitted
                 design edits.
               </p>
               <p className="text-rose-800 dark:text-rose-300/90">
@@ -781,8 +822,8 @@ function SimpleCloseConfirm({
                 first (open the experiment → Commit).
               </p>
               <ul className="list-disc pl-5">
-                {dirtyTargets.map((t) => (
-                  <li key={t.target_id}>{dirtyTargetLabel(t)}</li>
+                {dirtyReports.map((r) => (
+                  <li key={r.target.target_id}>{dirtyReportLabel(r)}</li>
                 ))}
               </ul>
             </div>

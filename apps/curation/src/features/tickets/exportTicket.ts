@@ -16,6 +16,7 @@
 import { fetchDesignSnapshot, fetchPolishedSnapshot } from "@/api/design";
 import type { Design } from "@/features/experiment/types";
 import type { Ticket, TicketTarget } from "@/api/tickets";
+import { reconcileDirtyExperiment } from "@/features/design/draftCache";
 import {
   gzipJson,
   slugify,
@@ -125,6 +126,60 @@ export function dirtyExperimentTargets(
       t.target_type === "EXPRESSION_EXPERIMENT" &&
       dirtyExperimentIds.has(String(t.target_id)),
   );
+}
+
+/** One genuinely-dirty target, paired with a short curator-friendly id
+ *  pulled from the fetched design so the warning reads "GSE28293" rather
+ *  than the full publication title. ``shortName`` is null when the design
+ *  didn't load (fetch error) — the caller falls back to the ticket
+ *  target's own label. */
+export interface DirtyTargetReport {
+  target: TicketTarget;
+  shortName: string | null;
+}
+
+/** Short, stable identifier for a design — the accession (GSE…) or
+ *  Gemma short name. Used for the dirty-target warning label. */
+function designShortName(d: Design): string | null {
+  const s =
+    d.external_source?.accession?.trim() || d.experiment_short_name?.trim();
+  return s || null;
+}
+
+/** Reconcile the cheap ``dirtyExperimentTargets`` candidates against the
+ *  live server design, dropping the ones that only *look* dirty because
+ *  of a stale localStorage key.
+ *
+ *  ``dirtyExperimentTargets`` trusts key presence, but a key lingers
+ *  whenever the server was re-saved since the draft was cached (a
+ *  re-import / calibration-batch reload) — the draft is stale, the app
+ *  discards it on open, yet the key still inflates the export warning and
+ *  the "Uncommitted (N)" chip. This fetches the ``/design`` snapshot per
+ *  candidate (the SAME endpoint the editor seeds from) and keeps only the
+ *  targets whose cached draft is a genuine uncommitted edit;
+ *  ``reconcileDirtyExperiment`` clears the stale/no-op keys as a side
+ *  effect, so the chip corrects too.
+ *
+ *  A design that won't load (fetch throws — e.g. experiment not imported)
+ *  is kept in the list: we can't prove the draft stale, so we'd rather
+ *  over-warn than silently drop a real uncommitted edit. */
+export async function reconcileDirtyTargets(
+  candidates: TicketTarget[],
+  fetchDesign: (id: number | string) => Promise<Design>,
+): Promise<DirtyTargetReport[]> {
+  const kept = await Promise.all(
+    candidates.map(async (t): Promise<DirtyTargetReport | null> => {
+      try {
+        const server = await fetchDesign(t.target_id);
+        return reconcileDirtyExperiment(t.target_id, server)
+          ? { target: t, shortName: designShortName(server) }
+          : null;
+      } catch {
+        return { target: t, shortName: null };
+      }
+    }),
+  );
+  return kept.filter((r): r is DirtyTargetReport => r !== null);
 }
 
 /** Build the bundle. Each EE target is fetched in parallel; per-target
