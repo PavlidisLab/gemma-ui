@@ -1563,7 +1563,14 @@ function AnalysisCard({
   open: boolean;
   onToggle: () => void;
 }) {
-  const resultSets = analysis.resultSets ?? [];
+  // Interaction contrasts (>1 factor, no single baseline/condition) sort
+  // last — the main-effect comparisons are what a reader scans for first.
+  // Stable sort keeps the server order within each group.
+  const resultSets = [...(analysis.resultSets ?? [])].sort(
+    (a, b) =>
+      ((a.experimentalFactors?.length ?? 0) > 1 ? 1 : 0) -
+      ((b.experimentalFactors?.length ?? 0) > 1 ? 1 : 0),
+  );
   const subLabel = subsetLabel(analysis);
   const subFactor = analysis.subsetFactor?.name;
   // Total DE probes across this analysis's contrasts — surfaced in the
