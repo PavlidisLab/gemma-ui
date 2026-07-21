@@ -1750,63 +1750,79 @@ function ResultSetRow({
 
   return (
     <li className="px-3 py-2 space-y-1.5">
-      <div className="flex items-baseline gap-2 flex-wrap text-sm">
+      <div className="flex items-center gap-3 text-sm">
         {/* Lead with the actual comparison — condition(s) vs baseline —
             since that's what the contrast tested. The factor name is
             secondary context (muted, trailing); its category matters less
-            than the levels being compared. */}
-        {isInteraction ? (
-          <span className="inline-flex items-baseline gap-1.5">
-            <span className="font-medium text-slate-800">{contrastLabel}</span>
-            <span className="text-[10px] uppercase tracking-wide text-slate-400">
-              interaction
-            </span>
-          </span>
-        ) : conditionTerms.length > 0 ? (
-          <span className="inline-flex items-baseline gap-1.5 flex-wrap">
-            {conditionTerms.map((t, i) => (
-              <OntologyTermChip key={i} uri={t.uri}>
-                {t.label}
-              </OntologyTermChip>
-            ))}
-            <span className="text-[11px] text-slate-400">vs</span>
-            <span className="text-[11px] text-slate-500 italic">
-              {baselineLabel ?? "baseline"}
-            </span>
-            <span
-              className="text-[11px] text-slate-400"
-              title="experimental factor"
-            >
-              · {contrastLabel}
-            </span>
-          </span>
-        ) : (
-          <span className="inline-flex items-baseline gap-1.5">
-            <span className="font-medium text-slate-800">{contrastLabel}</span>
-            {baselineLabel ? (
-              <span className="text-[11px] text-slate-500">
-                vs <span className="italic">{baselineLabel}</span>
+            than the levels being compared. The comparison fills the left;
+            the DE metrics live in fixed-width, right-justified columns so
+            they line up row to row regardless of description length. */}
+        <div className="flex-1 min-w-0">
+          {isInteraction ? (
+            <span className="inline-flex items-baseline gap-1.5">
+              <span className="font-medium text-slate-800">{contrastLabel}</span>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                interaction
               </span>
+            </span>
+          ) : conditionTerms.length > 0 ? (
+            <span className="inline-flex items-baseline gap-1.5 flex-wrap">
+              {conditionTerms.map((t, i) => (
+                <OntologyTermChip key={i} uri={t.uri}>
+                  {t.label}
+                </OntologyTermChip>
+              ))}
+              <span className="text-[11px] text-slate-400">vs</span>
+              <span className="text-[11px] text-slate-500 italic">
+                {baselineLabel ?? "baseline"}
+              </span>
+              <span
+                className="text-[11px] text-slate-400"
+                title="experimental factor"
+              >
+                · {contrastLabel}
+              </span>
+            </span>
+          ) : (
+            <span className="inline-flex items-baseline gap-1.5">
+              <span className="font-medium text-slate-800">{contrastLabel}</span>
+              {baselineLabel ? (
+                <span className="text-[11px] text-slate-500">
+                  vs <span className="italic">{baselineLabel}</span>
+                </span>
+              ) : null}
+            </span>
+          )}
+        </div>
+
+        {/* DE metrics — fixed-width, right-justified columns. Empty slots
+            still reserve their width so the histogram + actions stay
+            aligned across rows with and without DE. */}
+        <div className="shrink-0 flex items-center gap-3">
+          <span className="w-44 flex justify-end">
+            <DeCountChip nDE={nDE} nTotal={nTotal} pct={pctDE} fdr={fdr} />
+          </span>
+          <span className="w-20 text-right text-[10px] font-mono tabular-nums whitespace-nowrap">
+            {up > 0 || down > 0 ? (
+              <>
+                <span className="text-rose-600">↑{up}</span>{" "}
+                <span className="text-sky-600">↓{down}</span>
+              </>
             ) : null}
           </span>
-        )}
-        <DeCountChip nDE={nDE} nTotal={nTotal} pct={pctDE} fdr={fdr} />
-        {up > 0 || down > 0 ? (
-          <span className="text-[10px] font-mono">
-            <span className="text-rose-600">↑{up}</span>{" "}
-            <span className="text-sky-600">↓{down}</span>
+          <span className="w-[100px] inline-flex justify-start">
+            <PvalueHistogramStrip
+              resultSetId={resultSet.id}
+              label={
+                subsetSamplesLabel
+                  ? `${contrastLabel} · ${subsetSamplesLabel}`
+                  : contrastLabel
+              }
+            />
           </span>
-        ) : null}
-        <PvalueHistogramStrip
-          resultSetId={resultSet.id}
-          label={
-            subsetSamplesLabel
-              ? `${contrastLabel} · ${subsetSamplesLabel}`
-              : contrastLabel
-          }
-        />
+        </div>
 
-        <span className="ml-auto inline-flex items-center gap-2">
+        <span className="shrink-0 inline-flex items-center gap-2">
           {/* Always enabled: the heatmap fetches the top-50 by
               p-value (threshold=1), so it shows the lowest-p-value
               genes even when nothing clears the FDR cutoff. Gating on
