@@ -49,6 +49,7 @@ import type { Factor } from "@/features/experiment/types";
 import { useAudit } from "./AuditContext";
 import { factorTarget, parseTargetId } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
+import { useStickyState } from "@/lib/useStickyState";
 import { useDesign } from "@/api/design";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -446,8 +447,37 @@ export function ComparisonFactorCard({
   // string enum: ``keep_agent_equivalent`` / ``keep_agent_close`` /
   // existing ``wont_fix``); the ``keep_agent_close`` case also stamps
   // the note into the disposition's ``notes`` field.
-  const [keepCloseNoteOpen, setKeepCloseNoteOpen] = useState(false);
-  const [keepCloseNote, setKeepCloseNote] = useState("");
+  // Persist the "close but wrong" note across navigation + query
+  // invalidation. Plain useState lost the curator's in-progress note
+  // the moment anything remounted this card — most painfully after
+  // the "commit your design edits first" guard fires, they commit,
+  // and the resulting report refetch rebuilds the findings list. Key
+  // per experiment+finding so two cards don't share a draft; cleared
+  // on save / cancel. Mirrors CloseAuditConfirm's sticky close-note.
+  // Paul 2026-07-21 ("we fixed this before" — same class of bug).
+  const keepNoteKey = `keepCloseNote:${experimentId}:${finding.target_id}`;
+  const [keepCloseNoteOpen, setKeepCloseNoteOpen] = useStickyState<boolean>(
+    `${keepNoteKey}:open`,
+    false,
+  );
+  const [keepCloseNote, setKeepCloseNote] = useStickyState<string>(
+    keepNoteKey,
+    "",
+  );
+  // Wipe the persisted draft note (both keys) once it's been
+  // committed into the disposition or explicitly discarded, so the
+  // next fresh review of this finding starts empty.
+  function clearKeepCloseNote() {
+    try {
+      localStorage.removeItem(keepNoteKey);
+      localStorage.removeItem(`${keepNoteKey}:open`);
+    } catch {
+      // localStorage unavailable — the setState calls below still
+      // reset the in-memory value.
+    }
+    setKeepCloseNote("");
+    setKeepCloseNoteOpen(false);
+  }
   // Chip-strip read-only state — OR'd with the prop so callers can
   // still force read-only on synthetic baseline-drift cards via the
   // existing prop, but the card auto-detects when the chip strip is
@@ -1448,15 +1478,14 @@ export function ComparisonFactorCard({
                   if (e.key === "Enter") {
                     e.preventDefault();
                     const note = keepCloseNote.trim();
-                    setKeepCloseNoteOpen(false);
+                    clearKeepCloseNote();
                     void dispatch("dismissed", {
                       dismissReason: "keep_agent_close",
                       notes: note || undefined,
                     });
                   } else if (e.key === "Escape") {
                     e.preventDefault();
-                    setKeepCloseNoteOpen(false);
-                    setKeepCloseNote("");
+                    clearKeepCloseNote();
                   }
                 }}
                 placeholder="What was the agent close-but-wrong about? (e.g. category URI off, missing statement)"
@@ -1467,7 +1496,7 @@ export function ComparisonFactorCard({
                 disabled={busy}
                 onClick={() => {
                   const note = keepCloseNote.trim();
-                  setKeepCloseNoteOpen(false);
+                  clearKeepCloseNote();
                   void dispatch("dismissed", {
                     dismissReason: "keep_agent_close",
                     notes: note || undefined,
@@ -1481,8 +1510,7 @@ export function ComparisonFactorCard({
                 type="button"
                 disabled={busy}
                 onClick={() => {
-                  setKeepCloseNoteOpen(false);
-                  setKeepCloseNote("");
+                  clearKeepCloseNote();
                 }}
                 className="text-[10px] text-slate-500 hover:text-slate-800 underline underline-offset-2 dark:text-slate-400 dark:hover:text-slate-100 disabled:opacity-50"
               >
