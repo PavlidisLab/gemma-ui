@@ -1248,7 +1248,10 @@ function CursorTooltip({
         borderRadius: 3,
         pointerEvents: 'none',
         maxWidth: W,
-        whiteSpace: 'nowrap',
+        // Long labels (e.g. correlation-matrix sample names) wrap inside
+        // the box instead of overflowing past its right edge — nowrap +
+        // capped maxWidth with no overflow handling spilled the text.
+        overflowWrap: 'break-word',
         boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
         fontFamily: 'Helvetica, Arial, sans-serif',
       }}
@@ -1265,6 +1268,7 @@ function CursorTooltip({
           fontFamily: MONO,
           fontSize: 11,
           fontVariantNumeric: 'tabular-nums',
+          whiteSpace: 'nowrap',
         }}
       >
         {(() => {
