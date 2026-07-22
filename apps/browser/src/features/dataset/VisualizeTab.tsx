@@ -32,6 +32,7 @@ import {
 } from "@/api/endpoints";
 import type { AnnotationSearchResult } from "@/lib/types";
 import type { Dataset, QuantitationType } from "@/lib/types";
+import { useDebounced } from "@/lib/useDebounced";
 
 const GENES_HASH_KEY = "genes";
 const LS_PREFIX = "gemma-visualize-genes:";
@@ -1503,13 +1504,3 @@ async function resolveGeneIds(
   return out;
 }
 
-// ─── Tiny local-only debounce hook ───────────────────────────────────────────
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setV(value), ms);
-    return () => window.clearTimeout(t);
-  }, [value, ms]);
-  return v;
-}
