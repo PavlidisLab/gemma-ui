@@ -442,9 +442,6 @@ export function Heatmap({
                     lineHeight: 1,
                     color: '#f59e0b',
                     visibility: selected ? 'visible' : 'hidden',
-                    // Track the compact label's northward nudge so the
-                    // chevron stays aligned with its (shifted) text.
-                    transform: compact ? 'translateY(-3px)' : undefined,
                   }}
                 >
                   ▶
@@ -464,12 +461,6 @@ export function Heatmap({
                     // in the gutter too: small label, muted.
                     fontSize: compact ? 10 : undefined,
                     color: compact ? '#64748b' : undefined,
-                    // The text is taller than a compact strip's slot, so
-                    // centring leaves it overflowing slightly below — where
-                    // the row-label area paints over its bottom edge. Nudge
-                    // compact labels north so the overflow lands in the
-                    // empty gap above the strip instead.
-                    transform: compact ? 'translateY(-3px)' : undefined,
                   }}
                 >
                   {a.name}
