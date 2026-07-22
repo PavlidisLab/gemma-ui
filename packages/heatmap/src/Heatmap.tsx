@@ -393,7 +393,15 @@ export function Heatmap({
           {annotations.map((a, i) => {
             const selected = selectedStripIndex === i;
             const clickable = !!onStripGutterClick;
+            const compact = a.kind === 'categorical' && a.compact;
             return (
+              // Outer = layout slot: matches the canvas strip's height (so
+              // labels stay aligned strip-for-strip) but does NOT clip
+              // vertically. Compact (batch/block) strips are only a few px
+              // tall, so tying the text's box + line-height to that height
+              // — as before — cropped the label ("batch" cut off at the
+              // bottom). Centre the text in the slot and let it overflow
+              // into the inter-strip gap instead.
               <div
                 key={`${a.name}-${i}`}
                 onClick={
@@ -406,18 +414,10 @@ export function Heatmap({
                 }
                 style={{
                   height: stripHeights[i],
-                  lineHeight: `${stripHeights[i]}px`,
                   marginTop: i === 0 ? 0 : resolved.annotationStripGap,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  display: 'flex',
+                  alignItems: 'center',
                   cursor: clickable ? 'pointer' : undefined,
-                  // Compact (batch/block) strips look visually quieter
-                  // in the gutter too: small label, muted.
-                  fontSize:
-                    a.kind === 'categorical' && a.compact ? 10 : undefined,
-                  color:
-                    a.kind === 'categorical' && a.compact ? '#64748b' : undefined,
                   // 2px amber-500 outline on the selected strip's
                   // gutter (HEATMAP_SPEC §4.2). `outline` doesn't
                   // consume layout space, so non-selected strips
@@ -425,8 +425,6 @@ export function Heatmap({
                   outline: selected ? '2px solid #f59e0b' : undefined,
                   outlineOffset: selected ? -1 : undefined,
                   borderRadius: 2,
-                  background:
-                    clickable && !selected ? 'transparent' : undefined,
                 }}
                 title={
                   clickable
@@ -434,7 +432,31 @@ export function Heatmap({
                     : a.name
                 }
               >
-                {a.name}
+                {/* Inner = the text itself: its own natural line-height so
+                    it's never vertically cropped; horizontal-only clip for
+                    the ellipsis on long factor names. */}
+                <span
+                  style={{
+                    minWidth: 0,
+                    maxWidth: '100%',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    lineHeight: 1.2,
+                    // Compact (batch/block) strips look visually quieter
+                    // in the gutter too: small label, muted.
+                    fontSize: compact ? 10 : undefined,
+                    color: compact ? '#64748b' : undefined,
+                    // The text is taller than a compact strip's slot, so
+                    // centring leaves it overflowing slightly below — where
+                    // the row-label area paints over its bottom edge. Nudge
+                    // compact labels north so the overflow lands in the
+                    // empty gap above the strip instead.
+                    transform: compact ? 'translateY(-3px)' : undefined,
+                  }}
+                >
+                  {a.name}
+                </span>
               </div>
             );
           })}
