@@ -82,6 +82,9 @@ export interface HeatmapPayloadRow {
   /** Optional hover title for ``originColor`` — typically the source
    *  GO term label or similar provenance. */
   originTitle?: string | null;
+  /** Contrast p-value. When present on any row, the widget renders a
+   *  leading numeric column in the row-label gutter (to the LEFT of the
+   *  gene symbol) — used by the DE top-genes heatmap. */
   pvalue?: number;
   validated?: boolean;
 }

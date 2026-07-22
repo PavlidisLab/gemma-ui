@@ -467,6 +467,12 @@ export function Heatmap({
             {data.rowLabelColumns.map((cols, i) => {
               const hasTip = !!rowLabelTooltip;
               const fallbackTitle = data.rowLabels?.[i] ?? cols.join(' · ');
+              // Primary (emphasised) column = first non-numeric one, so a
+              // leading FDR column doesn't steal the gene symbol's weight.
+              const kinds = data.rowLabelColumnKinds;
+              const primaryLabelColumn = kinds
+                ? Math.max(0, kinds.findIndex((k) => k !== 'num'))
+                : 0;
               const handleEnter = hasTip
                 ? (e: React.MouseEvent<HTMLDivElement>) => {
                     cancelHide();
@@ -512,28 +518,41 @@ export function Heatmap({
                       ) : null}
                     </div>
                   ) : null}
-                  {cols.map((c, j) => (
-                    <div
-                      key={j}
-                      title={hasTip ? undefined : fallbackTitle}
-                      onMouseEnter={handleEnter}
-                      onMouseLeave={handleLeave}
-                      style={{
-                        height: layout.cellH,
-                        lineHeight: `${layout.cellH}px`,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        cursor: hasTip ? 'help' : 'default',
-                        // Slightly mute non-leading columns so the
-                        // primary identifier (gene symbol) reads first.
-                        color: j === 0 ? '#1f2937' : '#6b7280',
-                        maxWidth: j === 0 ? 120 : 200,
-                      }}
-                    >
-                      {c}
-                    </div>
-                  ))}
+                  {cols.map((c, j) => {
+                    const kind = data.rowLabelColumnKinds?.[j] ?? 'text';
+                    const isNum = kind === 'num';
+                    const isPrimary = j === primaryLabelColumn;
+                    return (
+                      <div
+                        key={j}
+                        title={hasTip ? undefined : fallbackTitle}
+                        onMouseEnter={handleEnter}
+                        onMouseLeave={handleLeave}
+                        style={{
+                          height: layout.cellH,
+                          lineHeight: `${layout.cellH}px`,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          cursor: hasTip ? 'help' : 'default',
+                          // Numeric columns (e.g. FDR) read as muted,
+                          // right-aligned mono so they align on the
+                          // decimal and don't compete with the symbol.
+                          // Otherwise: emphasise the primary identifier
+                          // (first non-numeric column), mute the rest.
+                          fontFamily: isNum
+                            ? '"SFMono-Regular", "Menlo", "Consolas", monospace'
+                            : undefined,
+                          fontVariantNumeric: isNum ? 'tabular-nums' : undefined,
+                          textAlign: isNum ? 'right' : undefined,
+                          color: isPrimary ? '#1f2937' : '#6b7280',
+                          maxWidth: isNum ? 72 : isPrimary ? 120 : 200,
+                        }}
+                      >
+                        {c}
+                      </div>
+                    );
+                  })}
                 </React.Fragment>
               );
             })}

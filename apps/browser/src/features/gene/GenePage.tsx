@@ -1,5 +1,10 @@
-// Per-gene page — /gene/$id
-// Endpoints: /rest/v2/genes/{id} · /locations · /goTerms
+// Per-gene page — /gene/ncbi/$ncbiId
+// Endpoints: /rest/v2/genes/{ncbiId} · /locations · /goTerms
+//
+// The page is keyed by NCBI gene id (not symbol): symbols collide across
+// taxa, so the URL carries an unambiguous NCBI id. Symbol/name resolution
+// happens upstream at search time (see GenesPage / resolveGeneNcbiId), and
+// legacy /gene/$id links redirect here via GeneRedirect.
 //
 // Differential expression section is on hold pending the heavy gene-page
 // rework — placeholder for now (see GENE_PAGE_REWORK_RECCE.md once it lands).
@@ -16,16 +21,16 @@ import { gemmaUrl } from "@/lib/gemmaConfig";
 import { PageMask } from "@gemma/ui";
 
 export function GenePage() {
-  const { id } = useParams({ from: "/gene/$id" });
+  const { ncbiId } = useParams({ from: "/gene/ncbi/$ncbiId" });
 
   const geneQ = useQuery({
-    queryKey: ["gene", id],
-    queryFn: ({ signal }) => getGene(id, signal),
-    enabled: !!id,
+    queryKey: ["gene", "ncbi", ncbiId],
+    queryFn: ({ signal }) => getGene(ncbiId, signal),
+    enabled: !!ncbiId,
   });
 
   if (geneQ.isLoading) {
-    return <PageMask mode="region" label="Loading gene" detail={`${id}…`} />;
+    return <PageMask mode="region" label="Loading gene" detail={`NCBI ${ncbiId}…`} />;
   }
 
   if (geneQ.isError || !geneQ.data) {
@@ -33,10 +38,11 @@ export function GenePage() {
       <div className="h-full overflow-y-auto bg-gemma-bg">
         <div className="max-w-4xl mx-auto px-6 py-12 text-center space-y-2">
           <h1 className="text-lg font-semibold text-gemma-ink">
-            Gene "{id}" not found.
+            Gene not found.
           </h1>
           <p className="text-xs text-gemma-subtle">
-            {(geneQ.error as Error)?.message ?? "No gene matched this identifier."}
+            {(geneQ.error as Error)?.message ??
+              `No gene matched NCBI id ${ncbiId}.`}
           </p>
         </div>
       </div>

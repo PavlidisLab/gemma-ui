@@ -804,6 +804,29 @@ export async function getGene(
   return r.data?.[0] ?? null;
 }
 
+/** Resolve free-text gene input (symbol, official name, or a bare NCBI
+ *  id) to a single NCBI gene id — the canonical key for the `/gene/ncbi`
+ *  route. Gene symbols collide across taxa (human ENO2 / mouse Eno2 /
+ *  rat Eno2), so a symbol never uniquely identifies a gene; the URL uses
+ *  NCBI ids instead and resolution happens here, once, at search time.
+ *
+ *  - A purely numeric input is treated as an NCBI id and returned as-is
+ *    (the backend resolves numeric `/genes/{id}` as an NCBI id).
+ *  - Otherwise the input is run through the score-ranked gene search and
+ *    the TOP-ranked hit's NCBI id wins (no taxon preference).
+ *
+ *  Returns `null` when nothing matches or the top hit carries no NCBI id. */
+export async function resolveGeneNcbiId(
+  query: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const q = query.trim();
+  if (!q) return null;
+  if (/^\d+$/.test(q)) return Number(q);
+  const hits = await searchGenes(q, { limit: 1, signal });
+  return hits[0]?.ncbiId ?? null;
+}
+
 export async function getGeneLocations(
   geneId: number | string,
   signal?: AbortSignal,

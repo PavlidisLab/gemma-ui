@@ -71,6 +71,14 @@ export interface HeatmapData {
    *  (CSS grid). ``rowLabels`` still feeds the TSV download / tooltip
    *  fallback. */
   rowLabelColumns?: string[][];
+  /** Optional per-column semantic kind, parallel to each row's
+   *  ``rowLabelColumns`` entries (same length). ``'num'`` renders that
+   *  column mono / right-aligned / muted (e.g. a leading p-value column);
+   *  ``'text'`` is the default identifier styling. When set, the first
+   *  non-``'num'`` column is treated as the primary (emphasised)
+   *  identifier — so a leading numeric column doesn't steal the dark
+   *  emphasis from the gene symbol. */
+  rowLabelColumnKinds?: Array<'text' | 'num'>;
   /** Optional per-row coloured-disc tags rendered as the leading
    *  column of the row-label gutter. Use to carry a small visual
    *  cue about origin / source group / cluster membership. ``null``

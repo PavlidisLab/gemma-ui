@@ -22,6 +22,7 @@ import { HeatmapDemo } from "@/features/heatmap-demo/HeatmapDemo";
 import { HeatmapDemoV2 } from "@/features/heatmap-demo/HeatmapDemoV2";
 import { DatasetPage } from "@/features/dataset/DatasetPage";
 import { GenePage } from "@/features/gene/GenePage";
+import { GeneRedirect } from "@/features/gene/GeneRedirect";
 import { GenesPage } from "@/features/gene/GenesPage";
 import { McpPage } from "@/features/mcp/McpPage";
 import { ExtjsMockup } from "@/features/mockup-extjs/ExtjsMockup";
@@ -122,11 +123,19 @@ const genesRoute = createRoute({
   component: () => <GenesPage />,
 });
 
-// Per-gene page. Accepts numeric id or official symbol.
+// Per-gene page, keyed by NCBI gene id (symbols collide across taxa).
 const geneRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/gene/$id",
+  path: "/gene/ncbi/$ncbiId",
   component: () => <GenePage />,
+});
+
+// Legacy redirect — old /gene/$id links (symbol or bare id) resolve to
+// an NCBI id and forward to the canonical /gene/ncbi/$ncbiId.
+const geneLegacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/gene/$id",
+  component: () => <GeneRedirect />,
 });
 
 const mcpRoute = createRoute({
@@ -168,6 +177,7 @@ export const routeTree = rootRoute.addChildren([
   datasetRoute,
   genesRoute,
   geneRoute,
+  geneLegacyRoute,
   mcpRoute,
   extjsMockupRoute,
   adminSystemRoute,

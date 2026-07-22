@@ -1,18 +1,36 @@
 // Gene search landing page — /genes
-// Users type a symbol or NCBI ID and navigate to /gene/:id.
+// Users type a symbol, official name, or NCBI id. Because symbols collide
+// across taxa, we resolve the input to a single NCBI id (top-ranked match)
+// before navigating to the id-keyed page /gene/ncbi/$ncbiId.
 
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { resolveGeneNcbiId } from "@/api/endpoints";
 
 export function GenesPage() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const [resolving, setResolving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const q = query.trim();
-    if (!q) return;
-    navigate({ to: "/gene/$id", params: { id: q } });
+    if (!q || resolving) return;
+    setResolving(true);
+    setError(null);
+    try {
+      const ncbiId = await resolveGeneNcbiId(q);
+      if (ncbiId == null) {
+        setError(`No gene matched "${q}".`);
+        return;
+      }
+      navigate({ to: "/gene/ncbi/$ncbiId", params: { ncbiId: String(ncbiId) } });
+    } catch {
+      setError("Search failed — please try again.");
+    } finally {
+      setResolving(false);
+    }
   }
 
   return (
@@ -39,12 +57,18 @@ export function GenesPage() {
           />
           <button
             type="submit"
-            disabled={!query.trim()}
+            disabled={!query.trim() || resolving}
             className="px-4 py-2 rounded-md bg-gemma-accent text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gemma-accent/90 transition-colors"
           >
-            Search
+            {resolving ? "Searching…" : "Search"}
           </button>
         </form>
+
+        {error ? (
+          <p className="text-sm text-rose-600" role="alert">
+            {error}
+          </p>
+        ) : null}
 
         <div className="text-xs text-gemma-subtle space-y-1">
           <p>

@@ -63,19 +63,40 @@ export function buildHeatmapDataFromPayload(
   const rowLabels = payload.rows.map(
     (r) => r.geneSymbols[0] ?? r.designElementName,
   );
-  // Rich multi-column row labels — symbol + gene name when available.
-  // Renderer auto-aligns columns across rows via CSS grid; we MUST
-  // emit a fixed column count per row or grid auto-flow misaligns
-  // (empty string keeps the slot, just renders blank).
+  // Rich multi-column row labels — optional leading p-value, then
+  // symbol, then gene name when available. Renderer auto-aligns columns
+  // across rows via CSS grid; we MUST emit a fixed column count per row
+  // or grid auto-flow misaligns (empty string keeps the slot, just
+  // renders blank).
   const anyName = payload.rows.some(
     (r) => (r.geneNames ?? []).some((n) => n && n.length > 0),
   );
-  const rowLabelColumns: string[][] | undefined = anyName
-    ? payload.rows.map((r) => [
-        r.geneSymbols[0] ?? r.designElementName,
-        r.geneNames?.[0] ?? '',
-      ])
-    : undefined;
+  // When any row carries a p-value — the DE top-genes heatmap does —
+  // render it as a leading numeric column to the LEFT of the gene
+  // symbol.
+  const anyPvalue = payload.rows.some(
+    (r) => r.pvalue != null && Number.isFinite(r.pvalue),
+  );
+  const rowLabelColumns: string[][] | undefined =
+    anyName || anyPvalue
+      ? payload.rows.map((r) => {
+          const cols: string[] = [];
+          if (anyPvalue) cols.push(formatPvalueLabel(r.pvalue));
+          cols.push(r.geneSymbols[0] ?? r.designElementName);
+          if (anyName) cols.push(r.geneNames?.[0] ?? '');
+          return cols;
+        })
+      : undefined;
+  // Parallel per-column kinds so the renderer styles the p-value column
+  // as muted mono (and keeps the gene symbol as the emphasised primary).
+  const rowLabelColumnKinds: Array<'text' | 'num'> | undefined =
+    rowLabelColumns
+      ? [
+          ...(anyPvalue ? (['num'] as const) : []),
+          'text' as const,
+          ...(anyName ? (['text'] as const) : []),
+        ]
+      : undefined;
   const colLabels = cols.map((c) => c.name);
 
   // Per-row origin disc (e.g. GO-term provenance). Only emit the
@@ -94,6 +115,7 @@ export function buildHeatmapDataFromPayload(
       values,
       rowLabels,
       rowLabelColumns,
+      rowLabelColumnKinds,
       rowDotColors,
       rowDotTitles,
       colLabels,
@@ -105,4 +127,16 @@ export function buildHeatmapDataFromPayload(
     columnOrder,
     gaps,
   };
+}
+
+/** Compact label for a p-value in the row-label gutter. Scientific for
+ *  the tiny values DE contrasts produce (``7.7e-8``), fixed-decimal for
+ *  the readable middle range. Empty string when absent so the grid slot
+ *  stays aligned. */
+function formatPvalueLabel(p: number | undefined): string {
+  if (p == null || !Number.isFinite(p)) return '';
+  if (p <= 0) return '0';
+  if (p < 1e-3) return p.toExponential(1); // e.g. 7.7e-8
+  if (p < 1) return p.toFixed(3); // e.g. 0.032
+  return p.toFixed(2);
 }

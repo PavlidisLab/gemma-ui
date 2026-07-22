@@ -348,6 +348,15 @@ export interface DiffExpressionResponse {
     /** Gemma-internal gene id. Pending the same enrichment. */
     geneId?: number | null;
     geneNcbiId?: number | null;
+    geneEnsemblId?: string | null;
+    /** Corrected (FDR) p-value for this gene's contrast in the result
+     *  set — the value the endpoint sorts the top-N by. Surfaced in the
+     *  DE heatmap's row-label gutter. */
+    correctedPvalue?: number | null;
+    /** Raw (uncorrected) contrast p-value. */
+    pvalue?: number | null;
+    /** Contrast log2 fold-change. */
+    log2FoldChange?: number | null;
     vectors: {
       designElementId?: number | null;
       designElementName?: string | null;
