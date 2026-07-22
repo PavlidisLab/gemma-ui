@@ -365,6 +365,19 @@ export function HeatmapWidget({
     return i < 0 ? null : i;
   }, [orderedFactors, mainGroupingFactorId]);
 
+  // Rendered-column index of the pinned cell. The side panel's
+  // sparkline plots `rowValues` in RENDERED (displayed) column order,
+  // so its highlight marker must index in that same order. `pinned.col`
+  // is the SOURCE-payload column (used for metadata lookups), which
+  // differs from the displayed order whenever main-grouping reorders
+  // samples — so we translate it back through `columnOrder` here so
+  // the marker lands on the same sample the heatmap shows it under.
+  const pinnedRenderedCol = useMemo<number | null>(() => {
+    if (!pinned || pinned.kind !== 'cell' || !built) return null;
+    const i = built.columnOrder.indexOf(pinned.col);
+    return i < 0 ? pinned.col : i;
+  }, [pinned, built]);
+
   // Close the side panel when the payload changes underneath us.
   useEffect(() => {
     setPinned(null);
@@ -824,6 +837,7 @@ export function HeatmapWidget({
                     ? scaledData.values[pinned.row]
                     : undefined
                 }
+                rowValueHighlightIndex={pinnedRenderedCol ?? undefined}
                 formatValue={fmt}
               />
             </div>

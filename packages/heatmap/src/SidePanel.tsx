@@ -37,8 +37,15 @@ export interface SidePanelProps {
   click: SidePanelClick;
   onClose: () => void;
   /** Optional matrix data for the sparkline (row of values across
-   *  all samples — usually the row-standardised row). */
+   *  all samples — usually the row-standardised row). MUST be in the
+   *  same column order that `rowValueHighlightIndex` indexes into. */
   rowValues?: Array<number | null>;
+  /** Index into `rowValues` to mark on the sparkline. Defaults to
+   *  `click.col`. Callers whose `rowValues` are in a different order
+   *  than the source payload columns (e.g. the heatmap reorders
+   *  columns by main-grouping) must pass the index into `rowValues`
+   *  here so the marker lands on the sample the matrix displays. */
+  rowValueHighlightIndex?: number;
   /** Format numbers consistently with the matrix tooltip / legend. */
   formatValue?: (v: number) => string;
 }
@@ -48,6 +55,7 @@ export function SidePanel({
   click,
   onClose,
   rowValues,
+  rowValueHighlightIndex,
   formatValue,
 }: SidePanelProps): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -139,6 +147,7 @@ export function SidePanel({
             col={click.col}
             value={click.value}
             rowValues={rowValues}
+            highlightIndex={rowValueHighlightIndex ?? click.col}
             fmt={fmt}
           />
         ) : (
@@ -162,6 +171,7 @@ function CellDetail({
   col,
   value,
   rowValues,
+  highlightIndex,
   fmt,
 }: {
   payload: HeatmapPayload;
@@ -169,6 +179,10 @@ function CellDetail({
   col: number;
   value: number | null;
   rowValues?: Array<number | null>;
+  /** Index into `rowValues` to mark — the clicked sample's position in
+   *  the displayed (rendered) column order, which differs from `col`
+   *  (the source-payload column) when the matrix reorders samples. */
+  highlightIndex: number;
   fmt: (v: number) => string;
 }): JSX.Element {
   const rowMeta = payload.rows[row];
@@ -180,7 +194,7 @@ function CellDetail({
       <ValueSection
         value={value}
         rowValues={rowValues}
-        colIndex={col}
+        colIndex={highlightIndex}
         fmt={fmt}
       />
     </div>
