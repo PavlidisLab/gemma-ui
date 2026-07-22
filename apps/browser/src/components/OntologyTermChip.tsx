@@ -27,12 +27,18 @@ export function OntologyTermChip({
   variant = "default",
   asLink = true,
   className,
+  labelTitle,
 }: {
   children: ReactNode;
   uri?: string | null;
   variant?: TermVariant;
   asLink?: boolean;
   className?: string;
+  /** Full label text, shown as the hover tooltip on the (possibly
+   *  truncated) label span. Use when the chip is width-capped so the
+   *  reader can still recover the whole term on hover. The chip's own
+   *  tooltip stays the URI. */
+  labelTitle?: string;
 }) {
   const effective: TermVariant = variant === "default" && !uri ? "free" : variant;
   const variantCls =
@@ -49,7 +55,9 @@ export function OntologyTermChip({
 
   const inner = (
     <>
-      <span className="truncate">{children}</span>
+      <span className="truncate" title={labelTitle}>
+        {children}
+      </span>
       {uri ? (
         <span
           className="text-slate-400 font-mono text-[10px] whitespace-nowrap"

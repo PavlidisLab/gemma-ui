@@ -1,6 +1,7 @@
 // Public, read-only Expression Experiment page.
 
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient, type QueryFunctionContext } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { marked } from "marked";
@@ -1277,7 +1278,12 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
                 const outlier = s.outlier || s.predictedOutlier || s.userFlaggedOutlier;
                 return (
                   <tr key={s.id} className={"border-b border-slate-100 " + (outlier ? "bg-amber-50/40" : "")}>
-                    <td className="py-1.5 pr-4 text-slate-800">{s.name ?? s.shortName ?? `BA ${s.id}`}</td>
+                    <td className="py-1.5 pr-4 text-slate-800">
+                      <span className="inline-flex items-center">
+                        {s.name ?? s.shortName ?? `BA ${s.id}`}
+                        <SampleMetaPopover assay={s} />
+                      </span>
+                    </td>
                     <td className="py-1.5 pr-4 font-mono text-slate-600">
                       {s.accession?.accession
                         ? <a href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${s.accession.accession}`}
@@ -1307,6 +1313,234 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
         </div>
       )}
     </SectionCard>
+  );
+}
+
+/** Popover dimensions — kept in module scope so the flip-above /
+ *  slide-left math can budget for the box before it paints. */
+const SAMPLE_POPOVER_W = 340;
+const SAMPLE_POPOVER_MAX_H = 420;
+const SAMPLE_ANCHOR_OFFSET = 4;
+
+/**
+ * Tiny "i" chip beside a sample's name in the Samples table. Clicking
+ * opens a popover with the sample's additional metadata — the
+ * biomaterial characteristics (sex, tissue, molecular entity, …, each
+ * with its ontology term where Gemma mapped one), platform, processing
+ * date, and any free-text description — without widening the table,
+ * whose columns stay limited to the experimental factors.
+ *
+ * Mirrors the curation app's ``BiomaterialMetaPopover`` (portal +
+ * fixed-position pattern) because the table sits inside an
+ * ``overflow-x-auto`` scroll container: an absolutely-positioned
+ * popover would be clipped by that ancestor. The portal escapes the
+ * boundary; viewport coords from the anchor's bounding rect keep it
+ * visually attached. Closes on Esc / click-outside / resize.
+ */
+function SampleMetaPopover({ assay }: { assay: BioAssay }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !anchorRef.current) {
+      setPos(null);
+      return;
+    }
+    const rect = anchorRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let top = rect.bottom + SAMPLE_ANCHOR_OFFSET;
+    let left = rect.left;
+    if (left + SAMPLE_POPOVER_W + 8 > vw) {
+      left = Math.max(8, vw - SAMPLE_POPOVER_W - 8);
+    }
+    if (top + SAMPLE_POPOVER_MAX_H + 8 > vh) {
+      const above = rect.top - SAMPLE_ANCHOR_OFFSET - SAMPLE_POPOVER_MAX_H;
+      top = above >= 8 ? above : Math.max(8, vh - SAMPLE_POPOVER_MAX_H - 8);
+    }
+    setPos({ top, left });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (popoverRef.current?.contains(t)) return;
+      if (anchorRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open]);
+
+  const bm = assay.sample;
+  const chars = (bm?.characteristics ?? []).filter(
+    (c) => (c.value ?? "").trim() !== "",
+  );
+  const description =
+    (assay.description ?? "").trim() || (bm?.description ?? "").trim() || "";
+  const platform =
+    assay.arrayDesign?.shortName || assay.arrayDesign?.name || null;
+  const processed = assay.processingDate
+    ? assay.processingDate.slice(0, 10)
+    : null;
+  const metadata = (assay.metadata ?? "").trim();
+
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-sky-700 text-[9px] leading-none font-bold ml-1.5 align-middle"
+        title="show all metadata for this sample"
+        aria-label="show sample metadata"
+      >
+        i
+      </button>
+      {open && pos
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="fixed z-50 bg-white border border-slate-200 rounded shadow-xl text-xs text-slate-700"
+              style={{
+                top: pos.top,
+                left: pos.left,
+                width: SAMPLE_POPOVER_W,
+                maxHeight: SAMPLE_POPOVER_MAX_H,
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="px-3 py-2 border-b border-slate-100 flex items-baseline justify-between gap-2">
+                <span className="font-semibold text-slate-800 truncate">
+                  {assay.name ?? assay.shortName ?? `BA ${assay.id}`}
+                </span>
+                <button
+                  type="button"
+                  className="text-slate-400 hover:text-slate-700 shrink-0"
+                  onClick={() => setOpen(false)}
+                  title="close"
+                >
+                  ×
+                </button>
+              </div>
+              <div
+                className="px-3 py-2 space-y-2 overflow-auto"
+                style={{ maxHeight: SAMPLE_POPOVER_MAX_H - 44 }}
+              >
+                {assay.accession?.accession ? (
+                  <SampleMetaField label="Accession">
+                    <a
+                      href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${assay.accession.accession}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-sky-700 hover:underline"
+                    >
+                      {assay.accession.accession}
+                    </a>
+                  </SampleMetaField>
+                ) : null}
+                {platform ? (
+                  <SampleMetaField label="Platform">
+                    <span className="text-slate-800">{platform}</span>
+                    {assay.arrayDesign?.name &&
+                    assay.arrayDesign.name !== platform ? (
+                      <span className="text-slate-500">
+                        {" "}
+                        · {assay.arrayDesign.name}
+                      </span>
+                    ) : null}
+                  </SampleMetaField>
+                ) : null}
+                {processed ? (
+                  <SampleMetaField label="Processed">
+                    <span className="text-slate-700 tabular-nums">
+                      {processed}
+                    </span>
+                  </SampleMetaField>
+                ) : null}
+                {description ? (
+                  <SampleMetaField label="Description">
+                    <div className="text-slate-700 whitespace-pre-wrap break-words">
+                      {description}
+                    </div>
+                  </SampleMetaField>
+                ) : null}
+                {metadata ? (
+                  <SampleMetaField label="Metadata">
+                    <div className="text-slate-700 whitespace-pre-wrap break-words">
+                      {metadata}
+                    </div>
+                  </SampleMetaField>
+                ) : null}
+                <SampleMetaField label={`Characteristics (${chars.length})`}>
+                  {chars.length === 0 ? (
+                    <div className="italic text-slate-400">none recorded</div>
+                  ) : (
+                    <table className="w-full text-[11px]">
+                      <tbody>
+                        {chars.map((c, i) => (
+                          <tr
+                            key={c.id ?? i}
+                            className="align-top border-b border-slate-100 last:border-b-0"
+                          >
+                            <td className="py-0.5 pr-2 text-slate-500 whitespace-nowrap">
+                              {c.category ?? "—"}
+                            </td>
+                            <td className="py-0.5 text-slate-800 break-words">
+                              {c.valueUri ? (
+                                <OntologyTermChip uri={c.valueUri}>
+                                  {c.value}
+                                </OntologyTermChip>
+                              ) : (
+                                c.value
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </SampleMetaField>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+function SampleMetaField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-0.5">
+        {label}
+      </div>
+      {children}
+    </div>
   );
 }
 
@@ -1751,12 +1985,13 @@ function ResultSetRow({
   return (
     <li className="px-3 py-2 space-y-1.5">
       <div className="flex items-center gap-3 text-sm">
-        {/* Lead with the actual comparison — condition(s) vs baseline —
-            since that's what the contrast tested. The factor name is
-            secondary context (muted, trailing); its category matters less
-            than the levels being compared. The comparison fills the left;
-            the DE metrics live in fixed-width, right-justified columns so
-            they line up row to row regardless of description length. */}
+        {/* Lead every row with the factor name, then the comparison it
+            tested — condition(s) vs baseline. Naming stays consistent
+            across single-factor and interaction rows (both open with the
+            factor name in the same weight) so the eye tracks one column.
+            The comparison fills the left; the DE metrics live in
+            fixed-width, right-justified columns so they line up row to
+            row regardless of description length. */}
         <div className="flex-1 min-w-0">
           {isInteraction ? (
             <span className="inline-flex items-baseline gap-1.5">
@@ -1767,28 +2002,43 @@ function ResultSetRow({
             </span>
           ) : conditionTerms.length > 0 ? (
             <span className="inline-flex items-baseline gap-1.5 flex-wrap">
-              {conditionTerms.map((t, i) => (
-                <OntologyTermChip key={i} uri={t.uri}>
-                  {t.label}
-                </OntologyTermChip>
-              ))}
-              <span className="text-[11px] text-slate-400">vs</span>
-              <span className="text-[11px] text-slate-500 italic">
-                {baselineLabel ?? "baseline"}
-              </span>
               <span
-                className="text-[11px] text-slate-400"
+                className="font-medium text-slate-800"
                 title="experimental factor"
               >
-                · {contrastLabel}
+                {contrastLabel}
+              </span>
+              <span className="text-[11px] text-slate-400">·</span>
+              {conditionTerms.map((t, i) => (
+                // Long ontology labels (e.g. gene-marker cell types) would
+                // otherwise run under the DE metric columns — cap the width
+                // so the label ellipsizes; the full term is on hover.
+                <span key={i} className="inline-flex min-w-0 max-w-[22rem]">
+                  <OntologyTermChip uri={t.uri} labelTitle={t.label}>
+                    {t.label}
+                  </OntologyTermChip>
+                </span>
+              ))}
+              <span className="text-[11px] text-slate-400">vs</span>
+              <span
+                className="text-[11px] text-slate-500 italic truncate max-w-[22rem]"
+                title={baselineLabel ?? "baseline"}
+              >
+                {baselineLabel ?? "baseline"}
               </span>
             </span>
           ) : (
-            <span className="inline-flex items-baseline gap-1.5">
+            <span className="inline-flex items-baseline gap-1.5 min-w-0">
               <span className="font-medium text-slate-800">{contrastLabel}</span>
               {baselineLabel ? (
-                <span className="text-[11px] text-slate-500">
-                  vs <span className="italic">{baselineLabel}</span>
+                <span className="text-[11px] text-slate-500 inline-flex items-baseline gap-1 min-w-0">
+                  vs{" "}
+                  <span
+                    className="italic truncate max-w-[22rem]"
+                    title={baselineLabel}
+                  >
+                    {baselineLabel}
+                  </span>
                 </span>
               ) : null}
             </span>

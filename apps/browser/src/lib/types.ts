@@ -109,7 +109,18 @@ export interface BioMaterial {
   id?: number;
   name?: string | null;
   description?: string | null;
-  characteristics?: Array<{ value?: string; category?: string; valueUri?: string | null }>;
+  /** Per-sample biomaterial annotations (sex, tissue, molecular
+   *  entity, …) — the "additional metadata" surfaced in the sample
+   *  info popover, distinct from the experimental factor values. Each
+   *  carries the annotated category + value plus their ontology URIs
+   *  where Gemma mapped them. */
+  characteristics?: Array<{
+    id?: number;
+    value?: string;
+    valueUri?: string | null;
+    category?: string;
+    categoryUri?: string | null;
+  }>;
   factorValues?: SampleFactorValue[];
 }
 
@@ -118,6 +129,9 @@ export interface BioAssay {
   name?: string | null;
   shortName?: string | null;
   description?: string | null;
+  /** Free-text bookkeeping the submitter / importer attached to the
+   *  assay (e.g. run notes). Surfaced verbatim in the info popover. */
+  metadata?: string | null;
   accession?: { accession?: string } | null;
   arrayDesign?: { shortName?: string; name?: string } | null;
   sample?: BioMaterial | null;
