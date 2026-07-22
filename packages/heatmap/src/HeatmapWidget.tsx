@@ -727,9 +727,13 @@ export function HeatmapWidget({
                   ? (i) => {
                       const f = orderedFactors[i];
                       if (!f) return;
-                      // Re-click clears.
+                      // Clicking a strip groups by it. Clicking the one
+                      // that's already selected doesn't clear grouping —
+                      // there's always an active grouping — it reverts to
+                      // the default (auto-picked / caller-forced) factor so
+                      // the marker never disappears.
                       setMainGroupingFactorIdWithTouch((prev: number | null) =>
-                        prev === f.id ? null : f.id,
+                        prev === f.id ? initialGroupingFactorId : f.id,
                       );
                     }
                   : undefined

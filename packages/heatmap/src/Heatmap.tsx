@@ -391,9 +391,9 @@ export function Heatmap({
           }}
         >
           {annotations.map((a, i) => {
-            const selected = selectedStripIndex === i;
             const clickable = !!onStripGutterClick;
             const compact = a.kind === 'categorical' && a.compact;
+            const selected = selectedStripIndex === i;
             return (
               // Outer = layout slot: matches the canvas strip's height (so
               // labels stay aligned strip-for-strip) but does NOT clip
@@ -418,13 +418,6 @@ export function Heatmap({
                   display: 'flex',
                   alignItems: 'center',
                   cursor: clickable ? 'pointer' : undefined,
-                  // 2px amber-500 outline on the selected strip's
-                  // gutter (HEATMAP_SPEC §4.2). `outline` doesn't
-                  // consume layout space, so non-selected strips
-                  // stay flush with the canvas strip baseline.
-                  outline: selected ? '2px solid #f59e0b' : undefined,
-                  outlineOffset: selected ? -1 : undefined,
-                  borderRadius: 2,
                 }}
                 title={
                   clickable
@@ -432,6 +425,30 @@ export function Heatmap({
                     : a.name
                 }
               >
+                {/* Selected main-grouping strip is flagged with a small
+                    amber chevron pointing at the label (HEATMAP_SPEC §4.2 —
+                    replaces the old, too-prominent outline box). The slot's
+                    width is ALWAYS reserved so the label text sits at the
+                    same x whether or not the strip is selected — selecting
+                    never shifts the labels. */}
+                <span
+                  aria-hidden
+                  style={{
+                    flex: '0 0 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 9,
+                    lineHeight: 1,
+                    color: '#f59e0b',
+                    visibility: selected ? 'visible' : 'hidden',
+                    // Track the compact label's northward nudge so the
+                    // chevron stays aligned with its (shifted) text.
+                    transform: compact ? 'translateY(-3px)' : undefined,
+                  }}
+                >
+                  ▶
+                </span>
                 {/* Inner = the text itself: its own natural line-height so
                     it's never vertically cropped; horizontal-only clip for
                     the ellipsis on long factor names. */}
