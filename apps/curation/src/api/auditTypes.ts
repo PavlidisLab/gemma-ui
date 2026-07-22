@@ -462,6 +462,11 @@ export type ApplyActionPayload =
       kind: "add_tag";
       /** Category label, free-text — Tag's ``category.label``. */
       new_category: string;
+      /** Optional URI for the category when the agent grounded it
+       *  (e.g. ``cell type`` → EFO_0000324). Lets the card render the
+       *  category as a grounded ontology term even for a first-of-its-
+       *  category tag with no sibling in the draft to borrow from. */
+      new_category_uri?: string | null;
       /** Value label, free-text — Tag's ``value.label``. */
       new_value: string;
       /** Optional URI for the value when the agent grounded it.

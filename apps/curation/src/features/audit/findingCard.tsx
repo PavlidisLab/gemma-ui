@@ -562,6 +562,24 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // the tag isn't in the current draft, the agent's
                   // suggested term carries the ontology binding).
                   valUri = valUri ?? finding.proposer_term?.uri ?? null;
+                  // Authoritative for a PROPOSED (not-yet-in-draft) tag:
+                  // the apply_action carries the agent's grounded URIs
+                  // directly (``new_category_uri`` / ``new_value_uri``).
+                  // Prefer these over the sibling-category recovery below
+                  // so a first-of-its-category tag — no sibling to borrow
+                  // a URI from — still renders its category as a grounded
+                  // ontology term rather than plain (unresolved-looking)
+                  // grey. ``new_category_uri`` landed on the add_tag wire
+                  // after the original recovery hack. Paul 2026-07-22.
+                  const aaUris = finding.apply_action as
+                    | {
+                        new_category_uri?: string | null;
+                        new_value_uri?: string | null;
+                      }
+                    | null
+                    | undefined;
+                  catUri = catUri ?? aaUris?.new_category_uri ?? null;
+                  valUri = valUri ?? aaUris?.new_value_uri ?? null;
                   // Final fallback — label-based lookup against
                   // draft.tags. Fires when the target_id-slug path
                   // didn't parse (e.g. `calibration:miss:cat/val` for
@@ -749,10 +767,19 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                       </span>
                       {catLabel ? (
                         <>
+                          {/* Category field-name role → the ``category``
+                              variant (slate, italic, no emerald bookmark
+                              so it doesn't compete with the value chip),
+                              which still carries a CURIE link-out when the
+                              category is grounded. That CURIE is the "is
+                              this an ontology term?" tell the plain italic
+                              chip lacked. Paul 2026-07-22 (cell type =
+                              EFO_0000324 but read as free-text). */}
                           <Term
                             uri={catUri}
+                            variant="category"
                             asLink={false}
-                            className="!whitespace-normal break-words italic opacity-80"
+                            className="!whitespace-normal break-words"
                           >
                             {catLabel}
                           </Term>
