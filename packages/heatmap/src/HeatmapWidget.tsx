@@ -680,10 +680,12 @@ export function HeatmapWidget({
             }
           />
         )}
-        {/* v2 — heatmap + docked side panel sit side-by-side. In v1
-            mode `pinned` is always null, so the layout collapses to
-            the single matrix column. */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
+        {/* v2 — heatmap fills the row; the cell-detail panel floats
+            OVER the matrix as an absolute overlay (anchored top-right)
+            rather than an in-flow sibling, so opening it never squeezes
+            the matrix into unreadability. In v1 mode `pinned` is always
+            null, so this is just the single matrix column. */}
+        <div style={{ position: 'relative', display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
           {/* The matrix lives inside a scrollable region so Expand mode can
               overflow horizontally without growing the chrome. In Squeeze
               mode the matrix never overflows; the overflow:auto is a no-op
@@ -803,17 +805,28 @@ export function HeatmapWidget({
             />
           </div>
           {payload && pinned ? (
-            <SidePanel
-              payload={orderedPayload ?? payload}
-              click={pinned}
-              onClose={() => setPinned(null)}
-              rowValues={
-                pinned.kind === 'cell'
-                  ? scaledData.values[pinned.row]
-                  : undefined
-              }
-              formatValue={fmt}
-            />
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                zIndex: 30,
+                // Never wider than the matrix on narrow layouts.
+                maxWidth: '100%',
+              }}
+            >
+              <SidePanel
+                payload={orderedPayload ?? payload}
+                click={pinned}
+                onClose={() => setPinned(null)}
+                rowValues={
+                  pinned.kind === 'cell'
+                    ? scaledData.values[pinned.row]
+                    : undefined
+                }
+                formatValue={fmt}
+              />
+            </div>
           ) : null}
         </div>
       </div>

@@ -1,7 +1,9 @@
 /**
  * Side panel for pinned matrix-cell / strip-cell detail
- * (HEATMAP_SPEC §5.2). Docked to the right of the heatmap, ~360px
- * wide. Closes via the × button, Esc, or click outside.
+ * (HEATMAP_SPEC §5.2). Floats OVER the top-right of the heatmap as an
+ * overlay (~360px wide) so opening it never squeezes the matrix — the
+ * widget positions it absolutely. Closes via the × button, Esc, or
+ * click outside.
  *
  * The panel content branches on what the curator clicked:
  *   - matrix cell  → probe/gene + sample + value sections
@@ -90,7 +92,7 @@ export function SidePanel({
     color: TEXT,
     fontFamily: 'Helvetica, Arial, sans-serif',
     fontSize: 12,
-    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
+    boxShadow: '0 8px 28px rgba(15, 23, 42, 0.22)',
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
