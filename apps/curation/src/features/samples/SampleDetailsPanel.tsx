@@ -1911,7 +1911,12 @@ function SampleTable({
                               ? "italic text-slate-500"
                               : isOntology
                                 ? "text-emerald-900 bg-emerald-50/60"
-                                : "text-slate-700",
+                                // Free-text characteristic (no resolved
+                                // ontology term) — italic to match the
+                                // tag-chip legend (italic = free text).
+                                // Ontology-resolved chars stay upright +
+                                // emerald with a CURIE link.
+                                : "italic text-slate-700",
                           )}
                           style={
                             valueTint
@@ -2346,7 +2351,10 @@ function FvSelect({
         // on the enclosing cell, so the dropdown stays a neutral white
         // control that reads clearly on top of it.
         ? `border-emerald-300 text-emerald-900 ${ONTOLOGY_ANCHOR_CLS_PL2}`
-        : "border-slate-300 text-slate-800";
+        // Free-text-assigned FV (no ontology-backed statement) — italic
+        // to match the tag-chip legend house standard (italic = free
+        // text / unresolved). Ontology-backed FVs stay upright + emerald.
+        : "border-slate-300 text-slate-800 italic";
   // For unassigned / mixed cells there's no FV with statements to
   // unpack; a plain native ``title`` is fine. For populated cells
   // (ontology-backed OR free-text-assigned) we render a rich

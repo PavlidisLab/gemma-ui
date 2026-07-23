@@ -1880,32 +1880,36 @@ function TagBar({
       (s) => !!s.subject?.uri || !!s.object?.uri,
     );
   };
-  // Two filters, PARTITIONED so each governs a disjoint set of chips —
-  // no chip is hidden by both, so each "(N)" is exactly what unchecking
-  // reveals:
+  // Two filters that govern OVERLAPPING sets of chips:
   //   • Hide inherited → ALL inferred chips (bubbled up because every
   //     sample carries the annotation), resolved OR free-text.
-  //   • Hide free-text → DIRECT chips with no ontology URI (raw values).
-  // Inferred chips are governed ONLY by Hide inherited — so deleting a
-  // redundant direct tag surfaces its inherited underlying value even
-  // when that value is free-text, as long as inherited is shown. Paul
-  // 2026-07-20: a deleted redundant tag "goes away entirely" because the
-  // free-text filter was also hiding the (URI-less) inherited synth.
+  //   • Hide free-text → ALL chips with no ontology URI (raw values),
+  //     direct OR inferred.
+  // The overlap is inferred free-text chips (raw values like ``ATO`` /
+  // ``JQ1`` bubbled up from FVs) — both boxes hide them. Free-text now
+  // covers inferred too so the curator can strip that raw-value noise
+  // while keeping the resolved inherited chips (which Hide inherited
+  // would also drop). Because the sets overlap, each "(N)" is a
+  // reveal-accurate count: how many chips unchecking THAT box surfaces
+  // given the OTHER box's current state — an inferred free-text chip
+  // only counts toward a box when the other box isn't already hiding it.
   const isFreeText = (t: Tag) => !tagIsResolved(t);
   const anyInferred = dedupedAll.some((t) => t.inferred);
-  const anyDirectFreeText = dedupedAll.some(
-    (t) => !t.inferred && isFreeText(t),
-  );
-  const inferredCount = dedupedAll.filter((t) => t.inferred).length;
+  const anyFreeText = dedupedAll.some((t) => isFreeText(t));
+  const inferredCount = dedupedAll.filter(
+    (t) => t.inferred && !(hideFreeText && isFreeText(t)),
+  ).length;
   const freeTextCount = dedupedAll.filter(
-    (t) => !t.inferred && isFreeText(t),
+    (t) => isFreeText(t) && !(hideInferred && t.inferred),
   ).length;
   const dedupedDirect = dedupedAll.filter(
     (t) => !t.inferred && !(hideFreeText && isFreeText(t)),
   );
   const dedupedInferred = hideInferred
     ? []
-    : dedupedAll.filter((t) => t.inferred);
+    : dedupedAll.filter(
+        (t) => t.inferred && !(hideFreeText && isFreeText(t)),
+      );
   const showHeader =
     visibleTags.length > 0 || draft != null;
   if (!showHeader) return null;
@@ -1944,7 +1948,7 @@ function TagBar({
             available even when the other filter is currently hiding its
             share); the "(N)" is the reveal count for the current state.
             Both prefs are sticky app-wide and default ON. */}
-        {anyInferred || anyDirectFreeText ? (
+        {anyInferred || anyFreeText ? (
           <div className="ml-auto inline-flex items-center gap-3">
             {anyInferred ? (
               <label
@@ -1963,10 +1967,10 @@ function TagBar({
                 </span>
               </label>
             ) : null}
-            {anyDirectFreeText ? (
+            {anyFreeText ? (
               <label
                 className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
-                title="Hide unresolved free-text chips (raw values without an ontology term); ontology-resolved chips stay."
+                title="Hide unresolved free-text chips — raw inherited values with no ontology term (EE-tags are always grounded, so this only ever hides inferred chips); resolved chips stay."
               >
                 <input
                   type="checkbox"
