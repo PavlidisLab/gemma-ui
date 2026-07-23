@@ -2790,11 +2790,15 @@ function EditableDirectGroupChip({
           // curator can see at a glance which chips are pending.
           isNew &&
             "ring-2 ring-amber-400 ring-offset-1 ring-offset-white shadow-[0_0_8px_-2px_rgba(251,191,36,0.7)] dark:ring-offset-slate-900",
-          // Inherited-exact-match glint — soft violet ring + glow. Yields
-          // to the amber "new" ring when both apply (new is more urgent).
+          // Inherited-exact-match glint — violet ring + glow. Bumped from
+          // a faint ring-1/70% to a full-opacity ring-2 with a stronger
+          // glow (2026-07-22: too subtle to spot, light mode especially);
+          // colours track the legend swatch (violet-500 light / -400 dark).
+          // Stays offset-less so it still yields visually to the amber
+          // "new" ring (which adds ring-offset) when both would apply.
           !isNew &&
             hasInheritedMatch &&
-            "ring-1 ring-violet-400/70 shadow-[0_0_6px_-1px_rgba(167,139,250,0.65)] dark:ring-violet-500/60",
+            "ring-2 ring-violet-500 shadow-[0_0_8px_-1px_rgba(139,92,246,0.85)] dark:ring-violet-400",
         )}
         title={
           (protectedCategory
