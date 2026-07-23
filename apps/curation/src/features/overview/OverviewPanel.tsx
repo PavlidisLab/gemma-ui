@@ -48,6 +48,7 @@ import {
   PREDICATE_GUIDELINE,
   BASELINE_GUIDELINE,
   TAGS_GUIDELINE,
+  DEV_STAGE_GUIDELINE,
   CHECKLIST_GUIDELINE,
 } from "@/lib/guidelines";
 import type {
@@ -266,6 +267,10 @@ export function OverviewPanel() {
         </span>
         <span className="inline-flex items-center gap-1">
           tags <GuidelinePopup snippet={TAGS_GUIDELINE} size="md" />
+        </span>
+        <span className="inline-flex items-center gap-1">
+          developmental stages{" "}
+          <GuidelinePopup snippet={DEV_STAGE_GUIDELINE} size="md" />
         </span>
         <span className="inline-flex items-center gap-1">
           pre-publish checklist{" "}

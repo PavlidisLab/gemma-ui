@@ -66,6 +66,33 @@ const ONTO_URL =
 const CHECKLIST_URL =
   `${WIKI_HOST}/display/gemma/Experiment+Checklist`;
 
+/**
+ * Per-organism developmental-stage age cutoffs — the canonical mapping
+ * a curator applies when a paper gives an age but doesn't name a stage
+ * (Neonate -> Late Adult). Single source of truth: both the top-level
+ * "developmental stages" crib-sheet popup and the per-category
+ * "developmental stage" snippet render from this, so the numbers can't
+ * drift between the two surfaces. Values re-derived from the Curating
+ * EFCs wiki page, not from memory.
+ */
+export const DEV_STAGE_AGE_RANGES: { organism: string; ranges: string }[] = [
+  {
+    organism: "mouse",
+    ranges:
+      "Neonate P0-P9 · Infant P10-1mo · Juvenile 1-6/8wk · Prime Adult 6-8wk-1yr · Late Adult >1yr",
+  },
+  {
+    organism: "rat",
+    ranges:
+      "Neonate P0-P9 · Infant P10-1mo · Juvenile 1-2mo · Prime Adult 2mo-1.5yr · Late Adult >1.5yr",
+  },
+  {
+    organism: "human",
+    ranges:
+      "Neonate birth-1mo · Infant 1mo-2yr · Juvenile 2-16yr · Prime Adult 16-65yr · Late Adult >65yr",
+  },
+];
+
 /** Per-EFC guideline lookups, keyed by category label (lowercased). */
 export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
   "biological sex": {
@@ -138,7 +165,11 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
       "Use UBERON. EFO is FORBIDDEN for developmental stage.",
       "Embryo: use `embryo stage` (UBERON_0000068). NOT `embryo` (UBERON_0000922) — that's anatomical, not a stage.",
       "Common stages: Neonate (UBERON_0007221), Infant (UBERON_0034920), Juvenile (UBERON_0034919), Prime Adult (UBERON_0018241), Late Adult (UBERON_0007222).",
-      "Per-organism age ranges (when stage isn't stated explicitly): mouse — Neonate P0-P9, Infant P10-1mo, Juvenile 1-6/8wk, Prime Adult 6-8wk-1yr, Late Adult >1yr; rat — Neonate P0-P9, Infant P10-1mo, Juvenile 1-2mo, Prime Adult 2mo-1.5yr, Late Adult >1.5yr; human — Neonate birth-1mo, Infant 1mo-2yr, Juvenile 2-16yr, Prime Adult 16-65yr, Late Adult >65yr.",
+      "Per-organism age ranges (when stage isn't stated explicitly): " +
+        DEV_STAGE_AGE_RANGES.map((r) => `${r.organism} — ${r.ranges}`).join(
+          "; ",
+        ) +
+        ". See the Developmental stages crib sheet for the same table.",
       "Ranges: same prefix on both ends, space-dash-space (`1 week - 4 week`, `E10 - E12`).",
       "Exact ages: free text, attached via `has developmental stage` (TGEMO_00168) to the UBERON stage. E.g. `embryo stage + has developmental stage + E10`.",
     ],
@@ -418,7 +449,7 @@ export const ONTOLOGY_GUIDELINE: GuidelineSnippet = {
   sourceUrl: ONTO_URL,
   bullets: [
     "Prefer (a) an ontology-backed term over free text, (b) a previously-used term over a new one. The picker bolds previously-used terms; pick a bolded match unless it's wrong for this experiment.",
-    "Most-specific term wins. A bad ontology term is usually preferable to no ontology — search inheritance still pulls the experiment up under broader queries.",
+    "Pick the most specific term available. If the exact one doesn't exist, an option is to use a broader ontology term and specify the detail as a free-text modifier in the statement (`has modifier`, RO_0002573). Ontology terms ride Gemma's search inheritance — a term is also returned by queries for its broader parents — so an ontology match stays findable in a way free text never is.",
     "Different colour cues: green = ontology-backed, plain (black) = free-text fallback, bold = previously used in Gemma.",
     "Use terms by their meaning, not their label. `Cat` could be the animal, the enzyme, or the imaging technique. `Cortex` could be kidney or brain. Read the term's definition / parents on Ontobee before picking.",
     "Loaded ontologies: NCBI_Gene, GO, HP, MP, ChEBI, MONDO, OBI, EFO, PATO, UBERON, CL, CLO, TGEMO. NCBI_Taxon piggybacks via dependencies.",
@@ -444,6 +475,26 @@ export const CHECKLIST_GUIDELINE: GuidelineSnippet = {
     "History: failed events / analyses fixed, or troubled flag set on what can't be fixed.",
     "Admin: preprocessing complete (except batch info if the platform doesn't have dates), DEA done — unless sample-study or otherwise unsuitable for DEA.",
   ],
+};
+
+/**
+ * Standalone "developmental stages" crib sheet for the top-level
+ * guidelines bar. Same content a curator gets from the per-category
+ * "developmental stage" help, promoted here so the age -> stage
+ * cutoffs are reachable without being on a developmental-stage EFC.
+ * The age table is single-sourced from {@link DEV_STAGE_AGE_RANGES}.
+ */
+export const DEV_STAGE_GUIDELINE: GuidelineSnippet = {
+  title: "Developmental stages — age cutoffs",
+  source: "Curating EFCs",
+  sourceUrl: WIKI_BASE,
+  bullets: [
+    "Use UBERON — EFO is FORBIDDEN for developmental stage. Embryo = `embryo stage` (UBERON_0000068), NOT `embryo` (UBERON_0000922, which is anatomical).",
+    "Stage terms: Neonate (UBERON_0007221), Infant (UBERON_0034920), Juvenile (UBERON_0034919), Prime Adult (UBERON_0018241), Late Adult (UBERON_0007222).",
+    "Use the stage the paper names. When it gives only an age, map to a stage with the per-organism cutoffs below.",
+    "Exact age → free text via `has developmental stage` (TGEMO_00168) on the UBERON stage. E.g. `embryo stage + has developmental stage + E10`.",
+  ],
+  examples: DEV_STAGE_AGE_RANGES.map((r) => `${r.organism}: ${r.ranges}`),
 };
 
 /**
