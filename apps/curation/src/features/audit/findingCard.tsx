@@ -767,17 +767,23 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                       </span>
                       {catLabel ? (
                         <>
-                          {/* Category field-name role → the ``category``
-                              variant (slate, italic, no emerald bookmark
-                              so it doesn't compete with the value chip),
-                              which still carries a CURIE link-out when the
-                              category is grounded. That CURIE is the "is
-                              this an ontology term?" tell the plain italic
-                              chip lacked. Paul 2026-07-22 (cell type =
-                              EFO_0000324 but read as free-text). */}
+                          {/* Grounding must read at a glance. GROUNDED
+                              category (has a URI) → the ``category`` variant
+                              (slate, italic, no emerald bookmark so it
+                              doesn't compete with the value) which carries a
+                              CURIE link-out — that CURIE is the "this IS an
+                              ontology term" tell. UNGROUNDED category (no URI
+                              in the agent's data) → the ``free`` variant, the
+                              house "still needs resolving" style, so it never
+                              masquerades as a grounded term. If a category
+                              that should be grounded shows up free, that's the
+                              agent's missing URI — surfaced honestly, not
+                              papered over. Paul 2026-07-22 (cell type had a
+                              URI and read free; strain has none and read
+                              term-ish). */}
                           <Term
                             uri={catUri}
-                            variant="category"
+                            variant={catUri ? "category" : "free"}
                             asLink={false}
                             className="!whitespace-normal break-words"
                           >
