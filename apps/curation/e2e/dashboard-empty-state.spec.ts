@@ -24,7 +24,7 @@ test.describe("Dashboard — fresh-DB empty state @live", () => {
     const ticketsHeader = page.getByRole("heading", { name: /^Tickets$/ });
     // The dash appears next to the heading in the right-side counter.
     const headerRegion = ticketsHeader.locator("..").locator("..");
-    await expect(headerRegion).toContainText(/[—\-]/);
+    await expect(headerRegion).toContainText(/[—-]/);
   });
 
   test("Sets section renders even with zero groups", async ({ page }) => {

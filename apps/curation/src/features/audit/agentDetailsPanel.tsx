@@ -262,15 +262,15 @@ export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
 // (Paul 2026-06-15, FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md).
 // Recover from git history if a diff comparison is needed; the new
 // ``AgentSuggestionPanel`` above is the canonical render. The
-// function below is preserved verbatim as ``_LegacyAgentSuggestionPanel``
+// function below is preserved verbatim as ``LegacyAgentSuggestionPanel``
 // and re-exported so its imports stay live during the migration
 // window — once the producer-side ``why`` / ``reviews`` / ``comparison``
 // blocks land on the wire and the three-phase render has settled,
 // delete this function plus the unused imports.
 //
-// Export-only to satisfy ``noUnusedLocals`` without ESLint suppressions.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function _LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
+// Export-only to satisfy ``noUnusedLocals`` without ESLint suppressions
+// — nothing renders it today; kept for git-diff reference only.
+export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const { report } = useAudit();
   const verdictFix = shortFixForVerdict(finding.defender_verdict);
   // For calibration triplet codes the collapsed header already states

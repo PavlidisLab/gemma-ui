@@ -13,7 +13,7 @@ import type { FullConfig } from "@playwright/test";
  */
 export default async function globalSetup(_config: FullConfig) {
   const base = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5175";
-  let up = false;
+  let up: boolean;
   try {
     const res = await fetch(`${base}/rest/v2/datasets?limit=1`, {
       signal: AbortSignal.timeout(3000),

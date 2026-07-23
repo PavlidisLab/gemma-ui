@@ -699,7 +699,7 @@ function resolveCalibrationApply(
     const term = finding.proposer_term;
     let categoryLabel = (term?.label ? "" : "").trim();
     let valueLabel = (term?.label ?? "").trim();
-    let valueUri: string | null = term?.uri ?? null;
+    const valueUri: string | null = term?.uri ?? null;
     if (!valueLabel) {
       // Fall back to the rationale's first backticked ``cat: val`` —
       // calibration_match's standard rationale shape ("Is

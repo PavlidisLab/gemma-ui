@@ -84,6 +84,7 @@ import {
   resolveGoldFactor,
 } from "./factorMatch";
 import { pickJudgeRowText } from "./auditorDetails";
+import { SHOW_PARK_AFFORDANCE } from "./auditPresentation";
 import { verdictToStructureDetails } from "./dispositionSave";
 import { consequentHint, type ConsequentHintState } from "./consequentHint";
 import { firstBacktick, trimRationaleBoilerplate } from "./rationaleText";
@@ -5211,8 +5212,8 @@ function ActionRow({
           </button>
         </>
       ) : null}
-      {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
-      {false && showEscapeHatches ? (
+      {/* Park button — gated off via SHOW_PARK_AFFORDANCE (auditPresentation.ts). */}
+      {SHOW_PARK_AFFORDANCE && showEscapeHatches ? (
         <button
           type="button"
           onClick={onPark}

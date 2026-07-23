@@ -311,7 +311,6 @@ test.describe("all-experiments table — search and filter @live", () => {
     // Either we see the empty state OR there are actually some
     // troubled experiments (valid too). On a fresh seed DB there are
     // none, so we assert the empty-state text.
-    const emptyState = page.getByText(/No experiments troubled/i);
     const emptyAlt = page.getByText(/No experiments/i);
     const rows = page.locator("tbody tr");
 

@@ -38,7 +38,6 @@ import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { FindingReasoningPanel } from "./findingReasoningPanel";
 import { FindingRecommendation } from "./FindingRecommendation";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
-import { normalizeWikiUrl } from "@/lib/guidelines";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
   clearAllProposalStateForExperiment,
@@ -73,11 +72,7 @@ import {
   GoldFactorMissEmbed,
   RenameFactorEmbed,
 } from "./findingEmbeds";
-import {
-  AgentSuggestionPanel,
-  DispositionNoteRow,
-  InlineSubtaskReasoning,
-} from "./agentDetailsPanel";
+import { DispositionNoteRow } from "./agentDetailsPanel";
 import {
   findingActionGlyph,
   findingActionLabel,
@@ -92,18 +87,14 @@ import {
   displaySeverity,
   severityBorderCls,
   verdictStrength,
+  SHOW_PARK_AFFORDANCE,
 } from "./auditPresentation";
 import { isNearMatchFinding } from "./factorMatch";
 import {
   countFindingDisagreements,
-  extractAuditIdentities,
   findingHasStructuredContent,
 } from "./FindingDetailsEditor";
-import {
-  firstBacktick,
-  splitRationaleTrail,
-  trimRationaleBoilerplate,
-} from "./rationaleText";
+import { firstBacktick } from "./rationaleText";
 import { parseTargetId, slug } from "./targetIds";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import { resolveApplyAction } from "./applyHandlers";
@@ -232,14 +223,6 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
     setOpen(panelExpansion === "fully");
   }, [panelExpansion]);
 
-  // The auditor's identity ("Agent" / "Gemma" / "amanda" / "cyan") —
-  // used to label the agent-details pill so it reads as "amanda
-  // details" / "cyan details" / "Gemma details" instead of the generic
-  // "agent details". Per Paul 2026-05-21: the word "agent" should be
-  // the name of whoever played the auditor role; use "auditor" only
-  // when fully generic.
-  const auditorName = extractAuditIdentities(report?.model).proposer;
-
   // Toggle helper that scroll-into-views the card on expand. Without
   // this, expanding a collapsed card at the bottom of the viewport
   // leaves its body off-screen and the curator has to scroll manually.
@@ -292,34 +275,14 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
     return () => cancelAnimationFrame(raf);
   }, [activeFindingKey, myKey, setActiveFindingKey]);
 
-  // Is there anything meaningful to reveal when the curator expands
-  // this card? Findings with no citation, no agent suggestion, no
-  // reasoning trail, and a one-line rationale have an empty expanded
-  // body — chevron + click would be a dead affordance. Compute up-
-  // front and gate the toggle so the card visually signals "headline
-  // only" rather than promising detail that isn't there.
-  const trail = splitRationaleTrail(
-    trimRationaleBoilerplate(finding.rationale),
-  ).trail;
-  // Be defensive: an OBJECT existing with empty string fields used to
-  // trip `!!field` truthy. Tighten to "is there actually content the
-  // expanded body would render?" — matches what the curator sees.
-  const nonEmpty = (s: string | null | undefined): boolean =>
-    !!(s && s.trim());
-  const hasCitation =
-    nonEmpty(finding.citation) || nonEmpty(finding.citation_url);
-  // AgentSuggestionPanel now ALWAYS renders the Judge row (with the
-  // `[agent emitted no details]` sentinel when defender +
-  // proposer_defense are both empty). So even findings with no
-  // structured content carry the sentinel — keep the chevron available
-  // so the curator can see that signal explicitly. Per Paul: "we can't
-  // tell from this view whether the agent emitted no details OR
-  // whether the renderer dropped them."
-  const hasAgentSuggestion = true;
-  const hasExpandableContent =
-    hasCitation || hasAgentSuggestion || nonEmpty(trail);
+  // The chevron is always available: AgentSuggestionPanel always
+  // renders the Judge row (with the `[agent emitted no details]`
+  // sentinel when defender + proposer_defense are both empty), so even
+  // findings with no structured content carry a signal worth revealing.
+  // Per Paul: "we can't tell from this view whether the agent emitted
+  // no details OR whether the renderer dropped them."
 
-  // Once dispositioned, the finding fades — it's no longer load-bearing
+  // Once dispositioned, the finding fades — it's no longer useful
   // for the curator's attention. No coloured "verdict" badge competes
   // for the eye; the whole card just recedes (kept legible enough to
   // re-read, but unmistakably "done"). A tiny ✓ / × / ⋯ glyph replaces
@@ -1086,6 +1049,38 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // status, not a passing caption.
   const readOnly = useIsReadOnly();
   const { baselineLabel } = useDesignDraft();
+
+  // These state hooks MUST be declared before the `if (readOnly)` early
+  // return below — React requires the same hooks to run in the same
+  // order on every render, and the read-only branch returns before the
+  // rest of the component body (rules-of-hooks).
+  const [dismissOpen, setDismissOpen] = useState(false);
+  // Two new dialogs for the unified reason flow (2026-05-10): accept
+  // (curator agrees with an agent-extra suggestion) and not-sure
+  // (curator parks the finding with a documented reason). Same
+  // anchor-positioned popover as dismiss, different reason chips.
+  const [acceptOpen, setAcceptOpen] = useState(false);
+  const [notSureOpen, setNotSureOpen] = useState(false);
+  // Edit-mode flags pair with the *Open state above. Set together
+  // when the curator clicks the "✎ edit" link on an already-
+  // dispositioned finding; the dialog renders with prefilled
+  // notes/tag and a "Save" confirm. Server-side this is the same PATCH
+  // path — append-only log, latest-per-target_id wins.
+  const [dismissEditing, setDismissEditing] = useState(false);
+  const [acceptEditing, setAcceptEditing] = useState(false);
+  const [notSureEditing, setNotSureEditing] = useState(false);
+  // Draft snapshot taken just before a mutating apply action runs.
+  // Restored by the undo button so "undo" reverts BOTH the server
+  // disposition and the draft mutation together.
+  const [preApplyDraftSnapshot, setPreApplyDraftSnapshot] =
+    useState<Design | null>(null);
+  // The DismissDialog portals out of the sidebar's overflow context
+  // and positions itself relative to these refs' bounding rects — one
+  // ref per dialog-trigger button.
+  const dismissBtnRef = useRef<HTMLButtonElement | null>(null);
+  const acceptBtnRef = useRef<HTMLButtonElement | null>(null);
+  const notSureBtnRef = useRef<HTMLButtonElement | null>(null);
+
   // Hoisted from below so the read-only path can pass it to the
   // editor without re-deriving — same value, same source.
   const readOnlyDisposition =
@@ -1132,32 +1127,6 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
       </div>
     );
   }
-  const [dismissOpen, setDismissOpen] = useState(false);
-  // Two new dialogs for the unified reason flow (2026-05-10): accept
-  // (curator agrees with an agent-extra suggestion) and not-sure
-  // (curator parks the finding with a documented reason). Same
-  // anchor-positioned popover as dismiss, different reason chips.
-  const [acceptOpen, setAcceptOpen] = useState(false);
-  const [notSureOpen, setNotSureOpen] = useState(false);
-  // Edit-mode flags pair with the *Open state above. Set together
-  // when the curator clicks the "✎ edit" link on an already-
-  // dispositioned finding; the dialog renders with prefilled
-  // notes/tag and a "Save" confirm. Server-side this is the same PATCH
-  // path — append-only log, latest-per-target_id wins.
-  const [dismissEditing, setDismissEditing] = useState(false);
-  const [acceptEditing, setAcceptEditing] = useState(false);
-  const [notSureEditing, setNotSureEditing] = useState(false);
-  // Draft snapshot taken just before a mutating apply action runs.
-  // Restored by the undo button so "undo" reverts BOTH the server
-  // disposition and the draft mutation together.
-  const [preApplyDraftSnapshot, setPreApplyDraftSnapshot] =
-    useState<Design | null>(null);
-  // The DismissDialog portals out of the sidebar's overflow context
-  // and positions itself relative to these refs' bounding rects — one
-  // ref per dialog-trigger button.
-  const dismissBtnRef = useRef<HTMLButtonElement | null>(null);
-  const acceptBtnRef = useRef<HTMLButtonElement | null>(null);
-  const notSureBtnRef = useRef<HTMLButtonElement | null>(null);
   // Pass the report + draft so factor-level calibration apply handlers
   // (extra → add factor, gold_only_miss → remove factor) can resolve
   // the agent factor and guard against double-applies.
@@ -1871,14 +1840,9 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               ? `✓ ${dispoLabels.dismissLabel.toLowerCase()}`
               : `${dispoLabels.dismissLabel}…`}
           </button>
-          {/* Park button — Paul 2026-06-14: "I'm not sure we have
-              park functionality; let's hide that, but don't remove
-              it." The handlers + chip set + server enum all stay
-              wired up; just don't surface the affordance until the
-              flow that needs it (mid-curation handoffs, partial
-              review) actually lands. Restore by flipping the gate. */}
-          {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
-          {false ? (
+          {/* Park button — gated off via SHOW_PARK_AFFORDANCE (see the
+              constant's comment above FindingActionRow for why). */}
+          {SHOW_PARK_AFFORDANCE ? (
             <button
               ref={notSureBtnRef}
               type="button"

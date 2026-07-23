@@ -25,6 +25,20 @@ import {
 } from "./factorMatch";
 
 // ---------------------------------------------------------------------------
+// Feature gates
+// ---------------------------------------------------------------------------
+
+/** Park-affordance gate — Paul 2026-06-14: "I'm not sure we have park
+ *  functionality; let's hide that, but don't remove it." The handlers,
+ *  chip set, and server enum all stay wired; this just suppresses the
+ *  "Park…" button on both the compact action row (findingCard) and the
+ *  per-element editor (FindingDetailsEditor) until the flow that needs
+ *  it (mid-curation handoffs, partial review) lands. Owned here so
+ *  restoring the affordance is a single-file flip to `true` rather than
+ *  two files drifting apart. */
+export const SHOW_PARK_AFFORDANCE = false;
+
+// ---------------------------------------------------------------------------
 // Target kinds — ordering and human-facing labels
 // ---------------------------------------------------------------------------
 

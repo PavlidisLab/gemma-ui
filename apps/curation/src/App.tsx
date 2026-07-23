@@ -1415,16 +1415,18 @@ function SharedCommitBar({
   // FlowContext is the single source of truth for this.
   const readOnly = useIsReadOnly();
   const { diff, draft, commit, discard, saving, saveError } = useDesignDraft();
+  // For stamping baseline-override reasons onto curation_note: read
+  // the current note (so we can append rather than replace), and
+  // get the updater. Both are scoped to this experiment. Declared
+  // before the read-only early return so hook order stays stable
+  // across renders (rules-of-hooks).
+  const curation = useCurationDetails(experimentId);
+  const updateCuration = useUpdateCurationDetails(experimentId, reviewer);
   if (readOnly) return null;
   // Compute the validator state from the draft so the bar can gate
   // commit on baseline correctness without a round-trip to the
   // server. validateDesign is cheap (linear in factors × FVs).
   const validation = draft ? validateDesign(draft) : null;
-  // For stamping baseline-override reasons onto curation_note: read
-  // the current note (so we can append rather than replace), and
-  // get the updater. Both are scoped to this experiment.
-  const curation = useCurationDetails(experimentId);
-  const updateCuration = useUpdateCurationDetails(experimentId, reviewer);
   return (
     <CommitBar
       diff={diff}

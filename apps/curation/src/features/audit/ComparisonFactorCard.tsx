@@ -86,7 +86,7 @@ import {
   isExactFactorMatch,
   synthesizeGoldFactorFromRename,
 } from "./factorMatch";
-import { displaySeverity } from "./auditPresentation";
+import { displaySeverity, SHOW_PARK_AFFORDANCE } from "./auditPresentation";
 
 // Local ``Term`` renderer removed 2026-06-15. The comparison grid now
 // uses the canonical ``termRenderer`` from
@@ -1444,12 +1444,10 @@ export function ComparisonFactorCard({
                   {dismissLabel}
                 </button>
               )}
-              {/* Park button hidden 2026-06-14 (Paul: "hide the park
-                  button — everywhere; don't remove it"). Handler stays
-                  wired; flip the ``false`` gate to restore. Same pattern
-                  used in findingCard / FindingDetailsEditor. */}
-              {/* eslint-disable-next-line @typescript-eslint/no-unused-vars */}
-              {false ? (
+              {/* Park button gated off via SHOW_PARK_AFFORDANCE
+                  (auditPresentation.ts) — same gate as findingCard /
+                  FindingDetailsEditor. Handler stays wired. */}
+              {SHOW_PARK_AFFORDANCE ? (
                 <button
                   type="button"
                   disabled={busy}
