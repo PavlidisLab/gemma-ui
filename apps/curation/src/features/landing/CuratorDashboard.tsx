@@ -74,6 +74,78 @@ function readInitialFilter(): DashboardFilter {
   return "all";
 }
 
+/** Dashboard ticket-list sort order. ``newest`` / ``oldest`` key on when
+ *  the ticket was FILED (``created_at``); ``updated`` on last activity;
+ *  ``priority`` restores the legacy priority-first-then-recency order.
+ *  Default is ``newest`` — the freshest ticket sits at the top so a
+ *  curator returning to the queue sees what just landed. Paul 2026-07-22. */
+type DashboardSort = "newest" | "oldest" | "updated" | "priority";
+
+const SORT_OPTIONS: { id: DashboardSort; label: string }[] = [
+  { id: "newest",   label: "Newest first" },
+  { id: "oldest",   label: "Oldest first" },
+  { id: "updated",  label: "Recently updated" },
+  { id: "priority", label: "Priority" },
+];
+
+const DEFAULT_SORT: DashboardSort = "newest";
+const SORT_STORAGE_KEY = "curator_dashboard.ticket_sort";
+
+function isDashboardSort(v: string | null): v is DashboardSort {
+  return v === "newest" || v === "oldest" || v === "updated" || v === "priority";
+}
+
+/** Same precedence as ``readInitialFilter``: URL ``?sort=`` wins, then
+ *  localStorage, then the ``newest`` default. */
+function readInitialSort(): DashboardSort {
+  if (typeof window === "undefined") return DEFAULT_SORT;
+  try {
+    const hash = window.location.hash;
+    const q = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const params = new URLSearchParams(q);
+    const fromUrl = params.get("sort");
+    if (isDashboardSort(fromUrl)) return fromUrl;
+    const fromStore = window.localStorage.getItem(SORT_STORAGE_KEY);
+    if (isDashboardSort(fromStore)) return fromStore;
+  } catch {
+    // Fall through to default.
+  }
+  return DEFAULT_SORT;
+}
+
+/** Compare two ISO-date strings, missing values ALWAYS sorting last
+ *  regardless of direction (a ticket with no timestamp shouldn't jump to
+ *  the top of either an ascending or a descending list). ISO-8601 sorts
+ *  lexically, so ``localeCompare`` gives correct chronological order. */
+function cmpIsoDate(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  dir: "asc" | "desc",
+): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return dir === "asc" ? a.localeCompare(b) : b.localeCompare(a);
+}
+
+/** Ticket comparator for a given dashboard sort mode. */
+function compareTickets(a: Ticket, b: Ticket, sort: DashboardSort): number {
+  switch (sort) {
+    case "newest":
+      return cmpIsoDate(a.created_at, b.created_at, "desc");
+    case "oldest":
+      return cmpIsoDate(a.created_at, b.created_at, "asc");
+    case "updated":
+      return cmpIsoDate(a.updated_at, b.updated_at, "desc");
+    case "priority": {
+      const pa = ticketPriorityRank(a.priority);
+      const pb = ticketPriorityRank(b.priority);
+      if (pa !== pb) return pa - pb;
+      return cmpIsoDate(a.updated_at, b.updated_at, "desc");
+    }
+  }
+}
+
 /** A ticket is "resolved" by its lifecycle state (RESOLVED or
  *  CANCELLED); everything else is "open". */
 function ticketIsResolved(ticket: Ticket): boolean {
@@ -154,6 +226,7 @@ export function CuratorDashboard({
   const [filter, setFilter] = useState<DashboardFilter>(() =>
     readInitialFilter(),
   );
+  const [sort, setSort] = useState<DashboardSort>(() => readInitialSort());
   const [showCreateScreening, setShowCreateScreening] = useState(false);
 
   // Quick-search over the full curation catalogue. The list is paged in
@@ -203,7 +276,7 @@ export function CuratorDashboard({
     //   0 → open plain · 1 → open with it live · >1 → picker gateway.
     const exp = matches[0];
     setResolving(true);
-    let openTickets: Ticket[] = [];
+    let openTickets: Ticket[];
     try {
       const tks = await qc.fetchQuery(
         experimentTicketsQueryOptions(exp.experiment_id),
@@ -252,6 +325,27 @@ export function CuratorDashboard({
     }
   }, [filter]);
 
+  // Persist sort selection the same way as the filter — URL ``?sort=``
+  // wins on bookmarks, localStorage is the soft default. The default
+  // (``newest``) is omitted from the URL to keep the common case clean.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SORT_STORAGE_KEY, sort);
+      const hash = window.location.hash || "#/";
+      const [path, queryStr] = hash.split("?");
+      const params = new URLSearchParams(queryStr ?? "");
+      if (sort === DEFAULT_SORT) params.delete("sort");
+      else params.set("sort", sort);
+      const next = params.toString();
+      const newHash = next ? `${path}?${next}` : path;
+      if (newHash !== hash) {
+        window.history.replaceState(null, "", newHash);
+      }
+    } catch {
+      // Best-effort — state stays live in React.
+    }
+  }, [sort]);
+
   // Always fetch RESOLVED/CANCELLED tickets, on every filter. The light
   // endpoint returns the whole list regardless — ``includeClosed`` only
   // toggles a client-side filter inside the hook (see tickets.ts), so
@@ -275,16 +369,14 @@ export function CuratorDashboard({
     light: true,
   });
 
-  // Apply the chip filter, then sort by priority + recency.
+  // Apply the chip filter, then sort by the curator's chosen order
+  // (default: newest filed first).
   const filteredTickets = (tickets ?? []).filter((t) =>
     ticketMatchesFilter(t, filter),
   );
-  const sortedTickets = filteredTickets.slice().sort((a, b) => {
-    const pa = ticketPriorityRank(a.priority);
-    const pb = ticketPriorityRank(b.priority);
-    if (pa !== pb) return pa - pb;
-    return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
-  });
+  const sortedTickets = filteredTickets
+    .slice()
+    .sort((a, b) => compareTickets(a, b, sort));
 
   // Per-filter counts for the chip labels. Computed over the full
   // fetched list (``includeClosed`` is always on above), so every chip
@@ -486,6 +578,23 @@ export function CuratorDashboard({
                 </button>
               );
             })}
+            {/* Sort selector — mirrors the filter chips' right edge.
+                Persists via ``?sort=`` on the URL + localStorage. */}
+            <label className="ml-auto inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <span>Sort</span>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as DashboardSort)}
+                title="Order the ticket list"
+                className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           {ticketsLoading ? (
             /* Skeleton grid — same layout + footprint as the real
