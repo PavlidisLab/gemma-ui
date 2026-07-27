@@ -13,7 +13,7 @@
  * instead of generic curation-urgency framing.
  *
  * Background: pre-routing, calibration findings fell through to the
- * generic chip sets, and amanda ended up routing 19/20 v7b factor-
+ * generic chip sets, and Curator A ended up routing 19/20 v7b factor-
  * gold-miss dismisses through `weak_evidence` (the closest-feeling
  * chip in the wrong vocab). See CALIBRATION_CHIP_GAP_HANDOFF.md.
  */
@@ -77,7 +77,7 @@ export const NOT_SURE_CHIPS: DialogChip[] = [
 // chip-gap by case-count across curators (~50 cases pre-landing;
 // see CALIBRATION_CHIP_GAP_HANDOFF.md). Used for both tag and
 // factor gold-miss findings (server gate accepts both).
-// 2026-06-14 vocab expansion per Paul + the bro 1 open-enum wire:
+// 2026-06-14 vocab expansion per design review + the agents-side open-enum wire:
 // "Structure correct, FVs wrong" and "Wrong partition, factor right"
 // reflect what curators actually say when they disagree with a
 // remove-factor proposal. These join the existing
@@ -100,7 +100,7 @@ export const CAL_MISS_FACTOR_DISMISS_CHIPS: DialogChip[] = [
 // TAG-side removal dismiss — curator says "don't remove the tag";
 // the tag is correct and should stay. Tags have NO factor values,
 // NO partition, NO structure — chips that talk about FVs/partition
-// don't apply. Per Paul 2026-06-15: "tags don't have factor values
+// don't apply. Per design review 2026-06-15: "tags don't have factor values
 // or levels or structure GET IT RIGHT" and earlier: "When prompted
 // to _remove_ a tag, the _reject_ would be by ('keep') 'Agent
 // missed it' pretty much."
@@ -120,7 +120,7 @@ export const CAL_MISS_TAG_DISMISS_CHIPS: DialogChip[] = [
 export const CAL_MISS_DISMISS_CHIPS = CAL_MISS_FACTOR_DISMISS_CHIPS;
 // For calibration_*_gold_only_miss: "Accept (remove)" means curator
 // agrees with agent's removal. Chips align with the reasons a
-// curator would normally remove a current tag, per Paul 2026-06-15:
+// curator would normally remove a current tag, per design review 2026-06-15:
 // "it should be the same reasons that we remove the 'current':
 // agent is right but we can be more specific; the current is
 // redundant; or the current is wrong." Open-enum on the wire
@@ -136,7 +136,7 @@ export const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
 // For calibration_agent_extra (tag-side): "Disagree" means curator
 // thinks the agent over-proposed (agent FP). Chips explain WHY.
 //
-// `not_sample_applicable` leads — amanda's 8 v18 cases + cross-curator
+// `not_sample_applicable` leads — Curator A's 8 v18 cases + cross-curator
 // confirmation. `redundant_with_bm_source` is tag-only per the server
 // gate (factor extras don't show this shape).
 export const CAL_EXTRA_TAG_DISMISS_CHIPS: DialogChip[] = [
@@ -158,7 +158,7 @@ export const CAL_EXTRA_TAG_DISMISS_CHIPS: DialogChip[] = [
 // new `not_sample_applicable` / `redundant_with_bm_source` chips
 // don't apply — factor values define their sample groupings
 // explicitly, and BM-source redundancy is a tag concept.
-// 2026-06-14 vocab expansion per Paul. "Already covered", "Wrong
+// 2026-06-14 vocab expansion per design review. "Already covered", "Wrong
 // shape", "FVs wrong" reflect the dominant reasons curators decline
 // to add a proposed factor — going beyond "no evidence" / "out of
 // scope" which both undershoot the real reasoning. Open-enum on the
@@ -180,7 +180,7 @@ export const FACTOR_MATCH_DISMISS_CHIPS: DialogChip[] = [
   { key: "category_mismatch",  label: "Different category", help: "agent and the gold factor name different things" },
   { key: "partition_mismatch", label: "Different partition", help: "same category, different sample groupings" },
   { key: "synonym_only",       label: "Synonym, not same",  help: "labels are close but not semantically equivalent" },
-  // Paul 2026-06-14: the "keep" decision has more than one shape —
+  // Design review 2026-06-14: the "keep" decision has more than one shape —
   // agent could be flat-out wrong OR agent could be close enough that
   // the disagreement isn't load-bearing. Recording the distinction
   // helps the calibration analytics tell "real curator-vs-agent
@@ -193,7 +193,7 @@ export const FACTOR_MATCH_DISMISS_CHIPS: DialogChip[] = [
 // Tag match disagree — same "Not a match" framing but with a
 // tag-flavoured why. "Different partition" doesn't apply (tags don't
 // have FV partitions); the right tag-side analog is "doesn't apply
-// to all samples." Paul 2026-06-14: "i thought we agreed on reject
+// to all samples." Design review 2026-06-14: "i thought we agreed on reject
 // causes like 'doesn't apply to all samples' — 'different partitions'
 // doesn't make sense for tag."
 export const TAG_MATCH_DISMISS_CHIPS: DialogChip[] = [
@@ -227,11 +227,11 @@ export const CAL_EXTRA_ACCEPT_CHIPS: DialogChip[] = [
 // tag-shape-specific chips (`not_sample_applicable` / "Subset only" +
 // `redundant_with_bm_source` / "Redundant"). Used for tag-target
 // findings that aren't `calibration_agent_extra` (which has its own
-// `CAL_EXTRA_TAG_DISMISS_CHIPS` set above). Per Paul 2026-06-12: "a
+// `CAL_EXTRA_TAG_DISMISS_CHIPS` set above). Per design review 2026-06-12: "a
 // disposition for a tag like 'Only applies to some samples' would be
 // more helpful than 'weak evidence' or 'out of scope'." Server-side
 // gate for both chips widened from `{calibration_agent_extra}` to
-// any tag-target finding per bro's 2026-06-12 schema update; safe to
+// any tag-target finding per the agents-side 2026-06-12 schema update; safe to
 // surface here without 422 risk.
 export const TAG_DISMISS_CHIPS: DialogChip[] = [
   { key: "not_sample_applicable",  label: "Subset only",        help: "applies to only a subset of profiled samples (e.g., case half of a case/control study)" },
@@ -251,7 +251,7 @@ export const TAG_DISMISS_CHIPS: DialogChip[] = [
 /** Factor variants share the calibration chip sets with their tag
  *  counterparts — same TP/FP/FN/TN framing, same curator rationales
  *  in practice. Without this routing the factor codes fall through
- *  to the generic DISMISS_CHIPS / ACCEPT_CHIPS, which is how amanda
+ *  to the generic DISMISS_CHIPS / ACCEPT_CHIPS, which is how Curator A
  *  ended up routing 19/20 v7b factor-gold-miss dismisses through
  *  `weak_evidence` (the closest-feeling chip in the wrong vocab) —
  *  see CALIBRATION_CHIP_GAP_HANDOFF.md, "Discoverability ask".
@@ -298,7 +298,7 @@ export function dismissChipsFor(
   // Remove-factor / remove-tag: curator disagrees with the removal.
   // Split per ``target_kind`` — tags and factors share the issue_code
   // family but have entirely different vocabularies (tags have no
-  // FVs / partition / structure). Paul 2026-06-15: "tags don't have
+  // FVs / partition / structure). Design review 2026-06-15: "tags don't have
   // factor values or levels or structure GET IT RIGHT".
   if (
     issueCode === "calibration_gold_only_miss" ||

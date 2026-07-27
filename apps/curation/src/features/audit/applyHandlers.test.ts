@@ -11,7 +11,7 @@ import { resolveApplyAction } from "./applyHandlers";
 
 /**
  * Contract tests for the apply-action chain. These lock in the
- * behaviour Paul keeps having to re-prove: when the curator clicks
+ * behaviour the reviewer keeps having to re-prove: when the curator clicks
  * "remove" / "Agree" / "add" on a finding card, the design draft
  * gets mutated correctly. Each test runs the resolved mutator
  * against a real Design and verifies the resulting draft.
@@ -89,7 +89,7 @@ describe("resolveApplyAction — REMOVE TAG", () => {
     expect(next.tags.find((t) => t.id === 7)).toBeUndefined();
   });
 
-  it("removes a tag when target_id slug is hyphen-joined but design label uses spaces (the actual bug Paul hit)", () => {
+  it("removes a tag when target_id slug is hyphen-joined but design label uses spaces (the actual bug the reviewer hit)", () => {
     // The agent slugs labels via "lowercase + collapse-whitespace-to-dash".
     // The curator's saved tag label keeps the original spacing. The
     // pre-fix labelEq compare (lowercase + trim only) missed this and
@@ -732,7 +732,7 @@ describe("resolveApplyAction — MODIFY TAG (replace_tag with statements)", () =
   it("modifies a value-concept near-match with a SLUG target_id in place (strain C57BL/10 → mdx)", () => {
     // GSE84876 strain near-match: replace_tag, slug target_id, NO
     // statements, new_value "mdx". The old path required a numeric
-    // tag:N and returned null → "adopt Auditor's" did nothing (Paul
+    // tag:N and returned null → "adopt Auditor's" did nothing (the reviewer
     // 2026-07-13). Now it modifies the matched tag in place.
     const d = design({
       tags: [
@@ -859,7 +859,7 @@ describe("resolveApplyAction — REJECT / no-op cases", () => {
   });
 });
 
-describe("resolveApplyAction — CONTINUOUS FACTOR add (Paul 2026-06-13)", () => {
+describe("resolveApplyAction — CONTINUOUS FACTOR add (design review 2026-06-13)", () => {
   // The agent ships continuous-factor proposals as ONE placeholder FV
   // with empty biomaterials + null numeric_value. The old apply path
   // added the placeholder verbatim — one empty FV, no per-sample

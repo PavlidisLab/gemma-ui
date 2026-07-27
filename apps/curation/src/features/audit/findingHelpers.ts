@@ -157,14 +157,14 @@ export function findingDisplayedGoldEmpty(
  *  baseline (often live Gemma) but the current view's baseline
  *  (polished_gold / cy_polished / etc.) doesn't carry it, so the card
  *  body would render ``Current: no entry`` and the bare "Tag match"
- *  title would contradict the body. Paul 2026-06-16. */
+ *  title would contradict the body. Design review 2026-06-16. */
 export interface FindingActionLabelContext {
   goldEmpty?: boolean;
 }
 
 /** A ``calibration_tag_match_near`` whose VALUE or CATEGORY moved — the
  *  concept was REPLACED (e.g. ``strain: C57BL/10`` → ``mdx``, an ontology
- *  child), not merely refined with a statement. Paul 2026-07-13: an entire
+ *  child), not merely refined with a statement. Design review 2026-07-13: an entire
  *  value swap is a "tag change" (a Current→Proposed delta), NOT a near-match;
  *  a near-match is the same tag with a statement refinement. Discriminates on
  *  the ``apply_action`` the store already ships (``new_value``/``new_category``
@@ -180,12 +180,12 @@ export function findingActionLabel(
   ctx?: FindingActionLabelContext,
 ): string {
   // Declarative verbs ("Add tag" / "Remove factor" / etc.) instead of
-  // the older "Proposed ..." nouns. Per Paul 2026-05-21: the agent's
+  // the older "Proposed ..." nouns. Per design review 2026-05-21: the agent's
   // recommendation reads more cleanly when the action is stated
   // directly. The leading glyph (rendered by the caller) carries the
   // +/− / Δ semantics.
   //
-  // Alignment-kind early-out (bro's wire ship 2026-06-12): when the
+  // Alignment-kind early-out (the agents-side wire ship 2026-06-12): when the
   // finding carries a structured ``alignment_kind`` from the graph-
   // alignment Mapping, prefer it — same verbs, more direct lookup
   // than walking ``issue_code``. Tag vs factor disambiguation falls
@@ -222,7 +222,7 @@ export function findingActionLabel(
   // emits ``calibration_tag_match_near`` (and, forward-compat, an
   // ``_exact`` variant) for agent/gold tag matches that aren't the
   // legacy single ``calibration_match``. Without these the near-match
-  // tag fell through to the generic "TAG" title (Paul 2026-06-19:
+  // tag fell through to the generic "TAG" title (design review 2026-06-19:
   // "it doesn't even say add or remove").
   if (code === "calibration_tag_match_near") {
     if (goldEmpty) return "Add tag";
@@ -267,7 +267,7 @@ export function findingActionLabel(
  *    factor_proposed_new                 → "Add"      / "Don't add"
  *    tag_proposed_new                    → "Add"      / "Don't add"
  *
- *  Two design rules from Paul 2026-06-14:
+ *  Two design rules from Design review 2026-06-14:
  *    1. Green ALWAYS means "accept the agent's proposal" — the
  *       accept-agent button is the primary green CTA regardless of
  *       whether that means add, remove, modify, or confirm.
@@ -620,7 +620,7 @@ function formatLevels(
  *  by the agent-side calibration finding builder, covers all
  *  calibration target_id shapes); this one keys on the `issue_code`
  *  suffix. Both are downstream of "is this a curator-agrees-with-agent
- *  match" but evaluate against different signals — if my brother ever
+ *  match" but evaluate against different signals — if the agents side ever
  *  emits a match-shaped finding without the canonical issue_code
  *  suffix, the two will disagree. Extract a shared
  *  `isMatchFinding` + `findingTagKey` pair if that becomes real. */
@@ -650,7 +650,7 @@ export function isMatchFinding(f: AuditFinding): boolean {
   if (f.issue_code === "already_in_baseline") return f.severity === "ok";
   // calibration_factor_match_near goes through ComparisonFactorCard
   // (the dedicated side-by-side render), NOT the generic
-  // CompactFindingCard match-row. Per Paul 2026-06-08: the editor's
+  // CompactFindingCard match-row. Per design review 2026-06-08: the editor's
   // "Everyone agrees" computation is structurally wrong when the
   // agent's factor has more FVs than gold's (4 vs 2 in GSE93824);
   // the side-by-side card shows the divergence honestly. Routed via
@@ -756,11 +756,11 @@ export function subsumedFvChildren(
  *    4. `null` when nothing usable is available — caller skips the
  *       inline span.
  *
- *  Per Paul 2026-06-11: "it would be EXTREMELY helpful to have a
+ *  Per design review 2026-06-11: "it would be EXTREMELY helpful to have a
  *  one-line summary of WHY the proposal is made; 'Agent didn't
  *  propose', 'Redundant', …" and (follow-up): "keep the text on the
  *  same line as the title and shorten it." Agent-side `suggested_fix`
- *  quality varies; the bro-side handoff to write more curator-readable
+ *  quality varies; the agents-side handoff to write more curator-readable
  *  one-liners is open. */
 /** True when a rationale just RESTATES what's already on the row
  *  ("The existing curation has `…`", "Gemma already carries `…`", "The
@@ -791,7 +791,7 @@ export function findingShortRationale(finding: AuditFinding): string | null {
     if (!trimmed) return "";
     // Skip strings that just restate the action verb from the title
     // ("Add tag ...", "Remove factor ...", etc.) — those are pure
-    // redundancy next to the `findingActionLabel`. Paul 2026-06-11:
+    // redundancy next to the `findingActionLabel`. Design review 2026-06-11:
     // "now it says 'add tag' etc. twice!"
     if (isActionPrefixRationale(trimmed)) return "";
     // Skip strings that merely ECHO the existing curation back at the
@@ -800,7 +800,7 @@ export function findingShortRationale(finding: AuditFinding): string | null {
     // restatement carries zero information. Most common on
     // `calibration_gold_only_miss` (REMOVE TAG/FACTOR), where the
     // curated fallback below ("Agent did not propose") is the actually
-    // useful caption. Paul 2026-06-21: "these title bar strings are not
+    // useful caption. Design review 2026-06-21: "these title bar strings are not
     // that helpful." The real WHY (redundant / recall gap) is the
     // agent's to emit — open one-liner handoff.
     if (isEchoRationale(trimmed)) return "";
@@ -824,7 +824,7 @@ export function findingShortRationale(finding: AuditFinding): string | null {
   if (defense) return defense;
   // Per-issue-code curated copy — last-resort fallback when the wire
   // ships no usable rationale. Originally landed BEFORE
-  // ``suggested_fix`` (Paul 2026-06-11) so the agent's prose was
+  // ``suggested_fix`` (design review 2026-06-11) so the agent's prose was
   // always overridden; flipped to a fallback per
   // FINDING_SHORT_RATIONALE_BM_AWARE_2026_06_16: when the agent emits
   // a richer ``suggested_fix`` ("Already captured by biomaterial

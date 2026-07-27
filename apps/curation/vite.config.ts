@@ -9,20 +9,19 @@ import path from "node:path";
 //   2. shell-exported env var of the same name
 //   3. hardcoded default
 //
-// 2026-05-24: routing rule (per Paul) — DEFAULT to local_api;
-// fall through to gemma-rest 2.0 only for endpoints local_api
-// doesn't carry. Dataset metadata, preboarding, curation state,
-// workflow management (groups / candidates / pipeline-status) all
-// live in local_api. gemma-rest is the fallback for the SVD-based
-// diagnostics (svd, sample-correlation, mean-variance,
-// svd/loadings) — and for the ontology typeahead via the
-// staging-gemma routing exception (separate upstream).
+// Routing rule — DEFAULT to local_api; fall through to gemma-rest 2.0
+// only for endpoints local_api doesn't carry. Dataset metadata,
+// preboarding, curation state, workflow management (groups /
+// candidates / pipeline-status) all live in local_api. gemma-rest is
+// the fallback for the SVD-based diagnostics (svd, sample-correlation,
+// mean-variance, svd/loadings) — and for the ontology typeahead via
+// the ontology routing exception (separate upstream, see
+// GEMMA_ONTOLOGY_URL below).
 //
-// Local-mode UI rule (2026-05-25): in local mode the SVD
-// diagnostics + real Gemma audit-event history surfaces are
-// hidden client-side (useGemmaMode() gate) so the gemma-rest
-// fallback never gets exercised — proxy entries below stay
-// intact for remote / mixed modes.
+// Local-mode UI rule: in local mode the SVD diagnostics + real Gemma
+// audit-event history surfaces are hidden client-side (useGemmaMode()
+// gate) so the gemma-rest fallback never gets exercised — proxy
+// entries below stay intact for remote / mixed modes.
 //
 // Standalone-dev defaults: local_api listens on :8082, gemma-rest
 // on :8080. In Docker the host-mapped names come from compose env
@@ -59,30 +58,34 @@ export default defineConfig(({ mode }) => {
   // this config or the container. Sidecar proxies GET /datasets/* only.
   const GEMMA_RO_PROXY =
     env.GEMMA_RO_PROXY_URL || "http://host.docker.internal:8199";
-  // Ontology-search routing exception (temporary, 2026-05-23).
-  // ``/rest/v2/annotations/search`` + ``/rest/v2/annotations/term``
-  // hit Gemma's ontology indexes. The local Gemma 2.0 stack
-  // doesn't carry the full OBO / EFO / MONDO / UBERON / CL / CHEBI
-  // corpora in memory, so the typeahead comes back near-empty
-  // against it. Route these two paths to ``GEMMA_ONTOLOGY_URL``
-  // (default frink, the valid source); everything else stays on
-  // ``CURATION_URL``. staging-gemma is NOT valid — its
-  // /annotations/search is gene-blind (only MP phenotype terms;
-  // missed the IL7 gene on GSE137893). Drop this exception when the
-  // local-stack ontology coverage lands — see ``lib/gemmaMode.ts``.
-  const ONTOLOGY_URL =
-    env.GEMMA_ONTOLOGY_URL || "http://frink.msl.ubc.ca:8080";
-   
+  // Ontology-search routing exception. ``/rest/v2/annotations/search``
+  // + ``/rest/v2/annotations/term`` + ``/rest/v2/annotations/children``
+  // hit Gemma's ontology indexes; a local_api stack may not carry the
+  // full OBO / EFO / MONDO / UBERON / CL / CHEBI corpora in memory, so
+  // the typeahead can come back near-empty against it. Route these
+  // paths to ``GEMMA_ONTOLOGY_URL`` — an ontology-capable Gemma host
+  // you provide — instead of ``CURATION_URL``. No built-in default:
+  // point it at your own Gemma instance. Drop this exception once
+  // local-stack ontology coverage is complete — see ``lib/gemmaMode.ts``.
+  const ONTOLOGY_URL = env.GEMMA_ONTOLOGY_URL || "";
+  if (!ONTOLOGY_URL) {
+    console.warn(
+      "[curation] GEMMA_ONTOLOGY_URL not set — ontology term search (annotations/search, /term, /children) will not work until you set it to your own Gemma ontology host in .env.local",
+    );
+  }
+
   console.log(`[curation] /rest → ${CURATION_URL} (local_api default)`);
-   
+
   console.log(
     `[curation] /rest/v2/datasets/*/{svd,sample-correlation,mean-variance} → ${GEMMA_REST_URL} (diagnostics fallback)`,
   );
-   
-  console.log(
-    `[curation] /rest/v2/annotations/{search,term,children} → ${ONTOLOGY_URL} (ontology routing exception)`,
-  );
-   
+
+  if (ONTOLOGY_URL) {
+    console.log(
+      `[curation] /rest/v2/annotations/{search,term,children} → ${ONTOLOGY_URL} (ontology routing exception)`,
+    );
+  }
+
   console.log(`[curation] /local-api → ${LOCAL_API_URL} (explicit local_api passthrough)`);
    
   console.log(`[curation] /propose,/audit,/find-* → ${PROPOSER_URL}`);
@@ -114,53 +117,55 @@ export default defineConfig(({ mode }) => {
         // Order matters — Vite matches in declaration order, so the
         // ontology + diagnostics routing exceptions must come BEFORE
         // the generic ``/rest`` catch-all below.
-        // The ontology routing exceptions go to a real Gemma host
-        // (staging-gemma or gemma-rest 2.0), whose Tomcat CORS
-        // filter 403s any request that carries a non-allowlisted
-        // Origin header — including ``http://localhost:5175`` from
-        // the curator-package browser. Strip Origin + Referer like
-        // every other gemma-rest proxy entry does (see
-        // HANDOFF_CORS_DEV_ORIGIN.md). Caught 2026-05-25: curators
-        // reported the ontology picker broken on both frink and
-        // staging; staging worked fine via curl but 403'd through
-        // the proxy because these two entries were missing the
-        // header-strip configure block.
-        "/rest/v2/annotations/search": {
-          target: ONTOLOGY_URL,
-          changeOrigin: true,
-          configure: (proxy) => {
-            proxy.on("proxyReq", (proxyReq) => {
-              proxyReq.removeHeader("origin");
-              proxyReq.removeHeader("referer");
-            });
-          },
-        },
-        "/rest/v2/annotations/term": {
-          target: ONTOLOGY_URL,
-          changeOrigin: true,
-          configure: (proxy) => {
-            proxy.on("proxyReq", (proxyReq) => {
-              proxyReq.removeHeader("origin");
-              proxyReq.removeHeader("referer");
-            });
-          },
-        },
-        // ``/annotations/children`` rides the same ontology exception —
-        // the CuriePopover pulls a term's immediate children (``&direct=
-        // true``) from the SAME Gemma host that serves its parents, so
-        // the hierarchy stays consistent on one ontology release rather
-        // than skewing against an external service. local_api doesn't
-        // serve this endpoint; frink does.
-        "/rest/v2/annotations/children": {
-          target: ONTOLOGY_URL,
-          changeOrigin: true,
-          configure: (proxy) => {
-            proxy.on("proxyReq", (proxyReq) => {
-              proxyReq.removeHeader("origin");
-              proxyReq.removeHeader("referer");
-            });
-          },
-        },
+        // The ontology routing exceptions go to whatever ontology-
+        // capable Gemma host you set ``GEMMA_ONTOLOGY_URL`` to; only
+        // registered when that var is set (see the warning above).
+        // That host's Tomcat CORS filter may 403 any request that
+        // carries a non-allowlisted Origin header — including
+        // ``http://localhost:5175`` from the curator-package browser
+        // — so strip Origin + Referer like every other gemma-rest
+        // proxy entry does.
+        ...(ONTOLOGY_URL
+          ? {
+              "/rest/v2/annotations/search": {
+                target: ONTOLOGY_URL,
+                changeOrigin: true,
+                configure: (proxy) => {
+                  proxy.on("proxyReq", (proxyReq) => {
+                    proxyReq.removeHeader("origin");
+                    proxyReq.removeHeader("referer");
+                  });
+                },
+              },
+              "/rest/v2/annotations/term": {
+                target: ONTOLOGY_URL,
+                changeOrigin: true,
+                configure: (proxy) => {
+                  proxy.on("proxyReq", (proxyReq) => {
+                    proxyReq.removeHeader("origin");
+                    proxyReq.removeHeader("referer");
+                  });
+                },
+              },
+              // ``/annotations/children`` rides the same ontology
+              // exception — the CuriePopover pulls a term's immediate
+              // children (``&direct=true``) from the SAME Gemma host
+              // that serves its parents, so the hierarchy stays
+              // consistent on one ontology release rather than
+              // skewing against an external service. local_api
+              // doesn't serve this endpoint.
+              "/rest/v2/annotations/children": {
+                target: ONTOLOGY_URL,
+                changeOrigin: true,
+                configure: (proxy) => {
+                  proxy.on("proxyReq", (proxyReq) => {
+                    proxyReq.removeHeader("origin");
+                    proxyReq.removeHeader("referer");
+                  });
+                },
+              },
+            }
+          : {}),
         // Auth endpoints → gemma-rest. Match the browser app's
         // convention so a single sign-in works across both apps and
         // private datasets (e.g. permissioned audit trails)
@@ -246,8 +251,7 @@ export default defineConfig(({ mode }) => {
           // Strip Origin + Referer so Tomcat's CORS filter doesn't
           // 403 the request. Verified by curl: any Origin header
           // (even the server's own host) triggers "Invalid CORS
-          // request"; no Origin → 401/200 normally. See
-          // ~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_CORS_DEV_ORIGIN.md.
+          // request"; no Origin → 401/200 normally.
           //
           // Override the Authorization header with local_api's dev
           // bearer — the browser sends the user's gemma-rest token

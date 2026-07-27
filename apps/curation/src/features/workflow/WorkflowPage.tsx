@@ -7,7 +7,7 @@
  *
  * Renders the shared AppHeader on top so the curator always has a
  * way back to the dashboard — earlier versions of this page dropped
- * the header entirely, leaving deep links stranded (Paul
+ * the header entirely, leaving deep links stranded (the reviewer
  * 2026-05-25).
  */
 import { useGroup } from "@/api/workflow";

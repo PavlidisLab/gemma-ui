@@ -12,7 +12,7 @@
  *
  * Each panel reads its own endpoint (see `@/api/diagnostics`) and
  * renders an empty state when the data isn't computed yet — so the
- * panel ships before bro lands all four endpoints.
+ * panel ships before the agents side lands all four endpoints.
  *
  * Single-cell-specific diagnostics (cluster QC, neighborhood graph)
  * are deliberately NOT here — they belong on the Single-cell tab.
@@ -25,7 +25,7 @@ import { PcFactorCard } from "./PcFactorCard";
 import { MeanVarianceCard } from "./MeanVarianceCard";
 import { useGemmaMode } from "@/lib/gemmaMode";
 
-// Temporary opt-in gate (Paul, 2026-05-24): the four panels each hit
+// Temporary opt-in gate (the reviewer, 2026-05-24): the four panels each hit
 // a separate gemma-rest endpoint that can be heavy. While we're doing
 // unrelated work, default the tab to a "click to fetch" affordance so
 // switching tabs doesn't fire four diagnostics requests. Drop this
@@ -116,7 +116,7 @@ function PreprocessingMetadataFooter({
         Preprocessing metadata
       </span>
       <span className="italic">
-        endpoint not yet wired — bro to expose run date, normalization
+        endpoint not yet wired — the agents side to expose run date, normalization
         method, and filter rules.
       </span>
     </div>

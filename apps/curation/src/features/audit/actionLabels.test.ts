@@ -40,7 +40,7 @@ describe("findingActionShape", () => {
     expect(findingActionShape(f("calibration_factor_extra"))).toBe("add");
   });
 
-  it("calibration_agent_extra → add (new tag — Paul's screenshot)", () => {
+  it("calibration_agent_extra → add (new tag — the design review's screenshot)", () => {
     expect(findingActionShape(f("calibration_agent_extra"))).toBe("add");
   });
 

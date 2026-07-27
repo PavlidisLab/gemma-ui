@@ -128,7 +128,7 @@ describe("rowAgreement", () => {
   });
 
   it("proposal matches currently but reference differs → disagree", () => {
-    // Three-way: amanda has X, cyan said X, Gemma has Y → real
+    // Three-way: Curator A has X, Curator B said X, Gemma has Y → real
     // disagreement on the Gemma column.
     expect(rowAgreement(term("X"), term("X"), term("Y"))).toBe(false);
   });

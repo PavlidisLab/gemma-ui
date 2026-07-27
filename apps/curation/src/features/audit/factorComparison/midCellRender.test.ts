@@ -3,14 +3,14 @@ import { midCellRender } from "./FactorComparisonGrid";
 import type { FactorComparisonPair, GridFv } from "./FactorComparisonGrid";
 
 /**
- * Regression tests locking Paul's exact spec for the middle-column
+ * Regression tests locking the design review's exact spec for the middle-column
  * cell of ``FactorComparisonGrid`` (2026-06-15).
  *
  * The middle column communicates the SAMPLE-COUNT axis only. Label
  * drift is a different axis — it's surfaced by per-chip diff rings on
  * the side cells, NOT by recolouring the middle. Earlier iterations
  * collapsed both axes into ``≈ 12`` / ``= 12`` glyphs, which read as
- * "approximately 12 samples" — wrong (the count is exact). Paul's
+ * "approximately 12 samples" — wrong (the count is exact). the design review's
  * fix: always render ``N ↔ M``; colour by count agreement; ignore
  * pair.status entirely.
  *
@@ -46,7 +46,7 @@ function pair(
   return { left, right, status };
 }
 
-describe("midCellRender — Paul's spec 2026-06-15", () => {
+describe("midCellRender — the design review's spec 2026-06-15", () => {
   describe("equal counts both sides → emerald `N ↔ N` regardless of label drift", () => {
     it.each([
       ["status=same",  "same"  as const],

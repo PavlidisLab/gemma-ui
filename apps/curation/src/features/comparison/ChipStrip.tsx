@@ -60,7 +60,7 @@ export function ChipStrip({
   const baselineLocked = flow === "edit";
 
   // Mode pill ("Reviewing proposal" / "Editing local design") dropped
-  // 2026-06-14 per Paul: "Perhaps because the 'reviewing proposal'
+  // 2026-06-14 per design review: "Perhaps because the 'reviewing proposal'
   // might not even be needed. It's just curation, what makes it
   // special is what we're comparing to." The chip pair below already
   // communicates the mode — the curator reads "BASELINE Gemma · AUDIT
@@ -292,7 +292,7 @@ function ChipDropdown({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          // Larger trigger — Paul 2026-05-27 round 2: "the little
+          // Larger trigger — Design review 2026-05-27 round 2: "the little
           // triggers to change the baseline/audit are too small again".
           // Bumped padding + font size so the clickable target reads
           // as a button at a glance.

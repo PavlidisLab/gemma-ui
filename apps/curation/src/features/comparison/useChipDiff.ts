@@ -82,7 +82,7 @@ interface PackagedProposal {
  *  sidebar. Uses negative synthetic IDs for the added items so
  *  they don't collide with Gemma-assigned preboard IDs.
  *
- *  Sourced from the **packaged** proposal (the version cyan reviewed
+ *  Sourced from the **packaged** proposal (the version Curator B reviewed
  *  in the calibration package) — NOT the latest agent re-run. This
  *  keeps the cy_polished vs agent_proposal diff symmetric — both
  *  halves derive from the same package, so dispositions are the
@@ -168,7 +168,7 @@ async function fetchAgentProposalPayload(
  *  already carries the agent's findings (with rationale, defender
  *  verdicts, debate badges) AND the curator's dispositions (accept /
  *  dismiss reasons + notes), so the existing AuditSidebarPanel can
- *  render the full provenance trail without re-synthesis. Per Paul
+ *  render the full provenance trail without re-synthesis. Per design review
  *  2026-05-27: "we want all provenance and documentation we pick up
  *  along the way". */
 export function useCalibrationAuditReport(experimentId: number | string) {

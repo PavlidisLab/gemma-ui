@@ -13,8 +13,7 @@
  * context.
  *
  * Matching is by obvious key only (factor category URI / label,
- * tag URI / label) per
- * ``[[feedback-obvious-match-only]]``. Non-matches become
+ * tag URI / label). Non-matches become
  * add/remove pairs; no fuzzy second pass.
  *
  * Severity is "minor" so cards render expanded by default —
@@ -88,9 +87,8 @@ function factorDescription(f: Factor): string {
 
 function factorModifiedDescription(before: Factor, after: Factor): string {
   // Surface only the field that actually changed so the card text
-  // matches the diff signal. Same matching by obvious key
-  // ([[feedback-obvious-match-only]]) means we don't drift across
-  // semantically-equivalent rewordings.
+  // matches the diff signal. Same matching by obvious key means we
+  // don't drift across semantically-equivalent rewordings.
   const cat = after.category?.label || after.name || "(no category)";
   const parts: string[] = [];
   if ((before.name ?? "") !== (after.name ?? "")) {
@@ -129,7 +127,7 @@ function isCuratorPolished(s: Source): boolean {
 /** Build the synthetic report. Returns ``null`` when there's
  *  nothing to diff (empty / null inputs).
  *
- *  Curator-auditing framing (Paul 2026-05-29): whenever ONE slot
+ *  Curator-auditing framing (design review 2026-05-29): whenever ONE slot
  *  holds a curator's polished view, the diff reads as that curator's
  *  accept/reject/modify decisions relative to the other slot — and
  *  the synthesised report includes ``dispositions`` so the existing

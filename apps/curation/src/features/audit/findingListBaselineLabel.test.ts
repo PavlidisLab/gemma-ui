@@ -4,17 +4,17 @@ import { AUDIT_PANEL_BASELINE_LABEL } from "./findingList";
 /**
  * Regression test locking the audit-panel baseline label.
  *
- * Spec (Paul 2026-06-15):
+ * Spec (design review 2026-06-15):
  *   "it should be just 'current' EVERYWHERE in the panel"
  *
  * The audit/findings panel always frames the baseline column as
  * "Current" — the curator's working state — regardless of which
  * source the chip strip's ``baseline`` resolved to (``live`` /
- * ``polished:cyan`` / ``preboard`` / an opaque ``curation_id``).
+ * ``polished:curator-b`` / ``preboard`` / an opaque ``curation_id``).
  * Replacing the constant with a chip-driven dynamic label
  * (``sourceLabel(chip.baseline, curations)``) leaks "LIVE GEMMA" /
- * "Cyan polished" etc. back into the per-card chip-strip locate-label
- * — what Paul reverted.
+ * "Curator-B polished" etc. back into the per-card chip-strip locate-label
+ * — what the reviewer reverted.
  *
  * If a future refactor tries to make this dynamic again, this test
  * fails and the spec gets re-read.

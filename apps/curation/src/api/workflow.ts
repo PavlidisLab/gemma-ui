@@ -583,8 +583,7 @@ export function useDeleteGroup() {
 
 /** Finalize a set — stamps ``finalized_at`` server-side. Mirrors
  *  the per-experiment review finalize lifecycle. Idempotent-refresh:
- *  re-POST overwrites reviewer + notes + timestamp rather than 409
- *  (per cab's reply 2026-05-25). */
+ *  re-POST overwrites reviewer + notes + timestamp rather than 409. */
 export function useFinalizeGroup(groupId: string) {
   const qc = useQueryClient();
   return useMutation({

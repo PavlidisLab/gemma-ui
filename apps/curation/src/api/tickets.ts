@@ -180,9 +180,9 @@ export function useTicket(
 ) {
   // Default polling cadence — 15 s when nothing's UNDERWAY, 2 s
   // while an in-flight runner is flipping targets. Without this,
-  // bro's behind-the-scenes target-status flips (PRELOAD runner,
+  // the agents-side behind-the-scenes target-status flips (PRELOAD runner,
   // agent passes, manual backend edits) don't reach the UI until
-  // a manual refresh. Per Paul 2026-06-14: ticket #52 read
+  // a manual refresh. Per design review 2026-06-14: ticket #52 read
   // "0/200 done · 200 not started" while the row dots showed
   // several Started — the previous gate (poll ONLY while
   // UNDERWAY) never fired because at the time of the initial
@@ -347,8 +347,8 @@ export function useMyTickets(
  * decide the open path (0 → plain / 1 → live / >1 → picker).
  *
  * Backed by ``GET /rest/v2/tickets?target_id=<id>
- * &target_type=EXPRESSION_EXPERIMENT&include_targets=false`` (Cab
- * 2026-07-09). Membership is via the ``ticket_targets`` table, so it
+ * &target_type=EXPRESSION_EXPERIMENT&include_targets=false``.
+ * Membership is via the ``ticket_targets`` table, so it
  * catches an experiment buried inside a 200-target batch ticket — which
  * the light list's ``investigation_id`` backfill (first target only)
  * can't. Returns ``[]`` (not 404) when nothing targets the experiment.

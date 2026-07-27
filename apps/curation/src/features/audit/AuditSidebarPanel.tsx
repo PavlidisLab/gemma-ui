@@ -96,7 +96,7 @@ const KIND_COPY: Record<
     nounPlural: "audits",
     headerLabel: "Audit",
     emptyBody: "No audits on this experiment yet.",
-    // Relabelled per Paul 2026-06-11 review-workflow handoff #3:
+    // Relabelled per design review 2026-06-11 review-workflow handoff #3:
     // "Close audit" read as "close the panel" — curators didn't
     // realise it was the terminal "I'm done reviewing this GSE"
     // milestone. "Finalize review" matches the curator's mental
@@ -113,7 +113,7 @@ const KIND_COPY: Record<
     nounPlural: "proposals",
     headerLabel: "Proposal",
     emptyBody: "No proposals on this experiment yet.",
-    // Matches the audit-kind "Finalize review" lifecycle pair (Paul
+    // Matches the audit-kind "Finalize review" lifecycle pair (the reviewer
     // 2026-06-11 handoff #3). The button is the milestone "I'm
     // done with this proposal as a curation aid"; the agent reads
     // the dispositions from local_api when it next runs, so there's
@@ -161,7 +161,7 @@ export function AuditSidebarPanel({
   // (one-line headers; curator opts into bodies). Persisted per
   // (kind, experimentId) via localStorage so a curator working
   // through 100 GSEs gets their last setting back when they reopen
-  // an experiment they've already visited. Paul 2026-06-11: "default
+  // an experiment they've already visited. Design review 2026-06-11: "default
   // to this view (collapsed) — but remember user's last setting for
   // the experiment."
   const [panelExpansion, setPanelExpansion] = useStickyState<PanelExpansion>(
@@ -207,14 +207,14 @@ export function AuditSidebarPanel({
       {/* Single unified control card — trigger button + audit run info
           in one unit. Sky chrome matches the FactorChip + the audit
           findings' factor-card tint so the whole audit surface reads
-          as one entity-identity color (blue = factor/audit). Per Paul
+          as one entity-identity color (blue = factor/audit). Per design review
           2026-05-21. */}
       {/* Avoid the ``card`` class here — the global
           ``html.dark .card`` rule in index.css has higher CSS
           specificity than Tailwind's ``dark:bg-…`` utility and
           was forcing slate-800 over the sky tint in dark mode.
           Inline the rounded/border equivalents so the dark
-          override doesn't hit. Per Paul 2026-05-21. */}
+          override doesn't hit. Per design review 2026-05-21. */}
       <div className={cn(
         "px-2 py-1.5 space-y-1.5 rounded-lg border",
         "border-sky-300 bg-sky-50",
@@ -423,13 +423,13 @@ function SidebarHeader({
   const toast = useToast();
   const [confirmClose, setConfirmClose] = useState(false);
   const [applyAllRunning, setApplyAllRunning] = useState(false);
-  // "View raw JSON" affordance (Paul 2026-06-14) — opens an inline
+  // "View raw JSON" affordance (design review 2026-06-14) — opens an inline
   // syntax-coloured + searchable tree of the current report's
   // structured payload. Placed in the proposal/audit header strip
   // next to the agent identity pill so it's discoverable without
   // leaving the curation surface.
   const [rawViewerOpen, setRawViewerOpen] = useState(false);
-  // "Proposer details" popup (Paul 2026-06-30) — surfaces the run
+  // "Proposer details" popup (design review 2026-06-30) — surfaces the run
   // provenance baked into the proposal (models / switches / git /
   // invocation) next to the "{ } raw" affordance. Only offered when the
   // proposal actually carries a provenance block.
@@ -455,7 +455,7 @@ function SidebarHeader({
   // Ticket-target status sync on Finalize — when the curator closes
   // the review for an experiment that lives on a ticket, flip that
   // ticket-target's status to DONE so the popover + dashboard reflect
-  // the finished work. Paul 2026-06-11: "this isn't updating … we used
+  // the finished work. Design review 2026-06-11: "this isn't updating … we used
   // to have little circles" — the ticket-member popover was still
   // showing TODO on a finalized experiment.
   // Resolve the ticket-patch decision purely off (experimentId, route)
@@ -625,7 +625,7 @@ function SidebarHeader({
   //   - Calibration-audit overrides (chip-strip ``polished vs
   //     agent_proposal`` mounts the REAL ``curation_review`` row via
   //     ``useCalibrationAuditReport``): ``audit_id`` is set → buttons
-  //     should work. Per Paul 2026-06-11: he couldn't find the
+  //     should work. Per design review 2026-06-11: he couldn't find the
   //     Finalize button on a polished-vs-agent comparison surface
   //     where the override IS the live audit.
   const lifecycleAvailable = !!report.audit_id;
@@ -637,7 +637,7 @@ function SidebarHeader({
     // 409 guard: if the audit is already finalized (refetch lag,
     // double-click, or a stale tab), skip the whole sweep + close
     // and surface a friendly toast instead of letting the sweep
-    // PATCHes 409 against the finalized state. Paul 2026-05-25:
+    // PATCHes 409 against the finalized state. Design review 2026-05-25:
     // observed a 409 cascade on a re-close attempt.
     if (report.finalized_at) {
       toast.show(
@@ -978,8 +978,8 @@ function SidebarHeader({
          *  Two render variants on the same field:
          *  - agent identifier (``hybrid-v6``, ``s2j-opus-pipeline``) —
          *    mono, narrow, tag-label "agent".
-         *  - prose context (``"inter-curator audit · cyan's curation
-         *    applied · amanda reviews"``) — sans, full-width,
+         *  - prose context (``"inter-curator audit · Curator B's curation
+         *    applied · Curator A reviews"``) — sans, full-width,
          *    tag-label "review". The agents-side builder writes prose
          *    here for inter-curator audits since "model" stops being
          *    the load-bearing identity for that surface. */}
@@ -1275,7 +1275,7 @@ function SidebarHeader({
             // Stable key for sticky persistence — survives navigate-
             // away + tab close. Per-audit so two different audits
             // don't share a draft note; per-kind so audit vs proposal
-            // close panes on the same audit_id stay separate. Paul
+            // close panes on the same audit_id stay separate. The reviewer
             // 2026-06-14: "if I type here it shouldn't disappear if
             // I navigate away :(". Cleared on successful finalize. */
             stickyKey={`closeNote:${kind}:${report.audit_id ?? "noaudit"}`}
@@ -1362,7 +1362,7 @@ function SidebarHeader({
 /** One-line label for a pending finding in the submit-confirm
  *  preview. Always prefers a structured ``category: value`` form so
  *  the curator sees "biological sex: male" instead of bare "male"
- *  (the proposer_term.label-only fallback was confusing — Paul
+ *  (the proposer_term.label-only fallback was confusing — the reviewer
  *  2026-05-25). Source priority:
  *
  *    1. structured ``apply_action`` (kind=add_tag) — has both
@@ -1960,7 +1960,7 @@ function deriveVerdict(c: {
  *
  *  Normalises: experiment_id, dispositions=[]. Does NOT rewrite
  *  target_ids — the inline dots won't resolve against the fixture's
- *  hardcoded ids; that's expected for fixture mode. The brother's
+ *  hardcoded ids; that's expected for fixture mode. The agents-side
  *  next regen will use the slug format and dots will light up
  *  automatically. */
 function adaptFixture(experimentId: number | string): AuditReport {

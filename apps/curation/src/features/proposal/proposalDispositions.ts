@@ -1,7 +1,7 @@
 /**
  * Per-element disposition state for the new proposal-review surface.
  *
- * Vision (Paul 2026-05-21): the proposal seeds the design draft on
+ * Vision (design review 2026-05-21): the proposal seeds the design draft on
  * arrival. Curators review per-element rather than as a single big
  * card — for each proposed factor / tag they pick one of:
  *
@@ -206,7 +206,7 @@ export function saveFeedback(
  *  per-finding-undo paths so curator state across surfaces stays
  *  coherent: rolling back the design draft / a disposition while
  *  leaving the proposal cards stuck on "retained" / "rejected" was
- *  the bug Paul flagged 2026-06-10. */
+ *  the bug the reviewer flagged 2026-06-10. */
 export function clearAllProposalStateForExperiment(
   experimentId: number | string,
 ): void {

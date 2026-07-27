@@ -2,7 +2,7 @@
  * Tests for ``findingDisplayedGoldEmpty`` + the ``findingActionLabel``
  * goldEmpty override.
  *
- * Anchored on the GSE110721 (id 14966) ticket-55 bug Paul caught
+ * Anchored on the GSE110721 (id 14966) ticket-55 bug the reviewer caught
  * 2026-06-16:
  *
  *   - Audit row carries a ``calibration_match`` finding for
@@ -247,7 +247,7 @@ describe("findingActionLabel goldEmpty override", () => {
     expect(findingActionLabel(f, { goldEmpty: true })).toBe("Add tag");
   });
 
-  it('calibration_tag_match_near with a VALUE move → "Tag change" (Paul 2026-07-13: a whole value swap is a change, not a near-match)', () => {
+  it('calibration_tag_match_near with a VALUE move → "Tag change" (design review 2026-07-13: a whole value swap is a change, not a near-match)', () => {
     const f = makeFinding({
       issue_code: "calibration_tag_match_near",
       apply_action: { kind: "replace_tag", new_value: "mdx" },

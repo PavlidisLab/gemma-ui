@@ -13,10 +13,10 @@ import {
  *  issue_codes the agent ships should grow a matching row. */
 
 describe("verdictToStructureDetails", () => {
-  // ---- verdict = currently ("keep gold / keep amanda's") ----
+  // ---- verdict = currently ("keep gold / keep Curator A's") ----
 
   it("currently on _match_near → accepted-shape (not dismissed)", () => {
-    // The regression Paul caught 2026-05-20: "keep amanda's" on a
+    // The regression the reviewer caught 2026-05-20: "keep Curator A's" on a
     // match_near finding was producing structure_ok=false →
     // dismissed → 422 (no dismiss_reason). For matches the
     // curator's "keep gold" semantically means "yes, gold is
@@ -91,7 +91,7 @@ describe("verdictToStructureDetails", () => {
     });
   });
 
-  // ---- verdict = proposal ("adopt cyan's") ----
+  // ---- verdict = proposal ("adopt Curator B's") ----
 
   it("proposal on _extra → accept (structure + details both ok)", () => {
     expect(
@@ -166,7 +166,7 @@ describe("deriveStatus", () => {
 });
 
 describe("deriveDismissReason", () => {
-  // The regression Paul caught 2026-05-20: PATCHes with
+  // The regression the reviewer caught 2026-05-20: PATCHes with
   // status=dismissed and no dismiss_reason 422'd because the
   // server's AuditFindingDispositionPatch model-validator rejects
   // dismiss-without-reason. The editor's one-click "keep gold"
@@ -292,7 +292,7 @@ describe("end-to-end button → wire derivation", () => {
 
   const cases: Row[] = [
     {
-      name: "keep amanda's on match_near (the 2026-05-20 bug)",
+      name: "keep Curator A's on match_near (the 2026-05-20 bug)",
       verdict: "currently",
       issueCode: "calibration_factor_match_near",
       expectStatus: "accepted",
@@ -302,7 +302,7 @@ describe("end-to-end button → wire derivation", () => {
       expectAcceptReason: undefined,
     },
     {
-      name: "keep amanda's on factor_extra",
+      name: "keep Curator A's on factor_extra",
       verdict: "currently",
       issueCode: "calibration_factor_extra",
       expectStatus: "dismissed",
@@ -312,7 +312,7 @@ describe("end-to-end button → wire derivation", () => {
       expectAcceptReason: undefined,
     },
     {
-      name: "keep amanda's on factor_gold_only_miss",
+      name: "keep Curator A's on factor_gold_only_miss",
       verdict: "currently",
       issueCode: "calibration_factor_gold_only_miss",
       expectStatus: "dismissed",
@@ -322,7 +322,7 @@ describe("end-to-end button → wire derivation", () => {
       expectAcceptReason: undefined,
     },
     {
-      name: "adopt cyan's on match_near",
+      name: "adopt Curator B's on match_near",
       verdict: "proposal",
       issueCode: "calibration_factor_match_near",
       expectStatus: "accepted",
@@ -332,7 +332,7 @@ describe("end-to-end button → wire derivation", () => {
       expectAcceptReason: undefined,
     },
     {
-      name: "adopt cyan's on factor_extra (the 2026-05-21 bug)",
+      name: "adopt Curator B's on factor_extra (the 2026-05-21 bug)",
       verdict: "proposal",
       issueCode: "calibration_factor_extra",
       expectStatus: "accepted",
@@ -342,7 +342,7 @@ describe("end-to-end button → wire derivation", () => {
       expectAcceptReason: "well_evidenced",
     },
     {
-      name: "adopt cyan's on tag agent_extra (the 2026-05-21 bug)",
+      name: "adopt Curator B's on tag agent_extra (the 2026-05-21 bug)",
       verdict: "proposal",
       issueCode: "calibration_agent_extra",
       expectStatus: "accepted",
@@ -352,7 +352,7 @@ describe("end-to-end button → wire derivation", () => {
       expectAcceptReason: "well_evidenced",
     },
     {
-      name: "adopt cyan's on factor_gold_only_miss",
+      name: "adopt Curator B's on factor_gold_only_miss",
       verdict: "proposal",
       issueCode: "calibration_factor_gold_only_miss",
       expectStatus: "accepted",
@@ -362,7 +362,7 @@ describe("end-to-end button → wire derivation", () => {
       expectAcceptReason: "gold_was_wrong",
     },
     {
-      name: "adopt cyan's on tag gold_only_miss",
+      name: "adopt Curator B's on tag gold_only_miss",
       verdict: "proposal",
       issueCode: "calibration_gold_only_miss",
       expectStatus: "accepted",
@@ -382,7 +382,7 @@ describe("end-to-end button → wire derivation", () => {
       expectAcceptReason: undefined,
     },
     {
-      name: "keep amanda's on tag gold_only_miss",
+      name: "keep Curator A's on tag gold_only_miss",
       verdict: "currently",
       issueCode: "calibration_gold_only_miss",
       expectStatus: "dismissed",

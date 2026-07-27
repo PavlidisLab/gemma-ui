@@ -44,7 +44,7 @@ export function augmentInferredFromBiomaterials(
   // Per-value cover: a direct tag suppresses re-synth of its OWN value
   // only, not the whole category — so other per-sample values still
   // surface as inherited, and deleting a redundant direct tag reveals
-  // its inherited underlying value (Paul 2026-07-20).
+  // its inherited underlying value (design review 2026-07-20).
   const directPairs = new Set<string>();
   for (const t of tags) {
     if (t.inferred) continue;

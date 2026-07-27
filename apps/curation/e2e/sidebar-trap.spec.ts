@@ -1,6 +1,6 @@
 /** Sidebar / chip-strip interactivity regressions.
  *
- *  Paul 2026-05-29: "the proposal tab refuses to stay open when the
+ *  Design review 2026-05-29: "the proposal tab refuses to stay open when the
  *  comparator is empty; it's fine to close it by default but don't
  *  trap it. We need more tests of site interactivity."
  *
@@ -101,7 +101,7 @@ test.describe("Sidebar + chip strip — interactivity traps @live", () => {
       name: /Baseline source/i,
     });
     await expect(baselineListbox).toBeVisible({ timeout: 2000 });
-    // Baseline must NOT offer (empty) — Paul 2026-05-29 filter.
+    // Baseline must NOT offer (empty) — Design review 2026-05-29 filter.
     await expect(
       baselineListbox.getByText("(empty)", { exact: true }),
     ).toHaveCount(0);

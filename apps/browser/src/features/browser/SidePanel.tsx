@@ -56,7 +56,7 @@ export function SidePanel({
   // than ``onApplyQuery`` which also navigates) so live typing
   // doesn't pile history entries onto the browser back stack —
   // navigation only fires on explicit Enter / clear via
-  // ``applyQuery``. Per Paul 2026-05-27: filter + search are the
+  // ``applyQuery``. Per design review 2026-05-27: filter + search are the
   // same thing.
   useEffect(() => {
     const v = (settings.currentQuery ?? "").trim();

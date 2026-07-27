@@ -16,7 +16,7 @@ import type {
  * `{items, total}` envelope (`ProposalListResponse`).
  *
  * Contract source: `EVAL_PKG_PROPOSALS_AS_DATASET_PROPOSALS_HANDOFF.md`
- * lines 90–153 in the agents repo (bro, 2026-05-22). The endpoint is
+ * lines 90–153 in the agents repo (the agents side, 2026-05-22). The endpoint is
  * `gemma_curation_agents/local_api/server.py:list_for_experiment`
  * around line 515 with `shape=auto`.
  */

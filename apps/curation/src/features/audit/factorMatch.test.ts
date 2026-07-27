@@ -160,7 +160,7 @@ function renamePayload(overrides: Partial<FactorRenamePayload> = {}): FactorRena
 }
 
 describe("isNearMatchFinding", () => {
-  // Two-header-chip redesign (Paul 2026-05-21 — GSE93824 case).
+  // Two-header-chip redesign (design review 2026-05-21 — GSE93824 case).
   // The predicate gates whether the strength label gets dropped and
   // whether the Judge: rationale moves to the FV expansion block.
   // True path = near-match (factor-level OK + lower-level diff);

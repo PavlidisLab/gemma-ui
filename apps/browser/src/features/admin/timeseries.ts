@@ -16,10 +16,8 @@
  *   - Buffer state survives across rerenders of the same key; it's
  *     a module-level singleton.
  *
- * Suggested polling cadences per metric are documented in
- * `~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_SYSTEMS_MONITORING_UI.md`.
- * That handoff lives outside this repo; the caller is expected to
- * set its own `refetchInterval` on the source query.
+ * Polling cadences are set per metric by the caller, which sets its
+ * own `refetchInterval` on the source query.
  */
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";

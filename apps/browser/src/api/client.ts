@@ -1,7 +1,7 @@
 // Tiny fetch wrapper for the Gemma REST API.
 //
-// In dev, Vite proxies /rest/* to GEMMA_BASE_URL (defaults to
-// staging-gemma.msl.ubc.ca), so callers just hit relative paths.
+// In dev, Vite proxies /rest/* to GEMMA_BASE_URL (no built-in default —
+// set via env), so callers just hit relative paths.
 //
 // Params are serialized with `qs` using `arrayFormat: "repeat"`,
 // matching the legacy Vue browser. `credentials: "include"` keeps

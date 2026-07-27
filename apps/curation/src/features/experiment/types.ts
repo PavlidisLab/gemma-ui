@@ -138,7 +138,7 @@ export interface Tag {
    *  statement-shaped tags (mirrors ``FactorValue.free_text_label``).
    *  Gemma's ``ExpressionExperiment.characteristic`` entity already
    *  supports statements; this UI mirror unblocks rendering them
-   *  on the overview / comparison surfaces. Per Paul 2026-06-14. */
+   *  on the overview / comparison surfaces. Per design review 2026-06-14. */
   statements?: Statement[];
   /** True when this tag is bubbled up from a sample characteristic
    *  or a factor-value statement rather than directly attached to

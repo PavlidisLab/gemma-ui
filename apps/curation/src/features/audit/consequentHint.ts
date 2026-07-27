@@ -13,13 +13,13 @@
  *
  * And symmetrically the other way (downstream → upstream).
  *
- * Per Paul's 2026-05-20 call: this is a CUE, not an auto-bind.
+ * Per design review's 2026-05-20 call: this is a CUE, not an auto-bind.
  * The curator sees the suggestion + one-click action; they can
  * also disposition the linked card independently if the logical
  * consistency doesn't hold for their case. The hint surface
  * makes both the suggestion and the divergence visible.
  *
- * The matching wire shape is bro's bidirectional linkage on
+ * The matching wire shape is the agents-side bidirectional linkage on
  * `AuditFinding` — `consequent_of` (target_id of upstream) or
  * `consequents` (target_ids of downstream). See
  * `HANDOFF_2026-05-20_CONSEQUENT_DISPOSITION_BIND.md` for the

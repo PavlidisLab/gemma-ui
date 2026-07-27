@@ -25,7 +25,7 @@ export interface FvLabelInput {
  *     a non-empty label appears more than once in ``allFvs``, the
  *     id is surfaced on the option's ``title`` (tooltip) so the
  *     curator can hover to disambiguate without the noisy
- *     ``(id N)`` suffix invading the visible cell. Per Paul
+ *     ``(id N)`` suffix invading the visible cell. Per design review
  *     2026-06-13: "only the actual label should be shown; if there
  *     is extra information to be shown, put it in a tooltip."
  *
@@ -79,7 +79,7 @@ export function fvDisplayLabel(
     }
     if (dupes > 1) {
       // Disambiguation moves to the hover tooltip instead of the
-      // visible text (Paul 2026-06-13).
+      // visible text (design review 2026-06-13).
       title = `id ${fv.id}`;
     }
   }

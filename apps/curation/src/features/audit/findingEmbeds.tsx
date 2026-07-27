@@ -7,7 +7,7 @@
  * shape — so curators don't have to scroll out of the card to see
  * what the agent is actually proposing.
  *
- * Extracted from `AuditSidebarPanel.tsx` (Paul 2026-06-10 sweep —
+ * Extracted from `AuditSidebarPanel.tsx` (design review 2026-06-10 sweep —
  * mega-file >5 000 lines was conflating ~50 components in one file).
  * Components here are self-contained — they read live state via
  * `useAudit()` + `useDesign()` and otherwise depend only on the
@@ -857,7 +857,7 @@ export function FactorReplacementHint({
   report: AuditReport | null;
 }) {
   if (finding.issue_code !== "calibration_factor_gold_only_miss") return null;
-  // When my brother's `calibration_factor_extra` findings are in the
+  // When the agents-side `calibration_factor_extra` findings are in the
   // report, those *are* the canonical "agent proposes adding X" view —
   // the paired finding sits directly adjacent in the list. Adding a
   // hint here just duplicates it. Suppress.

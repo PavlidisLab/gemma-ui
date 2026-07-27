@@ -23,7 +23,7 @@ const KEY = {
  *  bar from re-firing immediately after a successful PUT.
  *  Idempotent — already-filled statements pass through unchanged.
  *
- *  Paul 2026-06-10: "commit still doesn't seem to work, at least,
+ *  Design review 2026-06-10: "commit still doesn't seem to work, at least,
  *  the ui doesn't show that it's been committed". The bar was
  *  showing because of the inherited-category warning, then not
  *  going away after commit because the server response still had
@@ -41,7 +41,7 @@ export function fillStatementCategoriesFromParent(d: Design): Design {
           // payload didn't carry one. The earlier `s.category ? s :
           // ...` check passed those through untouched and the
           // validator kept flagging "N statements missing category"
-          // post-commit (Paul 2026-06-11 follow-up). Treat
+          // post-commit (design review 2026-06-11 follow-up). Treat
           // missing-OR-empty-label the same — both inherit from the
           // parent factor.
           const hasCategoryLabel = !!s.category?.label?.trim();
@@ -54,7 +54,7 @@ export function fillStatementCategoriesFromParent(d: Design): Design {
   };
 }
 
-/** Per bro's `STATUS_CURATION_TO_GEMMA_2_0.md` §2 reply: compose the
+/** Per the agents-side `STATUS_CURATION_TO_GEMMA_2_0.md` §2 reply: compose the
  *  curation `Design` client-side from Gemma 2.0's canonical
  *  `/datasets/{id}/design` + the latest curation-proposal overlay,
  *  rather than expecting a single composite endpoint. Either
@@ -423,7 +423,7 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
       // "X factor needs a baseline" warning persists in audit cards
       // even after the curator commits the baseline fix). Without
       // invalidating these, per-card warnings stay stale until a hard
-      // refresh. Paul 2026-06-11 review-workflow handoff #7.
+      // refresh. Design review 2026-06-11 review-workflow handoff #7.
       //
       // Broad invalidation (prefix-only) mirrors the precedent in
       // `api/datasets.ts:181` — the alternative is enumerating every

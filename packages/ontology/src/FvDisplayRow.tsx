@@ -2,7 +2,7 @@
  * Shared factor-value display row used across the curation app (audit
  * panel + proposal-review surface) and the browser app. Single-line
  * inline layout per FV; modeled on the audit's
- * `renderProposeNewFactorEditor` pattern Paul preferred.
+ * `renderProposeNewFactorEditor` pattern the reviewer preferred.
  *
  * Layout (single statement / no statement):
  *   [FV N] [subject Term] [- pred - object Term]? [★ baseline]? (n) […trailing]
@@ -112,13 +112,13 @@ export interface FvDisplayRowProps {
   /** Suppress the trailing ``(N)`` sample-count badge. Used by the
    *  paired-factor comparison grids where the middle column already
    *  carries the sample count once, in colour — repeating ``(N)`` on
-   *  each side is visual noise. Per Paul 2026-06-15: "the number of
+   *  each side is visual noise. Per design review 2026-06-15: "the number of
    *  samples should be shown ONCE and in the MIDDLE". */
   suppressSampleCount?: boolean;
   /** Render the whole row one notch smaller — passes ``size: "sm"``
    *  to every term render, uses a smaller predicate text size, and
    *  shrinks the FV-name caption + root text a step. Used only by the
-   *  side-by-side factor comparison grid (Paul 2026-06-21: "the text
+   *  side-by-side factor comparison grid (design review 2026-06-21: "the text
    *  smaller for the whole thing"). Default ``false`` keeps the
    *  existing render byte-for-byte — the browser app and all other
    *  callers are unaffected. */
@@ -155,7 +155,7 @@ export function FvDisplayRow({
   // promotion. When the FV has a ``free_text_label``, render it in
   // the name slot; when it doesn't, the name slot is empty. Same for
   // the subject — render what the statement carries (or empty if the
-  // statement's subject is blank). Per Paul 2026-06-13: "I want the
+  // statement's subject is blank). Per design review 2026-06-13: "I want the
   // name shown, don't promote anything, if it's blank (it's not a
   // prefix!)".
   const subjLabel = head?.subject?.label?.trim() ?? "";
@@ -166,7 +166,7 @@ export function FvDisplayRow({
   // editor's `CompactStatementGroup` so curators don't read the same
   // subject chip twice) and everything else (a different subject, or
   // a free-text label that doesn't match — render as full sub-row).
-  // Paul 2026-06-11: "the subject needn't be repeated if it is the
+  // Design review 2026-06-11: "the subject needn't be repeated if it is the
   // same."
   const headSubjectKey = subjectKey(head?.subject ?? null);
   const headSiblings: Array<{ s: FvDisplayStatement; originalIndex: number }> = [];
@@ -184,7 +184,7 @@ export function FvDisplayRow({
       {/* Optional FV-name caption — rendered ABOVE the chip row so
           the statement chips line up cleanly across LEFT/RIGHT
           panes in side-by-side comparator surfaces regardless of
-          how wide the FV name is. Paul 2026-06-13: "why can't you
+          how wide the FV name is. Design review 2026-06-13: "why can't you
           make things line up well" — before this split, long FV
           names like "reference substance role with calorie
           restricted" forced the chip row to wrap and broke the
@@ -251,7 +251,7 @@ export function FvDisplayRow({
           // so it reads as intentional, not a render glitch. This is
           // NOT the free-text case: a free-text value ships a statement
           // (uri-less subject) and renders as a normal first-class chip
-          // above. Per Paul 2026-06-21.
+          // above. Per design review 2026-06-21.
           <span className="italic text-slate-400 border border-dashed border-slate-300 dark:border-slate-600 rounded px-1.5 py-0.5">
             (no value)
           </span>
@@ -264,7 +264,7 @@ export function FvDisplayRow({
           // Two-column grid: predicate cells in col 1, object cells in
           // col 2. ``auto`` col 1 sizes to the widest predicate, so
           // every object starts at the same x and the objects line up
-          // vertically across stacked statements (Paul 2026-06-21:
+          // vertically across stacked statements (design review 2026-06-21:
           // "astrocyte should be under the homozygous object").
           <div className="grid grid-cols-[auto_auto] gap-x-1.5 gap-y-0.5 items-baseline min-w-0">
             {[{ s: head, oi: 0 }, ...headSiblings.map(({ s, originalIndex }) => ({ s, oi: originalIndex }))].map(
@@ -316,7 +316,7 @@ export function FvDisplayRow({
           itself. This way the subject chip on the extra row lands in
           the SAME column as the head's subject chip — vertically
           aligned regardless of how wide the FV-N label rendered or
-          whether a leading glyph is present. Per Paul 2026-06-13:
+          whether a leading glyph is present. Per design review 2026-06-13:
           "you should be aligning the two statements so they are
           vertically aligned". */}
       {otherRest.length > 0 ? (
@@ -433,12 +433,12 @@ function StatementPredicateObject({
 /** Predicate text styling. ``whitespace-nowrap`` keeps a two-word
  *  predicate ("located in") on one line — without it the predicate
  *  wrapped inside its (diff) box and threw the stacked-statement
- *  alignment off (Paul 2026-06-21). */
+ *  alignment off (design review 2026-06-21). */
 function predClassName(predDiff: boolean, compact = false): string {
   const sizeCls = compact ? "text-[9px]" : "text-[10px]";
   // A differing predicate is signalled by amber TEXT only — no box /
   // ring / background. The boxed treatment read as a different KIND of
-  // chip and was visually noisy next to the plain predicates (Paul
+  // chip and was visually noisy next to the plain predicates (the reviewer
   // 2026-06-21). Colour alone carries the diff.
   return predDiff
     ? `${sizeCls} text-amber-600 dark:text-amber-400 font-mono whitespace-nowrap`
@@ -449,7 +449,7 @@ function predClassName(predDiff: boolean, compact = false): string {
  *  ``- predicate`` cell and a ``- object`` cell). Used by the
  *  stacked-multi-statement layout so a two-column grid lines the
  *  objects up vertically — e.g. ``astrocyte`` sits under the head
- *  object, not under the predicate (Paul 2026-06-21). Returns a
+ *  object, not under the predicate (design review 2026-06-21). Returns a
  *  fragment so its two spans become direct children of the grid. */
 function StatementPredObjCells({
   statement,

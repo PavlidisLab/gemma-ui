@@ -30,7 +30,7 @@ export interface DatasetSummary {
   // ---- Audit fields (see AUDIT_FEATURE.md §"Open ask … DatasetSummary
   // audit fields" for the spec). All optional / nullable so the UI
   // degrades to "no audits known" when an older mock is in front of
-  // us. Once my brother ships them on the agents side these populate
+  // us. Once the agents side ships them on the agents side these populate
   // with no client change.
 
   /** Total audits ever submitted for this experiment. 0 = never
@@ -250,7 +250,7 @@ export function useResetExperiment(experimentId: number | string) {
  *     409 → ``short_name`` already in use
  *
  * See ``handoffs/HANDOFF_DATASET_RENAME_SHORT_NAME.md`` in the Gemma
- * repo for the wire contract bro 2 implements against; until that
+ * repo for the wire contract the agents side implements against; until that
  * ships, the UI 404s with a clear "endpoint not yet available"
  * inline hint.
  */
@@ -286,7 +286,7 @@ export function useRenameExperiment(experimentId: number | string) {
  * endpoints return. Real Gemma 1.32.7 prefers the new
  * `PUT /permissions` endpoint (with a slimmer
  * `DatasetPermissionsValueObject { isPublic, isShared }` shape),
- * and bro's mock now ships both. UI stays on the legacy pair so
+ * and the agents-side mock now ships both. UI stays on the legacy pair so
  * curators running against older calibration / evaluation packages
  * — which only have the legacy endpoints — keep working. We cut
  * over to PUT `/permissions` post-Friday alongside the rest of the
@@ -306,7 +306,7 @@ const VISIBILITY_KEY = (experimentId: number | string) =>
 /**
  * Read an experiment's public/private state. Hits the legacy
  * `GET /visibility` endpoint so the UI works against both old
- * evaluation packages and bro's current mock.
+ * evaluation packages and the agents-side current mock.
  */
 export function useDatasetVisibility(experimentId: number | string) {
   return useQuery({

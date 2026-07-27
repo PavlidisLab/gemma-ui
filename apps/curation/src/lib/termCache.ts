@@ -21,7 +21,7 @@
  */
 import type { AnnotationTermDetail } from "@/api/annotations";
 
-/** 24h — ontology definitions barely move; Paul 2026-06-19 ("can have
+/** 24h — ontology definitions barely move; Design review 2026-06-19 ("can have
  *  a ttl of like 24 hours if not more"). Bump freely if curators want
  *  longer-lived caching. */
 export const TERM_CACHE_TTL_MS = 1000 * 60 * 60 * 24;

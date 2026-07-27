@@ -47,9 +47,9 @@ describe("resolveGemmaMode — runtime config precedence", () => {
 
   it("ignores runtime gemmaBaseUrl in local mode (it's the proposer's remote target, not the UI backend)", () => {
     const r = resolveGemmaMode({
-      gemmaBaseUrl: "http://frink.msl.ubc.ca:8080",
+      gemmaBaseUrl: "http://example-ontology-host.test:8080",
     });
     expect(r.mode).toBe("local");
-    expect(r.baseHost).not.toBe("frink.msl.ubc.ca:8080");
+    expect(r.baseHost).not.toBe("example-ontology-host.test:8080");
   });
 });

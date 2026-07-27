@@ -342,7 +342,7 @@ export interface DiffExpressionResponse {
   geneExpressionLevels: {
     geneOfficialSymbol?: string | null;
     /** Long descriptive gene name (e.g. "transformation related protein 53").
-     *  Pending bro's enrichment of /datasets/{id}/expressions/differential —
+     *  Pending the agents-side enrichment of /datasets/{id}/expressions/differential —
      *  see ``SVD_LOADINGS_GENE_ENRICHMENT_HANDOFF.md``. */
     geneOfficialName?: string | null;
     /** Gemma-internal gene id. Pending the same enrichment. */

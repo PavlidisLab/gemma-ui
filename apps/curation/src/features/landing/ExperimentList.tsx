@@ -19,7 +19,7 @@ import { cn } from "@/lib/cn";
  * one to navigate to its curation surface.
  *
  * The pull-from-Gemma import bar that used to sit at the top of
- * this page was removed 2026-05-26 (Paul: "too confusing to use the
+ * this page was removed 2026-05-26 (design review: "too confusing to use the
  * ui to pull data from remote to local"). Imports happen via the
  * workflow / ticket pipeline now.
  */

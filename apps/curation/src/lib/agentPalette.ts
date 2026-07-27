@@ -40,7 +40,7 @@ export function agentPalette(model: string): string {
 
 /** True when `model` is a human prose context label rather than an
  *  agent identifier. Agents-side builder writes prose like
- *  ``"inter-curator audit · cyan's curation applied · amanda reviews"``
+ *  ``"inter-curator audit · Curator B's curation applied · Curator A reviews"``
  *  here for inter-curator audit packages, where "what model ran the
  *  audit" stops being the load-bearing identity for the surface and
  *  "who curated vs who reviews" takes over. The pill render switches

@@ -2,7 +2,7 @@
  * Per-element disposition editor — three-comparator, tired-human shape.
  *
  * One block per disagreement. Each block shows up to three
- * comparators with identity-first labels ("cyan said", "amanda
+ * comparators with identity-first labels ("Curator B said", "Curator A
  * has", "Gemma has") + one button per available party + "edit…".
  * Matched elements collapse to a single agreement-summary line.
  * The 2-axis structure/details vocabulary stays on the wire (the
@@ -11,8 +11,8 @@
  *
  * Identity strings come from the audit's ``report.model`` field.
  * For inter-curator-audit packages (e.g. "inter-curator audit ·
- * amanda's curation applied · cyan reviews") this parses to
- * goldCurator="amanda" / proposer="cyan" / reference="Gemma".
+ * Curator A's curation applied · Curator B reviews") this parses to
+ * goldCurator="Curator A" / proposer="Curator B" / reference="Gemma".
  * For regular agent audits the labels default to "Agent" /
  * "current curation" / "Gemma".
  *
@@ -130,14 +130,14 @@ const DEFAULT_IDENTITIES: AuditIdentities = {
   // For a regular audit, the gold side IS the curator's own design
   // draft — so the label is just "Current" (no curator name). For
   // inter-curator-audit packages parsed below, the gold curator's
-  // actual name overrides this default ("amanda has X" etc.).
+  // actual name overrides this default ("Curator A has X" etc.).
   goldCurator: "Current",
   reference: "Gemma",
 };
 
 /** Verb for the comparator line's "currently" side. The default
  *  identity "Current" is a noun, not a person — it reads as a
- *  label, no verb. Named curators ("amanda") get "has"; the
+ *  label, no verb. Named curators ("Curator A") get "has"; the
  *  legacy "you" identity gets "have" so older audits stay
  *  readable. */
 function currentlyVerb(id: string): string {
@@ -309,7 +309,7 @@ interface FvMeta {
    *  often carries multiple statements (subject + dose, role +
    *  modifier, etc.). The disagreement block renders these as
    *  "(also: S - P - O)" hints beneath the main Current line so
-   *  the curator sees gold's full structure. Per Paul 2026-06-11
+   *  the curator sees gold's full structure. Per design review 2026-06-11
    *  (FV 4 dexamethasone case — only the first of two statements
    *  was rendering). */
   goldExtraStatements?: Array<{
@@ -430,7 +430,7 @@ export function buildFactorRows(
     // ``rename.gold.category.uri`` — when the label matches the
     // resolved gold factor, fall back to that factor's URI so the
     // "Gemma has" chip renders as an ontology term, not italic
-    // free-text. Pure UI-side patch; bro-side fix can replace this
+    // free-text. Pure UI-side patch; agents-side fix can replace this
     // once the builder mirrors the URI consistently.
     const reference: SideValue | null = (() => {
       if (!rename?.gold?.category) return null;
@@ -643,7 +643,7 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
   // discoverable by looking up the proposed value (different URI), which
   // is why the proposer-value lookup below left the Current column empty
   // and the "don't change" button had no referent. Resolve current from
-  // the replaced design tag instead. (my brother's
+  // the replaced design tag instead. (the agents-side
   // UIB_HANDOFF_2026_06_20_TAG_SWAP_CURRENT_SIDE_FROM_TARGETID.md.)
   const apply = finding.apply_action ?? null;
   if (apply?.kind === "replace_tag") {
@@ -771,7 +771,7 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
   // ("organism part"), never its URI, and ``proposer_term`` is the
   // value side only — so the proposer category has no URI on the wire
   // and rendered as plain italic text while the Current column showed a
-  // proper term chip (Paul 2026-06-19). Category labels are a small
+  // proper term chip (design review 2026-06-19). Category labels are a small
   // controlled vocabulary that resolves to the same ontology term across
   // the whole experiment ("organism part" → EFO:0000635), so borrow the
   // URI from any design tag filed under the same category label. Mirrors
@@ -800,7 +800,7 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
   // both used for the same MONDO disease term. The pre-2026-06-12
   // lookup required category-label equality and silently dropped
   // tags whose categories differed, surfacing as "no entry" in the
-  // Current column even when the tag was present. Per Paul: GSE87700
+  // Current column even when the tag was present. Per design review: GSE87700
   // ``disease model: fetal alcohol spectrum disorder MONDO:0000408``
   // was matched against design tag ``disease: fetal alcohol spectrum
   // disorder MONDO:0000408`` — the URIs agree, the category labels
@@ -1090,7 +1090,7 @@ export function FindingDetailsEditor({
      *  still runs exactly as a plain Agree; only the resolved stamp
      *  is withheld so the finding stays in the curator's follow-up
      *  queue (a "Resolve →" affordance closes it later). Drives the
-     *  "Agree, needs work" button. Paul 2026-06-21. */
+     *  "Agree, needs work" button. Design review 2026-06-21. */
     opts?: { needsWork?: boolean },
   ) => Promise<void>;
   /** Plain "agree" — patch the disposition to accepted without any
@@ -1128,18 +1128,18 @@ export function FindingDetailsEditor({
   const [rowState, setRowState] = useState<Map<string, RowState>>(new Map());
   const [saving, setSaving] = useState(false);
   // Inline Reject-with-reason prompt — Reject requires a reason
-  // (Paul 2026-05-25: "reject and park should have a reason"),
+  // (design review 2026-05-25: "reject and park should have a reason"),
   // Agree is fire-and-forget without a notes prompt; Reject routes
   // through ``onDismiss`` → ``DismissDialog`` chip picker with the
   // per-issue-code chip set from ``dispositionChips.dismissChipsFor``;
   // Park routes through ``onPark`` → ``NotSureDialog``. The earlier
   // ``rejectPromptOpen`` / ``InlineNotesPrompt`` path was a bare
   // notes textarea that bypassed the chip taxonomy — removed
-  // 2026-06-15 per Paul: "make sure there is a _uniform_ place those
+  // 2026-06-15 per design review: "make sure there is a _uniform_ place those
   // are coded but the choices might differ based on the situation."
   // dispositionChips.ts IS that uniform place.
   // Free-text term lookup state (``findTermLabel`` + ``resolvedTerms``
-  // + ``FreeTextLookup`` picker) removed 2026-06-15 — Paul: "I would
+  // + ``FreeTextLookup`` picker) removed 2026-06-15 — the reviewer: "I would
   // prefer not to even enable editing of free text. They would have
   // to accept it first, then they can edit in the usual place. For
   // now, proposal pane has no editing." Re-introduce if a
@@ -1148,7 +1148,7 @@ export function FindingDetailsEditor({
   // 2026-06-15 in favour of the canonical ``termRenderer`` from
   // ``@/components/ui/Term``. Every ``FvDisplayRow`` call below now
   // plugs in the shared renderer so this surface's chips render
-  // identically to the comparison grid / audit cards. Paul: "make
+  // identically to the comparison grid / audit cards. The reviewer: "make
   // ALL surfaces use a single Term component."
 
   const disagreementRows = rows.filter((r) => !r.allAgree);
@@ -1238,7 +1238,7 @@ export function FindingDetailsEditor({
   // Action shape (add / remove / change / match) drives the TEXT on
   // the (keep, accept) buttons. The lean-aware kind decides which
   // side is the primary highlight; the action shape decides the
-  // label. See ./actionLabels.ts. Paul 2026-05-21 — an "Add tag"
+  // label. See ./actionLabels.ts. Design review 2026-05-21 — an "Add tag"
   // finding's keep button shouldn't read "keep current" when there
   // IS no current; it should read "don't add".
   // Match-downgrade signal: when the curator's displayed gold
@@ -1346,7 +1346,7 @@ export function FindingDetailsEditor({
   // Only in INTER-CURATOR audits does Gemma diverge from Current
   // (because Current is a second curator's overlay over Gemma's
   // baseline). Showing the reference row + "match Gemma" button
-  // makes sense only in that case. Per Paul 2026-05-21.
+  // makes sense only in that case. Per design review 2026-05-21.
   const hasReferenceData = rows.some(
     (r) => r.reference !== null && !sidesAgree(r.reference, r.currently),
   );
@@ -1365,7 +1365,7 @@ export function FindingDetailsEditor({
   //   3. Factor finding with an exact / near match code AND no
   //      row-level disagreement — same idea, mirrored to the
   //      factor side via ``isCloseFactorMatch``.
-  // Per Paul 2026-05-21: "if the proposal is exactly the same as
+  // Per design review 2026-05-21: "if the proposal is exactly the same as
   // the current, there's no reason to show buttons to accept; all
   // the curator could do is delete it if it was wrong." Cuts
   // cognitive load by removing buttons that would no-op on the
@@ -1380,7 +1380,7 @@ export function FindingDetailsEditor({
   const allAgreeAtCard = rows.length > 0 && disagreementRows.length === 0;
   // "Auditor says everything is exactly right" — hide ALL action
   // affordances (no Keep, no Adopt, no Agree, no Dismiss, no Park).
-  // Per Paul 2026-05-25: "if the auditor says something is exactly
+  // Per design review 2026-05-25: "if the auditor says something is exactly
   // right then there should be no Dismiss or Accept; it's the stuff
   // the auditor doesn't like that we need to look at." Note this
   // is NARROWER than ``isCloseFactorMatch`` — close / near matches
@@ -1417,7 +1417,7 @@ export function FindingDetailsEditor({
     // factors of the same category. Neither finer nor coarser; the
     // ``fv_pairs`` list is intentionally empty and the per-FV
     // overlap evidence lives in ``cross_cutting_overlaps``. This
-    // branch ships ahead of Paul speccing the verb/action labels —
+    // branch ships ahead of the reviewer speccing the verb/action labels —
     // the actions are stubbed disabled with a TODO note so curators
     // see the right shape now (instead of the broken 0-level
     // fallthrough flagged on GSE79061) and we can drop the
@@ -1434,7 +1434,7 @@ export function FindingDetailsEditor({
       // ``cross_cutting`` because no FV pair hit Jaccard ≥ 0.8, but
       // there's still just one gold factor in scope. Treat as a
       // regular partition_mismatch (adopt-shaped action), drop the
-      // misleading "spans multiple" copy. Paul 2026-06-14 (GSE448).
+      // misleading "spans multiple" copy. Design review 2026-06-14 (GSE448).
       const isDegenerate = ccGolds.length <= 1;
 
       // Same partition, different term — NOT a partition disagreement.
@@ -1715,7 +1715,7 @@ export function FindingDetailsEditor({
               always safe (it records "keep current" via the same
               ``dispatchSave("currently")`` path the other partition
               variants use, with no fix to apply), and the curator must
-              never be left with zero usable controls (Paul 2026-06-19,
+              never be left with zero usable controls (design review 2026-06-19,
               experiment 2828 — the two spanned factors there are both
               ``treatment``/``EFO:0000727``, a split factor the auditor
               wants to merge). */}
@@ -1844,7 +1844,7 @@ export function FindingDetailsEditor({
             the left. Both sides' levels live in ONE factor (the
             partition_mismatch is a within-factor FV reorg, not a
             cross-factor split/merge), so we just say "levels"
-            without an "across N factors" suffix. Per Paul
+            without an "across N factors" suffix. Per design review
             2026-05-21: the older "(combined into 1)" /
             "across N factors" copy was misleading — the current
             disease factor in the GSE28300 example has 3 levels in
@@ -1852,7 +1852,7 @@ export function FindingDetailsEditor({
         {/* Horizontal, mirroring the CURRENT | AUDITOR columns of the
             grid below (Current LEFT, Auditor RIGHT) so the level-count
             asymmetry reads at a glance and lines up with the panes.
-            Per Paul 2026-06-21: horizontal beats the old vertical
+            Per design review 2026-06-21: horizontal beats the old vertical
             stack (which also listed Auditor first, reversed vs the
             columns). */}
         <div className="grid grid-cols-2 gap-x-3 items-baseline text-[11px]">
@@ -1896,7 +1896,7 @@ export function FindingDetailsEditor({
         {/* FV mapping — SAME FactorComparisonGrid used by the
             factor-match card. ONE shared component for every
             factor-side comparison; partition_mismatch is just a
-            different fill of the same pairs slot. Paul 2026-06-16:
+            different fill of the same pairs slot. Design review 2026-06-16:
             "I want ONE component for factors and ONE component for
             TAGS." Cost of unification: when the partition is M:1
             (agent_coarser) the agent FV label repeats across each
@@ -1987,7 +1987,7 @@ export function FindingDetailsEditor({
   // not), so the per-row "Current: no entry / keep / adopt /
   // edit" repetition is just noise.
   //
-  // Action shape (per Paul 2026-05-25):
+  // Action shape (per design review 2026-05-25):
   //   - "Add Auditor's factor" — applies the mutation; opens a
   //     small optional-explanation prompt first so the curator
   //     can record WHY (the explanation rides on the disposition
@@ -2063,7 +2063,7 @@ export function FindingDetailsEditor({
             so the curator sees the value distribution + range at a
             glance. Left lane stays empty (this is ADD FACTOR — no
             current side); the strip's axis builds from the agent's
-            values alone. Paul 2026-06-14: "this should display the
+            values alone. Design review 2026-06-14: "this should display the
             factor using the plot like before — not a long list." */}
         {fvs.length > 0 ? (
           (() => {
@@ -2116,7 +2116,7 @@ export function FindingDetailsEditor({
                 kind: "primary-accept" as const,
                 label: "Agree",
                 // Agree is fire-and-forget — no notes prompt. Per
-                // Paul 2026-05-25: "just agree". Reject opens the
+                // Design review 2026-05-25: "just agree". Reject opens the
                 // shared DismissDialog chip picker via onDismiss —
                 // chips come from ``dispositionChips.dismissChipsFor``
                 // (CAL_EXTRA_FACTOR_DISMISS_CHIPS for factor-extra:
@@ -2259,7 +2259,7 @@ export function FindingDetailsEditor({
             FV chips below can fit on one line at 11px. */}
         <div className="space-y-1">
           {/* Auditor's "(proposes removing — no entry)" line removed
-              2026-06-16 — placeholder anti-pattern flagged by Paul.
+              2026-06-16 — placeholder anti-pattern flagged by the reviewer.
               The card header ("REMOVE TAG") and the body's "removal
               proposed" tag already convey the auditor's ask; a
               labeled empty-state row added noise. Per the
@@ -2361,7 +2361,7 @@ export function FindingDetailsEditor({
               // ``dispositionChips.dismissChipsFor`` (CAL_MISS_DISMISS_CHIPS
               // for removal findings: "Factor needed" / "Structure
               // correct, FVs wrong" / "Wrong partition" / "Missed
-              // evidence" / …). Paul 2026-06-15: REMOVE TAG cards had
+              // evidence" / …). Design review 2026-06-15: REMOVE TAG cards had
               // no disposition prompt at all — fire-and-forget on Keep
               // dropped the curator's reason on the floor.
               onClick: onDismiss,
@@ -2375,7 +2375,7 @@ export function FindingDetailsEditor({
               // picker via onAgree — chips come from
               // ``dispositionChips.acceptChipsFor`` (CAL_MISS_ACCEPT_CHIPS
               // for removal findings: "Gold wrong" / "Borderline" /
-              // "Other"). Paul 2026-06-15: a destructive action
+              // "Other"). Design review 2026-06-15: a destructive action
               // (actually drops the tag/factor from the draft)
               // deserves a reason prompt; fire-and-forget on the
               // green button was wrong here.
@@ -2398,7 +2398,7 @@ export function FindingDetailsEditor({
   // chip below. The category was previously rendered alongside
   // subject/predicate/object in every comparator line, which gave
   // it equal prominence with the actual statement subject and
-  // confused the eye. Moving it to a card-level label (per Paul
+  // confused the eye. Moving it to a card-level label (per design review
   // 2026-05-21) frees the comparator rows to focus on S - P - O.
   const factorCategoryRow =
     finding.target_kind === "factor"
@@ -2431,7 +2431,7 @@ export function FindingDetailsEditor({
 
       {/* Side-by-side "Current vs Auditor" mini-table for factor
           findings. Restores the at-a-glance comparison that used to
-          live in the retired EXPERIMENTAL DESIGN block (per Paul
+          live in the retired EXPERIMENTAL DESIGN block (per design review
           2026-05-25). FV chips on each side show sample counts; an
           inline amber disc marks FVs the OTHER side doesn't have so
           partition / label drift is visible without expanding the
@@ -2458,7 +2458,7 @@ export function FindingDetailsEditor({
           outer collapsed header already shows the same chips for
           the Auditor side, and the Current side would just read
           "no entry". Rendering both was pure duplication per
-          Paul 2026-05-21. Removal-tag findings already take a
+          Design review 2026-05-21. Removal-tag findings already take a
           dedicated branch above (``isRemovalFinding``), so this
           single-line gate covers the add-tag case. */}
       {finding.target_kind === "tag" &&
@@ -2505,7 +2505,7 @@ export function FindingDetailsEditor({
           a contradiction: the header says "≈ near" but the body
           says "✓ Everyone agrees". Surface the agent's
           rationale inline so the curator can decide whether the
-          delta matters. Per Paul 2026-05-21 (GSE93824 genotype
+          delta matters. Per design review 2026-05-21 (GSE93824 genotype
           case). */}
       {isCloseFactorMatch(finding) && allAgreeAtCard ? (
         <NearMatchExplainer finding={finding} />
@@ -2527,7 +2527,7 @@ export function FindingDetailsEditor({
       // finding before acting; after Agree/Reject lands it's noise,
       // and on ADD TAG cards it surfaces as an amber wrapper because
       // accepting moves the tag into the draft and the row matcher
-      // (rightly) sees both sides agreeing. Paul 2026-06-15: "why
+      // (rightly) sees both sides agreeing. Design review 2026-06-15: "why
       // does 'agree' leave this amber-coloured thing?"
       currentDisposition === "pending" ? (
         <ActionableNoDeltaExplainer finding={finding} />
@@ -2548,7 +2548,7 @@ export function FindingDetailsEditor({
           case (see AuditSidebarPanel.tsx). Sentinel
           ``[agent emitted no details]`` preserved end-to-end so a
           missing rationale still reads as "no details", not
-          "missing UI". Per Paul 2026-05-21. */}
+          "missing UI". Per design review 2026-05-21. */}
       {finding.target_kind !== "tag" && groupedDisagreements.map((g, idx) => {
         // Only the FIRST disagreement block carries the rationale —
         // ``concept_diff_kind`` lives at the rename-payload level
@@ -2609,12 +2609,12 @@ export function FindingDetailsEditor({
           accept or reject, so the only available actions are
           Dismiss (delete if wrong) and Park (defer). Otherwise
           the three header-level verdict buttons + per-row-save +
-          Dismiss/Park. Per Paul 2026-05-21.
+          Dismiss/Park. Per design review 2026-05-21.
           Tag-add findings use the same Apply-only treatment as
           factor-add: an inline optional-notes prompt replaces the
           action row while the curator decides; Dismiss + "keep"
           are dropped (non-application records itself via the
-          close-review summary). Per Paul 2026-05-25. */}
+          close-review summary). Per design review 2026-05-25. */}
       {(
       <ActionRow
         saving={saving}
@@ -2623,7 +2623,7 @@ export function FindingDetailsEditor({
           auditorSaysExactlyRight
             ? // Auditor says exactly right — the curator's verdict is
               // still a real disposition (accept / reject / park).
-              // Per Paul 2026-06-11 on TAG MATCH cards: "should be
+              // Per design review 2026-06-11 on TAG MATCH cards: "should be
               // agree and reject" — the earlier "no buttons" branch
               // left curators with only Reject/Park, which felt
               // lopsided. Agree records acceptance without mutating
@@ -2645,7 +2645,7 @@ export function FindingDetailsEditor({
                     kind: "primary-accept" as const,
                     label: "Agree",
                     // Agree fires immediately — no notes prompt
-                    // (Paul 2026-05-25: "just agree"). Reject
+                    // (design review 2026-05-25: "just agree"). Reject
                     // requires a reason via the prompt below.
                     onClick: () => dispatchSave("proposal"),
                     title: `Agree with ${identities.proposer}: add the proposed tag to the design.`,
@@ -2659,7 +2659,7 @@ export function FindingDetailsEditor({
                     // ``dispositionChips.dismissChipsFor``
                     // (CAL_EXTRA_TAG_DISMISS_CHIPS for tag-add:
                     // "Subset only" / "No evidence" / "Redundant" /
-                    // "Out of scope" / …). Paul 2026-06-15: a bare
+                    // "Out of scope" / …). Design review 2026-06-15: a bare
                     // notes textarea here dropped the curator's
                     // structured reason on the floor — the chip set
                     // already existed in dispositionChips.ts and was
@@ -2692,7 +2692,7 @@ export function FindingDetailsEditor({
                   // Match findings: keep + adopt collapse to the same
                   // "confirm" verb (both sides already agree). Render
                   // ONE Confirm-all button instead of two identical
-                  // ones — Paul 2026-06-11: "having 'confirm' and
+                  // ones — Design review 2026-06-11: "having 'confirm' and
                   // 'confirm' on every card is dumb." Acts as the
                   // factor-level "overall" the curator wants: fills
                   // any un-picked per-FV blocks with the same verdict.
@@ -2773,7 +2773,7 @@ export function FindingDetailsEditor({
         onResolve={isParked ? onResolve : undefined}
         onUndo={currentDisposition !== "pending" ? onUndo : undefined}
         // Reject + Park stay available on every finding — including
-        // exact matches and close matches. Paul 2026-06-11: "reject
+        // exact matches and close matches. Design review 2026-06-11: "reject
         // should be an option, even if the proposal is 'close'." The
         // earlier gate ("nothing to dismiss") was wrong: the curator
         // may still disagree that the auditor's match assessment is
@@ -2794,7 +2794,7 @@ export function FindingDetailsEditor({
  *  statements on the same subject ("APP has_genotype Overexpression"
  *  + "APP has_genotype V717F, KM670/671NL, E22G") collapse to one
  *  subject chip with the predicate/object pairs stacked beneath.
- *  Eye reads the subject ONCE, then walks the list. Per Paul
+ *  Eye reads the subject ONCE, then walks the list. Per design review
  *  2026-06-12 GSE93824 genotype walkthrough — the prior render
  *  repeated the subject on every line and made the inconsistent
  *  agent-side labelling (same URI, two different display strings)
@@ -2812,7 +2812,7 @@ function AgreementStatementGroup({
   // can scan them. The subject column sizes to its widest content
   // (the row 0 chip), and ``⤷`` continuation rows occupy the same
   // column width, which is what makes the predicate column line up
-  // vertically. Per Paul 2026-06-12: "you could make the
+  // vertically. Per design review 2026-06-12: "you could make the
   // has_genotype align vertically."
   return (
     <span
@@ -2926,7 +2926,7 @@ function AgreementSummary({
           <span className="ml-1">{factorChips.join(" · ")}</span>
         ) : null}
       </div>
-      {/* Per-agreed-FV detail — Paul 2026-06-11: "all factor values
+      {/* Per-agreed-FV detail — Design review 2026-06-11: "all factor values
           should be shown — 'Everyone agrees: ... FV 2 (6)' is not
           good enough." Spell out the proposal labels for each agreed
           row so the curator sees the actual content of the FV they're
@@ -2946,7 +2946,7 @@ function AgreementSummary({
             // Collect every statement on this FV (primary + extras),
             // then group by subject URI/label so the eye can read
             // "subject X has predicates A, B, C" instead of repeating
-            // the same subject chip every line. Paul 2026-06-12 on
+            // the same subject chip every line. Design review 2026-06-12 on
             // GSE93824 genotype: "the label should be the same for the
             // same ontology term (gene) NCBI:gene:351, do you know
             // why it isn't?" Producer ships different display strings
@@ -3041,7 +3041,7 @@ function AgreementSummary({
 /** Compact "Current vs Auditor" comparison for factor findings.
  *
  *  Restores the at-a-glance comparison that used to live in the
- *  retired EXPERIMENTAL DESIGN block (Paul 2026-05-25). Aligns rows
+ *  retired EXPERIMENTAL DESIGN block (design review 2026-05-25). Aligns rows
  *  by normalised FV label so the curator's eye scans horizontally
  *  to spot drift; FV statements render via the shared
  *  ``<FvDisplayRow>`` so the familiar Subj · Pred · Obj layout +
@@ -4069,7 +4069,7 @@ function ActionableNoDeltaExplainer({ finding }: { finding: AuditFinding }) {
   // encodes urgency for readability without making the curator
   // parse a vocabulary that doesn't apply. The ``issue_code``
   // chip is behind-the-scenes plumbing — hide it everywhere (per
-  // Paul 2026-05-25); the rationale below carries the human
+  // Design review 2026-05-25); the rationale below carries the human
   // signal.
   const showSeverityLabel = kind === "audit";
   return (
@@ -4144,7 +4144,7 @@ function NearMatchExplainer({ finding }: { finding: AuditFinding }) {
  *  ``statements[0]``; this surfaces the remaining ones so the curator
  *  sees the full current structure (e.g. dexamethasone FV with both
  *  a "delivered at dose · 100 nmol/kg" and a "has modifier · …"
- *  statement). Per Paul 2026-06-11. */
+ *  statement). Per design review 2026-06-11. */
 function ExtraCurrentStatement({
   extra,
 }: {
@@ -4257,7 +4257,7 @@ function DisagreementBlock({
    *  ActionRow. Drives which of the (keep, adopt) per-FV
    *  PickButtons reads as recommended. Same value the parent passes
    *  to its bottom-of-card ActionRow — this is the regression-prevent
-   *  for the GSE93824 split-bug (Paul 2026-05-21) where the outer
+   *  for the GSE93824 split-bug (design review 2026-05-21) where the outer
    *  row correctly highlighted `keep current` (green-primary) on
    *  `concept_gold_right` but the per-FV row inside the same block
    *  still highlighted `adopt Auditor's` (blue-primary). */
@@ -4265,15 +4265,15 @@ function DisagreementBlock({
   /** Action-aware button labels (keep, adopt). Threaded from the
    *  parent so the per-FV PickButton text matches the OUTER button
    *  row exactly — both rows derive from the same finding-level
-   *  action shape (see ./actionLabels.ts). Per Paul 2026-05-21. */
+   *  action shape (see ./actionLabels.ts). Per design review 2026-05-21. */
   actionLbls: { keep: string; adopt: string };
   /** Action shape — same finding-level shape the parent computes.
    *  Threaded so the accept button can suppress the possessive
-   *  suffix when shape is "remove" / "match" (per Paul 2026-06-08,
+   *  suffix when shape is "remove" / "match" (per design review 2026-06-08,
    *  the "remove Auditor's" hanging-possessive bug). */
   actionShape: ActionShape;
   /** Optional "Judge:" rationale to render INSIDE this FV block.
-   *  Threaded from the parent on near-match findings (Paul 2026-05-21
+   *  Threaded from the parent on near-match findings (design review 2026-05-21
    *  redesign — GSE93824 case): the factor-card-level
    *  ``AgentSuggestionPanel`` suppresses its Judge row on these
    *  findings and we render it here so the WHY binds to the exact FV
@@ -4329,7 +4329,7 @@ function DisagreementBlock({
   // ``hasReferenceData`` check — hide the per-block "Gemma has"
   // line + "match Gemma" pick button when the reference is just
   // restating the Current side (regular calibration mode, where
-  // Gemma == Current). Per Paul 2026-05-21.
+  // Gemma == Current). Per design review 2026-05-21.
   const hasReferenceCtx = displayRows.some(
     (r) => r.reference !== null && !sidesAgree(r.reference, r.currently),
   );
@@ -4352,12 +4352,12 @@ function DisagreementBlock({
   // hook order stable across renders — see the useState above.
 
   // Action-aware button labels — `don't add` / `don't remove` /
-  // `don't change` / `confirm` per the finding's action shape (Paul
+  // `don't change` / `confirm` per the finding's action shape (the reviewer
   // 2026-05-21). The OUTER ActionRow uses the same `actionLbls`
   // object so the per-FV row reads consistently with the bottom-of-
   // card buttons. Replaces the older identity-bearing
   // `keepLabelFor(identities.goldCurator)` ("keep current" /
-  // "keep amanda's") — those didn't carry the action verb.
+  // "keep Curator A's") — those didn't carry the action verb.
   const keepLabel = actionLbls.keep;
   // For action shapes where the accept verb stands on its own
   // ("remove" / "confirm"), the trailing "<Proposer>'s" was reading
@@ -4381,7 +4381,7 @@ function DisagreementBlock({
       </div>
 
       {/* Threaded Judge: row — only present on the first block of a
-          near-match finding (Paul 2026-05-21 redesign — GSE93824
+          near-match finding (design review 2026-05-21 redesign — GSE93824
           gene-URI case). The factor-card-level AgentSuggestionPanel
           drops its Judge row on these findings; we render it here
           so the WHY binds to the exact FV being corrected. Sentinel
@@ -4426,7 +4426,7 @@ function DisagreementBlock({
           curated FV often layers multiple statements (subject + dose,
           role + modifier, etc.) but the row builder only pairs against
           the first. Surface the rest here as "(also: S - P - O)" hints
-          so the curator sees the full current structure. Per Paul
+          so the curator sees the full current structure. Per design review
           2026-06-11. */}
       {meta?.goldExtraStatements?.map((extra, ix) => (
         <ExtraCurrentStatement key={`extra-${ix}`} extra={extra} />
@@ -4445,7 +4445,7 @@ function DisagreementBlock({
         {actionShape === "match" ? (
           // Match findings — auditor's claim and current row already
           // agree, so both keep/adopt labels resolve to "confirm".
-          // Rendering both was Paul's "having 'confirm' and 'confirm'
+          // Rendering both was the design review's "having 'confirm' and 'confirm'
           // on every card is dumb" (2026-06-11): two buttons doing
           // the same thing under different colours. Collapse to a
           // single Confirm that records the agreement. The outer
@@ -4554,7 +4554,7 @@ function DisagreementBlock({
  *  for Auditor and Current sides. Always visible on tag findings
  *  so the curator sees the full chip detail (label + URI) even
  *  on OK matches, where the existing disagreement-block flow
- *  would render nothing. Per Paul 2026-05-21. */
+ *  would render nothing. Per design review 2026-05-21. */
 function TagDetailBlock({
   rows,
   identities,
@@ -4728,7 +4728,7 @@ function ComparatorLine({
   // marker overstates the divergence. The placeholder feature is
   // kept for the case when Subject diverges (different entities
   // being talked about, where seeing each side's full slot
-  // inventory matters). Per Paul 2026-05-21.
+  // inventory matters). Per design review 2026-05-21.
   const subjectRow = sorted.find((r) => r.rowLabel === "Subject");
   const suppressMissingPlaceholders = !!subjectRow && subjectRow.allAgree;
   // If THIS side has no data on any row, the comparator is wholly
@@ -4806,7 +4806,7 @@ function ComparatorLine({
           // "what's there vs what's missing" reads at a glance —
           // e.g. agent has S+P, gold has just S → curator can see
           // they share the subject and gold is missing the role
-          // statement around it. Per Paul 2026-05-21: "all the
+          // statement around it. Per design review 2026-05-21: "all the
           // cards should show statements like S - P - O, though
           // - P - O can be omitted".
           parts.map((p, i) => {
@@ -4895,7 +4895,7 @@ interface ActionButton {
    *  card disable ONE primary while leaving its sibling live — e.g. the
    *  cross-cutting partition card disables only "Adopt" (an unspecced
    *  design merge) while "Keep current" stays clickable, since keeping
-   *  the design unchanged is always safe (Paul 2026-06-19). */
+   *  the design unchanged is always safe (design review 2026-06-19). */
   disabled?: boolean;
 }
 
@@ -4907,7 +4907,7 @@ interface ActionButton {
  *  styled as primary (filled, prominent). When the judge leans
  *  pro_gold the accept button demotes to ``secondary`` (outline) so
  *  the keep button reads as the recommended action — fixes the
- *  GSE93824 Arctic-APP case (Paul 2026-05-21) where the judge said
+ *  GSE93824 Arctic-APP case (design review 2026-05-21) where the judge said
  *  agent is wrong but the UI still highlighted `adopt Auditor's`.
  *  Mirror case for pro_agent: keep demotes, accept stays primary
  *  (also matches today's de-facto behaviour where most defender-
@@ -4976,7 +4976,7 @@ function _fvDisplayFromMapping(
  *    ⚠ stamp surfacing the divergence — no forced action, just
  *    visible so the curator can revisit if it was unintentional.
  *
- *  Per Paul (2026-05-20): "accepting one should somehow mark the
+ *  Per design review (2026-05-20): "accepting one should somehow mark the
  *  other... the curators should be cued to do the logically
  *  consistent thing... there has to be an override, so it's more
  *  a suggestion that I'm looking for the curators to see". */
@@ -5048,7 +5048,7 @@ function ConsequentHintBanner({
 // InlineNotesPrompt deleted 2026-06-15 — Reject paths now route
 // through ``onDismiss`` → ``DismissDialog`` chip picker, sourcing
 // per-issue-code chips from ``dispositionChips.dismissChipsFor``.
-// Paul: "make sure there is a _uniform_ place those are coded but
+// The reviewer: "make sure there is a _uniform_ place those are coded but
 // the choices might differ based on the situation." Recover from
 // git history if a future surface wants a free-text-only prompt.
 
@@ -5076,7 +5076,7 @@ function ActionRow({
    *  still lands) but records the disposition as parked
    *  (status=accepted, resolved_at null) so the finding stays in the
    *  curator's follow-up queue — the work happens later, not inline.
-   *  Paul 2026-06-21: "there should be an 'agree but needs work' —
+   *  Design review 2026-06-21: "there should be an 'agree but needs work' —
    *  no editing here, the work would be done after accepting it." */
   onNeedsWork?: () => void;
   /** When provided, the finding is currently parked (accepted via
@@ -5094,7 +5094,7 @@ function ActionRow({
   /** When false, suppress the Dismiss / Park buttons entirely.
    *  Used for exact-match findings where the proposal is identical
    *  to current — there's nothing to dismiss or park because there
-   *  was no proposed change in the first place. Per Paul
+   *  was no proposed change in the first place. Per design review
    *  2026-05-21: "if it's exactly the same factor, and it's
    *  pre-resolved, we don't need to show the dismiss and park
    *  buttons." Defaults to true so every existing call site keeps
@@ -5103,7 +5103,7 @@ function ActionRow({
   /** When true, suppress JUST the Dismiss button — Park stays.
    *  Used on "Apply or park" surfaces (factor-add, tag-add) where
    *  Dismiss is redundant with the implicit "didn't apply" verdict
-   *  the close-review step will record. Per Paul 2026-05-25. */
+   *  the close-review step will record. Per design review 2026-05-25. */
   hideDismiss?: boolean;
 }) {
   // Review-mode lock — curator can read every proposal but can't
@@ -5131,7 +5131,7 @@ function ActionRow({
   // disabled cross-cutting Adopt, has nothing safe to "agree" to). The
   // amber tone reads as "agreed but not done" without competing with
   // the solid primary Agree. Rendered immediately after that accept
-  // button so the two Agree variants sit together. Paul 2026-06-21.
+  // button so the two Agree variants sit together. Design review 2026-06-21.
   const acceptIdx = buttons.findIndex(
     (b) => b.kind === "primary-accept" && !b.disabled,
   );
@@ -5186,7 +5186,7 @@ function ActionRow({
         );
       })}
       {/* Escape hatches — historically rendered Reject + Park
-          alongside the primary buttons. Paul 2026-06-14 (and the
+          alongside the primary buttons. Design review 2026-06-14 (and the
           earlier findingCard refactor):
             - When the primary buttons already include the disagree
               action (e.g. "don't remove" sits next to "remove"),
@@ -5258,7 +5258,7 @@ function ActionRow({
  *    renders filled in the tone colour by default so the curator
  *    sees which action is suggested without first clicking
  *    anything. Mirrors the outer ActionRow's primary-keep /
- *    primary-accept kinds (Paul 2026-05-21: the outer row was
+ *    primary-accept kinds (design review 2026-05-21: the outer row was
  *    lean-aware after 21f7f17 but this per-FV row was still
  *    highlighting "adopt Auditor's" on `concept_gold_right`
  *    findings like GSE93824 genotype FV2).

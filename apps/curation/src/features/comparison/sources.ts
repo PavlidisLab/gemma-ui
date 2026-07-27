@@ -4,7 +4,7 @@
  *  Three system-level sources (``empty``, ``preboard``,
  *  ``agent_proposal``) plus a dynamic ``polished:<curator>`` family
  *  driven by whichever curation packs have been loaded for the
- *  experiment. ``polished:cyan`` and ``polished:amanda`` are typical
+ *  experiment. ``polished:curator-b`` and ``polished:curator-a`` are typical
  *  but not enumerated up front — any curator with a loaded polished
  *  pack appears as ``polished:<their_username>`` automatically.
  *  See memory ``polished-sources-are-dynamic-per-loaded-pack``.
@@ -20,7 +20,7 @@ export type PolishedSource = `polished:${string}`;
  *  string. Step 3b of the 2026-06-08 unified-curation-versions
  *  reframe widened this from a discriminated union to a generic
  *  string so any /curations row (unified-table UUID, legacy synthetic
- *  id like `live` / `polished:cyan`, future producer kind) can sit
+ *  id like `live` / `polished:curator-b`, future producer kind) can sit
  *  in either chip-strip slot.
  *
  *  Recognized literal IDs the helpers still special-case for
@@ -70,7 +70,7 @@ export function polishedSourceFor(curator: string): PolishedSource {
   return `polished:${curator}` as PolishedSource;
 }
 
-/** Title-Case a curator username for display. ``"cyan"`` → ``"Cyan"``;
+/** Title-Case a curator username for display. ``"curator-b"`` → ``"Curator-B"``;
  *  ``"jordan-doe"`` → ``"Jordan-Doe"``. Falls back to verbatim if the
  *  name is empty. */
 function titleCaseCurator(name: string): string {
@@ -161,7 +161,7 @@ export function sourceLabel(
       const kind = match.source_kind || "";
       // Agent runs identify by run sha; drop the redundant
       // "(agent_proposal)" kind — ``agent:<sha>`` → "agent <sha>"
-      // (Paul 2026-06-19: "proposal" is noise when a sha names the run).
+      // (design review 2026-06-19: "proposal" is noise when a sha names the run).
       if (kind === "agent_proposal" || /^agent[:_-]/.test(producer)) {
         const sha = producer.replace(/^agent[:_-]?/, "").trim().slice(0, 7);
         const date = shortRunDate(match.created_at);
@@ -176,7 +176,7 @@ export function sourceLabel(
   }
   if (s === "empty") return "(empty)";
   // Was "Gemma" — misleading: preboard is the GEO-only pre-curation
-  // snapshot, not the live Gemma curation state. Per Paul 2026-06-08
+  // snapshot, not the live Gemma curation state. Per design review 2026-06-08
   // (chip-strip showed "Gemma / Gemma" with no agent option, and the
   // baseline was actually the preboard). "Gemma preboard" distinguishes
   // from live Gemma / polished sets once the unified curation-versions
@@ -186,7 +186,7 @@ export function sourceLabel(
   // snapshot, not a live stream, and curators read "live" as real-
   // time which isn't accurate. Agent should supply a friendlier name
   // via the /curations row's ``label`` field; this fallback fires
-  // only when ``label`` is empty (pre-step-3b enum path). Per Paul
+  // only when ``label`` is empty (pre-step-3b enum path). Per design review
   // 2026-06-12.
   if (s === "live") return "Gemma";
   if (s === "agent_proposal") return "agent proposal";
@@ -197,7 +197,7 @@ export function sourceLabel(
     // Their tokens are slugified consensus:<id> → polished:consensus_<id>.
     // Drop the redundant "consensus" prefix and de-slug for a direct
     // display name: ``polished:consensus_strict_consensus`` → "strict
-    // consensus" (Paul 2026-06-19 — the prefix was just noise).
+    // consensus" (design review 2026-06-19 — the prefix was just noise).
     if (curator.startsWith("consensus_")) {
       return curator.replace(/^consensus_/, "").replace(/_/g, " ");
     }
@@ -256,7 +256,7 @@ export type SlotKind = "baseline" | "comparator";
  *  ``isPairAllowed``, not here. */
 export function isSourceValidInSlot(slot: SlotKind, source: Source): boolean {
   if (slot === "baseline") {
-    // ``empty`` isn't a legitimate baseline (Paul 2026-05-29: "there
+    // ``empty`` isn't a legitimate baseline (design review 2026-05-29: "there
     // is always going to be a preboard with at least the title").
     // The agent's proposal is a proposal, not a canonical state —
     // never a legitimate baseline. Everything else (preboard +

@@ -2,12 +2,10 @@
 
 Modernised curation interface for the [Gemma](https://gemma.msl.ubc.ca)
 database. Replaces the legacy ExtJS / JSP curation pages with a React
-+ TypeScript app that drives the curation REST API (local
-standalone server in dev + for portable review packages; remote
-mode against real Gemma planned — see
-`gemma-curation-agents-eval/docs/HANDOFF_2026-05-19_LOCAL_VS_REMOTE_MODE.md`)
-and integrates agent-proposed designs / tags / audits with a
-structured curator-feedback loop.
++ TypeScript app that drives the curation REST API (local standalone
+server in dev + for portable review packages; a remote mode against
+real Gemma is planned) and integrates agent-proposed designs / tags
+/ audits with a structured curator-feedback loop.
 
 ## Stack
 
@@ -25,11 +23,10 @@ structured curator-feedback loop.
 ```bash
 # 1. Start the local curation server (in the gemma-curation-agents repo)
 cd ../gemma-curation-agents
-./run_mock.sh                                 # preferred — handles keychain + GEMMA_RESOURCES_DIR
-                                              #   (pending follow-up rename)
+./run_local.sh --port 8082                    # handles keychain + GEMMA_RESOURCES_DIR
 
 # 2. Start the UI
-cd ../gemma-curation-ui
+cd ../gemma-ui/apps/curation
 cp .env.example .env                          # one-time
 npm install                                   # one-time
 npm run dev                                   # → http://localhost:5173
@@ -37,7 +34,7 @@ npm run dev                                   # → http://localhost:5173
 
 The Vite dev server proxies `/rest/*`, `/propose/*`, `/audit/*`,
 `/find-publication`, and `/find-term` to the URL in
-`GEMMA_CURATION_URL` (default `http://localhost:8080`). Auth is the
+`GEMMA_CURATION_URL` (default `http://localhost:8082`). Auth is the
 session bearer token issued by `useLogin` (dev token
 `dev-token-123` against the local server).
 
@@ -88,10 +85,8 @@ commit flow.
 ## Audit feature
 
 The **audit-existing-curation** feature is a joint build with the
-agent side (`gemma-curation-agents`). The full cross-repo wire
-contract lives in [`AUDIT_FEATURE.md`](./AUDIT_FEATURE.md); the
-disposition feedback loop spec lives in
-[`AUDIT_DISPOSITIONS.md`](./AUDIT_DISPOSITIONS.md).
+agent side (`gemma-curation-agents`), which owns the wire contract
+for audit findings and the disposition feedback loop.
 
 Three integration surfaces in the UI:
 
@@ -106,9 +101,9 @@ Three integration surfaces in the UI:
     ring-flashes it.
   - **Accept** / **✓ accepted (parked)** / **Mark resolved →** /
     **✓✓ resolved** — two-step accept (curator agrees vs curator
-    agreed and acted), per `AUDIT_DISPOSITIONS.md` Ask #6.
+    agreed and acted).
   - **Dismiss…** opens a chip-picker dialog with the structured
-    `dismiss_reason` enum (per Ask #2).
+    `dismiss_reason` enum.
   - **Close audit** / **Reopen** lifecycle on the sidebar header,
     with read-only treatment of finalized audits and 409 handling
     on stray PATCHes.
@@ -195,9 +190,9 @@ src/
       AuditDetailPage.tsx           # surface C page
       AuditsInbox.tsx               # under features/inbox/
       AuditTriggerDialog.tsx
-      DismissDialog.tsx             # chip-picker for Ask #2
+      DismissDialog.tsx             # dismiss-reason chip picker
       applyHandlers.ts              # Apply & focus registry
-      firstSeen.ts                  # Ask #5 client-side tracking
+      firstSeen.ts                  # client-side "seen since" tracking
       targetIds.ts                  # mirrors agent-side target_ids.py
   components/ui/            # Pill, Term, InlineText, HelpPopup, ...
   lib/
@@ -209,23 +204,18 @@ src/
     gemmaUrls.ts
   routes.ts                 # hash router (parseRoute / navigate)
   App.tsx                   # shell + cross-tab listeners
-AUDIT_FEATURE.md            # audit feature wire contract
-AUDIT_DISPOSITIONS.md       # disposition feedback loop spec
-PROGRESS_SSE.md             # SSE protocol + event taxonomy
-SCALE.md                    # what we'll do for very large experiments
-CLAUDE.md                   # meta orientation for the GUI Claude
+CLAUDE.md                   # meta orientation for this app
 ```
 
 ## What's still TODO
 
-1. **Real Gemma integration** — at the moment the local server
-   owns `/annotations/search` (with a usage_count synthesised from
-   the value-mappings file). See `TODO-gemma-api.md` in the agents
-   repo for the upstream gaps.
-2. **AuditDetailPage Apply & Focus** — cross-experiment audit page
-   doesn't yet wire the Apply & Focus flow; needs cross-tab
-   navigation from outside an experiment Shell. Tracked in
-   `AUDIT_DISPOSITIONS.md`.
+1. **Real Gemma integration** — at the moment the local server owns
+   `/annotations/search` itself (with a usage_count synthesised from
+   a value-mappings file); a genuine remote-mode integration against
+   real Gemma is still ahead.
+2. **AuditDetailPage Apply & Focus** — the cross-experiment audit
+   page doesn't yet wire the Apply & Focus flow; it needs cross-tab
+   navigation from outside an experiment Shell.
 3. **Mutating apply handlers** — Phase 1 audit is focus-only; per-
    issue handlers (`missing_factor` lifts from `comparison_proposal`,
    `missing_fv` adds, etc.) drop into
@@ -236,29 +226,14 @@ CLAUDE.md                   # meta orientation for the GUI Claude
    manual URI editing comes with a proper resolver UI).
 5. **Multi-curator collaboration** — soft-locks, presence indicators.
 
-## Multi-sample scaling
-
-See `SCALE.md` for the current state and deferred items (multi-select
-drag, virtualised Sample Details table when needed, etc.).
-
 ## Compatibility with the agent service
 
 This UI talks to the [`gemma-curation-agents`](https://github.com/PavlidisLab/gemma-curation-agents)
 service over HTTP / SSE. The two are independent processes — no
 build-time dependency — but the wire contract (REST shapes, SSE
-event taxonomy, dispositions schema) couples them.
-
-| UI version | Tested against agent version |
-|---|---|
-| **v0.4.0 (current)** | **v0.3.0** |
-| v0.3.0 | v0.2.0 |
-| v0.2.0 | v0.1.0 |
-| v0.1.0 | v0.1.0 |
-
-Full matrix + the list of cross-repo wire surfaces lives in
-[`CROSS_REPO_COMPAT.md`](./CROSS_REPO_COMPAT.md), along with the
-open ask for `agent_version` on `/health` so the UI can flag
-mismatches at runtime.
+event taxonomy, dispositions schema) couples them, so mismatched
+versions of the two repos can drift out of sync silently. Keep them
+updated together.
 
 ## License
 

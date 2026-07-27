@@ -200,7 +200,6 @@ export default function App() {
   // design / samples / factors yet — they're pre-import metadata
   // shells. Route them to a dedicated read-only landing page instead
   // of mounting Shell, which would try to fetch /design and crash.
-  // Per cab handoff HANDOFF_2026-05-24_UI_PREBOARDING_DRILLDOWN.md.
   if (typeof route.id === "string" && route.id.startsWith("preboarding:")) {
     return (
       <ToastProvider>
@@ -234,7 +233,7 @@ export default function App() {
           chip state directly. The thin ChipBaselineResolver layer
           pre-computes the active baseline source (URL + flow
           defaults) and passes it in — making the whole page render
-          against whatever the chip strip selected, per Paul
+          against whatever the chip strip selected, per design review
           2026-06-08 ("yes everywhere").
         */}
         <ChipBaselineResolver
@@ -357,7 +356,7 @@ function Shell({
   // Global undo / redo bindings — Cmd+Z (Mac) / Ctrl+Z (others) for
   // undo; Cmd+Shift+Z / Ctrl+Y for redo. Skipped when focus is on a
   // text-editable element so the browser's native undo still works
-  // inside textareas / inputs / contenteditable. Paul 2026-06-14:
+  // inside textareas / inputs / contenteditable. Design review 2026-06-14:
   // "how about binding undo key to last action."
   useEffect(() => {
     function isEditableTarget(el: EventTarget | null): boolean {
@@ -401,7 +400,7 @@ function Shell({
   }, [undo, redo, canUndo, canRedo]);
 
   // ``flow`` drives the review-mode lock. Source of truth: the
-  // active Ticket's ``flow`` field — Paul 2026-05-27, "[mode should
+  // active Ticket's ``flow`` field — Design review 2026-05-27, "[mode should
   // be] set at the ticket level". Fallback when there's no ticket
   // context: ``review`` (safer default per spec). Computed early
   // so chip state + sidebar override + downstream FlowProvider
@@ -458,7 +457,7 @@ function Shell({
   // their elements.
   useEffect(() => {
     return onRequestAuditFocus(({ experimentId: reqExpId, targetId }) => {
-      // 2026-06-14 diagnostic — Paul reported the tag-side magnifier
+      // 2026-06-14 diagnostic — the reviewer reported the tag-side magnifier
       // doesn't navigate at all, but factor works. Loose equality on
       // experimentId so a string-vs-number type drift between
       // useAudit()'s experimentId and the route's experimentId
@@ -618,7 +617,7 @@ function Shell({
   // surface — title, organism, platform, publications all render
   // there. The dedicated PreboardingDetailPage would be redundant.
   // So we only short-circuit when even the preload bits are empty.
-  // Per Paul 2026-05-26 — "once they are loaded, rowclick should
+  // Per design review 2026-05-26 — "once they are loaded, rowclick should
   // take you to the curator view; the preload view is irrelevant".
   const hasPreloadMetadata = !!(
     draft &&
@@ -681,14 +680,14 @@ function Shell({
     <div className="min-h-screen flex flex-col">
       {/* Frozen top row — ONLY the app header (the …/live/⚙/sign-out
           row) stays pinned; the top bar + experiment banner + tabs
-          scroll (Paul 2026-06-21: "nothing below sign out should be
+          scroll (design review 2026-06-21: "nothing below sign out should be
           frozen"). The window is the scroll container, so ``sticky
           top-0`` pins against the viewport; bg is a fallback behind the
           header's own background. z-40 keeps it above content while
           body-portaled popovers (CuriePopover @ z-50) stay on top. */}
       <div className="sticky top-0 z-40 bg-slate-50 dark:bg-slate-950">
       <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
-        {/* Chip strip folded into the header row 2026-06-14 per Paul:
+        {/* Chip strip folded into the header row 2026-06-14 per design review:
             "this could be fit on one row, saving screen space." Was a
             separate row below with its own bg + border. The mode pill
             ("REVIEWING PROPOSAL" / "Editing local design") was dropped
@@ -889,7 +888,7 @@ function MainGrid({
   // AUDIT_FEATURE.md §UI integration shape, surface B). Sticky so the
   // curator's last choice survives experiment switches.
   //
-  // Two-way sidebar view (2026-05-25, Paul):
+  // Two-way sidebar view (2026-05-25, the reviewer):
   //  - ``audit`` — rich AuditSidebarPanel over kind=audit reviews
   //    (already-curated experiments where the agent flagged deltas).
   //  - ``proposalReview`` — rich AuditSidebarPanel re-used over
@@ -990,7 +989,7 @@ function MainGrid({
   // cleared the comparator, suggesting they're done with the
   // comparison surface). One-shot per transition: re-opening the
   // sidebar manually after that point sticks, even if comparator
-  // stays empty (Paul 2026-05-29: "the proposal tab refuses to
+  // stays empty (design review 2026-05-29: "the proposal tab refuses to
   // stay open when the comparator is empty… it's fine to close it
   // by default but don't trap it").
   const prevComparatorRef = useRef(chipForSidebar.comparator);
@@ -1007,7 +1006,7 @@ function MainGrid({
   // Max bumped 2026-06-12 from 1200 → 1600 so the proposal-review
   // panel can host the side-by-side ComparisonFactorCard layout on
   // wide displays without horizontal scroll in the comparator
-  // columns. Per Paul: "the review panel needs to be as wide as
+  // columns. Per design review: "the review panel needs to be as wide as
   // possible (reasonable) to fit the side-by-side."
   const SIDEBAR_MIN = 240;
   const SIDEBAR_MAX = 1600;
@@ -1076,11 +1075,11 @@ function MainGrid({
           width inside that space. Landing / inboxes still use the
           1800px cap (those are text-column surfaces; an ultra-wide
           column of cards reads worse than a contained one). Per
-          Paul 2026-06-12: "the portal should fill the horizontal
+          Design review 2026-06-12: "the portal should fill the horizontal
           width; the proposal tab should be right at the right-side
           of the window, or at least closer." */}
       <main className="mx-auto w-full px-4 py-4 flex-1 flex gap-4 flex-col lg:flex-row">
-        {/* Review-mode lock scope, per Paul 2026-05-29: "all we
+        {/* Review-mode lock scope, per design review 2026-05-29: "all we
             need to block is editing of the factors and tags."
             Sample-table sorting, guideline popups, expand/collapse,
             scroll, navigation, and any other read-only affordance
@@ -1132,7 +1131,7 @@ function MainGrid({
               // at top while the panel scrolls in its own box below (the
               // wrapper further down). The aside itself does NOT scroll,
               // so the absolute resize gutter spans the full visible
-              // height instead of scrolling away with the cards (Paul
+              // height instead of scrolling away with the cards (the reviewer
               // 2026-06-19). The inner scroll box carries ``lg:pb-24`` so
               // the bottom card clears the viewport edge.
               "shrink-0 space-y-3 relative lg:sticky lg:top-2 lg:self-start lg:h-[calc(100vh-1rem)] lg:flex lg:flex-col"
@@ -1209,7 +1208,7 @@ function MainGrid({
                 already exists ("Request" vs "Re-run"). Click opens
                 AgentRunDialog which carries tier + scope + notes
                 inputs and gates on agent health. */}
-            {/* "Request proposal…" hidden 2026-06-15 (Paul): the
+            {/* "Request proposal…" hidden 2026-06-15 (design review): the
                 proposal pane is read-only for now, and offering a
                 run-on-this-experiment button while editing isn't
                 available reads as confusing. "Run audit…" still

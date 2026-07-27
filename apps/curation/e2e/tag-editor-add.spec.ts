@@ -7,7 +7,7 @@ import { requiresBackend } from "./_backend";
  * (``StatementEditModal``) must not lose already-entered fields when
  * the surrounding ``TagBar`` re-renders mid-edit.
  *
- * The bug (2026-07-19, Paul: "I just put in a predicate, and it erased
+ * The bug (2026-07-19, the reviewer: "I just put in a predicate, and it erased
  * my category and subject" while adding a *treatment · cell derived
  * from MMTV mouse strain* tag): the modal re-seeded its internal draft
  * on every change of the ``initial`` prop *identity*. In add mode the

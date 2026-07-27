@@ -15,7 +15,7 @@
  *     (Dismiss / Accept / Not-sure) and the structured per-element
  *     editor when the finding carries comparison content.
  *
- * Extracted from `AuditSidebarPanel.tsx` (Paul 2026-06-10 mega-file
+ * Extracted from `AuditSidebarPanel.tsx` (design review 2026-06-10 mega-file
  * sweep). Pure-presentation outside of `useAudit()` / `useDesignDraft()`
  * / `useToast()` / `useIsReadOnly()` hooks — disposition writes go
  * through the audit context's `setDisposition`; draft mutations go
@@ -133,7 +133,7 @@ export const PanelExpansionContext = createContext<PanelExpansion>("collapsed");
 
 /** Big, obvious 3-way cycle. Glyph reflects the current state;
  *  tooltip names the next state so a click is predictable. Sized
- *  generously — Paul has called out tiny carets twice; the icons here
+ *  generously — the reviewer has called out tiny carets twice; the icons here
  *  are deliberately `text-2xl` so they stay readable in the sidebar's
  *  busy header strip. */
 export function PanelExpansionCycleButton({
@@ -199,7 +199,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // now view it against a different baseline that lacks the value
   // (polished_gold for GSE110721 has no cell-type tag, etc.). When
   // the displayed gold side is empty, downgrade "Tag match" to "Add
-  // tag" so the title agrees with the body. Paul 2026-06-16.
+  // tag" so the title agrees with the body. Design review 2026-06-16.
   const goldEmptyForTitle = useMemo(
     () => findingDisplayedGoldEmpty(finding, draft ?? null) === true,
     [finding, draft],
@@ -249,7 +249,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   );
 
   // Stamp the first-seen timestamp once per finding. Sent on the
-  // first PATCH for this target so my brother can compute triage
+  // first PATCH for this target so the agents side can compute triage
   // time. Side-effect-only (markFirstSeen is a no-op after the first
   // call), so safe to fire on every render.
   markFirstSeen(finding.target_id);
@@ -279,7 +279,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
   // renders the Judge row (with the `[agent emitted no details]`
   // sentinel when defender + proposer_defense are both empty), so even
   // findings with no structured content carry a signal worth revealing.
-  // Per Paul: "we can't tell from this view whether the agent emitted
+  // Per design review: "we can't tell from this view whether the agent emitted
   // no details OR whether the renderer dropped them."
 
   // Once dispositioned, the finding fades — it's no longer useful
@@ -456,7 +456,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // slug fallback — ``slug()`` lowercases, so the display
                   // would read "fvb/n" instead of "FVB/N". Triggers a
                   // case-restore pass from a case-preserving source before
-                  // the render. Paul 2026-07-19.
+                  // the render. Design review 2026-07-19.
                   let labelsFromSlug = false;
                   const parsed = parseTargetId(finding.target_id);
                   if (parsed?.kind === "tag") {
@@ -494,7 +494,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                       // ontology term lives on ``proposer_term``. Render
                       // it through the Term widget so it reads green +
                       // carries the CURIE popover, instead of dropping
-                      // to plain grey text. Paul 2026-06-19: "render it
+                      // to plain grey text. Design review 2026-06-19: "render it
                       // as an ontology term — use our little widget."
                       return (
                         <span className="inline-flex items-baseline gap-x-1 mr-1 min-w-0">
@@ -533,7 +533,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // a URI from — still renders its category as a grounded
                   // ontology term rather than plain (unresolved-looking)
                   // grey. ``new_category_uri`` landed on the add_tag wire
-                  // after the original recovery hack. Paul 2026-07-22.
+                  // after the original recovery hack. Design review 2026-07-22.
                   const aaUris = finding.apply_action as
                     | {
                         new_category_uri?: string | null;
@@ -575,12 +575,12 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // as a bare string without a URI counterpart
                   // (``ApplyActionPayload.add_tag`` has
                   // ``new_value_uri`` but no ``new_category_uri`` —
-                  // bro handoff filed). Recover the URI by matching
+                  // agents-side handoff filed). Recover the URI by matching
                   // any existing tag in the draft that already uses
                   // this category. Common since experiments often
                   // have multiple tags under the same category
                   // ("disease model", "treatment", etc.) — the
-                  // category URI is the same across them. Paul
+                  // category URI is the same across them. The reviewer
                   // 2026-06-14: "why isn't this shown as green
                   // ontology term?"
                   if (!catUri && catLabel) {
@@ -602,7 +602,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // to what Add lands on the experiment), then the matched
                   // draft tag's own label. Guarded by case-insensitive
                   // equality so this only ever fixes casing, never swaps
-                  // the term. Paul 2026-07-19.
+                  // the term. Design review 2026-07-19.
                   if (labelsFromSlug) {
                     const aa = finding.apply_action as
                       | { new_value?: unknown; new_category?: unknown }
@@ -648,7 +648,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // category is shown as a muted italic chip and the
                   // value as the main Term chip so the eye still lands
                   // on the resolved term, but the category isn't
-                  // hidden behind a hover. Per Paul 2026-06-12: "the
+                  // hidden behind a hover. Per design review 2026-06-12: "the
                   // category should be shown here in the title —
                   // there is currently no way to see it." Earlier
                   // 2026-06-11 critique was specifically against the
@@ -681,7 +681,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // TagDetailBlock. Statement near-matches already render
                   // the proposed statement (subject is the proposal), so
                   // this only swaps the value/category for the non-
-                  // statement case. Paul 2026-07-13.
+                  // statement case. Design review 2026-07-13.
                   if (
                     finding.issue_code === "calibration_tag_match_near" &&
                     !hasStatementDetail
@@ -741,7 +741,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                               masquerades as a grounded term. If a category
                               that should be grounded shows up free, that's the
                               agent's missing URI — surfaced honestly, not
-                              papered over. Paul 2026-07-22 (cell type had a
+                              papered over. Design review 2026-07-22 (cell type had a
                               URI and read free; strain has none and read
                               term-ish). */}
                           <Term
@@ -802,7 +802,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                 // we step the font down as they get longer so a multi-FV
                 // factor still fits in a line or two instead of
                 // ballooning the card. The real fix — shortening the
-                // label itself — is handled separately. Paul 2026-06-21.
+                // label itself — is handled separately. Design review 2026-06-21.
                 const subjSizeCls =
                   subj.length > 80
                     ? "text-[11px]"
@@ -895,7 +895,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
       {/* Reasoning collapsible — shared FindingReasoningPanel so
           every finding card type (compact, factor-match, partition-
           mismatch, extra, miss) renders the SAME toggle affordance.
-          Paul 2026-06-16: "IT SHOULD BE THE SAME COMPONENT WHETHER
+          Design review 2026-06-16: "IT SHOULD BE THE SAME COMPONENT WHETHER
           THE FACTOR IS A MATCH or a PARTIAL MATCH". */}
       {cardOpen ? (
         <FindingReasoningPanel
@@ -936,7 +936,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
  *  that order via `findingShortRationale()`, trimmed at the first
  *  clause boundary and capped at ~50 chars so it doesn't push the
  *  right-aligned chips to a second line. Hover surfaces the full
- *  text. Renders nothing when no source is usable. Per Paul
+ *  text. Renders nothing when no source is usable. Per design review
  *  2026-06-11: "keep the text on the same line as the title and
  *  shorten it." */
 function FindingShortRationale({ finding }: { finding: AuditFinding }) {
@@ -1089,7 +1089,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
     // Read-only path: the curator can't ACT on the finding, but they
     // should still SEE the same factor / FV comparison the editable
     // path shows — otherwise the card collapses to a bare amber
-    // banner with no content under the title (Paul 2026-06-12: "why
+    // banner with no content under the title (design review 2026-06-12: "why
     // can't I see the factors as usual?"). Render the structured
     // editor below the banner; its internal ``ActionRow`` already
     // suppresses the verdict buttons via its own ``useIsReadOnly``
@@ -1144,7 +1144,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const current = disposition?.status ?? "pending";
   // Action-named button labels — replaces the legacy "Agree" / "Reject"
   // pair with verbs matched to the actual mutation (Add / Remove /
-  // Confirm / …). Paul 2026-06-14: "green should ALWAYS mean 'accept
+  // Confirm / …). Design review 2026-06-14: "green should ALWAYS mean 'accept
   // the agent'", and the secondary button names the opposite action
   // ("Don't remove") rather than the meta-stance ("Reject"). See
   // ``findingDispositionButtonLabels`` for the full per-code table.
@@ -1324,7 +1324,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
     notes?: string;
     /** "Agree, needs work": run the mutating apply exactly as a
      *  plain Agree, but record the accept as parked (resolved_at
-     *  null) so it stays in the follow-up queue. Paul 2026-06-21. */
+     *  null) so it stays in the follow-up queue. Design review 2026-06-21. */
     needsWork?: boolean;
   }) {
     if (!action) return;
@@ -1341,7 +1341,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
       // `confirmMessage` (today: factor-name-clash on
       // `calibration_factor_extra`), surface a confirm dialog before
       // mutating. Per Cy 2026-06-05 — silent second-factor add was
-      // confusing; until we decide merge-vs-add semantics (Paul),
+      // confusing; until we decide merge-vs-add semantics (design review),
       // curator confirms each. Plain `window.confirm` is ugly but
       // unambiguous.
       if (action.confirmMessage) {
@@ -1456,7 +1456,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             // "Agree, needs work": same apply, but record the accept
             // as parked (resolved_at null) so the finding stays in the
             // follow-up queue. Only meaningful on an accept — a
-            // dismiss/keep ignores resolved_at. Paul 2026-06-21.
+            // dismiss/keep ignores resolved_at. Design review 2026-06-21.
             const needsWork = !!opts?.needsWork && status === "accepted";
             // Structural-apply route: findings whose canonical fix is
             // adding or removing a factor (`calibration_factor_extra` =
@@ -1476,7 +1476,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               finding.issue_code === "calibration_gold_only_miss" ||
               // partition_mismatch's "adopt agent's finer/fewer levels"
               // is a structural replace — same routing as extra/miss.
-              // Paul 2026-06-14: prior to this, the editor PATCHed the
+              // Design review 2026-06-14: prior to this, the editor PATCHed the
               // disposition but never ran the mutator, leaving the
               // design at the gold partition while the card showed as
               // accepted.
@@ -1625,7 +1625,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             }
             patch("pending");
             // Roll proposal-review state back in lockstep with the
-            // draft + disposition (Paul 2026-06-10): a per-finding undo
+            // draft + disposition (design review 2026-06-10): a per-finding undo
             // had been leaving the proposal cards stuck on their
             // retained/rejected dispositions, which read as "this
             // proposal is still resolved" even though the matching

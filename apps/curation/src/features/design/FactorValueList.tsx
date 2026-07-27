@@ -129,7 +129,7 @@ export function FactorValueList({
             // compact (click to expand back to full editor). The
             // earlier "✓ COMPACT" text-label badge read as a
             // self-important status pill and the toggle action
-            // wasn't obvious. Per Paul 2026-05-21.
+            // wasn't obvious. Per design review 2026-05-21.
             <button
               type="button"
               onClick={onToggleCompact}

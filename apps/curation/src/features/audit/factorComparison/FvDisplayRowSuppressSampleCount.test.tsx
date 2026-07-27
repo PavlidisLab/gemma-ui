@@ -6,7 +6,7 @@ import { FvDisplayRow, type FvDisplayLike } from "@gemma/ontology";
  * Regression tests locking the ``suppressSampleCount`` prop's contract
  * on ``FvDisplayRow`` (2026-06-15).
  *
- * Spec (Paul):
+ * Spec (design review):
  *   "the number of samples should be shown ONCE and in the MIDDLE"
  *
  * The per-side ``(N)`` count badge that ``FvDisplayRow`` renders by

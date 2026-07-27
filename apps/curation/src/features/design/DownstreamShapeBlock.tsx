@@ -6,7 +6,7 @@ import type { Design } from "@/features/experiment/types";
  * ``Design.subset_recommendations`` (seeded at calibration import from the
  * live S2o/S2n split-subset machinery). Read-only at proposal surfaces —
  * the canonical accept/reject UI still lives in the design tab's
- * "Experiment-wide decisions" pane (per Paul 2026-06-14: leave them in both
+ * "Experiment-wide decisions" pane (per design review 2026-06-14: leave them in both
  * places). The curator scanning a proposal needs to SEE these so they don't
  * miss the recommendation; the full disposition lives where it always did.
  *

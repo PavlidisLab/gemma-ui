@@ -2,9 +2,7 @@
  * React-query hooks for the **proposal-kind** CurationReview
  * endpoints. Pairs with the local-api refactor that split the shared
  * ``curation_review`` table into ``kind='audit'`` and
- * ``kind='proposal'`` rows. See
- * ``eclipseworkspace/Gemma/handoffs/AUDIT_TO_REVIEW_RENAME_HANDOFF.md``
- * and ``apps/curation/AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md``.
+ * ``kind='proposal'`` rows.
  *
  * Wire shape is identical to audits (the same ``AuditReport`` /
  * forthcoming ``CurationReviewReport`` type); only the read filter

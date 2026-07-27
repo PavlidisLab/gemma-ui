@@ -14,7 +14,7 @@ import { buildTagRows } from "./FindingDetailsEditor";
  * ``disease`` (EFO:0000408) instead of ``disease model``, both
  * value-side URIs matched (MONDO:0000408), and the Current column
  * still rendered "no entry" because the lookup required
- * category-label equality. Per Paul 2026-06-12: the category drift
+ * category-label equality. Per design review 2026-06-12: the category drift
  * between proposer and curator is real, and the URI is the
  * identity-bearing field.
  *
@@ -187,7 +187,7 @@ describe("buildTagRows — Current-side lookup", () => {
     // The calibration target_id carries only the category LABEL
     // ("organism part"), never its URI, so the proposer category had no
     // URI on the wire and rendered as plain italic while the Current
-    // column showed a term chip (GSE241529, Paul 2026-06-19). Borrow the
+    // column showed a term chip (GSE241529, Design review 2026-06-19). Borrow the
     // category URI from a design tag filed under the same label.
     const d = design([
       tag(7, "organism part", "internal ear", {

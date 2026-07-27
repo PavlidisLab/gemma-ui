@@ -57,7 +57,7 @@ describe("guidelineRefByKey — links", () => {
   it("resolves every registry entry, each carrying at least one source link", () => {
     // ``links`` is an optional field on the type (the resolver tolerates
     // its absence), but every entry was backfilled with curation-wiki
-    // links — Paul 2026-06-21 ("backfill all the D rules with links").
+    // links — Design review 2026-06-21 ("backfill all the D rules with links").
     // This invariant guards against an un-linked entry slipping in.
     const keys = Object.keys(registry);
     expect(keys.length).toBeGreaterThan(0);

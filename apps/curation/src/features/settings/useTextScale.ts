@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
  * the CSS custom property ``--reasoning-scale`` on ``<html>``; the
  * reasoning size classes (``rs-10`` / ``rs-11`` / ``rs-13`` in
  * index.css) read it via ``calc()``. Persisted to localStorage, same
- * pattern as ``useTheme``. Paul 2026-06-21.
+ * pattern as ``useTheme``. Design review 2026-06-21.
  */
 const STORAGE_KEY = "gemma-curation-reasoning-scale";
 

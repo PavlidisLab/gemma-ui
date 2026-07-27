@@ -5,7 +5,7 @@ import type { AuditFinding } from "@/api/auditTypes";
  * judge rationale above is un-grounded" caption beneath the Judge
  * row in ``AgentDetailsPanel``.
  *
- * The contract — exactly three states, per bro's
+ * The contract — exactly three states, per the agents-side
  * ``HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md``:
  *
  * | supporting_evidence | paper_excerpts_unavailable | render          |

@@ -36,9 +36,8 @@ services:
     environment:
       GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
       # Forwards /rest/v2/annotations/search + /annotations/term to
-      # this URL. During transition: staging-gemma. Once the new
-      # gemma-rest 2.0 host is reachable, point it there. Unset
-      # falls back to local-api's small built-in catalog.
+      # this URL — an ontology-capable Gemma instance. Unset falls
+      # back to local-api's small built-in catalog.
       GEMMA_ONTOLOGY_URL: ${GEMMA_ONTOLOGY_URL:-}
     command:
       # SQLite path is relative to ``working_dir`` (/data) so the
@@ -87,13 +86,12 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
       GEMMA_CURATION_URL: http://local-api:8000
-      # Remote Gemma 2.0 — MUST be set explicitly. Per Paul
-      # 2026-06-18 + the project CLAUDE.md note: silent fallback to
-      # staging-gemma bit us 2026-06-10 with empty results for valid
-      # queries (~35 FV groundings across 18 GSEs). Compose-up now
-      # errors if unset rather than silently picking the wrong host.
+      # Remote Gemma instance — MUST be set explicitly. A silent
+      # default here previously masked a misconfiguration that
+      # produced empty results for valid queries, so compose-up now
+      # errors if unset rather than silently picking a wrong host.
       # Set in .env or export before ./start.sh.
-      GEMMA_BASE_URL: ${GEMMA_BASE_URL:?GEMMA_BASE_URL must be set — edit .env (e.g. http://frink.msl.ubc.ca:8080) or export it before ./start.sh}
+      GEMMA_BASE_URL: ${GEMMA_BASE_URL:?GEMMA_BASE_URL must be set — edit .env (e.g. https://gemma.example.org) or export it before ./start.sh}
     command: ["python", "-m", "gemma_curation_agents.cli", "proposer-service", "serve", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
 

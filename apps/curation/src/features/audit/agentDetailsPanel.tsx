@@ -23,7 +23,7 @@
  * the `useAudit` / draft state they read via downstream helpers, no
  * shared local state between them.
  *
- * Extracted from `AuditSidebarPanel.tsx` (Paul 2026-06-10 mega-file
+ * Extracted from `AuditSidebarPanel.tsx` (design review 2026-06-10 mega-file
  * sweep).
  */
 
@@ -235,7 +235,7 @@ export function InlineSubtaskReasoning({
  *     "renderer dropped the field". */
 export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const { report } = useAudit();
-  // Three-phase render per Paul 2026-06-15
+  // Three-phase render per design review 2026-06-15
   // (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md). Replaces the
   // legacy nested-box "STRONG SUGGESTION → INTERNAL REVIEW
   // (judge/boss) → AUDITOR" stack. Phase 3 (Comparison) is rendered
@@ -259,7 +259,7 @@ export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
 }
 
 // Legacy nested-box render was deleted with the three-phase rewrite
-// (Paul 2026-06-15, FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md).
+// (design review 2026-06-15, FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md).
 // Recover from git history if a diff comparison is needed; the new
 // ``AgentSuggestionPanel`` above is the canonical render. The
 // function below is preserved verbatim as ``LegacyAgentSuggestionPanel``
@@ -327,10 +327,10 @@ export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding 
   // Lean direction (pro_agent / pro_gold / neutral) drives the header
   // label TEXT — the SUGGESTION header used to say "STRONG SUGGESTION"
   // even when the judge had concluded the agent was wrong (e.g.
-  // GSE93824 Arctic-APP concept_gold_right case, Paul 2026-05-21).
+  // GSE93824 Arctic-APP concept_gold_right case, Design review 2026-05-21).
   // The lean-aware label flips to "NOT SUGGESTED" in that case so the
   // curator isn't nudged toward the wrong answer. Single-axis framing
-  // (Paul 2026-05-21): the label always describes the *strength of the
+  // (design review 2026-05-21): the label always describes the *strength of the
   // suggestion to change* — see ./defenderLean.ts for the full mapping.
   const lean = findingLean(finding);
   const headerLabel = leanSuggestionLabel(lean, strength);
@@ -345,7 +345,7 @@ export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding 
   //     factor-level OK + lower-level concept-diff into one
   //     "STRONG / WEAK / NOT SUGGESTED" axis and reads as
   //     "the whole factor proposal is bad" even when it's mostly
-  //     right (per Paul 2026-05-21).
+  //     right (per design review 2026-05-21).
   //   - move the Judge rationale into the FV expansion block in
   //     `FindingDetailsEditor` so the WHY binds to the exact FV
   //     being corrected, not the whole factor card.
@@ -353,7 +353,7 @@ export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding 
   // decisions where the strength label is the right framing.
   const isNearMatch = isNearMatchFinding(finding);
 
-  // Judge row — always rendered for non-near-match findings (Paul
+  // Judge row — always rendered for non-near-match findings (the reviewer
   // 2026-05-21: the curator needs the WHY even when the agent emitted
   // nothing). Sentinel branch renders muted italic so the absence
   // reads as "no details" not "missing UI". For near-match findings
@@ -404,7 +404,7 @@ export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding 
       ) : null}
       {/* Row order is fixed: Judge → Supporting Evidence → (legacy
           one-line proposal as last-resort) → fixText. Putting Judge
-          first answers Paul's "I need the WHY" complaint: even when
+          first answers the design review's "I need the WHY" complaint: even when
           the agent emitted nothing, the sentinel row stands in.
 
           Near-match findings (rename / calibration_factor_match_near)
@@ -415,7 +415,7 @@ export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding 
           Defender-tile duplication guard: when ``dv.rationale`` is
           real, the JudgeChain DefenderTile below renders the same
           text — showing the "Judge:" line here too duplicates the
-          rationale on the card. Paul 2026-06-14: "the text is just
+          rationale on the card. Design review 2026-06-14: "the text is just
           repeated anyway in the judge part." Suppress the Judge:
           line in that case; keep it for the proposer-defense
           fallback and the sentinel (agent-emitted-nothing) cases
@@ -438,7 +438,7 @@ export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding 
       {/* Sectioned judge chain — Internal review (defender_verdict)
           and Auditor (arbiter + boss) as visually distinct labelled
           subsections. Replaces the flat ``JudgeChain`` strip per
-          Paul 2026-06-15 so the proposer-side defence and the
+          Design review 2026-06-15 so the proposer-side defence and the
           audit's comparison verdict read as separate things — same
           shape as the WHY block on ``ComparisonFactorCard``. The
           Auditor subsection auto-suppresses when the report has no
@@ -450,7 +450,7 @@ export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding 
         // Render decision routed through the pure helper so the
         // three-state contract (blockquotes / muted_caption / nothing)
         // stays unit-testable. See ./paperExcerptsCaption.ts +
-        // bro's HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md
+        // the agents-side HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md
         // for the table.
         const render = findingEvidenceRender(finding);
         if (render === "blockquotes") {
@@ -581,7 +581,7 @@ export function FindingEvidenceBlock({
   // and emitted a paraphrase of its own judge text as evidence. That
   // duplicates the Judge row verbatim and adds zero curator signal.
   // Collapse to a one-line muted note so the absence is honest
-  // without the redundant block. Per Paul 2026-06-11.
+  // without the redundant block. Per design review 2026-06-11.
   const location = (evidence.location || "").trim();
   const isParaphraseFallback =
     location.toUpperCase().includes("AGENT-PARAPHRASE FALLBACK") ||

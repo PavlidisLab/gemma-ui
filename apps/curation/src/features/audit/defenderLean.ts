@@ -9,14 +9,13 @@
  * Auditor's` even when the judge had concluded "agent is wrong, gold
  * is right".
  *
- * Canonical bug case (Paul 2026-05-21, GSE93824, hardcase10-r6):
+ * Canonical bug case (2026-05-21, GSE93824, hardcase10-r6):
  * Arctic AD mouse model. Agent emitted `App NCBI:11820` (mouse
- * gene); gold is `APP NCBI:351` (human transgene). The judge ran
- * the transgene-species rule, returned `concept_gold_right`
+ * gene); reference is `APP NCBI:351` (human transgene). The judge
+ * ran the transgene-species rule, returned `concept_gold_right`
  * (verdict says "agent is wrong"), but the UI still showed
  * "STRONG SUGGESTION" with `adopt Auditor's` highlighted — pointing
- * the curator at the wrong answer. See
- * `/Users/pzoot/.claude/projects/-Users-pzoot-Dev-gemma-curation-agents-eval/memory/gse93824_transgene_species_canonical.md`.
+ * the curator at the wrong answer.
  *
  * The lean mapping below mirrors the producer-side source of truth
  * in `gemma-curation-agents/scripts/build_calibration_batch.py`
@@ -143,7 +142,7 @@ export type LeanStrength = "weak" | "moderate" | "strong" | null | undefined;
 /** Curator-facing label for the SUGGESTION-header in
  *  `AgentSuggestionPanel`.
  *
- *  Single-axis framing (Paul 2026-05-21): the label always describes
+ *  Single-axis framing (design review 2026-05-21): the label always describes
  *  the *strength of the suggestion to change*. Keep / change are
  *  inverse senses of one axis, not two separate dimensions; the prior
  *  "STRONG SUGGESTION" vs "STRONG: keep current" two-axis text made

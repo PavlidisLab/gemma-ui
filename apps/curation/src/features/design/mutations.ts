@@ -107,7 +107,7 @@ function nextFactorId(design: Design): number {
  * picker), categorical type, **two blank FVs** (one baseline + one
  * non-baseline). The seed FVs save the curator from having to add
  * them manually in the common case — categorical factors are almost
- * always binary or higher partition. Paul 2026-06-14: a new factor
+ * always binary or higher partition. Design review 2026-06-14: a new factor
  * "still needs at least two factor values" by definition.
  *
  * If a category is known at creation time use ``addFactorFromTemplate``
@@ -154,7 +154,7 @@ export function addFactor(design: Design): { design: Design; factorId: number } 
  *  duplicate factors. Two factors are considered "perfect duplicates"
  *  when their FVs share the exact same statement triples (category /
  *  subject / predicate / object on URI when present, label otherwise)
- *  regardless of curator-typed FV labels. Paul 2026-06-14: "the
+ *  regardless of curator-typed FV labels. Design review 2026-06-14: "the
  *  statements define equality for this purpose."
  *
  *  The signature is deterministic across FV order — statements are
@@ -621,7 +621,7 @@ export function toggleBaseline(
         // Turning on. If the FV already carries any non-empty
         // statement the curator authored, just flip the flag — don't
         // append a "has role: control" line on top of their work.
-        // Paul 2026-06-14: "setting this to baseline caused another
+        // Design review 2026-06-14: "setting this to baseline caused another
         // factor value to be inserted." Earlier rule only checked for
         // the canonical baseline-term LABELS; biological-sex
         // ``female`` (PATO:0000383) didn't match those, so the
@@ -848,7 +848,7 @@ export function addStatement(
     // folded the new row into the previous statement's same-subject
     // group, which hid the subject picker entirely and dropped the
     // new claim under whatever subject happened to be last (e.g. a
-    // gene on a genotype statement). Paul 2026-07-21.
+    // gene on a genotype statement). Design review 2026-07-21.
     //
     // Only the very first statement is seeded from the FV's free-text
     // label — the post-Apply shape where the agent proposed an FV
@@ -998,7 +998,7 @@ export function applyProposalToDesign(
       id: factorId,
       name: p.name_in_design || p.category.label,
       category: { label: p.category.label, uri: p.category.uri ?? null },
-      // Per Paul 2026-06-11: the agent's ≤80-char `description` (which
+      // Per design review 2026-06-11: the agent's ≤80-char `description` (which
       // renders as the proposal card's subtitle) was being dropped at
       // accept, forcing the curator to re-type it. Carry it across.
       description: (p.description ?? "").trim(),
@@ -1348,7 +1348,7 @@ export function setDesignDescription(design: Design, description: string): Desig
  * and the call is a no-op. Empty PMIDs are rejected by the caller —
  * we don't enforce here since DOI-only entries are also valid.
  *
- * The agent-based publication-lookup hook (Paul's reminder) attaches
+ * The agent-based publication-lookup hook (the design review's reminder) attaches
  * here: when wired, it'd pre-fill `title` / `citation` / `doi` from
  * the PubMed E-utilities response before this mutation is called.
  */
@@ -1552,7 +1552,7 @@ export function assignRemainingBiomaterials(
  * proposal).
  *
  * Wired by ``ComparisonFactorCard``'s Accept handler for
- * ``calibration_factor_match_near`` findings — bro 2026-06-12 ship:
+ * ``calibration_factor_match_near`` findings — the agents side-06-12 ship:
  * "Accept doesn't do anything; should swap the gold factor for the
  * agent's alt".
  */
@@ -1566,7 +1566,7 @@ export function adoptNearMatchAgentFactor(
   // back to case-insensitive label. Without this lookup-by-content
   // step the earlier "match by goldFactorId" path silently no-op'd
   // when the chip strip was showing a curation whose ids don't line
-  // up with the local draft (Paul 2026-06-12: "I see the message
+  // up with the local draft (design review 2026-06-12: "I see the message
   // accepted the alts but the factor doesn't get updated").
   const agentCatUri = agentFactor.category?.uri ?? null;
   const agentCatLabel = (agentFactor.category?.label ?? "")
@@ -1612,7 +1612,7 @@ export function adoptNearMatchAgentFactor(
     // Prefer the agent's human-readable ``name_in_design`` over the
     // gold's name. The agent's whole point is "I have a better
     // shape", and that includes the curator-facing label. Falls back
-    // to the gold's name when the agent didn't supply one. Per Paul
+    // to the gold's name when the agent didn't supply one. Per design review
     // 2026-06-12: "the name of the factor: doesn't the agent suggest
     // one? I mean a human-readable one".
     name: (agentFactor.name_in_design || factor.name || "").trim(),
@@ -1674,7 +1674,7 @@ function mergeAgentFvIntoGold(
     id,
     // Use the agent's own concise label (e.g. "kanamycin") rather
     // than auto-generating a long comma-joined summary from every
-    // statement. Per Paul 2026-06-12: "good lord, the name is even
+    // statement. Per design review 2026-06-12: "good lord, the name is even
     // longer now" / "I called it 'antibiotic cocktail PND 14-21'" —
     // long labels are noise; the agent's label or the curator's
     // manual label is what they want.
@@ -1693,7 +1693,7 @@ function mergeAgentFvIntoGold(
  * content with agent's), this takes the UNION of statements per
  * paired FV.
  *
- * Motivating case (Paul 2026-06-12, GSE near-match): gold's FV2 had
+ * Motivating case (design review 2026-06-12, GSE near-match): gold's FV2 had
  * "<drug> · delivered at dose · <dose>" statements for each drug;
  * agent's FV2 had "<drug> · delivered for duration · <duration>" for
  * the same drugs. Both are useful curation content. "Alt is better"
@@ -1752,7 +1752,7 @@ export function mergeNearMatchAgentFactor(
   // match the gold-side statement with the same subject — so
   // ``groupStatementsBySubject`` (which buckets by category+subject)
   // collapses them into one compact "subject + stacked P/O pairs"
-  // row in the design-tab renderer instead of 2N flat rows. Paul
+  // row in the design-tab renderer instead of 2N flat rows. The reviewer
   // 2026-06-12: "we treat it as if it was two statements about the
   // subject like you did, but it's more compact".
   const factorCategoryFallback = factor.category ?? null;
@@ -1772,7 +1772,7 @@ export function mergeNearMatchAgentFactor(
       factorCategoryFallback,
     );
     // Preserve gold's ``free_text_label`` on merge — it's the
-    // current state, possibly the curator's manual rename (Paul
+    // current state, possibly the curator's manual rename (the reviewer
     // 2026-06-12: "I called it 'antibiotic cocktail PND 14-21'").
     // Auto-regenerating from statements ballooned the title into
     // a 10-phrase comma list.
@@ -1868,7 +1868,7 @@ function unionStatements(
   // statement that shares the same subject and adds predicate/object
   // — otherwise the curator ends up with two rows about the same
   // subject (one bare, one fully-formed) and the "merge" reads as a
-  // duplicate add. Paul 2026-06-14: "I tried it and I think I got
+  // duplicate add. Design review 2026-06-14: "I tried it and I think I got
   // two statements instead of merging them (the agent added the
   // 'has role reference subject role' and I wanted to accept that)."
   const isStub = (s: {

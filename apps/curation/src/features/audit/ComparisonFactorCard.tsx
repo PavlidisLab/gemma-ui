@@ -11,7 +11,7 @@
  * with the structure generalized so extending to other codes is
  * config-only, no new components.
  *
- * Design constraints (Paul, 2026-06-08, "FLEXIBILITY and CLARITY and
+ * Design constraints (the reviewer, 2026-06-08, "FLEXIBILITY and CLARITY and
  * CONSISTENCY ... modular ... reused everywhere we have this need ...
  * never touched again unless we want to adjust it"):
  *
@@ -94,7 +94,7 @@ import { displaySeverity, SHOW_PARK_AFFORDANCE } from "./auditPresentation";
 // (audit cards, design editor, tag bar) renders with one visual
 // contract. Diff highlighting + free-text vs resolved palette + the
 // emerald bookmark cue all live in the canonical Term via its
-// ``variant`` + ``diff`` props. Per Paul 2026-06-15: "make ALL
+// ``variant`` + ``diff`` props. Per design review 2026-06-15: "make ALL
 // surfaces use a single Term component."
 
 /** Build the multi-line ``title`` tooltip surfaced on a free-text
@@ -140,7 +140,7 @@ export function deriveLeftFactorCategory(
  *  at. Either side may be null (e.g. an extra finding has no baseline
  *  factor; a miss finding has no comparator). */
 export interface FactorSide {
-  /** Column header label — "Polished Gemma" / "Agent" / "Cyan" / "Preboard". */
+  /** Column header label — "Polished Gemma" / "Agent" / "Curator B" / "Preboard". */
   label: string;
   /** Provenance hint — rendered as a small subtitle under the label
    *  (e.g. "current curation" / "proposed" / "polished gold"). */
@@ -161,7 +161,7 @@ export interface FactorSide {
 
 // JudgeRow / JudgeChain / ArbiterTile / BossTile extracted 2026-06-13
 // to ``./JudgeChain.tsx`` so tag-finding surfaces (CompactFindingCard)
-// can also render the chain. Paul flagged a tag card that promised
+// can also render the chain. The reviewer flagged a tag card that promised
 // "Read both rationales below" but rendered nothing — the chain was
 // trapped inside this file. Import + re-use; no behaviour change here.
 
@@ -284,7 +284,7 @@ export function resolveGoldFactorByIdOrIndex(
  *  ran against (GSE78929 2026-06-14: live had ``[disease, sex,
  *  age, individual]``, polished_strict_consensus had ``[sex, age,
  *  disease]`` — index 0 on the live-audited finding routed to
- *  polished's ``sex`` and so on). Paul: "it's just a comparison
+ *  polished's ``sex`` and so on). The reviewer: "it's just a comparison
  *  between annotation sets. doing it based on order is an obvious
  *  fail."
  *
@@ -393,7 +393,7 @@ export interface ComparisonFactorCardProps {
    *  synthetic drift cards — there's no AuditFinding to dispatch a
    *  disposition against, so action buttons would be a dead end.
    *  When ``onRemoveFactor`` / ``onKeepFactor`` are also wired the
-   *  card surfaces a simpler "Remove / Keep" pair instead — Paul
+   *  card surfaces a simpler "Remove / Keep" pair instead — the reviewer
    *  2026-06-14: drift cards still need an action affordance ("the
    *  option to simply remove it should be there"). */
   readOnly?: boolean;
@@ -437,7 +437,7 @@ export function ComparisonFactorCard({
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const [busy, setBusy] = useState(false);
-  // Per Paul 2026-06-16: on match-family cards "Keep" is too coarse.
+  // Per design review 2026-06-16: on match-family cards "Keep" is too coarse.
   // The curator may have rejected the agent's alternative because (a)
   // it was equivalent and they're keeping the existing for style, (b)
   // close but specifically wrong about one thing, or (c) materially
@@ -454,7 +454,7 @@ export function ComparisonFactorCard({
   // and the resulting report refetch rebuilds the findings list. Key
   // per experiment+finding so two cards don't share a draft; cleared
   // on save / cancel. Mirrors CloseAuditConfirm's sticky close-note.
-  // Paul 2026-07-21 ("we fixed this before" — same class of bug).
+  // Design review 2026-07-21 ("we fixed this before" — same class of bug).
   const keepNoteKey = `keepCloseNote:${experimentId}:${finding.target_id}`;
   const [keepCloseNoteOpen, setKeepCloseNoteOpen] = useStickyState<boolean>(
     `${keepNoteKey}:open`,
@@ -494,7 +494,7 @@ export function ComparisonFactorCard({
   const toast = useToast();
   // Card-level collapse — matches the chevron/collapse contract on
   // ``CompactFindingCard`` so a curator's "collapse all" button at
-  // the top of the sidebar reaches these cards too. Per Paul
+  // the top of the sidebar reaches these cards too. Per design review
   // 2026-06-12: the partition-mismatch / rename cards were rendering
   // with no chevron, so they couldn't be collapsed alongside the rest
   // of the factor cards.
@@ -531,7 +531,7 @@ export function ComparisonFactorCard({
   // hint to find the same factor in any non-owning curation the
   // user picks.
   // Resolve the owning gold curation. Preference order:
-  //   1. ``finding.gold_curation_id`` — the canonical handle bro 1
+  //   1. ``finding.gold_curation_id`` — the canonical handle the agents side
   //      ships post-2026-06-14. Routes through ``resolveCuration``'s
   //      direct curation_id lookup (same as a chip-strip selection).
   //   2. First-consensus fallback — the pre-2026-06-14 behaviour, kept
@@ -567,7 +567,7 @@ export function ComparisonFactorCard({
     );
   }, [owningGoldCuration, design, finding]);
 
-  // Bro 1's caveat: the agent stamps the consensus ROW it identified
+  // The agents side 1's caveat: the agent stamps the consensus ROW it identified
   // as the gold, but the row's ``design_payload`` may be empty if the
   // live Gemma design was edited without re-saving to the consensus
   // curation. Detect that specific shape so the "(not in …)"
@@ -762,7 +762,7 @@ export function ComparisonFactorCard({
   // Would clicking Merge actually change the gold factor? True iff at
   // least one agent FV (paired by biomaterial set) carries a statement
   // that's not already in its gold counterpart by S-P-O signature.
-  // Drives the Merge button's visibility — Paul 2026-06-14: "if there
+  // Drives the Merge button's visibility — Design review 2026-06-14: "if there
   // is no difference at all, then it's not going to say 'merge'."
   const mergeWouldAddSomething = useMemo<boolean>(() => {
     if (!leftFactor || !rightFactor) return false;
@@ -793,7 +793,7 @@ export function ComparisonFactorCard({
   }, [leftFactor, rightFactor]);
 
   // Pair derivation — prefer the wire's authoritative ``mapping.fv_pairs``
-  // when present (bro's 2026-06-12 alignment ship), fall through to the
+  // when present (the agents-side 2026-06-12 alignment ship), fall through to the
   // legacy biomaterial-Jaccard ``pairFvs`` heuristic otherwise. The
   // mapping path uses the finding's ``gold_target_index`` /
   // ``agent_target_index`` to find the owning factor pair, then walks
@@ -807,7 +807,7 @@ export function ComparisonFactorCard({
     return sharedPairFvs(leftFactor, rightFactor);
   }, [report, finding, leftFactor, rightFactor]);
 
-  // /curations is slow (~10s in Paul's GSE93824 walkthrough — server-
+  // /curations is slow (~10s in the design review's GSE93824 walkthrough — server-
   // side bottleneck, see UIB perf handoff 2026-06-11). When it's still
   // in flight, the card resolves leftFactor/rightFactor to null and
   // the title falls through to "?" placeholders that read as "data
@@ -881,7 +881,7 @@ export function ComparisonFactorCard({
 
   // Title now follows the CompactFindingCard pattern — left-edge badge
   // (Match ≈ / ✓ or Severity-with-action-glyph Δ), UPPERCASE action
-  // label, em-dash, then the per-issue subject. Per Paul 2026-06-12:
+  // label, em-dash, then the per-issue subject. Per design review 2026-06-12:
   // "the title of the card should follow the same pattern as the
   // other cards." Caller can still override via the ``title`` prop.
   //
@@ -894,7 +894,7 @@ export function ComparisonFactorCard({
   // match badge in that case and fall back to the severity glyph;
   // also annotate "(not in <baseline>)" after the action label so
   // the curator knows the match assertion is against the authoritative
-  // gold, not the row they're viewing. Paul 2026-06-14.
+  // gold, not the row they're viewing. Design review 2026-06-14.
   const isMatchFindingCode =
     isExactFactorMatch(finding) ||
     isCloseFactorMatch(finding) ||
@@ -999,7 +999,7 @@ export function ComparisonFactorCard({
       // Merge = applied / Keep = dismissed / Park = needs more info).
       // None expect follow-up work, so stamp ``resolvedAt`` for the
       // accepted path so the card lands in the resolved bucket rather
-      // than the parked one. Paul 2026-06-12: "after merge the card
+      // than the parked one. Design review 2026-06-12: "after merge the card
       // should be resolved (or any other disposition)".
       const resolvedExtras =
         next === "accepted"
@@ -1014,7 +1014,7 @@ export function ComparisonFactorCard({
   // Near-match accept actually mutates the draft — overwrite the
   // gold factor's category + per-FV labels / statements with the
   // agent's version while preserving the partition (biomaterial
-  // assignments) and factor id. Paul 2026-06-12 ("as it stands,
+  // assignments) and factor id. Design review 2026-06-12 ("as it stands,
   // accept doesn't do anything") — the disposition PATCH on its
   // own was a no-op for the curator's visible state. Other issue
   // codes (rename / extra / miss) keep the existing PATCH-only
@@ -1024,7 +1024,7 @@ export function ComparisonFactorCard({
   // "Proposal is better" routes through the draft-mutating
   // ``dispatchNearMatchAccept`` for the WHOLE match family — exact,
   // close, near, and the legacy ``calibration_factor_match`` code —
-  // not only ``_match_near``. Paul 2026-06-14: on a factor-MATCH card
+  // not only ``_match_near``. Design review 2026-06-14: on a factor-MATCH card
   // where categories agree but the agent's FV is enriched with extra
   // statements (e.g. ``treatment`` matched but agent adds ``delivered
   // to mother`` / ``dose 10% v/v``), clicking "Proposal is better"
@@ -1042,7 +1042,7 @@ export function ComparisonFactorCard({
   async function dispatchNearMatchMerge(): Promise<void> {
     // Curator's "+ Merge" — take the union of both sides' per-FV
     // statements (dedupe by full S-P-O signature). Motivating case
-    // (Paul 2026-06-12): gold had per-drug doses, agent had per-
+    // (design review 2026-06-12): gold had per-drug doses, agent had per-
     // drug durations — both useful, neither replaceable. Merge
     // keeps both.
     const agentFactor = rightFactor as FactorProposal | null;
@@ -1083,7 +1083,7 @@ export function ComparisonFactorCard({
     // by category URI / label — leftFactor's id can't be trusted
     // since it may come from a non-writable chip-strip baseline
     // (Gemma / preboard) whose ids don't line up with the local
-    // /design store. Per Paul 2026-06-12.
+    // /design store. Per design review 2026-06-12.
     const agentFactor = rightFactor as FactorProposal | null;
     if (!agentFactor) {
       toast.show(
@@ -1125,7 +1125,7 @@ export function ComparisonFactorCard({
     }
   }
 
-  // Action labels follow the action shape. Paul 2026-06-14:
+  // Action labels follow the action shape. Design review 2026-06-14:
   // "It would be 'Proposal is better' 'Keep'." Default match /
   // near-match cards read with that pair so the curator's choice
   // names the OUTCOME, not the meta-stance. Code-specific verbs
@@ -1161,7 +1161,7 @@ export function ComparisonFactorCard({
   // Dispositioned cards (accepted / dismissed / parked) recede the
   // same way ``CompactFindingCard`` does — opacity-40 with a hover
   // restore — so they sit quietly in the list and the curator's eye
-  // lands on the still-open ones. Paul 2026-06-12: "it says
+  // lands on the still-open ones. Design review 2026-06-12: "it says
   // 'accepted' but it's not greyed like others".
   const dispositioned = status !== "pending";
   const dispositionFade = dispositioned
@@ -1228,7 +1228,7 @@ export function ComparisonFactorCard({
               CompactFindingCard / FindingDetailsEditor). Renders
               ABOVE the visual grid so the curator reads
               [reasoning] → [visual] → [buttons] regardless of finding
-              kind. Paul 2026-06-16: "IT SHOULD BE THE SAME COMPONENT
+              kind. Design review 2026-06-16: "IT SHOULD BE THE SAME COMPONENT
               WHETHER THE FACTOR IS A MATCH or a PARTIAL MATCH". */}
           <FindingReasoningPanel
             finding={finding}
@@ -1317,7 +1317,7 @@ export function ComparisonFactorCard({
             // Drift-card action bar — surfaces Remove / Keep so the
             // curator can act on factors the audit didn't see, instead
             // of getting a read-only "FACTORS THE AUDIT DIDN'T SEE"
-            // panel that just stares back. Paul 2026-06-14.
+            // panel that just stares back. Design review 2026-06-14.
             <div className="flex items-center gap-1.5">
               {onRemoveFactor ? (
                 <button
@@ -1345,12 +1345,12 @@ export function ComparisonFactorCard({
           ) : readOnly ? null : status !== "pending" ? (
             // Dispositioned — opacity-40 fade on the wrapper is the
             // visual cue (matches CompactFindingCard). No status pill
-            // (Paul 2026-06-12: "others don't say 'accepted' — I don't
+            // (design review 2026-06-12: "others don't say 'accepted' — I don't
             // think we need that") — just a tiny undo link so a
             // misclick is reversible. Dispatches ``pending`` so the
             // card returns to the action row; the earlier
             // ``needs_more_info`` dispatch 422'd because that status
-            // requires a ``not_sure_reason`` (Paul 2026-06-14).
+            // requires a ``not_sure_reason`` (design review 2026-06-14).
             <button
               type="button"
               disabled={busy}
@@ -1377,7 +1377,7 @@ export function ComparisonFactorCard({
               {/* Merge button — only when near-match AND merging would
                   actually change the gold factor (i.e. the agent has
                   at least one statement that's not already in gold,
-                  including the "agent enriches a stub" case). Paul
+                  including the "agent enriches a stub" case). The reviewer
                   2026-06-14: "if there is no difference at all, then
                   it's not going to say 'merge'." */}
               {isNearMatch && mergeWouldAddSomething ? (

@@ -31,7 +31,7 @@ const MODE_CONFIG: Record<
   // Confirm verb is "Save" across all modes — the dialog's job is
   // to capture the reason chip + optional note, then persist the
   // disposition. "Close" read as "dismiss the dialog without
-  // committing"; "Save" makes the persist semantic obvious. Paul
+  // committing"; "Save" makes the persist semantic obvious. The reviewer
   // 2026-06-16. Callers can still override via ``confirmLabelOverride``
   // when the verb on the button that opened the dialog is more
   // specific ("Don't remove", "Don't add", etc.).
@@ -91,7 +91,7 @@ export function DismissDialog({
    *  was confusing on dismiss surfaces ("Remove tag X?" body under
    *  a "Don't remove tag" title made the curator re-read the
    *  agent's argument FOR removal at the moment they were
-   *  rejecting it). Paul 2026-06-16: "the body text shows the
+   *  rejecting it). Design review 2026-06-16: "the body text shows the
    *  agent's rationale verbatim, but the dialog title is the
    *  curator's action." Drop the prop in a follow-up. */
   finding?: { issue_code: string; rationale: string };
@@ -112,7 +112,7 @@ export function DismissDialog({
   /** Override the dialog header text. Used so the dismiss dialog can
    *  read the same action verb as the button that opened it
    *  ("Don't remove factor" instead of generic "Disagree"). Falls back
-   *  to ``MODE_CONFIG[mode].title`` when null/undefined. Paul
+   *  to ``MODE_CONFIG[mode].title`` when null/undefined. The reviewer
    *  2026-06-14. */
   titleOverride?: string | null;
   /** Override the confirm-button label. Defaults to the mode's
@@ -162,7 +162,7 @@ export function DismissDialog({
       // No anchor (e.g. the editor's Dismiss button doesn't
       // attach a ref) — fall back to centered-on-screen so the
       // dialog still renders. Previously this returned null and
-      // the dialog silently failed to open. Per Paul 2026-05-21.
+      // the dialog silently failed to open. Per design review 2026-05-21.
       setPos({
         top: Math.max(VIEWPORT_GUTTER, (vh - DIALOG_H_ESTIMATE) / 2),
         left: Math.max(VIEWPORT_GUTTER, (vw - DIALOG_W) / 2),
@@ -267,7 +267,7 @@ export function DismissDialog({
           that proposal ("Remove tag X?" body under a "Don't remove
           tag" title). The agent's reasoning is already on the card
           the curator just came from; the dialog's job is to record
-          why they chose what they chose. Paul 2026-06-16. */}
+          why they chose what they chose. Design review 2026-06-16. */}
       <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-2">
         {chips.length > 0
           ? "Pick a reason — note rides to the curation agent at close-review."

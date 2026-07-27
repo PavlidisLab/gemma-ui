@@ -17,7 +17,7 @@
  * action row — both render OUTSIDE this panel so they stay visible
  * when the curator hides the reasoning text.
  *
- * Paul 2026-06-16: "IT SHOULD BE THE SAME COMPONENT WHETHER THE
+ * Design review 2026-06-16: "IT SHOULD BE THE SAME COMPONENT WHETHER THE
  * FACTOR IS A MATCH or a PARTIAL MATCH".
  */
 

@@ -7,7 +7,7 @@ Split the data dependency deliberately:
 
 Test the **UI**, not data access. Freeze the backend traffic with a HAR
 so the spec doesn't depend on the store having a given experiment loaded
-or on remote frink being reachable (that dependency was the source of the
+or on a remote ontology host being reachable (that dependency was the source of the
 parallel-run `@critical` timeouts).
 
 ```ts

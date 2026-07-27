@@ -442,7 +442,7 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
  * *second* category (a timepoint FV that also asserts
  * ``has role → baseline role``, a genotype under a treatment FV,
  * etc.), so restricting the menu to the factor's own category hid the
- * pattern the curator actually needed. Paul 2026-07-21.
+ * pattern the curator actually needed. Design review 2026-07-21.
  *
  * We keep the list *ordered by relevance* rather than filtered: the
  * templates matching this factor's category (plus the generic "*"

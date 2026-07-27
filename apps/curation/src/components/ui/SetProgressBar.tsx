@@ -1,7 +1,7 @@
 /**
  * Stacked horizontal progress bar for set-level status rollup.
  *
- * Three segments (per Paul 2026-05-25 — "green = done, yellow =
+ * Three segments (per design review 2026-05-25 — "green = done, yellow =
  * in progress, rest is light blue"):
  *
  *   green   ``done``          curator finished + closed the review
@@ -24,7 +24,7 @@ export interface SetProgressCounts {
   done: number;
   /** Anything between untouched and done — covers draft (open
    *  review, no local edits) and uncommitted (local edits in
-   *  flight). One yellow bucket per Paul 2026-05-25. */
+   *  flight). One yellow bucket per design review 2026-05-25. */
   in_progress: number;
   untouched: number;
 }
@@ -76,7 +76,7 @@ export function SetProgressBar({
         )}
         aria-label={`${counts.done} done, ${counts.in_progress} in progress, ${counts.untouched} untouched`}
         title={
-          // Bucket semantics per Paul 2026-05-25 refinement:
+          // Bucket semantics per design review 2026-05-25 refinement:
           //   done       = review finalized + no uncommitted local edits
           //   in_progress = curator has touched it but it's not done
           //                 (uncommitted local draft, or closed review
@@ -103,7 +103,7 @@ export function SetProgressBar({
           />
         ) : null}
         {counts.untouched > 0 ? (
-          // Light blue "rest" per Paul — sky-200/300 reads as
+          // Light blue "rest" per design review — sky-200/300 reads as
           // "yet to do" without competing with the amber-in-
           // progress slice for attention.
           <div

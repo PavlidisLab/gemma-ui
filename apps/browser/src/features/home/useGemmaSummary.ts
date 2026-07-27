@@ -1,7 +1,7 @@
 /**
  * Aggregate counts for the home-page summary panel.
  *
- * The fast path is bro 2's ``GET /rest/v2/stats/home`` daily-refresh
+ * The fast path is the agents-side ``GET /rest/v2/stats/home`` daily-refresh
  * snapshot — one ~50 ms call that carries dataset / platform /
  * sample / gene totals + per-taxon + per-platform-type +
  * recently-updated. When it's reachable, every tile fills off it
@@ -15,7 +15,7 @@
  *
  * The annotation-count endpoints
  * (``/datasets/annotations/count?category=…&excludeFreeText=true``)
- * have no fallback — they need bro's recently-shipped flag. If the
+ * have no fallback — they need the agents-side recently-shipped flag. If the
  * server doesn't expose them, those tiles stay "—".
  */
 
@@ -44,7 +44,7 @@ interface TreatmentTopTermWire {
 interface TreatmentSubcategoryWire {
   key: string;
   label: string;
-  /** Bro's parent group: ``control`` / ``pharmacology`` /
+  /** The agents-side parent group: ``control`` / ``pharmacology`` /
    *  ``biological`` / ``unclassified``. Lets the UI strip
    *  control-like buckets (Control / reference, Vehicles /
    *  solvents) before rendering — they dominate the count but
@@ -62,7 +62,7 @@ interface TreatmentSubcategoryWire {
   subBuckets?: TreatmentSubcategoryWire[];
 }
 
-/** ``/stats/home`` v2 payload — bro's full landed wishlist. Mirrors
+/** ``/stats/home`` v2 payload — the agents-side full landed wishlist. Mirrors
  *  ``HomeStats.java`` in the Gemma REST module. */
 interface HomeStatsWire {
   generatedAt: string;
@@ -103,7 +103,7 @@ interface HomeStatsWire {
    *  count (e.g. a 3-level factor "drug" with values control / drug-A
    *  / drug-B yields 2 contrasts). Strictly greater than
    *  ``deaResultSetCount`` since each result set carries one or more
-   *  contrasts. Bro: not yet shipped — filed in
+   *  contrasts. The agents side: not yet shipped — filed in
    *  HOME_PAGE_DEA_CONTRASTS_2026_05_25.md. */
   deaContrastCount?: number;
   ontologyTermCount: number;
@@ -197,7 +197,7 @@ export interface TreatmentSubcategory {
   termCount: number | null;
   /** Top representative terms (e.g. ``approved_drug`` →
    *  dexamethasone, doxycycline, JQ1). Empty on snapshots that
-   *  predate bro's enrichment of the field. */
+   *  predate the agents-side enrichment of the field. */
   topTerms: TreatmentTopTerm[];
   /** Secondary classification (today ``approved_drug`` →
    *  Antineoplastics / Kinase inhibitors / …). Empty everywhere
@@ -218,7 +218,7 @@ export interface GemmaSummary {
   /** Distinct DEA contrasts (per-comparison count). When available,
    *  this becomes the headline DEA number on the home page and
    *  ``diffExResultSets`` demotes to a footnote. ``null`` until
-   *  bro ships the field. */
+   *  the agents side ships the field. */
   diffExContrasts: number | null;
   /** Distinct CHEBI-anchored drug / chemical annotations. Narrower
    *  than ``byCategory.drugs`` (which covers all
@@ -264,25 +264,25 @@ export interface GemmaSummary {
   /** Datasets grouped by external-database source (GEO, ArrayExpress,
    *  CELLxGENE, …); ``source === "none"`` carries direct lab
    *  submissions / Gemma-native EEs. Sorted desc, sums to
-   *  ``datasets``. Empty until bro's accession field lands in the
-   *  daily snapshot. Currently unused on the home page (Paul
+   *  ``datasets``. Empty until the agents-side accession field lands in the
+   *  daily snapshot. Currently unused on the home page (the reviewer
    *  dropped the per-source footnote — see distinctAccessionCount). */
   datasetsByAccessionSource: Array<{ source: string; count: number }>;
   /** Distinct external accessions across the corpus, regardless of
    *  source. ≤ ``datasets`` because a single GEO submission split
    *  into two Gemma EEs counts once here. Drives the Datasets-tile
-   *  "from N distinct accessions" footnote. ``null`` until bro's
+   *  "from N distinct accessions" footnote. ``null`` until the agents-side
    *  field ships (filed in HOME_PAGE_STATS_DISTINCT_ACCESSIONS_…). */
   distinctAccessionCount: number | null;
   /** Per-sub-bucket breakdown of the Treatment annotation category.
    *  Used to enrich the Treatments tile tooltip from a one-line
    *  prose explanation to a ranked drug / pathogen / biologic /
-   *  other list. Empty array on snapshots predating bro's
+   *  other list. Empty array on snapshots predating the agents-side
    *  treatmentSubcategories field. */
   treatmentSubcategories: Array<TreatmentSubcategory>;
   /** Top perturbed genes by number of experiments referencing them
    *  as perturbation targets. Drives the middle-third bar chart on
-   *  the home page. Empty until bro ships the field — filed in
+   *  the home page. Empty until the agents side ships the field — filed in
    *  HOME_PAGE_PERTURBED_GENES_…. */
   topPerturbedGenes: Array<{
     geneSymbol: string;
@@ -476,7 +476,7 @@ export function useGemmaSummary(): GemmaSummary {
   // appeared under multiple TechnologyType buckets (esp. SEQUENCING +
   // GENELIST for the same sequencing study), pushing RNA-seq past
   // the corpus dataset total. samplesByTech is single-counted by
-  // bro server-side, so the numbers are honest.
+  // the agents side server-side, so the numbers are honest.
   const samplesByTechResolved = {
     singleCell: wire?.samplesByTech?.single_cell ?? null,
     rnaSeq: wire?.samplesByTech?.rna_seq ?? null,

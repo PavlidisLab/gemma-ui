@@ -54,7 +54,7 @@ import {
  *
  * Phase 2 (planned): seed the design draft from the proposal on
  * arrival; rejected → remove from draft; edited detected via
- * draft-vs-snapshot diff. Per Paul 2026-05-21.
+ * draft-vs-snapshot diff. Per design review 2026-05-21.
  */
 export function ProposalSidebarPanel({
   proposal,
@@ -153,7 +153,7 @@ export function ProposalSidebarPanel({
   // per-finding-undo paths. The LS layer is already wiped by the
   // caller; this listener flushes the matching in-memory state so the
   // proposal cards reflect the rollback without the curator having to
-  // remount the panel. Per Paul 2026-06-10: undo had been leaving
+  // remount the panel. Per design review 2026-06-10: undo had been leaving
   // proposal cards stuck on retained/rejected.
   useEffect(() => {
     return onProposalStateReset((targetExperimentId) => {
@@ -185,7 +185,7 @@ export function ProposalSidebarPanel({
   const getOne = (key: string): ProposalDisposition =>
     dispositions.get(key) ?? "pending";
 
-  /** Retain every still-pending element in one click. Per Paul
+  /** Retain every still-pending element in one click. Per design review
    *  2026-05-21: "in fact, accept all or accept rest would be
    *  nice." Smart label below picks "retain all" vs "retain
    *  remaining" based on whether the curator has already started. */
@@ -235,7 +235,7 @@ export function ProposalSidebarPanel({
   return (
     // Inline the rounded/border equivalents instead of using the
     // ``card`` class — the global ``html.dark .card`` rule in
-    // index.css overrode the dark sky tint. Per Paul 2026-05-21.
+    // index.css overrode the dark sky tint. Per design review 2026-05-21.
     <div className="p-2 space-y-2 rounded-lg border border-sky-300 bg-sky-50 dark:border-sky-700 dark:bg-sky-900/40">
       {/* Orchestrator orientation prose — generic top-of-panel slot.
           Reads directly from ``proposal.experiment_summary`` — the
@@ -410,7 +410,7 @@ export function ProposalSidebarPanel({
                   "Agent emitted no tag-side subtask_decisions on this proposal — " +
                   "no S9_tag_normalization wrap-up, no skip-reason. " +
                   "Can't tell whether the tag proposer skipped, ran and found " +
-                  "nothing, or filtered everything out. See bro handoff: " +
+                  "nothing, or filtered everything out. See agents-side handoff: " +
                   "TAG_PROPOSER_EMIT_EMPTY_RATIONALE."
                 }
               >

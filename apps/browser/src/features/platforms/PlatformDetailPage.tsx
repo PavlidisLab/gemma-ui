@@ -10,7 +10,7 @@
  *     type, taxon, status flags) + key counts.
  *   - Description card with collapse for long Affymetrix-style prose.
  *   - Elements explorer — the section that gets the "super nice"
- *     treatment per Paul. Server-side paginated (50/page) with a
+ *     treatment per design review. Server-side paginated (50/page) with a
  *     debounced name filter; can handle the gene-based
  *     pseudoplatforms (millions of "elements") because we never
  *     fetch them all.
@@ -606,7 +606,7 @@ function mockAlignment(elementId: number): {
  *  ElementsSection but smaller page (25 rows) since dataset rows
  *  carry more text. Server-side paged so this stays fast even on
  *  gene-based pseudoplatforms with thousands of experiments
- *  (Paul, 2026-05-17 — the legacy Datasets tab on the platform
+ *  (the reviewer, 2026-05-17 — the legacy Datasets tab on the platform
  *  page can hang badly in that case). */
 function DatasetsSection({ platform: p }: { platform: Platform }) {
   const [page, setPage] = useState(0);

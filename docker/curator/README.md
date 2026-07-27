@@ -24,9 +24,8 @@ to surface MONDO / UBERON / CL / EFO terms beyond the small
 built-in catalog. That endpoint is configurable:
 
 * **`GEMMA_ONTOLOGY_URL`** points local-api's `/rest/v2/annotations/search` + `/annotations/term`
-  at any reachable host. During the transition period this is
-  `staging-gemma.msl.ubc.ca`; once the new gemma-rest 2.0 server is
-  up, point it there. **Leave unset** to fall back to local-api's
+  at any reachable host. No built-in default; once the new gemma-rest 2.0
+  server is up, point it there. **Leave unset** to fall back to local-api's
   built-in catalog (works but the term picker narrows badly outside
   the recurring value-strings).
 
@@ -82,12 +81,12 @@ Curators don't build; they pull. Devs build once and publish to a
 registry curators can `docker compose pull` from.
 
 ```sh
-# from this folder, with ~/Dev/gemma-curation-agents checked out parallel
+# from this folder, with gemma-curation-agents checked out alongside this repo
 ./build.sh                                  # tag=latest
 TAG=v0.10.0 ./build.sh
 ```
 
-Then push to whatever registry bro publishes to:
+Then push to whatever registry you publish to:
 
 ```sh
 docker tag gemma-curator/local-api:latest <registry>/gemma-curator/local-api:latest
@@ -114,16 +113,16 @@ re-import anything.**
 
 ### If you have both source repos checked out side-by-side
 
-(`~/Dev/gemma-curation-ui` + `~/Dev/gemma-curation-agents`, as
+(`gemma-curation-ui` + `gemma-curation-agents` side by side, as
 `build.sh` expects.)
 
 ```sh
 # 1. Pull latest source (skip the agents repo if only the UI changed)
-cd ~/Dev/gemma-curation-ui      && git pull
-cd ~/Dev/gemma-curation-agents  && git pull
+cd path/to/gemma-curation-ui      && git pull
+cd path/to/gemma-curation-agents  && git pull
 
 # 2. Rebuild the images — re-tags gemma-curator/*:latest (cached, fast)
-cd ~/Dev/gemma-curation-ui/docker/curator
+cd path/to/gemma-curation-ui/docker/curator
 ./build.sh
 
 # 3. Recreate the containers from the new :latest images.
@@ -138,7 +137,7 @@ That's the whole loop — no `down -v`, no re-import.
 build`) and recreate only that container:
 
 ```sh
-cd ~/Dev/gemma-curation-ui/docker/curator
+cd path/to/gemma-curation-ui/docker/curator
 docker build -f Dockerfile.curation-ui \
   --build-arg "VITE_GEMMA_ONTOLOGY_URL=${GEMMA_ONTOLOGY_URL:-}" \
   -t gemma-curator/curation-ui:latest "$(cd ../.. && pwd)"

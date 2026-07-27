@@ -1,12 +1,10 @@
 # CLAUDE.md — apps/browser (GemBrow React)
 
-Orientation for me — the GUI Claude working this app. This app lives at
-`apps/browser/` inside the `gemma-ui` monorepo (root at
-`~/Dev/gemma-curation-ui/`). Sister app: `apps/curation/` (curator workflow).
+Orientation for this app. It lives at `apps/browser/` inside the
+`gemma-ui` monorepo. Sister app: `apps/curation/` (curator workflow).
 
-Read [`GEMMA_WEB_2_0.md`](./GEMMA_WEB_2_0.md) for the Gemma 2.0 alignment
-plan. Read [`REACT_PORT_HANDOFF.md`](./REACT_PORT_HANDOFF.md) for the
-original GemBrow-Vue → React port history (mostly done).
+This is the GemBrow-Vue → React port (mostly done), aligned to the
+Gemma 2.0 web surface.
 
 ## What this app is
 
@@ -14,8 +12,8 @@ The public-facing Gemma browse/search frontend. Lets users search and
 filter the ~25K-experiment Gemma corpus by taxon, platform/technology
 type, and ontology annotations, then preview individual datasets.
 
-**Current state (2026-05-19):** substantially complete React port.
-Working pages: Home (14 variants, pending final pick), Browser/search,
+**Current state:** substantially complete React port. Working pages:
+Home (multiple variants, pending final pick), Browser/search,
 Platforms catalogue + detail, Dataset page. Typecheck clean.
 
 **End state:** This app + `apps/curation/` under one shared shell — the
@@ -31,8 +29,8 @@ from repo root (or `tsc -p tsconfig.app.json --noEmit` from this dir).
 ## Dev proxy
 
 ```
-GEMMA_BASE_URL=https://staging-gemma.msl.ubc.ca  # default
-GEMMA_BASE_URL=http://localhost:9080              # local Gemma 2.0 server
+GEMMA_BASE_URL=<your Gemma REST host>  # no built-in default — set explicitly
+GEMMA_BASE_URL=http://localhost:9080    # local Gemma 2.0 server
 ```
 
 Use port **9080** for a local Gemma 2.0 Java server — **not 8080** which
@@ -56,8 +54,8 @@ is reserved for the curation mock (run by `gemma-curation-agents/run_mock.sh`).
 ## Backend
 
 REST client. All calls to `/rest/v2/...` (proxied through Vite dev server).
-Backend is `~/Dev/eclipseworkspace/Gemma/` — **hands-off**. If a backend
-change is needed, file it in `GEMMA_WEB_2_0.md` under "P3 — Backend gaps".
+Backend is the Gemma REST server (Java) — **hands-off**. Backend
+changes are filed against the Gemma repo, not made here.
 
 The OpenAPI spec is at `gemma-rest/src/main/resources/restapidocs/` in the
 Gemma repo. When the Gemma 2.0 server is running locally, fetch it for
@@ -65,27 +63,20 @@ typed-client codegen via `openapi-typescript`.
 
 ## Aesthetic direction
 
-Paul likes: **Bloom, Cosmos, Tidepool, Brutalist-v2** (warm amber/coral +
-teal/blue; spacey, calming, curves, colour-rich).  
-Paul dislikes: Library catalog, Specimen plate, old-timey.  
-Avoid: stock photos of smiling scientists, DNA ladders, `01010101` overlays.
-Abstract data viz / SVG OK. Flat, clean, modern — not stock shadcn.
+Design direction: warm amber/coral + teal/blue; spacey, calming,
+curves, colour-rich. Avoid stock photos of smiling scientists, DNA
+ladders, `01010101` overlays. Abstract data viz / SVG OK. Flat,
+clean, modern — not stock shadcn.
 
-**Home page variant not yet chosen.** The `?v=<key>` + localStorage switcher
-lets Paul flip between them at `http://localhost:5183/`. Need to pick one
-before the base website ships.
+**Home page variant not yet chosen.** The `?v=<key>` + localStorage
+switcher flips between them at `http://localhost:5183/`. Need to pick
+one before the base website ships.
 
 ## Mock system — do not touch
 
 The curation app's dev proxy (`apps/curation/vite.config.ts`) routes to:
-- `:8080` — mock REST server (`dev-token-123`)
+- `:8082` — local_api curation server (`dev-token-123`)
 - `:8090` — proposer/audit service
 
 These must stay working for offline curation. This app's proxy is
 completely separate.
-
-## Memory
-
-Session-persistent guidance lives in
-`~/.claude/projects/-Users-pzoot-Dev-gemma-curation-ui/memory/`.
-`MEMORY.md` is the index — auto-loaded each session.

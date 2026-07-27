@@ -1,9 +1,7 @@
 /**
  * Unified justification types — shared between proposal review and
  * audit findings. Mirrors the agents-side
- * `agents/shared/justification.py` per the cross-pipeline design in
- * `~/Dev/eclipseworkspace/Gemma/handoffs/SCHEMA_UNIFIED_JUSTIFICATION.md`
- * (2026-05-22).
+ * `agents/shared/justification.py`.
  *
  * Wire-format note: most fields use snake_case (matches the
  * payload_json verbatim). `AttachedDefenderVerdict` is the exception

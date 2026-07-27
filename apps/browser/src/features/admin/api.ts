@@ -1,7 +1,5 @@
 /**
- * Typed hooks + mutations for the Gemma admin/monitoring endpoints
- * documented in
- * `~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_SYSTEMS_MONITORING_UI.md`.
+ * Typed hooks + mutations for the Gemma admin/monitoring endpoints.
  *
  * All `/admin/*` endpoints require GROUP_ADMIN. The page uses
  * `credentials: "include"` so a Spring session cookie set by a

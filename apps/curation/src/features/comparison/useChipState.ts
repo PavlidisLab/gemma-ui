@@ -44,7 +44,7 @@ export function useChipState(args: {
   // default baseline falls through ("polished -> live -> preboard")
   // based on what's actually loaded for this experiment, instead of
   // sticking on an unavailable `preboard` and leaving the chip
-  // strip showing "Gemma preboard" as the anchor. Per Paul
+  // strip showing "Gemma preboard" as the anchor. Per design review
   // 2026-06-08: chip strip showed "Gemma preboard" for the v6 pack
   // even though the unified /curation-versions endpoint reported
   // no preboard.

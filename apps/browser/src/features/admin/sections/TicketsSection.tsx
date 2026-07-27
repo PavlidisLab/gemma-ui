@@ -4,7 +4,7 @@
  * /tickets/summary/me, surfaced elsewhere).
  *
  * Data source: GET /tickets/summary — single grouped count query,
- * cheap to refetch. The CAB pilot writes localstore tickets with
+ * cheap to refetch. The ticket-review pilot writes localstore tickets with
  * associated entities; Gemma carries the parallel model so this
  * panel reflects whatever's been opened against the corpus.
  */

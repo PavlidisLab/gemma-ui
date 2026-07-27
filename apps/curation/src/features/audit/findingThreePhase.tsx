@@ -2,7 +2,7 @@
  * Three-phase finding card body.
  *
  * Per ``Gemma/handoffs/FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md``
- * (Paul 2026-06-15). Every finding card renders EXACTLY THREE flat
+ * (design review 2026-06-15). Every finding card renders EXACTLY THREE flat
  * labelled sections, in order:
  *
  *   1. **Why proposed** — proposer rationale + evidence + citation.
@@ -10,7 +10,7 @@
  *   2. **Reviews** — flat list of reviewer-LLM verdicts (defender,
  *      factor_defender, arbiter, boss). Each row reads as
  *      ``<reviewer> ▪ <verdict tag> ▪ <one-sentence gist>``. Header
- *      ALWAYS shown (Paul 2026-06-15: helps the curator see what's
+ *      ALWAYS shown (design review 2026-06-15: helps the curator see what's
  *      expected to be there), even when no reviewers ran. Reviewers
  *      DO NOT compare to any external curation set.
  *   3. **Comparison vs <set>** — chip strip + comparison-judge
@@ -40,7 +40,7 @@
  *     and to ``finding.defender_verdict`` + ``findArbiterForFinding`` +
  *     ``findBossForFinding`` for Reviews — same data, projected into
  *     the new shape at render time.
- *   - Vocabulary cleanup is producer-side per Paul (single source of
+ *   - Vocabulary cleanup is producer-side per design review (single source of
  *     truth on the wire). Until the producer-rename lands, ``verdictLabel``
  *     below ships a small TEMPORARY translation table marked with a
  *     TODO so the curator doesn't read raw debug strings. Drop the
@@ -63,7 +63,7 @@ import { normalizeWikiUrl } from "@/lib/guidelines";
 import { splitRationaleTrail } from "./rationaleText";
 
 // ---------------------------------------------------------------------------
-// Phase 3 of the rollout (Paul 2026-06-15): UI now reads the new wire
+// Phase 3 of the rollout (design review 2026-06-15): UI now reads the new wire
 // blocks (`finding.why` / `finding.reviews` / `finding.comparison`)
 // directly. Legacy field fallbacks dropped; vocabulary translation
 // dropped (producer ships curator-friendly verdict strings via the
@@ -80,8 +80,7 @@ import { splitRationaleTrail } from "./rationaleText";
  *
  * Two buckets, attributed against the producer
  * (``build_calibration_batch.py`` ``_LEGACY_LEANS`` / ``_ARBITER_LEANS``)
- * and the framing rule
- * (``feedback_defender_is_proposer_reasoning`` / ``[[project_three_phase_finding_card]]``):
+ * and the "defender is proposer reasoning" framing rule:
  *
  *  1. **Proposer's reasoning** (no-gold codes). The proposer never
  *     sees current/gold — its verdict is a confidence read on its OWN
@@ -286,7 +285,7 @@ function WhyPhase({
   // Split off the agent's raw reasoning trail ("— Full agent reasoning
   // trail — [S8b_…] (target=design) …") from the curator-facing
   // summary. Dumping the whole concatenated subtask log inline made
-  // the section an illegible wall (Paul 2026-06-21). The summary stays
+  // the section an illegible wall (design review 2026-06-21). The summary stays
   // in ``brief``; the trail tucks behind the section's "more" toggle,
   // formatted one step per line.
   const { summary, trail } = splitRationaleTrail(rationale);
@@ -352,7 +351,7 @@ function WhyPhase({
  *  with no breaks. We split at each ``[subtask] (target=…)`` marker so
  *  each step gets its own line, with the marker in muted monospace so
  *  the eye can scan the pipeline. Falls back to the raw text when the
- *  markers aren't present. Paul 2026-06-21: "this is an illegible
+ *  markers aren't present. Design review 2026-06-21: "this is an illegible
  *  mess." */
 function ReasoningTrailDetail({ trail }: { trail: string }): JSX.Element {
   const segments = trail
@@ -398,7 +397,7 @@ function ReasoningTrailDetail({ trail }: { trail: string }): JSX.Element {
  *  the finding. Rendered at the top of the reasoning body (not gated on
  *  a Why block) so it appears on EVERY finding that maps to a rule —
  *  including match findings, whose Why phase is suppressed. Renders
- *  nothing when the finding resolves to no rule. Paul 2026-06-21. */
+ *  nothing when the finding resolves to no rule. Design review 2026-06-21. */
 function GuidelineCiteRow({ finding }: { finding: AuditFinding }): JSX.Element | null {
   if (!guidelineRefForFinding(finding)) return null;
   return (
@@ -617,7 +616,7 @@ function ReviewRow({ review }: { review: ReviewVerdict }): JSX.Element {
   const v = verdictLabel(review.verdict);
   const r = (review.rationale ?? "").trim();
   const isBoss = (review.reviewer ?? "").trim().toLowerCase() === "boss";
-  // Phase 5 (Paul 2026-06-15): boss-row copy is intentionally
+  // Phase 5 (design review 2026-06-15): boss-row copy is intentionally
   // minimized. We surface that the boss reviewed and made changes,
   // but don't expose the structured-action specifics
   // (`undo` / `rename` / `change_category` / `drop_fv`) as
@@ -757,7 +756,7 @@ export function ThreePhaseFindingBody({
   // bare empty WHY PROPOSED slot the curator has nothing to act on.
   // Per FINDING_SHORT_RATIONALE_BM_AWARE_2026_06_16.
   //
-  // EXCEPT match findings (Paul 2026-06-19, GSE241529): a
+  // EXCEPT match findings (design review 2026-06-19, GSE241529): a
   // ``calibration_match`` / ``calibration_tag_match_*`` carries a
   // ``suggested_fix`` of "Remove tag `X` from the existing curation."
   // — that's the action a *reject* disposition performs, NOT a

@@ -25,7 +25,7 @@ export function lc(s: string | null | undefined): string {
  *  pass through unchanged. The scoped pattern (digits + a single
  *  alphabetic word + optional ``s``) is safe — it won't fold
  *  ``"5 doctors"`` vs ``"5 doctor"`` style cases either, since both
- *  forms collapse to the same canonical anyway. Per Paul 2026-06-02:
+ *  forms collapse to the same canonical anyway. Per design review 2026-06-02:
  *  ``"2 month"`` / ``"2 months"`` were showing as FV-level diffs
  *  on developmental stage objects in the holdout-50 audit. */
 export function normalizeLiteralLabel(s: string): string {

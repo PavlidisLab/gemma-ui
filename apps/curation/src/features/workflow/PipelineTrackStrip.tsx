@@ -34,7 +34,7 @@ const CURATION_STEPS: StepDescriptor[] = [
   // Step covers both proposal- and audit-kind reviews on the same
   // curation_review table. "Review" is the kind-agnostic verb; the
   // next-task chip on PipelineStatusRow narrows it to "Review
-  // proposal" / "Review audit" using group type. Per Paul 2026-05-25.
+  // proposal" / "Review audit" using group type. Per design review 2026-05-25.
   { key: "audit",          label: "Review",   title: "Curation review (proposal or audit)" },
 ];
 
@@ -84,7 +84,7 @@ function StepBadge({
   descriptor: StepDescriptor;
   step: PipelineStep;
   /** Tighter padding + smaller text for list-view rows that pack
-   *  many badges in a single horizontal lane. Per Paul 2026-05-25
+   *  many badges in a single horizontal lane. Per design review 2026-05-25
    *  ("the workflow badges are good overall, it can just be more
    *  compact per-row"). Default off so the legacy callers that
    *  expected the chunkier render keep working unchanged. */

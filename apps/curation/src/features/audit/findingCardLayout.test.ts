@@ -9,7 +9,7 @@ import { AGENT_NO_DETAILS_SENTINEL, pickJudgeRowText } from "./auditorDetails";
 import { findingLean, leanSuggestionLabel } from "./defenderLean";
 
 /** Tests covering the two-chip header redesign for finding cards
- *  (Paul 2026-05-21 — reference case GSE93824 genotype near-match
+ *  (design review 2026-05-21 — reference case GSE93824 genotype near-match
  *  in the hardcase10-r6 calibration package).
  *
  *  These predicates are the source of truth for two layout flips:
@@ -215,7 +215,7 @@ describe("whole-factor finding layout (regression-prevent)", () => {
 // ---------------------------------------------------------------------------
 // deriveLeftFactorCategory — baseline-side category lookup for rename findings
 //
-// Regression guard for the GSE67136 2026-06-15 case Paul reported:
+// Regression guard for the GSE67136 2026-06-15 case the reviewer reported:
 // the agent proposes ``treatment`` factor, gold has ``timepoint``,
 // matcher correctly emits a calibration_factor_match_near finding
 // with a rename payload (gold.category = timepoint). The UI was

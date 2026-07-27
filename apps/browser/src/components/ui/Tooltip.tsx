@@ -18,7 +18,7 @@ import { createPortal } from "react-dom";
  * Portal-mounted so the bubble escapes any overflow-clipped parent.
  *
  * Defaults:
- *  - 60ms open delay (Paul: much faster than native ~700ms).
+ *  - 60ms open delay (design review: much faster than native ~700ms).
  *  - Above the trigger; auto-flips below if no room.
  *  - 320px max width with line-wrapping; long strings stay legible.
  *  - Closes on mouseleave / blur / Escape / scroll.

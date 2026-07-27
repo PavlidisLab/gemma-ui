@@ -15,7 +15,7 @@
 #   TAG=v0.11.2 ./package.sh
 #
 # Pre-conditions:
-#   - ~/Dev/gemma-curation-agents checked out next to this monorepo
+#   - gemma-curation-agents checked out next to this monorepo
 #     (build.sh resolves it via the same path).
 #   - calibration packages already copied under ./calibration-packages/.
 #
@@ -137,4 +137,4 @@ echo
 echo "[package] done."
 echo
 echo "Next:"
-echo "  scp $(pwd)/$OUT_TARBALL willie:/home/paul/Gemma2.0/"
+echo "  scp $(pwd)/$OUT_TARBALL <user>@<host>:<dest>/"

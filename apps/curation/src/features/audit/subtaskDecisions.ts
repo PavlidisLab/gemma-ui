@@ -97,7 +97,7 @@ export function dedupeSubtaskDecisions(
  *  Gemma vocabulary`` — and they get ``·``-joined into a single verdict
  *  (or arrive as several decisions). The repetition adds no signal once
  *  a curator has read one; collapse to ``Left as free text: T372E,
- *  T372A``. Per Paul 2026-06-19. Decisions whose verdict mixes
+ *  T372A``. Per design review 2026-06-19. Decisions whose verdict mixes
  *  free-text notes with other prose are left untouched.
  */
 const FREE_TEXT_SEGMENT =

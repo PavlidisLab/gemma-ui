@@ -298,8 +298,7 @@ export async function getElementGenes(
 /* ----------------------------------------------------------------
  * Backend gaps — surface here so future hands can find them.
  *
- * Filed 2026-05-17 (Paul) against the Gemma REST API
- * (~/Dev/eclipseworkspace/Gemma):
+ * Filed 2026-05-17 against the Gemma REST API:
  *
  *  1. **Search elements by gene symbol/alias.**
  *     Today: /platforms/{id}/elements only filters by element name
@@ -541,10 +540,10 @@ export async function getDatasetDiffExAnalyses(
  * We hit `/resultSets?datasets={id}` directly rather than the
  * canonical `/datasets/{id}/analyses/differential/resultSets` —
  * the latter 302-redirects to the same query-string form, but the
- * server emits the Location header as an absolute
- * `https://staging-gemma.msl.ubc.ca/...` URL. `fetch` follows the
- * redirect cross-origin, escapes the Vite proxy, and trips CORS
- * (staging Gemma doesn't allow `localhost:5183`). Using the
+ * server emits the Location header as an absolute Gemma-host URL.
+ * `fetch` follows the redirect cross-origin, escapes the Vite proxy,
+ * and trips CORS (the remote Gemma host doesn't allow `localhost:5183`).
+ * Using the
  * destination URL directly keeps the request on the proxy and
  * dodges the redirect entirely.
  */
@@ -933,7 +932,7 @@ export async function getGoTermGenes(
 }
 
 /** Free-text gene search (typeahead). Wraps Gemma's
- *  ``GET /rest/v2/genes/search?query=&taxon=&limit=`` — bro shipped
+ *  ``GET /rest/v2/genes/search?query=&taxon=&limit=`` — the agents side shipped
  *  this as a search-service-backed shim. Returns gene value objects
  *  ranked by search score. ``taxon`` is the common name
  *  (``"human"`` / ``"mouse"`` / ``"rat"``); pass to scope a dataset's
@@ -967,7 +966,7 @@ export interface PcLoadingsRow {
   /** Resolved gene symbol when probe→gene mapping is available. */
   geneSymbol?: string | null;
   /** Resolved gene official name (long descriptive name). Pending
-   *  bro's enrichment of /svd/loadings rows — see
+   *  the agents-side enrichment of /svd/loadings rows — see
    *  ``SVD_LOADINGS_GENE_ENRICHMENT_HANDOFF.md``. */
   geneOfficialName?: string | null;
   /** Gemma-internal gene id. Same enrichment ask as ``geneOfficialName``. */

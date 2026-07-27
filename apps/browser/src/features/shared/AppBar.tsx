@@ -44,7 +44,7 @@ export function AppBar() {
             app is a separate vite build on a different origin (see
             ``lib/appLinks.ts``). TODO: gate this tab on an admin /
             curator role flag once /me exposes one — for now it's
-            visible to everyone per Paul 2026-05-26. */}
+            visible to everyone per design review 2026-05-26. */}
         <ExternalNavTab href={curationUrl()}>Curation</ExternalNavTab>
         {/* Administration — gated on GROUP_ADMIN authority (exposed
             on /me as of gemma-rest 4a9605c23f). Hidden for anonymous

@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { execSync } from "node:child_process";
@@ -39,21 +39,52 @@ function buildShaFull(): string {
 
 // Resolution order for the upstream Gemma server:
 //   1. ``GEMMA_BASE_URL`` env (set in `apps/browser/.env.local` or
-//      exported in the shell)
-//   2. fallback: staging Gemma 1.x — always up but slow + cached
-//
-// Local Gemma 2.0 listens on ``:8080`` (per Paul 2026-05-23; this
-// supersedes the earlier note that local 2.0 was on ``:9080`` — the
-// curation mock was retired from :8080 in the gemma-curation-agents
-// `local_api` rename pass). Set ``GEMMA_BASE_URL=http://localhost:8080``
-// in ``.env.local`` to point this app at it.
+//      exported in the shell) — required, no built-in default.
+//   2. a local Gemma instance, e.g. ``http://localhost:8080``
 export default defineConfig(({ mode }) => {
   // loadEnv: read .env / .env.local / .env.<mode> + .env.<mode>.local.
   // Third arg "" disables the default VITE_ prefix filter so we can
   // surface plain ``GEMMA_BASE_URL`` (the historical name).
   const env = loadEnv(mode, process.cwd(), "");
-  const GEMMA_TARGET =
-    env.GEMMA_BASE_URL || "https://staging-gemma.msl.ubc.ca";
+  const GEMMA_TARGET = env.GEMMA_BASE_URL || "";
+  if (!GEMMA_TARGET) {
+    console.warn(
+      "[browser] GEMMA_BASE_URL not set — set it in .env.local to your Gemma instance before starting the dev server",
+    );
+  }
+  const proxy: Record<string, ProxyOptions> = {};
+  if (GEMMA_TARGET) {
+    proxy["/rest"] = {
+      target: GEMMA_TARGET,
+      changeOrigin: true,
+      // secure: false when targeting a local http:// server
+      secure: !GEMMA_TARGET.startsWith("http://"),
+      configure: (proxy) => {
+        // One-shot log so a curator can confirm which upstream the
+        // dev server is fronting without grepping vite.config.
+
+        console.log(`[browser] /rest → ${GEMMA_TARGET}`);
+        // STRIP Origin + Referer entirely. Tomcat's CORS
+        // filter (web.xml /rest/v2/* mapping) 403s every Origin
+        // it sees — even the server's own host. Verified by
+        // probing with curl: Origin: http://localhost:8080 →
+        // "Invalid CORS request"; no Origin header → 401 clean.
+        // So the allow-list is empty / not honored, and the
+        // only way through is to make the request look
+        // non-CORS by removing the header. The browser sends
+        // Origin automatically on every cross-origin fetch;
+        // we strip it before forwarding upstream.
+        proxy.on("proxyReq", (proxyReq) => {
+          proxyReq.removeHeader("origin");
+          proxyReq.removeHeader("referer");
+        });
+        proxy.on("error", (err) => {
+
+          console.error(`[browser] proxy error: ${err.message}`);
+        });
+      },
+    };
+  }
   return {
     plugins: [react()],
     resolve: {
@@ -89,38 +120,7 @@ export default defineConfig(({ mode }) => {
         env.VITE_USE_POLLING === "1"
           ? { usePolling: true, interval: 500 }
           : undefined,
-      proxy: {
-        "/rest": {
-          target: GEMMA_TARGET,
-          changeOrigin: true,
-          // secure: false when targeting a local http:// server
-          secure: !GEMMA_TARGET.startsWith("http://"),
-          configure: (proxy) => {
-            // One-shot log so a curator can confirm which upstream the
-            // dev server is fronting without grepping vite.config.
-             
-            console.log(`[browser] /rest → ${GEMMA_TARGET}`);
-            // STRIP Origin + Referer entirely. Tomcat's CORS
-            // filter (web.xml /rest/v2/* mapping) 403s every Origin
-            // it sees — even the server's own host. Verified by
-            // probing with curl: Origin: http://localhost:8080 →
-            // "Invalid CORS request"; no Origin header → 401 clean.
-            // So the allow-list is empty / not honored, and the
-            // only way through is to make the request look
-            // non-CORS by removing the header. The browser sends
-            // Origin automatically on every cross-origin fetch;
-            // we strip it before forwarding upstream.
-            proxy.on("proxyReq", (proxyReq) => {
-              proxyReq.removeHeader("origin");
-              proxyReq.removeHeader("referer");
-            });
-            proxy.on("error", (err) => {
-               
-              console.error(`[browser] proxy error: ${err.message}`);
-            });
-          },
-        },
-      },
+      proxy,
     },
   };
 });

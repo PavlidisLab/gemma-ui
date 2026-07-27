@@ -14,7 +14,7 @@
  *   not-OK pipeline step (curation before analysis). Tone-coded:
  *   rose = failed/urgent, amber = needs attention, blue = active,
  *   slate = todo. See ``nextTask.ts``.
- * - **Workflow strips** keep the badge text Paul liked but tighter
+ * - **Workflow strips** keep the badge text the reviewer liked but tighter
  *   (compact prop on PipelineTrackStrip).
  * - **Right-side flags** — troubled / needs-attention / public-or-
  *   private / GEEQ pills — surface per-row signals without
@@ -53,11 +53,11 @@ function GeeqPill({ score, label }: { score: number | null; label: string }) {
 
 /** Compose the row-level StatusDisc tone.
  *
- *  Same semantics as the progress bar (per Paul 2026-05-25):
+ *  Same semantics as the progress bar (per design review 2026-05-25):
  *  - done       = review closed AND no uncommitted local draft
  *  - uncommitted = curator has touched but not finished —
  *                  local draft is the only client-side signal
- *                  for "started" until bro lands has_curator_
+ *                  for "started" until the agents side lands has_curator_
  *                  activity on the server
  *  - draft      = unused at the row level for now; the
  *                 "draft" tone is reserved for "started but no
@@ -235,7 +235,7 @@ export function PipelineStatusRow({
           )}
           {/* Visibility chip — always show, whether public or
               private, so curators can spot the public ones in a
-              private-mostly list at a glance. Per Paul
+              private-mostly list at a glance. Per design review
               2026-05-25 ("the public/private status should be
               shown as a badge for each experiment"). */}
           {dataset.is_public ? (

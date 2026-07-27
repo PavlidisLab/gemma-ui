@@ -250,7 +250,7 @@ function sameTag(a: Tag, b: Tag): boolean {
   // category nor value — so comparing those two alone left such edits
   // invisible to the diff, the commit bar never lit, and the edit was
   // lost on the next refetch. Compare the statement arrays too, reusing
-  // the same helper FactorValue statements use. Paul 2026-07-21.
+  // the same helper FactorValue statements use. Design review 2026-07-21.
   return (
     sameTerm(a.category, b.category) &&
     sameTerm(a.value, b.value) &&
@@ -540,7 +540,7 @@ export function indexChanges(diff: DesignDiff): FvChangeIndex {
 //   - tags     → (category URI || label, value URI || label)
 // Anything that doesn't match on those keys lands in added/removed.
 // We do NOT reach for fuzzy / ontology-distance / RAG matchers —
-// per Paul 2026-05-27, "if it's not obvious, it doesn't deserve to
+// per design review 2026-05-27, "if it's not obvious, it doesn't deserve to
 // match." Honest add/remove pairs beat over-eager "modified".
 // ---------------------------------------------------------------------------
 

@@ -99,7 +99,7 @@ export interface DesignDraftValue {
   /** Pop the last ``apply()`` off the undo stack and restore the
    *  prior draft. Bound to Cmd+Z / Ctrl+Z by the App-level
    *  KeyboardShortcuts component. No-op when ``canUndo`` is false.
-   *  Paul 2026-06-14: "how about binding undo key to last action". */
+   *  Design review 2026-06-14: "how about binding undo key to last action". */
   undo: () => void;
   /** Re-apply the last undone state. Bound to Cmd+Shift+Z / Ctrl+Y.
    *  No-op when ``canRedo`` is false (the redo stack clears on every
@@ -129,7 +129,7 @@ export interface DesignDraftValue {
    *  always write back to /design, so showing the curator a
    *  non-local baseline + letting them edit would silently
    *  overwrite the local pack with the baseline's content + the
-   *  edits. Per Paul 2026-06-08 ("for comparing we can do what we
+   *  edits. Per design review 2026-06-08 ("for comparing we can do what we
    *  want, but we have to be careful about what we are editing"). */
   usingBaseline: boolean;
   /** When ``usingBaseline`` is true: the source_kind of the
@@ -194,7 +194,7 @@ export function DesignDraftProvider({
    *  curation matches), falls back to ``useDesign(experimentId)``
    *  — the curator's editable local design (pre-step-3b behaviour).
    *
-   *  Per Paul 2026-06-08 ("yes everywhere"): the chip strip is the
+   *  Per design review 2026-06-08 ("yes everywhere"): the chip strip is the
    *  source of truth for what the page renders against. GSE93824
    *  showed the disconnect — live had 3 factors, the page showed
    *  2, because the main FactorList read from useDesign rather
@@ -304,7 +304,7 @@ export function DesignDraftProvider({
       : localDesign.error;
 
   // The provider-side write gate (``providerReadOnly``) was dropped
-  // 2026-06-14 — Paul: "the baseline has to always be editable."
+  // 2026-06-14 — the reviewer: "the baseline has to always be editable."
   // ``apply()`` already always-applies (the 2026-06-13 fix);
   // ``commit()`` no longer refuses on a frozen baseline either.
   // ``useIsReadOnly()`` remains as a UI-side hint surface but the
@@ -430,7 +430,7 @@ export function DesignDraftProvider({
       // surface the saving state to the curator.
       if (updater.isPending) return;
       // Earlier (2026-06-08) this branch silently dropped apply() when
-      // ``providerReadOnly`` fired. That created the bug Paul reported
+      // ``providerReadOnly`` fired. That created the bug the reviewer reported
       // 2026-06-13: deleting a factor while viewing a non-editable
       // baseline (Live Gemma / preboard / agent_proposal) did nothing,
       // the dirty flag never flipped, dependent surfaces (sample
@@ -513,7 +513,7 @@ export function DesignDraftProvider({
     // a danger toast, then a confirm dialog — every iteration
     // interacted badly with the close-review's dirty-draft guard:
     // dirty + viewing-a-baseline ⇒ can't commit, can't close,
-    // curator stuck. Paul 2026-06-14: "the baseline has to always
+    // curator stuck. Design review 2026-06-14: "the baseline has to always
     // be editable." The earlier "silent overwrite" concern from
     // 2026-06-08 is moot when the curator's intent is to commit
     // their own edits — that's the whole point of clicking Commit.
@@ -574,7 +574,7 @@ export function DesignDraftProvider({
     // design draft — without this the Accept-all / per-element
     // retain/reject state on the proposal cards stayed "retained" /
     // "rejected" after the curator hit undo, leaving the cards
-    // visually out of sync with the freshly-reset draft (Paul
+    // visually out of sync with the freshly-reset draft (the reviewer
     // 2026-06-10).
     clearAllProposalStateForExperiment(experimentId);
     notifyProposalStateReset(experimentId);

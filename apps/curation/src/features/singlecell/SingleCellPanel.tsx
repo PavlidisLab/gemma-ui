@@ -5,15 +5,14 @@ import { Term } from "@/components/ui/Term";
 /**
  * Placeholder panel for the modality-gated "Single-cell" tab. Today
  * surfaces the count + list of cell-type tags inferred from the
- * experiment's annotations. Future work (see
- * [[single-cell-summary-tab]] memory):
+ * experiment's annotations. Future work:
  *
  * - Cell-bucket sub-BMs view (once the curation importer ingests
  *   them — they're discovered via ``sourceBioMaterial`` linkage,
  *   not via ``/datasets/{id}/samples``).
  * - SingleCellDimension cell-counts (cells per cell type per
  *   library) — needs a wire add.
- * - Per-cell-type DEA pointers — bro 2 / browser-side cross-ref.
+ * - Per-cell-type DEA pointers — the agents side / browser-side cross-ref.
  * - Free-text vs ontology-resolved breakdown of cell-type
  *   characteristics on sub-BMs, with a one-click "propose
  *   resolution" affordance.

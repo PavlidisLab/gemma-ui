@@ -6,7 +6,7 @@ import type { FindingEvidence } from "@/api/auditTypes";
  * a catalog inference) at a glance via a stable colour, not just the
  * label text. Centralised here so every evidence surface — the audit
  * finding blocks, the tag-chip popover — stays in lockstep instead of
- * each re-deriving the label/colour. Per Paul 2026-06-18
+ * each re-deriving the label/colour. Per design review 2026-06-18
  * (UIB_HANDOFF_..._TAG_EVIDENCE_QUOTES): "quotes clearly identifiable
  * by type + colour."
  *
@@ -90,7 +90,7 @@ const BASE: Record<EvidenceSourceKey, EvidenceSourceMeta> = {
 /** Neutral fallback for an unrecognized / missing ``source``. Used to
  *  stay deliberately non-committal: defaulting an unknown provenance to
  *  "sample characteristic" (the most authoritative label) misrepresents
- *  it — Paul 2026-06-19, after a paper/GEO quote mislabelled
+ *  it — Design review 2026-06-19, after a paper/GEO quote mislabelled
  *  ``characteristic`` slipped through. A grey "source" chip says "we
  *  don't know where this came from" instead of vouching for it. */
 const NEUTRAL: EvidenceSourceMeta = {
@@ -123,6 +123,6 @@ export function evidenceSourceMeta(
     return { ...BASE.preboarding, badge: "Cellosaurus" };
   }
   // Unknown / missing source → neutral grey "source", never the
-  // authoritative "sample characteristic" default (Paul 2026-06-19).
+  // authoritative "sample characteristic" default (design review 2026-06-19).
   return BASE[source] ?? NEUTRAL;
 }

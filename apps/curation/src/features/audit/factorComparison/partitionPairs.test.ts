@@ -14,7 +14,7 @@
  *   - free_text_label is the term's label, verbatim
  *
  * If this regresses, the partition card silently drops sample counts
- * or statement chips — both Paul-flagged regressions tonight.
+ * or statement chips — both the reviewer-flagged regressions tonight.
  */
 
 import { describe, expect, it } from "vitest";

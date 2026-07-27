@@ -17,7 +17,7 @@
  * Phase 1 is focus-only across the board. Real mutating handlers
  * (e.g. `missing_factor` → lift the factor out of
  * `comparison_proposal`, `missing_fv` → addFactorValue, etc.) land
- * once my brother's structured-fix schema ships in
+ * once the agents-side structured-fix schema ships in
  * `AUDIT_FEATURE.md`. The registry shape below is deliberately
  * small so adding a per-issue-code handler is one switch arm.
  *
@@ -112,7 +112,7 @@ export interface ApplyAction {
    *  ``finding.target_id`` when the caller doesn't read this. Use
    *  for factor-add applies where the finding's target_id might
    *  point at gold / proposer space — the curator should land on
-   *  the NEW factor in the design tab so the FVs are visible. Paul
+   *  the NEW factor in the design tab so the FVs are visible. The reviewer
    *  2026-06-13/14 flagged twice that accepting a proposed factor
    *  failed to surface its FVs because the focus jump didn't land
    *  on the just-added factor. */
@@ -300,7 +300,7 @@ function resolveProposalApply(
   // ``disease model: brain ischemia`` MONDO:0005299, add
   // ``cerebral ischemia`` MONDO:0002679. Compose the existing remove +
   // add mutators so the curator's "adopt" actually rewrites the draft;
-  // before this it fell through to a no-op Focus → (my brother's
+  // before this it fell through to a no-op Focus → (the agents-side
   // UIB_HANDOFF_2026_06_20_TAG_SWAP_CURRENT_SIDE_FROM_TARGETID.md).
   if (aa.kind === "replace_tag") {
     if (!design) return null;
@@ -350,7 +350,7 @@ function resolveProposalApply(
     //    keeps its remove+add semantics for back-compat.
     // Runs before the id-based swap: near-match target_ids are slug-shaped,
     // and the swap path can't resolve them (returns null → "adopt Auditor's"
-    // silently no-op'd — Paul 2026-07-13, the strain value near-match).
+    // silently no-op'd — Design review 2026-07-13, the strain value near-match).
     if (hasStatements || (!isNumericTarget && (modCategory || modValue))) {
       const targetTag = resolveTagByTarget(finding, design);
       if (!targetTag) {
@@ -645,7 +645,7 @@ function resolveCalibrationApply(
       const [, categorySlug, valueSlug] = slugMatch;
       // Same permissive fallback as the calibration:miss branch
       // below — strict slug match first, then alphanumeric-only key
-      // (Paul 2026-06-12 remove-tag walkthrough).
+      // (design review 2026-06-12 remove-tag walkthrough).
       const normalize = (s: string | null | undefined) =>
         (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
       const catKey = normalize(categorySlug);
@@ -809,7 +809,7 @@ function resolveCalibrationApply(
 
   // calibration_gold_only_miss — the agent didn't propose X but the
   // gold has it. Curator's verdict is "agent was right; remove X
-  // from the curation". With brother's question-form rationale
+  // from the curation". With the agents-side question-form rationale
   // ("Did the agent miss X?" / future "Should X be removed?"),
   // pressing Agree on this finding maps to *do the deletion*; the
   // disposition lands accepted+resolved because the curator
@@ -834,9 +834,9 @@ function resolveCalibrationApply(
   // vs "border-associated-macrophage" (slug). A bare lowercase+trim
   // compare missed those cases and the "remove" button silently
   // no-op'd. Look up the gold tag by slug so space-vs-dash drift
-  // resolves uniformly; remove by id once found. Per Paul 2026-06-11.
+  // resolves uniformly; remove by id once found. Per design review 2026-06-11.
   //
-  // Permissive fallback (Paul 2026-06-12 — "I clicked remove tag and
+  // Permissive fallback (design review 2026-06-12 — "I clicked remove tag and
   // nothing happened"): when the strict slug match misses, fall back
   // to a key that ignores ALL non-alphanumeric characters
   // ("developmental_stage" / "developmental stage" / "developmental-
@@ -977,7 +977,7 @@ function resolveFactorCalibrationApply(
   // same idempotency check, same mutator. Without this branch the
   // proposal-side Agree button records the disposition but never
   // mutates the draft — the curator clicks Agree, the card greys, and
-  // the factor never appears in Design setup. Paul 2026-06-14.
+  // the factor never appears in Design setup. Design review 2026-06-14.
   //
   // Match-downgrade additions (goldEmpty): ``effectiveAddCode``
   // includes the match codes when the displayed baseline lacks the
@@ -1113,7 +1113,7 @@ function resolveFactorCalibrationApply(
   // (so downstream refs survive where possible). Cross-cutting falls
   // through to null — it's not a single-factor replace, the curator
   // has to disambiguate manually (the dedicated cross-cutting card
-  // body handles that). Paul 2026-06-14: clicking "adopt Auditor's
+  // body handles that). Design review 2026-06-14: clicking "adopt Auditor's
   // finer levels" on GSE9649 organism_part disposition-PATCHed but
   // left the design at 2 levels — same class of bug as the
   // ComparisonFactorCard "Proposal is better" fix; partition_mismatch
@@ -1739,7 +1739,7 @@ export function addFactorFromProposal(
   // ("<continuous, populated from characteristic>") with empty
   // biomaterials + null numeric_value. Blindly adding it produces a
   // single-empty-FV factor that's invisible to the curator and breaks
-  // the sample table. Per Paul 2026-06-13: "accepting the agent's
+  // the sample table. Per design review 2026-06-13: "accepting the agent's
   // suggestion for a continuous factor fails to do anything".
   //
   // Promote to per-sample FVs via ``addContinuousFactorFromCharacteristic``:
@@ -1816,7 +1816,7 @@ export function addFactorFromProposal(
     // Carry the agent's ≤80-char ``description`` (the subtitle the
     // proposal card surfaces — "Lipopolysaccharide (LPS) vs vehicle
     // control") onto the new factor so the curator doesn't have to
-    // re-type it after Agree. Paul 2026-06-11: he saw the description
+    // re-type it after Agree. Design review 2026-06-11: he saw the description
     // on the card, clicked Agree, and the resulting factor landed with
     // an empty description — the subtitle was being dropped at the
     // mutator boundary. Empty string when the proposal didn't carry one
@@ -1986,7 +1986,7 @@ function removeTagByLabels(
   // Compare by slug so the same target_id-shaped labels (whitespace
   // collapsed to "-") still match design tags with the curator's
   // original spacing. ``labelEq``'s bare lowercase+trim wasn't enough
-  // — see Paul 2026-06-11 (the "remove doesn't remove" walkthrough).
+  // — see Design review 2026-06-11 (the "remove doesn't remove" walkthrough).
   const catSlug = slug(categoryLabel);
   const valSlug = slug(valueLabel);
   return {

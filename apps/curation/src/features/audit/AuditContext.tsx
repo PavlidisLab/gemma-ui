@@ -184,7 +184,7 @@ interface AuditContextValue {
       notSureReason?: import("@/api/auditTypes").NotSureReason;
       /** Structured ``AppliedFix`` (per-row edits) or legacy
        *  free-text string. Server accepts both via the union type
-       *  bro shipped in agents commit ``e9e52ea``. */
+       *  the agents side shipped in agents commit ``e9e52ea``. */
       appliedFix?: import("@/api/auditTypes").AppliedFix | string;
       firstSeenAt?: string;
       /** Stamp the finding as accepted+resolved (two-step accept,
@@ -239,11 +239,11 @@ function isOverrideReport(r: AuditReport | null): boolean {
       && r.model.startsWith("chip-diff:")) return true;
   return false;
   // 2026-06-14: an "any null audit_id → override" branch lived here
-  // briefly. Pulled after bro 1 verified the wire ships ``auditId``
+  // briefly. Pulled after the agents side verified the wire ships ``auditId``
   // (camelCase) populated, the UI's snakeify converts it to
   // ``audit_id``, and ``report.audit_id`` is never null on a real
   // proposal-review report. The fallback was masking whatever
-  // downstream bug actually caused Paul's "3 pending stays 3 pending"
+  // downstream bug actually caused the design review's "3 pending stays 3 pending"
   // symptom; the next instance should land in the live-PATCH branch
   // and surface via the DevTools Network tab, not the in-memory
   // override (which doesn't persist). See
@@ -394,7 +394,7 @@ export function AuditProvider({
         // into the override report. ``reviewed_at`` mirrors what the
         // server would stamp. The override path doesn't model the
         // analytics-only fields (dismiss_reason, applied_fix,
-        // first_seen_at) — they exist on the wire so my brother can
+        // first_seen_at) — they exist on the wire so the agents side can
         // aggregate, and the in-memory dev path doesn't simulate that.
         const next: AuditFindingDisposition = {
           target_id: targetId,

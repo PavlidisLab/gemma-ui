@@ -10,7 +10,7 @@ import { fvDisplayLabel } from "@/features/samples/fvLabels";
  * characteristic that maps cleanly onto my factor's FVs" — turns N
  * drag-drops into one apply.
  *
- * Lives on the **Samples** tab (per Paul, 2026-04-29) — that's where
+ * Lives on the **Samples** tab (per design review, 2026-04-29) — that's where
  * the per-sample data the curator needs to make assignment decisions
  * actually lives. Originally rendered inline on the Design tab's
  * SampleAssignmentPreview; the Samples tab opens it in a modal,
@@ -33,7 +33,7 @@ export function BulkAssignPanel({
 }) {
   // Any column of the sample-details table is a valid thing to match
   // on — not just biomaterial characteristics. Sample name / assay
-  // are first-class options alongside the characteristics (per Paul,
+  // are first-class options alongside the characteristics (per design review,
   // 2026-06-17).
   const columns = useMemo(
     () => collectMatchColumns(biomaterials),

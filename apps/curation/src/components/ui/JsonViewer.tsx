@@ -7,7 +7,7 @@
  * structured payload the curator wants to peek at without opening
  * DevTools.
  *
- * Per Paul 2026-06-14: "a scrolling popup with a search function and
+ * Per design review 2026-06-14: "a scrolling popup with a search function and
  * ability to collapse/expand the json graph."
  *
  * Lightweight on purpose — no external deps. Three pieces:

@@ -1,7 +1,7 @@
 /**
  * Playwright spec — every factor-side card uses the SAME visual grid.
  *
- * Contract (Paul 2026-06-16): "I want ONE component for factors and
+ * Contract (design review 2026-06-16): "I want ONE component for factors and
  * ONE component for TAGS." Visual side of every factor-card variant
  * (factor_match, partition_mismatch) renders via
  * FactorComparisonGrid — same `[left] 1fr [mid] MID_COL_PX
@@ -13,7 +13,7 @@
  *      `data-testid="factor-comparison-row-backdrop"` rows (only
  *      FactorComparisonGrid emits this).
  *   2. The "FV 1" / "FV 2" indexLabel from the old grid is GONE
- *      everywhere (Paul: "The FV1, FV1, FV2 etc is not needed").
+ *      everywhere (design review: "The FV1, FV1, FV2 etc is not needed").
  *   3. Mid-cell renders as "N <-> M" with no arrows.
  *
  * Anchor experiment: GSE165287 (id 40086) ticket-55 design tab.
@@ -35,7 +35,7 @@ test.describe("FactorComparisonGrid — the SINGLE factor visual @critical", () 
   test.beforeEach(async ({ page }) => {
     // Data-mocked (see mockExperiment): the ticket-55 audit sidebar for
     // GSE165287 is frozen in a HAR so this tests the FactorComparisonGrid
-    // render, not the store/frink. Re-record with PWHAR_UPDATE=1.
+    // render, not the store/ontology host. Re-record with PWHAR_UPDATE=1.
     await mockExperiment(page, "exp-40086");
     await page.addInitScript(() => window.localStorage.clear());
     await page.setViewportSize({ width: 1600, height: 1600 });
@@ -64,7 +64,7 @@ test.describe("FactorComparisonGrid — the SINGLE factor visual @critical", () 
   }) => {
     await expandAllCards(page);
     // The old grid prefixed each row with "FV 1" / "FV 2" / ...
-    // Paul dropped that 2026-06-16.
+    // The reviewer dropped that 2026-06-16.
     const matches = await page.locator("text=/\\bFV\\s+\\d+\\b/").count();
     expect(matches, "no FV-index labels should render").toBe(0);
   });

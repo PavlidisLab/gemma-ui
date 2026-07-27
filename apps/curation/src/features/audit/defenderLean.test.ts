@@ -11,7 +11,7 @@ import type {
 
 /** Pins down the verdict→lean mapping (mirror of agents-repo
  *  `_LEGACY_LEANS` / `_ARBITER_LEANS`) and the single-axis header
- *  label the UI renders. Drives the GSE93824 Arctic-APP fix (Paul
+ *  label the UI renders. Drives the GSE93824 Arctic-APP fix (the reviewer
  *  2026-05-21): "STRONG SUGGESTION" used to highlight `adopt
  *  Auditor's` even when the judge said `concept_gold_right` (agent
  *  is wrong). With the single-axis label, that finding now reads
@@ -184,7 +184,7 @@ describe("findingLean", () => {
 
 // ---------------------------------------------------------------------------
 // leanSuggestionLabel — header text in AgentSuggestionPanel.
-// Single-axis framing (Paul 2026-05-21): the label always describes
+// Single-axis framing (design review 2026-05-21): the label always describes
 // the *strength of the suggestion to change*. Keep / change are
 // inverse senses of one axis, not two separate dimensions.
 // ---------------------------------------------------------------------------

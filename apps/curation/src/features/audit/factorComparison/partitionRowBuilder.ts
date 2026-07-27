@@ -13,7 +13,7 @@
  *                          Agent side is the umbrella (RIGHT rowspans).
  *
  * The umbrella's MID-cell count rowspans alongside its label so the
- * "20 ↔ 10" / "20 ↔ 10" / "20 ↔ 10" duplicate read Paul caught
+ * "20 ↔ 10" / "20 ↔ 10" / "20 ↔ 10" duplicate read the reviewer caught
  * 2026-06-16 collapses to one "20" with three child "10"s.
  *
  * Each pair carries the FactorComparisonGrid-compatible ``status =

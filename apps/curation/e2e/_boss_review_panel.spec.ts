@@ -1,7 +1,7 @@
 /**
  * Playwright spec — top-of-experiment BossReviewPanel.
  *
- * Contract (Paul 2026-06-16, ticket-62 walkthrough): the boss-critic
+ * Contract (design review 2026-06-16, ticket-62 walkthrough): the boss-critic
  * commentary renders ONCE at the top of the audit sidebar, between
  * the orientation prose and the per-finding cards. It is NOT
  * fanned out across cards. Per-experiment scope: severity counts,
@@ -24,7 +24,7 @@ test.describe("BossReviewPanel — experiment-level boss-critic surface @critica
   test.beforeEach(async ({ page }) => {
     // Data-mocked: the boss-critic verdicts + finding set are frozen in
     // a HAR so this tests the panel's RENDER, not the store having
-    // GSE190221 loaded or frink being reachable. Re-record with
+    // GSE190221 loaded or the ontology host being reachable. Re-record with
     // PWHAR_UPDATE=1 (see mockExperiment).
     await mockExperiment(page, "exp-29184");
     await page.addInitScript(() => window.localStorage.clear());

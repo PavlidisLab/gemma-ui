@@ -10,7 +10,7 @@ import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
 /**
  * Regression tests for ``applyDetailsEditsToDesign``.
  *
- * Motivating bug (Paul, 2026-06-12 GSE87700): a near-match finding
+ * Motivating bug (the reviewer, 2026-06-12 GSE87700): a near-match finding
  * on the ``treatment`` factor proposed both a predicate
  * (``delivered to``) and an object (``mother``) to layer over gold's
  * subject-only ``ethanol`` statement. The curator clicked Agree, the

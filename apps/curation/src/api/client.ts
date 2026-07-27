@@ -75,7 +75,7 @@ async function readErrorBody(r: Response): Promise<string> {
 
 /** Convert a single camelCase key to snake_case.
  *
- *  Bro's mock now emits camelCase on the wire for design / workflow /
+ *  The agents-side service's mock now emits camelCase on the wire for design / workflow /
  *  calibration / permissions schemas (GEMMA_WIRE_ALIGNMENT_HANDOFF.md
  *  phase-2a, 2026-05-13). Audit + proposer + curationDetails +
  *  auditEvents stay snake_case for now. Rather than mass-rename TS

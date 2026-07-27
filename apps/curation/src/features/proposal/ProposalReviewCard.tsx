@@ -51,7 +51,7 @@ import type { ProposalDisposition } from "./proposalDispositions";
  * panels — this card just guides the disposition decision.
  *
  * Phase 1: retain / reject / park are user-pickable; ``edited``
- * is reserved for the future draft-diff path. Per Paul
+ * is reserved for the future draft-diff path. Per design review
  * 2026-05-21: "we need to record what was rejected, retained,
  * edited from the proposal (sent back to agent to learn)".
  */
@@ -218,7 +218,7 @@ export function TagReviewCard({
   note,
   onNoteChange,
 }: BaseProps & { tag: TagProposal }) {
-  // Value-first ordering (per Paul, 2026-05-24): the resolved term
+  // Value-first ordering (per design review, 2026-05-24): the resolved term
   // is the load-bearing identity; the category is qualifying context.
   // Render value chip first, then a separator, then the category in
   // a more muted (italic) wrapper so the eye lands on the term.
@@ -468,7 +468,7 @@ function EvidenceQuote({ evidence }: { evidence: FindingEvidence }) {
 // the audit conventions (small muted chips with tooltip rationale).
 // Subtask decisions, proposer suggestion, debate transcript, and a
 // proposer-side Boss verdict aren't on the new-shape payload yet —
-// handoff filed for bro to plumb them.
+// handoff filed for the agents side to plumb them.
 // ---------------------------------------------------------------------------
 
 function DebateBadgeChip({ badge }: { badge: string | undefined }) {
@@ -601,7 +601,7 @@ function BaselineRelevanceChip({
 /** Sample-coverage flag for a factor — surfaces when the factor's
  *  FVs don't cover all experiment samples. Renders nothing on full
  *  coverage; renders an amber warning chip with the deficit when
- *  partial. Per Paul 2026-05-22: "not having all samples assigned
+ *  partial. Per design review 2026-05-22: "not having all samples assigned
  *  should be flagged more clearly". */
 function SampleCoverageChip({
   assigned,
@@ -897,7 +897,7 @@ function ReviewCardShell({
   const isPending = disposition === "pending";
   const [noteOpen, setNoteOpen] = useState(!!note && note.length > 0);
   // Reject + park route through the audit's DismissDialog so the
-  // curator can attach a note at decision-time (per Paul 2026-05-22:
+  // curator can attach a note at decision-time (per design review 2026-05-22:
   // "like for audits"). Retain stays a one-click positive action.
   const [dialog, setDialog] = useState<{
     mode: "dismiss" | "not_sure";
@@ -931,7 +931,7 @@ function ReviewCardShell({
       className={cn(
         // Inline rounded/border instead of ``card`` so the
         // ``html.dark .card`` global doesn't override the dark
-        // kind-tint. Per Paul 2026-05-21.
+        // kind-tint. Per design review 2026-05-21.
         "rounded-lg border p-2 text-xs space-y-1.5",
         tint,
         !isPending && "opacity-60 hover:opacity-100 transition-opacity",

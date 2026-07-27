@@ -120,7 +120,7 @@ export function VisualizeTab({
   // server masks at creation time so the flag is usually a no-op.
   const [maskOutliers, setMaskOutliers] = useState(true);
   // Hard-scope all gene queries to this experiment's taxon. Try
-  // common name first (the visitor-facing form bro's TaxonArg
+  // common name first (the visitor-facing form the agents-side TaxonArg
   // accepts), fall back to scientific name, then to the taxon id
   // as a last resort — all three resolve server-side.
   const taxon =

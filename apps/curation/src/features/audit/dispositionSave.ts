@@ -8,7 +8,7 @@
  *
  *   1. The structured ``AppliedFix`` object was posted directly
  *      while the running server still expected ``str`` (422).
- *   2. ``keep amanda's`` on a ``_match_near`` finding sent
+ *   2. ``keep Curator A's`` on a ``_match_near`` finding sent
  *      ``status=dismissed`` when it should have been ``accepted``
  *      (the curator is confirming gold is right, not dismissing
  *      the finding).

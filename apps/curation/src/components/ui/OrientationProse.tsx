@@ -8,7 +8,7 @@
  * surface (audit findings list, proposal review card, ticket detail,
  * preboarding, …) by passing the relevant string in.
  *
- * Design constraints per Paul (2026-06-12 handoff EXPERIMENT_SUMMARY_
+ * Design constraints per design review (2026-06-12 handoff EXPERIMENT_SUMMARY_
  * TOP_OF_PANEL): no border, no icon, no badge, no heading. Reads as
  * methods-section prose above a results table. The slot's job is to
  * orient the curator before they look at the interactive content; if

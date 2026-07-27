@@ -8,7 +8,7 @@
  * navigation is needed.
  *
  * Owner of the issue-code mapping table (`ISSUE_CODE_RENDER`) too,
- * so when bro lands a new code the table edit + the fallback
+ * so when the agents side lands a new code the table edit + the fallback
  * rendering both live in one file.
  *
  * Helpers and constants (severity ranks, verdict strength,
@@ -69,7 +69,7 @@ export function IssueCodeBadge({ issueCode }: { issueCode: string }) {
  *  scannable cue; the label is a one-word shape hint. Tones: green
  *  for "extra" (positive — something to consider adding), slate for
  *  "missing"/"match" (neutral readout), amber for "needs change",
- *  emerald-faint for "ok". When my brother adds new codes, they
+ *  emerald-faint for "ok". When the agents side adds new codes, they
  *  render as raw `font-mono` text via the fallback above until this
  *  map gets entries. */
 export const ISSUE_CODE_RENDER: Record<
@@ -491,11 +491,11 @@ export function DispositionDot({
   reason?: string | null;
   /** Free-text curator notes. Shown on hover. */
   notes?: string | null;
-  /** Who dispositioned it (e.g. "cyan"). Shown on hover so a second
+  /** Who dispositioned it (e.g. "Curator B"). Shown on hover so a second
    *  reviewer picking up a swapped review sees WHO decided WHAT. */
   reviewer?: string | null;
 }) {
-  // Per Paul 2026-05-27: the original tiny grey-on-grey ✓/× was
+  // Per design review 2026-05-27: the original tiny grey-on-grey ✓/× was
   // unreadable next to the kind-tinted card chrome. Bump to a
   // padded square badge with explicit emerald (accepted) / rose
   // (dismissed) / slate (parked) so the curator can scan a card
@@ -614,7 +614,7 @@ export function SeverityBadge({
       confidenceLabel: "confident",
     },
     minor: {
-      // The thin "·" (U+00B7) was illegible even at 14px (Paul
+      // The thin "·" (U+00B7) was illegible even at 14px (the reviewer
       // 2026-05-25 round 2). U+2022 "•" (bullet) is a fatter glyph
       // that reads at the badge's size; paired with a filled slate
       // background it signals "low-severity flag" clearly without
@@ -713,7 +713,7 @@ export function JudgeStrengthGlyph({ finding }: { finding: AuditFinding }) {
   const strength = dv.strength ?? verdictStrength(dv.verdict);
   if (!strength) return null;
   // Tooltip reframes the strength glyph on near-match findings
-  // (Paul 2026-05-21 redesign — GSE93824 case). For those the
+  // (design review 2026-05-21 redesign — GSE93824 case). For those the
   // factor-level proposal is the right call and the disagreement
   // is at the FV level; the green disc reads as "factor-level
   // match", not "the whole proposal is strong". Extra / gold-only-

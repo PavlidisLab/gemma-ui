@@ -9,7 +9,7 @@ import type { Factor, Tag } from "@/features/experiment/types";
  *   2. De-duplicate FV labels (a treatment factor with several DMSO
  *      arms must not repeat the "DMSO" chip once per arm).
  *   3. SKIP continuous factors entirely — their per-sample numeric
- *      measurements don't belong in the tag row (Paul 2026-07-21).
+ *      measurements don't belong in the tag row (design review 2026-07-21).
  *   4. Pass direct tags through untouched.
  */
 

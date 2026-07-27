@@ -14,8 +14,8 @@
 #   gemma-db     MySQL seeded with a curation snapshot          :3306
 #
 # Without the ``gemma`` profile, the proposer + local-api still
-# function but call out to whatever ``GEMMA_BASE_URL`` resolves to
-# (staging by default).
+# function but call out to whatever ``GEMMA_BASE_URL`` resolves to —
+# set it to your own Gemma instance.
 
 # Note: ``version:`` field intentionally omitted — modern compose
 # (v2.x) ignores it and warns when present.
@@ -96,9 +96,10 @@ services:
       GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
       # Proposer points at local-api over the compose network.
       GEMMA_CURATION_URL: http://local-api:8000
-      # Read-side Gemma — override for self-contained Linux setup
-      # (set GEMMA_BASE_URL=http://gemma-rest:8080 + use --profile gemma).
-      GEMMA_BASE_URL: ${GEMMA_BASE_URL:-https://staging-gemma.msl.ubc.ca}
+      # Read-side Gemma — REQUIRED, no fallback (set it to your own
+      # Gemma instance, or GEMMA_BASE_URL=http://gemma-rest:8080 for
+      # the self-contained Linux setup with --profile gemma).
+      GEMMA_BASE_URL: ${GEMMA_BASE_URL:?GEMMA_BASE_URL must be set — e.g. https://gemma.example.org or http://gemma-rest:8080 with --profile gemma}
       # Match local_api: gemma-rest admin credentials. Same defaults so
       # both services authenticate as the seeded ``groupadmin`` against
       # local-mode gemma-rest; both flip together for staging / prod.
@@ -155,10 +156,12 @@ services:
       # vite.config.ts. Override via GEMMA_REST_URL.
       GEMMA_REST_URL: ${GEMMA_REST_URL:-http://host.docker.internal:8080}
       # Ontology-search source (/rest/v2/annotations/search). Must be a
-      # gene-aware, category-tagged Gemma — frink. staging-gemma is NOT
-      # valid (gene-blind: returns only MP phenotype, missed IL7 on
-      # GSE137893). Override via GEMMA_ONTOLOGY_URL.
-      GEMMA_ONTOLOGY_URL: ${GEMMA_ONTOLOGY_URL:-http://frink.msl.ubc.ca:8080}
+      # gene-aware, category-tagged Gemma instance — not every Gemma
+      # deployment's ontology search qualifies (some return only
+      # phenotype terms and miss gene hits). Override via
+      # GEMMA_ONTOLOGY_URL; unset disables the ontology routing
+      # exception (see apps/curation/vite.config.ts).
+      GEMMA_ONTOLOGY_URL: ${GEMMA_ONTOLOGY_URL:-}
       # Explicit local_api passthrough for hooks that need to bypass
       # a gemma-rest routing exception (e.g. audit-trail fallback).
       # Defaults to the same target as GEMMA_CURATION_URL.
@@ -197,10 +200,9 @@ services:
     container_name: browser-ui
     working_dir: /ui
     environment:
-      # Resolution order in apps/browser/vite.config.ts:
-      #   1. GEMMA_BASE_URL env (this)
-      #   2. fallback: staging Gemma 1.x
-      # Default points at local Gemma 2.0 on the host (:8080); flip
+      # apps/browser/vite.config.ts requires GEMMA_BASE_URL — no
+      # built-in fallback. Default here points at a local Gemma
+      # instance on the host (:8080); flip
       # via the env var when standing up against the in-stack
       # gemma-rest container or a remote target.
       GEMMA_BASE_URL: ${GEMMA_BROWSER_BACKEND:-http://host.docker.internal:8080}
@@ -253,10 +255,9 @@ services:
       GEMMA_SENTINELS_IGNORE: "true"
       CATALINA_OPTS: "-Dspring.profiles.active=production"
     volumes:
-      # WAR bind-mount from the Gemma source tree. Override
-      # GEMMA_WAR_PATH when running on a Linux box without the
-      # eclipse workspace layout.
-      - ${GEMMA_WAR_PATH:-${HOME}/Dev/eclipseworkspace/Gemma/gemma-rest/target/gemma-rest.war}:/usr/local/tomcat/webapps/ROOT.war:ro
+      # WAR bind-mount from the Gemma source tree. Set GEMMA_WAR_PATH
+      # to point at your Gemma checkout's built WAR.
+      - ${GEMMA_WAR_PATH:-${HOME}/gemma/gemma-rest/target/gemma-rest.war}:/usr/local/tomcat/webapps/ROOT.war:ro
     ports:
       - "8080:8080"
 
@@ -284,12 +285,12 @@ services:
       #   2. 99-groupadmin-seed.sql — local-mode admin user.
       #
       # Set ``GEMMA_REPO`` if the gemma checkout isn't at
-      # ``$HOME/Dev/eclipseworkspace/Gemma``.
-      - ${GEMMA_REPO:-${HOME}/Dev/eclipseworkspace/Gemma}/gemma-core/src/main/resources/db/migration/mysql:/gemma-migrations:ro
+      # ``$HOME/gemma``.
+      - ${GEMMA_REPO:-${HOME}/gemma}/gemma-core/src/main/resources/db/migration/mysql:/gemma-migrations:ro
       - ./apply-gemma-migrations.sh:/docker-entrypoint-initdb.d/01-apply-migrations.sh:ro
       - ./groupadmin-seed.sql:/docker-entrypoint-initdb.d/99-groupadmin-seed.sql:ro
-    # Host port 3307 (not 3306) — Paul's host MySQL holds 3306 for
-    # gemdtest. The gemma-rest container reaches gemma-db over the
+    # Host port 3307 (not 3306) — a host MySQL may already hold 3306.
+    # The gemma-rest container reaches gemma-db over the
     # compose network on the internal 3306, so this mapping is purely
     # for host-side debugging (``mysql -h 127.0.0.1 -P 3307 -u root``).
     ports:

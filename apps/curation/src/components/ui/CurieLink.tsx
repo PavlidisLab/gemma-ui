@@ -18,7 +18,7 @@
  *     find a surface still rendering CURIEs as plain spans —
  *     swap in ``<CurieLink uri={uri} />`` and you're done).
  *
- * Per Paul 2026-06-13: "make sure this is a modular item that
+ * Per design review 2026-06-13: "make sure this is a modular item that
  * shows up for all places ontology terms go".
  */
 import { useRef, useState } from "react";

@@ -7,7 +7,7 @@
  *  2. All data — link out to all-experiments table + cross-
  *     experiment inboxes.
  *
- * The "Import from Gemma" search bar was removed 2026-05-26 (Paul:
+ * The "Import from Gemma" search bar was removed 2026-05-26 (design review:
  * "too confusing to use the ui to pull data from remote to local").
  * Imports happen via the workflow / ticket pipeline now; the
  * ``useImportFromGemma`` hook is kept for the experiment-reset path
@@ -39,7 +39,7 @@ import { Spinner } from "@/components/ui/Spinner";
 /** Dashboard ticket-list filter — just the ticket lifecycle: ``all`` /
  *  ``open`` (not resolved/cancelled) / ``resolved`` (resolved or
  *  cancelled). Progress (started vs not) is surfaced on the Open chip,
- *  not as its own filter. Paul 2026-06-21. */
+ *  not as its own filter. Design review 2026-06-21. */
 type DashboardFilter = "all" | "open" | "resolved";
 
 const FILTER_OPTIONS: { id: DashboardFilter; label: string; title: string }[] = [
@@ -78,7 +78,7 @@ function readInitialFilter(): DashboardFilter {
  *  the ticket was FILED (``created_at``); ``updated`` on last activity;
  *  ``priority`` restores the legacy priority-first-then-recency order.
  *  Default is ``newest`` — the freshest ticket sits at the top so a
- *  curator returning to the queue sees what just landed. Paul 2026-07-22. */
+ *  curator returning to the queue sees what just landed. Design review 2026-07-22. */
 type DashboardSort = "newest" | "oldest" | "updated" | "priority";
 
 const SORT_OPTIONS: { id: DashboardSort; label: string }[] = [
@@ -390,7 +390,7 @@ export function CuratorDashboard({
     resolved: totalForLabel.filter(ticketIsResolved).length,
   };
   // How many OPEN tickets have been started (any target touched) —
-  // surfaced on the Open chip as "x/y started". Paul 2026-06-21.
+  // surfaced on the Open chip as "x/y started". Design review 2026-06-21.
   const startedOpen = openTickets.filter(ticketIsStarted).length;
 
   return (
@@ -412,7 +412,7 @@ export function CuratorDashboard({
               the top so it's reachable without scrolling past the
               ticket grid. Primary CTA (browse the curation catalog)
               reads as a link; the inbox/workflow secondaries trail
-              behind in muted text. Per Paul 2026-05-27. */}
+              behind in muted text. Per design review 2026-05-27. */}
           <nav className="flex items-baseline gap-3 text-sm">
             <button
               type="button"
@@ -508,7 +508,7 @@ export function CuratorDashboard({
             </h2>
             {/* Count chip sits next to the heading so the reader's
                 eye finds it on the same gaze as the section title.
-                Moved off the right per Paul 2026-05-27 — far-right
+                Moved off the right per design review 2026-05-27 — far-right
                 badge was too small + too disconnected. */}
             <span className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5">
               {ticketsLoading ? (
@@ -862,7 +862,7 @@ function TicketCard({
   // Single-target tickets skip straight to the EE (the only useful
   // landing for them) — but carry the ticket id so the experiment
   // keeps its ticket context (breadcrumb / back-link); without it the
-  // curator lands on the EE with no way back to the ticket (Paul
+  // curator lands on the EE with no way back to the ticket (the reviewer
   // 2026-06-21).
   // Single-target dataset ticket → jump straight to the experiment
   // (carrying ?ticket= so the EE keeps its ticket context). Prefer the

@@ -1,58 +1,45 @@
-# GemBrow
+# apps/browser — GemBrow
 
-The Gemma Browser is a modern frontend for [Gemma][^gemma] built on top of the [Gemma REST API][^gemma-rest-api] with
-[Vue.js][^vuejs] and [Vuetify][^vuetify].
+The public-facing browse / search frontend for [Gemma](https://gemma.msl.ubc.ca).
+Lets users search and filter the Gemma corpus by taxon,
+platform/technology type, and ontology annotations, then preview
+individual datasets. This is a React port of the original Vue 2
+GemBrow — the Vue app's history is preserved in this repo's git log
+via `git subtree`, but the app itself has been fully rewritten; there
+is no Vue code left to run.
 
-## Requirements
+## Stack
 
- - Node.js
- - npm
- - an HTTP server capable of delivering static assets (for deployment)
+Vite + React 18 + TypeScript + TanStack Query + TanStack Router +
+Tailwind CSS. See [`CLAUDE.md`](./CLAUDE.md) for app-internal
+orientation (where things live, backend routing, design direction).
 
-## Installation
-
-For local development or deployment, you must install the dependencies first:
-
-```bash
-npm install
-```
-
-## Local development
-
-Configurations are located in `.env.development`. Use `.env.development.local` to supply secrets.
+## Running
 
 ```bash
-npm run serve
+cp .env.example .env.local     # one-time — set GEMMA_BASE_URL
+npm install                    # one-time (installs both apps via workspaces)
+npm run dev                    # → http://localhost:5183
 ```
 
-## Deployment
+`GEMMA_BASE_URL` must point at a running Gemma REST API — there is
+no built-in default. The dev server proxies `/rest/*` to it.
 
-Configurations are located in `.env.production`. Use `.env.production.local` to supply secrets.
+Other scripts (run from this directory, or via the root
+`npm run <script>:browser` aliases):
 
 ```bash
-npm run build # or devbuild for a development build
-rsync -av --chmod=g+w dist/ foo@bar:/deployment/destination/
+npm run build       # tsc -b && vite build
+npm run typecheck   # tsc -p tsconfig.app.json --noEmit
 ```
 
-When deploying to production, make sure that static assets are compressed. This is particularly important for the
-JavaScript and CSS bundles, and also fonts.
+## Backend
 
-If you use Apache HTTP Server to serve the content, use the following configuration:
+REST client only — all calls go to `/rest/v2/...` (proxied through
+the Vite dev server in development). The backend is the Gemma REST
+server (Java); this app treats it as hands-off — backend changes are
+filed against the Gemma project, not made here.
 
-```apache
-Alias /browse /deployment/destination
-<Directory /deployment/destination>
-  Options -Indexes   # prevent listing
-  AllowOverride None # ignore .htaccess
-  # allow everyone to access
-  Order allow,deny
-  Allow from all
-  # compress static assets
-  AddOutputFilterByType DEFLATE text/css text/javascript application/javascript font/sfnt application/font-fsnt application/vnd.ms-fontobject image/svg+xml
-</Directory>
-```
+## License
 
-[^gemma]: https://gemma.msl.ubc.ca/
-[^gemma-rest-api]: https://gemma.msl.ubc.ca/resources/restapidocs/
-[^vuejs]: https://vuejs.org/
-[^vuetify]: https://vuetifyjs.com/
+Apache-2.0.

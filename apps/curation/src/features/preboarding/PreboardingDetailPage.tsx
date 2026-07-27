@@ -1,9 +1,8 @@
 /**
  * Read-only landing surface for a preboarded candidate — a dataset
  * that's been queued in local_api but not yet imported as a full
- * ExpressionExperiment with a design / samples / factors. The cab
- * handoff (HANDOFF_2026-05-24_UI_PREBOARDING_DRILLDOWN.md) anticipates
- * a richer surface later; for now this stops the Shell from trying
+ * ExpressionExperiment with a design / samples / factors. A richer
+ * surface is anticipated later; for now this stops the Shell from trying
  * to fetch `/design` (which 422s on the prefixed id) and surfaces
  * the basic identifying metadata local_api carries.
  *

@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
  * severity / disposition" indicator across the audit + proposal
  * surfaces. Replaces the four parallel copies of the same shell
  * classes that drifted before (the `w-5 h-5` rounded square with
- * a centered glyph). Per Paul's 2026-05-21 audit.
+ * a centered glyph). Per design review's 2026-05-21 audit.
  *
  * Callers supply:
  *   - `glyph`   — the single character to render (e.g. "✓", "≈",
@@ -34,7 +34,7 @@ export function StatusBadge({
     <span
       className={cn(
         // Bumped from w-5 h-5 / text-[12px] to w-6 h-6 / text-[14px]
-        // (Paul 2026-05-25: "that ttteeeeeny thing in the box ... lets
+        // (design review 2026-05-25: "that ttteeeeeny thing in the box ... lets
         // do better"). The minor-severity variant additionally got a
         // filled bg in its caller config so the glyph reads at the new
         // size — see ``SeverityBadge``.

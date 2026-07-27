@@ -13,11 +13,11 @@ import {
 /**
  * Contract tests for the dismiss-chip router.
  *
- * Motivating change (Paul, 2026-06-12): "a disposition for a tag like
+ * Motivating change (the reviewer, 2026-06-12): "a disposition for a tag like
  * 'Only applies to some samples' would be more helpful than 'weak
  * evidence' or 'out of scope'." The reason already existed wire-side
  * (``not_sample_applicable``) but the server gated it to
- * ``calibration_agent_extra`` only. Bro widened the gate to all
+ * ``calibration_agent_extra`` only. The agents side widened the gate to all
  * tag-target findings per
  * ``UIB_HANDOFF_2026_06_12_DISMISS_REASON_GATE_WIDEN.md``; UIB now
  * surfaces "Subset only" + "Redundant" on every tag-target dismiss
@@ -52,7 +52,7 @@ function mkFinding(
 
 describe("dismissChipsFor — calibration routing (unchanged)", () => {
   it("routes calibration_gold_only_miss (tag) to CAL_MISS_TAG — tags have no FVs/partition/structure", () => {
-    // Paul 2026-06-15: tag-side removal dismiss must NOT show
+    // Design review 2026-06-15: tag-side removal dismiss must NOT show
     // factor-flavoured chips like "Wrong partition" / "Structure
     // correct, FVs wrong" — tags don't have those concepts.
     expect(
@@ -94,7 +94,7 @@ describe("dismissChipsFor — calibration routing (unchanged)", () => {
 });
 
 describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
-  // 2026-06-14 chip-vocab restructure (per Paul + bro's open-enum
+  // 2026-06-14 chip-vocab restructure (per design review + the agents-side open-enum
   // wire). The previous "everything-tag routes to TAG_DISMISS_CHIPS"
   // assumption was too coarse — match findings need "not a match"
   // chips, add/remove findings need their own asymmetric chip sets.
@@ -105,7 +105,7 @@ describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
     );
     expect(chips.map((c) => c.key)).toContain("category_mismatch");
     // Tag matches get the sample-applicability chip, NOT the
-    // partition chip (partitions are a factor concept). Paul
+    // partition chip (partitions are a factor concept). The reviewer
     // 2026-06-14.
     expect(chips.map((c) => c.key)).toContain("not_sample_applicable");
     expect(chips.map((c) => c.key)).not.toContain("partition_mismatch");
@@ -129,7 +129,7 @@ describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
   });
 
   it("routes entity-frame tag_design_missing_from_agent to CAL_MISS_TAG — 'don't remove tag' framing", () => {
-    // Paul 2026-06-15 split: tag-side removal-dismiss now uses tag
+    // Design review 2026-06-15 split: tag-side removal-dismiss now uses tag
     // vocab ("Agent missed it" / "Applies broadly" / …) — factor
     // vocab ("Factor needed" / "Wrong partition") no longer leaks
     // into tag cards.
@@ -144,7 +144,7 @@ describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
   });
 
   it("routes unknown tag-target issue codes to TAG_DISMISS_CHIPS (forward-compat)", () => {
-    // New tag-side issue codes bro might emit later: route to the
+    // New tag-side issue codes the agents side might emit later: route to the
     // tag-flavoured vocab automatically rather than falling through
     // to the generic set (which lacks the tag-shape chips).
     expect(

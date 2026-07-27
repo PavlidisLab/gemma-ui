@@ -337,7 +337,7 @@ describe("CompactFindingCard — tag statement rendering (calibration_tag_match_
   });
 
   it("shows the PROPOSED value in the header for a value-concept near-match (strain → mdx)", () => {
-    // Paul 2026-07-13: a value near-match card is about adopting the
+    // Design review 2026-07-13: a value near-match card is about adopting the
     // proposal, so the title should read the proposed value (mdx), not
     // the current tag (C57BL/10). No statements on this one.
     const finding = tagFinding({
@@ -388,7 +388,7 @@ describe("CompactFindingCard — tag statement rendering (calibration_tag_match_
 
 describe("CompactFindingCard — slug-fallback label casing", () => {
   it('restores "FVB/N" case from apply_action instead of the lowercased slug', () => {
-    // Regression (Paul 2026-07-19): a gold_only_miss tag whose target_id
+    // Regression (design review 2026-07-19): a gold_only_miss tag whose target_id
     // slug misses the draft falls back to the slug for its display
     // label — and ``slug()`` lowercases, so "FVB/N" rendered as
     // "fvb/n". The value the Add button writes (apply_action.new_value)

@@ -5,7 +5,7 @@ import { findingEvidenceRender } from "./paperExcerptsCaption";
 /**
  * Contract tests for the AgentDetailsPanel's "render the muted
  * un-grounded caption?" decision. Pins the three-state contract from
- * bro's 2026-06-12 schema change so we can't accidentally regress
+ * the agents-side 2026-06-12 schema change so we can't accidentally regress
  * back to either (a) blanket-suppressing the caption when it should
  * appear, or (b) leaking it on structural-only findings that never
  * had a rationale.

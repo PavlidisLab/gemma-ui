@@ -111,7 +111,7 @@ export function parseTargetId(targetId: string): ParsedTargetId | null {
         // categorySlug / valueSlug pair so the kind is still
         // recognized as "tag" — that lets tab-routing
         // (``tabForTargetId``) succeed even when the slug shape is
-        // missing. Paul 2026-06-14: tag-side magnifier "doesn't
+        // missing. Design review 2026-06-14: tag-side magnifier "doesn't
         // even navigate to the overview tab"; this was the silent
         // bail.
         return {

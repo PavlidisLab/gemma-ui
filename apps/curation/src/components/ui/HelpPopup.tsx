@@ -64,7 +64,7 @@ export function HelpPopup({
   // trigger renders as ``<span role="button">`` — a real ``<button>``
   // gets ``disabled`` by an ancestor ``<fieldset disabled>``, but
   // HelpPopup is a pure read-only help affordance that should fire
-  // regardless of edit-mode context (Paul 2026-05-29: "curator
+  // regardless of edit-mode context (design review 2026-05-29: "curator
   // guidelines aren't appearing on the design tab" was this gating
   // bug). Span+role="button" bypasses fieldset disabled cleanly.
   const triggerRef = useRef<HTMLSpanElement | null>(null);

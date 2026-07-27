@@ -12,8 +12,7 @@
  * Read once at boot — Vite inlines ``VITE_*`` env vars into the
  * bundle, so flipping requires a rebuild or restart. The hook
  * returns the resolved mode + base URL + a few derived flags the
- * mode chip and capability gating consume. See
- * ``gemma-curation-agents-eval/docs/HANDOFF_2026-05-19_LOCAL_VS_REMOTE_MODE.md``.
+ * mode chip and capability gating consume.
  */
 
 import { createContext, useContext } from "react";
@@ -27,7 +26,6 @@ export type GemmaMode = "local" | "remote";
  * SPA rebuild (the build-time ``import.meta.env`` value would otherwise
  * stay baked in). camelCase on the wire; we coalesce snake_case too in
  * ``fetchRuntimeConfig`` in case it round-trips through ``client.ts``.
- * See UIB_HANDOFF_2026_06_18_RUNTIME_ONTOLOGY_HOST.
  */
 export interface RuntimeConfig {
   gemmaBaseUrl?: string | null;
@@ -61,14 +59,14 @@ export interface GemmaModeInfo {
    *  Equal to ``baseHost`` when no routing split is configured;
    *  different from ``baseHost`` when the Vite proxy / deployment
    *  layer routes ontology endpoints to a separate host because
-   *  the main backend lacks ontology coverage (current state in
-   *  local mode: staging-gemma serves ontologies while the local
-   *  Gemma 2.0 stack serves everything else). Drives the
-   *  OntologyTermPicker's "ontology source" footer. */
+   *  the main backend lacks ontology coverage (in local mode, an
+   *  operator-configured ontology host can serve ontology lookups
+   *  while the local Gemma stack serves everything else). Drives
+   *  the OntologyTermPicker's "ontology source" footer. */
   ontologyHost: string;
   /** Full base URL serving ``/rest/v2/annotations/{search,term}``.
    *  Surfaced in the ModeChip popover so curators can see exactly
-   *  where term search resolves (e.g. a local Frink instance). */
+   *  where term search resolves. */
   ontologyUrl: string;
   /** True when the ontology routing split is active —
    *  ``ontologyHost !== baseHost``. Gates the UI indicator. */
@@ -76,16 +74,9 @@ export interface GemmaModeInfo {
 }
 
 const DEFAULT_LOCAL_BASE = "http://localhost:8095";
-/** Default ontology host for the routing-split exception. Mirrors
- *  the Vite proxy's ``GEMMA_ONTOLOGY_URL`` default. frink is the valid
- *  source: its ``/annotations/search`` is gene-aware + category-tagged.
- *  staging-gemma is NOT valid — its ``/annotations/search`` is gene-blind
- *  (returns only MP phenotype terms; e.g. missed the IL7 gene on
- *  GSE137893). Override with VITE_GEMMA_ONTOLOGY_URL / runtime config. */
-const DEFAULT_ONTOLOGY_BASE = "http://frink.msl.ubc.ca:8080";
 
 /** Hosts considered "prod Gemma". Anything else with `gemma.msl.ubc.ca`
- *  in the host (e.g. ``staging-gemma.msl.ubc.ca``) is staging. */
+ *  in the host (e.g. a staging subdomain) is staging. */
 const PROD_GEMMA_HOSTS = new Set(["gemma.msl.ubc.ca", "www.gemma.msl.ubc.ca"]);
 
 function hostFromUrl(url: string): string {
@@ -110,8 +101,8 @@ export function resolveGemmaMode(runtime?: RuntimeConfig | null): GemmaModeInfo 
     // In remote mode the base IS the Gemma host, so a runtime value is
     // authoritative. In local mode the UI talks to local-api via the
     // proxy and the runtime ``gemmaBaseUrl`` is the *proposer's* remote
-    // target (frink), not the UI's backend — so we keep the local
-    // default there rather than mislabel the chip.
+    // target, not the UI's backend — so we keep the local default
+    // there rather than mislabel the chip.
     (mode === "remote" ? runtime?.gemmaBaseUrl || undefined : undefined) ||
     envBase ||
     (mode === "remote"
@@ -131,18 +122,19 @@ export function resolveGemmaMode(runtime?: RuntimeConfig | null): GemmaModeInfo 
     mode === "local"
       ? "dev-token (local server)"
       : "your Gemma login (HTTP Basic)";
-  // Ontology routing exception. In local mode the Vite proxy
-  // forwards ``/rest/v2/annotations/{search,term}`` to a separate
-  // host (default staging-gemma) because the local stack doesn't
-  // carry full ontology coverage. In remote mode there's no split
-  // — the same Gemma host that serves the rest of /rest also
-  // serves ontology queries — so we collapse ``ontologyHost`` to
-  // ``baseHost`` and ``ontologySplit`` is false.
+  // Ontology routing exception. In local mode the Vite proxy can
+  // forward ``/rest/v2/annotations/{search,term}`` to a separate
+  // host when the local stack doesn't carry full ontology coverage
+  // — set via ``VITE_GEMMA_ONTOLOGY_URL`` / runtime config, no
+  // built-in default. In remote mode there's no split — the same
+  // Gemma host that serves the rest of /rest also serves ontology
+  // queries — so we collapse ``ontologyHost`` to ``baseHost`` and
+  // ``ontologySplit`` is false.
   const envOntology = import.meta.env.VITE_GEMMA_ONTOLOGY_URL;
   const ontologyUrl =
     mode === "remote"
       ? baseUrl
-      : runtime?.gemmaOntologyUrl || envOntology || DEFAULT_ONTOLOGY_BASE;
+      : runtime?.gemmaOntologyUrl || envOntology || "(unset)";
   const ontologyHost =
     ontologyUrl === "(unset)" ? "(unset)" : hostFromUrl(ontologyUrl);
   const ontologySplit = ontologyHost !== baseHost;

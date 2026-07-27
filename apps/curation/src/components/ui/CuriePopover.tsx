@@ -8,7 +8,7 @@
  * — the canonical resolver is still available via the
  * "open in OBO ↗" link inside the popover.
  *
- * Two-stage fetch (per Paul 2026-06-13 "fallback to OLS: require
+ * Two-stage fetch (per design review 2026-06-13 "fallback to OLS: require
  * another click"):
  *   1. On open, fetch from Gemma's ``/annotations/term``. If Gemma
  *      knows the term, render it.
@@ -39,7 +39,7 @@ export interface CuriePopoverProps {
 
 export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // In-card navigation: clicking a parent / alternate-id term walks the
-  // popover to that term instead of stacking a second card (Paul
+  // popover to that term instead of stacking a second card (the reviewer
   // 2026-06-21 — "opens another card … might get confusing"; an in-place
   // trail with a back arrow keeps it to one card). The trail is the
   // breadcrumb of URIs visited from the chip the curator clicked; the
@@ -84,7 +84,7 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // durable signal — read it directly instead of the per-mount
   // ``olsRequested`` flag, which resets to ``false`` every time the
   // popover is reopened and used to drop the already-fetched result
-  // back to the "Fetch from OLS" CTA (Paul 2026-06-19).
+  // back to the "Fetch from OLS" CTA (design review 2026-06-19).
   const olsHit = !!ols.data;
   // Gemma stays the primary source when it knows the term (don't
   // surprise the curator by switching sources after they didn't ask);
@@ -258,7 +258,7 @@ function Body({
         </div>
       ) : null}
       {detail.synonyms.length > 0 ? (
-        // Aliases / synonyms sit directly under the label (Paul
+        // Aliases / synonyms sit directly under the label (the reviewer
         // 2026-06-21) — they're identity info ("cerebral ischemia" tells
         // the curator the chip's label IS this term), so they belong
         // above the definition. Text, not links: a synonym is an
@@ -287,7 +287,7 @@ function Body({
           // formatting as HTML — ``<small>L</small>-Phenylalaninamide``,
           // ``<em>N</em><sup>α</sup>`` etc. — and rendering the
           // definition as a plain React child escapes those tags so
-          // curators saw the angle brackets verbatim (Paul 2026-06-15).
+          // curators saw the angle brackets verbatim (design review 2026-06-15).
           // The whitelist below re-enables ONLY inline text-formatting
           // tags; everything else is escaped. No attributes survive →
           // no event handlers / scripts / links can ride in.
@@ -381,7 +381,7 @@ function Body({
         // Obsolete / merged IDs that fold INTO this term — they have no
         // class of their own, so they're informational text, NOT links.
         // (They used to be clickable and dead-ended on an empty "No
-        // definition recorded" card — Paul 2026-06-21.)
+        // definition recorded" card — Design review 2026-06-21.)
         <div
           className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug"
           title="Alternate / obsolete IDs merged into this term"
@@ -393,7 +393,7 @@ function Body({
       {detail.xrefs.length > 0 ? (
         // Cross-references to OTHER vocabularies (DOID / ICD / UMLS / …).
         // These live outside the ontology Gemma loaded, so they're
-        // informational text, not internally navigable. Paul 2026-06-21.
+        // informational text, not internally navigable. Design review 2026-06-21.
         <div
           className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug"
           title="Cross-references to other vocabularies"
@@ -406,7 +406,7 @@ function Body({
         <span
           className={
             // No ``uppercase`` — "Gemma" is a name, not an acronym, and
-            // shouting it (Paul 2026-06-21) read wrong. "OLS" / "NCBI"
+            // shouting it (design review 2026-06-21) read wrong. "OLS" / "NCBI"
             // are already capitalised in the literal.
             detail.source === "ols"
               ? "text-[9px] tracking-wide text-indigo-700 dark:text-indigo-300"
@@ -422,7 +422,7 @@ function Body({
               : "from Gemma"}
         </span>
         {detail.ontologyVersion ? (
-          // Discreet ontology-release vintage (Paul 2026-06-21). Prefixed
+          // Discreet ontology-release vintage (design review 2026-06-21). Prefixed
           // with the ontology name from the term's CURIE so a bare
           // ``3.91.0`` reads as ``EFO 3.91.0`` — not an app version. The
           // raw value rides in the hover title.
@@ -511,7 +511,7 @@ function NotFound({ uri }: { uri: string }) {
  *  semver (``3.91.0``), MONDO a full release IRI
  *  (``http://…/mondo/releases/2026-06-02/mondo.owl``), UBERON a date
  *  (``2026-04-01``). A bare ``3.91.0`` with no ontology name reads like
- *  an app version (Paul 2026-06-21), so prefix with the ontology name
+ *  an app version (design review 2026-06-21), so prefix with the ontology name
  *  taken from the term's CURIE → ``EFO 3.91.0`` / ``MONDO 2026-06-02``.
  *  Release IRIs collapse to their embedded date (else file basename). */
 function formatOntologyVersion(uri: string, version: string): string {

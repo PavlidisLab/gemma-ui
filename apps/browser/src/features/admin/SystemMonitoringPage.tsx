@@ -20,8 +20,7 @@
  * here.
  *
  * Inspiration: the legacy JSPs (`gemma-web/.../systemStats.jsp`,
- * `gemma-web/.../activeUsers.jsp`). Reference:
- * `~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_SYSTEMS_MONITORING_UI.md`.
+ * `gemma-web/.../activeUsers.jsp`).
  */
 
 import { useState } from "react";

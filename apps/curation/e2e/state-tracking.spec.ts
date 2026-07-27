@@ -7,7 +7,7 @@ import {
 import { requiresBackend } from "./_backend";
 
 /**
- * State-tracking e2e — per Paul 2026-06-14: "you need to do something
+ * State-tracking e2e — per design review 2026-06-14: "you need to do something
  * like capture all the data on the web page, click a button, and see
  * if what changes is what you expect. Every single button, field etc.
  * has to be tested in such a manner."
@@ -140,7 +140,7 @@ test.describe("state tracking — experiment-queue filter chips report counts @l
   }) => {
     await page.goto("/#/tickets/44");
     // Find a chip whose label includes "(0)" — that's the empty-bucket
-    // case Paul flagged.
+    // case the reviewer flagged.
     const zeroChip = page
       .getByRole("button", { name: /\(0\)$/ })
       .first();

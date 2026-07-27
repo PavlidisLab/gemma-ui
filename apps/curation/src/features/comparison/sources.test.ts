@@ -17,8 +17,8 @@ import {
 
 // Sample polished tokens used across the suite. These are content,
 // not literals — any curator name should work the same way.
-const CY: Source = "polished:cyan";
-const AM: Source = "polished:amanda";
+const CY: Source = "polished:curator-b";
+const AM: Source = "polished:curator-a";
 const JX: Source = "polished:jordan";
 
 describe("slot validity", () => {
@@ -26,7 +26,7 @@ describe("slot validity", () => {
     expect(isSourceValidInSlot("baseline", "agent_proposal")).toBe(false);
   });
 
-  it("rejects empty as a baseline (Paul 2026-05-29: preboard always exists)", () => {
+  it("rejects empty as a baseline (design review 2026-05-29: preboard always exists)", () => {
     expect(isSourceValidInSlot("baseline", "empty")).toBe(false);
   });
 
@@ -85,9 +85,9 @@ describe("modeOf", () => {
 
 describe("defaults", () => {
   it("review opens to first polished curator + agent proposal when one is loaded", () => {
-    expect(defaultSlots("review", { polishedCurators: ["cyan", "amanda"] }))
+    expect(defaultSlots("review", { polishedCurators: ["curator-b", "curator-a"] }))
       .toEqual({
-        baseline: "polished:cyan",
+        baseline: "polished:curator-b",
         comparator: "agent_proposal",
       });
   });
@@ -124,7 +124,7 @@ describe("defaults", () => {
     });
     // Curators-list is ignored in edit mode — baseline is the
     // package-anchored preboard regardless.
-    expect(defaultSlots("edit", { polishedCurators: ["cyan"] })).toEqual({
+    expect(defaultSlots("edit", { polishedCurators: ["curator-b"] })).toEqual({
       baseline: "preboard",
       comparator: "agent_proposal",
     });
@@ -139,8 +139,8 @@ describe("parseSource", () => {
   });
 
   it("round-trips polished tokens with arbitrary curator names", () => {
-    expect(parseSource("polished:cyan")).toBe("polished:cyan");
-    expect(parseSource("polished:amanda")).toBe("polished:amanda");
+    expect(parseSource("polished:curator-b")).toBe("polished:curator-b");
+    expect(parseSource("polished:curator-a")).toBe("polished:curator-a");
     expect(parseSource("polished:jordan-doe")).toBe("polished:jordan-doe");
   });
 
@@ -176,14 +176,14 @@ describe("polished helpers", () => {
   });
 
   it("polishedCuratorOf extracts the username", () => {
-    expect(polishedCuratorOf(CY)).toBe("cyan");
-    expect(polishedCuratorOf(AM)).toBe("amanda");
+    expect(polishedCuratorOf(CY)).toBe("curator-b");
+    expect(polishedCuratorOf(AM)).toBe("curator-a");
     expect(polishedCuratorOf("polished:jordan-doe")).toBe("jordan-doe");
     expect(polishedCuratorOf("preboard")).toBe("");
   });
 
   it("polishedSourceFor builds a token", () => {
-    expect(polishedSourceFor("cyan")).toBe("polished:cyan");
+    expect(polishedSourceFor("curator-b")).toBe("polished:curator-b");
     expect(polishedSourceFor("jordan-doe")).toBe("polished:jordan-doe");
   });
 });
@@ -209,13 +209,13 @@ describe("sourceLabel", () => {
     const curations = [
       {
         curation_id: "uuid-abc-123",
-        label: "Strict consensus (cy+am)",
-        producer: "consensus:strict_cy_am",
+        label: "Strict consensus (ca+cb)",
+        producer: "consensus:strict_ca_cb",
         source_kind: "consensus",
       },
     ];
     expect(sourceLabel("uuid-abc-123", curations))
-      .toBe("Strict consensus (cy+am)");
+      .toBe("Strict consensus (ca+cb)");
     // Agent runs render as "agent <sha>" (drop the redundant
     // "(agent_proposal)" kind) when label is empty.
     const curationsNoLabel = [
@@ -233,10 +233,10 @@ describe("sourceLabel", () => {
   });
 
   it("title-cases the curator name for polished sources", () => {
-    expect(sourceLabel(CY)).toBe("Cyan polished");
-    expect(sourceLabel(AM)).toBe("Amanda polished");
+    expect(sourceLabel(CY)).toBe("Curator-B polished");
+    expect(sourceLabel(AM)).toBe("Curator-A polished");
     expect(sourceLabel("polished:jordan-doe")).toBe("Jordan-Doe polished");
-    expect(sourceLabel("polished:cy")).toBe("Cy polished");
+    expect(sourceLabel("polished:jo")).toBe("Jo polished");
   });
 
   it("renders 'agent <sha> <m/d>' for the boss-critic-200 / GSE14910 case", () => {

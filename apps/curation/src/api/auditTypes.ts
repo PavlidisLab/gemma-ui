@@ -192,7 +192,7 @@ export interface AuditFinding {
    *  findings like ``calibration_factor_gold_only_miss``) and the
    *  UI shows nothing.
    *
-   *  Shipped 2026-06-12 by bro per
+   *  Shipped 2026-06-12 by the agents side per
    *  ``UIB_HANDOFF_2026_06_11_AGENT_PARAPHRASE_FALLBACK.md`` /
    *  ``HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md``.
    *  Replaces the legacy synthetic ``supporting_evidence`` entry
@@ -358,7 +358,7 @@ export interface AuditFinding {
    *  already covers via target_id parsing). */
   apply_action?: ApplyActionPayload | null;
   /** Direct alignment classification from the graph-alignment
-   *  Mapping (bro's ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_
+   *  Mapping (the agents-side ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_
    *  ALIGNMENT_RENDER.md``, shipped 2026-06-12). When present, the
    *  card renderer prefers this over walking the issue_code matcher
    *  — same verbs / glyphs / badges, more direct lookup. Paired with
@@ -446,7 +446,7 @@ export interface ReviewVerdict {
  *  absent and the card omits the Comparison section. */
 export interface ComparisonVerdict {
   /** Human label for the comparator — "polished gold" / "live Gemma"
-   *  / "amanda's curation" / etc. Drives the section header text. */
+   *  / "Curator A's curation" / etc. Drives the section header text. */
   comparator_label: string;
   /** Structured comparator payload — gold-side tag / FV / factor
    *  shape. Producer-defined; UI walks it via the existing
@@ -662,7 +662,7 @@ export interface FactorRenamePayload {
  *                          ``cross_cutting_golds`` +
  *                          ``cross_cutting_overlaps`` instead. Added
  *                          2026-05-21 (agents-side); UI mirror
- *                          followed 2026-06-14 after Paul flagged
+ *                          followed 2026-06-14 after the reviewer flagged
  *                          GSE79061 cross-cutting cards rendering as
  *                          0-level fallthroughs.
  *
@@ -825,7 +825,7 @@ export interface AttachedDefenderVerdict {
 }
 
 /**
- * Graph-alignment Mapping + scoring shipped 2026-06-12 per bro's
+ * Graph-alignment Mapping + scoring shipped 2026-06-12 per the agents-side
  * ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_ALIGNMENT_RENDER.md``.
  *
  * The Mapping carries the structured alignment between two annotation
@@ -1018,7 +1018,7 @@ export interface AuditEvidence {
    *  whole emission, not on any single finding). Rendered as a top-
    *  of-panel ``BossReviewPanel`` adjacent to ``OrientationProse``.
    *  Replaces the v0.14.2–.4 per-finding fan-out: duplicating the
-   *  same paragraph across N cards read as noise. Per Paul
+   *  same paragraph across N cards read as noise. Per design review
    *  2026-06-16 (ticket-60 walkthrough). Empty / null / undefined
    *  on packages predating v0.14.5; renderer suppresses. */
   boss_critic_reviews?: BossCriticReview[] | null;
@@ -1149,7 +1149,7 @@ export interface AuditSummary {
 
 /** Structured `applied_fix` payload — per-element curator verdicts +
  *  edits, replacing the legacy free-text string form. Schema mirrors
- *  bro's Pydantic ``AppliedFix`` (agents repo
+ *  the agents-side Pydantic ``AppliedFix`` (agents repo
  *  ``feature/audit-schema-extensions`` commit ``e9e52ea``).
  *
  *  The wire field ``applied_fix`` on both ``AuditFindingDisposition``
@@ -1281,7 +1281,7 @@ export interface AuditFindingDisposition {
  *  2026-05-10 per AUDIT_DISPOSITION_REASONS_HANDOFF.md). Required
  *  by the server when ``status === "dismissed"``; null/absent
  *  otherwise. Free-text ``notes`` stays alongside (mandatory when
- *  reason is "other"). The closed enum lets my brother cluster
+ *  reason is "other"). The closed enum lets the agents side cluster
  *  dismissals for prompt-quality analysis without parsing arbitrary
  *  curator prose.
  *
@@ -1313,7 +1313,7 @@ export type DismissReason =
   | "agent_real_miss"
   | "redundant_with_bm_source"
   | "not_sample_applicable"
-  // Match-family Keep sub-verdicts — Paul 2026-06-16. On a near-/
+  // Match-family Keep sub-verdicts — Design review 2026-06-16. On a near-/
   // match-family card the curator's "Keep" decision is too coarse;
   // we split it into three so the eval scorer can credit
   // ``keep_agent_equivalent`` as a TP and so ``keep_agent_close``
@@ -1400,12 +1400,12 @@ export interface AuditFindingDispositionPatch {
   dismiss_reason?: DismissReason;
   /** Required when ``status === "accepted"`` and the finding's
    *  ``issue_code`` is in the agent-extra family — captures the
-   *  curator's "why I'm adding this" so my brother can cluster
+   *  curator's "why I'm adding this" so the agents side can cluster
    *  accept signal symmetrically with dismiss signal. */
   accept_reason?: AcceptReason | null;
   /** Required when ``status === "needs_more_info"``. Parking is now
-   *  a decided disposition (counts as closed in the UI), so my
-   *  brother needs to know what kind of follow-up is missing. */
+   *  a decided disposition (counts as closed in the UI), so the
+   *  agents side needs to know what kind of follow-up is missing. */
   not_sure_reason?: NotSureReason | null;
   /** Curator's "what got applied" record. Union: structured
    *  ``AppliedFix`` (per-row verdicts + edits, shipped 2026-05-19
@@ -1443,9 +1443,7 @@ export interface AuditFindingDispositionPatch {
  *  scratch on a preboarded / uncurated GSE (finding shape: "agent
  *  proposes X"; no curator side to compare against). The two kinds
  *  share the wire schema and the per-finding disposition machinery;
- *  only the framing differs. See
- *  ``eclipseworkspace/Gemma/handoffs/AUDIT_TO_REVIEW_RENAME_HANDOFF.md``
- *  for the full rename / split design. */
+ *  only the framing differs. */
 export type CurationReviewKind = "audit" | "proposal";
 
 /** Self-documenting record of the pipeline run that produced a
@@ -1559,7 +1557,7 @@ export interface AuditReport {
    *
    *  Optional/nullable on the read shape: old agent services
    *  routed the note into the audit_events row without echoing it
-   *  back on `AuditReport`. Bro adds the echo in a follow-up
+   *  back on `AuditReport`. The agents side adds the echo in a follow-up
    *  (AUDIT_DISPOSITION_EDIT_HANDOFF.md). UI degrades to "(no
    *  note recorded)" when undefined. */
   finalized_notes?: string | null;
@@ -1634,7 +1632,7 @@ export interface DesignDebateEntry {
  *  fields optional; the agent service applies defaults. Note:
  *  `scope` here is a flat array — the *report's* `AuditScope`
  *  wraps it as `{ include: [...] }`, but the request shape doesn't.
- *  Documented by my brother in `AUDIT_FEATURE.md` §Status Step 4. */
+ *  Documented by the agents side in `AUDIT_FEATURE.md` §Status Step 4. */
 export interface AuditRequest {
   tier?: "fast" | "standard" | "strong";
   /** Wins over `tier` when present. */

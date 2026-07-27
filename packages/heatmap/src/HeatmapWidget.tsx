@@ -465,7 +465,7 @@ export function HeatmapWidget({
   const numRows = scaledData.values.length;
   const numCols = numRows > 0 ? scaledData.values[0].length : 0;
 
-  // Download handlers — image and data. Per Paul 2026-05-23: the
+  // Download handlers — image and data. Per design review 2026-05-23: the
   // data download must be the input matrix verbatim, with NO
   // row-standardisation and NO clipping applied. The downloaded
   // image, by contrast, reflects whatever the curator sees on

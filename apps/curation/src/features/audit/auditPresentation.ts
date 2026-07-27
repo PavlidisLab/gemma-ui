@@ -28,7 +28,7 @@ import {
 // Feature gates
 // ---------------------------------------------------------------------------
 
-/** Park-affordance gate — Paul 2026-06-14: "I'm not sure we have park
+/** Park-affordance gate — Design review 2026-06-14: "I'm not sure we have park
  *  functionality; let's hide that, but don't remove it." The handlers,
  *  chip set, and server enum all stay wired; this just suppresses the
  *  "Park…" button on both the compact action row (findingCard) and the

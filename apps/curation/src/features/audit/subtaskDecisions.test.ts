@@ -19,7 +19,7 @@ function dec(partial: Partial<SubtaskDecision>): SubtaskDecision {
 }
 
 /**
- * Tests for the S10 term-validator free-text rollup. Paul 2026-06-19:
+ * Tests for the S10 term-validator free-text rollup. Design review 2026-06-19:
  * collapse the repeated 'object "X" is free-text — not in Gemma
  * vocabulary' notes to 'Left as free text: X, Y'.
  */

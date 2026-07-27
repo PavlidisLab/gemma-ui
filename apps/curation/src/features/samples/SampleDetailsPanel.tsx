@@ -1385,7 +1385,7 @@ function SampleTable({
                   // Title shows full factor name + description + flags;
                   // pulls the name to the front so long names truncated
                   // by the header label still surface on hover. Per
-                  // Paul 2026-06-14 ("the names of the factors need to
+                  // Design review 2026-06-14 ("the names of the factors need to
                   // be visible in the header, long names abbrev/trunc").
                   const factorLabel =
                     factor.name || `factor#${factor.id}`;
@@ -2361,7 +2361,7 @@ function FvSelect({
   // ``Tooltip`` showing the FV's statements as S-P-O rows so
   // curators can read the underlying semantics without opening the
   // factor. Subject column blanked on subsequent rows when it
-  // matches the row above (Paul 2026-05-23 — "redundant subjects
+  // matches the row above (design review 2026-05-23 — "redundant subjects
   // omitted").
   const fallbackTitle = isMixed
     ? "siblings disagree on this factor — pick a value to apply to all of them"

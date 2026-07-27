@@ -396,7 +396,7 @@ export function AnnotationSelector(props: Props) {
         <h3 className="side-heading">Annotations</h3>
         <div className="flex items-baseline gap-3">
           {/* Collapse-all — appears only when at least one category
-              is open. No open-all counterpart (Paul lukewarm on it —
+              is open. No open-all counterpart (design review lukewarm on it —
               expanding every category at once is rarely the curator's
               intent; the search field is the better discovery path). */}
           {Object.values(open).some(Boolean) ? (
@@ -551,7 +551,7 @@ export function AnnotationSelector(props: Props) {
           // glance which categories carry active filters without
           // expanding each one. Truncated; "+N" expander shows the
           // overflow count. Mirrors how the dashboard ticket cards
-          // surface their per-target progress. Per Paul 2026-05-27.
+          // surface their per-target progress. Per design review 2026-05-27.
           const selectedHere = mergedKids.filter(
             (t) => termState(t, cid) !== 0,
           );
@@ -678,7 +678,7 @@ export function AnnotationSelector(props: Props) {
           but are NOT currently in the dataset filter's catalog. These
           render BELOW the catalog list so the in-filter hits keep
           their visual primacy; the curator drops down here only when
-          the catalog doesn't have what they need. Per Paul 2026-05-27. */}
+          the catalog doesn't have what they need. Per design review 2026-05-27. */}
       {debouncedSearch.length >= 2 && fallbackNew.length > 0 ? (
         <div className="mt-2 pt-1 border-t border-gemma-grid">
           <div className="text-[10px] uppercase tracking-wider text-gemma-subtle pt-1 pb-0.5">

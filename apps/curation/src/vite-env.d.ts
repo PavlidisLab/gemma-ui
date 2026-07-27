@@ -31,8 +31,7 @@ interface ImportMetaEnv {
   /** Absolute URL of the backend (only consulted by ``useGemmaMode``
    *  to render the mode chip and to bypass the Vite proxy in remote
    *  mode). Defaults to ``http://localhost:8080`` in local mode.
-   *  For remote, set to e.g. ``https://staging-gemma.msl.ubc.ca`` or
-   *  ``https://gemma.msl.ubc.ca``. */
+   *  For remote, set to your deployment's public Gemma host. */
   readonly VITE_GEMMA_BASE_URL?: string;
   /** Ontology-host indicator surfaced by ``useGemmaMode().ontologyHost``.
    *  Mirrors the dev-server's ``GEMMA_ONTOLOGY_URL`` proxy target so
@@ -40,9 +39,9 @@ interface ImportMetaEnv {
    *  serving ``/rest/v2/annotations/{search,term}`` lookups.
    *
    *  Temporary — only matters while local Gemma 2.0 lacks full
-   *  ontology coverage and we route those two paths to staging.
-   *  Defaults to ``https://staging-gemma.msl.ubc.ca`` in local mode
-   *  (matching the Vite proxy default); in remote mode the resolver
+   *  ontology coverage and we route those two paths to another host.
+   *  No built-in default in local mode — set via ``GEMMA_ONTOLOGY_URL``
+   *  (matching the Vite proxy target); in remote mode the resolver
    *  returns the same host as ``VITE_GEMMA_BASE_URL`` so the
    *  indicator hides (no split happening). */
   readonly VITE_GEMMA_ONTOLOGY_URL?: string;

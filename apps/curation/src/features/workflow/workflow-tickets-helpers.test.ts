@@ -133,7 +133,7 @@ describe("computeSetProgress — closed review", () => {
 
 describe("computeSetProgress — in_progress server status without local draft → untouched", () => {
   /**
-   * KEY RULE (per Paul 2026-05-25): The server fires "in_progress" the
+   * KEY RULE (per design review 2026-05-25): The server fires "in_progress" the
    * moment a curation_review row exists — including agent-only /
    * pre-curator-action rows. Without a local draft we have no evidence
    * the curator has actually done anything, so these count as UNTOUCHED,

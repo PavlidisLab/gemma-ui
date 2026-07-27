@@ -100,7 +100,7 @@ export function categorisedKey(x: {
 
 /** Display-only sentence-casing for a category label. Ontology
  *  category labels arrive lowercase by convention (`"disease model"`,
- *  `"biological sex"`, `"cell type"`); Paul 2026-06-21 wants them to
+ *  `"biological sex"`, `"cell type"`); Design review 2026-06-21 wants them to
  *  read with a leading capital wherever they're shown to the curator
  *  (`"Disease model"`). This is a RENDER transform only — never mutate
  *  the stored label, and never run it through identity / slug / lookup

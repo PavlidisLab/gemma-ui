@@ -101,9 +101,8 @@ function PcLoadingsPopup({
     return data.rows.map((r, i) => ({
       index: i + 1,
       geneSymbol: r.gene_symbol,
-      // Gene name / NCBI id pending bro's enrichment of /svd/loadings —
-      // see SVD_LOADINGS_GENE_ENRICHMENT_HANDOFF.md in
-      // ~/Dev/eclipseworkspace/Gemma/handoffs/.
+      // Gene name / NCBI id pending backend enrichment of
+      // /svd/loadings.
       geneOfficialName: null,
       geneNcbiId: null,
       geneId: null,

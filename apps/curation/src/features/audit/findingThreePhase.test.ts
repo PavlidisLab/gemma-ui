@@ -2,10 +2,7 @@
  * Tests for the three-phase finding-card adapters
  * (``findingThreePhase.tsx``) — Phase 3 of the rollout.
  *
- * Spec: ``Gemma/handoffs/FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md``.
- * Principle: ``[[feedback_finding_three_phase_contract]]``.
- *
- * Phase 3 (Paul 2026-06-15): UI reads the new wire blocks
+ * Phase 3 (2026-06-15): UI reads the new wire blocks
  * (``finding.why`` / ``finding.reviews`` / ``finding.comparison``)
  * directly. No legacy-field fallback. Vocabulary translation is
  * producer-side; ``verdictLabel`` is a thin pass-through.

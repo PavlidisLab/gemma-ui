@@ -220,7 +220,7 @@ export function StatementEditor({
       ) : null}
 
       {/* Statement delete — sits inline with the statement's S-P-O
-          row, not right-edge-floated. Paul 2026-06-14: the
+          row, not right-edge-floated. Design review 2026-06-14: the
           ``ml-auto`` floated it to the same column as the FV-level
           Delete, so the two looked like duplicate buttons. Icon
           shape ("×") instead of a "Delete" pill so it doesn't
@@ -449,7 +449,7 @@ function InlinePredicateObjectPair({
         // instead of blanking to the placeholder — same fix the
         // singleton ``StatementEditor`` applies. Without this a real
         // predicate like "delivered for duration" showed as an empty
-        // dropdown in the grouped editor (Paul 2026-07-20).
+        // dropdown in the grouped editor (design review 2026-07-20).
         value={canonicalPredicateUri(statement.predicate?.uri)}
         onChange={(e) => {
           if (e.target.value === "") {
@@ -532,7 +532,7 @@ export function groupStatementsBySubject(
   // fill in a second predicate. Dropping it there made "+ pred/obj"
   // silently no-op on any subject that already had a predicate (the
   // freshly-added row was hidden before the curator could touch it).
-  // So the editable caller passes ``false``. Paul 2026-07-21.
+  // So the editable caller passes ``false``. Design review 2026-07-21.
   const dropBareWithReal = opts?.dropBareWithReal ?? true;
   const buckets = new Map<
     string,
@@ -556,7 +556,7 @@ export function groupStatementsBySubject(
   // A group that is ENTIRELY bare keeps one row — that's the normal
   // "subject with no predicate yet" add-a-predicate affordance. Indices
   // stay aligned to the surviving statements so mutations map correctly.
-  // Paul 2026-07-20. Gated on ``dropBareWithReal`` (2026-07-21) so the
+  // Design review 2026-07-20. Gated on ``dropBareWithReal`` (2026-07-21) so the
   // editable view can keep its in-progress "+ pred/obj" rows.
   const isBare = (s: Statement) =>
     !s.predicate?.label?.trim() && !s.object?.label?.trim();

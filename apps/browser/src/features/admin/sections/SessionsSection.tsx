@@ -17,7 +17,7 @@ export function SessionsSection() {
     "sessions.active",
     data?.activeSessionCount ?? null,
   );
-  // Bro's contract has `principals` as required (List<Principal>),
+  // The agents-side service's contract has `principals` as required (List<Principal>),
   // but in practice the deployed server can return an envelope
   // without it (older builds, partial deploys, error fallthroughs).
   // Coerce defensively so a missing list doesn't crash the page.

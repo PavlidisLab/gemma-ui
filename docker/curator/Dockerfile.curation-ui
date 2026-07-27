@@ -50,8 +50,8 @@ ARG VITE_GEMMA_MODE=local
 ARG VITE_GEMMA_CURATION_API_KEY=dev-token-123
 # Ontology-routing-exception host baked into the bundle so the
 # OntologyTermPicker footer reads the same URL the proxy is
-# forwarding to. Default empty → gemmaMode.ts falls back to its
-# DEFAULT_ONTOLOGY_BASE (currently staging-gemma).
+# forwarding to. Default empty → gemmaMode.ts reports "(unset)"
+# rather than silently pointing at a hardcoded host.
 ARG VITE_GEMMA_ONTOLOGY_URL=
 ENV VITE_GEMMA_MODE=$VITE_GEMMA_MODE
 ENV VITE_GEMMA_CURATION_API_KEY=$VITE_GEMMA_CURATION_API_KEY

@@ -58,7 +58,7 @@ export interface SetExportBundle {
     type: Group["type"];
     description: string;
     member_count: number;
-    /** Per bro's REVIEW_EXPORT_BUNDLE_HANDOFF (2026-05-25):
+    /** Per the agents-side REVIEW_EXPORT_BUNDLE_HANDOFF (2026-05-25):
      *  set-level rollup so the consumer can triage at a glance
      *  without scanning each entry's ``review_status``. */
     n_finalized: number;
@@ -112,7 +112,7 @@ export interface SetExportExperiment {
    *  experiment fetch failed; pair with ``error``. */
   design: Design | null;
   /** Latest curation-review row for this experiment, or ``null``
-   *  when the experiment has none. Added in bundle v2 per bro's
+   *  when the experiment has none. Added in bundle v2 per the agents-side
    *  handoff — lets the receiver filter to reviewed-only without
    *  guessing from design heuristics. */
   review_status: SetExportReviewStatus | null;
@@ -136,7 +136,7 @@ function numericTail(memberId: string): number | null {
  *  ``/datasets/{id}/audits`` returns ``kind='audit'`` rows only,
  *  ``/datasets/{id}/proposals`` returns ``kind='proposal'`` rows
  *  only. Hitting one alone misses the other (caught 2026-05-25 —
- *  bro's V2_FOLLOWUP handoff reported all 28 review_status fields
+ *  the agents-side V2_FOLLOWUP handoff reported all 28 review_status fields
  *  null because we only hit /audits while the curator's recent
  *  work was proposal-kind). Hit both in parallel, merge, pick the
  *  most-recent. */

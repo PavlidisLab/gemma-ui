@@ -2,7 +2,7 @@
  * Per-experiment "what's the next thing to do here?" derivation for
  * the workflow queue rows.
  *
- * Two sources, in priority order (per Paul 2026-05-25):
+ * Two sources, in priority order (per design review 2026-05-25):
  *
  *   1. **Assigned ticket** — if the curator has an open / in-progress
  *      ticket targeting this experiment, the ticket's intent is the
@@ -144,7 +144,7 @@ function stepVerb(status: StepStatus, label: string, isReviewStep: boolean): str
       return `Fix ${label}`;
     case "needs_attention":
       // "Look at Outliers" read awkwardly; bare noun + tone-color
-      // already says "this needs attention." Per Paul 2026-05-25.
+      // already says "this needs attention." Per design review 2026-05-25.
       return label;
     case "in_progress":
       return `Continue ${label}`;

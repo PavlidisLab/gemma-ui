@@ -43,7 +43,7 @@ export function AppHeader({
    *  was entered from a ticket detail page. When supplied with
    *  ``experimentId``, the header renders the ``TicketContextChip``
    *  (title + member count + popover with prev/next + filter + Open
-   *  ticket ↗) right next to the Dashboard button. Paul 2026-06-14:
+   *  ticket ↗) right next to the Dashboard button. Design review 2026-06-14:
    *  consolidated from a separate breadcrumb + the experiment
    *  banner's right-side chip into a single header-level affordance.
    *  The breadcrumb IS the dropdown UI now. */
@@ -63,7 +63,7 @@ export function AppHeader({
           (rather than a separate "Curation" nav tab) so the title
           itself communicates which app the curator is in — no
           redundant tab, no double-click target on top of the brand
-          mark. Per Paul 2026-05-27. */}
+          mark. Per design review 2026-05-27. */}
       <button
         type="button"
         onClick={() => navigate("#/")}
@@ -100,7 +100,7 @@ export function AppHeader({
           dashboard / breadcrumb / contextual chips live. Moves the
           accidental "I clicked Browse and got dropped out of the
           curation app" risk away from natural reading order. Per
-          Paul 2026-05-27. */}
+          Design review 2026-05-27. */}
       <nav className="flex items-center gap-1">
         <ExternalNavTab href={browserUrl("/browser")}>Browse</ExternalNavTab>
         {isAdmin ? (

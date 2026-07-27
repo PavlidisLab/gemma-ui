@@ -37,18 +37,18 @@ describe("isPairAllowed — chip-strip pair guard", () => {
     expect(isPairAllowed("empty", "empty")).toBe(true);
     expect(isPairAllowed("preboard", "preboard")).toBe(true);
     expect(isPairAllowed("agent_proposal", "agent_proposal")).toBe(true);
-    expect(isPairAllowed("polished:cyan", "polished:cyan")).toBe(true);
+    expect(isPairAllowed("polished:curator-b", "polished:curator-b")).toBe(true);
   });
 
   it("allows all other pairs by default (default-allow semantics)", () => {
     // Spot-check a representative cross-section of non-forbidden pairs.
-    expect(isPairAllowed("polished:cyan", "agent_proposal")).toBe(true);
-    expect(isPairAllowed("polished:cyan", "polished:amanda")).toBe(true);
+    expect(isPairAllowed("polished:curator-b", "agent_proposal")).toBe(true);
+    expect(isPairAllowed("polished:curator-b", "polished:curator-a")).toBe(true);
     expect(isPairAllowed("live", "agent_proposal")).toBe(true);
-    expect(isPairAllowed("live", "polished:cyan")).toBe(true);
-    expect(isPairAllowed("preboard", "polished:cyan")).toBe(true);
+    expect(isPairAllowed("live", "polished:curator-b")).toBe(true);
+    expect(isPairAllowed("preboard", "polished:curator-b")).toBe(true);
     expect(isPairAllowed("preboard", "empty")).toBe(true);
-    expect(isPairAllowed("empty", "polished:cyan")).toBe(true);
+    expect(isPairAllowed("empty", "polished:curator-b")).toBe(true);
     expect(isPairAllowed("empty", "live")).toBe(true);
   });
 });

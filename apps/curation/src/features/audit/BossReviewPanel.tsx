@@ -6,7 +6,7 @@
  * boss-critic is an LLM reviewer that runs against the agent's
  * whole emission — its commentary is experiment-level, not per
  * finding. Pre-v0.14.5 the same paragraph was fanned out across
- * every factor / tag card; per Paul (2026-06-16 ticket-60
+ * every factor / tag card; per design review (2026-06-16 ticket-60
  * walkthrough) that read as noise. Consolidating the surface here
  * matches the boss-critic's actual scope.
  *
@@ -27,9 +27,9 @@
  * to today.
  *
  * The panel is collapsible (collapsed by default; auto-expands on a
- * blocker / escalation) — Paul 2026-06-19: "takes up too much space".
+ * blocker / escalation) — Design review 2026-06-19: "takes up too much space".
  *
- * DEFERRED (Paul 2026-06-19, paused pending the boss's role): route
+ * DEFERRED (design review 2026-06-19, paused pending the boss's role): route
  * factor / FV / tag-scoped rows into their OWN card context (visually
  * distinct as boss-critic), keeping only ``design``-scoped rows here.
  * Note the @critical "not duplicated inside any finding card body"
@@ -163,7 +163,7 @@ function BossReviewPanelBody({
   const maxRoundByT = maxRoundByTarget(reviews);
   const onlyOneRound = reviews.every((r) => maxRoundByT[r.target_id] === 1);
   const hasUrgent = !!(counts.blocker || counts.escalation);
-  // Collapsed by default to reclaim space (Paul 2026-06-19: "takes up
+  // Collapsed by default to reclaim space (design review 2026-06-19: "takes up
   // too much space") — the header + severity counts stay visible so the
   // curator still sees there's commentary. Auto-expand when a blocker /
   // escalation is present so urgent items aren't hidden behind a click.

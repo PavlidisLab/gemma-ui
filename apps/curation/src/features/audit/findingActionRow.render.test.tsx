@@ -20,7 +20,7 @@
  * These tests are tagged @critical so the precommit gate runs them
  * (see ``package.json::test:ci`` + ``.husky/pre-commit``). A
  * regression in any of the three would re-introduce one of the
- * symptoms Paul filed in MATCH_DOWNGRADE_ACTION_HANDOFF.md.
+ * symptoms the reviewer filed in MATCH_DOWNGRADE_ACTION_HANDOFF.md.
  */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";

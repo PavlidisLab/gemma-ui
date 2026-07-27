@@ -225,7 +225,7 @@ export function orderCandidatesByTaxon(
 // can verify the term without leaving the page. Hits Gemma's
 // ``/annotations/term`` endpoint (routed via the existing
 // ``/rest/v2/annotations/*`` proxy split). OLS is a separate hook
-// that the popover invokes only on explicit click — per Paul
+// that the popover invokes only on explicit click — per design review
 // 2026-06-13: "fallback to OLS: require another click".
 // ---------------------------------------------------------------------------
 
@@ -310,8 +310,9 @@ export function useGemmaTerm(uri: string | null | undefined) {
       // CURIE. Chips carry CURIEs (``EFO:0600015``), and passing that
       // raw made Gemma 404 with "No ontology term with URI …" — which
       // the popover rendered as the misleading "Gemma doesn't know this
-      // term" (Paul 2026-06-19; frink resolves the same term fine when
-      // asked by IRI). Expand to IRI first, exactly like ``useOlsTerm``.
+      // term" (design review 2026-06-19; a gene-aware ontology host resolves the
+      // same term fine when asked by IRI). Expand to IRI first, exactly like
+      // ``useOlsTerm``.
       const iri = curieToUrl(uri) ?? uri;
       const params = new URLSearchParams({ uri: iri });
       try {
@@ -459,7 +460,7 @@ export function parseGemmaTerm(
 // Immediate children — the direct subclasses of a term, so a curator can
 // see at a glance whether a MORE SPECIFIC choice exists below the term the
 // chip carries. Gemma's ``/annotations/term`` ships parents but no children
-// (verified against frink 2026-07), so this is a separate, LAZY lookup
+// (verified against a live Gemma host 2026-07), so this is a separate, LAZY lookup
 // against Gemma's ``/annotations/children?...&direct=true`` — the SAME host
 // that serves the parents, so the hierarchy stays on one ontology release
 // instead of skewing against an external service. ``direct=true`` returns
@@ -552,7 +553,7 @@ const OLS_TERM_KEY = (uri: string | null) =>
 
 /** Fetch a term's detail from EBI's Ontology Lookup Service (OLS4).
  *  Disabled by default — the popover only enables this query when the
- *  curator clicks "Fetch from OLS" (per Paul 2026-06-13). Single hit
+ *  curator clicks "Fetch from OLS" (per design review 2026-06-13). Single hit
  *  against the OLS4 search endpoint with a strict-iri filter — that
  *  lets the resolver find the term across every ontology it indexes
  *  without us having to guess which ontology the URI belongs to. */
@@ -654,7 +655,7 @@ function parseNcbiGene(
   // NCBI ``otheraliases`` is a comma-separated alias list
   // ("C-K-RAS, CFC2, KRAS2, …"). Surface these as structured synonyms
   // (rendered under an "aliases" label for genes) instead of burying
-  // them in the definition text. Paul 2026-06-21. Genes have no
+  // them in the definition text. Design review 2026-06-21. Genes have no
   // ontology synonyms/parents/version — this is the gene analog.
   const aliasList =
     typeof r.otheraliases === "string"

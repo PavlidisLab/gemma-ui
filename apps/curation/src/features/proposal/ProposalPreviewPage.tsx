@@ -6,7 +6,7 @@ import type { Proposal } from "@/api/types";
  * Dev preview surface for the new per-element proposal-review panel.
  * Hard-coded fixture; no server calls. Navigate to
  * ``#/proposal-preview``. Mirrors ``AuditPreviewPage`` — temporary
- * side door so Paul can iterate on the panel layout without needing
+ * side door so the reviewer can iterate on the panel layout without needing
  * a live proposal in the mock DB.
  *
  * Removed once the real proposal-review flow lands and the

@@ -34,8 +34,8 @@ import { useStickyState } from "@/lib/useStickyState";
 
 /** Default page size + user-settable picker options.
  *
- *  Paul 2026-06-14 asked for a 200 default ("typical ticket fits in
- *  one page"). Bro 1 raised the ``/rest/v2/datasets`` cap from 100
+ *  Design review 2026-06-14 asked for a 200 default ("typical ticket fits in
+ *  one page"). The agents side 1 raised the ``/rest/v2/datasets`` cap from 100
  *  to 1000 in response to ``handoffs/DATASETS_LIMIT_CAP_2026_06_14.md``,
  *  so we ship the 200 default + headroom in the picker. */
 const PAGE_SIZE_DEFAULT = 200;
@@ -165,18 +165,18 @@ function FilterBar({
   onSort: (s: SortKey) => void;
   /** Per-filter row count — visible on the chip so curators can see
    *  the filter is doing something even when their ticket only
-   *  matches one bucket. Paul 2026-06-14: "these buttons don't do
+   *  matches one bucket. Design review 2026-06-14: "these buttons don't do
    *  anything" — they did, but with a 1-experiment ticket 3 of 4
    *  chips emptied the list silently. Counts make the filter
    *  effect legible. */
   counts: Record<QuickFilter, number>;
-  /** Page-size dropdown — Paul 2026-06-14: "extend what you have now
+  /** Page-size dropdown — Design review 2026-06-14: "extend what you have now
    *  to have a user-settable number per page, with a default of 200."
    *  Persisted in localStorage via useStickyState upstream. */
   pageSize: number;
   onPageSize: (n: number) => void;
   /** Pagination state — surfaced inline so it sits at the TOP of the
-   *  list (was below the rows; Paul wanted it up here). */
+   *  list (was below the rows; the reviewer wanted it up here). */
   total: number;
   offset: number;
   onPrev: () => void;
@@ -230,7 +230,7 @@ function FilterBar({
           );
         })}
       </div>
-      {/* Pagination + page-size — sits at the top per Paul 2026-06-14
+      {/* Pagination + page-size — sits at the top per design review 2026-06-14
           ("the page navigation should be at the top"). Hidden when
           the whole list fits in one page since there's nothing to
           paginate. */}
@@ -601,7 +601,7 @@ export function ExperimentQueue({
   // ``targets[i].status`` (NOT_DONE / UNDERWAY / DONE) is the truth
   // for what the CURATOR has done — independent of the dataset's
   // pipeline-step status (which counts Gemma's pre-imported Design /
-  // Tags as already "ok"). Paul 2026-06-14 on tickets/45: header
+  // Tags as already "ok"). Design review 2026-06-14 on tickets/45: header
   // says "0/200 done · 200 not started" but the filter was showing
   // Started (50) because every row's pipeline-step status carried
   // pre-existing ✓Design / ✓Tags from Gemma. The ticket target
@@ -612,9 +612,9 @@ export function ExperimentQueue({
   // stay in sync with the header's done/underway/not-started
   // counters whenever the detail page's polling layer refetches.
   // Earlier this used ``useMyTickets()`` which is a separate cache
-  // entry; bro mutating targets behind the scenes refreshed the
+  // entry; the agents side mutating targets behind the scenes refreshed the
   // detail-page header (when polling fired) but the queue's row
-  // dots + chip counts stayed stale on a different timer. Paul
+  // dots + chip counts stayed stale on a different timer. The reviewer
   // 2026-06-14 on ticket #52: row dots showed Started but the
   // chip filter read "Started (0)". */
   const { data: ticket } = useTicket(ticketId ?? null);
@@ -640,7 +640,7 @@ export function ExperimentQueue({
   // "started" when the curator has touched it locally but the
   // server hasn't received the commit yet. Without this, the row
   // dot reads amber (uncommitted) while the chip count reads
-  // "Started (0)" — Paul 2026-06-15.
+  // "Started (0)" — Design review 2026-06-15.
   const dirtyDraftIds = useMemo(() => readDirtyExperimentIds(), [allRows]);
 
   // Per-row progress state. In a ticket context, prefer the ticket's
@@ -674,7 +674,7 @@ export function ExperimentQueue({
   // Per-filter counts for the chip labels. In a ticket context the
   // counts come from the ticket's target list (ALL targets, not just
   // the rows on the current page) so "Started (12)" actually means
-  // "12 across the whole ticket", not "12 of the 50 visible." Paul
+  // "12 across the whole ticket", not "12 of the 50 visible." the reviewer
   // 2026-06-14: "this is showing the page view, not the total."
   // Outside ticket context (group / global queue), fall back to
   // counting over the visible page — the only signal available.
@@ -833,7 +833,7 @@ export function ExperimentQueue({
         ))}
       </div>
 
-      {/* Pagination moved to the top per Paul 2026-06-14 — see the
+      {/* Pagination moved to the top per design review 2026-06-14 — see the
           inline cluster in FilterBar above. */}
     </div>
   );

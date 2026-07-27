@@ -6,7 +6,7 @@
  * so a curator reviewing a proposal can see EXACTLY what produced it —
  * which model(s), which switches (boss-critic? actions? debate?
  * subagents? rounds?), the git sha/branch, and the full invocation —
- * without hunting through sidecar files. Per Paul: "that data has to be
+ * without hunting through sidecar files. Per design review: "that data has to be
  * baked into the proposal json always."
  *
  * Modal shell mirrors ``JsonViewer`` (portal + overlay + Escape close)

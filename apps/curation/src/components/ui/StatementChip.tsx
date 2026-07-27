@@ -15,7 +15,7 @@ import type { OntologyTerm } from "@/features/experiment/types";
  *   4. Free-text subject       — italic slate, no CURIE chip; matches the
  *                                TagBar "unresolved" convention.
  *
- * Per Paul 2026-06-17: category is hidden in the compact view (surfaced
+ * Per design review 2026-06-17: category is hidden in the compact view (surfaced
  * in the hover tooltip only). Predicates render as italic muted text —
  * relational glue, not a clickable Term. Objects render through the
  * canonical ``Term`` so ontology-resolved objects pick up the emerald

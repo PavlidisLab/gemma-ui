@@ -78,7 +78,7 @@ export function CommitBar({
   // baseline gate there's no legitimate "commit anyway"; the only fix is
   // to resolve them in the editor. A missing factor description is NOT
   // here: it's advisory only — surfaced as a ValidatorBanner warning, not
-  // a commit blocker (Paul 2026-07-21). ``hardProblemLines`` names each
+  // a commit blocker (design review 2026-07-21). ``hardProblemLines`` names each
   // offending factor + its issues for the blocked message.
   const hardProblems = validation
     ? validation.factors
@@ -154,7 +154,7 @@ export function CommitBar({
     // but below modal overlays (z-50).
     //
     // Earlier iterations parked the bar at the bottom (sticky
-    // bottom-0) — Paul wanted the bottom freed up — and at fixed
+    // bottom-0) — the reviewer wanted the bottom freed up — and at fixed
     // top-2 right-2 — that collided with the TopBar's user-info
     // strip. Sticky-top inside the section is the clean middle:
     // bottom is free, top-of-page user info is unobscured.

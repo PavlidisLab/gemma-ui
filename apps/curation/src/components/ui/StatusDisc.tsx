@@ -9,7 +9,7 @@
  * (todo / in-progress / blocked / done), or any other 4-state
  * lifecycle without each call site rolling its own SVG.
  *
- * Visual encoding (per Paul 2026-05-25 — color carries the urgency
+ * Visual encoding (per design review 2026-05-25 — color carries the urgency
  * axis, fill carries the progress axis):
  *
  *   ○ slate-400   "untouched"   — outlined ring, no fill

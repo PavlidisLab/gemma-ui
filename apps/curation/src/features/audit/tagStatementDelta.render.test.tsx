@@ -3,7 +3,7 @@
  *
  * End-to-end render test for the tag near-match statement DELTA.
  *
- * Paul 2026-07-13: a tag near-match must show the Current-vs-Proposed
+ * Design review 2026-07-13: a tag near-match must show the Current-vs-Proposed
  * delta the way factors / FVs do — not just the proposed statement on
  * the card header. The delta lives in ``TagDetailBlock`` (inside
  * ``FindingDetailsEditor``): the "<proposer> says" line renders the

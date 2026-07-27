@@ -86,7 +86,7 @@ describe("augmentInferredFromBiomaterials", () => {
   });
 
   it("synths the OTHER per-sample values of a category a direct tag partly covers", () => {
-    // Per-value cover (Paul 2026-07-20): the curator's `cell type:
+    // Per-value cover (design review 2026-07-20): the curator's `cell type:
     // T cell` direct tag suppresses only T cell; the remaining
     // biomaterial values still surface as an inherited chip.
     const directCellType = directTag(1, "cell type", "T cell");
@@ -174,7 +174,7 @@ describe("augmentInferredFromBiomaterials", () => {
     expect(next).toContainEqual(direct);
   });
 
-  // Paul 2026-07-20 (supersedes the B3 removed-category suppression):
+  // Design review 2026-07-20 (supersedes the B3 removed-category suppression):
   // removing a direct tag no longer stops the biomaterial-derived synth
   // chip. The inherited chip reflects per-sample reality and reappears;
   // the direct-wins dedup keeps the EE tag on top while both are present,
@@ -203,7 +203,7 @@ describe("augmentInferredFromBiomaterials", () => {
     ).toEqual(["cell type", "organism part"]);
   });
 
-  // Per-value cover (Paul 2026-07-20): a direct tag suppresses re-synth
+  // Per-value cover (design review 2026-07-20): a direct tag suppresses re-synth
   // of its OWN value only — not the whole category.
   it("does not re-synthesize a value already carried by a direct tag", () => {
     const direct = directTag(1, "treatment", "tamoxifen");

@@ -10,7 +10,7 @@
  *    `AcceptReason` enum, so the UI squashed them to canonical
  *    values on send (`weak_evidence` / `other`) and stashed the
  *    specific chip in `notes` as a `[<chip>]` prefix.
- *  - **post-2026-05-13 agent enum:** my brother extended the
+ *  - **post-2026-05-13 agent enum:** the agents side extended the
  *    enums to include the calibration chips directly. The
  *    structured `dismiss_reason` / `accept_reason` /
  *    `not_sure_reason` field can carry the chip key as-is, and

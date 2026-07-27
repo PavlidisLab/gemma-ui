@@ -14,7 +14,7 @@
  *     CURATION ticket, UNDERWAY) then proceed to ``pendingTarget``.
  *   - Stay — cancel the navigation, modal closes.
  *   - Leave anyway — proceed without a ticket. The "things fall
- *     through the cracks" escape hatch Paul explicitly accepted
+ *     through the cracks" escape hatch the reviewer explicitly accepted
  *     (2026-05-27).
  *
  * Skips the prompt when an open ticket already targets the EE with

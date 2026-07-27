@@ -23,7 +23,7 @@ function cellLabel(
  *
  * The helpers are the migration target for the legacy ``pairFvs``
  * biomaterial-Jaccard heuristic — once the wire carries the
- * structured ``audit_dict.mapping`` (bro's 2026-06-12 ship), the
+ * structured ``audit_dict.mapping`` (the agents-side 2026-06-12 ship), the
  * pairing decision moves from "compute from biomaterial sets" to
  * "read from the mapping blob". These tests pin the shape:
  *

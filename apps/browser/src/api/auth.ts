@@ -51,7 +51,7 @@ export interface LoginResponse {
 }
 
 export async function postLogin(req: LoginRequest): Promise<LoginResponse> {
-  // Bro's /login returns `ResponseDataObject<LoginResponse>` =
+  // The agents-side /login returns `ResponseDataObject<LoginResponse>` =
   // `{apiVersion, buildInfo, data: {token, user}}` per
   // AuthWebService.java:124. Unwrap the envelope.
   const body = await apiPost<{ data?: LoginResponse } | LoginResponse>(
@@ -65,7 +65,7 @@ export async function postLogin(req: LoginRequest): Promise<LoginResponse> {
     }
     return inner;
   }
-  // Tolerate a future flat shape, just in case bro un-envelopes
+  // Tolerate a future flat shape, just in case the agents side un-envelopes
   // it later.
   return body as LoginResponse;
 }
@@ -90,10 +90,8 @@ export async function postLogin(req: LoginRequest): Promise<LoginResponse> {
  * All three fire fire-and-forget via Promise.allSettled.
  * Whichever path your deployment honors wins.
  *
- * When bro lands `session.invalidate()` inside /rest/v2/logout
- * itself (handoff:
- * ~/Dev/eclipseworkspace/Gemma/handoffs/HANDOFF_LOGOUT_INVALIDATE_SESSION.md)
- * paths 2 and 3 can be dropped.
+ * Once the backend lands `session.invalidate()` inside
+ * /rest/v2/logout itself, paths 2 and 3 can be dropped.
  */
 export async function postLogout(): Promise<void> {
   const bearerCall = apiPost<void>(`${BASE}/logout`, {}).catch((e) => {
@@ -161,7 +159,7 @@ export function useMe() {
     // from useLogin/useLogout. ``refetchOnWindowFocus: true`` was
     // the prior default and produced /me hammering on every
     // focus-blur cycle (devtools, alt-tab, …) — observed 2-3 QPS
-    // sustained against frink with 5KB stack traces per 403.
+    // sustained against the Gemma host with 5KB stack traces per 403.
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
@@ -192,15 +190,15 @@ export function useLogout() {
       writeSessionToken(null);
       qc.invalidateQueries({ queryKey: ["auth"] });
       qc.invalidateQueries({ queryKey: ["admin"] });
-      // Bro's /rest/v2/logout only revokes the bearer token (per
+      // The agents-side /rest/v2/logout only revokes the bearer token (per
       // AuthWebService.java:140) — it does NOT invalidate the
       // HTTP session that Spring sets during /login. Without a
       // hard reload the JSESSIONID cookie keeps /me returning a
       // user. Reload nukes every cached query + tears down the
       // page so the new mount comes up anon (unless the cookie
       // is still server-valid, in which case the user shouldn't
-      // see "signed out" — see the matching handoff for the bro
-      // /logout-invalidates-session fix).
+      // see "signed out" — the agents-side
+      // /logout-invalidates-session fix covers this).
       try {
         window.location.reload();
       } catch {

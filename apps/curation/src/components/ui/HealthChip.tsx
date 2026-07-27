@@ -14,7 +14,7 @@
  *
  * The bottom "connected to /rest (proxied)" footer was load-bearing
  * for the same audience but rendered below the experiment grid and
- * was effectively invisible (Paul, 2026-05-23). Its info folds into
+ * was effectively invisible (the reviewer, 2026-05-23). Its info folds into
  * this chip's popover so nothing is lost.
  */
 
@@ -39,11 +39,11 @@ function rollup(
   // mostly broken. agent down ⇒ proposals/audits fail.
   // ``countGemma`` only folds the gemma-rest PROBE
   // (``GEMMA_REST_URL``, the diagnostics host) into the rollup in
-  // remote/mixed mode. CAVEAT (Paul 2026-06-19): "gemma-rest is
+  // remote/mixed mode. CAVEAT (design review 2026-06-19): "gemma-rest is
   // unused in local mode" was wrong — in local mode live Gemma REST
   // still serves the SVD diagnostics fallback, AND ontology term
   // search hits a live Gemma host. But that ontology host is
-  // ``GEMMA_ONTOLOGY_URL`` (a SEPARATE host, e.g. frink) which this
+  // ``GEMMA_ONTOLOGY_URL`` (a SEPARATE, gene-aware ontology host) which this
   // probe doesn't even hit, so counting the diagnostics probe here
   // wouldn't reflect ontology health. Left out of the local rollup
   // for now; the label/tooltip no longer claim "unused". Monitoring
@@ -164,7 +164,7 @@ export function HealthChip() {
               }
               hint={
                 mode === "local"
-                  ? "live Gemma 2.0 REST — in local mode it still serves the SVD / sample-correlation / mean-variance diagnostics local_api doesn't. NOTE: ontology term search (/annotations/{search,term}) ALSO needs a live Gemma host, but that routes to GEMMA_ONTOLOGY_URL (a separate host, e.g. frink) which isn't monitored by this probe — so 'live REST' is NOT unused in local mode."
+                  ? "live Gemma 2.0 REST — in local mode it still serves the SVD / sample-correlation / mean-variance diagnostics local_api doesn't. NOTE: ontology term search (/annotations/{search,term}) ALSO needs a live Gemma host, but that routes to GEMMA_ONTOLOGY_URL (a separate, gene-aware ontology host) which isn't monitored by this probe — so 'live REST' is NOT unused in local mode."
                   : "live Gemma 2.0 REST — diagnostics (SVD, sample-correlation, mean-variance) + canonical experiment audit trail"
               }
               muted={mode === "local"}

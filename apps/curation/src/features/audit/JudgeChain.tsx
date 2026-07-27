@@ -10,7 +10,7 @@
  *
  *   - ``SectionedJudgeChain`` — same tiles, but grouped into two
  *     labelled subsections: ``Internal review`` (defender) and
- *     ``Auditor`` (arbiter + boss). Per Paul 2026-06-15: the
+ *     ``Auditor`` (arbiter + boss). Per design review 2026-06-15: the
  *     proposer-side defence and the audit's comparison verdict
  *     must read as distinct things — the audit section only
  *     appears when there's a baseline being compared

@@ -584,8 +584,8 @@ export function DesignComparisonPanel({
           ...findingLabels,
         ]);
         // High-confidence filter moved INTO CollapsibleSubtaskAnalysis
-        // as an opt-in toggle (off by default) per Paul 2026-06-13
-        // ("Paul wants ALL commentary visible") and
+        // as an opt-in toggle (off by default) per design review 2026-06-13
+        // ("the reviewer wants ALL commentary visible") and
         // handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md. The
         // IIFE keeps the target_id-based dedup (factor cards already
         // surface their factor-scoped subtasks inline; experiment-
@@ -639,7 +639,7 @@ export function DesignComparisonPanel({
 /** Subtask analysis as a collapsed-by-default disclosure. The
  *  agent's introspection ("S1_design_verdict", "S3_factor_candidate",
  *  …) is interesting context but a wall of prose when laid out
- *  inline — Paul 2026-05-25 ("the block of text — help!"). Gate
+ *  inline — Design review 2026-05-25 ("the block of text — help!"). Gate
  *  behind a small toggle so the curator opts in. */
 function CollapsibleSubtaskAnalysis({
   decisions,

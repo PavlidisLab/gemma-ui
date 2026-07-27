@@ -621,7 +621,7 @@ function DesignSummary({
   // surface the FV's full curation in a hover (statements, ontology
   // grounding, baseline, sample count) without a trip to the Design
   // tab. Uses the SAME label derivation as the row builder above so the
-  // cell's displayed label keys straight in. Paul 2026-07-20.
+  // cell's displayed label keys straight in. Design review 2026-07-20.
   const fvByLabelByColumn = useMemo(
     () =>
       standard.map((f) => {
@@ -1209,7 +1209,7 @@ function TagBarLegend() {
  *
  *  Renders one row positioned right after ``sample source`` in the
  *  TagBar so the structural design surface is visible alongside the
- *  tag annotations. Per Paul 2026-05-21: factors used to render
+ *  tag annotations. Per design review 2026-05-21: factors used to render
  *  somewhere in the overview area as blue cards; this restores them
  *  as a dedicated row below SAMPLE SOURCE.
  */
@@ -1351,7 +1351,7 @@ function FvTermSpan({ term }: { term?: OntologyTerm | null }) {
  *  terms are ontology-anchored (CURIE) vs free text, the baseline flag,
  *  and the sample count. Lets a curator judge the curation state
  *  (grounded? structured?) from the overview without opening the Design
- *  tab (Paul 2026-07-20). Rendered through the dark ``Tooltip`` portal,
+ *  tab (design review 2026-07-20). Rendered through the dark ``Tooltip`` portal,
  *  same as ``FactorChipTooltipBody``. */
 function FvCellTooltipBody({ factor, fv }: { factor: Factor; fv: FactorValue }) {
   const label = (fv.free_text_label || "").trim() || "(unlabelled FV)";
@@ -1498,7 +1498,7 @@ function TagBar({
   // ontology-resolved chips under dozens of unresolved free-text values
   // (raw numbers, dates, batch ids, yes/no flags). This global sticky
   // preference collapses the view to just the ontology-anchored chips.
-  // On by default (Paul 2026-07-20) — free text is noise most of the
+  // On by default (design review 2026-07-20) — free text is noise most of the
   // time; the curator toggles it back on per session and the pref
   // sticks app-wide.
   const [hideFreeText, setHideFreeText] = useStickyState<boolean>(
@@ -1508,7 +1508,7 @@ function TagBar({
   // Inherited (inferred) filter: chips bubbled up from sample
   // characteristics / FV statements repeat what the Design tab already
   // encodes and swamp the header on richly-annotated EEs. On by default
-  // (Paul 2026-07-20) so the header shows the curator's OWN direct tags;
+  // (design review 2026-07-20) so the header shows the curator's OWN direct tags;
   // flip it on to see everything the design implies. Also the safety
   // valve for the now-uncollapsed high-cardinality inferred groups
   // (30+ cell types) — they stay hidden until explicitly shown. Sticky
@@ -1605,7 +1605,7 @@ function TagBar({
   // baseline FVs to the END of a multi-value chip's preview — the
   // baseline is the implicit reference (mock / control / vehicle),
   // and the interesting comparison values should land first in
-  // limited preview space (per Paul, 2026-05-17).
+  // limited preview space (per design review, 2026-05-17).
   const baselineLookup = useMemo(() => {
     const set = new Set<string>();
     for (const factor of draft?.factors ?? []) {
@@ -1641,7 +1641,7 @@ function TagBar({
   // an annotation, the inherited chip shows it. Removing the EE-level
   // direct tag no longer suppresses the inherited version — it surfaces
   // (purple) once the direct one is gone, so the curator still sees that
-  // the samples carry it. Paul 2026-07-20 (supersedes the B3 removed-
+  // the samples carry it. Design review 2026-07-20 (supersedes the B3 removed-
   // category suppression; "Hide inherited" now governs visibility, and
   // the direct-wins dedup keeps the EE tag on top when both are present).
   const augmentedTags = useMemo(
@@ -1661,7 +1661,7 @@ function TagBar({
   // characteristics are free text (``characteristic_uris`` absent/null,
   // e.g. GSE38066 strain "C57BL/6NTac" with no URI) the grounded tag is
   // NOT redundant — it's the only grounding — so no key is emitted and no
-  // glint fires (Paul 2026-07-20). Redundancy cue only; the direct tag
+  // glint fires (design review 2026-07-20). Redundancy cue only; the direct tag
   // still wins the direct-priority dedup.
   const universalCharTerms = useMemo(() => {
     const bms = biomaterials ?? [];
@@ -1705,7 +1705,7 @@ function TagBar({
   // redundant — the gene is not an FV value — yet every direct genotype
   // tag was dropped, hiding real EE-tags the agent was proposing to
   // remove. So suppress a direct tag only when its (category, value)
-  // matches a factor's FV value. Paul 2026-07-21 (GSE… 91268).
+  // matches a factor's FV value. Design review 2026-07-21 (GSE… 91268).
   const fvSynthValues = new Set<string>();
   for (const t of visibleTags) {
     if (!(t.inferred && t.inferred_source === "FactorValue")) continue;
@@ -1741,7 +1741,7 @@ function TagBar({
   //      a chip with a URI exists for the same value-label in the
   //      same group, drop the free-text duplicate. Ontology-
   //      resolved chips win because they carry the verifiable
-  //      identity. Per Paul 2026-05-21: "ontology terms are the
+  //      identity. Per design review 2026-05-21: "ontology terms are the
   //      best, so just hide free text ones, and same-ontology-
   //      term are redundant."
   //
@@ -1763,7 +1763,7 @@ function TagBar({
   // render time via ``splitTagValues``). Without this fallback,
   // dedup-by-URI misses the case where two synth tags built from
   // different BM characteristic columns map to the same ontology
-  // term — Paul 2026-06-12: "redundant terms should be hidden; this
+  // term — Design review 2026-06-12: "redundant terms should be hidden; this
   // is coming from two separate biomaterial char columns"
   // (``BioSource: microglial cell CL:0000129`` +
   // ``organism part: microglial cell CL:0000129``).
@@ -1808,7 +1808,7 @@ function TagBar({
   // label case/whitespace drift (``homozygous negative`` vs
   // ``Homozygous negative``, both TGEMO_00001) still dedups;
   // order-independent. A flat tag has an empty signature, which stays
-  // distinct from any statement-bearing sibling. Paul 2026-07-21.
+  // distinct from any statement-bearing sibling. Design review 2026-07-21.
   const stmtSig = (t: Tag): string =>
     (t.statements ?? [])
       .map((s) => {
@@ -1865,7 +1865,7 @@ function TagBar({
     // ``cell type`` chip shows ``CL:…`` even though the tag's own
     // ``value.uri`` is null. ``effectiveUri`` alone missed those, so the
     // free-text filter wrongly dropped resolved inferred chips and the
-    // "Hide free-text" count over-counted them (Paul 2026-07-20). A tag
+    // "Hide free-text" count over-counted them (design review 2026-07-20). A tag
     // is free-text only when NONE of its rendered values carry a URI and
     // no statement resolves.
     const vals = splitTagValues(
@@ -1988,7 +1988,7 @@ function TagBar({
         ) : null}
       </div>
       {/* Render tag-group rows in order, slotting the Factors row
-          right after ``sample_source`` per Paul 2026-05-21. Factors
+          right after ``sample_source`` per design review 2026-05-21. Factors
           are the experimental design's structural axis; surfacing
           them in the overview header (with the audit sidebar's sky
           palette so curator + non-curator views agree on entity
@@ -2001,7 +2001,7 @@ function TagBar({
             (inferredByGroup.get(g)?.length ?? 0) >
           0;
         if (hasContent) {
-          // Chip-ordering within a row (Paul 2026-05-23):
+          // Chip-ordering within a row (design review 2026-05-23):
           //   1. inferred from factors (FV-synth, ƒ-glyph)
           //   2. EE tags (direct, curator-attached)
           //   3. other ontology terms (non-FV inferred, has URI)
@@ -2362,7 +2362,7 @@ function splitTagValues(
   // baseline FV by giving it an OBI "reference substance role" /
   // "reagent role" label, which leaks into FV-synth tags as a
   // curator-meaningless value alongside the real treatment. Same
-  // spirit as Paul's earlier "baselines can be omitted or implied"
+  // spirit as the design review's earlier "baselines can be omitted or implied"
   // — these are pure implementation chrome.
   const filtered = out.filter(
     (v) =>
@@ -2453,7 +2453,7 @@ function TagValueChip({
   // second frame would double-border. The CURIE picks up Term's
   // standard slate styling (was a one-off emerald here). ``asLink=false``
   // keeps the label as plain text — clicking the CURIE opens the
-  // popover, matching the prior behaviour. Paul 2026-06-21.
+  // popover, matching the prior behaviour. Design review 2026-06-21.
   if (value.uri) {
     return (
       <Term
@@ -2539,7 +2539,7 @@ function TagGroups({
 
 /** Direct-tag analogue of ``TagGroups`` with click-to-edit + delete
  *  affordances. Renders ONE chip per tag — each term shown
- *  individually, never collapsed into a "N ▸" count (Paul 2026-07-20:
+ *  individually, never collapsed into a "N ▸" count (design review 2026-07-20:
  *  "I don't like the collapsing of terms at all"). The category is
  *  carried by the group ROW label, so per-tag chips read cleanly
  *  without repeating it. ``EditableDirectGroupChip`` takes the
@@ -2602,7 +2602,7 @@ function groupTagsByCategoryLabel(
  *  statement is the common case). Mirrors the visual convention
  *  used inside ``FvDisplayRow``: anchored = green / weight, free-
  *  text = italic slate, predicate = mono caption. Kept inline so
- *  the TagBar's tight per-chip layout doesn't break. Paul 2026-06-14:
+ *  the TagBar's tight per-chip layout doesn't break. Design review 2026-06-14:
  *  experiment-level tags need the same expressiveness as FV-level
  *  statements (e.g. ``genotype · Abca4 · has_genotype · Homozygous
  *  negative`` for a knockout applying to all samples). */
@@ -2754,7 +2754,7 @@ function EditableDirectGroupChip({
     // just flags the redundancy. Requires a grounded, flat tag: a
     // free-text tag isn't grounded, and a statement-bearing tag carries
     // more than a flat per-sample characteristic can match — neither is
-    // an exact-statement match, so neither glints. Paul 2026-07-20.
+    // an exact-statement match, so neither glints. Design review 2026-07-20.
     const isFlatTag = (tag.statements?.length ?? 0) === 0;
     const inheritedKey = tag.value.uri
       ? `${(tag.category.label || "").trim().toLowerCase()}|${tag.value.uri.trim()}`
@@ -2849,10 +2849,10 @@ function EditableDirectGroupChip({
               {valueDisplay || <em className="not-italic">no value</em>}
             </span>
             {/* CURIE inline next to the label — Term-chip pattern
-                per Paul 2026-06-15. Click opens the term-detail
+                per design review 2026-06-15. Click opens the term-detail
                 popover (which carries its own "Fetch from OLS"
                 button). Inline ↗ external link removed 2026-06-17
-                (Paul: misclick penalty + clutter). */}
+                (design review: misclick penalty + clutter). */}
             {tag.value.uri ? (
               <CurieLink
                 uri={tag.value.uri}
@@ -2868,7 +2868,7 @@ function EditableDirectGroupChip({
             click → popover. Renders nothing until the tag carries
             supporting_evidence (pending the Gemma wire field). */}
         <EvidenceTrigger evidence={tag.supporting_evidence} className="ml-0.5" />
-        {/* Delete affordance — Paul 2026-06-15: "edit should lead
+        {/* Delete affordance — Design review 2026-06-15: "edit should lead
             to the delete being exposed, but that's all." So the
             chip no longer opens the ChipEditor — it just exposes
             a × delete button on hover. Reveals on group-hover via
@@ -3003,7 +3003,7 @@ function EditableDirectGroupChip({
                   targetId={tagTarget(tag.category.label, tag.value.label)}
                 />
                 {/* Delete affordance — same shape as the single-tag
-                    chip above. Hover-reveal via ``group/chip``. Paul
+                    chip above. Hover-reveal via ``group/chip``. The reviewer
                     2026-06-15: edit exposes delete, nothing else. */}
                 {protectedCategory || readOnly ? null : (
                   <button
@@ -3211,7 +3211,7 @@ function TagGroupChip({
   const palette = TAG_PALETTE[pickTagPalette(variant, sources)];
 
   // FV-synth chips get a clickable `ƒ` glyph that jumps to the Design
-  // tab with the originating factor focused. Per Paul, 2026-05-17 —
+  // tab with the originating factor focused. Per design review, 2026-05-17 —
   // colour alone is not enough to signal source on dim screens; the
   // glyph + jump-affordance does double duty (distinguishable
   // typography signal + a real "edit me elsewhere" action).
@@ -3238,7 +3238,7 @@ function TagGroupChip({
   // by the source palette.
   //
   // Each value renders as its OWN bordered chip — no collapse into a
-  // count / "+N more" / popover. Paul 2026-07-20: "I don't like the
+  // count / "+N more" / popover. Design review 2026-07-20: "I don't like the
   // collapsing of terms at all — this is confusing. Show each term."
   // (Supersedes the 2026-05-23 high-cardinality popover. The new
   // "hide inherited" default-on toggle keeps big inferred groups —
@@ -3247,7 +3247,7 @@ function TagGroupChip({
   // inherited tags.)
   //
   // Demote free-text values when the group also carries at least one
-  // URI-resolved value (per Paul, 2026-05-17 — free text plays a
+  // URI-resolved value (per design review, 2026-05-17 — free text plays a
   // supporting role in mixed groups; pure-free-text groups stay at
   // normal weight so they remain readable).
   const hasUriValue = values.some((v) => !!v.uri);
@@ -3260,9 +3260,9 @@ function TagGroupChip({
   // already orders ontology-resolved values first, so EVERY resolved
   // term stays visible; only the free-text overflow past the cap
   // collapses behind an inline "+N more" toggle that expands IN PLACE
-  // (not the popover Paul retired 2026-07-20 — the terms are still all
+  // (not the popover the reviewer retired 2026-07-20 — the terms are still all
   // one click away, in the same row). Direct/curator tags are never
-  // capped. Paul 2026-07-21.
+  // capped. Design review 2026-07-21.
   const FREETEXT_CAP = 12;
   const resolvedVals = values.filter((v) => !!v.uri);
   const freeTextVals = values.filter((v) => !v.uri);
@@ -3838,7 +3838,7 @@ function PublicationRow({
             // surfaced by the curator (via the agent or by hand) and
             // an accidental click on the × shouldn't drop the link
             // silently. The next mutation re-renders the row so the
-            // curator sees the result immediately. Paul 2026-06-11.
+            // curator sees the result immediately. Design review 2026-06-11.
             const what =
               displayTitle ||
               (publication.pubmed_id ? `PMID ${publication.pubmed_id}` : "this publication");

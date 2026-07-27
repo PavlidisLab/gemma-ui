@@ -8,7 +8,7 @@
  * Three invariants locked:
  *
  *   1. LEFT column header in every comparison card is exactly "Current"
- *      regardless of chip-strip source (never "LIVE GEMMA", "Cyan
+ *      regardless of chip-strip source (never "LIVE GEMMA", "Curator-B
  *      polished", "live", or any dynamic source label).
  *
  *   2. Middle column shows ``N ↔ M`` (counts-agree or counts-differ) when
@@ -283,14 +283,14 @@ test.describe("locked-spec regression — comparison grid invariants (2026-06-15
 
     // These exact strings were the regressions fixed 2026-06-15.
     // "LIVE GEMMA" — the chip-strip source label for the "live" baseline.
-    // "Cyan polished" — a named curator source label.
+    // "Curator-B polished" — a named curator source label.
     // Neither should appear as a column header in the audit panel.
     // (The "Live Gemma" label IS legitimately shown in the chip strip
     // source selector — but the chip strip uses "Live Gemma" not
     // "LIVE GEMMA", so the uppercase form only appears if it leaked
     // into the column header which uses CSS uppercase.)
     await expect(page.getByText("LIVE GEMMA")).toHaveCount(0);
-    await expect(page.getByText("Cyan polished")).toHaveCount(0);
+    await expect(page.getByText("Curator-B polished")).toHaveCount(0);
     // "Gemma (live)" was the pre-rename source label, locked by the
     // 2026-06-13 curator-workflow spec as well.
     await expect(page.getByText(/Gemma \(live\)/)).toHaveCount(0);

@@ -51,7 +51,7 @@ export function ChipOverrideMount({
   // own ``curation_review`` row already carries the agent's
   // findings + the curator's dispositions + defender verdicts +
   // debate badges. Re-use it directly so all provenance survives
-  // (Paul 2026-05-27: "we want all provenance and documentation we
+  // (design review 2026-05-27: "we want all provenance and documentation we
   // pick up along the way"). For every other pair we still
   // synthesise from the structural diff.
   const isCuratorAuditingAgent =
@@ -65,7 +65,7 @@ export function ChipOverrideMount({
   // sidebar then renders the DELTA between baseline and comparator
   // as cards, not the live agent-proposal feed. Includes
   // ``cmp = agent_proposal`` when a real polished baseline is set:
-  // baseline = polished:cyan, cmp = agent original proposal ⇒ show
+  // baseline = polished:curator-b, cmp = agent original proposal ⇒ show
   // the curator's audit of the agent's proposal, with dispositions.
   //
   // Skipped when:

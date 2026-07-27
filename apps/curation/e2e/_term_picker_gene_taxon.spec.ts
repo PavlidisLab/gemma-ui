@@ -10,8 +10,8 @@ import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
  * undifferentiated ``KRAS``.
  *
  * Status: SKIP-GATED. Two preconditions before this runs green:
- *   1. Live taxon data — gene hits only carry ``taxon_*`` once frink
- *      ships the 2026-06-18 backend change (the route-mock below makes
+ *   1. Live taxon data — gene hits only carry ``taxon_*`` once the ontology
+ *      host ships the 2026-06-18 backend change (the route-mock below makes
  *      the spec hermetic, so this is satisfied here).
  *   2. A picker-driving harness — opening the OntologyTermPicker
  *      typeahead means entering the design editor's FV edit flow, which
@@ -25,7 +25,7 @@ import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
  */
 const ENABLED = !!process.env.TERM_PICKER_TAXON_E2E;
 
-// Four-species `kras` fixture mirroring the live frink shape (camelCase
+// Four-species `kras` fixture mirroring the live ontology-host shape (camelCase
 // on the wire; client.ts snakeifies before the React tree sees it).
 const KRAS_FIXTURE = [
   geneRow("KRAS", "Homo sapiens", "human", 3845, 120),

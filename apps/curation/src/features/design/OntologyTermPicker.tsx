@@ -259,7 +259,7 @@ export function OntologyTermPicker({
    * label and committing WITHOUT picking a suggestion keeps free text,
    * even when the label happens to match an ontology term — so a
    * curator who deliberately wants a bare ``mdx`` isn't force-upgraded
-   * to ``mdx TGEMO:00180`` (Paul 2026-07-13: "if I explicitly don't
+   * to ``mdx TGEMO:00180`` (design review 2026-07-13: "if I explicitly don't
    * click on the ontology term that comes up, it should keep it as free
    * text"). Supersedes the 2026-04-27 auto-bind-on-exact-match rule.
    *
@@ -294,7 +294,7 @@ export function OntologyTermPicker({
    *  OR the current value. This is the curator's deliberate choice to
    *  keep a bare label; the only way to strip a URI while keeping the
    *  same label. Wired to the free-text row click + Enter-on-free-text-
-   *  row. Paul 2026-07-13. */
+   *  row. Design review 2026-07-13. */
   function commitExplicitFreeText(text: string) {
     const t = text.trim();
     if (!t) {
@@ -320,7 +320,7 @@ export function OntologyTermPicker({
     // Always offer the explicit free-text row when there's draft text —
     // even when the label matches an ontology candidate — so the curator
     // can deliberately keep a bare label instead of the ontology term.
-    // Paul 2026-07-13: "if I explicitly don't click on the ontology term
+    // Design review 2026-07-13: "if I explicitly don't click on the ontology term
     // that comes up, it should keep it as free text."
     const freeTextRowVisible = !!draft.trim();
     const freeTextRowIdx = freeTextRowVisible ? totalRows : -1;
@@ -682,7 +682,7 @@ export function OntologyTermPicker({
         // leukemia viral oncogene homolog 2, …"), which otherwise
         // blows out the statement row. Truncate with the full text in
         // the hover title; the CURIE chip beside it still pins the
-        // ontology id. Paul 2026-07-21.
+        // ontology id. Design review 2026-07-21.
         !isEmpty && "inline-block align-bottom max-w-[22rem] truncate",
         // Empty slot with a placeholder reads as "fill this in" —
         // give it a dashed border + cursor-pointer so the curator

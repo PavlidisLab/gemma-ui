@@ -2,8 +2,8 @@ import { test } from "@playwright/test";
 
 /**
  * Gate for specs that genuinely hit the live curation backend (the
- * store at :8095 + gemma-rest + frink ontology) — the integration
- * tests we DO want, but only when the backend is up (Paul 2026-07-18:
+ * store at :8095 + gemma-rest + ontology search) — the integration
+ * tests we DO want, but only when the backend is up (design review 2026-07-18:
  * "we do need tests that hit the backend, but they have to be run when
  * the backend is available").
  *

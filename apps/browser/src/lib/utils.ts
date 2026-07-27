@@ -17,7 +17,7 @@ export const formatDecimal = (d: number | undefined | null): string =>
  *  imported rows have the scientific name in the common-name slot
  *  ("Homo sapiens"). Normalising at display time so the table reads
  *  consistently — the underlying data fix belongs in the importer
- *  (preload_runner.py). Per Paul 2026-05-27. */
+ *  (preload_runner.py). Per design review 2026-05-27. */
 const TAXON_COMMON_NAMES: Record<string, string> = {
   "homo sapiens": "human",
   "mus musculus": "mouse",

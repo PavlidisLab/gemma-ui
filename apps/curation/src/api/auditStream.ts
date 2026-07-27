@@ -5,7 +5,7 @@ import type { AuditReport, AuditRequest } from "./auditTypes";
 
 /**
  * Server-Sent Events client for the audit pipeline's
- * `POST /audit/{accession}/stream` endpoint (my brother's Step 6,
+ * `POST /audit/{accession}/stream` endpoint (the agents-side Step 6,
  * see `AUDIT_FEATURE.md` §Status).
  *
  * Mirrors `useProposeStream` exactly — same envelope shape
@@ -127,7 +127,7 @@ export function useAuditStream(experimentId: number | string) {
                 let ev: ProgressEvent;
                 try {
                   // Normalise envelope + payload keys to snake_case so
-                  // the bro-side `_camel_keys` flip (phase-2c) is
+                  // the agents-side `_camel_keys` flip (phase-2c) is
                   // transparent. snakeify is idempotent on snake input.
                   ev = snakeify(
                     JSON.parse(line.slice(5).trim()),

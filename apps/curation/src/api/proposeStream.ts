@@ -159,7 +159,7 @@ export function useProposeStream(experimentId: number | string) {
                 let ev: ProgressEvent;
                 try {
                   // Normalise envelope + payload keys to snake_case so
-                  // the bro-side `_camel_keys` flip (phase-2c) is
+                  // the agents-side `_camel_keys` flip (phase-2c) is
                   // transparent. snakeify is idempotent on snake input.
                   ev = snakeify(
                     JSON.parse(line.slice(5).trim()),

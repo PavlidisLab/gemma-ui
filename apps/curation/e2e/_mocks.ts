@@ -2,8 +2,8 @@ import type { Page } from "@playwright/test";
 
 /**
  * Backend DATA endpoints the curation UI reads on load — the vite-proxy
- * targets local_api / gemma-rest (``/rest/v2/…``, incl. the frink
- * ontology exception under ``/rest/v2/annotations``), the explicit
+ * targets local_api / gemma-rest (``/rest/v2/…``, incl. the ontology-search
+ * exception under ``/rest/v2/annotations``), the explicit
  * ``/local-api`` passthrough, and the publication/term lookups.
  *
  * Deliberately scoped to these prefixes only: NOT the app bundle (Vite
@@ -19,7 +19,7 @@ const BACKEND_RE = /\/(rest|local-api)\/|\/find-(publication|term)/;
  * not data access. Replays recorded responses from
  * ``e2e/hars/<harName>.har`` for every backend call; the app bundle
  * still loads live. Removes the pre-commit @critical gate's dependence
- * on the store having a given experiment loaded and on remote frink
+ * on the store having a given experiment loaded and on remote ontology-host
  * latency (the source of the parallel-run timeouts).
  *
  * Record / refresh — needs the backend up AND the fixture experiment

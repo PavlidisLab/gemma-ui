@@ -1,6 +1,6 @@
 /**
  * Adapter that composes the curation `Design` from two Gemma 2.0
- * endpoints — per bro's reply on
+ * endpoints — per the agents-side reply on
  * ``CURATION_TO_GEMMA_2_0_HANDOFF.md`` §2 (filed 2026-05-23):
  *
  *   1. `GET /datasets/{id}/design`
@@ -315,7 +315,7 @@ export function composeCurationDesign(
     // taught about the design's `publications` field — so the
     // OverviewPanel "Publications" card and the PrePublishChecklist
     // both rendered as empty even when the local API returned a
-    // populated PMID list. Fixed 2026-06-11 (Paul GSE102415).
+    // populated PMID list. Fixed 2026-06-11 (design review GSE102415).
     publications: g2.publications ?? [],
     external_source: externalSource ?? null,
     title: g2.name ?? undefined,

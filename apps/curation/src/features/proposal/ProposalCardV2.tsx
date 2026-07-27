@@ -935,7 +935,7 @@ export function ProposalCardV2({
       }
       apply(next);
       // Focus the first newly-accepted factor so the design tab opens
-      // expanded on its FVs — per Paul 2026-06-13: "when a factor is
+      // expanded on its FVs — per design review 2026-06-13: "when a factor is
       // added, it should get focus, so that the FVs are shown". The
       // request rides through the same ``requestAuditFocus`` channel
       // the audit Apply & focus path uses, so DesignEditor's existing
@@ -1555,7 +1555,7 @@ export function ProposalCardV2({
                 {/* Per-factor uncertainty count + count of any
                     curator overrides for this factor. The actual
                     reassignment editor lives on the Samples tab now
-                    (per Paul, 2026-04-29) — sample tiles are too
+                    (per design review, 2026-04-29) — sample tiles are too
                     information-poor inside the sidebar to make
                     informed reassignment calls. */}
                 {(() => {

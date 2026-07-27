@@ -497,7 +497,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
 }
 
 /** Prev / range / Next pager. Rendered both above and below the
- *  candidate list (Paul: page-through nav belongs at the top and the
+ *  candidate list (design review: page-through nav belongs at the top and the
  *  bottom). Self-hides when the whole filtered set fits one page. */
 function Pager({
   page,

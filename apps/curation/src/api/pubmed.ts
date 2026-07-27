@@ -3,7 +3,7 @@
  *  The local API's Design.publications field carries PMIDs but
  *  doesn't fetch human-readable metadata (title, citation, doi).
  *  When the UI renders a publication row, we surface "(metadata
- *  not fetched yet)" — and Paul reasonably asks "why isn't it
+ *  not fetched yet)" — and the reviewer reasonably asks "why isn't it
  *  fetched?". This hook does it on-demand: one esummary call per
  *  PMID per session, cached by TanStack.
  *

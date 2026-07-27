@@ -90,7 +90,7 @@ done
 
 # If --gemma but the WAR path doesn't exist, warn early.
 if printf '%s\n' "${PROFILES[@]+"${PROFILES[@]}"}" | grep -q "gemma"; then
-    WAR="${GEMMA_WAR_PATH:-$HOME/Dev/eclipseworkspace/Gemma/gemma-rest/target/gemma-rest.war}"
+    WAR="${GEMMA_WAR_PATH:-$HOME/gemma/gemma-rest/target/gemma-rest.war}"
     if [ ! -f "$WAR" ]; then
         echo "ERROR: --gemma needs a WAR at $WAR — set GEMMA_WAR_PATH" >&2
         exit 1

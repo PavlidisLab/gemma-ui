@@ -1,7 +1,7 @@
 /**
  * Playwright spec — unified Reasoning panel across finding card types.
  *
- * Contract (Paul 2026-06-16): every audit finding card — factor-match,
+ * Contract (design review 2026-06-16): every audit finding card — factor-match,
  * partition mismatch, factor extra, tag add, tag remove — must share
  * the SAME Reasoning collapsible affordance:
  *
@@ -64,7 +64,7 @@ test.describe("Reasoning panel — unified shell @critical", () => {
       "expected at least one reasoning toggle after expanding cards",
     ).toBeGreaterThanOrEqual(1);
     // Canonical phrasing on every toggle — anything else is the
-    // regression Paul caught when the buttons read "Auditor details".
+    // regression the reviewer caught when the buttons read "Auditor details".
     for (let i = 0; i < tcount; i++) {
       const label = (await toggles.nth(i).textContent())?.toLowerCase() ?? "";
       const ok =

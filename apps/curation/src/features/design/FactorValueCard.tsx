@@ -54,7 +54,7 @@ export function FactorValueCard({
   /** Optional clone affordance — when wired, the FV header surfaces a
    *  "Duplicate" button. Clone semantics: copy label + statements,
    *  clear sample assignment + baseline (per
-   *  ``duplicateFactorValue`` in mutations.ts). Paul 2026-06-14. */
+   *  ``duplicateFactorValue`` in mutations.ts). Design review 2026-06-14. */
   onDuplicate?: () => void;
   onAddStatement: () => void;
   /** Append a statement that inherits the seed's category + subject
@@ -624,7 +624,7 @@ function CompactStatementRow({
   return (
     <div className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]">
       {/* Category chip leads the row so the compact view reads as a
-          full statement triple — Paul 2026-06-14: "the full statement
+          full statement triple — Design review 2026-06-14: "the full statement
           should be shown, like in the review panel." Hidden when the
           statement carries no category (rare, but the type allows). */}
       {hasCat ? (
@@ -686,7 +686,7 @@ function CompactStatementRow({
  *  SAME row, wrapping only when the row overflows. So a Srsf1 FV
  *  with two has_genotype statements collapses to
  *  ``Srsf1 - has_genotype - WT - has_genotype - KO`` on one line;
- *  long rows wrap naturally via ``flex-wrap``. Per Paul:
+ *  long rows wrap naturally via ``flex-wrap``. Per design review:
  *
  *    2026-05-21 — subject shouldn't be repeated when shared.
  *    2026-06-12 — "they can be shown on the same row, at least in

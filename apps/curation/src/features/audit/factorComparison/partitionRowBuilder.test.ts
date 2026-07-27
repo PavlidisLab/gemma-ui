@@ -4,7 +4,7 @@
  * The builder emits rowspan-aware ``FactorComparisonPair[]`` so the
  * shared grid renders the umbrella side ONCE across its child rows
  * instead of duplicating the label + count. Anchored on the
- * GSE165287 organism-part agent_coarser case Paul caught
+ * GSE165287 organism-part agent_coarser case the reviewer caught
  * 2026-06-16 ("you have the numbers shown twice").
  *
  * Spec:

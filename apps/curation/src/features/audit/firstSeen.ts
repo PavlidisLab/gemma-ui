@@ -1,7 +1,7 @@
 /**
  * Tracks the first time the curator saw each audit finding so we
  * can attach `first_seen_at` to the first PATCH for that finding
- * (per `AUDIT_DISPOSITIONS.md` Ask #5). Lets my brother subtract
+ * (per `AUDIT_DISPOSITIONS.md` Ask #5). Lets the agents side subtract
  * from `reviewed_at` for triage-time analytics — separates 1s
  * click-dismisses from minute-long considerations.
  *

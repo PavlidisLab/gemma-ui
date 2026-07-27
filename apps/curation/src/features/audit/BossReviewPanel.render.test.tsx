@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * Render-time regression tests for BossReviewPanel — the top-of-
- * experiment slot Paul moved the boss-critic surface into on
+ * experiment slot the reviewer moved the boss-critic surface into on
  * 2026-06-16 (after the fan-out spam complaint). Pins:
  *   - suppresses entirely on empty / missing input
  *   - severity chip counts ("1 blocker · 2 advisory") render

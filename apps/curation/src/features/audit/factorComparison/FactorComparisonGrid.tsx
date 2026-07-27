@@ -22,7 +22,7 @@
  * (or the auditor-side gold/agent index when that's authoritative)
  * and handed in.
  *
- * History: extracted 2026-06-12 per Paul's "these panels are using
+ * History: extracted 2026-06-12 per design review's "these panels are using
  * different code than the other factor panels. […] This should be
  * unified. Both should use the side-by-side and both should
  * indicate the FVs (FV1, FV2). Propose how to make this so they use
@@ -59,7 +59,7 @@ export type Continuation = typeof CONTINUATION;
  *  grid — caller supplies ``status`` so the glyph between the cells
  *  reads correctly.
  *
- *  Per-cell rowspan (Paul 2026-06-16, Option B): each cell may be a
+ *  Per-cell rowspan (design review 2026-06-16, Option B): each cell may be a
  *  ``GridFv`` (renders) or ``CONTINUATION`` (skipped — the umbrella
  *  row above's rowspan covers this slot). The umbrella row sets
  *  ``leftRowSpan`` / ``rightRowSpan`` to N; the next N-1 rows must
@@ -124,7 +124,7 @@ export interface FactorComparisonGridProps {
    *  "(no factor)" placeholder), the header renders a small 🔍
    *  button next to the column label that triggers it. Mirrors the
    *  affordance FindingDetailsEditor's removal-only card already
-   *  carries on the "Current" row. Paul 2026-06-14: factors should
+   *  carries on the "Current" row. Design review 2026-06-14: factors should
    *  get the same affordance. */
   onLeftLocate?: () => void;
   /** Paired FVs, in render order. Empty list → "(no factor values)" */
@@ -233,7 +233,7 @@ function FvCell({
   if (!fv) {
     return <em className="text-slate-400">(no FV)</em>;
   }
-  // FV-index prefix ("FV 1" / "FV 2" / …) dropped 2026-06-16 — Paul:
+  // FV-index prefix ("FV 1" / "FV 2" / …) dropped 2026-06-16 — the reviewer:
   // "The FV1, FV1, FV2 etc is not needed as long as separate FVs are
   // visibly separate." Row separation now relies on backdrop +
   // padding only.
@@ -244,7 +244,7 @@ function FvCell({
       diffChips={diffChips}
       suppressSampleCount={!showSampleCount}
       // Side-by-side factor comparison — render the whole statement a
-      // notch smaller so the two columns fit more comfortably. Paul
+      // notch smaller so the two columns fit more comfortably. The reviewer
       // 2026-06-21: "the text smaller for the whole thing." Only the
       // comparison grid is compact; other FvDisplayRow callers stay
       // at the default size.
@@ -387,7 +387,7 @@ export function FactorComparisonGrid({
 /** Inner pair-grid body. Renders the side-by-side FV rows with a
  *  per-row sample-partition summary in the middle column ("N ↔ M",
  *  colour-coded green/amber/red). Replaces an earlier SVG sankey
- *  experiment — Paul 2026-06-15: "the sankey is no good; just put
+ *  experiment — Design review 2026-06-15: "the sankey is no good; just put
  *  30 ↔ 60 or something … double-headed arrow, with colour
  *  indicating green/amber/red". The ↔ is a comparison glyph (not a
  *  direction marker), so it shows regardless of which way drift
@@ -422,7 +422,7 @@ export function midCellRender(pair: FactorComparisonPair): {
   // The middle column communicates the SAMPLE-COUNT axis only:
   // ``N ↔ M`` always, coloured by whether the counts agree. Label
   // drift is a different axis — it's communicated by the per-chip
-  // diff rings on the side cells, NOT here. Per Paul 2026-06-15:
+  // diff rings on the side cells, NOT here. Per design review 2026-06-15:
   // "the number 12 is agreeing in both. What happened to 12 ↔ 12?"
   // The earlier ``≈ 12`` / ``= 12`` glyphs collapsed the two axes
   // and read as "approximately 12 samples" which was wrong — the
@@ -488,13 +488,13 @@ function PairGridBody({
       {/* Per-row backdrop — sits behind each pair's cells so the row
           reads as one self-contained unit instead of running into
           its neighbours. Stronger ring + slightly darker fill per
-          Paul 2026-06-16 ("They barely [separate] right now"). */}
+          Design review 2026-06-16 ("They barely [separate] right now"). */}
       {(() => {
         // One backdrop per CLUSTER, not per row. A rowspan cluster
         // (a 1->N split: umbrella row with leftRowSpan/midRowSpan = N
         // + N-1 CONTINUATION rows) reads as ONE merged unit instead of
         // N floating boxes with dangling arrows. Skip rows already
-        // covered by an umbrella's span above. (Paul 2026-06-21: split
+        // covered by an umbrella's span above. (design review 2026-06-21: split
         // FVs should sit together, no floating / arrows-to-nowhere.)
         const bg: JSX.Element[] = [];
         let coveredUntil = 0;

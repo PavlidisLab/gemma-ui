@@ -70,7 +70,7 @@ describe("findingShortRationale — gold_only_miss precedence", () => {
   });
 
   it("skips a rationale that just echoes the existing curation back", () => {
-    // Paul 2026-06-21: "The existing curation has `cell type: …`" just
+    // Design review 2026-06-21: "The existing curation has `cell type: …`" just
     // restates the chips already on the row. Drop it and show the
     // curated reason instead of the noise.
     const f = missFinding({

@@ -131,7 +131,7 @@ export function tabForTargetId(targetId: string): ExperimentTab | null {
  *  tooltips on locate-in-tab affordances so the curator sees
  *  "show in Overview tab" for tags and "show in Design tab" for
  *  factors — not the misleading "Design" fallback that previous
- *  call sites hardcoded. Paul 2026-06-14: "it's the overview tab
+ *  call sites hardcoded. Design review 2026-06-14: "it's the overview tab
  *  where tags are shown." */
 export function locateTooltipFor(targetId: string): string {
   const tab = tabForTargetId(targetId);
@@ -173,7 +173,7 @@ export function focusByAuditTarget(targetId: string): boolean {
     `[data-audit-target="${safe}"]`,
   );
   if (!el) {
-    // Diagnostic signal — silent no-op was the reason Paul's
+    // Diagnostic signal — silent no-op was the reason the design review's
     // "magnifying glasses don't do anything" report 2026-06-14 had
     // no console trace. Common cause: the target's owning chip
     // group is collapsed (Multi-tag groups in OverviewPanel are

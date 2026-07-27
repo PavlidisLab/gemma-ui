@@ -48,10 +48,10 @@ override the keychain lookup.
 | `GEMMA_CURATION_API_KEY` | keychain → `dev-token-123` | bearer accepted by local_api |
 | `AGENTS_REPO` | `../../../gemma-curation-agents` | bind-mount source for the Python services |
 | `UI_REPO` | `../..` | bind-mount source for the curation UI |
-| `GEMMA_WAR_PATH` | `~/Dev/eclipseworkspace/Gemma/gemma-rest/target/gemma-rest.war` | only with `--gemma`; the WAR file Tomcat hosts |
+| `GEMMA_WAR_PATH` | `${HOME}/gemma/gemma-rest/target/gemma-rest.war` | only with `--gemma`; the WAR file Tomcat hosts. Point at your Gemma checkout |
 | `GEMMA_DB_NAME` / `GEMMA_DB_USER` / `GEMMA_DB_PASSWORD` / `GEMMA_DB_ROOT_PASSWORD` | `gemd` / `gemmaadmin` / `gemmatoast` / `gemmatoast` | MySQL creds — match what the WAR expects |
 | `GEMMA_DB_SEED_DIR` | `./seed-empty` (empty) | drop `.sql.gz` files here for first-boot DB import |
-| `GEMMA_BASE_URL` | `https://staging-gemma.msl.ubc.ca` | read-side Gemma for the proposer. Set to `http://gemma-rest:8080` when running `--gemma` |
+| `GEMMA_BASE_URL` | none — **required** | read-side Gemma for the proposer. Set to your own Gemma instance, or `http://gemma-rest:8080` when running `--gemma` |
 | `GEMMA_BROWSER_BACKEND` | `http://host.docker.internal:8080` | upstream the browser UI proxies `/rest` to. Default reaches local Gemma 2.0 on the host. Flip to `http://gemma-rest:8080` when running `--gemma`, or to staging / prod URLs. |
 | `GEMMA_AGENTS_USE_ZOTERO` | unset | `1` to enable Zotero biolit fetcher |
 
@@ -61,9 +61,9 @@ To make this run on a fresh Linux box without the host bind-mounts:
 
 1. Clone both repos (`gemma-curation-ui`, `gemma-curation-agents`) side-by-side.
 2. Drop the Gemma WAR somewhere; set `GEMMA_WAR_PATH`.
-3. Drop a MySQL seed `.sql.gz` under `GEMMA_DB_SEED_DIR`. Bro can
-   publish a periodic dump — until then the DB starts empty and you
-   load via `gca mock-gemma import …` after first boot.
+3. Drop a MySQL seed `.sql.gz` under `GEMMA_DB_SEED_DIR`. The agents-side
+   service can publish a periodic dump — until then the DB starts empty and
+   you load via `gca mock-gemma import …` after first boot.
 4. Set `ANTHROPIC_API_KEY` as an env var (no keychain on Linux).
 5. `./up.sh --gemma`.
 

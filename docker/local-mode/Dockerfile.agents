@@ -1,7 +1,7 @@
 # Python image used by both the local_api server and the proposer
 # service. Source lives on a bind-mount at /agents so edits to the
-# Python code (in ~/Dev/gemma-curation-agents) take effect without a
-# rebuild.
+# Python code (in the gemma-curation-agents repo) take effect without
+# a rebuild.
 #
 # Single image, two services: compose runs different commands against
 # the same image to bring up local_api and the proposer.

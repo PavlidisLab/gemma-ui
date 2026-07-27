@@ -3,7 +3,7 @@
  * `gemma_curation_agents/mock_gemma_curation_api/workflow_schemas.py`.
  *
  * Wire contract is documented in WORKFLOW_MANAGEMENT_HANDOFF.md.
- * When my brother updates the Python schemas, regenerate these to match.
+ * When the agents side updates the Python schemas, regenerate these to match.
  */
 
 // ---------------------------------------------------------------------------
@@ -203,9 +203,9 @@ export type GroupTaskKind =
 
 /** Aggregate of per-member ``audit_status`` across a group's
  *  members, pre-computed server-side so the dashboard doesn't have
- *  to issue N per-card fetches. Keys are snake_case on the wire
- *  (verified by cab's reply 2026-05-25). Always populated — never
- *  null — so consumers can read the counts without a None-guard.
+ *  to issue N per-card fetches. Keys are snake_case on the wire.
+ *  Always populated — never null — so consumers can read the counts
+ *  without a None-guard.
  *
  *  Bucket semantics (mirror of agents-side
  *  ``GROUP_FINALIZE_AND_LIST_STATUS_HANDOFF.md``):

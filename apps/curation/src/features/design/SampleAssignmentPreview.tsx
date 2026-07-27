@@ -301,7 +301,7 @@ export function SampleAssignmentPreview({
 /* BulkAssignPanel + its helpers (bucketByCharacteristic, suggestPlan,
  * suggestFvForValue, collectVaryingCharacteristicKeys,
  * pickDistinguishingKey) all moved to
- * ``@/features/samples/BulkAssignPanel`` per Paul, 2026-04-29 — the
+ * ``@/features/samples/BulkAssignPanel`` per design review, 2026-04-29 — the
  * panel lives on the Samples tab now (where the per-sample data the
  * curator needs to make assignment decisions actually lives). The
  * Design tab keeps drag-and-drop reassignment for visual interaction

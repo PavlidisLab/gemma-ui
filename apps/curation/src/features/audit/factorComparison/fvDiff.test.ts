@@ -175,7 +175,7 @@ describe("computeFvDiff — per-statement S-P-O slot diffing", () => {
   it("URI canonicalisation: full IRI and bare CURIE for the same term do not produce a diff", () => {
     // The same ontology term represented as a full IRI on the left
     // and as a bare CURIE on the right should NOT produce diff keys
-    // (this was the TGEMO:00001 regression Paul caught 2026-06-15).
+    // (this was the TGEMO:00001 regression the reviewer caught 2026-06-15).
     const left = mkFv([{
       subject: { label: "Homozygous negative", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00001" },
       predicate: { label: "genotype", uri: null },

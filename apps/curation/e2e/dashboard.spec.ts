@@ -16,7 +16,7 @@ test.describe("Curator dashboard @live", () => {
     // Use the shared helper so the suite's console-error filter list
     // stays one source of truth (the inline copy lacked the
     // 404 / "Failed to load resource" allowance the dev server emits
-    // on its TanStack-query health probes — Paul 2026-06-16).
+    // on its TanStack-query health probes — Design review 2026-06-16).
     installErrorGuards(page);
   });
 

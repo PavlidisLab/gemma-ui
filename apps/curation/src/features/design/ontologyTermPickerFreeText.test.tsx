@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Bug 2 (Paul 2026-07-13): in the tag/statement editor, a curator who
+ * Bug 2 (design review 2026-07-13): in the tag/statement editor, a curator who
  * has an ontology-bound term (e.g. object ``mdx`` → TGEMO_00180) and
  * wants to switch it back to plain free text COULDN'T — the picker
  * force-upgraded any typed label that matched an ontology term back to

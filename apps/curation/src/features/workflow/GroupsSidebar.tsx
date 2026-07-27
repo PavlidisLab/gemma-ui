@@ -247,7 +247,7 @@ export function GroupsSidebar({ selectedGroupId }: { selectedGroupId?: string })
 
 /** Delete-confirmation dialog with an open-tasks safety gate.
  *
- *  Per Paul 2026-05-25: "sets representing tasks/tickets should
+ *  Per design review 2026-05-25: "sets representing tasks/tickets should
  *  not be deletable until the tasks are closed, or the user
  *  overrides. The entire set can be finalized and then exported."
  *
@@ -283,7 +283,7 @@ function DeleteSetDialog({
   // Override only required when the set isn't finalized AND has
   // open work. Finalizing the set IS the explicit "I'm done with
   // this grouping" gate — once that's stamped, delete is safe to
-  // run without a second checkbox. Per Paul 2026-05-25.
+  // run without a second checkbox. Per design review 2026-05-25.
   const needsOverride = !isLoading && !isFinalized && hasOpenTasks(counts);
   const [override, setOverride] = useState(false);
   const canConfirm = !needsOverride || override;

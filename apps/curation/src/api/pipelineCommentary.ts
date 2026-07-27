@@ -11,7 +11,7 @@
  * fall through to the mirror only when the canonical is empty / null.
  * The mirror will be removed in a future agents-side patch; until then
  * these helpers handle the transition transparently — no PR-
- * coordination required (per bro's note).
+ * coordination required (per the agents-side note).
  *
  * Stays small + pure so any caller can drop it in without dragging
  * audit-context state.

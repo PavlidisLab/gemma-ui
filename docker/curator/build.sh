@@ -2,8 +2,8 @@
 # Build the two curator-distribution images. Run from a dev machine
 # with both repos checked out side-by-side:
 #
-#   ~/Dev/gemma-curation-ui          (this repo)
-#   ~/Dev/gemma-curation-agents      (Python services)
+#   gemma-curation-ui          (this repo)
+#   gemma-curation-agents      (Python services)
 #
 # After build, push to a registry (Docker Hub / GHCR / private) so
 # curators can ``docker compose pull`` rather than build locally:
@@ -47,7 +47,7 @@ docker build \
 # OntologyTermPicker footer displays the correct routing-exception
 # host (same value the curator-stack's vite/nginx proxy forwards
 # /annotations/{search,term} to). Reads from the environment so
-# `GEMMA_ONTOLOGY_URL=http://frink:8080 ./build.sh` works.
+# `GEMMA_ONTOLOGY_URL=https://your-ontology-host ./build.sh` works.
 docker build \
     -f Dockerfile.curation-ui \
     --build-arg "VITE_GEMMA_ONTOLOGY_URL=${GEMMA_ONTOLOGY_URL:-}" \

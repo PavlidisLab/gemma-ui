@@ -165,7 +165,7 @@ export function applyDetailsEditsToDesign(
     // the first — each iteration read the stale ``current`` from
     // ``goldFactor.statements[idx]`` and ``next = {...current,
     // <part>: nextTerm}`` clobbered the other slot back to its
-    // pre-edit value. Per Paul 2026-06-12: "clicking 'agree' leads
+    // pre-edit value. Per design review 2026-06-12: "clicking 'agree' leads
     // to a 'modified' flag on the factor value but no change."
     const mutatedFactor = mutated.factors.find(
       (f) => f.id === goldFactor.id,

@@ -67,7 +67,7 @@ export function RuleCite({
   // wiki base, redundant with the precise page) and the cryptic ``doc``
   // provenance line (an internal agent-doc ref like "calibration
   // tag-match (exact/near) rules"). Keep them only as a fallback when no
-  // precise link exists. Paul 2026-06-21.
+  // precise link exists. Design review 2026-06-21.
   const hasLinks = links.length > 0;
   return (
     <HelpPopup

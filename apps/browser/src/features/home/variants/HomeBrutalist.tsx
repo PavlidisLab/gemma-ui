@@ -65,7 +65,7 @@ const FACTOR_CATEGORY_DISPLAY: Record<string, string> = {
 
 export function HomeBrutalist() {
   const s = useGemmaSummary();
-  // General-info section starts expanded on first load (per Paul);
+  // General-info section starts expanded on first load (per design review);
   // power users can fold it away once they know what Gemma is.
   const [infoOpen, setInfoOpen] = useState(true);
   return (
@@ -132,7 +132,7 @@ export function HomeBrutalist() {
           />
         </div>
 
-        {/* Surface buttons removed 2026-05-26 — Paul: redundant with
+        {/* Surface buttons removed 2026-05-26 — the reviewer: redundant with
             the stat tiles up top. Datasets / Platforms / Genes
             perturbed tiles are now hot links to /browser /
             /platforms / /genes. About lives on the Masthead. */}
@@ -169,7 +169,7 @@ function StatsRow({ s }: { s: GemmaSummary }) {
     return parts.length > 0 ? parts.join(" · ") : null;
   })();
 
-  // Datasets footnote — Paul (2026-05-25): drop the per-source
+  // Datasets footnote — the reviewer (2026-05-25): drop the per-source
   // breakdown ("99.9% from GEO anyway, the breakdown isn't
   // informative"). Render just a single "from N distinct
   // accessions" line. That count is NOT what
@@ -326,7 +326,7 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
     s.treatmentSubcategories.find((t) => t.key === "pathogen")?.termCount ??
     null;
   type Row = { label: string; value: number | null; hint: string };
-  // Two ordered columns (Paul's grouping): anatomical / model-system
+  // Two ordered columns (the design review's grouping): anatomical / model-system
   // terms on the left, disease / exposure / perturbation terms on the
   // right.
   const columns: Row[][] = [
@@ -505,7 +505,7 @@ function CategoryBars({ s }: { s: GemmaSummary }) {
 
 function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
   // Right-third bar chart: the treatment sub-buckets shipped by
-  // bro (approved-drug / hormone / vitamin / toxin / vehicle /
+  // the agents side (approved-drug / hormone / vitamin / toxin / vehicle /
   // other-chemical / pathogen / biologic / control-reference /
   // other). Sums to byAnnotationCategory.treatment.
   //
@@ -514,7 +514,7 @@ function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
   // signal; surfacing them on the home page just buries the real
   // pharmacology / biological buckets and pushes "control" to the
   // top of the chart, which is misleading. Group field comes from
-  // bro's treatmentSubcategories.group ("control" / "pharmacology"
+  // the agents-side treatmentSubcategories.group ("control" / "pharmacology"
   // / "biological" / "unclassified"). Then cap at 10 so the panel
   // matches its siblings in row count and bottoms line up.
   const rows = s.treatmentSubcategories
@@ -603,7 +603,7 @@ function PerturbedGenesBars({ s }: { s: GemmaSummary }) {
   // 3-col layout has visual mass and the page communicates the
   // intent. Empty-state header line keeps the slot honest.
   // Cap at 10 to match the sibling panels in the row — all three
-  // render the same row count so the bottoms line up. Paul: "make
+  // render the same row count so the bottoms line up. The reviewer: "make
   // it all fit and line up well".
   const rows = s.topPerturbedGenes.slice(0, 10);
   const ready = rows.length > 0;
@@ -889,7 +889,7 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
 
 /**
  * Page-level masthead — replaces the standard AppBar on the home
- * route + the old wordmark block (Paul: those two duplicated the
+ * route + the old wordmark block (design review: those two duplicated the
  * brand mark on the home view). Layout:
  *
  *   ┌──────────────────────────────────────────────────────────┐
@@ -1187,7 +1187,7 @@ function InfoColumn({
 }
 
 // AccessTag (the heavy filled black chip) removed 2026-05-25 —
-// Paul: "ugly, poor use of space". The access column now uses a
+// The reviewer: "ugly, poor use of space". The access column now uses a
 // flat 3-column grid with the tag rendered as muted mono text in
 // line with the other text. Restore from commit af06461 if a
 // chip-style treatment is ever wanted again.
@@ -1261,10 +1261,10 @@ function StatBlock({
  *  for the explanation. Wrapped in the shared Tooltip component
  *  (60ms open delay, portal-mounted, stone-900 bubble) instead of
  *  the browser-default ``title=`` which has a ~700ms open delay
- *  Paul (and everyone) finds frustrating. Sized to match the 10px
+ *  The reviewer (and everyone) finds frustrating. Sized to match the 10px
  *  label text so it doesn't compete visually.
  *  No ``cursor-help`` — that yields the macOS circle-with-question-
- *  mark cursor which Paul (correctly) flagged as visual noise.
+ *  mark cursor which the reviewer (correctly) flagged as visual noise.
  *  The (i) glyph + bubble tooltip is affordance enough. */
 function InfoBadge({
   hint,

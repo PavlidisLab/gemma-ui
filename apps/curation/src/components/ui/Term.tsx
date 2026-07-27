@@ -37,7 +37,7 @@ export type TermVariant =
    *  ``className``. For hosts that already provide their own frame
    *  (e.g. the TagBar value sits INSIDE a bordered group chip, so a
    *  second frame would double-border). Still shares the leaf logic:
-   *  CURIE popover, label truncation, tooltip. Paul 2026-06-21. */
+   *  CURIE popover, label truncation, tooltip. Design review 2026-06-21. */
   | "bare";
 
 export function Term({
@@ -60,7 +60,7 @@ export function Term({
    *  for the bare variant). Used by the side-by-side factor
    *  comparison so the whole statement reads smaller; reusable size
    *  knob for the TagBar / StatementChip later. Omitting it is
-   *  byte-for-byte the existing render. Paul 2026-06-21. */
+   *  byte-for-byte the existing render. Design review 2026-06-21. */
   size?: "default" | "sm";
   /** Override the chip's hover tooltip. When omitted, the tooltip is
    *  the URI (resolved) / provenance (free-text). Callers that
@@ -74,7 +74,7 @@ export function Term({
    *  term is read-only and the link is the only thing to click.
    *  Pass ``false`` on surfaces where clicking the term should
    *  either open an inline editor or do nothing — the convention
-   *  Paul confirmed 2026-05-19 for the per-element disposition
+   *  The reviewer confirmed 2026-05-19 for the per-element disposition
    *  editor. */
   asLink?: boolean;
   /** Statement-level provenance for free-text chips — the agent's
@@ -92,7 +92,7 @@ export function Term({
    *  side comparison surfaces to mark chips that differ from their
    *  paired counterpart on the other side. The variant's italic /
    *  non-italic stays so role (category / value / free) still reads.
-   *  Per Paul 2026-06-15. */
+   *  Per design review 2026-06-15. */
   diff?: boolean;
 }) {
   // Auto-pick free vs default based on URI presence when caller
@@ -135,7 +135,7 @@ export function Term({
   // definition / parents from Gemma; explicit "Fetch from OLS"
   // button when Gemma doesn't know the term). ``CurieLink`` stops
   // click bubbling so the surrounding card / row / cell doesn't
-  // react. Per Paul 2026-06-13: "make sure this is a modular item
+  // react. Per design review 2026-06-13: "make sure this is a modular item
   // that shows up for all places ontology terms go".
   //
   // The outer chip is a span (not an anchor) so the popover-button
@@ -190,7 +190,7 @@ export function Term({
           "astrocyte" don't collapse to "a…" while the CURIE keeps its
           width. ``6ch`` still allows long labels to ellipsize (they
           shrink TO 6ch, not below), so the only behaviour change is the
-          floor on over-truncation. Paul 2026-06-21. */}
+          floor on over-truncation. Design review 2026-06-21. */}
       <span className="min-w-[6ch] truncate">{labelNode}</span>
       {uri ? (
         <span className="ml-1 shrink-0">
@@ -206,7 +206,7 @@ export function Term({
  *  passing each chip through the canonical ``Term`` component above.
  *  Use this on every ``FvDisplayRow`` call site (audit cards,
  *  comparison grid, FindingDetailsEditor) so the visual contract for
- *  ontology chips stays uniform across surfaces. Paul 2026-06-15:
+ *  ontology chips stays uniform across surfaces. Design review 2026-06-15:
  *  "make ALL surfaces use a single Term component."
  *
  *  Variant mapping:

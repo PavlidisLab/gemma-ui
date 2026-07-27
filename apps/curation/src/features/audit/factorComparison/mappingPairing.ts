@@ -2,7 +2,7 @@
  * Mapping-driven pair-derivation helpers.
  *
  * When the audit report carries an ``audit_dict.mapping`` (the
- * structured graph-alignment Mapping shipped by bro 2026-06-12 per
+ * structured graph-alignment Mapping shipped by the agents side-06-12 per
  * ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_ALIGNMENT_RENDER.md``),
  * the UI prefers the wire's pairing over the legacy biomaterial-
  * Jaccard heuristic in ``pairFvs``. Same output shape, more
@@ -10,7 +10,7 @@
  *
  * Convention used here — A = baseline / gold (polished curator
  * side, left column), B = comparator / agent (proposed side, right
- * column). The bro handoff says "indices reference existing
+ * column). The agents-side handoff says "indices reference existing
  * ``comparisonProposal.factors[i]`` / ``.tags[i]`` shapes" for B,
  * and the gold side carries the parallel index space (the same
  * convention as ``finding.gold_target_index`` / ``finding.agent_

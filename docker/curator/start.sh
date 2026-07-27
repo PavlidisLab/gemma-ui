@@ -38,7 +38,7 @@ else
     echo "        for keychain setup instructions."
 fi
 
-# GEMMA_BASE_URL — required, no fallback. Per Paul's project-level
+# GEMMA_BASE_URL — required, no fallback. Per design review's project-level
 # rule (CLAUDE.md): the keychain entry IS the source of truth for
 # the active dev target. Try keychain first; fall through to env /
 # .env (compose-up errors loudly if still unset).

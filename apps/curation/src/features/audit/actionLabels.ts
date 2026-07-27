@@ -7,7 +7,7 @@
  * module picks the TEXT on those same two buttons based on the
  * SHAPE of the action the finding proposes.
  *
- * Canonical screenshot (Paul 2026-05-21): an "Add tag — disease
+ * Canonical screenshot (design review 2026-05-21): an "Add tag — disease
  * model: Alzheimer disease MONDO:0004975" finding still rendered
  * the legacy `keep current` / `adopt Auditor's` pair. But for an
  * ADD action there IS no "current" value — the curator is choosing
@@ -171,7 +171,7 @@ export function actionLabels(shape: ActionShape): {
  *  isn't removing something OF the auditor's; they're removing the
  *  existing tag that the auditor proposed should go).
  *
- *  Rule (Paul 2026-06-08):
+ *  Rule (design review 2026-06-08):
  *    add / change → "<verb> <Proposer>'s"  (adopt Auditor's, add Auditor's)
  *    remove       → "<verb>"               ("remove" alone)
  *    match        → "<verb>"               ("confirm" alone)

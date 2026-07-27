@@ -1,19 +1,16 @@
 # CLAUDE.md — gemma-ui (root)
 
-Orientation for me — the GUI Claude working this repo. Two React/TS
-apps live under [`apps/`](./apps/):
+Orientation for this repo. Two React/TS apps live under
+[`apps/`](./apps/):
 
 - [`apps/curation/`](./apps/curation/) — curator workflow.
   Per-app orientation: [`apps/curation/CLAUDE.md`](./apps/curation/CLAUDE.md).
-  Pairs with [`gemma-curation-agents`](../gemma-curation-agents) (Python)
-  where **my brother** (the agent-side Claude) handles backend work.
+  Pairs with [`gemma-curation-agents`](../gemma-curation-agents) (Python),
+  the agents-side service that handles backend work.
 - [`apps/browser/`](./apps/browser/) — public browse/search (GemBrow
   React port). Per-app orientation:
   [`apps/browser/CLAUDE.md`](./apps/browser/CLAUDE.md). Talks to the
   Gemma REST API.
-
-Always say "my brother" — never "sibling Claude", "the agents-side
-Claude", or any third-person framing.
 
 ## Stack (both apps)
 
@@ -28,12 +25,10 @@ gemma-ui/
 ├─ apps/
 │  ├─ curation/        # curation workflow — own package.json, vite, tsconfig
 │  │  ├─ src/
-│  │  ├─ CLAUDE.md     # per-app orientation
-│  │  └─ *_HANDOFF.md  # feature wire contracts
+│  │  └─ CLAUDE.md     # per-app orientation
 │  └─ browser/         # GemBrow React port — own package.json, vite, tsconfig
 │     ├─ src/
-│     ├─ CLAUDE.md
-│     └─ REACT_PORT_HANDOFF.md
+│     └─ CLAUDE.md
 ├─ package.json        # npm workspaces; aggregates dev/build/typecheck
 ├─ README.md
 └─ CLAUDE.md           # (this file) — orientation, two-app layout
@@ -59,12 +54,12 @@ scripts are unchanged from when it was a standalone repo.
 
 **Default = reuse. Building a new component is the exception.**
 
-Paul has repeatedly caught me writing the second or third
-implementation of something that already exists (TicketBadge vs.
-PriorityPill / TicketContextChip; ThinExperimentScreener vs.
-PreboardingDetailPage). Drift across surfaces is the harm — the
-same visual idea, two different palettes / behaviours / spacings,
-and curators stop trusting the chrome.
+Duplicate implementations of something that already exists
+(TicketBadge vs. PriorityPill / TicketContextChip;
+ThinExperimentScreener vs. PreboardingDetailPage) are a recurring
+hazard. Drift across surfaces is the harm — the same visual idea,
+two different palettes / behaviours / spacings, and curators stop
+trusting the chrome.
 
 Before authoring **any** new chip / pill / badge / picker / mask /
 dialog / card / panel / banner / table-column variant:
@@ -77,16 +72,12 @@ dialog / card / panel / banner / table-column variant:
    a slot). Don't fork.
 4. **If it's in the wrong app:** promote to `packages/ui/`.
 5. **Only if nothing exists, even after extension:** write the new
-   one. Justify it out loud first ("I checked X, Y, Z and the
-   shape doesn't fit because …") so Paul can veto.
+   one. State the rationale first ("checked X, Y, Z and the shape
+   doesn't fit because …") so it can be reviewed.
 
 This rule overrides the urge to ship fast. Forking compounds drift;
-shipping a wrong component is worse than shipping nothing for one
-turn while we find the right one.
-
-Related project-memory entries (auto-loaded each session):
-`feedback-check-existing-component`,
-`feedback-dont-build-parallel-to-spec`.
+shipping a wrong component is worse than shipping nothing while the
+right one is found.
 
 ## Working inside a feature
 
@@ -104,26 +95,14 @@ unless they qualify it.
 - **Curation app ↔ `gemma-curation-agents`** (Python): wire shapes
   live in that repo's Pydantic models; TS mirrors at
   `apps/curation/src/api/*.ts`. When shapes disagree, **Python is
-  canonical**. Don't edit the Python repo; file asks in handoff docs
-  inside that repo (or in `~/Dev/gemma-curation-agents-eval/docs/`
-  where my brother now primarily lives).
-- **Browser app ↔ Gemma REST API** (Java, `~/Dev/eclipseworkspace/Gemma/`):
-  hands-off on the Java repo; file API asks in
-  `apps/browser/REACT_PORT_HANDOFF.md`.
-
-## Memory
-
-Session-persistent guidance lives in
-`~/.claude/projects/-Users-pzoot-Dev-gemma-curation-ui/memory/`.
-(The Claude memory path is keyed to the on-disk repo directory; it
-keeps the `-gemma-curation-ui` suffix from the pre-rename era — the
-rename only changes the GitHub repo identity, not the local checkout
-path.) `MEMORY.md` is the index — auto-loaded each session.
+  canonical**. Don't edit the Python repo; file asks against that
+  repo.
+- **Browser app ↔ Gemma REST API** (Java): hands-off on the Java
+  repo; file API asks against the Gemma backend.
 
 ## History
 
 This repo was previously `gemma-curation-ui`. Renamed to `gemma-ui`
 2026-05-17 when GemBrow merged in as `apps/browser/`. Pre-merge
 curation history lives on `main`'s left parent; GemBrow's React-port
-history rides along via `git subtree add` from `~/Dev/GemBrow`
-`react-port` branch.
+history rides along via `git subtree add`.

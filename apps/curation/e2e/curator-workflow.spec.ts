@@ -8,7 +8,7 @@ import {
 import { requiresBackend } from "./_backend";
 
 /**
- * Curator-workflow e2e — the path Paul described 2026-06-13:
+ * Curator-workflow e2e — the path the reviewer described 2026-06-13:
  * "dispositioning, editing, committing, closing".
  *
  * Each test exercises one slice of the workflow against the seed

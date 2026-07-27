@@ -7,12 +7,25 @@ import type { Taxon } from "./types";
 /** Base URL — empty in dev (Vite proxies /rest), full in prod build. */
 export const baseUrl: string = import.meta.env.VITE_GEMMA_BASE_URL ?? "";
 
-/** Build an absolute Gemma URL for opening in a new tab. */
+let warnedMissingBaseUrl = false;
+
+/** Build an absolute Gemma URL for opening in a new tab. Requires
+ *  ``VITE_GEMMA_BASE_URL`` to be set (build-time) — legacy links
+ *  (``/gene/showGene.html`` etc.) need a real upstream and there's
+ *  no default Gemma instance to fall back to. Returns ``path``
+ *  unresolved (relative, so effectively inert) when unset, rather
+ *  than throwing mid-render. */
 export function gemmaUrl(path: string): string {
-  if (baseUrl) return baseUrl + path;
-  // dev: derive from window location (Vite proxies /rest, but
-  // /home.html etc. need the real upstream)
-  return "https://staging-gemma.msl.ubc.ca" + path;
+  if (!baseUrl) {
+    if (!warnedMissingBaseUrl) {
+      warnedMissingBaseUrl = true;
+      console.warn(
+        "VITE_GEMMA_BASE_URL is not set — legacy Gemma links won't resolve. Set it to your Gemma instance's base URL.",
+      );
+    }
+    return path;
+  }
+  return baseUrl + path;
 }
 
 /** Legacy Gemma gene page — works for both NCBI-id and Gemma-internal

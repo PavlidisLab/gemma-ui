@@ -51,7 +51,7 @@ export function factorMatchVariant(
 ): FactorMatchVariant | null {
   if (!issue_code) return null;
   if (issue_code === "calibration_factor_match_exact") return "exact";
-  // Two wire spellings for the same concept: brother renamed _close
+  // Two wire spellings for the same concept: the agents side renamed _close
   // → _near alongside the stricter near-match gate (2026-05-18).
   // Keep both so audit.json files from either era render the same.
   if (
@@ -102,7 +102,7 @@ export function isCloseFactorMatch(f: AuditFinding): boolean {
 }
 
 /** Broader "near-match" predicate that drives the two-header-chip card
- *  treatment (Paul 2026-05-21 redesign — GSE93824 genotype reference
+ *  treatment (design review 2026-05-21 redesign — GSE93824 genotype reference
  *  case). True when:
  *
  *   - the finding is a ``calibration_factor_match_near`` (or any

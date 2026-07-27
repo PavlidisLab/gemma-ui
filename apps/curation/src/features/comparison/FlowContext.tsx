@@ -29,10 +29,10 @@ export function useFlow(): FlowKind {
 /** Returns ``true`` when the curator should be prevented from
  *  mutating server state.
  *
- *  History — Paul installed a chip-strip-baseline read-only gate on
+ *  History — the reviewer installed a chip-strip-baseline read-only gate on
  *  2026-06-08 to prevent silent overwrites when viewing a non-
  *  editable baseline (Live Gemma / preboard / agent_proposal). On
- *  2026-06-12 Paul reversed that rule: "and make it not read only
+ *  2026-06-12 the reviewer reversed that rule: "and make it not read only
  *  for gottsake". The gate now returns ``false`` unconditionally;
  *  the only callers that still see ``true`` are the ones that opt
  *  in via an explicit prop on a per-card basis (e.g. synthetic

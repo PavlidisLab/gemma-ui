@@ -105,7 +105,7 @@ export function DesignEditor({
     [draft],
   );
 
-  // Perfect-duplicate factor detection (Paul 2026-06-14): equality
+  // Perfect-duplicate factor detection (design review 2026-06-14): equality
   // keys on the statement-set, NOT FV labels. Surface as a soft
   // warning above the FactorList so the curator notices before they
   // commit a redundant pair.

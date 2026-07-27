@@ -2,7 +2,7 @@
  * Gene-rows table — rendered next to or below any heatmap whose rows
  * are genes (PC-loadings popup, top-DE-genes heatmap, etc.).
  *
- * The convention Paul confirmed 2026-05-26:
+ * The convention the reviewer confirmed 2026-05-26:
  *   "When we show heatmaps with lists of genes, always include the
  *    gene official symbol, official name, and links to the gene in
  *    Gemma. If it's a microarray, the probe (CompositeSequence) id

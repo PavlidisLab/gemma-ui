@@ -146,7 +146,7 @@ export function ExperimentBanner({
 }) {
   const sourceLink = externalSourceLink(externalSource);
   // ``experimentPageUrl`` reads ``VITE_GEMMA_WEB_URL`` so a staging
-  // / preview build (e.g. https://staging-gemma.msl.ubc.ca) just
+  // / preview build (pointed at a different Gemma deployment) just
   // sets the env var; no prop plumbing.
   const gemmaUrl = experimentPageUrl(experimentId);
 
@@ -155,7 +155,7 @@ export function ExperimentBanner({
       <div className="mx-auto w-full px-4 py-3 flex gap-4 flex-wrap items-start">
         <div className="flex-1 min-w-0">
           {/* Title rides the first row (after accession + modality
-              badge) to save a row of vertical space (Paul 2026-06-21);
+              badge) to save a row of vertical space (design review 2026-06-21);
               it wraps under the accession on a narrow viewport. */}
           <div className="flex items-baseline gap-3 flex-wrap">
             <ShortNameEditor
@@ -249,7 +249,7 @@ export function ExperimentBanner({
              three set chips PLUS a separate paginator for "the active
              one", with the same data echoed twice. Open the active
              chip to navigate. */}
-          {/* TicketContextChip moved 2026-06-14 — Paul: "would it make
+          {/* TicketContextChip moved 2026-06-14 — the reviewer: "would it make
              sense to consolidate this so that the breadcrumb is also
              the drop-down ui?" The same component now mounts in
              AppHeader next to the Dashboard button, doubling as the
@@ -282,7 +282,7 @@ export function ExperimentBanner({
             collision the curator noticed in the top-right.
            */}
           {/* ``ResyncButton`` ("re-import from Gemma") retired
-              2026-05-26 — Paul: pulling data from remote into local
+              2026-05-26 — the reviewer: pulling data from remote into local
               via the UI is too confusing. The functionality lived in
               the local-mode dev escape hatch; if needed it returns
               via a CLI / admin path. ``useImportFromGemma`` kept on
@@ -303,8 +303,7 @@ export function ExperimentBanner({
 /**
  * Tab bar. Most tabs are always visible; ``single-cell`` is gated on
  * the inferred modality so it only appears for single-cell / single-
- * nucleus experiments. Content is placeholder today —
- * see [[single-cell-summary-tab]] memory for the planned scope.
+ * nucleus experiments. Content is placeholder today.
  */
 function ExperimentTabs({
   activeTab,
@@ -1242,14 +1241,14 @@ function SetMemberRow({
 /** Compose the per-member StatusDisc tone.
  *
  *  Semantics aligned with the progress bar + workflow row disc
- *  (Paul 2026-05-25 refinement):
+ *  (design review 2026-05-25 refinement):
  *    done        = review closed AND no uncommitted local draft
  *    uncommitted = local draft present (curator has touched but
  *                  not finished)
  *    untouched   = no curator activity — INCLUDES the server's
  *                  ``audit_status="in_progress"`` rows that exist
  *                  from calibration import but haven't seen any
- *                  curator action. Until bro lands
+ *                  curator action. Until the agents side lands
  *                  ``has_curator_activity``, the local-draft
  *                  cache is the only signal we trust for
  *                  "curator started." */
@@ -1369,7 +1368,7 @@ function externalSourceLink(src: ExternalSource | null): string | null {
  *
  * The public/private chip used to live in TopBar (top-right);
  * moved here 2026-05-23 so all status flags read as one cluster.
- * Per Paul: "our Public/Private thing should be near other status
+ * Per design review: "our Public/Private thing should be near other status
  * flags like troubled/unusable".
  */
 function BannerStatusChips({
@@ -1412,7 +1411,7 @@ function BannerStatusChips({
       {/* Visibility chip is informational only — clicking it used
           to open the status modal, but visibility lives in Gemma
           (toggled via Publish / admin unpublish), not in the
-          curator's status-notes surface. Paul 2026-05-25: "for
+          curator's status-notes surface. Design review 2026-05-25: "for
           now, that badge should just be informational". Drop
           ``onClick`` so StatusChip renders as a <span>; reinstate
           when a real visibility-editor flow lands. */}
@@ -1737,7 +1736,7 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
   // Force-disabled until the end-to-end publish pipeline is wired
   // up — the local POST works but the real Gemma side isn't ready
   // and shipping an active button that no-ops misleads curators
-  // (Paul 2026-05-25). Once the backend lands, drop the
+  // (design review 2026-05-25). Once the backend lands, drop the
   // ``notWiredUp`` override and restore the gated logic below.
   const notWiredUp = true;
   const dirty = diff.isDirty;
@@ -1871,7 +1870,7 @@ export function TicketContextChip({
     ticket.title.length > 32 ? `${ticket.title.slice(0, 32)}…` : ticket.title;
 
   // Prev / next navigation around the position counter — replaces
-  // the popover-only "[ and ] keys to navigate" hint, which Paul
+  // the popover-only "[ and ] keys to navigate" hint, which the reviewer
   // 2026-06-14 called "not that useful." The chip itself is now a
   // direct back-link to the ticket detail page (no popover trigger);
   // the popover hangs off the counter / ▾ glyph instead.
@@ -1881,7 +1880,7 @@ export function TicketContextChip({
   function navigateTo(targetId: number): void {
     navigate(`#/experiments/${targetId}?ticket=${ticketId}`);
   }
-  // Layout per Paul 2026-06-14:
+  // Layout per design review 2026-06-14:
   //   [← Ticket]   [Boss-critic 200 …]   ‹ 12/200 ›
   //   ───────────  ───────────────────  ───────────
   //   plain        dropdown trigger     counter + prev/next
@@ -2118,7 +2117,7 @@ function TicketNavigatorPopover({
             </a>
           </span>
         </div>
-        {/* Progress indication — Paul 2026-06-14: the popover should
+        {/* Progress indication — Design review 2026-06-14: the popover should
             still surface the curator's position in the ticket.
             Dropped the "[ and ] keys to navigate" tail since those
             are now click affordances next to the chip. */}
@@ -2215,7 +2214,7 @@ function TicketMemberRow({
         </span>
         {target.status ? (
           // Status disc — same visual language as the set-navigator
-          // popover. Per Paul 2026-06-11: "we used to have little
+          // popover. Per design review 2026-06-11: "we used to have little
           // circles." The earlier uppercase text label drifted from
           // the set-navigator's disc convention.
           <StatusDisc

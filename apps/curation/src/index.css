@@ -35,13 +35,13 @@
     Reasoning text-size classes. Replace the fixed ``text-[10px]`` /
     ``text-[11px]`` / ``text-[13px]`` on the finding-card reasoning so
     the curator's ``--reasoning-scale`` (set by the settings gear,
-    default 1) multiplies them together. Paul 2026-06-21.
+    default 1) multiplies them together. Design review 2026-06-21.
   */
   .rs-10 { font-size: calc(10px * var(--reasoning-scale, 1)); }
   .rs-11 { font-size: calc(11px * var(--reasoning-scale, 1)); }
   .rs-13 { font-size: calc(13px * var(--reasoning-scale, 1)); }
   /*
-    Default term = resolved (URI present). Per Paul, 2026-04-28:
+    Default term = resolved (URI present). Per design review, 2026-04-28:
     resolved → green, free-text → grey italic. Replaces the old
     blue default. The Term component picks ``free`` automatically
     when ``uri`` is null so callers don't have to think about it.
@@ -64,7 +64,7 @@
     (tag category, factor category, statement category). Slate-tinted
     + italic + NO emerald bookmark so the eye reads it as a label,
     not a content term. Keeps the chip frame so categories with URIs
-    can still carry a CURIE link-out. Paul 2026-06-15: "telling
+    can still carry a CURIE link-out. Design review 2026-06-15: "telling
     categories from values would also be helpful to hint."
    */
   .term.category  { @apply bg-slate-50 text-slate-700 border-slate-200 italic
@@ -76,7 +76,7 @@
     smaller without losing the left-bookmark border / colour cues.
     Stacks on top of any variant (default / free / predicate /
     category / diff). Reusable size knob the TagBar / StatementChip
-    can adopt later. Paul 2026-06-21: "the text smaller for the whole
+    can adopt later. Design review 2026-06-21: "the text smaller for the whole
     thing."
    */
   .term.sm        { @apply text-[10px] px-1 py-0; }
@@ -86,7 +86,7 @@
     of a side-by-side comparison." The signal is concentrated in the
     bright amber LEFT BOOKMARK stripe; the body stays a faint amber
     wash with a soft border. A full bright-amber fill + ring on every
-    differing chip "took over" the grid (Paul 2026-06-19) — the stripe
+    differing chip "took over" the grid (design review 2026-06-19) — the stripe
     carries the cue without the glow. Original variant's italic /
     non-italic stays so the role still reads.
    */
@@ -120,7 +120,7 @@
   .btn.ghost   { @apply bg-transparent border-transparent text-slate-600 hover:bg-slate-100; }
 
   /* Card border bumped slate-200 → slate-300 (2026-05-19) for a
-     light-mode contrast nudge per Paul. Dark-mode .card override
+     light-mode contrast nudge per design review. Dark-mode .card override
      below stays slate-700. */
   .card { @apply bg-white border border-slate-300 rounded-lg; }
 

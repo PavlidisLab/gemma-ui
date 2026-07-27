@@ -4,7 +4,7 @@
  * Used by ``FactorComparisonGrid`` to highlight which specific S-P-O
  * chips actually differ across the LEFT (baseline / live) and RIGHT
  * (proposal / comparator) sides. Without this, the curator has to
- * mentally diff two parallel chip rows — Paul 2026-06-15:
+ * mentally diff two parallel chip rows — Design review 2026-06-15:
  * "it is hard to see what is different - the diffs should be
  * highlighted."
  *
@@ -73,7 +73,7 @@ function canonUri(uri: string | null | undefined): string {
  *
  *  The canonicalisation guards against the most common false
  *  positive: bare-CURIE vs full-IRI representation drift across the
- *  two sides of a comparison. Paul 2026-06-15 caught
+ *  two sides of a comparison. Design review 2026-06-15 caught
  *  ``Homozygous negative TGEMO:00001`` being marked diff on both
  *  sides when the displayed CURIE was identical. */
 function sameTerm(a: Term | null | undefined, b: Term | null | undefined): boolean {

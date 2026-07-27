@@ -1,13 +1,13 @@
 /**
  * Roll up per-member status into the three counts the
- * ``SetProgressBar`` consumes (per Paul 2026-05-25: green /
+ * ``SetProgressBar`` consumes (per design review 2026-05-25: green /
  * yellow / light-blue, collapsing draft + uncommitted into one
  * "in progress" bucket).
  *
  * Two input paths:
  *
  * 1. **Server aggregate** (preferred — `member_status_counts`):
- *    bro pre-aggregates on the wire as of 2026-05-25. One field
+ *    the agents side pre-aggregates on the wire as of 2026-05-25. One field
  *    on the group payload, no per-member iteration on the
  *    client. Use this when present.
  *
@@ -25,13 +25,13 @@ import type { SetProgressCounts } from "@/components/ui/SetProgressBar";
 
 /** Compute progress from a fully-formed Group payload.
  *
- *  Bucket semantics (per Paul 2026-05-25 — refined from the
+ *  Bucket semantics (per design review 2026-05-25 — refined from the
  *  initial "trust the server's in_progress" pass):
  *
  *    DONE        review is finalized AND the curator has no
  *                uncommitted local draft for the experiment
  *    IN PROGRESS curator has actively touched this experiment —
- *                either uncommitted local draft, or (when bro
+ *                either uncommitted local draft, or (when the agents side
  *                lands has_curator_activity) the server says
  *                so. For now the local-draft cache is the only
  *                signal we trust for "curator started."
@@ -91,7 +91,7 @@ export function progressFromGroup(
 
 /** Per-member iteration of progress counts.
  *
- *  Rules per Paul 2026-05-25:
+ *  Rules per design review 2026-05-25:
  *  - Closed review + uncommitted local draft → in_progress
  *    (the curator finalized the proposal but has leftover
  *    draft work to commit).

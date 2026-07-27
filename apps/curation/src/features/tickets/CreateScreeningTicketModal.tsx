@@ -7,11 +7,11 @@ import { useCreateTicket, type Ticket } from "@/api/tickets";
  * "New screening ticket" — a natural-language-first create form.
  *
  * A screening ticket asks the curator to decide yes/no on a set of
- * datasets rather than curate them. Per Paul: the config IS the
+ * datasets rather than curate them. Per design review: the config IS the
  * plain-language instruction — no mode buttons, no criteria pickers.
  * The curator describes what to screen for ("find GEO datasets like
  * GSE… we might want", or "datasets already in Gemma that still need
- * cell-type curation") and the agent (Cab) later interprets that into
+ * cell-type curation") and the reviewing agent later interprets that into
  * a candidate list, populating the ticket's targets. This form's only
  * job is to mint the ticket with `type=SCREENING` + the instruction in
  * `body`; everything downstream (candidate population, the yes/no

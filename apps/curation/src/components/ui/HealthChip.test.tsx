@@ -82,7 +82,7 @@ function renderChip({
     isProd: false,
     isStaging: false,
     authLabel: "dev-token (local server)",
-    ontologyHost: "staging-gemma.msl.ubc.ca",
+    ontologyHost: "example-gemma-host.test",
     ontologySplit: true,
   } as GemmaModeInfo);
 

@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the Auditor Details panel render rules.
  *
- * Curator feedback (Paul, 2026-05-21):
+ * Curator feedback (the reviewer, 2026-05-21):
  *
  *   1. "Too long & redundant" — for findings whose headline already
  *      shows the action ("Add factor — timepoint: 6 months post-ICU
@@ -24,7 +24,7 @@
  * empty ``proposer_suggestion`` and ``proposer_defense`` now ship
  * the literal ``"[agent emitted no details]"`` so the UI can
  * distinguish "no agent reasoning available" from "renderer dropped
- * it". The sentinel is rendered explicitly here so Paul gets the
+ * it". The sentinel is rendered explicitly here so the reviewer gets the
  * visual signal.
  *
  * All helpers are pure so they can be tested without a DOM. Wiring

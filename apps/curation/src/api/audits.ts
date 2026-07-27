@@ -1,5 +1,5 @@
 /**
- * React-query hooks for the audit endpoints my brother shipped in
+ * React-query hooks for the audit endpoints the agents side shipped in
  * Step 3 (see `AUDIT_FEATURE.md` §Status). All routes live under
  * `/rest/v2/...` on the same mock-API host the proposals routes use,
  * so they ride the existing Vite dev proxy + bearer token without

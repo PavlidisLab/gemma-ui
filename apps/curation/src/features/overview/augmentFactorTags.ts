@@ -37,7 +37,7 @@ export function augmentInferredFromFactors(
     // FV per distinct number. Projecting those floods the tag bar with
     // dozens of meaningless numeric chips (1.691, 2.428, …). They have
     // no place in the inferred-tag row; the Design crosstab already
-    // notes continuous factors are shown separately. Paul 2026-07-21.
+    // notes continuous factors are shown separately. Design review 2026-07-21.
     if (factor.type === "continuous") continue;
     const catLabel = (factor.category?.label || factor.name || "").trim();
     if (!catLabel) continue;
@@ -45,7 +45,7 @@ export function augmentInferredFromFactors(
     // share a label — a treatment factor with one DMSO arm per
     // timepoint carries five FVs all labelled "DMSO" — which otherwise
     // repeats the same chip once per arm. Case-insensitive dedup,
-    // first spelling wins. Paul 2026-07-21.
+    // first spelling wins. Design review 2026-07-21.
     const seen = new Set<string>();
     const values: string[] = [];
     for (const fv of factor.factor_values ?? []) {

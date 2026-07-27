@@ -5,7 +5,7 @@
  * baseline-drift cards (for factors the chip-strip baseline carries
  * that the audit didn't score against), and the per-section render.
  *
- * Extracted from `AuditSidebarPanel.tsx` (Paul 2026-06-10 mega-file
+ * Extracted from `AuditSidebarPanel.tsx` (design review 2026-06-10 mega-file
  * sweep). The card render itself lives in `./findingCard.tsx`; the
  * per-finding embed views in `./findingEmbeds.tsx`; this file is just
  * "given a list of findings, organise + render".
@@ -56,8 +56,8 @@ import { PipelineAuditTrail } from "./PipelineAuditTrail";
 /** Header label rendered next to the LEFT (baseline) factor chip on
  *  every comparison card inside the audit/findings panel. Hardcoded
  *  to ``"Current"`` regardless of what the chip strip's baseline
- *  source happens to be (live / polished:cyan / preboard / opaque
- *  curation_id). Per Paul 2026-06-15: "should be just 'current'
+ *  source happens to be (live / polished:curator-b / preboard / opaque
+ *  curation_id). Per design review 2026-06-15: "should be just 'current'
  *  EVERYWHERE in the panel." Do NOT replace with a dynamic source
  *  label — the chip strip itself surfaces the real source. */
 export const AUDIT_PANEL_BASELINE_LABEL = "Current";
@@ -109,7 +109,7 @@ const SECTION_HEADER_CLS =
   "text-xs uppercase tracking-wider font-bold text-slate-700 dark:text-slate-200 px-1 pt-2 pb-1 border-b border-slate-200 dark:border-slate-700 mb-1";
 
 /** Per-section `?` help — what the section is, in plain terms. Only the
- *  two sections curators asked about (Paul 2026-06-21); the rest read
+ *  two sections curators asked about (design review 2026-06-21); the rest read
  *  fine from their (renamed) titles. */
 const SECTION_HELP: Partial<Record<AuditTargetKind, { title: string; body: ReactNode }>> = {
   factor: {
@@ -163,7 +163,7 @@ const SECTION_HELP: Partial<Record<AuditTargetKind, { title: string; body: React
  *  — the cross-link badges still surface the relationship, just
  *  without spatial pairing.
  *
- *  Per Paul 2026-05-20: cards that read as one curator decision
+ *  Per design review 2026-05-20: cards that read as one curator decision
  *  ("agent's split absorbs gold's timepoint factor") should sit next
  *  to each other, not separated by unrelated findings. */
 function reorderConsequentPairs(items: AuditFinding[]): AuditFinding[] {
@@ -211,7 +211,7 @@ function reorderConsequentPairs(items: AuditFinding[]): AuditFinding[] {
  *
  *  When `nothingBelow` is true (every section would have rendered
  *  empty), the summary expands into a short empty-state block so the
- *  panel never feels blank. Paul 2026-05-25: "start with a summary
+ *  panel never feels blank. Design review 2026-05-25: "start with a summary
  *  and go from there." */
 export function ReviewSummaryHeader({
   kind,
@@ -304,7 +304,7 @@ export function ReviewSummaryHeader({
           )}
           {/* Light evidence breadcrumb so the curator can see WHAT
               the agent considered, even when there are no cards to
-              act on. Paul: judgements/justifications should still
+              act on. The reviewer: judgements/justifications should still
               show up in the empty state. */}
           {evidence ? <EmptyStateEvidenceCrumb evidence={evidence} /> : null}
         </div>
@@ -380,7 +380,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
 
   // FV-shaped tag-finding suppression. Tags and factor values are
   // separate entity types in the schema — see
-  // ``feedback_tags_vs_factors_distinct_entities`` in memory. Paul
+  // ``feedback_tags_vs_factors_distinct_entities`` in memory. The reviewer
   // 2026-06-14: the proposal-review sidebar was surfacing REMOVE TAG
   // cards for things like ``treatment: sorafenib`` / ``cell line:
   // MOLM-13`` — those are factor values, not tags. The agent /
@@ -440,7 +440,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   const curations = curationsQuery.data ?? [];
   // Audit/findings panel always frames the baseline as "Current" — the
   // curator's working state, regardless of which source the chip strip
-  // resolved to (live / polished:cyan / etc.). Per Paul 2026-06-15:
+  // resolved to (live / polished:curator-b / etc.). Per design review 2026-06-15:
   // "should be just 'current' EVERYWHERE in the panel." The chip strip
   // itself still surfaces the real source label.
   const baselineLabel = AUDIT_PANEL_BASELINE_LABEL;
@@ -522,7 +522,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
     // "Design — factors" section alongside other factor findings.
     // The renderer in the factor block below routes them through
     // ``ComparisonFactorCard`` instead of ``CompactFindingCard``. Per
-    // Paul 2026-06-12: the old dedicated "Alternate factor" section
+    // Design review 2026-06-12: the old dedicated "Alternate factor" section
     // was visually orphaned from the regular factor decisions.
     if (isRenameMatch(f)) return true;
     if (f.severity !== "ok") return true;
@@ -635,7 +635,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
       {/* FV-shaped tag finding suppression caption. Hidden by default
           when zero; surfaces a hint when the agent / upstream emitted
           tag-target findings for items that are actually factor
-          values in the design. Paul 2026-06-14: tags and factor
+          values in the design. Design review 2026-06-14: tags and factor
           values are different entity types — don't show FVs as tag
           findings. The suppression itself happens up at ``sorted``;
           this caption tells the curator we're filtering, not silently
@@ -673,7 +673,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
           commentary scoped to the whole agent emission. Renders the
           list once here instead of being fanned out per-card (the
           v0.14.2-.4 fan-out duplicated the same paragraph across
-          every factor / tag card and read as noise; per Paul
+          every factor / tag card and read as noise; per design review
           2026-06-16 ticket-60 walkthrough). Suppresses entirely
           when the list is empty / absent. */}
       <BossReviewPanel
@@ -695,7 +695,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
       />
       {/* Rename / partition-mismatch findings used to render in a
           dedicated "Alternate factor" section above the regular factor
-          group. Per Paul 2026-06-12: those are factor findings too —
+          group. Per design review 2026-06-12: those are factor findings too —
           surface them in the same "Design — factors" block as
           everything else. The factor-group renderer below picks them
           out via ``isRenameMatch`` and routes them through
@@ -774,7 +774,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
                 kind's group (tail position), so tag matches live under
                 TAGS, factor matches under DESIGN — FACTORS, etc.
                 Factor matches route through ``ComparisonFactorCard``
-                so the side-by-side body lands here too (Paul
+                so the side-by-side body lands here too (the reviewer
                 2026-06-12: "I thought we were moving to a side-by-
                 side comparison"); tag matches keep the compact
                 green-check row since there's no two-column shape
@@ -998,7 +998,7 @@ function BaselineDriftSection({
    *  drift on FV labels (e.g. ``organism part: cerebral cortex /
    *  cerebellum / …`` getting a REMOVE FACTOR finding from the
    *  consensus side AND a drift card from the live side, for the
-   *  SAME factor). Paul 2026-06-14: "the same factor is mentioned
+   *  SAME factor). Design review 2026-06-14: "the same factor is mentioned
    *  twice." */
   findings: AuditFinding[];
 }) {
@@ -1046,7 +1046,7 @@ function BaselineDriftSection({
     // agent_proposal signature matches the live one. Drift fired for
     // GSE9904 ``organism part`` because consensus + live disagreed on
     // FV labels (signature mismatch), but the audit DID have a
-    // REMOVE FACTOR finding for it — duplicate card. Paul 2026-06-14.
+    // REMOVE FACTOR finding for it — duplicate card. Design review 2026-06-14.
     const auditedCategoryKeys = new Set<string>();
     for (const f of findings) {
       if (f.target_kind !== "factor") continue;
@@ -1064,7 +1064,7 @@ function BaselineDriftSection({
       // match-family findings (agents-side
       // ``graph_alignment.py``). ``parseTargetId`` doesn't know this
       // shape (kind isn't in AuditTargetKind), so the standard path
-      // misses it and the drift dedup leaks. Paul 2026-06-15 on
+      // misses it and the drift dedup leaks. Design review 2026-06-15 on
       // GSE33191 ``treatment`` rendering as both ``Extra factor in
       // Live Gemma`` and ``REMOVE FACTOR``. Extract every category
       // string after the kind prefix and add it to the key set.
@@ -1189,7 +1189,7 @@ function BaselineDriftSection({
         // Audit-finding-coverage check: if there's already a
         // factor-target finding for this category, the audit
         // surfaced it — skip the drift card. Stops the duplicate
-        // "Extra factor in Live Gemma" + "REMOVE FACTOR" pair Paul
+        // "Extra factor in Live Gemma" + "REMOVE FACTOR" pair the reviewer
         // 2026-06-14 caught.
         if (categoryCoveredByFinding(f)) continue;
         const keys = catKeys(f);

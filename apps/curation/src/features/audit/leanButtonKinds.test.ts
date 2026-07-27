@@ -7,7 +7,7 @@ import type { DefenderLean } from "./defenderLean";
  *  reads as primary (filled, prominent) vs secondary (outline).
  *  Together with the lean-aware header label in
  *  `AuditSidebarPanel`'s SUGGESTION panel, this is the
- *  GSE93824-Arctic-APP fix surface (Paul 2026-05-21).
+ *  GSE93824-Arctic-APP fix surface (design review 2026-05-21).
  */
 
 describe("leanButtonKinds", () => {
@@ -37,7 +37,7 @@ describe("leanButtonKinds", () => {
 });
 
 /** Regression test for the GSE93824 genotype-FV2 split-bug
- *  (Paul 2026-05-21): the OUTER button row at the bottom of a
+ *  (design review 2026-05-21): the OUTER button row at the bottom of a
  *  finding card and the INNER per-FV `PickButton` row inside the
  *  same `DisagreementBlock` were driven by different lean-aware
  *  logic — the outer row migrated to `leanButtonKinds` in 21f7f17

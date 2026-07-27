@@ -1,14 +1,13 @@
 # Local-api GEMMA_BASE_URL override.
 #
-# Default targets host.docker.internal:8080 — the standalone
-# gemma-rest container Paul typically has running on the host's port
+# Default targets host.docker.internal:8080 — a standalone
+# gemma-rest container typically running on the host's port
 # 8080 (separate from the in-stack `gemma-rest` profile service in
 # the base compose, which isn't started in most local sessions).
-# Override via the GEMMA_BASE_URL env var to point at staging-gemma,
-# frink, prod, or the in-stack service when --profile gemma is up:
+# Override via the GEMMA_BASE_URL env var to point at your own
+# Gemma instance, or the in-stack service when --profile gemma is up:
 #
-#   GEMMA_BASE_URL=http://frink.msl.ubc.ca:8080 docker compose up -d local-api
-#   GEMMA_BASE_URL=https://staging-gemma.msl.ubc.ca docker compose up -d local-api
+#   GEMMA_BASE_URL=https://gemma.example.org docker compose up -d local-api
 #   GEMMA_BASE_URL=http://gemma-rest:8080 docker compose --profile gemma up -d
 #
 # Used by:

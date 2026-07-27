@@ -140,7 +140,7 @@ export function BrowserPage() {
     // viewport. ``h-full`` here was the previous shape; it relied on
     // ``main``'s height being explicit, which it wasn't, so the page
     // collapsed to content height and left empty space above the
-    // footer. Per Paul 2026-05-27.
+    // footer. Per design review 2026-05-27.
     <div className="flex flex-1 min-h-0">
       <SidePanel
         settings={settings}
