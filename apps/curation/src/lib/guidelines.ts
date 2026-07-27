@@ -93,6 +93,26 @@ export const DEV_STAGE_AGE_RANGES: { organism: string; ranges: string }[] = [
   },
 ];
 
+/**
+ * Prenatal (embryo vs fetal) staging rules — the newer canonical guidance
+ * layered on top of the postnatal {@link DEV_STAGE_AGE_RANGES}. Single-sourced
+ * the same way so the embryo/fetal cutoffs stay identical between the per-category
+ * "developmental stage" help and the top-level crib-sheet popup. Applies whether
+ * developmental stage is a whole-experiment tag (constant across samples) or a
+ * factor value (varies) — same UBERON stage terms either way.
+ */
+export const PRENATAL_STAGING_BULLETS: string[] = [
+  "Applies identically as a whole-experiment tag (constant across samples) or a factor value (varies); an age straddling a stage boundary → assign neither stage.",
+  "Prenatal = `embryo stage` (UBERON_0000068, through organogenesis), then `late embryonic / fetal stage` (UBERON_0007220 — UBERON's fetal term; no standalone `fetal` term exists).",
+  "Human by post-conception (PC) age: ≤8 wk PC → embryo stage, ≥9 wk PC → fetal. Clinical gestational age (from LMP) runs ~2 wk ahead of PC — subtract ~2 wk when a paper reports gestational weeks.",
+  "Mouse by embryonic day, recorded as free text via `has developmental stage` (TGEMO_00168): E0 → birth = embryo stage; ~E14.5 → birth = fetal (provisional). Capture the exact E-day, e.g. `E14.5`.",
+  "Capture SOME stage whenever determinable — a coarse embryo stage beats leaving it blank.",
+];
+
+/** Prenatal staging "don't" — shared by the same two dev-stage surfaces. */
+export const PRENATAL_STAGING_DONT: string =
+  "Don't assign a literal organism age to derived material (organoid / iPSC- or ESC-derived / cell line) — but a derived model MAY carry the developmental stage it recapitulates when the paper states one (e.g. `comparable to post-conception week 19` → that modelled stage). Assign the modelled stage; don't leave it blank.";
+
 /** Per-EFC guideline lookups, keyed by category label (lowercased). */
 export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
   "biological sex": {
@@ -172,7 +192,9 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
         ". See the Developmental stages crib sheet for the same table.",
       "Ranges: same prefix on both ends, space-dash-space (`1 week - 4 week`, `E10 - E12`).",
       "Exact ages: free text, attached via `has developmental stage` (TGEMO_00168) to the UBERON stage. E.g. `embryo stage + has developmental stage + E10`.",
+      ...PRENATAL_STAGING_BULLETS,
     ],
+    donts: [PRENATAL_STAGING_DONT],
   },
 
   diet: {
@@ -493,7 +515,9 @@ export const DEV_STAGE_GUIDELINE: GuidelineSnippet = {
     "Stage terms: Neonate (UBERON_0007221), Infant (UBERON_0034920), Juvenile (UBERON_0034919), Prime Adult (UBERON_0018241), Late Adult (UBERON_0007222).",
     "Use the stage the paper names. When it gives only an age, map to a stage with the per-organism cutoffs below.",
     "Exact age → free text via `has developmental stage` (TGEMO_00168) on the UBERON stage. E.g. `embryo stage + has developmental stage + E10`.",
+    ...PRENATAL_STAGING_BULLETS,
   ],
+  donts: [PRENATAL_STAGING_DONT],
   examples: DEV_STAGE_AGE_RANGES.map((r) => `${r.organism}: ${r.ranges}`),
 };
 
