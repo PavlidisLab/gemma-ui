@@ -17,6 +17,7 @@ import { deleteFactor } from "@/features/design/mutations";
 import type {
   AuditFinding,
   AuditReport,
+  AuditScope,
   AuditTargetKind,
   CurationReviewKind,
 } from "@/api/auditTypes";
@@ -60,6 +61,39 @@ import { PipelineAuditTrail } from "./PipelineAuditTrail";
  *  EVERYWHERE in the panel." Do NOT replace with a dynamic source
  *  label — the chip strip itself surfaces the real source. */
 export const AUDIT_PANEL_BASELINE_LABEL = "Current";
+
+/**
+ * Should the "Factors the audit didn't see" (BaselineDriftSection) render?
+ *
+ * Only when the audit's scope actually covered factors. A tags-only audit
+ * (scope.include = ["tags"]) deliberately never looked at factors, so every
+ * current factor would otherwise surface as phantom "drift" (ticket 152: a
+ * lone `cell type` factor shown alongside the single dev-stage tag under
+ * review). An absent or empty scope means "all" → keep the section.
+ */
+export function auditCoversFactors(scope?: AuditScope | null): boolean {
+  const inc = scope?.include;
+  return !inc || inc.length === 0 || inc.includes("factors");
+}
+
+/**
+ * Symmetric mirror of {@link auditCoversFactors} for tags.
+ *
+ * NOT EXERCISED AS OF NOW: there is currently no "Tags the audit didn't see"
+ * drift section — the drift concept (surfacing current-design items the audit
+ * produced no finding for) exists only for factors (BaselineDriftSection).
+ * Tags otherwise render purely from findings, and empty finding-groups already
+ * auto-hide, so a factor-scoped audit surfaces no phantom tags today.
+ *
+ * This exists so that IF a tag-drift section is ever added, it gates on scope
+ * from day one (a factor-only audit, scope.include = ["factors"], must not
+ * surface every current tag as phantom drift — the mirror of the ticket-152
+ * bug). Wire it into that section's render condition when it lands.
+ */
+export function auditCoversTags(scope?: AuditScope | null): boolean {
+  const inc = scope?.include;
+  return !inc || inc.length === 0 || inc.includes("tags");
+}
 
 // ---------------------------------------------------------------------------
 // Section header — shared className for the per-kind dividers
@@ -666,15 +700,23 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
           everything else. The factor-group renderer below picks them
           out via ``isRenameMatch`` and routes them through
           ``ComparisonFactorCard`` rather than ``CompactFindingCard``. */}
-      <BaselineDriftSection
-        curations={curations}
-        baselineSource={chip.baseline}
-        comparatorSource={chip.comparator}
-        baselineLabel={baselineLabel}
-        comparatorLabel={comparatorLabel}
-        experimentId={experimentId}
-        findings={findings}
-      />
+      {/* "Factors the audit didn't see" is meaningless for a scoped audit
+          that deliberately never looked at factors — a tags-only ticket
+          (scope.include = ["tags"]) would otherwise surface EVERY current
+          factor as phantom drift (ticket 152: a lone `cell type` factor
+          shown next to the one dev-stage tag under review). Only compute
+          factor drift when the audit's scope actually includes factors. */}
+      {auditCoversFactors(report?.scope) ? (
+        <BaselineDriftSection
+          curations={curations}
+          baselineSource={chip.baseline}
+          comparatorSource={chip.comparator}
+          baselineLabel={baselineLabel}
+          comparatorLabel={comparatorLabel}
+          experimentId={experimentId}
+          findings={findings}
+        />
+      ) : null}
 
       {GROUPS.map(({ kind: groupKind, header }) => {
         const items = groupedActionable.get(groupKind) ?? [];
