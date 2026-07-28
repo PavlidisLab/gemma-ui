@@ -61,6 +61,13 @@ import type {
  *  panel-wide grep. ``noun`` is the bare singular ("audit"),
  *  ``Noun`` the capitalised form for sentence starts, ``verbed``
  *  the past-tense verb the close-toast uses. */
+
+/** Outcome of a {@link SidebarHeader}'s ``handleClose`` attempt —
+ *  lets ``CloseAuditConfirm`` distinguish "actually finalized" from
+ *  "blocked" so it only clears the curator's typed note on the
+ *  former. */
+export type CloseOutcome = "closed" | "dirty-draft" | "blocked";
+
 const KIND_COPY: Record<
   CurationReviewKind,
   {
@@ -427,7 +434,24 @@ function SidebarHeader({
   // invocation) next to the "{ } raw" affordance. Only offered when the
   // proposal actually carries a provenance block.
   const [proposerDetailsOpen, setProposerDetailsOpen] = useState(false);
-  const { apply: applyDraft, draft, diff: draftDiff } = useDesignDraft();
+  const {
+    apply: applyDraft,
+    draft,
+    diff: draftDiff,
+    commit: commitDraft,
+  } = useDesignDraft();
+  // "Commit & close" offer (2026-07) — surfaced when Close is blocked
+  // by uncommitted draft edits, replacing the old dead-end toast. The
+  // curator's typed close note lives in ``offerCommitAndClose`` so it
+  // survives the round trip: closed inline confirm → commit → retry
+  // close, instead of being wiped by CloseAuditConfirm's post-confirm
+  // cleanup (which now only fires on an actual finalize — see
+  // ``handleClose``'s return value).
+  const [offerCommitAndClose, setOfferCommitAndClose] = useState<{
+    notes: string;
+    pendingResolution: "accept" | "reject";
+  } | null>(null);
+  const [commitAndCloseRunning, setCommitAndCloseRunning] = useState(false);
   // Ticket-target status sync on Finalize — when the curator closes
   // the review for an experiment that lives on a ticket, flip that
   // ticket-target's status to DONE so the popover + dashboard reflect
@@ -609,7 +633,7 @@ function SidebarHeader({
   async function handleClose(
     notes: string,
     pendingResolution: "accept" | "reject" = "reject",
-  ) {
+  ): Promise<CloseOutcome> {
     // 409 guard: if the audit is already finalized (refetch lag,
     // double-click, or a stale tab), skip the whole sweep + close
     // and surface a friendly toast instead of letting the sweep
@@ -622,23 +646,22 @@ function SidebarHeader({
         4000,
       );
       setConfirmClose(false);
-      return;
+      return "blocked";
     }
     // Dirty-draft guard (continuity sweep 2026-06-13): refuse to
     // finalize when the design draft has uncommitted edits. Apply
     // & focus and similar disposition paths queue draft mutations
     // — if the curator closes the audit without committing, the
     // mutations are stranded (machine restart, tab close, or
-    // cross-device handoff loses them). Surface as a toast so the
-    // curator can switch tabs and commit before retrying.
+    // cross-device handoff loses them). Rather than dead-end on a
+    // toast, offer to commit the draft and retry the close in one
+    // step — the curator's typed note travels with the offer so it
+    // isn't lost (2026-07-27: previously CloseAuditConfirm wiped the
+    // note on ANY ``onConfirm`` return, including this blocked path).
     if (draftDiff?.isDirty) {
-      toast.show(
-        "Commit your design edits first — closing the review now would strand uncommitted draft changes.",
-        "danger",
-        7000,
-      );
       setConfirmClose(false);
-      return;
+      setOfferCommitAndClose({ notes, pendingResolution });
+      return "dirty-draft";
     }
     try {
       // Sweep pending severity=ok findings to "accepted" before
@@ -782,6 +805,7 @@ function SidebarHeader({
       ) {
         setOfferResolveTicket(true);
       }
+      return "closed";
     } catch (err) {
       // 409 here means a parallel finalize landed first — same
       // friendly path as the pre-flight guard above.
@@ -793,14 +817,38 @@ function SidebarHeader({
           4000,
         );
         setConfirmClose(false);
-        return;
+        return "blocked";
       }
       toast.show(
         `Couldn't close ${copy.noun}: ${(err as Error).message}`,
         "danger",
         6000,
       );
+      return "blocked";
     }
+  }
+
+  /** Trigger for the "commit & close" offer surfaced when Close hits
+   *  the dirty-draft guard above. Commits the draft, then — only on
+   *  a clean commit — retries the close with the note the curator
+   *  already typed. */
+  function handleCommitAndClose() {
+    const pending = offerCommitAndClose;
+    if (!pending) return;
+    setCommitAndCloseRunning(true);
+    commitDraft((result) => {
+      setCommitAndCloseRunning(false);
+      setOfferCommitAndClose(null);
+      if (!result.ok) {
+        toast.show(
+          `Couldn't commit your design edits: ${result.error} — ${copy.noun} not closed.`,
+          "danger",
+          7000,
+        );
+        return;
+      }
+      void handleClose(pending.notes, pending.pendingResolution);
+    });
   }
 
   async function handleReopen() {
@@ -1253,6 +1301,16 @@ function SidebarHeader({
           }
         }}
       />
+      <ConfirmModal
+        open={!!offerCommitAndClose}
+        destructive={false}
+        title="Uncommitted design changes"
+        body={`Your design edits haven't been committed yet — closing this ${copy.noun} now would strand them. Commit your changes and close?`}
+        confirmLabel={commitAndCloseRunning ? "committing…" : "Commit & close"}
+        cancelLabel="Never mind"
+        onCancel={() => setOfferCommitAndClose(null)}
+        onConfirm={handleCommitAndClose}
+      />
     </div>
   );
 }
@@ -1292,8 +1350,13 @@ function pendingFindingLabel(f: AuditFinding): string {
 /** Inline confirm popover for "Close audit". Optional notes go to
  *  the audit_events row server-side. Keeps the affordance compact —
  *  the audit lifecycle isn't destructive (Reopen restores it), so a
- *  full ConfirmModal would over-weight the action. */
-function CloseAuditConfirm({
+ *  full ConfirmModal would over-weight the action.
+ *
+ *  Exported (only) so a render test can drive it directly with a
+ *  stubbed ``onConfirm`` — the parent ``SidebarHeader`` pulls in
+ *  audit/design-draft/ticket contexts this component itself doesn't
+ *  need. */
+export function CloseAuditConfirm({
   kind,
   stickyKey,
   pendingActionable,
@@ -1325,7 +1388,7 @@ function CloseAuditConfirm({
   onConfirm: (
     notes: string,
     pendingResolution: "accept" | "reject",
-  ) => Promise<void> | void;
+  ) => Promise<CloseOutcome>;
 }) {
   const copy = KIND_COPY[kind];
   const [notes, setNotes] = useStickyState<string>(
@@ -1463,12 +1526,18 @@ function CloseAuditConfirm({
           type="button"
           onClick={async () => {
             const trimmed = notes.trim();
-            await onConfirm(trimmed, pendingResolution);
-            // Successful finalize — clear the sticky draft so the
-            // next time the curator opens a fresh review of this
-            // audit they start with an empty textarea (not the
-            // just-submitted note). On cancel we leave it alone
-            // (curator might be coming back).
+            const outcome = await onConfirm(trimmed, pendingResolution);
+            // Only clear the sticky draft on an ACTUAL finalize
+            // (2026-07-27 fix). Blocked outcomes — already-finalized
+            // 409, or the dirty-draft guard (which now hands off to
+            // the commit-and-close offer instead) — used to hit this
+            // same cleanup unconditionally, silently wiping the note
+            // the curator just typed even though nothing closed. On
+            // "closed" the next fresh review of this audit should
+            // start with an empty textarea, not the just-submitted
+            // note; on any blocked outcome (or cancel) we leave the
+            // draft note alone so it's still there if they reopen.
+            if (outcome !== "closed") return;
             try {
               localStorage.removeItem(`${stickyKey}:notes`);
               localStorage.removeItem(`${stickyKey}:resolution`);

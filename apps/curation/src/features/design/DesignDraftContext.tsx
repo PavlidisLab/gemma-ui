@@ -57,6 +57,10 @@ import {
   writeCachedDraft,
 } from "./draftCache";
 
+/** Outcome of a {@link DesignDraftValue.commit} call, for callers
+ *  that need to chain a follow-up action on success. */
+export type CommitResult = { ok: true } | { ok: false; error: string };
+
 /**
  * Shared draft buffer for the experiment's Design.
  *
@@ -82,7 +86,15 @@ export interface DesignDraftValue {
    * call would close over a stale ``draft``).
    */
   apply: (next: Design | ((current: Design) => Design)) => void;
-  commit: () => void;
+  /**
+   * Commit the draft. Pass ``onSettled`` when a caller needs to know
+   * the outcome (e.g. "commit, then do X on success") — invoked once
+   * both the /design PUT and the /polished mirror have landed (or
+   * either has failed). Optional and fire-and-forget when omitted;
+   * ``saving``/``saveError`` above remain the reactive source of
+   * truth for CommitBar-style UI.
+   */
+  commit: (onSettled?: (result: CommitResult) => void) => void;
   discard: () => void;
   /** Pop the last ``apply()`` off the undo stack and restore the
    *  prior draft. Bound to Cmd+Z / Ctrl+Z by the App-level
@@ -492,8 +504,11 @@ export function DesignDraftProvider({
       return r.slice(0, -1);
     });
   }, [updater.isPending]);
-  const commit = useCallback(() => {
-    if (!draft) return;
+  const commit = useCallback((onSettled?: (result: CommitResult) => void) => {
+    if (!draft) {
+      onSettled?.({ ok: false, error: "No draft to commit" });
+      return;
+    }
     // No baseline-view commit gate. Originally a hard refusal, then
     // a danger toast, then a confirm dialog — every iteration
     // interacted badly with the close-review's dirty-draft guard:
@@ -511,6 +526,7 @@ export function DesignDraftProvider({
       clearCachedDraft(experimentId);
       setUndoStack([]);
       setRedoStack([]);
+      onSettled?.({ ok: true });
     };
     updater.mutate(normalizeForCommit(draft), {
       onSuccess: (server) => {
@@ -539,7 +555,13 @@ export function DesignDraftProvider({
           // ``saveError`` surfaces ``polisher.error`` via CommitBar, and
           // the curator re-commits. The /design PUT already succeeded, so
           // the retry re-PUTs the same design (idempotent) then re-mirrors.
+          onError: (err) => {
+            onSettled?.({ ok: false, error: (err as Error).message });
+          },
         });
+      },
+      onError: (err) => {
+        onSettled?.({ ok: false, error: (err as Error).message });
       },
     });
   }, [draft, updater, polisher, reviewer, experimentId]);

@@ -28,6 +28,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { useState } from "react";
 import type { Design } from "@/features/experiment/types";
 
 // ---------------------------------------------------------------------------
@@ -244,10 +245,12 @@ describe("DesignDraftProvider — commit gates the checkpoint on the polished mi
   /** A consumer that drives apply → commit and surfaces the witnesses. */
   function CommitProbe() {
     const { apply, commit, canUndo, saveError } = useDesignDraft();
+    const [settled, setSettled] = useState<string>("");
     return (
       <div>
         <span data-testid="can-undo">{canUndo ? "yes" : "no"}</span>
         <span data-testid="commit-error">{saveError ?? ""}</span>
+        <span data-testid="settled-result">{settled}</span>
         <button
           data-testid="apply-btn"
           onClick={() =>
@@ -270,6 +273,14 @@ describe("DesignDraftProvider — commit gates the checkpoint on the polished mi
           }
         />
         <button data-testid="commit-btn" onClick={() => commit()} />
+        <button
+          data-testid="commit-with-callback-btn"
+          onClick={() =>
+            commit((result) =>
+              setSettled(result.ok ? "ok" : `error:${result.error}`),
+            )
+          }
+        />
       </div>
     );
   }
@@ -352,5 +363,86 @@ describe("DesignDraftProvider — commit gates the checkpoint on the polished mi
     // Both writes landed → checkpoint runs → undo stack cleared.
     expect(screen.getByTestId("can-undo").textContent).toBe("no");
     expect(screen.getByTestId("commit-error").textContent).toBe("");
+  });
+
+  // ``onSettled`` (2026-07-27) — callers like the audit sidebar's
+  // "commit & close" offer need to know when a commit finishes so
+  // they can chain a follow-up action only on success.
+  it("invokes onSettled with ok:true once the polished mirror succeeds", async () => {
+    useUpdatePolishedMock.mockReturnValue({
+      mutate: vi.fn((_server, opts) => opts?.onSuccess?.()),
+      reset: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    });
+
+    render(
+      <DesignDraftProvider experimentId={ROUTE_ID} reviewer="cy">
+        <CommitProbe />
+      </DesignDraftProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("can-undo").textContent).toBe("no"),
+    );
+
+    fireEvent.click(screen.getByTestId("apply-btn"));
+    fireEvent.click(screen.getByTestId("commit-with-callback-btn"));
+
+    expect(screen.getByTestId("settled-result").textContent).toBe("ok");
+  });
+
+  it("invokes onSettled with the error when the polished mirror fails", async () => {
+    useUpdatePolishedMock.mockReturnValue({
+      mutate: vi.fn((_server, opts) => opts?.onError?.(new Error("500 store down"))),
+      reset: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: new Error("500 store down"),
+    });
+
+    render(
+      <DesignDraftProvider experimentId={ROUTE_ID} reviewer="cy">
+        <CommitProbe />
+      </DesignDraftProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("can-undo").textContent).toBe("no"),
+    );
+
+    fireEvent.click(screen.getByTestId("apply-btn"));
+    fireEvent.click(screen.getByTestId("commit-with-callback-btn"));
+
+    expect(screen.getByTestId("settled-result").textContent).toBe(
+      "error:500 store down",
+    );
+  });
+
+  it("invokes onSettled with an error when the /design PUT itself fails", async () => {
+    useUpdateDesignMock.mockReturnValue({
+      mutate: vi.fn((_payload, opts) =>
+        opts?.onError?.(new Error("network down")),
+      ),
+      reset: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: new Error("network down"),
+    });
+
+    render(
+      <DesignDraftProvider experimentId={ROUTE_ID} reviewer="cy">
+        <CommitProbe />
+      </DesignDraftProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("can-undo").textContent).toBe("no"),
+    );
+
+    fireEvent.click(screen.getByTestId("apply-btn"));
+    fireEvent.click(screen.getByTestId("commit-with-callback-btn"));
+
+    expect(screen.getByTestId("settled-result").textContent).toBe(
+      "error:network down",
+    );
   });
 });
