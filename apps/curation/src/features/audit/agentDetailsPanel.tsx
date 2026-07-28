@@ -640,6 +640,7 @@ export function FindingEvidenceBlock({
               ↗
             </a>
           ) : null}
+          <VerifiedBadge verified={evidence.verified} />
           <EvidenceLocationLabel location={location} />
         </span>
       </span>
@@ -678,6 +679,7 @@ export function FindingEvidenceBlock({
               open ↗
             </a>
           ) : null}
+          <VerifiedBadge verified={evidence.verified} />
         </span>
         <EvidenceLocationLabel location={location} />
       </div>
@@ -719,6 +721,32 @@ export function FindingEvidenceBlock({
  * alias mapping, or a loud "investigate" flag for the producer-bug
  * case. Falls back to the raw string for anything unrecognised.
  */
+/**
+ * Compact paper-quote verification glyph. Tri-state, keyed off the first-class
+ * `FindingEvidence.verified` field the builder stamps at build time:
+ *   true  → green ✓, "verified against cached paper text"
+ *   false → amber ⚠, the credibility red flag (quote not in the cached text)
+ *   null/undefined → nothing (non-paper source, or no cached paper).
+ * A glyph + tooltip is more compact than a text label and reads at a glance.
+ */
+function VerifiedBadge({ verified }: { verified?: boolean | null }) {
+  if (verified == null) return null;
+  const [glyph, cls, tip] = verified
+    ? ["✓", "text-emerald-600 dark:text-emerald-400",
+       "verified against cached paper text"]
+    : ["⚠", "text-slate-400 dark:text-slate-500",
+       "quote not found in cached paper text — unverified"];
+  return (
+    <span
+      className={cn("text-[10px] leading-none cursor-help", cls)}
+      title={tip}
+      aria-label={tip}
+    >
+      {glyph}
+    </span>
+  );
+}
+
 function EvidenceLocationLabel({ location }: { location: string }) {
   const parsed = parseEvidenceLocation(location);
   switch (parsed.kind) {

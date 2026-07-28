@@ -27,6 +27,10 @@ export interface FindingEvidence {
   context?: string;
   source_url?: string;
   highlights?: [number, number][];
+  /** Tri-state paper-quote verification against the cached full text:
+   *  `true` → verified (green ✓), `false` → not found in cache (amber ⚠),
+   *  `null`/absent → not verifiable (no badge). See auditTypes.FindingEvidence. */
+  verified?: boolean | null;
 }
 
 /**

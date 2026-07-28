@@ -84,6 +84,14 @@ export interface FindingEvidence {
    *  Empty when no highlight applies (one-line contexts, paraphrased
    *  quotes that aren't literal substrings). */
   highlights?: [number, number][];
+  /** Paper-quote verification against the authoritative cached full text,
+   *  stamped at build time so the curator never fetches the paper. Tri-state:
+   *  `true` — quote located in the cached full text (repaired to the full
+   *  sentence; `source_url` deep-links to it) → green ✓ badge; `false` — a
+   *  paper quote NOT found in the cached text (credibility red flag) → amber
+   *  ⚠ badge; `null`/absent — not verifiable (non-paper source, or no cached
+   *  paper) → no badge. */
+  verified?: boolean | null;
 }
 
 /** The six canonical actions a post-proposal-evaluation finding can
