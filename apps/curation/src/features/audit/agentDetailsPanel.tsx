@@ -620,6 +620,11 @@ export function FindingEvidenceBlock({
               {meta.badge}
             </span>
           ) : null}
+          {/* Show the full repaired quote directly — no expand-to-context
+              click (Paul 2026-07-27: "just show the full quote"). The full
+              sentence carries the signal (a figure legend / "previous
+              studies" line reads as such); the ↗ link opens the paper AT the
+              quote for anyone who wants the surrounding text. */}
           <span className="italic text-slate-700 dark:text-slate-200">
             &ldquo;{quote}&rdquo;
           </span>
@@ -636,29 +641,7 @@ export function FindingEvidenceBlock({
             </a>
           ) : null}
           <EvidenceLocationLabel location={location} />
-          {hasMore ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setExpanded((v) => !v);
-              }}
-              className={cn("text-[10px] hover:underline", meta.headerCls)}
-            >
-              {expanded ? "less" : "context"}
-            </button>
-          ) : null}
         </span>
-        {expanded && hasMore ? (
-          <pre
-            className={cn(
-              "mt-1 px-1.5 py-1 rounded text-[11px] leading-snug whitespace-pre-wrap break-words font-sans text-slate-800 dark:text-slate-200 max-h-72 overflow-y-auto",
-              meta.contextBgCls,
-            )}
-          >
-            {renderHighlightedContext(context, highlights)}
-          </pre>
-        ) : null}
       </span>
     );
   }
@@ -698,7 +681,9 @@ export function FindingEvidenceBlock({
         </span>
         <EvidenceLocationLabel location={location} />
       </div>
-      <span className="leading-snug">"{quote}"</span>
+      {/* Hide the standalone quote when expanded — the context below shows
+          it highlighted (was duplicative; Paul 2026-07-27). */}
+      {!expanded ? <span className="leading-snug">"{quote}"</span> : null}
       {hasMore ? (
         <>
           {expanded ? (
