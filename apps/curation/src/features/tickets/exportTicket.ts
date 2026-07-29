@@ -95,6 +95,10 @@ async function fetchLatestReviewStatus(
     is_finalized: !!latest.finalized_at,
     finalized_at: latest.finalized_at ?? null,
     finalized_by: latest.finalized_by ?? null,
+    // Curator's overall Close-audit comment — kept so the ticket bundle
+    // doesn't drop the one note written ABOUT the whole review (matches
+    // SetExportReviewStatus / the calibration export.py fix).
+    finalized_notes: latest.finalized_notes ?? "",
     review_id: latest.audit_id ?? null,
     reviewed_at: latest.audited_at ?? null,
     model: latest.model ?? null,

@@ -85,6 +85,14 @@ services:
     working_dir: /agents
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # OpenAI key — required by the cell-line RAG resolver's embedding
+      # query (text-embedding-3-large). Empty default keeps `up` working
+      # without it; when unset the resolver gates off and the chain falls
+      # through to the lexical resolver. To ENABLE cell-line RAG in-
+      # container you ALSO need the index mounted — see the commented
+      # `cell_line_rag` volume below and scripts/cell_line_rag/README.md.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CELL_LINE_RAG_INDEX_DIR: ${CELL_LINE_RAG_INDEX_DIR:-}
       GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
       # Proposer points at local-api over the compose network.
       GEMMA_CURATION_URL: http://local-api:8000
@@ -103,6 +111,14 @@ services:
       ZOTERO_GROUP_ID: ${ZOTERO_GROUP_ID:-}
     volumes:
       - ${AGENTS_REPO:-../../../gemma-curation-agents}:/agents
+      # To ENABLE the cell-line RAG resolver in-container, mount the prebuilt
+      # index read-only and set (above) CELL_LINE_RAG_INDEX_DIR=/cell_line_rag
+      # + OPENAI_API_KEY. The host path is the index built by
+      # scripts/cell_line_rag/ (default ~/Data/gemma-curation-agents-data/
+      # cell_line_rag). Left commented because a bind-mount of an absent host
+      # path breaks `up`; uncomment once the index exists. See
+      # scripts/cell_line_rag/README.md.
+      # - ${CELL_LINE_RAG_HOST_DIR:-${HOME}/Data/gemma-curation-agents-data/cell_line_rag}:/cell_line_rag:ro
     ports:
       - "8082:8000"
     command: ["python", "-m", "gemma_curation_agents.cli", "proposer-service", "serve", "--host", "0.0.0.0", "--port", "8000"]

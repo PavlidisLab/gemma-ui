@@ -86,6 +86,13 @@ export interface SetExportReviewStatus {
   is_finalized: boolean;
   finalized_at: string | null;
   finalized_by: string | null;
+  /** The curator's free-text Close-audit comment — their overall
+   *  sign-off on the experiment, distinct from any per-finding note.
+   *  Persisted on the audit row (``AuditReport.finalized_notes``) but
+   *  previously dropped from every export bundle — a silent data-loss
+   *  of the one comment a curator writes ABOUT the whole review. Empty
+   *  string when the close dialog was left blank. */
+  finalized_notes: string;
   /** Server-side curation_review row id (audit_id on the
    *  ``AuditReport`` shape). Lets the consumer cross-reference
    *  this export with the agent's persistence store. */
@@ -168,6 +175,7 @@ async function fetchLatestReviewStatus(
     is_finalized: !!latest.finalized_at,
     finalized_at: latest.finalized_at ?? null,
     finalized_by: latest.finalized_by ?? null,
+    finalized_notes: latest.finalized_notes ?? "",
     review_id: latest.audit_id ?? null,
     reviewed_at: latest.audited_at ?? null,
     model: latest.model ?? null,
