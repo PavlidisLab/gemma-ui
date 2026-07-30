@@ -29,10 +29,41 @@ export interface AnnotationCandidate {
   taxon_id?: number | null;
   taxon_common_name?: string | null;
   taxon_scientific_name?: string | null;
+  /** One representative prior usage of this term, for the "e.g. …"
+   *  hint on rare candidates. Only present when the query opted in
+   *  via ``includeExampleUsage`` AND Gemma found a usage — see
+   *  ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. */
+  example_usage?: AnnotationExampleUsage | null;
 }
 
-const KEY = (q: string, category: string | null, limit: number) =>
-  ["annotations-search", q, category ?? "", limit] as const;
+/** One representative prior usage of a candidate term — which
+ *  FactorValue/factor (or EE-tag / sample) it was attached to, and
+ *  the full Statement triple when the term sits inside one (the
+ *  candidate itself is the subject). Wire is camelCase
+ *  (``AnnotationSearchResultValueObject.exampleUsage``); the client's
+ *  ``snakeify`` transform lowers both this object's own keys and
+ *  everything nested inside it before it reaches app code. */
+export interface AnnotationExampleUsage {
+  level: "ExperimentTag" | "FactorValue" | "BioMaterial" | string;
+  parent_name: string | null;
+  parent_of_parent_name: string | null;
+  predicate: string | null;
+  predicate_uri: string | null;
+  object: string | null;
+  object_uri: string | null;
+  second_predicate: string | null;
+  second_predicate_uri: string | null;
+  second_object: string | null;
+  second_object_uri: string | null;
+  source_experiment_id: number | null;
+}
+
+const KEY = (
+  q: string,
+  category: string | null,
+  limit: number,
+  includeExampleUsage: boolean,
+) => ["annotations-search", q, category ?? "", limit, includeExampleUsage] as const;
 
 /**
  * Debounced typeahead query. Empty `query` returns the full list
@@ -43,16 +74,27 @@ const KEY = (q: string, category: string | null, limit: number) =>
 export function useAnnotationSearch(
   query: string,
   category: string | null,
-  options: { limit?: number; enabled?: boolean } = {},
+  options: {
+    limit?: number;
+    enabled?: boolean;
+    /** Opt into the ``exampleUsage`` enrichment (batched reverse
+     *  lookup on Gemma's side, off by default to keep the hot
+     *  per-keystroke path cheap and cache-friendly). Only the
+     *  picker's own dropdown — the one place that renders the "e.g.
+     *  …" hint — should set this; other callers should leave it
+     *  off. See ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. */
+    includeExampleUsage?: boolean;
+  } = {},
 ) {
-  const { limit = 25, enabled = true } = options;
+  const { limit = 25, enabled = true, includeExampleUsage = false } = options;
   return useQuery({
-    queryKey: KEY(query, category, limit),
+    queryKey: KEY(query, category, limit, includeExampleUsage),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (query) params.set("query", query);
       if (category) params.set("category", category);
       params.set("limit", String(limit));
+      if (includeExampleUsage) params.set("includeExampleUsage", "true");
       // Bias by how often each term has actually been used in
       // Gemma curations rather than the default Lucene tf-idf
       // ranking. Without this, common multi-word labels like
@@ -88,6 +130,10 @@ export function useAnnotationSearch(
         taxon_id?: number | null;
         taxon_common_name?: string | null;
         taxon_scientific_name?: string | null;
+        // ``exampleUsage`` → ``example_usage`` (client.ts snakeifies
+        // nested keys too, including this object's own fields — see
+        // AnnotationExampleUsage's doc comment).
+        example_usage?: AnnotationExampleUsage | null;
       };
       type LocalShape = AnnotationCandidate;
       const raw = await api.get<
@@ -120,6 +166,7 @@ export function useAnnotationSearch(
             asLocal.taxon_scientific_name ??
             asGemma.taxon_scientific_name ??
             null,
+          example_usage: asLocal.example_usage ?? asGemma.example_usage ?? null,
         };
       });
       return orderCandidatesByTaxon(candidates);

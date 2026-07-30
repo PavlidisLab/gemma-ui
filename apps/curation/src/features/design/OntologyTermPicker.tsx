@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   useAnnotationSearch,
   type AnnotationCandidate,
@@ -13,6 +14,7 @@ import { taxonAbbreviation } from "@/lib/taxon";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import type { OntologyTerm } from "@/features/experiment/types";
+import { getRecentTerms, pushRecentTerm, type RecentTerm } from "./recentTerms";
 
 /**
  * Typeahead picker over Gemma's annotation catalog. Used for
@@ -102,7 +104,69 @@ export function OntologyTermPicker({
   const [uriEditing, setUriEditing] = useState(false);
   const [draft, setDraft] = useState(value?.label ?? "");
   const [highlight, setHighlight] = useState(0);
+  const [recent, setRecent] = useState<RecentTerm[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // The dropdown portals to <body> with a computed `fixed` position
+  // instead of the plain `absolute` it used to have, because a couple
+  // of call sites (StatementEditModal's tag-edit dialog) render this
+  // picker inside an `overflow-auto` panel — which clips any
+  // absolutely-positioned descendant that overflows the panel's
+  // bounds, no matter its z-index (Paul 2026-07-29 screenshot: the
+  // dropdown cut off mid-list inside the dialog). Recomputed on open
+  // and on any resize/scroll (capture-phase, so it also catches the
+  // modal panel's own internal scroll) so it keeps tracking the input.
+  // Width/height are conservative estimates (the dropdown's own
+  // CSS `min-w-[22rem] max-w-[32rem]` / `max-h-80`) rather than a
+  // live measurement — good enough to keep it on-screen without a
+  // second measure-then-correct render pass.
+  const [dropdownPos, setDropdownPos] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!editing) {
+      setDropdownPos(null);
+      return;
+    }
+    function reposition() {
+      if (!inputRef.current) return;
+      const anchor = inputRef.current.getBoundingClientRect();
+      const margin = 8;
+      const estWidth = 512; // 32rem
+      const estHeight = 320; // max-h-80
+      let left = anchor.left;
+      if (left + estWidth > window.innerWidth - margin) {
+        left = Math.max(margin, window.innerWidth - estWidth - margin);
+      }
+      let top = anchor.bottom + 2;
+      if (
+        top + estHeight > window.innerHeight - margin &&
+        anchor.top - estHeight - 2 > margin
+      ) {
+        top = anchor.top - estHeight - 2;
+      }
+      setDropdownPos({ left, top });
+    }
+    reposition();
+    window.addEventListener("resize", reposition);
+    document.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      document.removeEventListener("scroll", reposition, true);
+    };
+  }, [editing]);
+
+  // Refresh from localStorage each time the picker opens — another
+  // instance elsewhere on the page may have recorded a pick since
+  // this one last mounted.
+  useEffect(() => {
+    if (editing) setRecent(getRecentTerms());
+  }, [editing]);
+
+  function recordRecent(term: OntologyTerm) {
+    setRecent(pushRecentTerm({ label: term.label, uri: term.uri ?? null }));
+  }
 
   // Debounce the query to avoid spamming the endpoint on every key.
   const debounced = useDebouncedValue(draft, 150);
@@ -110,7 +174,10 @@ export function OntologyTermPicker({
   const { data: candidates = [], isFetching } = useAnnotationSearch(
     debounced,
     category,
-    { enabled: editing, limit: 25 },
+    // This dropdown is the one surface that renders the "e.g. …" rare-
+    // term hint, so it's the one caller that opts into the enrichment —
+    // see ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md.
+    { enabled: editing, limit: 25, includeExampleUsage: true },
   );
 
   // Agent-side ontology search. Fires only when the curator clicks
@@ -148,12 +215,16 @@ export function OntologyTermPicker({
   useEffect(() => setHighlight(0), [debounced, candidates.length]);
 
   function commitCandidate(c: AnnotationCandidate) {
-    onCommit({ label: c.label, uri: c.uri ?? null });
+    const term = { label: c.label, uri: c.uri ?? null };
+    recordRecent(term);
+    onCommit(term);
     setEditing(false);
   }
 
   function commitTermCandidate(c: TermCandidate) {
-    onCommit({ label: c.label, uri: c.uri });
+    const term = { label: c.label, uri: c.uri };
+    recordRecent(term);
+    onCommit(term);
     setEditing(false);
   }
 
@@ -209,10 +280,12 @@ export function OntologyTermPicker({
     }
     const sameAsCurrent =
       (value?.label ?? "").toLowerCase() === t.toLowerCase();
-    onCommit({
+    const term = {
       label: t,
       uri: sameAsCurrent ? (value?.uri ?? null) : null,
-    });
+    };
+    recordRecent(term);
+    onCommit(term);
     setEditing(false);
   }
 
@@ -229,7 +302,9 @@ export function OntologyTermPicker({
       setEditing(false);
       return;
     }
-    onCommit({ label: t, uri: null });
+    const term = { label: t, uri: null };
+    recordRecent(term);
+    onCommit(term);
     setEditing(false);
   }
 
@@ -319,11 +394,39 @@ export function OntologyTermPicker({
             className,
           )}
         />
-        <ul
-          className="absolute left-0 top-full mt-0.5 z-20 bg-white border border-slate-200 rounded shadow-md min-w-[22rem] max-w-[32rem] max-h-80 overflow-auto py-1 text-xs"
-          // mousedown-based commit so blur never fires first
-          onMouseDown={(e) => e.preventDefault()}
-        >
+        {dropdownPos
+          ? createPortal(
+              <ul
+                className="fixed z-[60] bg-white border border-slate-200 rounded shadow-md min-w-[22rem] max-w-[32rem] max-h-80 overflow-auto py-1 text-xs"
+                style={{ left: dropdownPos.left, top: dropdownPos.top }}
+                // mousedown-based commit so blur never fires first
+                onMouseDown={(e) => e.preventDefault()}
+              >
+          {/* Section 0: recently-selected terms — client-side MRU,
+              shown only before the curator starts typing (once they
+              type, catalog/agent search results take over). Click
+              only, not part of the arrow-key highlight index space,
+              mirroring the "keep current" row below. */}
+          {!draft.trim() && recent.length > 0 ? (
+            <>
+              <SectionHeader
+                label="Recently used"
+                hint="terms you picked recently in this browser"
+              />
+              {recent.map((r) => (
+                <RecentTermRow
+                  key={`${r.label}|${r.uri ?? ""}`}
+                  term={r}
+                  onPick={() => {
+                    onCommit({ label: r.label, uri: r.uri });
+                    recordRecent(r);
+                    setEditing(false);
+                  }}
+                />
+              ))}
+            </>
+          ) : null}
+
           {/* Section 1: Gemma catalog hits (with usage counts). */}
           {candidates.length > 0 ? (
             <>
@@ -520,7 +623,10 @@ export function OntologyTermPicker({
           >
             set URI manually…
           </li>
-        </ul>
+              </ul>,
+              document.body,
+            )
+          : null}
       </span>
     );
   }
@@ -692,6 +798,7 @@ function CandidateRow({
     <li
       onMouseEnter={onHover}
       onClick={onPick}
+      title={candidateTooltip(candidate)}
       className={cn(
         "px-2 py-1 cursor-pointer flex items-center gap-2",
         highlighted ? "bg-blue-50" : "hover:bg-slate-50",
@@ -703,7 +810,6 @@ function CandidateRow({
           ontology ? "text-emerald-800" : "text-slate-700 italic",
           used ? "font-semibold" : "font-normal",
         )}
-        title={ontology ? candidate.uri ?? "" : "free text"}
       >
         {candidate.label}
       </span>
@@ -726,22 +832,137 @@ function CandidateRow({
         </span>
       ) : null}
       {used ? (
-        <span
-          className="text-[10px] tabular-nums text-slate-500 shrink-0"
-          title={`used in ${candidate.usage_count} place${
-            candidate.usage_count === 1 ? "" : "s"
-          } in Gemma`}
-        >
+        <span className="text-[10px] tabular-nums text-slate-500 shrink-0">
           ×{formatCount(candidate.usage_count)}
         </span>
       ) : (
-        <span
-          className="text-[10px] text-slate-400 shrink-0 italic"
-          title="never used in Gemma"
-        >
-          new
-        </span>
+        <span className="text-[10px] text-slate-400 shrink-0 italic">new</span>
       )}
+    </li>
+  );
+}
+
+/** How rare a term must be (``usage_count``) before its tooltip earns
+ *  an "e.g. …" example line. Common terms don't need one — a curator
+ *  looking at something used 400 times already knows what it means;
+ *  the example is for the handful-of-uses case where seeing a real
+ *  prior usage helps them judge the match. Gating is entirely
+ *  client-side by design — Gemma attaches the example whenever it has
+ *  one and leaves the "is this worth showing" call to us. See
+ *  ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. */
+const RARE_USAGE_THRESHOLD = 3;
+
+/** Maps ``exampleUsage.level`` to the short label curators actually
+ *  want — "was this used as a TAG or an FV?" (Paul 2026-07-29: the
+ *  tooltip without this was "still not that useful"). Checked against
+ *  live frink data 2026-07-29: three raw values actually appear —
+ *  ``ExperimentTag``, ``BioMaterial`` (both match the enum the
+ *  handoff documented), and ``ExperimentalDesign`` — which does
+ *  NOT match the documented ``FactorValue`` but shows up on
+ *  obviously-FV-shaped hits (e.g. "wild type genotype", 10727 uses,
+ *  under a ``genotype`` factor). Reads as Gemma reporting the FV's
+ *  owning grandparent entity instead of "FactorValue" — mapped here
+ *  defensively so the UI is correct either way; flagged back in
+ *  ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. */
+function levelLabel(level: string): string {
+  switch (level) {
+    case "ExperimentTag":
+      return "tag";
+    case "FactorValue":
+    case "ExperimentalDesign":
+      return "factor value";
+    case "BioMaterial":
+      return "sample";
+    case "ExpressionExperimentSubSet":
+      return "sample subset";
+    default:
+      return level;
+  }
+}
+
+/** Single consolidated tooltip for a dropdown row — label/URI-or-
+ *  free-text, usage count, AND (for a rare term with an attached
+ *  example) whether the prior usage was a tag or a factor value, the
+ *  owning factor, the full S · P · O triple when the example came
+ *  from a Statement, and which dataset it's from. Paul 2026-07-29: a
+ *  separate visible "e.g. …" line under the row was too little
+ *  information for the space it took, and once folded into the
+ *  tooltip it STILL didn't say whether the example was a tag or an
+ *  FV — the single most useful fact for judging relevance. */
+function candidateTooltip(candidate: AnnotationCandidate): string {
+  const lines: string[] = [
+    candidate.uri ? `${candidate.label} — ${candidate.uri}` : `${candidate.label} — free text`,
+    candidate.usage_count > 0
+      ? `used in ${candidate.usage_count} place${candidate.usage_count === 1 ? "" : "s"} in Gemma`
+      : "never used in Gemma",
+  ];
+  const example = candidate.example_usage;
+  if (
+    example &&
+    candidate.usage_count > 0 &&
+    candidate.usage_count <= RARE_USAGE_THRESHOLD
+  ) {
+    const bits: string[] = [
+      example.parent_of_parent_name
+        ? `${levelLabel(example.level)} (${example.parent_of_parent_name})`
+        : levelLabel(example.level),
+    ];
+    if (example.predicate || example.object) {
+      bits.push(
+        [candidate.label, example.predicate, example.object].filter(Boolean).join(" · "),
+      );
+    } else if (
+      example.parent_name &&
+      example.parent_name.trim().toLowerCase() !== candidate.label.trim().toLowerCase()
+    ) {
+      // Rare shape (multi-characteristic FV whose overall value reads
+      // differently from this one term) — usually parent_name just
+      // echoes the candidate's own label, which isn't worth repeating.
+      bits.push(`FV: ${example.parent_name}`);
+    }
+    // Deliberately NOT showing `source_experiment_id` — a bare
+    // internal numeric id means nothing to a curator in plain tooltip
+    // text (no accession, no link — Paul 2026-07-29: "dataset id
+    // isn't useful"). Revisit if/when the accession lands (the
+    // handoff calls it a follow-on) and this can become an actual
+    // link instead of dead text.
+    lines.push(`e.g. ${bits.join(" — ")}`);
+  }
+  return lines.join("\n");
+}
+
+/** One "recently used" row — same colour convention as
+ *  ``CandidateRow`` (green = ontology-backed, grey italic = free
+ *  text) but no usage count / taxon / category, since those aren't
+ *  known client-side for an MRU entry. */
+function RecentTermRow({
+  term,
+  onPick,
+}: {
+  term: RecentTerm;
+  onPick: () => void;
+}) {
+  const ontology = !!term.uri;
+  return (
+    <li
+      onClick={onPick}
+      className="px-2 py-1 cursor-pointer flex items-center gap-2 hover:bg-slate-50"
+    >
+      <span
+        className={cn(
+          "truncate min-w-0",
+          ontology ? "text-emerald-800" : "text-slate-700 italic",
+        )}
+        title={ontology ? term.uri ?? "" : "free text"}
+      >
+        {term.label}
+      </span>
+      <span className="flex-1" />
+      {ontology ? (
+        <span className="text-[10px] text-slate-400 font-mono shrink-0">
+          {shortenUri(term.uri!)}
+        </span>
+      ) : null}
     </li>
   );
 }
