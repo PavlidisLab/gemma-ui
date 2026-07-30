@@ -663,6 +663,23 @@ function SidebarHeader({
       setOfferCommitAndClose({ notes, pendingResolution });
       return "dirty-draft";
     }
+    return finalizeClose(notes, pendingResolution);
+  }
+
+  /** The actual finalize sweep, past both guards above. Split out
+   *  so ``handleCommitAndClose`` can call it directly once the
+   *  commit it just ran has succeeded — calling back through
+   *  ``handleClose`` re-evaluates ``draftDiff.isDirty`` from this
+   *  render's closure, which is still the PRE-commit value (the
+   *  commit's ``onSettled`` fires before React re-renders this
+   *  component with the post-commit draft), so the dirty-draft
+   *  guard fired again on every "Commit & close" click — the retry
+   *  never converged, and a curator bailing out via "Never mind"
+   *  read as the close note vanishing (2026-07-29 bug report). */
+  async function finalizeClose(
+    notes: string,
+    pendingResolution: "accept" | "reject" = "reject",
+  ): Promise<CloseOutcome> {
     try {
       // Sweep pending severity=ok findings to "accepted" before
       // finalize. The agent's storage layer dropped the
@@ -830,8 +847,12 @@ function SidebarHeader({
 
   /** Trigger for the "commit & close" offer surfaced when Close hits
    *  the dirty-draft guard above. Commits the draft, then — only on
-   *  a clean commit — retries the close with the note the curator
-   *  already typed. */
+   *  a clean commit — finalizes with the note the curator already
+   *  typed. Calls ``finalizeClose`` directly rather than looping
+   *  back through ``handleClose`` — the commit we just ran is proof
+   *  the draft is now clean, and re-deriving that from the stale
+   *  pre-commit closure is exactly what caused the retry to loop
+   *  forever (see ``finalizeClose`` doc comment). */
   function handleCommitAndClose() {
     const pending = offerCommitAndClose;
     if (!pending) return;
@@ -847,7 +868,22 @@ function SidebarHeader({
         );
         return;
       }
-      void handleClose(pending.notes, pending.pendingResolution);
+      void finalizeClose(pending.notes, pending.pendingResolution).then(
+        (outcome) => {
+          // This path bypasses CloseAuditConfirm's own onConfirm
+          // handler, so its post-finalize sticky-note cleanup never
+          // runs — do the same cleanup here on an actual close so a
+          // stale note doesn't pre-fill the textarea next time.
+          if (outcome !== "closed") return;
+          try {
+            const stickyKey = `closeNote:${kind}:${report.audit_id ?? "noaudit"}`;
+            localStorage.removeItem(`${stickyKey}:notes`);
+            localStorage.removeItem(`${stickyKey}:resolution`);
+          } catch {
+            // localStorage unavailable — nothing to clean up.
+          }
+        },
+      );
     });
   }
 
@@ -1308,7 +1344,15 @@ function SidebarHeader({
         body={`Your design edits haven't been committed yet — closing this ${copy.noun} now would strand them. Commit your changes and close?`}
         confirmLabel={commitAndCloseRunning ? "committing…" : "Commit & close"}
         cancelLabel="Never mind"
-        onCancel={() => setOfferCommitAndClose(null)}
+        onCancel={() => {
+          // Return to the close-note panel instead of hiding it —
+          // the dirty-draft guard that surfaced this offer already
+          // set confirmClose=false, so without this the curator's
+          // note (still in localStorage, but no longer on screen)
+          // read as wiped. Paul 2026-07-29.
+          setOfferCommitAndClose(null);
+          setConfirmClose(true);
+        }}
         onConfirm={handleCommitAndClose}
       />
     </div>
