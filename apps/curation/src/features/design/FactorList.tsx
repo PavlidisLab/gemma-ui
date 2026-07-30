@@ -79,6 +79,15 @@ export function FactorList({
   // one.
   const [factorPendingDelete, setFactorPendingDelete] =
     useState<Factor | null>(null);
+  // Revert is atomic per-Factor (name/category/type/description AND
+  // every FV, in one shot — see onRevertFactor doc below) and for a
+  // draft-only factor it deletes the row outright. A curator who
+  // just finished editing the name and reaches for "revert" reading
+  // it as "undo my last edit" can otherwise lose an added treatment
+  // (or the whole factor) in one click with no way back. Confirm
+  // first, same as delete.
+  const [factorPendingRevert, setFactorPendingRevert] =
+    useState<Factor | null>(null);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const templateMenuRef = useRef<HTMLDivElement | null>(null);
   // Review-mode lock: only the mutating buttons + the type ``<select>``
@@ -338,7 +347,7 @@ export function FactorList({
                     {dirtyFactorIds.has(f.id) ? (
                       <button
                         type="button"
-                        onClick={() => onRevertFactor(f.id)}
+                        onClick={() => setFactorPendingRevert(f)}
                         disabled={readOnly}
                         title={
                           isAdded
@@ -347,7 +356,7 @@ export function FactorList({
                         }
                         className="text-[11px] text-slate-500 hover:text-rose-700 underline-offset-2 hover:underline px-1 disabled:hover:no-underline disabled:hover:text-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        revert
+                        {isAdded ? "discard" : "revert"}
                       </button>
                     ) : null}
                     <button
@@ -384,6 +393,30 @@ export function FactorList({
           setFactorPendingDelete(null);
         }}
         onCancel={() => setFactorPendingDelete(null)}
+      />
+
+      <ConfirmModal
+        open={factorPendingRevert !== null}
+        title={
+          factorPendingRevert && addedFactorIds.has(factorPendingRevert.id)
+            ? `Discard factor "${factorPendingRevert.name || "(unnamed)"}"`
+            : `Revert factor "${factorPendingRevert?.name || "(unnamed)"}"`
+        }
+        body={
+          factorPendingRevert && addedFactorIds.has(factorPendingRevert.id)
+            ? "This factor doesn't exist on the saved design yet — reverting removes it entirely, including its name and any factor values you've added under it.\n\nNothing is committed until you click Commit at the bottom."
+            : "This restores the factor's name, category, type, and description to the saved version, AND undoes any factor values you've added, edited, or removed under it — not just the field you last touched.\n\nNothing is committed until you click Commit at the bottom."
+        }
+        confirmLabel={
+          factorPendingRevert && addedFactorIds.has(factorPendingRevert.id)
+            ? "discard factor"
+            : "revert factor"
+        }
+        onConfirm={() => {
+          if (factorPendingRevert) onRevertFactor(factorPendingRevert.id);
+          setFactorPendingRevert(null);
+        }}
+        onCancel={() => setFactorPendingRevert(null)}
       />
     </div>
   );
