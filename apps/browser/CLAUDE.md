@@ -29,7 +29,7 @@ from repo root (or `tsc -p tsconfig.app.json --noEmit` from this dir).
 ## Dev proxy
 
 ```
-GEMMA_BASE_URL=<your Gemma REST host>  # no built-in default — set explicitly
+GEMMA_BASE_URL=<your Gemma 2.0 REST host>  # no built-in default — set explicitly
 GEMMA_BASE_URL=http://localhost:9080    # local Gemma 2.0 server
 ```
 
@@ -54,7 +54,7 @@ is reserved for the curation mock (run by `gemma-curation-agents/run_mock.sh`).
 ## Backend
 
 REST client. All calls to `/rest/v2/...` (proxied through Vite dev server).
-Backend is the Gemma REST server (Java) — **hands-off**. Backend
+Backend is the Gemma 2.0 REST server (Java) — **hands-off**. Backend
 changes are filed against the Gemma repo, not made here.
 
 The OpenAPI spec is at `gemma-rest/src/main/resources/restapidocs/` in the

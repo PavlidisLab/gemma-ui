@@ -10,7 +10,7 @@ Orientation for this repo. Two React/TS apps live under
 - [`apps/browser/`](./apps/browser/) — public browse/search (GemBrow
   React port). Per-app orientation:
   [`apps/browser/CLAUDE.md`](./apps/browser/CLAUDE.md). Talks to the
-  Gemma REST API.
+  Gemma 2.0 REST API (older Gemma versions aren't compatible).
 
 ## Stack (both apps)
 
@@ -97,7 +97,7 @@ unless they qualify it.
   `apps/curation/src/api/*.ts`. When shapes disagree, **Python is
   canonical**. Don't edit the Python repo; file asks against that
   repo.
-- **Browser app ↔ Gemma REST API** (Java): hands-off on the Java
+- **Browser app ↔ Gemma 2.0 REST API** (Java): hands-off on the Java
   repo; file API asks against the Gemma backend.
 
 ## History

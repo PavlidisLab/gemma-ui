@@ -22,8 +22,10 @@ npm install                    # one-time (installs both apps via workspaces)
 npm run dev                    # → http://localhost:5183
 ```
 
-`GEMMA_BASE_URL` must point at a running Gemma REST API — there is
-no built-in default. The dev server proxies `/rest/*` to it.
+`GEMMA_BASE_URL` must point at a running **Gemma 2.0** REST API —
+older Gemma versions don't expose the `/rest/v2/...` surface this
+app requires. There is no built-in default. The dev server proxies
+`/rest/*` to it.
 
 Other scripts (run from this directory, or via the root
 `npm run <script>:browser` aliases):
@@ -36,9 +38,9 @@ npm run typecheck   # tsc -p tsconfig.app.json --noEmit
 ## Backend
 
 REST client only — all calls go to `/rest/v2/...` (proxied through
-the Vite dev server in development). The backend is the Gemma REST
-server (Java); this app treats it as hands-off — backend changes are
-filed against the Gemma project, not made here.
+the Vite dev server in development). The backend is the Gemma 2.0
+REST server (Java); this app treats it as hands-off — backend
+changes are filed against the Gemma project, not made here.
 
 ## License
 
