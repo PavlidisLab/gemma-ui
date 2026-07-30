@@ -3,7 +3,7 @@
  *
  * Interactivity regression tests for ``FindingActionRow``.
  *
- * What these pin (the MATCH_DOWNGRADE_ACTION handoff, 2026-06-16):
+ * What these pin (fixed 2026-06-16):
  *
  *   - The accept (Agree) button on a downgraded ``calibration_match``
  *     viewed against an empty baseline calls ``applyDraft`` with a
@@ -20,7 +20,7 @@
  * These tests are tagged @critical so the precommit gate runs them
  * (see ``package.json::test:ci`` + ``.husky/pre-commit``). A
  * regression in any of the three would re-introduce one of the
- * symptoms the reviewer filed in MATCH_DOWNGRADE_ACTION_HANDOFF.md.
+ * original reviewer-filed symptoms.
  */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
@@ -74,8 +74,7 @@ function emptyDraft(): Design {
  *  — which includes our calibration_match fixture. Inside the
  *  editor, the action row uses the legacy verb-pair "Agree" /
  *  "Reject…" for the ``isTagAddFinding`` branch (which a downgraded
- *  match now flips into per
- *  MATCH_DOWNGRADE_ACTION_HANDOFF.md). Both helpers below target
+ *  match now flips into). Both helpers below target
  *  the editor's exact labels — the non-editor fallback would use
  *  the action-shape verbs ("Add →" / "Don't add"), but the editor
  *  wins for our fixture shape. */

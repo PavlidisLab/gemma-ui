@@ -11,13 +11,12 @@
  *
  * Renders nothing meaningful when ``recommendation`` is null (older
  * reports / no verdict attached) — the card falls back to its legacy
- * header there. See ``UI_PPE_RECOMMENDATION_2026_07_11.md``.
+ * header there.
  */
 import type { Recommendation, RecommendationAction } from "@/api/auditTypes";
 import { cn } from "@/lib/cn";
 
-/** Per-action verb + palette. Mirrors the handoff's suggested UI verbs
- *  and colours: keep=grey, adopt/add=green, merge=blue, drop=amber,
+/** Per-action verb + palette: keep=grey, adopt/add=green, merge=blue, drop=amber,
  *  flag=purple. Unknown / forward-compat actions fall back to the
  *  "your call" purple so a new action never renders unstyled. */
 const ACTION_META: Record<

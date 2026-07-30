@@ -1,16 +1,15 @@
 /**
  * @vitest-environment jsdom
  *
- * "e.g. …" example-usage tooltip (2026-07-29) — see
- * ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. Started as
- * a separate visible line under the row (too little information for
- * the space it took); folded into the row's existing tooltip instead
- * — but even then it didn't say whether the example was a tag or a
- * factor value, which Paul called out as the single most useful fact
- * ("tag? fv?"). So this checks the consolidated `title` attribute
- * leads with that distinction via `levelLabel()`. Only for rare terms
- * (usage_count in 1..RARE_USAGE_THRESHOLD); the full S · P · O triple
- * appears when the example came from a Statement.
+ * "e.g. …" example-usage tooltip. Started as a separate visible line
+ * under the row (too little information for the space it took);
+ * folded into the row's existing tooltip instead — but even then it
+ * didn't say whether the example was a tag or a factor value, the
+ * single most useful fact for judging relevance. So this checks the
+ * consolidated `title` attribute leads with that distinction via
+ * `levelLabel()`. Only for rare terms (usage_count in
+ * 1..RARE_USAGE_THRESHOLD); the full S · P · O triple appears when
+ * the example came from a Statement.
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -83,9 +82,9 @@ describe("OntologyTermPicker — example-usage tooltip", () => {
     expect(title).toContain("e.g. factor value (genotype)");
     expect(title).toContain("knockout · has_genotype · Atg9a");
     // Bare internal numeric id isn't actionable in plain tooltip text
-    // (no accession, no link) — Paul 2026-07-29: "dataset id isn't
-    // useful". Dropped from the tooltip; source_experiment_id is
-    // still on the wire type for a future clickable link.
+    // (no accession, no link). Dropped from the tooltip;
+    // source_experiment_id is still on the wire type for a future
+    // clickable link.
     expect(title).not.toContain("dataset #");
   });
 
@@ -120,10 +119,9 @@ describe("OntologyTermPicker — example-usage tooltip", () => {
   });
 
   it("skips the redundant parent-name echo when parent_name == the candidate's own label", () => {
-    // Real shape confirmed against live frink 2026-07-29: for a
-    // single-characteristic FV, `parent_name` is just the candidate's
-    // own label again — repeating it would add nothing. Only the
-    // factor context and dataset should show.
+    // Real-world shape: for a single-characteristic FV, `parent_name`
+    // is just the candidate's own label again — repeating it would
+    // add nothing. Only the factor context and dataset should show.
     candidates = [
       {
         label: "vascular endothelial growth factor",
@@ -149,7 +147,7 @@ describe("OntologyTermPicker — example-usage tooltip", () => {
     ];
     open();
     const title = rowTooltip("vascular endothelial growth factor");
-    // level "ExperimentalDesign" (the raw value live frink actually
+    // level "ExperimentalDesign" (the raw value the server actually
     // sends for FV-shaped hits, not the documented "FactorValue") —
     // levelLabel() maps both to "factor value".
     expect(title).toContain("e.g. factor value (treatment)");

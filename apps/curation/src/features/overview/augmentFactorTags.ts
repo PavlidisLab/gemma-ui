@@ -8,8 +8,7 @@ import type { Factor, Tag } from "@/features/experiment/types";
  *  on the server and shipped it as a tag with
  *  ``inferred_source = "FactorValue"``.
  *
- *  Agents-side stopped emitting these on 2026-06-10 (handoff:
- *  ``HANDOFF_2026-06-10_REMOVE_FV_TAG_PROJECTION.md``) — the
+ *  Agents-side stopped emitting these on 2026-06-10 — the
  *  duplication was inflating eval F1 baselines as a factor-as-tag
  *  projection artifact. The UI re-synthesises locally so the dedup
  *  + grouping logic downstream (FV-synth wins over direct EE tags

@@ -6,8 +6,7 @@
  * regardless of whether the finding is a factor-match, a partition
  * mismatch, an add-tag, or a remove-tag.
  *
- * Body content per the three-phase spec
- * (handoffs/FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md):
+ * Body content follows the three-phase layout:
  *   1. Why proposed   (via ThreePhaseFindingBody)
  *   2. Reviews        (via ThreePhaseFindingBody)
  *   3. Comparison vs <set> — judge text (via ThreePhaseFindingBody)

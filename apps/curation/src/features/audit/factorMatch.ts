@@ -22,8 +22,7 @@
  * imports from here so the classification stays in one place — adding
  * a new code, or changing the fallback policy, is a one-file edit.
  *
- * Wire contract: agents-repo commit ``f313770``,
- * eval-repo ``docs/HANDOFF_2026-05-18_UI_FACTOR_MATCH_PAIRING.md``.
+ * Wire contract: agents-repo commit ``f313770``.
  */
 import type { AuditFinding, FactorRenamePayload } from "@/api/auditTypes";
 import type {
@@ -310,7 +309,7 @@ export function factorProposalFromApplyAction(
  *  rename* finding from the finding's OWN ``rename`` payload — the
  *  authoritative (agent ↔ gold) pairing the builder committed.
  *
- *  Why this exists (UIB_HANDOFF_2026_06_25, item B1): near-match Agree
+ *  Why this exists: near-match Agree
  *  routes through ``resolveNearMatchApply`` → ``resolveAgentFactor``,
  *  which re-resolves against ``comparison_proposal`` and returns
  *  ``null`` whenever that proposal is absent or ``agent_target_index``

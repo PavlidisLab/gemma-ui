@@ -5,7 +5,7 @@
  * catalog badge) instead of dumping the raw string. Regex-light — no
  * backend change needed to feed structured fields.
  *
- * Shapes (UIB_HANDOFF_2026_06_18_TAG_EVIDENCE_QUOTES §3):
+ * Shapes:
  *   "strain (all 24 samples)"
  *   "strain in GSM0, GSM1, GSM2, +1 more (4/6 samples)"
  *   "strain (claimed by caller but matched 0/N samples — investigate)"

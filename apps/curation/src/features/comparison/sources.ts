@@ -180,7 +180,7 @@ export function sourceLabel(
   // (chip-strip showed "Gemma / Gemma" with no agent option, and the
   // baseline was actually the preboard). "Gemma preboard" distinguishes
   // from live Gemma / polished sets once the unified curation-versions
-  // model lands. See HANDOFF_2026-06-08_UNIFIED_CURATION_VERSIONS.md.
+  // model lands.
   if (s === "preboard") return "Gemma preboard";
   // "Gemma" without a "(live)" qualifier — the chip strip fetches a
   // snapshot, not a live stream, and curators read "live" as real-

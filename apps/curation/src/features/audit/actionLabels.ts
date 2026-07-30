@@ -60,8 +60,8 @@ export type ActionShape = "add" | "remove" | "change" | "match";
  *  preboard / etc.) doesn't carry the entity even though the
  *  audit-time baseline (often live Gemma) did, so the curator's
  *  action is genuinely "add this", not "confirm this match". Mirrors
- *  ``findingActionLabel({ goldEmpty })`` (ed4f25f, 2026-06-16) and
- *  is the action-row half of the MATCH_DOWNGRADE_ACTION handoff. */
+ *  ``findingActionLabel({ goldEmpty })`` (ed4f25f, 2026-06-16) — this
+ *  is the action-row half of that same downgrade-on-empty-gold fix. */
 export interface FindingActionShapeContext {
   goldEmpty?: boolean;
 }
@@ -78,8 +78,7 @@ export function findingActionShape(
   // the entity (goldEmpty), every match-shaped code reads as an Add.
   // Title already downgrades via ``findingActionLabel({ goldEmpty })``;
   // the action row, dismiss vocab, and apply path must follow so
-  // Agree actually adds the entity to the draft. Per
-  // MATCH_DOWNGRADE_ACTION_HANDOFF.md.
+  // Agree actually adds the entity to the draft.
   if (goldEmpty) {
     if (
       code === "calibration_match" ||

@@ -358,8 +358,7 @@ export function CuratorDashboard({
   const includeClosed = true;
   // Light list mode: the dashboard renders rolled-up counts only, never
   // per-target rows — so skip the (up to ~40 MB) targets + payload_json
-  // and read ``target_summary`` instead. See ticketRollup / the
-  // TICKET_LIST_ROLLUP_COUNTS handoff.
+  // and read ``target_summary`` instead. See ticketRollup.
   const {
     data: tickets,
     isLoading: ticketsLoading,

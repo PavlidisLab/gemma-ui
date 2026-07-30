@@ -76,8 +76,7 @@ async function readErrorBody(r: Response): Promise<string> {
 /** Convert a single camelCase key to snake_case.
  *
  *  The agents-side service's mock now emits camelCase on the wire for design / workflow /
- *  calibration / permissions schemas (GEMMA_WIRE_ALIGNMENT_HANDOFF.md
- *  phase-2a, 2026-05-13). Audit + proposer + curationDetails +
+ *  calibration / permissions schemas (2026-05-13). Audit + proposer + curationDetails +
  *  auditEvents stay snake_case for now. Rather than mass-rename TS
  *  types before the Friday demo, normalise incoming responses to
  *  snake_case at the API client boundary — UI keeps reading the
@@ -85,12 +84,11 @@ async function readErrorBody(r: Response): Promise<string> {
  *
  *  Idempotent on already-snake_case keys (no uppercase = regex
  *  doesn't fire). Drop the adapter once the UI's TS interfaces are
- *  swept to camelCase — see same handoff doc.
+ *  swept to camelCase.
  *
  *  Exported so SSE parsers can apply the same transform per-event,
  *  letting the audit/propose stream envelope flip from snake to
- *  camel without UI lockstep (GEMMA_WIRE_ALIGNMENT_HANDOFF.md
- *  phase-2c).
+ *  camel without UI lockstep.
  */
 function snakifyKey(key: string): string {
   // Skip prose-shaped dict keys — biomaterial.characteristics is the

@@ -2293,8 +2293,8 @@ function DeCountChip({
 
 /** Tiny inline histogram of the corrected-p-value distribution for a
  *  result set. Fetches the binned payload from
- *  ``GET /resultSets/{id}/pvalueDistribution`` (shipped 2026-05-23 in
- *  response to ``DE_PVALUE_DISTRIBUTION_HANDOFF``). Renders 20 bars
+ *  ``GET /resultSets/{id}/pvalueDistribution`` (shipped 2026-05-23).
+ *  Renders 20 bars
  *  on a 100×24 SVG canvas; the leftmost bar (smallest p-values) is
  *  highlighted so a curator scanning a multi-subset single-cell page
  *  can spot real-signal analyses (left-skewed = good) vs flat /

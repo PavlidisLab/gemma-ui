@@ -4,7 +4,7 @@ import { auditCoversFactors, auditCoversTags } from "./findingList";
 /**
  * Regression test for the "Factors the audit didn't see" scope gate.
  *
- * Bug (ticket 152, Paul 2026-07-28): a tags-only ad-hoc ticket
+ * Bug (ticket 152): a tags-only ad-hoc ticket
  * (scope.include = ["tags"]) rendered a "FACTORS THE AUDIT DIDN'T SEE" card
  * for a `cell type` factor next to the single dev-stage tag under review —
  * because BaselineDriftSection surfaced every current factor the tag-only

@@ -11,8 +11,7 @@
  * Sibling to ``CollapsibleSubtaskAnalysis`` at the bottom of the
  * findings list — different angle (one is the chain decisions, this is
  * the supervisor narrative) but same "long-form prose, lives at the
- * end of the panel" shape. Per
- * ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
+ * end of the panel" shape.
  */
 import { useState } from "react";
 

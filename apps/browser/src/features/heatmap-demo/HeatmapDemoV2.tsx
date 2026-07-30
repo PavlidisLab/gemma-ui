@@ -10,17 +10,17 @@ import type {
 /**
  * Heatmap widget v2 demo — synthetic `HeatmapPayload` with the full
  * factor / factor-value / statement / outlier surface that exercises
- * the v2 additions from HEATMAP_SPEC.md:
+ * the v2 additions:
  *
- *   - Continuous annotation strip (§3.2) — "age (years)" with a
+ *   - Continuous annotation strip — "age (years)" with a
  *     log10-ish age distribution.
- *   - Categorical annotation strips (§3.1) with explicit baselines.
- *   - Main grouping factor (§4) — click a strip's left gutter.
- *   - Tooltip on hover (§5.1) + side panel on click (§5.2) — exposes
- *     the structured statements (§5.3) with subject → predicate →
+ *   - Categorical annotation strips with explicit baselines.
+ *   - Main grouping factor — click a strip's left gutter.
+ *   - Tooltip on hover + side panel on click — exposes
+ *     the structured statements with subject → predicate →
  *     object triples and ontology URIs.
- *   - Outlier indicator (§3.3) — every 17th column.
- *   - p-value + validated chip on the first 10 rows (§5.2).
+ *   - Outlier indicator — every 17th column.
+ *   - p-value + validated chip on the first 10 rows.
  *
  * No server roundtrip — payload is generated client-side from a fixed
  * RNG seed so the demo is reproducible across reloads.

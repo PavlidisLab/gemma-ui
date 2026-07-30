@@ -3,7 +3,7 @@ import { resolveGemmaMode } from "./gemmaMode";
 
 /**
  * Pin the runtime > build-time > default precedence the runtime-config
- * change introduced. UIB_HANDOFF_2026_06_18_RUNTIME_ONTOLOGY_HOST.
+ * change introduced.
  *
  * The build-time layer (``import.meta.env.VITE_*``) may or may not be
  * set in a given runner, so we assert against the no-arg *baseline*

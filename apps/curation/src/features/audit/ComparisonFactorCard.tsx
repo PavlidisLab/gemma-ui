@@ -4,8 +4,7 @@
  * editor for findings whose primary curator question is "what's the
  * difference between Polished Gemma's curation and the agent's proposal?".
  *
- * Per HANDOFF_2026-06-08_FACTOR_DISPLAY_BASELINE_COMPARATOR.md the goal
- * is ONE factor display that works across (rename / extra / miss /
+ * The goal is ONE factor display that works across (rename / extra / miss /
  * match) variants and across comparator sources (Polished Gemma / curator /
  * agent / preboard / none). v1 of this file handles rename specifically
  * with the structure generalized so extending to other codes is
@@ -536,8 +535,7 @@ export function ComparisonFactorCard({
   //      direct curation_id lookup (same as a chip-strip selection).
   //   2. First-consensus fallback — the pre-2026-06-14 behaviour, kept
   //      so old calibration packages that don't carry the new field
-  //      still render. Per
-  //      ``handoffs/GOLD_CURATION_ID_LANDED_2026_06_14.md``.
+  //      still render.
   const owningGoldCuration: CurationRow | null = useMemo(() => {
     if (finding.gold_curation_id) {
       const byId = resolveCuration(
@@ -808,7 +806,7 @@ export function ComparisonFactorCard({
   }, [report, finding, leftFactor, rightFactor]);
 
   // /curations is slow (~10s in the design review's GSE93824 walkthrough — server-
-  // side bottleneck, see UIB perf handoff 2026-06-11). When it's still
+  // side bottleneck, per UIB perf notes 2026-06-11). When it's still
   // in flight, the card resolves leftFactor/rightFactor to null and
   // the title falls through to "?" placeholders that read as "data
   // missing" rather than "data loading". Detect the actual loading
@@ -1099,8 +1097,7 @@ export function ComparisonFactorCard({
       // the factor (``matchedButMissingFromBaseline``); there's
       // nothing for ``adoptNearMatchAgentFactor`` to mutate in place.
       // Route through the add-factor mutator instead so Agree
-      // actually adds the agent's factor to the draft. Per
-      // MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+      // actually adds the agent's factor to the draft.
       if (matchedButMissingFromBaseline) {
         applyDraft((d) => addFactorFromProposal(d, agentFactor));
       } else {
@@ -1136,7 +1133,7 @@ export function ComparisonFactorCard({
   // doesn't carry the factor (``matchedButMissingFromBaseline``) reads
   // as an Add — the curator's action is to add the agent's factor to
   // the displayed baseline, not confirm a match against an empty
-  // column. Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  // column.
   const acceptLabel =
     finding.issue_code === "calibration_factor_rename"
       ? "Adopt rename"

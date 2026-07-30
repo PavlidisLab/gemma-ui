@@ -1,6 +1,6 @@
 /**
  * Adapter helpers for the dual-state pipeline-commentary fields shipped
- * 2026-06-13 per ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
+ * 2026-06-13.
  *
  * Five fields ride two places on the wire while the agents-side
  * migration completes:

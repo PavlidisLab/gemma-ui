@@ -884,17 +884,16 @@ function MainGrid({
         mode: "fresh" | "redo";
       }
   >(null);
-  // Sidebar view toggle: Proposals (existing) or Audit (new — see
-  // AUDIT_FEATURE.md §UI integration shape, surface B). Sticky so the
-  // curator's last choice survives experiment switches.
+  // Sidebar view toggle: Proposals (existing) or Audit (new — surface
+  // B of the audit feature). Sticky so the curator's last choice
+  // survives experiment switches.
   //
   // Two-way sidebar view (2026-05-25, the reviewer):
   //  - ``audit`` — rich AuditSidebarPanel over kind=audit reviews
   //    (already-curated experiments where the agent flagged deltas).
   //  - ``proposalReview`` — rich AuditSidebarPanel re-used over
   //    kind=proposal reviews (calibration packages on uncurated /
-  //    preboarded GSEs; same component, branched on kind). See
-  //    AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md.
+  //    preboarded GSEs; same component, branched on kind).
   //
   // The legacy ``proposals`` view (thin panel reading
   // ``/curation-proposals``) was hidden in favour of the

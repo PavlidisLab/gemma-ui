@@ -240,9 +240,7 @@ export function ProposalSidebarPanel({
       {/* Orchestrator orientation prose — generic top-of-panel slot.
           Reads directly from ``proposal.experiment_summary`` — the
           Proposal IS the canonical location for the field; no
-          AuditEvidence fallback applies on this surface. Per
-          ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``
-          and ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */}
+          AuditEvidence fallback applies on this surface. */}
       <OrientationProse text={proposal.experiment_summary ?? null} />
       {datasetSummary && datasetSummary.nSamples > 0 ? (
         <div className="px-1 pb-1.5 border-b border-sky-200 dark:border-sky-800">
@@ -252,8 +250,7 @@ export function ProposalSidebarPanel({
       {/* Quiet "agent considered but didn't propose" panel — surfaces
           constant BM characteristics the resolver chain inspected but
           couldn't ground. Stays hidden when the proposal carries no
-          considered-records. Per
-          UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md. */}
+          considered-records. */}
       <AgentConsideredPanel
         agentConsidered={proposal.evidence?.agent_considered}
       />
@@ -410,8 +407,7 @@ export function ProposalSidebarPanel({
                   "Agent emitted no tag-side subtask_decisions on this proposal — " +
                   "no S9_tag_normalization wrap-up, no skip-reason. " +
                   "Can't tell whether the tag proposer skipped, ran and found " +
-                  "nothing, or filtered everything out. See agents-side handoff: " +
-                  "TAG_PROPOSER_EMIT_EMPTY_RATIONALE."
+                  "nothing, or filtered everything out."
                 }
               >
                 ⚠ no agent rationale

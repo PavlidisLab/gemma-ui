@@ -655,7 +655,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
       ) : null}
       {/* Escalation banner — agent's curator-follow-up requests.
           Renders above the orientation prose because escalations are
-          blockers (per handoff Q2); summary is orientation. Suppresses
+          blockers; summary is orientation. Suppresses
           when neither side carries entries. */}
       <EscalationBanner
         escalations={readEscalationRequests(report?.evidence)}
@@ -663,9 +663,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
       {/* Orchestrator orientation prose — generic top-of-panel slot.
           Reads through the dual-state adapter: prefers the canonical
           Proposal-side field, falls back to the AuditEvidence mirror.
-          Suppresses itself when both sides are empty. Per
-          ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``
-          and ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */}
+          Suppresses itself when both sides are empty. */}
       <OrientationProse
         text={readCommentaryString(report?.evidence, "experiment_summary")}
       />

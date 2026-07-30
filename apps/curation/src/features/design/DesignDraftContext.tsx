@@ -222,8 +222,7 @@ export function DesignDraftProvider({
   );
 
   // The routed experiment id, coerced to a number once. The route is
-  // the single authority for which experiment we're editing
-  // (UIB_HANDOFF_2026-06-23).
+  // the single authority for which experiment we're editing.
   const routeEidNumeric = useMemo(
     () =>
       typeof experimentId === "number"
@@ -241,9 +240,9 @@ export function DesignDraftProvider({
     //
     // The ROUTE is authoritative for experiment_id. A baseline payload
     // that carries a *different* experiment_id is a cross-experiment
-    // buffer leak (UIB_HANDOFF_2026-06-23: editing GSE253365/91654 saw
-    // GSE248901/38401 sticking onto the buffer because the old `??`
-    // kept the foreign payload id and only fell back to the route).
+    // buffer leak (editing GSE253365/91654 saw GSE248901/38401 sticking
+    // onto the buffer because the old `??` kept the foreign payload id
+    // and only fell back to the route).
     // Stamp the routed id unconditionally; the only thing the payload's
     // own id is good for is detecting+logging the mismatch.
     const routeEid = Number.isFinite(routeEidNumeric) ? routeEidNumeric : null;
@@ -316,7 +315,7 @@ export function DesignDraftProvider({
   // Set when the server-saved Design we were about to seed the buffer
   // with belongs to a *different* experiment than the route. We refuse
   // to seed in that case rather than silently let the curator edit the
-  // wrong dataset (UIB_HANDOFF_2026-06-23). Surfaced through
+  // wrong dataset. Surfaced through
   // ``loadError`` so the page shows an error instead of an editable
   // foreign design.
   const [seedMismatchError, setSeedMismatchError] = useState<string | null>(
@@ -356,8 +355,7 @@ export function DesignDraftProvider({
     // the one we're routed to, refuse to seed the editing buffer and
     // surface the mismatch. Without this the curator silently edits
     // (and tries to commit) the wrong dataset — the leak the backend
-    // put_design guard caught at the very last moment
-    // (UIB_HANDOFF_2026-06-23). Only a concrete, differing id trips it;
+    // put_design guard caught at the very last moment. Only a concrete, differing id trips it;
     // a null/absent payload id is tolerated (older payloads omit it).
     if (
       Number.isFinite(routeEidNumeric) &&
@@ -539,8 +537,7 @@ export function DesignDraftProvider({
         // accepted tag/factor vanishes from the export while the
         // disposition still reads accepted. On the flaky local store the
         // fire-and-forget write failed intermittently and dropped
-        // finalized work — UIB_HANDOFF_2026_07_20_ACCEPTED_TAG_NOT_
-        // MATERIALIZED_INTO_DESIGN.md. So we treat the mirror as part of
+        // finalized work. So we treat the mirror as part of
         // commit success: only checkpoint once it lands, and on failure
         // leave the draft DIRTY so CommitBar stays up with the error and
         // the curator retries until the export store is consistent. No
@@ -631,8 +628,7 @@ export function DesignDraftProvider({
     // A failed durable-mirror (/polished) write is surfaced through the
     // same channel as a /design save failure so CommitBar stays up and
     // the curator retries — a stale polished snapshot would otherwise
-    // silently shadow the fresh design at ticket-export time
-    // (UIB_HANDOFF_2026_07_20_ACCEPTED_TAG_NOT_MATERIALIZED_INTO_DESIGN).
+    // silently shadow the fresh design at ticket-export time.
     saveError: updater.isError
       ? (updater.error as Error).message
       : polisher.isError

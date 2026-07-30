@@ -15,7 +15,7 @@
  * Background: pre-routing, calibration findings fell through to the
  * generic chip sets, and Curator A ended up routing 19/20 v7b factor-
  * gold-miss dismisses through `weak_evidence` (the closest-feeling
- * chip in the wrong vocab). See CALIBRATION_CHIP_GAP_HANDOFF.md.
+ * chip in the wrong vocab).
  */
 
 import type { DialogChip } from "./DismissDialog";
@@ -27,9 +27,9 @@ import type { AuditFinding } from "@/api/auditTypes";
 
 // Ordered by curator-usage frequency, not enum order, so the modal
 // answer is the first chip the eye lands on. Cross-curator data
-// (CALIBRATION_CHIP_GAP_HANDOFF.md, 2026-05-14) showed `weak_evidence`
-// is the right chip for the bulk of dismisses curators were routing
-// through `other` — leading with it cuts the `other` rate.
+// (2026-05-14) showed `weak_evidence` is the right chip for the bulk
+// of dismisses curators were routing through `other` — leading with
+// it cuts the `other` rate.
 export const DISMISS_CHIPS: DialogChip[] = [
   { key: "weak_evidence",       label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
   { key: "redundant",           label: "Redundant",          help: "finding duplicates an issue already noted elsewhere" },
@@ -74,17 +74,16 @@ export const NOT_SURE_CHIPS: DialogChip[] = [
 // already implied.
 //
 // `agent_real_miss` leads the list because it's the largest single
-// chip-gap by case-count across curators (~50 cases pre-landing;
-// see CALIBRATION_CHIP_GAP_HANDOFF.md). Used for both tag and
-// factor gold-miss findings (server gate accepts both).
+// chip-gap by case-count across curators (~50 cases pre-landing).
+// Used for both tag and factor gold-miss findings (server gate
+// accepts both).
 // 2026-06-14 vocab expansion per design review + the agents-side open-enum wire:
 // "Structure correct, FVs wrong" and "Wrong partition, factor right"
 // reflect what curators actually say when they disagree with a
 // remove-factor proposal. These join the existing
 // `agent_real_miss` / `missed_evidence` chips; agent-side gates are
-// now permissive (`DismissReason: str`, see
-// `handoffs/CHIP_VOCAB_BRO1_LANDED_2026_06_14.md`), so new slugs ship
-// without coordination.
+// now permissive (`DismissReason: str`), so new slugs ship without
+// coordination.
 // FACTOR-side removal dismiss — curator says "don't remove the
 // factor"; the factor / its FVs / its partition need to stay
 // (possibly with fixes). Factor concepts: FVs, partition, structure.
@@ -123,9 +122,8 @@ export const CAL_MISS_DISMISS_CHIPS = CAL_MISS_FACTOR_DISMISS_CHIPS;
 // curator would normally remove a current tag, per design review 2026-06-15:
 // "it should be the same reasons that we remove the 'current':
 // agent is right but we can be more specific; the current is
-// redundant; or the current is wrong." Open-enum on the wire
-// (CHIP_VOCAB_BRO1_LANDED_2026_06_14.md) — new slugs ship without
-// agent-side coordination.
+// redundant; or the current is wrong." Open-enum on the wire —
+// new slugs ship without agent-side coordination.
 export const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
   { key: "current_redundant",      label: "Current redundant",      help: "the current tag is already captured elsewhere — by a biomaterial characteristic, a factor value, or another tag" },
   { key: "current_wrong",          label: "Current wrong",          help: "the current tag is incorrect or outdated — agent's removal is right" },
@@ -253,20 +251,17 @@ export const TAG_DISMISS_CHIPS: DialogChip[] = [
  *  in practice. Without this routing the factor codes fall through
  *  to the generic DISMISS_CHIPS / ACCEPT_CHIPS, which is how Curator A
  *  ended up routing 19/20 v7b factor-gold-miss dismisses through
- *  `weak_evidence` (the closest-feeling chip in the wrong vocab) —
- *  see CALIBRATION_CHIP_GAP_HANDOFF.md, "Discoverability ask".
+ *  `weak_evidence` (the closest-feeling chip in the wrong vocab).
  *
  *  Tag-target findings outside ``calibration_agent_extra`` route to
  *  ``TAG_DISMISS_CHIPS`` — the generic vocab plus "Subset only" and
- *  "Redundant" (server-side gate widened 2026-06-12 per
- *  UIB_HANDOFF_2026_06_12_DISMISS_REASON_GATE_WIDEN.md). */
+ *  "Redundant" (server-side gate widened 2026-06-12). */
 /** Optional context for ``dismissChipsFor``. When ``goldEmpty`` is
  *  true, a ``*_match`` finding's dismiss chips downgrade to the
  *  add-side vocabulary (Subset only / No evidence / Redundant /
  *  Out of scope) so the dialog matches the downgraded card title.
  *  Mirrors ``findingActionLabel({ goldEmpty })`` and
- *  ``findingActionShape({ goldEmpty })``. Per
- *  MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16. */
+ *  ``findingActionShape({ goldEmpty })`` (2026-06-16). */
 export interface DismissChipsContext {
   goldEmpty?: boolean;
 }

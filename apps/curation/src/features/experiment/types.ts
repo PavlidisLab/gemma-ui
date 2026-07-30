@@ -164,8 +164,7 @@ export interface Tag {
    *  payloads leave it absent, and the chip renders unchanged. When
    *  present + non-empty the chip shows a ❝ evidence affordance.
    *  Mirrors `TagProposal.supporting_evidence`; pending a Gemma-side
-   *  `AnnotationValueObject` field so curated tags carry it too — see
-   *  UIB_HANDOFF_2026_06_18_TAG_EVIDENCE_QUOTES. */
+   *  `AnnotationValueObject` field so curated tags carry it too. */
   supporting_evidence?: FindingEvidence[];
 }
 

@@ -275,7 +275,7 @@ export function PairedFindingBadge({ finding }: { finding: AuditFinding }) {
 }
 
 /** Cross-link chips for the bidirectional `consequent_of` /
- *  `consequents` linkage (HANDOFF_2026-05-20_CONSEQUENT_OF_BIDIRECTIONAL).
+ *  `consequents` linkage.
  *  Both halves are conceptually one curator decision — agent's
  *  finer partition on factor A absorbs the partition gold encoded
  *  in factor B, so removing B is a consequence of accepting A's

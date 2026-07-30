@@ -347,8 +347,7 @@ function normaliseDesignForSave(design: Design): Design {
       // ``statements`` is optional and round-trips through the wire
       // as the (predicate, object) + (secondPredicate, secondObject)
       // pairs on AnnotationTagInput; canonical UI shape is an array of
-      // ``Statement`` rows with the subject mirroring ``value`` (per
-      // UIB_HANDOFF_2026_06_17_TAG_AND_BM_STATEMENT_ENDPOINTS). Pass
+      // ``Statement`` rows with the subject mirroring ``value``. Pass
       // it through verbatim if the source already produced canonical
       // rows; otherwise drop to undefined and let the read side rehydrate.
       const rawStmts = (t as { statements?: unknown }).statements;
@@ -388,11 +387,10 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
         : "";
       // Belt-and-suspenders: the URL id is the route; re-stamp the body
       // so ``experiment_id`` can never diverge from the path. Without
-      // this a mis-seeded buffer (cross-experiment leak,
-      // UIB_HANDOFF_2026-06-23) would PUT body.experiment_id=38401 to
-      // /datasets/91654/design and bounce on the backend path≠body
-      // guard. The route wins here regardless of how the draft was
-      // built. Idempotent when they already agree.
+      // this a mis-seeded buffer (cross-experiment leak) would PUT
+      // body.experiment_id=38401 to /datasets/91654/design and bounce
+      // on the backend path≠body guard. The route wins here regardless
+      // of how the draft was built. Idempotent when they already agree.
       const routeEid =
         typeof experimentId === "number"
           ? experimentId
@@ -423,7 +421,7 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
       // "X factor needs a baseline" warning persists in audit cards
       // even after the curator commits the baseline fix). Without
       // invalidating these, per-card warnings stay stale until a hard
-      // refresh. Design review 2026-06-11 review-workflow handoff #7.
+      // refresh. Design review 2026-06-11.
       //
       // Broad invalidation (prefix-only) mirrors the precedent in
       // `api/datasets.ts:181` — the alternative is enumerating every

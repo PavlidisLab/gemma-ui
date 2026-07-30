@@ -18,8 +18,7 @@ import { Spinner } from "@/components/ui/Spinner";
  * Phase 1 only — the agent currently checks GEO's own ``Pubmed-ID``
  * field. When GEO has none, the agent reports back empty and we tell
  * the curator to fall back to a manual PubMed search. An LLM-driven
- * contributor / title search is phase 2 (see
- * ``gemma-curation-agents/PUBLICATION-FINDER-HANDOFF.md``).
+ * contributor / title search is phase 2.
  */
 export function FindPublicationButton({
   accession,
@@ -76,7 +75,7 @@ export function FindPublicationButton({
       {find.error ? (
         <div className="text-[11px] text-amber-800">
           {find.error instanceof ApiError && find.error.status === 404
-            ? "publication-finder endpoint not yet available — see PUBLICATION-FINDER-HANDOFF.md"
+            ? "publication-finder endpoint not yet available"
             : find.error instanceof ApiError
               ? find.error.detail || find.error.message
               : (find.error as Error).message}

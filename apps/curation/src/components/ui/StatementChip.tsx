@@ -21,8 +21,7 @@ import type { OntologyTerm } from "@/features/experiment/types";
  * canonical ``Term`` so ontology-resolved objects pick up the emerald
  * + CURIE popover treatment.
  *
- * The wire shape (``AnnotationValueObject`` from gemma-rest 2.0 — see
- * ``handoffs/UIB_HANDOFF_2026_06_17_TAG_AND_BM_STATEMENT_ENDPOINTS.md``)
+ * The wire shape (``AnnotationValueObject`` from gemma-rest 2.0)
  * stores at most two predicate/object pairs per tag (``predicate``+
  * ``object`` and ``secondPredicate``+``secondObject``); the ``pairs``
  * prop here is flat to mirror that.
@@ -50,8 +49,8 @@ export interface StatementChipProps {
    *  up. */
   category?: OntologyTerm | null;
   /** The subject term. On the wire this IS the ``value`` field of the
-   *  tag (per UIB_HANDOFF: "Subject = value. There is no separate
-   *  subject field"). */
+   *  tag — subject and value are the same field; there is no separate
+   *  subject field. */
   subject: OntologyTerm;
   /** Predicate / object pairs, in order. Max 2 per the wire contract
    *  (primary + secondary). Empty / undefined renders as a subject-only

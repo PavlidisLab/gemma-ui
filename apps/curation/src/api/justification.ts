@@ -78,8 +78,7 @@ export interface SubtaskDecision {
    *  ``SubtaskDecision`` list (subtask=``"boss_critic_round_<N>"``)
    *  and surface their severity through this field so UIB can
    *  distinguish blockers from advisories without a new type. ``ok``
-   *  / undefined behave identically. Per
-   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+   *  / undefined behave identically. */
   severity?: "blocker" | "advisory" | "ok" | "escalation";
 }
 

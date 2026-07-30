@@ -27,8 +27,7 @@ export interface DatasetSummary {
   /** Count of proposals in status=pending for this experiment. */
   n_pending_proposals: number;
 
-  // ---- Audit fields (see AUDIT_FEATURE.md §"Open ask … DatasetSummary
-  // audit fields" for the spec). All optional / nullable so the UI
+  // ---- Audit fields. All optional / nullable so the UI
   // degrades to "no audits known" when an older mock is in front of
   // us. Once the agents side ships them on the agents side these populate
   // with no client change.
@@ -249,9 +248,8 @@ export function useResetExperiment(experimentId: number | string) {
  *     404 → dataset not found OR endpoint not implemented
  *     409 → ``short_name`` already in use
  *
- * See ``handoffs/HANDOFF_DATASET_RENAME_SHORT_NAME.md`` in the Gemma
- * repo for the wire contract the agents side implements against; until that
- * ships, the UI 404s with a clear "endpoint not yet available"
+ * The agents side implements this wire contract separately; until
+ * that ships, the UI 404s with a clear "endpoint not yet available"
  * inline hint.
  */
 export interface RenameDatasetResponse {

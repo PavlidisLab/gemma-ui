@@ -372,8 +372,7 @@ export function buildFactorRows(
   // already decided there's no gold counterpart, so the UI must
   // not pair via slug or label and pretend agreement. Empty-but-
   // present gold side triggers the proper "agent proposed, gold
-  // doesn't have it" disagreement render. See
-  // HANDOFF_2026-05-20_DEMOTED_MATCH_SPLIT_FACTOR_UI.md §1.
+  // doesn't have it" disagreement render.
   const isAgentOnly =
     finding.issue_code === "calibration_factor_extra";
   const gold = isAgentOnly
@@ -643,8 +642,7 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
   // discoverable by looking up the proposed value (different URI), which
   // is why the proposer-value lookup below left the Current column empty
   // and the "don't change" button had no referent. Resolve current from
-  // the replaced design tag instead. (the agents-side
-  // UIB_HANDOFF_2026_06_20_TAG_SWAP_CURRENT_SIDE_FROM_TARGETID.md.)
+  // the replaced design tag instead.
   const apply = finding.apply_action ?? null;
   if (apply?.kind === "replace_tag") {
     const swapTags = design?.tags ?? [];
@@ -734,8 +732,8 @@ export function buildTagRows(finding: AuditFinding, design: Design | null): Row[
     // No baseline tag found — bare ``--gses`` build without the gold
     // override (the design doesn't carry the replaced tag). Fall through
     // to the legacy path; ``tag:N`` hits the ``else { return [] }`` below
-    // and renders nothing, same as before this branch. Per the handoff:
-    // those packages aren't meant to be reviewed.
+    // and renders nothing, same as before this branch. Those packages
+    // aren't meant to be reviewed.
   }
 
   let agentCategory: string;
@@ -1218,7 +1216,7 @@ export function FindingDetailsEditor({
   // that lacks the tag reads as a tag-add — same render path
   // (``hideDismiss`` cleared so the [Add, Don't add] pair shows up
   // instead of the no-affordance ``[Agree only]`` row the bare match
-  // code rendered). Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  // code rendered).
   const isTagAddFinding =
     finding.target_kind === "tag" &&
     (finding.issue_code === "calibration_agent_extra" ||
@@ -1246,8 +1244,7 @@ export function FindingDetailsEditor({
   // baseline did, a ``*_match`` finding's action shape downgrades to
   // ``"add"`` — the row becomes [Agree, Don't add] and the apply path
   // routes through the add mutator. Mirrors the title downgrade in
-  // ``findingCard.tsx`` (``goldEmptyForTitle``). Per
-  // MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  // ``findingCard.tsx`` (``goldEmptyForTitle``).
   const displayedGoldEmpty =
     findingDisplayedGoldEmpty(finding, design) === true;
   const actionShape = findingActionShape(finding, {
@@ -1391,8 +1388,7 @@ export function FindingDetailsEditor({
   // curator's action is to add the entity. The action-row collapse
   // to ``[Agree]`` only is wrong; the editor must render the
   // [Agree, Don't add] pair. ``displayedGoldEmpty`` is already
-  // computed below for ``actionShape``. Per
-  // MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  // computed below for ``actionShape``.
   const auditorSaysExactlyRightRaw =
     finding.severity === "ok" ||
     isExactFactorMatch(finding) ||
@@ -2954,7 +2950,7 @@ function AgreementSummary({
             // protein") for the same URI; collapsing them here picks
             // the SHORTER label as the visual stand-in so the
             // comparison reads cleanly. (Producer canonicalisation is
-            // out for a separate handoff.)
+            // tracked separately, out of scope here.)
             const allStatements: Array<{
               subject: SideValue;
               predicate: SideValue;

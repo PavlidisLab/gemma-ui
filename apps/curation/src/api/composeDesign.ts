@@ -1,7 +1,6 @@
 /**
  * Adapter that composes the curation `Design` from two Gemma 2.0
- * endpoints — per the agents-side reply on
- * ``CURATION_TO_GEMMA_2_0_HANDOFF.md`` §2 (filed 2026-05-23):
+ * endpoints, per agreement with the agents side (2026-05-23):
  *
  *   1. `GET /datasets/{id}/design`
  *      Canonical Gemma 2.0 shape — `experimental_factors[]` (after

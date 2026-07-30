@@ -5,18 +5,15 @@ import type { AuditReport, AuditRequest } from "./auditTypes";
 
 /**
  * Server-Sent Events client for the audit pipeline's
- * `POST /audit/{accession}/stream` endpoint (the agents-side Step 6,
- * see `AUDIT_FEATURE.md` §Status).
+ * `POST /audit/{accession}/stream` endpoint (the agents-side Step 6).
  *
  * Mirrors `useProposeStream` exactly — same envelope shape
  * (`schema_version`, `run_id`, `timestamp`, `event`, `level`,
  * `message`, `progress`, `payload`), same pattern (manual `start`
  * trigger, AbortController on unmount / restart, idempotent reset).
  *
- * Audit-specific event taxonomy lives in `AUDIT_FEATURE.md` §POST
- * /audit/{accession}/stream. The terminal `stream.result` payload
- * carries the persisted `AuditReport`; `error.terminal` mirrors
- * the proposer convention.
+ * The terminal `stream.result` payload carries the persisted
+ * `AuditReport`; `error.terminal` mirrors the proposer convention.
  *
  * On stream completion (success or error) the per-experiment audit
  * list query gets invalidated so the sidebar picks up the new

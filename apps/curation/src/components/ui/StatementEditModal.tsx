@@ -27,8 +27,7 @@ import type { OntologyTerm } from "@/features/experiment/types";
  *   - predicate ``<select>``   — locked to ``PREDICATES`` (21 entries
  *                                from gemma-core ``Relation.terms.txt``).
  *
- * Wire shape (``AnnotationTagInput`` / ``AnnotationValueObject``, see
- * ``handoffs/UIB_HANDOFF_2026_06_17_TAG_AND_BM_STATEMENT_ENDPOINTS.md``)
+ * Wire shape (``AnnotationTagInput`` / ``AnnotationValueObject``)
  * — category + subject (== ``value``) + primary predicate/object pair
  * + optional secondary pair. Evidence code is upstream-inferred, not
  * editable here.

@@ -24,8 +24,6 @@
  * Old packages (no ``arbiter_verdicts`` / ``boss_verdicts`` on the
  * wire) render identically to the prior single-defender ``JudgeRow``
  * — every shape suppresses tiers with empty rationale.
- *
- * Per ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
  */
 import type { ReactNode } from "react";
 import type {

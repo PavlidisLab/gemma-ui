@@ -66,8 +66,7 @@ export interface FindTermRequest {
  * experiment context. The UI doesn't need to know which phase is
  * active — it renders whatever ``candidates`` come back.
  *
- * The agents-side endpoint is in
- * ``gemma-curation-agents/FIND-TERM-HANDOFF.md``. Until the
+ * The agents-side endpoint is tracked separately. Until the
  * endpoint ships, callers see an ApiError (404 or connection
  * refused) and should render a fallback hint to the curator.
  */

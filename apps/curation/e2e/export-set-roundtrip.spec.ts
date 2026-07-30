@@ -22,8 +22,7 @@
  * factor ``developmental stage`` (the snapshot fixture) and the
  * assertion fails.
  *
- * 2026-05-29 GSE269647 incident: see the commit ``0975321`` notes and
- * ``Gemma/handoffs/EXPORT_SET_BUNDLE_STALE_DATA_2026_05_29.md``.
+ * 2026-05-29 GSE269647 incident: see the commit ``0975321`` notes.
  */
 import { test, expect, Route } from "@playwright/test";
 import { installErrorGuards } from "./_helpers";

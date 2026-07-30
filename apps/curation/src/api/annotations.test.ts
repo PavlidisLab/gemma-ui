@@ -10,7 +10,6 @@ import {
  * Tests for orderCandidatesByTaxon — the in-memory clustering that keeps
  * same-symbol gene hits adjacent (human → mouse → rat → others) without
  * disturbing the backend's usage ranking for everything else.
- * UIB_HANDOFF_2026_06_18_ANNOTATION_SEARCH_GENE_TAXON, step 5.
  */
 function gene(
   label: string,

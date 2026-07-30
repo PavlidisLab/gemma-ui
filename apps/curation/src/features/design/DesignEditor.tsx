@@ -189,8 +189,7 @@ export function DesignEditor({
   // by `name_in_design` against the draft factor's name. Empty when
   // there's no matching proposal (no audit running, fresh factor
   // added in the draft, name drift since proposal time, etc.) and
-  // FactorValueList suppresses the subtitle row in that case. Per
-  // UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md.
+  // FactorValueList suppresses the subtitle row in that case.
   const { report } = useAudit();
   const factorDescription = useMemo<string | undefined>(() => {
     if (!selectedFactor?.name) return undefined;

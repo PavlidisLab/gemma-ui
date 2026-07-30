@@ -93,8 +93,8 @@ const ANALYSIS_ORDER: { key: string; label: string }[] = [
 /** Pick the human label for the curation-review step.
  *
  *  Priority: prefer ``group.task_kind`` when set — it's the
- *  explicit curator-intent classifier (per
- *  ``SET_TASK_KIND_HANDOFF.md``). Fall back to deriving from
+ *  explicit curator-intent classifier set at group-creation time.
+ *  Fall back to deriving from
  *  ``group.type`` when absent (older Groups predating the field).
  *  Unknown ``task_kind`` slugs degrade to the generic ``review``
  *  noun rather than rendering the raw slug. */

@@ -15,8 +15,7 @@ import type {
  * agent_proposal row exists the endpoint falls back to the legacy
  * `{items, total}` envelope (`ProposalListResponse`).
  *
- * Contract source: `EVAL_PKG_PROPOSALS_AS_DATASET_PROPOSALS_HANDOFF.md`
- * lines 90–153 in the agents repo (the agents side, 2026-05-22). The endpoint is
+ * Wire contract defined on the agents side (2026-05-22). The endpoint is
  * `gemma_curation_agents/local_api/server.py:list_for_experiment`
  * around line 515 with `shape=auto`.
  */
@@ -199,8 +198,7 @@ export function useProposalsAutoShape(experimentId: number | string) {
       } catch (e: unknown) {
         // Gemma 2.0 doesn't yet expose ``/datasets/{id}/curation-proposals``.
         // Treat 404 as "no proposals" so the curation shell still
-        // renders the rest of the experiment. See
-        // ``CURATION_TO_GEMMA_2_0_HANDOFF.md``.
+        // renders the rest of the experiment.
         if (
           e &&
           typeof e === "object" &&

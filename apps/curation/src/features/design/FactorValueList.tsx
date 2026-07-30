@@ -33,8 +33,7 @@ export function FactorValueList({
   factor: Factor;
   /** LLM-emitted ≤80-char summary surfaced as an italic subtitle
    *  under the panel header. Optional; the header row drops the
-   *  subtitle when absent or empty. Per
-   *  UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md. */
+   *  subtitle when absent or empty. */
   factorDescription?: string;
   totalBiomaterials: number;
   /** Compact view — hides per-FV editing chrome (delete buttons,

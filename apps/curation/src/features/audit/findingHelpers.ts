@@ -295,7 +295,7 @@ export interface DispositionButtonLabels {
  *  to the add-shaped vocab ("Add" / "Don't add" / "Don't add tag")
  *  so the dialog title and confirm button agree with the downgraded
  *  card title — fixes the "Don't remove tag" confirm reading on what
- *  is visually an Add (MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16). */
+ *  is visually an Add (2026-06-16). */
 export interface FindingDispositionButtonLabelsContext {
   goldEmpty?: boolean;
 }
@@ -674,7 +674,7 @@ export function isMatchFinding(f: AuditFinding): boolean {
 /** A factor-match finding with non-ok severity is the arbiter's way
  *  of flagging a **category rename** — same factor, different label
  *  (the only path to a non-ok `calibration_factor_match` per the v4
- *  arbiter wire, HANDOFF_2026-05-16_DEFENDER_ARBITER.md). Pulled out
+ *  arbiter wire). Pulled out
  *  of the actionable bucket and rendered as a diff card instead of a
  *  generic finding card so the curator sees agent ≈ Gemma at a glance
  *  rather than having to read the rationale prose.

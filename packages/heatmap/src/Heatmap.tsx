@@ -426,8 +426,8 @@ export function Heatmap({
                 }
               >
                 {/* Selected main-grouping strip is flagged with a small
-                    amber chevron pointing at the label (HEATMAP_SPEC §4.2 —
-                    replaces the old, too-prominent outline box). The slot's
+                    amber chevron pointing at the label (replaces the old,
+                    too-prominent outline box). The slot's
                     width is ALWAYS reserved so the label text sits at the
                     same x whether or not the strip is selected — selecting
                     never shifts the labels. */}

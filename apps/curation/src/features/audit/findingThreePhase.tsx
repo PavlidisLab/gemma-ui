@@ -1,9 +1,8 @@
 /**
  * Three-phase finding card body.
  *
- * Per ``Gemma/handoffs/FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md``
- * (design review 2026-06-15). Every finding card renders EXACTLY THREE flat
- * labelled sections, in order:
+ * Per design review 2026-06-15: every finding card renders EXACTLY
+ * THREE flat labelled sections, in order:
  *
  *   1. **Why proposed** — proposer rationale + evidence + citation.
  *      NEVER references gold or any other curation set.

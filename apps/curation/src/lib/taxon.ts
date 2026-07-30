@@ -8,8 +8,6 @@
  * curator can tell ``KRAS (H.s.)`` from ``Kras (M.m.)`` at a glance —
  * wrong-species bindings are a Tier-1 failure mode. We derive that
  * abbreviation client-side here.
- *
- * See handoff UIB_HANDOFF_2026_06_18_ANNOTATION_SEARCH_GENE_TAXON.
  */
 
 /**

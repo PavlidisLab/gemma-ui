@@ -575,7 +575,7 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
                   // as a bare string without a URI counterpart
                   // (``ApplyActionPayload.add_tag`` has
                   // ``new_value_uri`` but no ``new_category_uri`` —
-                  // agents-side handoff filed). Recover the URI by matching
+                  // a known gap on the wire schema). Recover the URI by matching
                   // any existing tag in the draft that already uses
                   // this category. Common since experiments often
                   // have multiple tags under the same category
@@ -1037,7 +1037,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // computation as ``CompactFindingCard``'s ``goldEmptyForTitle``.
   // Threaded into the apply resolver, dismiss chip vocab, and
   // disposition button labels below so the action row matches the
-  // downgraded title. Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  // downgraded title.
   const goldEmptyForTitle = useMemo(
     () => findingDisplayedGoldEmpty(finding, draft ?? null) === true,
     [finding, draft],
@@ -1134,7 +1134,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // uses (``goldEmptyForTitle``) into the apply path — a
   // ``calibration_match`` viewed against a baseline that lacks the
   // entity routes through the add-tag/factor mutator instead of a
-  // no-op. Per MATCH_DOWNGRADE_ACTION_HANDOFF, 2026-06-16.
+  // no-op.
   const action = resolveApplyAction(finding, {
     report,
     design: draft,
@@ -1156,7 +1156,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // blue button and the structural-apply demotes to a small "override"
   // link. Without this the curator gets mixed signals (Suggested Fix
   // says "keep" while the primary button still pushes the contradicting
-  // structural action). See AUDIT_DEFENDER_VERDICT_HANDOFF.md.
+  // structural action).
   const dv = finding.defender_verdict ?? null;
   const judgeWeak =
     (dv?.strength ?? verdictStrength(dv?.verdict)) === "weak";
@@ -1481,8 +1481,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               // design at the gold partition while the card showed as
               // accepted.
               finding.issue_code === "calibration_factor_partition_mismatch" ||
-              // Match-downgrade (MATCH_DOWNGRADE_ACTION_HANDOFF,
-              // 2026-06-16): a ``*_match`` viewed against an empty
+              // Match-downgrade (2026-06-16): a ``*_match`` viewed against an empty
               // displayed baseline reads as Add. ``resolveApplyAction``
               // already returns a mutating add-tag / add-factor action
               // for these — but the editor's onSave was keying off the

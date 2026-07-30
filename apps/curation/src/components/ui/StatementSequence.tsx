@@ -5,9 +5,8 @@ import type { OntologyTerm } from "@/features/experiment/types";
 /**
  * StatementSequence — the shared "subject · predicate · object" walk.
  *
- * This is the core S-P-O primitive extracted from ``StatementChip`` (per
- * ``STATEMENT_WIDGET_UNIFICATION.md`` Phase 1). It renders ONLY the inner
- * sequence:
+ * This is the core S-P-O primitive extracted from ``StatementChip``
+ * (widget-unification Phase 1). It renders ONLY the inner sequence:
  *
  *   <subject Term> [ <sep> <predicate text> <sep> <object Term> ]...
  *

@@ -4,8 +4,7 @@ import type { Design } from "@/features/experiment/types";
 import type { FactorProposal, Proposal } from "@/api/types";
 import { buildFactorRows } from "./FindingDetailsEditor";
 
-/** Tests covering the Issue 1 + Issue 2 fixes from
- *  HANDOFF_2026-05-20_DEMOTED_MATCH_SPLIT_FACTOR_UI.md. Both
+/** Tests covering two UI-side fixes (issue 1 + issue 2). Both
  *  regressions surfaced on the GSE28300 case where the agent's
  *  ``treatment`` factor is a finer partition of gold's
  *  ``treatment × timepoint``; the builder demotes that into a

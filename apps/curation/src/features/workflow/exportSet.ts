@@ -58,9 +58,8 @@ export interface SetExportBundle {
     type: Group["type"];
     description: string;
     member_count: number;
-    /** Per the agents-side REVIEW_EXPORT_BUNDLE_HANDOFF (2026-05-25):
-     *  set-level rollup so the consumer can triage at a glance
-     *  without scanning each entry's ``review_status``. */
+    /** Set-level rollup (added 2026-05-25) so the consumer can triage
+     *  at a glance without scanning each entry's ``review_status``. */
     n_finalized: number;
     /** Members with a curation review row that hasn't been
      *  finalized (open proposal / open audit). */
@@ -112,9 +111,9 @@ export interface SetExportExperiment {
    *  experiment fetch failed; pair with ``error``. */
   design: Design | null;
   /** Latest curation-review row for this experiment, or ``null``
-   *  when the experiment has none. Added in bundle v2 per the agents-side
-   *  handoff — lets the receiver filter to reviewed-only without
-   *  guessing from design heuristics. */
+   *  when the experiment has none. Added in bundle v2 — lets the
+   *  receiver filter to reviewed-only without guessing from design
+   *  heuristics. */
   review_status: SetExportReviewStatus | null;
   error: string | null;
 }
@@ -135,10 +134,10 @@ function numericTail(memberId: string): number | null {
  *  local_api splits review-kind retrieval into two endpoints:
  *  ``/datasets/{id}/audits`` returns ``kind='audit'`` rows only,
  *  ``/datasets/{id}/proposals`` returns ``kind='proposal'`` rows
- *  only. Hitting one alone misses the other (caught 2026-05-25 —
- *  the agents-side V2_FOLLOWUP handoff reported all 28 review_status fields
- *  null because we only hit /audits while the curator's recent
- *  work was proposal-kind). Hit both in parallel, merge, pick the
+ *  only. Hitting one alone misses the other (caught 2026-05-25 — a
+ *  bulk export showed all 28 review_status fields null because we
+ *  only hit /audits while the curator's recent work was
+ *  proposal-kind). Hit both in parallel, merge, pick the
  *  most-recent. */
 async function fetchLatestReviewStatus(
   experimentId: number | string,

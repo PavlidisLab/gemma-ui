@@ -23,8 +23,8 @@ to operate) your own private instance of Gemma and want a frontend
 for it. If that's you: the **browser** app is the more self-contained
 starting point (it only needs a running Gemma REST API); the
 **curation** app additionally needs the
-[`gemma-curation-agents`](../gemma-curation-agents) backend service
-for the agent-assisted curation workflow. This code is shared as-is,
+[`gemma-curation-agents`](https://github.com/PavlidisLab/gemma-curation-agents)
+backend service for the agent-assisted curation workflow. This code is shared as-is,
 in case it's useful as a reference or a starting point — it isn't
 packaged as a turnkey product for other Gemma-like datasets.
 

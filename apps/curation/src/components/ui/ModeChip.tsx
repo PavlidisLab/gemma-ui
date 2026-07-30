@@ -9,8 +9,7 @@
  *   - REMOTE / staging (amber) — talking to staging Gemma. Today's
  *     staging shares the prod DB; chip popover spells that out.
  *   - REMOTE / prod (red) — talking to prod Gemma. Big red warning;
- *     every write goes through a confirmation modal (per §5 of the
- *     local-vs-remote handoff).
+ *     every write goes through a confirmation modal.
  *
  * Click → expands a popover with the full base URL, the auth method,
  * the severity rationale, and a copy-of-the-other-mode hint.

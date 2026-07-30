@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { parseEvidenceLocation } from "./evidenceLocation";
 
 /**
- * Tests for the evidence-location parser. Shapes come from
- * UIB_HANDOFF_2026_06_18_TAG_EVIDENCE_QUOTES §3.
+ * Tests for the evidence-location parser. Covers the location-string
+ * shapes it parses: constant coverage, partial coverage, the
+ * zero-matched bug case, alias matches, and the catalog badge.
  */
 describe("parseEvidenceLocation", () => {
   it("parses constant coverage — 'scope (all N samples)'", () => {

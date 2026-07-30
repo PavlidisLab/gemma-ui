@@ -80,7 +80,7 @@ export function readCachedDraft(
     // ``!==`` was always true — it discarded *every* cached draft for
     // every experiment, silently killing resume-mid-edit AND never
     // actually running the cross-experiment guard the comment
-    // describes (UIB_HANDOFF_2026-06-23). Mirrors the String() compare
+    // describes. Mirrors the String() compare
     // the audit-focus handler already does at ``App.tsx:469``.
     if (
       parsed.draft.experiment_id != null &&

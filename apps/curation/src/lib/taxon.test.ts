@@ -4,7 +4,8 @@ import { taxonAbbreviation, taxonSortPriority } from "./taxon";
 /**
  * Tests for the taxon display helpers that let the term picker show
  * ``KRAS (H.s.)`` vs ``Kras (M.m.)`` as distinguishable rows. Anchor
- * mappings come from UIB_HANDOFF_2026_06_18_ANNOTATION_SEARCH_GENE_TAXON.
+ * mappings are the fixed genus-species → abbreviation table in
+ * ``taxon.ts``, covering the common lab species Gemma sees.
  */
 describe("taxonAbbreviation", () => {
   it("abbreviates the anchor species to G.s. form", () => {

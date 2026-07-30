@@ -3,7 +3,7 @@ import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
 import { requiresBackend } from "./_backend";
 
 /**
- * Smoke tests for the 2026-06-11 review-workflow handoff fixes:
+ * Smoke tests for the 2026-06-11 review-workflow fixes:
  *   - #3 Finalize-review button uses the new "Finalize review" label
  *     instead of the old "Close audit" / "Close" pair.
  *   - #4 The chip-strip mode pill reads as one of the three
@@ -17,7 +17,7 @@ import { requiresBackend } from "./_backend";
  * #7 ValidatorBanner invalidation fix is verified manually (involves
  * commit which mutates).
  */
-test.describe("review workflow — handoff 2026-06-11 @live", () => {
+test.describe("review workflow — 2026-06-11 @live", () => {
   test.beforeEach(({ page }) => {
     requiresBackend();
     installErrorGuards(page);
@@ -49,7 +49,7 @@ test.describe("review workflow — handoff 2026-06-11 @live", () => {
     // The pill itself doesn't matter for this smoke — what matters is
     // that the label set is correct and not the old "Curation mode"
     // string. (Default tab — the design tab has a pre-existing hook-
-    // count issue on the seed unrelated to this handoff; see
+    // count issue on the seed unrelated to these fixes; see
     // experiment-design.spec.ts main-baseline failures.)
     const pillRegexes = [
       /^Editing local design$/i,

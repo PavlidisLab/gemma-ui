@@ -5,8 +5,7 @@ import type { AgentConsidered, ConstantKeyConsidered } from "@/api/types";
 /**
  * Quiet "what the agent looked at, didn't propose" panel. Lives
  * above the proposal review surface as curator-supporting context —
- * not a finding, no disposition, no accept/dismiss. The handoff
- * (UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md) places this
+ * not a finding, no disposition, no accept/dismiss. This panel sits
  * inside a larger "Agent overview" panel that will also host the
  * methodology / factorial / paper-OA hints once those land; for now
  * the panel hosts just this section and grows when the others

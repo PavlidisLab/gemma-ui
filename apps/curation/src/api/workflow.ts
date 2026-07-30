@@ -2,8 +2,7 @@
  * TanStack Query hooks for the workflow management endpoints.
  *
  * Endpoints live under `/rest/v2/...` on the same mock host as all
- * other curation routes. Wire contract: WORKFLOW_MANAGEMENT_HANDOFF.md.
- * Schema mirrors: src/api/workflowTypes.ts.
+ * other curation routes. Schema mirrors: src/api/workflowTypes.ts.
  *
  * Three resource families:
  *   - Pipeline status (per-experiment read + bulk read + dispatch mutations)

@@ -258,8 +258,7 @@ test.describe("locked-spec regression — comparison grid invariants (2026-06-15
     // render visually as "CURRENT" but the text node stays mixed-case).
     //
     // Skip gracefully when no comparison card rendered — the curations
-    // may still be loading (the /curations path can take >5s per the
-    // UIB perf handoff 2026-06-11).
+    // may still be loading (the /curations path can take >5s).
     const currentLabels = page.getByText("Current");
     const count = await currentLabels.count();
     if (count === 0) {

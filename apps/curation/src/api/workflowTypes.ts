@@ -2,7 +2,6 @@
  * TS mirrors of the Pydantic schemas in
  * `gemma_curation_agents/mock_gemma_curation_api/workflow_schemas.py`.
  *
- * Wire contract is documented in WORKFLOW_MANAGEMENT_HANDOFF.md.
  * When the agents side updates the Python schemas, regenerate these to match.
  */
 
@@ -185,8 +184,7 @@ export interface ExperimentSummary {
  *  label lookup table degrades gracefully on unknown values
  *  (renders the raw slug).
  *
- *  Known values (mirror of agents-side
- *  ``SET_TASK_KIND_HANDOFF.md``):
+ *  Known values:
  *  - ``review_proposal``    — calibration packages
  *  - ``audit_existing``     — re-audit batches
  *  - ``curate_from_scratch``— preboarded GSEs (no prior curation)
@@ -207,13 +205,12 @@ export type GroupTaskKind =
  *  Always populated — never null — so consumers can read the counts
  *  without a None-guard.
  *
- *  Bucket semantics (mirror of agents-side
- *  ``GROUP_FINALIZE_AND_LIST_STATUS_HANDOFF.md``):
+ *  Bucket semantics:
  *  - ``done``        — finalized review on the latest audit
  *  - ``in_progress`` — curation_review exists, latest not
  *                      finalized (today still includes the
- *                      "agent ran, curator hasn't acted" case;
- *                      §3 of the handoff asks for a refinement)
+ *                      "agent ran, curator hasn't acted" case,
+ *                      which is a known refinement to make)
  *  - ``untouched``   — no curation_review row at all */
 export interface MemberStatusCounts {
   done: number;
@@ -235,8 +232,7 @@ export interface Group {
   /** ISO 8601 of the curator's set-level "I'm done with this
    *  grouping" press. Null on open sets. Idempotent-refresh on
    *  re-POST (matches per-experiment finalize). Set-level only —
-   *  does NOT cascade to per-member ``curation_review.finalized_at``.
-   *  Per ``GROUP_FINALIZE_AND_LIST_STATUS_HANDOFF.md`` §1. */
+   *  does NOT cascade to per-member ``curation_review.finalized_at``. */
   finalized_at?: string | null;
   /** Reviewer who finalized, when finalized. Pairs with
    *  ``finalized_at``. */

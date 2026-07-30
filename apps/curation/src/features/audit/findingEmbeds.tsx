@@ -28,8 +28,7 @@
  *   - `FactorRenameFvPairs` — fallback FV-pairs table when no
  *     structured `comparison_proposal` is available.
  *   - `FactorDescriptionSubtitle` — italic ≤80-char subtitle pulled
- *     from `FactorProposal.description` per
- *     UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md.
+ *     from `FactorProposal.description`.
  *   - `FactorReplacementHint` — "↪ Proposed adding: …" hint on
  *     legacy gold-only-miss findings without a paired extra.
  */
@@ -298,8 +297,8 @@ export function RenameFactorEmbed({ finding }: { finding: AuditFinding }) {
   //   3. Genuinely unpaired → "agent_only" (rare on factor matches
   //      with a resolved gold factor; common on alternate-factor).
   //
-  // The biomaterial-overlap path is the same principle as the
-  // NEAR_MATCH_FV_PAIRING handoff for the builder side: if the
+  // The biomaterial-overlap path applies the same near-match FV
+  // pairing principle used on the builder side: if the
   // partition is the same, the pairing is bijective by biomaterial
   // set. Surfacing "total RNA" ↔ "pre-immunoprecipitation input"
   // here (paired by biomaterials despite the label drift) is the
@@ -801,8 +800,7 @@ export function FactorRenameFvPairs({ pairs }: { pairs: FvPair[] }) {
  *  Lookup: `agent_target_index` first (authoritative for findings the
  *  comparison-proposal owns), then `name_in_design` match against the
  *  finding's backticked rationale token. Renders nothing when the
- *  description is empty or absent. Per
- *  UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md. */
+ *  description is empty or absent. */
 export function FactorDescriptionSubtitle({
   finding,
   report,
@@ -843,8 +841,7 @@ export function FactorDescriptionSubtitle({
  *  take the agent's replacement Y." Today the agent's replacement
  *  lives in the DesignComparisonPanel at the bottom of the sidebar,
  *  far from the finding card. Until the agent emits paired
- *  `calibration_factor_extra` findings (filed in
- *  FACTOR_CALIBRATION_FINDINGS_HANDOFF.md), surface the agent-side
+ *  `calibration_factor_extra` findings, surface the agent-side
  *  proposal inline as a one-line companion line so the pair reads
  *  together. Removes itself once paired findings ship — those will
  *  sort adjacently in the finding list and this helper renders

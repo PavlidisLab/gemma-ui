@@ -243,7 +243,7 @@ export function HeatmapWidget({
   const [maxW, setMaxW] = useState(defaultMaxWidth);
   const [fitMode, setFitMode] = useState<FitMode>(defaultFitMode);
   const [controlsOpen, setControlsOpen] = useState(defaultControlsOpen);
-  // v2: main-grouping factor selection (HEATMAP_SPEC §4). Lives on
+  // v2: main-grouping factor selection. Lives on
   // the widget; intentionally NOT persisted to the URL — spec §7 #4.
   // Default = auto-pick the first sensible biological factor in the
   // payload so the heatmap loads with samples already grouped (and
@@ -298,7 +298,7 @@ export function HeatmapWidget({
     userTouchedGroupingRef.current = true;
     setMainGroupingFactorId(updater as never);
   };
-  // v2 tooltip + side-panel state (HEATMAP_SPEC §5).
+  // v2 tooltip + side-panel state.
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [pinned, setPinned] = useState<SidePanelClick | null>(null);
   // v1 tooltip — kept for the legacy `data`-only path.

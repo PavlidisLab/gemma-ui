@@ -96,7 +96,7 @@ const KIND_COPY: Record<
     nounPlural: "audits",
     headerLabel: "Audit",
     emptyBody: "No audits on this experiment yet.",
-    // Relabelled per design review 2026-06-11 review-workflow handoff #3:
+    // Relabelled per design review 2026-06-11:
     // "Close audit" read as "close the panel" — curators didn't
     // realise it was the terminal "I'm done reviewing this GSE"
     // milestone. "Finalize review" matches the curator's mental
@@ -113,8 +113,8 @@ const KIND_COPY: Record<
     nounPlural: "proposals",
     headerLabel: "Proposal",
     emptyBody: "No proposals on this experiment yet.",
-    // Matches the audit-kind "Finalize review" lifecycle pair (the reviewer
-    // 2026-06-11 handoff #3). The button is the milestone "I'm
+    // Matches the audit-kind "Finalize review" lifecycle pair (design
+    // review 2026-06-11). The button is the milestone "I'm
     // done with this proposal as a curation aid"; the agent reads
     // the dispositions from local_api when it next runs, so there's
     // nothing being "submitted to" anyone at click time.
@@ -130,7 +130,7 @@ import { DesignComparisonPanel } from "./AuditReportView";
 
 /**
  * Per-experiment audit findings, rendered into the proposals sidebar
- * slot (see `AUDIT_FEATURE.md` §UI integration shape — surface B).
+ * slot (surface B of the audit feature's UI integration).
  *
  * For now this is the **single source of truth for disposition
  * state**: the inline severity dots planned in surface A will read
@@ -293,8 +293,7 @@ export function AuditSidebarPanel({
                 only makes sense when there's existing curation to
                 compare against. For ``kind="proposal"`` (uncurated /
                 preboarded GSE), the agent's proposal IS the content
-                — there's no curator side, so the panel is omitted.
-                See AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md §2. */}
+                — there's no curator side, so the panel is omitted. */}
             {kind === "audit" ? (
               <DesignComparisonPanel report={report} />
             ) : null}
@@ -684,9 +683,8 @@ function SidebarHeader({
       // Sweep pending severity=ok findings to "accepted" before
       // finalize. The agent's storage layer dropped the
       // `all_dispositioned` clause from the audit_status rule on
-      // 2026-05-13 (see AUDIT_STATUS_CLOSED_RULE_HANDOFF.md), so on
-      // current agent services this sweep is just defensive
-      // hygiene; older services still require it. Harmless either
+      // 2026-05-13, so on current agent services this sweep is just
+      // defensive hygiene; older services still require it. Harmless either
       // way (a few accepted rows on match findings, which IS the
       // right disposition — curator silence on a "no action needed"
       // row is implicit agreement).
@@ -964,8 +962,8 @@ function SidebarHeader({
         ) : null}
         {/* Auditor identity — prominent enough that a curator
          *  switching between two audits (e.g. dual-agent
-         *  hybrid-vs-oneshot review, HANDOFF_2026-05-17_DUAL_AGENT_REVIEW;
-         *  or inter-curator-audit packages where the same experiment
+         *  hybrid-vs-oneshot review, or inter-curator-audit packages
+         *  where the same experiment
          *  appears in both ``X-gold`` and ``Y-gold`` sets) can tell at
          *  a glance which one they're looking at. The palette is
          *  hashed off the auditor's BASE name (version suffixes like
@@ -1349,7 +1347,7 @@ function SidebarHeader({
           // the dirty-draft guard that surfaced this offer already
           // set confirmClose=false, so without this the curator's
           // note (still in localStorage, but no longer on screen)
-          // read as wiped. Paul 2026-07-29.
+          // read as wiped.
           setOfferCommitAndClose(null);
           setConfirmClose(true);
         }}

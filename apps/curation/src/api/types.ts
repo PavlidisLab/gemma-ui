@@ -120,8 +120,7 @@ export interface GemmaRef {
 /**
  * Pre-computed alignment verdict between an agent proposal and
  * Gemma's existing curation. Same vocabulary at factor / FV / tag
- * levels (semantics narrows per level — see
- * DESIGN_COMPARISON_ALIGNMENT_HANDOFF.md):
+ * levels (semantics narrows per level):
  *   - ``"exact"`` — same canonical handle (label-equal, or URI-equal).
  *   - ``"close"`` — different label but related ontology terms or
  *     overlapping label tokens.
@@ -169,8 +168,7 @@ export interface FactorProposal {
   category: OntologyTerm;
   name_in_design: string;
   /** ≤80-char LLM-emitted summary of what the factor encodes, used
-   *  as a subtitle in factor headers. Optional; may be empty. Per
-   *  UIB_HANDOFF_2026_06_10_FACTOR_DESCRIPTION_SURFACE.md. */
+   *  as a subtitle in factor headers. Optional; may be empty. */
   description?: string;
   /** ``"categorical"`` (default) or ``"continuous"``. Continuous
    *  factors emit one FV per distinct numeric measurement, with
@@ -230,8 +228,7 @@ export type { SubtaskDecision } from "./justification";
  *  refine-tags pass considered but did NOT emit as a tag. Surfaces
  *  in the UI so the curator isn't blind to why an obvious free-text
  *  BM column (e.g. `strain: TALLYHO`) didn't make it onto the
- *  proposed tag list. Wire shape per
- *  UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md. */
+ *  proposed tag list. */
 export interface ConstantKeyConsidered {
   key: string;
   value: string;
@@ -263,8 +260,7 @@ export interface ProposalEvidence {
    *  on proposals submitted by the legacy single-shot pipeline. */
   subtask_decisions?: SubtaskDecision[];
   /** Things the agent inspected but chose NOT to surface as a
-   *  proposal. Wire shape per
-   *  ``UIB_HANDOFF_2026_06_11_CONSTANT_KEYS_CONSIDERED.md``. */
+   *  proposal. */
   agent_considered?: AgentConsidered;
 }
 
@@ -287,21 +283,18 @@ export interface Proposal {
   /** Curator-facing prose paragraph from the orchestrator — what
    *  the agent observed, any intervention it ran, what the final
    *  design + tags look like. Renders via ``OrientationProse`` at
-   *  the top of ``ProposalReviewCard``. Per
-   *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``.
+   *  the top of ``ProposalReviewCard``.
    *
    *  Dual-state per agents-side commit ``5d6e069``: THIS field is
    *  canonical. ``AuditEvidence.experiment_summary`` is a back-
    *  compat mirror; UIB readers should prefer Proposal-side and
-   *  fall through to the mirror. Per
-   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+   *  fall through to the mirror. */
   experiment_summary?: string | null;
   /** v5 supervisor's audit-trail prose — narrative of what the
    *  orchestrator observed, intervened on, deferred. Canonical
    *  source; mirrored to ``AuditEvidence.experiment_notes`` for
    *  back-compat. Rendered as a collapsible "Pipeline audit
-   *  trail" section at the bottom of the findings list. Per
-   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+   *  trail" section at the bottom of the findings list. */
   experiment_notes?: string | null;
   /** v5 curator-follow-up requests. Canonical source; mirrored
    *  to ``AuditEvidence.escalation_requests``. Each entry carries

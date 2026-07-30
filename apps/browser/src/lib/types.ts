@@ -215,8 +215,7 @@ export interface PipelineStatus {
 /** GEEQ score breakdown as embedded in the Dataset payload. Field
  *  names here mirror what the Gemma REST actually emits (verified
  *  against /datasets/{id} on prod 1.x and against gemma-rest's
- *  GeeqValueObject Java class — see
- *  ``GEEQ_PUBLIC_BREAKDOWN_HANDOFF.md`` for the historical mismatch).
+ *  GeeqValueObject Java class).
  *
  *  All sub-scores normalised to [-1, 1] (higher = better); the
  *  aggregate ``publicQualityScore`` / ``publicSuitabilityScore``
@@ -342,8 +341,7 @@ export interface DiffExpressionResponse {
   geneExpressionLevels: {
     geneOfficialSymbol?: string | null;
     /** Long descriptive gene name (e.g. "transformation related protein 53").
-     *  Pending the agents-side enrichment of /datasets/{id}/expressions/differential —
-     *  see ``SVD_LOADINGS_GENE_ENRICHMENT_HANDOFF.md``. */
+     *  Pending the agents-side enrichment of /datasets/{id}/expressions/differential. */
     geneOfficialName?: string | null;
     /** Gemma-internal gene id. Pending the same enrichment. */
     geneId?: number | null;

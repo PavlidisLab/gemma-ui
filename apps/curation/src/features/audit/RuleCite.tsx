@@ -10,8 +10,6 @@
  * shows the ref's title (heading) + snippet (body) + doc (provenance)
  * + any links (click-outs), plus an optional "more →" to the broad
  * topic guideline.
- *
- * Per ``UIB_HANDOFF_2026_06_21_PRECISE_GUIDELINE_POPUP_IN_REASONING.md``.
  */
 
 import { HelpPopup } from "@/components/ui/HelpPopup";

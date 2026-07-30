@@ -63,7 +63,7 @@ interface AuditContextValue {
    *  scratch, no curator side). Sub-components branch on this for
    *  framing copy + to hide the side-by-side comparison surface.
    *  Defaults to ``"audit"`` for back-compat with existing call
-   *  sites. See AUDIT_TO_REVIEW_RENAME_UI_HANDOFF.md. */
+   *  sites. */
   kind: CurationReviewKind;
   /** The experiment this audit belongs to. Surfaced so consumers
    *  (e.g. finding cards needing to address the samples table)
@@ -72,8 +72,8 @@ interface AuditContextValue {
   /** All audits on this experiment (ordered most-recent-first per the
    *  server contract). Used by the dual-agent review header to render
    *  a prev/next switcher when the curator has run multiple audits
-   *  on the same GSE (e.g. hybrid vs oneshot calibration packages,
-   *  HANDOFF_2026-05-17_DUAL_AGENT_REVIEW). Length-0 when no audits
+   *  on the same GSE (e.g. hybrid vs oneshot calibration packages).
+   *  Length-0 when no audits
    *  yet; length-1 is the common single-audit case. */
   auditList: AuditReport[];
   /** Index into ``auditList`` of the audit currently rendered.
@@ -174,8 +174,7 @@ interface AuditContextValue {
       dismissReason?: DismissReason;
       /** Required by the server when ``status === "accepted"`` and
        *  the finding's ``issue_code`` is in the agent-extra family
-       *  (added 2026-05-10 per
-       *  AUDIT_DISPOSITION_REASONS_HANDOFF.md). Caller gates the
+       *  (added 2026-05-10). Caller gates the
        *  flow through the accept-reason dialog. */
       acceptReason?: import("@/api/auditTypes").AcceptReason;
       /** Required by the server when ``status === "needs_more_info"``.
@@ -196,8 +195,9 @@ interface AuditContextValue {
        *  cascaded from a factor to its subsumed FV children. Omit for
        *  direct curator dispositions. */
       inheritedFrom?: string;
-      /** Structural-vs-detail axes per §2 of
-       *  HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS. Independent
+      /** Structural-vs-detail axes: whether the factor/tag's structure
+       *  is right vs whether its details are right, tracked
+       *  separately. Independent
        *  of ``status``. The per-element editor PATCHes these alongside
        *  the canonical status/notes/applied_fix flow; the legacy
        *  three-button DispositionBar leaves both null. */
@@ -246,8 +246,7 @@ function isOverrideReport(r: AuditReport | null): boolean {
   // downstream bug actually caused the design review's "3 pending stays 3 pending"
   // symptom; the next instance should land in the live-PATCH branch
   // and surface via the DevTools Network tab, not the in-memory
-  // override (which doesn't persist). See
-  // ``handoffs/AUDIT_ID_CLARIFICATION_2026_06_14.md``.
+  // override (which doesn't persist).
 }
 
 export function AuditProvider({

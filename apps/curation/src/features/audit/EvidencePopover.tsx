@@ -4,10 +4,8 @@
  * marks an item that carries verbatim provenance; clicking pops a
  * portal panel that reuses the audit ``FindingEvidenceBlock`` — same
  * per-source colour + quote + location rendering the finding cards
- * use, so curators learn one evidence visual, not two.
- *
- * Per UIB_HANDOFF_2026_06_18_TAG_EVIDENCE_QUOTES: "clearly
- * identifiable, not cluttered."
+ * use, so curators learn one evidence visual, not two. Design goal:
+ * clearly identifiable, not cluttered.
  */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";

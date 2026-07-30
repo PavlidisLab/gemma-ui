@@ -112,8 +112,8 @@ export function OntologyTermPicker({
   // of call sites (StatementEditModal's tag-edit dialog) render this
   // picker inside an `overflow-auto` panel — which clips any
   // absolutely-positioned descendant that overflows the panel's
-  // bounds, no matter its z-index (Paul 2026-07-29 screenshot: the
-  // dropdown cut off mid-list inside the dialog). Recomputed on open
+  // bounds, no matter its z-index (observed as the dropdown cutting
+  // off mid-list inside the dialog). Recomputed on open
   // and on any resize/scroll (capture-phase, so it also catches the
   // modal panel's own internal scroll) so it keeps tracking the input.
   // Width/height are conservative estimates (the dropdown's own
@@ -175,8 +175,7 @@ export function OntologyTermPicker({
     debounced,
     category,
     // This dropdown is the one surface that renders the "e.g. …" rare-
-    // term hint, so it's the one caller that opts into the enrichment —
-    // see ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md.
+    // term hint, so it's the one caller that opts into the enrichment.
     { enabled: editing, limit: 25, includeExampleUsage: true },
   );
 
@@ -520,7 +519,7 @@ export function OntologyTermPicker({
             ) : find.error ? (
               <li className="px-2 py-1 text-amber-800 border-t border-slate-100">
                 {find.error instanceof ApiError && find.error.status === 404
-                  ? "find-term endpoint not available — see FIND-TERM-HANDOFF.md"
+                  ? "find-term endpoint not available"
                   : find.error instanceof ApiError
                     ? find.error.detail || find.error.message
                     : (find.error as Error).message}
@@ -848,22 +847,19 @@ function CandidateRow({
  *  the example is for the handful-of-uses case where seeing a real
  *  prior usage helps them judge the match. Gating is entirely
  *  client-side by design — Gemma attaches the example whenever it has
- *  one and leaves the "is this worth showing" call to us. See
- *  ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. */
+ *  one and leaves the "is this worth showing" call to us. */
 const RARE_USAGE_THRESHOLD = 3;
 
 /** Maps ``exampleUsage.level`` to the short label curators actually
- *  want — "was this used as a TAG or an FV?" (Paul 2026-07-29: the
- *  tooltip without this was "still not that useful"). Checked against
- *  live frink data 2026-07-29: three raw values actually appear —
- *  ``ExperimentTag``, ``BioMaterial`` (both match the enum the
- *  handoff documented), and ``ExperimentalDesign`` — which does
- *  NOT match the documented ``FactorValue`` but shows up on
- *  obviously-FV-shaped hits (e.g. "wild type genotype", 10727 uses,
- *  under a ``genotype`` factor). Reads as Gemma reporting the FV's
- *  owning grandparent entity instead of "FactorValue" — mapped here
- *  defensively so the UI is correct either way; flagged back in
- *  ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. */
+ *  want — "was this used as a tag or a factor value?" (a tooltip that
+ *  only surfaced usage count without this distinction wasn't useful
+ *  enough on its own). ``ExperimentTag`` and ``BioMaterial`` match
+ *  Gemma's documented enum directly. ``ExperimentalDesign`` doesn't —
+ *  observed on obviously FV-shaped hits (e.g. a genotype value used
+ *  thousands of times under a ``genotype`` factor), reading as Gemma
+ *  reporting the FV's owning grandparent entity instead of
+ *  ``FactorValue``. Mapped here defensively so the UI is correct
+ *  either way regardless of which string the server actually sends. */
 function levelLabel(level: string): string {
   switch (level) {
     case "ExperimentTag":
@@ -884,11 +880,11 @@ function levelLabel(level: string): string {
  *  free-text, usage count, AND (for a rare term with an attached
  *  example) whether the prior usage was a tag or a factor value, the
  *  owning factor, the full S · P · O triple when the example came
- *  from a Statement, and which dataset it's from. Paul 2026-07-29: a
- *  separate visible "e.g. …" line under the row was too little
- *  information for the space it took, and once folded into the
- *  tooltip it STILL didn't say whether the example was a tag or an
- *  FV — the single most useful fact for judging relevance. */
+ *  from a Statement, and which dataset it's from. A separate visible
+ *  "e.g. …" line under the row proved too little information for the
+ *  space it took, and once folded into the tooltip it still didn't
+ *  say whether the example was a tag or an FV — the single most
+ *  useful fact for judging relevance. */
 function candidateTooltip(candidate: AnnotationCandidate): string {
   const lines: string[] = [
     candidate.uri ? `${candidate.label} — ${candidate.uri}` : `${candidate.label} — free text`,
@@ -922,10 +918,9 @@ function candidateTooltip(candidate: AnnotationCandidate): string {
     }
     // Deliberately NOT showing `source_experiment_id` — a bare
     // internal numeric id means nothing to a curator in plain tooltip
-    // text (no accession, no link — Paul 2026-07-29: "dataset id
-    // isn't useful"). Revisit if/when the accession lands (the
-    // handoff calls it a follow-on) and this can become an actual
-    // link instead of dead text.
+    // text (no accession, no link). Revisit once an accession is
+    // available and this can become an actual link instead of dead
+    // text.
     lines.push(`e.g. ${bits.join(" — ")}`);
   }
   return lines.join("\n");

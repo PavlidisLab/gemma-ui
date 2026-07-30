@@ -363,7 +363,7 @@ function EventTypeBadge({ type, action }: { type: string; action: string }) {
   // the curator reviews an agent proposal. Mock-side ``apply_feedback``
   // emits one per terminal review; production Gemma's audit pipeline
   // will fold the same event types in once the agents-side ``write
-  // back to Gemma`` path goes live (see PROPOSAL_AUDIT_EVENT_HANDOFF.md).
+  // back to Gemma`` path goes live.
   const config: { label: string; cls: string } =
     type === "ExperimentalDesignUpdatedEvent"
       ? { label: action === "C" ? "design created" : "design updated", cls: "bg-blue-100 text-blue-800" }

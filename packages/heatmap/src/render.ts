@@ -134,7 +134,7 @@ export function renderMatrix(
     }
   }
 
-  // --- Outlier indicator (HEATMAP_SPEC §3.3) ---
+  // --- Outlier indicator ---
   const outliers = data.colOutliers;
   if (outliers && outliers.length > 0) {
     ctx.save();

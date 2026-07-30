@@ -127,8 +127,8 @@ export function PipelineStatusRow({
   /** The set's group type. Coarse fallback for next-task chip
    *  labeling when ``groupTaskKind`` isn't set. */
   groupType?: GroupType;
-  /** The set's fine-grained task classifier (per
-   *  ``SET_TASK_KIND_HANDOFF.md``). Preferred over ``groupType``
+  /** The set's fine-grained task classifier, set at group-creation
+   *  time. Preferred over ``groupType``
    *  when present — ``review_proposal`` → "Review proposal",
    *  ``audit_existing`` → "Review audit", etc. */
   groupTaskKind?: GroupTaskKind | null;

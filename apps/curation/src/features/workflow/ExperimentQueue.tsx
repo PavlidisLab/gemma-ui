@@ -36,7 +36,7 @@ import { useStickyState } from "@/lib/useStickyState";
  *
  *  Design review 2026-06-14 asked for a 200 default ("typical ticket fits in
  *  one page"). The agents side 1 raised the ``/rest/v2/datasets`` cap from 100
- *  to 1000 in response to ``handoffs/DATASETS_LIMIT_CAP_2026_06_14.md``,
+ *  to 1000 to make that workable,
  *  so we ship the 200 default + headroom in the picker. */
 const PAGE_SIZE_DEFAULT = 200;
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500, 1000] as const;
@@ -706,8 +706,7 @@ export function ExperimentQueue({
   // For group-scoped views, the member_ids carry the prefix form
   // (`preboarding:1` vs bare `91188`). The /datasets rows ship the
   // numeric tail only. Build a numeric-id → original-member-id map
-  // so PipelineStatusRow can navigate with the prefix preserved
-  // (handoff: HANDOFF_2026-05-24_UI_PREBOARDING_DRILLDOWN.md).
+  // so PipelineStatusRow can navigate with the prefix preserved.
   const memberIdByNumericId = useMemo(() => {
     const map = new Map<number, string>();
     for (const mid of group?.member_ids ?? []) {

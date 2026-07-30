@@ -1,9 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * Regression tests for the cross-experiment buffer leak fixed per
- * UIB_HANDOFF_2026-06-23 ("curation UI commits a design for the wrong
- * experiment").
+ * Regression tests for the cross-experiment buffer leak ("curation UI
+ * commits a design for the wrong experiment").
  *
  * The organic trigger depended on the curator's chip-selection /
  * navigation sequence and was never pinned exactly. Rather than chase
@@ -70,7 +69,7 @@ const resolveCurationMock = resolveCuration as ReturnType<typeof vi.fn>;
 // ---------------------------------------------------------------------------
 const ROUTE_ID = "91654"; // route.id is a STRING (routes.ts:87)
 const ROUTE_EID = 91654;
-const FOREIGN_EID = 38401; // the leaked GSE248901 id from the handoff
+const FOREIGN_EID = 38401; // the leaked GSE248901 id
 
 function makeDesign(experimentId: number, shortName: string): Design {
   return {
@@ -232,7 +231,6 @@ describe("DesignDraftProvider — seed assertion refuses a cross-experiment desi
 // Guard 4 — commit is not "done" until the durable /polished mirror lands
 // ---------------------------------------------------------------------------
 //
-// UIB_HANDOFF_2026_07_20_ACCEPTED_TAG_NOT_MATERIALIZED_INTO_DESIGN.md.
 // The ticket exporter reads /polished and prefers it over /design, so a
 // silently-failed mirror leaves a stale polished snapshot shadowing the
 // fresh design and the curator's accepted tag vanishes from the export.

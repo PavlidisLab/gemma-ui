@@ -1,6 +1,6 @@
 /**
- * Wire-shaped types for the Gemma `HeatmapDataValueObject` endpoint
- * (see HEATMAP_SPEC.md §2). Mirrors the curation app's `Factor` /
+ * Wire-shaped types for the Gemma `HeatmapDataValueObject` endpoint.
+ * Mirrors the curation app's `Factor` /
  * `FactorValue` / `Statement` / `OntologyTerm` shapes
  * (`apps/curation/src/features/experiment/types.ts`) — *don't* import
  * cross-app; this is a deliberate local copy so the browser app

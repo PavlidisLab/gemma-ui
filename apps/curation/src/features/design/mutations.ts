@@ -1265,9 +1265,9 @@ export function setTagValue(
  * entries represent the S-P-O and S-P-O-P-O cases the wire model
  * supports.
  *
- * Statement.subject mirrors ``tag.value`` per the
- * UIB_HANDOFF_2026_06_17 wire contract ("Subject = value. There is no
- * separate subject field"); callers should pass each statement's
+ * Statement.subject mirrors ``tag.value`` per the wire contract
+ * ("Subject = value. There is no separate subject field"); callers
+ * should pass each statement's
  * subject identical to the tag's value to keep the two sides in sync.
  */
 export function setTagStatements(

@@ -5,8 +5,8 @@ Orientation for this repo. Two React/TS apps live under
 
 - [`apps/curation/`](./apps/curation/) — curator workflow.
   Per-app orientation: [`apps/curation/CLAUDE.md`](./apps/curation/CLAUDE.md).
-  Pairs with [`gemma-curation-agents`](../gemma-curation-agents) (Python),
-  the agents-side service that handles backend work.
+  Pairs with [`gemma-curation-agents`](https://github.com/PavlidisLab/gemma-curation-agents)
+  (Python), the agents-side service that handles backend work.
 - [`apps/browser/`](./apps/browser/) — public browse/search (GemBrow
   React port). Per-app orientation:
   [`apps/browser/CLAUDE.md`](./apps/browser/CLAUDE.md). Talks to the

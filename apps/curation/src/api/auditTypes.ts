@@ -2,9 +2,8 @@
  * Wire types for the audit-existing-curation feature.
  *
  * Mirrors the Pydantic models in
- * `gemma-curation-agents/agents/audit/schemas.py` and the contract
- * documented in `AUDIT_FEATURE.md`. When the agent side renames a
- * field, that doc updates first and these shapes follow.
+ * `gemma-curation-agents/agents/audit/schemas.py`. When the agent
+ * side renames a field, these shapes follow.
  *
  * Audits never rewrite curation. ``AuditFinding.suggested_fix`` is
  * free-text only; materialising a fix is always a curator click in
@@ -46,8 +45,7 @@ export type OverallVerdict =
 
 /** A single quote / row that grounded the proposer's pick on a
  *  given finding. Rendered as a blockquote with a small source-label
- *  chip in the audit-finding card. Per
- *  AUDIT_PROPOSER_SUGGESTION_HANDOFF.md — solves the per-finding
+ *  chip in the audit-finding card. Solves the per-finding
  *  evidence-anchor gap (the report-level ``evidence.paper_excerpt``
  *  is too coarse). */
 export interface FindingEvidence {
@@ -68,9 +66,7 @@ export interface FindingEvidence {
    *  characteristic block. UI shows ``quote`` as the preview and
    *  reveals ``context`` behind a "Show more" expander. Empty when
    *  no wider context applies (single-line characteristic, etc.);
-   *  UI hides the expander.
-   *  See AUDIT_EVIDENCE_CONTEXT_HANDOFF.md for caps + per-source
-   *  shape. */
+   *  UI hides the expander. */
   context?: string;
   /** Deep-link to the canonical source so the curator can bounce
    *  out to the GEO record / PubMed / Gemma sample page when the
@@ -97,7 +93,7 @@ export interface FindingEvidence {
 /** The six canonical actions a post-proposal-evaluation finding can
  *  recommend — the "what should I DO" the curator headline reads off.
  *  Mirrors agents-side ``RECOMMENDATION_ACTIONS`` (gemma-curation-agents
- *  ``a2a40f3``, ``UI_PPE_RECOMMENDATION_2026_07_11.md``). */
+ *  ``a2a40f3``). */
 export type RecommendationAction =
   | "keep_current" //     gold/current is right; no change
   | "adopt_proposal" //   agent is right; apply its proposal
@@ -111,7 +107,7 @@ export type RecommendationAction =
  *  curator headline. Collapsed agent-side from the finding's single
  *  verdict (boss > arbiter > defender); no LLM. ``null`` / absent when no
  *  verdict is attached, in which case the UI falls back to legacy
- *  rendering. See ``UI_PPE_RECOMMENDATION_2026_07_11.md``. */
+ *  rendering. */
 export interface Recommendation {
   action: RecommendationAction;
   /** The ONE concrete value / statement to fold onto gold — set for
@@ -149,8 +145,8 @@ export interface AuditFinding {
    *  issue_code slug, the rationale stack, ``defender_verdict``, and the
    *  three-phase blocks demote to the expandable detail. ``null`` /
    *  absent when no verdict is attached — fall back to the legacy
-   *  rendering there. Mirrors agents-side ``AuditFinding.recommendation``
-   *  (``UI_PPE_RECOMMENDATION_2026_07_11.md``). */
+   *  rendering there. Mirrors agents-side
+   *  ``AuditFinding.recommendation``. */
   recommendation?: Recommendation | null;
   /** One-line rendering of what the silent comparison proposer
    *  produced for the same target, when comparable. Empty when there's
@@ -192,9 +188,7 @@ export interface AuditFinding {
    *  findings like ``calibration_factor_gold_only_miss``) and the
    *  UI shows nothing.
    *
-   *  Shipped 2026-06-12 by the agents side per
-   *  ``UIB_HANDOFF_2026_06_11_AGENT_PARAPHRASE_FALLBACK.md`` /
-   *  ``HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md``.
+   *  Shipped 2026-06-12 by the agents side.
    *  Replaces the legacy synthetic ``supporting_evidence`` entry
    *  whose ``location`` was the literal "AGENT-PARAPHRASE FALLBACK
    *  (PAPER_EXCERPTS NOT EMITTED)"; the UI's old string-match
@@ -209,8 +203,7 @@ export interface AuditFinding {
    *  card renders these as subject·predicate·object in place of the
    *  bare value chip. Empty on plain tag findings (the single
    *  ``proposer_term`` is enough) and on older reports that pre-date
-   *  the field. See ``AUDIT_PROPOSER_STATEMENTS_HANDOFF.md`` /
-   *  ``TAG_STATEMENT_APPLY_AND_RENDER_UI_2026_07_13.md``. */
+   *  the field. */
   proposer_statements?: StatementProposal[];
   /** Defender-style "second opinion" attached to the finding when
    *  the audit ran a defender pass against this target. Populated on
@@ -219,8 +212,7 @@ export interface AuditFinding {
    *  ``calibration_match`` findings (defender doesn't run on
    *  matches), on older calibration packages, and on freshly-audited
    *  live experiments where the defender hasn't been invoked. UI
-   *  hides the panel when null. See
-   *  ``AUDIT_DEFENDER_VERDICT_HANDOFF.md``. */
+   *  hides the panel when null. */
   defender_verdict?: AttachedDefenderVerdict | null;
   /** Debate-loop badge for the tag this finding is about.
    *  ``"gold"`` = approved without objection,
@@ -250,9 +242,7 @@ export interface AuditFinding {
    *  field; the UI then falls back to its previous best-FV-overlap
    *  re-derivation (which can show the same agent factor on multiple
    *  cards in multi-factor-same-category designs — exactly the bug
-   *  this field closes; see
-   *  ``HANDOFF_2026-05-18_UI_FACTOR_MATCH_PAIRING.md`` in the eval
-   *  repo). */
+   *  this field closes). */
   agent_target_index?: number | null;
   /** Gold-side analogue of ``agent_target_index`` — 0-based index of
    *  the gold ``Factor`` this finding refers to in the design's
@@ -264,14 +254,13 @@ export interface AuditFinding {
    *  ``calibration_factor_gold_only_miss``. ``null`` on
    *  ``calibration_factor_extra`` (no gold counterpart by
    *  definition) and on older builders. Agents-repo commit
-   *  ``3868a09``; HANDOFF_2026-05-18_GOLD_TARGET_INDEX.md. */
+   *  ``3868a09``. */
   gold_target_index?: number | null;
   /** Opaque ``curation_id`` of the gold curation row the agent
    *  compared against — disambiguates ``gold_target_index`` when an
    *  experiment carries multiple consensus rows (strict_consensus /
    *  strict_cy_am / …). Stamped on every finding whose
-   *  ``gold_target_index`` is non-null per
-   *  ``handoffs/GOLD_CURATION_ID_LANDED_2026_06_14.md`` (agents SHA
+   *  ``gold_target_index`` is non-null (added 2026-06-14, agents SHA
    *  ``9a0faec``). Null on old packages, on findings built from a
    *  live-Gemma fetch, and on ``calibration_factor_extra`` (no gold
    *  counterpart). Wire field: ``goldCurationId`` (camelCase). */
@@ -285,9 +274,7 @@ export interface AuditFinding {
    *  badge near the severity chip that jumps to the sibling so the
    *  curator can see the two halves as one event instead of two
    *  disconnected (and visually contradictory) cards. Null outside
-   *  demotion pairs + on pre-2026-05-20 builders. Schema mirror of
-   *  agents-side field per
-   *  HANDOFF_2026-05-20_DEMOTED_MATCH_SPLIT_FACTOR_UI.md §2. */
+   *  demotion pairs + on pre-2026-05-20 builders. */
   paired_finding_id?: string | null;
   /** Structured payload for a
    *  ``calibration_factor_partition_mismatch`` finding. Populated
@@ -297,8 +284,7 @@ export interface AuditFinding {
    *  Replaces the legacy ``_factor_extra`` + ``_factor_gold_only_miss``
    *  pair the demoter used to emit. Null otherwise.
    *
-   *  Schema mirror of agents-side ``PartitionMismatchPayload`` per
-   *  HANDOFF_2026-05-20_DEMOTED_MATCH_SPLIT_FACTOR_UI.md §3. */
+   *  Schema mirror of agents-side ``PartitionMismatchPayload``. */
   partition_mismatch?: PartitionMismatchPayload | null;
   /** Slugs naming proposer-side deterministic detectors that fired
    *  on the factor this finding references. Lets the UI render a
@@ -328,10 +314,8 @@ export interface AuditFinding {
    *  ``consequent_of → consequents`` is the canonical way to find
    *  the linked partition_mismatch from any absorbed miss.
    *
-   *  Schema mirror of agents-side per
-   *  HANDOFF_2026-05-20_CONSEQUENT_OF_BIDIRECTIONAL.md. Null on
-   *  findings outside a partition-absorption pair and on pre-2026-05-20
-   *  builders. */
+   *  Null on findings outside a partition-absorption pair and on
+   *  pre-2026-05-20 builders. */
   consequent_of?: string | null;
   /** Target-ids of downstream findings absorbed by this one — the
    *  upstream-side half of the bidirectional link. Populated on
@@ -340,9 +324,7 @@ export interface AuditFinding {
    *  unmatched gold factors (e.g. agent's `treatment` split absorbs
    *  gold's separate `timepoint` factor → consequent listed here).
    *
-   *  Schema mirror of agents-side per
-   *  HANDOFF_2026-05-20_CONSEQUENT_OF_BIDIRECTIONAL.md. Empty list
-   *  on findings outside an absorption pair. Today fires only on
+   *  Empty list on findings outside an absorption pair. Today fires only on
    *  `direction='agent_finer'`; agent_coarser is symmetric
    *  follow-up agent-side. */
   consequents?: string[];
@@ -358,15 +340,13 @@ export interface AuditFinding {
    *  already covers via target_id parsing). */
   apply_action?: ApplyActionPayload | null;
   /** Direct alignment classification from the graph-alignment
-   *  Mapping (the agents-side ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_
-   *  ALIGNMENT_RENDER.md``, shipped 2026-06-12). When present, the
+   *  Mapping (agents-side, shipped 2026-06-12). When present, the
    *  card renderer prefers this over walking the issue_code matcher
    *  — same verbs / glyphs / badges, more direct lookup. Paired with
    *  the legacy ``issue_code`` for back-compat on packages that
    *  pre-date the field. */
   alignment_kind?: AlignmentKind | null;
-  /** Phase 1 of the three-phase finding-card render
-   *  (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md, Path B). The
+  /** Phase 1 of the three-phase finding-card render. The
    *  proposer's own reasoning for emitting this proposal — NEVER
    *  references gold or any other curation set; only the experiment's
    *  own data + curation rules. Additive on the wire while the
@@ -393,7 +373,6 @@ export interface AuditFinding {
 
 // ---------------------------------------------------------------------------
 // Three-phase render blocks
-// (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md — Path B)
 //
 // Additive on the wire while the agents-side migration completes; UI
 // reads these blocks preferentially and falls back to the legacy
@@ -523,8 +502,7 @@ export type ApplyActionPayload =
        *  to ``new_value`` and rebinds that FV's statement subject URI to
        *  ``new_value_uri`` (the correct bind). Present ONLY on a clean
        *  1↔1 swap; multi-bind disagreements ship flag-only (no
-       *  ``apply_action``) for the curator to reconcile by hand. See
-       *  UIB_HANDOFF_2026_07_18_FACTOR_MISBINDING_APPLY_RENAME_FV.md. */
+       *  ``apply_action``) for the curator to reconcile by hand. */
       kind: "rename_fv";
       /** The correct entity label to bind (e.g. ``Gja1``). */
       new_value: string;
@@ -612,8 +590,7 @@ export interface FactorRef {
  *  Drives the UI's affordance choice between an inline relabel editor
  *  (``label_drift``, ``synonym``) and a subject-correction editor
  *  (``wrong_subject``). ``unknown`` is the back-compat default on
- *  rename payloads that pre-date the builder routing change for §4
- *  of HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS. */
+ *  rename payloads that pre-date the builder routing change. */
 export type ConceptDiffKind =
   | "none"           // concepts match (label-string drift only)
   | "label_drift"    // same concept; agent's label generic where gold's is specific
@@ -627,8 +604,8 @@ export type ConceptDiffKind =
  *  (severity ok), ``"agent_correct"`` → adopt agent's label (severity
  *  minor), ``"equivalent"`` → arbiter declines to pick (severity ok).
  *
- *  ``concept_diff_kind`` (added 2026-05-19, §4 of the inter-curator-
- *  audit follow-ups handoff) routes the curator's affordance — inline
+ *  ``concept_diff_kind`` (added 2026-05-19) routes the curator's
+ *  affordance — inline
  *  relabel vs subject-correction. Defaults to ``"unknown"`` on
  *  payloads from agents pre-dating the field; check explicitly before
  *  switching on it. */
@@ -760,14 +737,14 @@ export interface AttachedDefenderVerdict {
     | "boss"
     | (string & {});
   verdict:
-    // Tag side (original six, AUDIT_DEFENDER_VERDICT_HANDOFF.md).
+    // Tag side (original six).
     | "agent_miss_genuine"
     | "agent_correct_inherited"
     | "agent_correct_overzealous_gold"
     | "extra_genuine_new"
     | "extra_inherited_redundant"
     | "extra_unsupported"
-    // Factor side (FACTOR_DEFENDER_VERDICT_HANDOFF.md, 2026-05-14).
+    // Factor side (2026-05-14).
     // `extra_genuine_new` + `extra_unsupported` are shared with the
     // tag enum.
     | "extra_confounded"
@@ -800,7 +777,7 @@ export interface AttachedDefenderVerdict {
    *  applicability"``). Rendered as a tooltip on the Judge line. */
   citation: string;
   /** Arbiter judgement mode, calibration package v11+ (defender-as-
-   *  arbiter swap, HANDOFF_2026-05-16_DEFENDER_ARBITER.md). Tells the
+   *  arbiter swap, 2026-05-16). Tells the
    *  curator *how* the verdict was reached:
    *
    *  - ``"rule"`` — verdict cites a specific guideline section
@@ -825,8 +802,7 @@ export interface AttachedDefenderVerdict {
 }
 
 /**
- * Graph-alignment Mapping + scoring shipped 2026-06-12 per the agents-side
- * ``UIB_HANDOFF_2026_06_12_ANNOTATION_SET_AND_ALIGNMENT_RENDER.md``.
+ * Graph-alignment Mapping + scoring shipped 2026-06-12 (agents side).
  *
  * The Mapping carries the structured alignment between two annotation
  * sets (today: agent proposal vs polished gold). Indices reference
@@ -1010,8 +986,7 @@ export interface AuditEvidence {
    *  string; no domain coupling. Empty / null / undefined on
    *  packages predating the orchestrator v5 wire and on
    *  tags-only audits — the renderer suppresses entirely in that
-   *  case. Per
-   *  ``handoffs/EXPERIMENT_SUMMARY_TOP_OF_PANEL_2026_06_12.md``. */
+   *  case. */
   experiment_summary?: string | null;
   /** Inline boss-critic reviews — gold-blind LLM commentary scoped
    *  to the EXPERIMENT (the boss-critic operates on the agent's
@@ -1026,8 +1001,7 @@ export interface AuditEvidence {
    *  orchestrator observed, intervened on, deferred. ≥150 chars
    *  when populated. Empty / null on legacy packages. Rendered as
    *  a collapsible "Pipeline audit trail" section at the bottom
-   *  of the findings list. Per
-   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
+   *  of the findings list.
    *
    *  Dual-state: canonical source is
    *  ``comparison_proposal.experiment_notes`` (see ``Proposal``
@@ -1082,8 +1056,7 @@ export interface AuditEvidence {
  *  Targeting key matches the per-finding lookup used by
  *  ``ComparisonFactorCard``'s judge-chain renderer. Field names
  *  mirror agents-side ``ArbiterVerdict`` (snake_case after the
- *  wire-boundary transform). Per
- *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+ *  wire-boundary transform). */
 export interface ArbiterVerdict {
   gse: string;
   target_kind: string;
@@ -1237,7 +1210,7 @@ export interface AuditFindingDisposition {
    *  dialog can prefill the curator's chip selection. Set only when
    *  the disposition's status matches (dismiss → dismissed, etc.);
    *  null/absent on older agent services that pre-date the round-
-   *  trip ask (AUDIT_DISPOSITION_EDIT_HANDOFF.md, 2026-05-14). */
+   *  trip ask (2026-05-14). */
   dismiss_reason?: DismissReason | null;
   accept_reason?: AcceptReason | null;
   not_sure_reason?: NotSureReason | null;
@@ -1246,8 +1219,7 @@ export interface AuditFindingDisposition {
    *  string. Server stores both forms; reads disambiguate by
    *  JSON-parseability. */
   applied_fix?: AppliedFix | string | null;
-  /** Two orthogonal verdict axes added 2026-05-19 per §2 of
-   *  HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS. ``status``
+  /** Two orthogonal verdict axes added 2026-05-19. ``status``
    *  stays the curator's headline verdict; these booleans carry the
    *  structural-vs-detail refinement the scorer needs to split
    *  structural F1 from detail F1.
@@ -1278,7 +1250,7 @@ export interface AuditFindingDisposition {
 
 /** Closed enum of structured "why this is a dismiss" reasons.
  *  Mirrors the agent-side ``DismissReason`` enum (revised
- *  2026-05-10 per AUDIT_DISPOSITION_REASONS_HANDOFF.md). Required
+ *  2026-05-10). Required
  *  by the server when ``status === "dismissed"``; null/absent
  *  otherwise. Free-text ``notes`` stays alongside (mandatory when
  *  reason is "other"). The closed enum lets the agents side cluster
@@ -1303,9 +1275,8 @@ export type DismissReason =
   | "missed_evidence"
   | "no_evidence"
   | "borderline"
-  // Cross-curator chip-gap closures landed 2026-05-14 (agents side
-  // CALIBRATION_CHIP_GAP_HANDOFF.md). Per-issue-code gating on the
-  // server side:
+  // Cross-curator chip-gap closures landed 2026-05-14 (agents side).
+  // Per-issue-code gating on the server side:
   //   agent_real_miss          → calibration_{gold_only_miss,
   //                              factor_gold_only_miss}
   //   redundant_with_bm_source → calibration_agent_extra (tag-side)
@@ -1428,8 +1399,7 @@ export interface AuditFindingDispositionPatch {
    *  dispositions. Lets the dispositions report weight cascaded
    *  dispositions differently from direct ones. */
   inherited_from?: string;
-  /** Structural-vs-detail axes (§2 of
-   *  HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS, 2026-05-19).
+  /** Structural-vs-detail axes (2026-05-19).
    *  Independent of ``status``. A PATCH can set one and leave the
    *  other null; a follow-up PATCH fills the other. See
    *  ``AuditFindingDisposition`` for the full semantics + convention. */
@@ -1527,8 +1497,7 @@ export interface AuditReport {
    *  understand. Mirrored on
    *  ``evidence.comparison_proposal.agent_version`` and
    *  ``evidence.agent_version``; this top-level slot is the
-   *  primary reading point for the discriminator. Per
-   *  ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``. */
+   *  primary reading point for the discriminator. */
   agent_version?: string | null;
   /** Full run provenance for proposal-kind reports — models, switches,
    *  git sha/branch, ablations, and the CLI invocation that produced
@@ -1557,9 +1526,8 @@ export interface AuditReport {
    *
    *  Optional/nullable on the read shape: old agent services
    *  routed the note into the audit_events row without echoing it
-   *  back on `AuditReport`. The agents side adds the echo in a follow-up
-   *  (AUDIT_DISPOSITION_EDIT_HANDOFF.md). UI degrades to "(no
-   *  note recorded)" when undefined. */
+   *  back on `AuditReport`. The agents side adds the echo in a
+   *  follow-up. UI degrades to "(no note recorded)" when undefined. */
   finalized_notes?: string | null;
   /** Mutations the finalize-time backend safety net
    *  (``local_api.finalize_materialize``) applied to the curator's
@@ -1631,8 +1599,7 @@ export interface DesignDebateEntry {
 /** Body of POST /audit/{accession} and its /stream variant. All
  *  fields optional; the agent service applies defaults. Note:
  *  `scope` here is a flat array — the *report's* `AuditScope`
- *  wraps it as `{ include: [...] }`, but the request shape doesn't.
- *  Documented by the agents side in `AUDIT_FEATURE.md` §Status Step 4. */
+ *  wraps it as `{ include: [...] }`, but the request shape doesn't. */
 export interface AuditRequest {
   tier?: "fast" | "standard" | "strong";
   /** Wins over `tier` when present. */

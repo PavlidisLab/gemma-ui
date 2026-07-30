@@ -6,9 +6,8 @@ import type { FindingEvidence } from "@/api/auditTypes";
  * a catalog inference) at a glance via a stable colour, not just the
  * label text. Centralised here so every evidence surface — the audit
  * finding blocks, the tag-chip popover — stays in lockstep instead of
- * each re-deriving the label/colour. Per design review 2026-06-18
- * (UIB_HANDOFF_..._TAG_EVIDENCE_QUOTES): "quotes clearly identifiable
- * by type + colour."
+ * each re-deriving the label/colour. Per design review 2026-06-18:
+ * "quotes clearly identifiable by type + colour."
  *
  * Colour axis is deliberately disjoint from the codebase-wide
  * "emerald = ontology-backed" cue — no source uses green.
@@ -17,7 +16,7 @@ export type EvidenceSourceKey = FindingEvidence["source"];
 
 export interface EvidenceSourceMeta {
   /** Curator-facing source label (chip text). GEO-curator vocabulary,
-   *  not the wire enum — per UIB_HANDOFF_2026_06_19_EVIDENCE_SOURCE_LABELS. */
+   *  not the wire enum. */
   label: string;
   /** Long-form hover description — the full "what is this pointing at". */
   description: string;
@@ -107,7 +106,7 @@ const NEUTRAL: EvidenceSourceMeta = {
  * for the one special case the wire encodes positionally today: a
  * Cellosaurus catalog inference ships as ``source="preboarding"`` +
  * ``location="cellosaurus_catalog"`` (no dedicated ``source`` literal
- * yet — see the handoff's out-of-scope note). We relabel + badge it so
+ * yet — out of scope for now). We relabel + badge it so
  * curators don't mistake an inferred fact for a verbatim quote.
  */
 export function evidenceSourceMeta(

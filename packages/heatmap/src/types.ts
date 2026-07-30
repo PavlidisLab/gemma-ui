@@ -34,7 +34,7 @@ export interface CategoricalAnnotation {
 
 /**
  * A continuous annotation strip — per-column numeric value rendered
- * through a sequential or diverging palette (see HEATMAP_SPEC §3.2).
+ * through a sequential or diverging palette.
  * Built by `buildContinuousStrip` from a `Factor` of `type:
  * 'continuous'` + the payload columns.
  */

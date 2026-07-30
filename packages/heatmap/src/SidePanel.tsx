@@ -1,6 +1,6 @@
 /**
- * Side panel for pinned matrix-cell / strip-cell detail
- * (HEATMAP_SPEC §5.2). Floats OVER the top-right of the heatmap as an
+ * Side panel for pinned matrix-cell / strip-cell detail.
+ * Floats OVER the top-right of the heatmap as an
  * overlay (~360px wide) so opening it never squeezes the matrix — the
  * widget positions it absolutely. Closes via the × button, Esc, or
  * click outside.

@@ -1,6 +1,6 @@
 /**
  * React-query hooks for the audit endpoints the agents side shipped in
- * Step 3 (see `AUDIT_FEATURE.md` §Status). All routes live under
+ * Step 3. All routes live under
  * `/rest/v2/...` on the same mock-API host the proposals routes use,
  * so they ride the existing Vite dev proxy + bearer token without
  * extra config.
@@ -57,8 +57,7 @@ export function useAuditsForExperiment(
         // Gemma 2.0 doesn't yet expose the local_api ``/audits``
         // surface (it has ``/auditEvents``, a different concept).
         // Treat 404 as "no audits" rather than poisoning every
-        // audit-aware surface with an error toast. See
-        // ``CURATION_TO_GEMMA_2_0_HANDOFF.md``.
+        // audit-aware surface with an error toast.
         if (
           e &&
           typeof e === "object" &&

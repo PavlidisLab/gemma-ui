@@ -1,5 +1,5 @@
 /**
- * Lightweight cursor-following tooltip (HEATMAP_SPEC §5.1).
+ * Lightweight cursor-following tooltip.
  *
  * Three variants:
  *   - matrix cell      — probe / sample / value (+ p-value if diffex)

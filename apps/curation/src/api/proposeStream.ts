@@ -9,8 +9,7 @@ import { registerJob } from "@/state/inFlightJobs";
  * Server-Sent Events client for the proposer service's
  * ``POST /propose/{accession}/stream`` endpoint.
  *
- * Spec: ``PROGRESS_SSE.md`` (top of repo). The agent emits
- * ``ProgressEvent``s in three families:
+ * The agent emits ``ProgressEvent``s in three families:
  *
  *   - ``phase.*`` — pipeline milestones; advance the progress bar.
  *   - ``subtask.*`` — per-factor / per-decision events; carry the

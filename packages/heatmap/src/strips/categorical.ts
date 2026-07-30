@@ -1,5 +1,5 @@
 /**
- * Categorical-strip palette + value building (HEATMAP_SPEC §3.1).
+ * Categorical-strip palette + value building.
  *
  * Pure functions of `(Factor, columns)`. Produces a
  * `CategoricalAnnotation` the existing canvas renderer already knows

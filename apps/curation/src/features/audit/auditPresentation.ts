@@ -160,13 +160,12 @@ export function severityRowBgCls(s: Severity): string {
 /** Map a defender verdict string to its strength bucket. Mirrors the
  *  producer's mapping exactly; v10+ packages carry `strength` on
  *  the wire and skip this helper. `null` for unknown verdict
- *  strings — caller hides the strength label rather than guess.
- *  See AUDIT_DEFENDER_VERDICT_HANDOFF.md § "Mapping". */
+ *  strings — caller hides the strength label rather than guess. */
 export function verdictStrength(
   v: string | undefined,
 ): "weak" | "moderate" | "strong" | null {
   switch (v) {
-    // Tag side (original six, AUDIT_DEFENDER_VERDICT_HANDOFF.md).
+    // Tag side (original six).
     case "extra_genuine_new":
     case "agent_correct_inherited":
     case "agent_correct_overzealous_gold":
@@ -175,7 +174,7 @@ export function verdictStrength(
     case "extra_inherited_redundant":
     case "extra_unsupported":
       return "weak";
-    // Factor side (FACTOR_DEFENDER_VERDICT_HANDOFF.md, 2026-05-14).
+    // Factor side (2026-05-14).
     // extra_genuine_new + extra_unsupported are shared with the tag
     // enum (same string, same strength) and handled above.
     case "miss_inherited_from_design":

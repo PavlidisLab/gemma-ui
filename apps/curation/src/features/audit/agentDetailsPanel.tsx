@@ -235,8 +235,7 @@ export function InlineSubtaskReasoning({
  *     "renderer dropped the field". */
 export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
   const { report } = useAudit();
-  // Three-phase render per design review 2026-06-15
-  // (FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md). Replaces the
+  // Three-phase render per design review 2026-06-15. Replaces the
   // legacy nested-box "STRONG SUGGESTION → INTERNAL REVIEW
   // (judge/boss) → AUDITOR" stack. Phase 3 (Comparison) is rendered
   // by the calling card — tag findings render their chip-strip
@@ -259,8 +258,8 @@ export function AgentSuggestionPanel({ finding }: { finding: AuditFinding }) {
 }
 
 // Legacy nested-box render was deleted with the three-phase rewrite
-// (design review 2026-06-15, FINDING_CARD_THREE_PHASE_SPEC_2026_06_15.md).
-// Recover from git history if a diff comparison is needed; the new
+// (design review 2026-06-15). Recover from git history if a diff
+// comparison is needed; the new
 // ``AgentSuggestionPanel`` above is the canonical render. The
 // function below is preserved verbatim as ``LegacyAgentSuggestionPanel``
 // and re-exported so its imports stay live during the migration
@@ -449,9 +448,8 @@ export function LegacyAgentSuggestionPanel({ finding }: { finding: AuditFinding 
       {(() => {
         // Render decision routed through the pure helper so the
         // three-state contract (blockquotes / muted_caption / nothing)
-        // stays unit-testable. See ./paperExcerptsCaption.ts +
-        // the agents-side HANDOFF_2026-06-12_AGENT_PARAPHRASE_FALLBACK_AND_ATTRIBUTION_INVARIANT.md
-        // for the table.
+        // stays unit-testable. See ./paperExcerptsCaption.ts for the
+        // table.
         const render = findingEvidenceRender(finding);
         if (render === "blockquotes") {
           return (
@@ -522,7 +520,7 @@ function shortFixForVerdict(
       return "Dismiss — judge: already inherited from biomaterials.";
     case "agent_miss_genuine":
       return "Keep the existing tag — judge: it's well-supported.";
-    // Factor side (FACTOR_DEFENDER_VERDICT_HANDOFF.md).
+    // Factor side.
     case "extra_confounded":
       return "Dismiss — judge: factor is confounded with another in the design.";
     case "miss_genuine":
@@ -544,7 +542,7 @@ function shortFixForVerdict(
  *  `FindingEvidence.source` literal: paper / preboarding /
  *  sample_names / geo_metadata / characteristic.
  *
- *  Three layers per AUDIT_EVIDENCE_CONTEXT_HANDOFF.md:
+ *  Three layers:
  *    1. `quote` — the anchor sentence (always rendered as the
  *       collapsed-state blockquote).
  *    2. `context` — paragraphs / sample-names neighbourhood / full
@@ -621,10 +619,9 @@ export function FindingEvidenceBlock({
             </span>
           ) : null}
           {/* Show the full repaired quote directly — no expand-to-context
-              click (Paul 2026-07-27: "just show the full quote"). The full
-              sentence carries the signal (a figure legend / "previous
-              studies" line reads as such); the ↗ link opens the paper AT the
-              quote for anyone who wants the surrounding text. */}
+              click. The full sentence carries the signal (a figure legend /
+              "previous studies" line reads as such); the ↗ link opens the
+              paper AT the quote for anyone who wants the surrounding text. */}
           <span className="italic text-slate-700 dark:text-slate-200">
             &ldquo;{quote}&rdquo;
           </span>
@@ -684,7 +681,7 @@ export function FindingEvidenceBlock({
         <EvidenceLocationLabel location={location} />
       </div>
       {/* Hide the standalone quote when expanded — the context below shows
-          it highlighted (was duplicative; Paul 2026-07-27). */}
+          it highlighted (was duplicative). */}
       {!expanded ? <span className="leading-snug">"{quote}"</span> : null}
       {hasMore ? (
         <>

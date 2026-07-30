@@ -1,6 +1,6 @@
 /**
  * Cross-link disposition suggestion logic for findings carrying
- * `consequent_of` or `consequents` (HANDOFF_2026-05-20_CONSEQUENT_OF_BIDIRECTIONAL).
+ * `consequent_of` or `consequents`.
  *
  * When the curator commits a verdict on the upstream
  * `_partition_mismatch` finding, the absorbed downstream
@@ -21,9 +21,7 @@
  *
  * The matching wire shape is the agents-side bidirectional linkage on
  * `AuditFinding` — `consequent_of` (target_id of upstream) or
- * `consequents` (target_ids of downstream). See
- * `HANDOFF_2026-05-20_CONSEQUENT_DISPOSITION_BIND.md` for the
- * decision matrix.
+ * `consequents` (target_ids of downstream).
  */
 
 import type {

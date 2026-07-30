@@ -1451,7 +1451,7 @@ function useTagEditContext(): TagEditCtxValue | null {
 /** Convert a Tag (the UI's internal shape) into the modal's
  *  StatementDraft. Tag.statements[] becomes the (predicate, object)
  *  pair list; the modal doesn't echo the subject inside each pair
- *  since subject==tag.value per the wire spec (UIB_HANDOFF_2026_06_17). */
+ *  since subject==tag.value per the wire spec. */
 function tagToDraft(tag: Tag): StatementDraft {
   return {
     category: { label: tag.category.label, uri: tag.category.uri ?? null },
@@ -1631,8 +1631,7 @@ function TagBar({
   // one chip per factor with the factor's FV labels comma-joined as
   // the value. Used to come from agents-side
   // ``import_from_gemma.py`` step 4a; that synthesis was retired on
-  // 2026-06-10 (handoff
-  // ``HANDOFF_2026-06-10_REMOVE_FV_TAG_PROJECTION.md``) because it
+  // 2026-06-10 because it
   // inflated eval F1 baselines as a factor-as-tag projection
   // artifact. The UI re-synthesises locally so the downstream dedup
   // (FV-synth wins over direct EE tags for the same category) keeps

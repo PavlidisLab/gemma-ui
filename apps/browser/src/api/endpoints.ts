@@ -966,8 +966,7 @@ export interface PcLoadingsRow {
   /** Resolved gene symbol when probe→gene mapping is available. */
   geneSymbol?: string | null;
   /** Resolved gene official name (long descriptive name). Pending
-   *  the agents-side enrichment of /svd/loadings rows — see
-   *  ``SVD_LOADINGS_GENE_ENRICHMENT_HANDOFF.md``. */
+   *  the agents-side enrichment of /svd/loadings rows. */
   geneOfficialName?: string | null;
   /** Gemma-internal gene id. Same enrichment ask as ``geneOfficialName``. */
   geneId?: number | null;

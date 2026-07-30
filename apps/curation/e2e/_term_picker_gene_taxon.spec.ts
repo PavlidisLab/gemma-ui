@@ -2,8 +2,8 @@ import { test, expect, type Route } from "@playwright/test";
 import { installErrorGuards, gotoSeedExperiment } from "./_helpers";
 
 /**
- * Gene-taxon disambiguation in the design-tab term picker.
- * UIB_HANDOFF_2026_06_18_ANNOTATION_SEARCH_GENE_TAXON, test plan.
+ * Gene-taxon disambiguation in the design-tab term picker. Test plan
+ * for the gene-taxon disambiguation feature added 2026-06-18.
  *
  * Anchor: a curator searches ``kras`` and must see the human and mouse
  * genes as DISTINCT rows (``H.s.`` / ``M.m.`` suffix) rather than one

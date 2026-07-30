@@ -1,5 +1,5 @@
 /**
- * Continuous-strip scale + palette building (HEATMAP_SPEC §3.2).
+ * Continuous-strip scale + palette building.
  *
  * Pure functions of `(Factor, columns)`. Returns a
  * `ContinuousAnnotation` with a `scale` (linear / log10 / diverging)

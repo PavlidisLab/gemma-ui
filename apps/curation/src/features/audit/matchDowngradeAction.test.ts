@@ -1,5 +1,5 @@
 /**
- * Regression tests for MATCH_DOWNGRADE_ACTION_HANDOFF (2026-06-16).
+ * Regression tests for the match-downgrade action fix (2026-06-16).
  *
  * Companion to ``findingDisplayedGoldEmpty.test.ts`` which pinned the
  * TITLE downgrade (ed4f25f). This file pins the ACTION-ROW + dismiss

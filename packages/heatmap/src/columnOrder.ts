@@ -1,6 +1,6 @@
 /**
  * Pure derivation of a column-display order from the payload + the
- * curator-selected "main grouping factor" (HEATMAP_SPEC §4).
+ * curator-selected "main grouping factor".
  *
  * Two layers:
  *

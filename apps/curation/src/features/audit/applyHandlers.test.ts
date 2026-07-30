@@ -306,11 +306,10 @@ describe("resolveApplyAction — ADD TAG", () => {
   });
 
   it("materialises a treatment/cell-line add_tag carrying a derives-from statement (GSE43566)", () => {
-    // UIB_HANDOFF_2026_07_20_ACCEPTED_TAG_NOT_MATERIALIZED_INTO_DESIGN.md.
-    // The exported bundle for ticket 130 dropped an accepted
-    // ``treatment: neoplastic cell`` (CL_0001063) tag that carried a
-    // ``neoplastic cell —derives from→ MMTV-PyMT`` statement. The
-    // handoff's hypothesis #1 was that the resolver silently no-ops for
+    // Regression test for a ticket-130 export bug: the exported bundle
+    // dropped an accepted ``treatment: neoplastic cell`` (CL_0001063)
+    // tag that carried a ``neoplastic cell —derives from→ MMTV-PyMT``
+    // statement. One hypothesis was that the resolver silently no-ops for
     // this shape (category ``treatment``, a CL cell-type value, predicate
     // ``derives from`` / RO_0001000) because the tested coverage was
     // gene-genotype-shaped (Dmd). This locks in that the add-of-new path
@@ -385,7 +384,6 @@ describe("resolveApplyAction — SWAP TAG (replace_tag)", () => {
   // with a same-concept term under a different URI. The "current" side
   // is the replaced tag id; the proposed side is proposer_term /
   // apply_action. Adopt = drop baseline id N + add the replacement.
-  // (UIB_HANDOFF_2026_06_20_TAG_SWAP_CURRENT_SIDE_FROM_TARGETID.md.)
   it("drops the baseline tag and adds the replacement", () => {
     const d = design({
       tags: [
@@ -1012,7 +1010,6 @@ describe("resolveApplyAction — CONTINUOUS FACTOR add (design review 2026-06-13
  * that ONE factor value (relabel + statement subject/object URI) to the
  * correct entity. Only fires on a clean 1↔1 swap (apply_action present);
  * multi-bind disagreements ship flag-only and stay focus-only.
- * UIB_HANDOFF_2026_07_18_FACTOR_MISBINDING_APPLY_RENAME_FV.md.
  */
 function mfv(
   id: number,

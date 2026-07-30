@@ -386,12 +386,10 @@ function CellTypeCountChip() {
  * commits unless the value is unchanged. Save flow surfaces inline
  * errors for the two cases that matter:
  *   - 409 (name already in use) — the unique-across-Gemma constraint
- *   - 404 (endpoint not implemented yet) — pointing at the handoff
+ *   - 404 (endpoint not implemented yet on this backend)
  * Other errors render the server's detail or message verbatim.
  *
- * The endpoint contract lives in
- * ``handoffs/HANDOFF_DATASET_RENAME_SHORT_NAME.md`` (Gemma repo). On
- * success, the design + datasets caches invalidate so the rest of
+ * On success, the design + datasets caches invalidate so the rest of
  * the UI repaints with the new name without a reload.
  */
 function ShortNameEditor({
@@ -468,7 +466,7 @@ function ShortNameEditor({
       ? err.status === 409
         ? `"${draft.trim()}" is already in use — short_name must be unique across Gemma`
         : err.status === 404
-          ? "rename endpoint not yet available — see HANDOFF_DATASET_RENAME_SHORT_NAME.md"
+          ? "rename endpoint not yet available"
           : err.detail || err.message
       : err
         ? (err as Error).message

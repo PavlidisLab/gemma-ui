@@ -19,8 +19,6 @@
  *
  * Suppresses entirely when no escalations are present — old packages
  * render identically.
- *
- * Per ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
  */
 import type { EscalationRequest } from "@/api/auditTypes";
 
@@ -30,9 +28,9 @@ export interface EscalationBannerProps {
   escalations: EscalationRequest[];
 }
 
-/** Human-readable label for the discriminator. Kinds we know about
- *  per the handoff get a friendly label; unknown kinds fall through
- *  to the raw string so a future kind doesn't render as blank. */
+/** Human-readable label for the discriminator. Known kinds get a
+ *  friendly label; unknown kinds fall through to the raw string so
+ *  a future kind doesn't render as blank. */
 const KIND_LABEL: Record<string, string> = {
   fetch_paper: "Fetch paper",
   extend_paper: "Extend paper context",

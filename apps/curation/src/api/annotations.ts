@@ -24,15 +24,14 @@ export interface AnnotationCandidate {
   usage_count: number;
   // Gene-shaped hits only (``category == "gene"``); null on
   // ontology-term hits — taxon is a gene-only attribute. Added
-  // 2026-06-18 (UIB_HANDOFF_..._GENE_TAXON) so the picker can show
+  // 2026-06-18 so the picker can show
   // ``KRAS (H.s.)`` vs ``Kras (M.m.)`` as distinct rows.
   taxon_id?: number | null;
   taxon_common_name?: string | null;
   taxon_scientific_name?: string | null;
   /** One representative prior usage of this term, for the "e.g. …"
    *  hint on rare candidates. Only present when the query opted in
-   *  via ``includeExampleUsage`` AND Gemma found a usage — see
-   *  ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. */
+   *  via ``includeExampleUsage`` AND Gemma found a usage. */
   example_usage?: AnnotationExampleUsage | null;
 }
 
@@ -82,7 +81,7 @@ export function useAnnotationSearch(
      *  per-keystroke path cheap and cache-friendly). Only the
      *  picker's own dropdown — the one place that renders the "e.g.
      *  …" hint — should set this; other callers should leave it
-     *  off. See ANNOTATION_SEARCH_EXAMPLE_CONTEXT_HANDOFF_2026_07_29.md. */
+     *  off. */
     includeExampleUsage?: boolean;
   } = {},
 ) {

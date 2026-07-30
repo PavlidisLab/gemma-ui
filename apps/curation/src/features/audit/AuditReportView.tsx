@@ -585,8 +585,7 @@ export function DesignComparisonPanel({
         ]);
         // High-confidence filter moved INTO CollapsibleSubtaskAnalysis
         // as an opt-in toggle (off by default) per design review 2026-06-13
-        // ("the reviewer wants ALL commentary visible") and
-        // handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md. The
+        // ("the reviewer wants ALL commentary visible"). The
         // IIFE keeps the target_id-based dedup (factor cards already
         // surface their factor-scoped subtasks inline; experiment-
         // level subtasks live here).
@@ -647,11 +646,10 @@ function CollapsibleSubtaskAnalysis({
   decisions: SubtaskDecision[];
 }) {
   const [open, setOpen] = useState(false);
-  // High-confidence toggle — off by default per handoff lean:
+  // High-confidence toggle — off by default per design-review lean:
   // "I lean toward the toggle so the default surface stays clean".
   // High-confidence decisions are the noisy "agent had no concerns"
   // rows; curators opt in when they want full pipeline visibility.
-  // Per ``handoffs/PIPELINE_COMMENTARY_SURFACING_2026_06_13.md``.
   const [includeHigh, setIncludeHigh] = useState(false);
   const highCount = decisions.filter((d) => d.confidence === "high").length;
   const visible = includeHigh

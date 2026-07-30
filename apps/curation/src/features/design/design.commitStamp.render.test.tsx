@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Regression test for the third guard in UIB_HANDOFF_2026-06-23: the
+ * Regression test for the cross-experiment commit-stamp guard: the
  * commit body is re-stamped to the routed experiment id in
  * ``useUpdateDesign`` before the PUT. This is the belt-and-suspenders
  * net — it closes the cross-experiment leak regardless of how the

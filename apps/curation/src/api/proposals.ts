@@ -34,8 +34,7 @@ export function useProposalsForExperiment(
         // Gemma 2.0 doesn't yet expose ``/datasets/{id}/curation-proposals``
         // (the local_api endpoint). Treat 404 as "no proposals
         // recorded for this experiment" instead of bubbling the
-        // error into every consumer surface. See
-        // ``CURATION_TO_GEMMA_2_0_HANDOFF.md``.
+        // error into every consumer surface.
         if (
           e &&
           typeof e === "object" &&
@@ -101,8 +100,7 @@ export interface TriggerProposalBody {
    *  ``## Curator feedback from previous attempt`` block ahead of
    *  the candidate-factors hint, instructing the model to treat
    *  the feedback as a strong override. Backwards compatible —
-   *  agents predating the field ignore it. See
-   *  ``REDO_WITH_NOTES_HANDOFF.md``. */
+   *  agents predating the field ignore it. */
   prior_feedback?: string | null;
 }
 

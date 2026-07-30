@@ -25,8 +25,7 @@ interface ImportMetaEnv {
    *      HTTP Basic with the curator's Gemma credentials. Narrow
    *      capability set; read-mostly. Confirmation modals fire on
    *      every write.
-   *  Read at boot via ``useGemmaMode()``. See
-   *  ``gemma-curation-agents-eval/docs/HANDOFF_2026-05-19_LOCAL_VS_REMOTE_MODE.md``. */
+   *  Read at boot via ``useGemmaMode()``. */
   readonly VITE_GEMMA_MODE?: "local" | "remote";
   /** Absolute URL of the backend (only consulted by ``useGemmaMode``
    *  to render the mode chip and to bypass the Vite proxy in remote

@@ -18,8 +18,7 @@ import {
  * evidence' or 'out of scope'." The reason already existed wire-side
  * (``not_sample_applicable``) but the server gated it to
  * ``calibration_agent_extra`` only. The agents side widened the gate to all
- * tag-target findings per
- * ``UIB_HANDOFF_2026_06_12_DISMISS_REASON_GATE_WIDEN.md``; UIB now
+ * tag-target findings; the curation UI now
  * surfaces "Subset only" + "Redundant" on every tag-target dismiss
  * dialog that isn't already routed to a calibration-specific set.
  *
@@ -155,7 +154,7 @@ describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
   });
 
   it("TAG_DISMISS_CHIPS leads with the tag-shape chips ahead of the generic ones", () => {
-    // The handoff's curator-discoverability argument hinges on the
+    // The curator-discoverability argument hinges on the
     // tag-shape chips appearing FIRST. Lock the ordering so a
     // future-me refactoring the list can't accidentally bury them.
     expect(TAG_DISMISS_CHIPS[0].key).toBe("not_sample_applicable");

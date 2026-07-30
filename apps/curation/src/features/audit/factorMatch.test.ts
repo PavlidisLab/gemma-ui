@@ -446,7 +446,7 @@ describe("factorProposalFromRename", () => {
 });
 
 describe("GSE224970 multi-factor-same-category scenario", () => {
-  /** The motivating case from the 2026-05-18 handoff. Gold has 2
+  /** The motivating case, first surfaced 2026-05-18. Gold has 2
    *  genotype factors; agent emits 3 genotype-shaped factors. Pre-fix,
    *  the UI used best-FV-overlap re-derivation and showed the same
    *  agent factor (the 4-FV siRNA shape) on both gold cards because

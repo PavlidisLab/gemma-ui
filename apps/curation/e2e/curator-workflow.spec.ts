@@ -24,7 +24,7 @@ import { requiresBackend } from "./_backend";
  * The tests here pin the FIXED behaviour so the regression can't
  * silently re-introduce.
  *
- * Per the continuity sweep handoff. Companion unit tests live in
+ * Companion unit tests live in
  * ``src/features/design/continuity.test.ts`` and
  * ``src/features/design/diff.test.ts``.
  */
@@ -101,7 +101,7 @@ test.describe("curator workflow — disposition → edit → commit → close @l
     await expect(page).toHaveURL(/tab=design/);
   });
 
-  test("no orphan 'Close audit' label leaks (handoff #3 regression guard)", async ({
+  test("no orphan 'Close audit' label leaks (regression guard)", async ({
     page,
   }) => {
     await gotoSeedExperiment(page);
