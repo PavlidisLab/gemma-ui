@@ -105,6 +105,7 @@ import {
   deriveAcceptReason,
   deriveDismissReason,
   deriveStatus,
+  friendlyDispositionError,
 } from "./dispositionSave";
 import { DismissDialog } from "./DismissDialog";
 import {
@@ -961,48 +962,6 @@ function FindingShortRationale({ finding }: { finding: AuditFinding }) {
 // ---------------------------------------------------------------------------
 // FindingActionRow — verdict buttons + dialogs + structured editor
 // ---------------------------------------------------------------------------
-
-/** Translate a server / network error from the disposition PATCH path
- *  into a curator-readable toast string. Strips URL paths, JSON
- *  payloads, FastAPI validation noise, and behind-the-scenes
- *  issue-code identifiers — leaves a one-sentence "what went wrong +
- *  what to do" message. Keeps the raw text in the toast `title`
- *  attribute (via the toast hook) so support / debug paths can still
- *  recover the detail. */
-function friendlyDispositionError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err ?? "");
-  // FastAPI 422 with structured body — extract the `msg` field and
-  // route on intent rather than echoing the raw JSON.
-  if (/accept_reason is required/i.test(raw)) {
-    return "Couldn't save Agree — this finding needs a reason. Try Park to record one.";
-  }
-  if (/dismiss_reason is required/i.test(raw)) {
-    return "Couldn't save Reject — pick a reason and try again.";
-  }
-  if (/not_sure_reason is required/i.test(raw)) {
-    return "Couldn't save Park — pick a reason and try again.";
-  }
-  if (/notes is required/i.test(raw)) {
-    return "Couldn't save — add a short note explaining why and try again.";
-  }
-  if (/^.*\b500\b/i.test(raw)) {
-    return "Server error while saving — try again in a moment.";
-  }
-  if (/^.*\b401|forbidden|unauthor/i.test(raw)) {
-    return "Couldn't save — your session may have expired. Sign in again.";
-  }
-  // Generic fallback — keep the human-readable bit (the first sentence
-  // after any URL / status header) without leaking behind-the-scenes
-  // strings.
-  const tail = raw
-    .replace(/^.*?(\d{3}\s+[A-Za-z ]+\s*[—-]\s*)/u, "")
-    .replace(/\bissue_code='[^']*'/gu, "")
-    .replace(/\[\{.*?\}\]/gus, "")
-    .trim();
-  return tail
-    ? `Disposition save failed — ${tail.slice(0, 160)}`
-    : "Disposition save failed.";
-}
 
 /** Primary "Apply & focus" / "Focus" button + secondary disposition
  *  controls (dismiss-with-chip dialog, needs-more-info, undo).

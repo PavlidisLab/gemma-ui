@@ -57,6 +57,7 @@ import {
   mergeNearMatchAgentFactor,
 } from "@/features/design/mutations";
 import { addFactorFromProposal } from "./applyHandlers";
+import { friendlyDispositionError } from "./dispositionSave";
 import { useToast } from "@/components/ui/Toast";
 import {
   useCurations,
@@ -1004,6 +1005,22 @@ export function ComparisonFactorCard({
           ? { ...extras, resolvedAt: new Date().toISOString() }
           : extras;
       await setDisposition(finding.target_id, next, resolvedExtras);
+    } catch (err) {
+      // Was a bare try/finally with no catch — a server-side drop (or
+      // any other setDisposition failure) was a fully silent unhandled
+      // rejection: the busy spinner reset and nothing told the curator
+      // it didn't save (2026-07-30: "it didn't fully record some of my
+      // dispositions again").
+      const apiErr = err as { status?: number };
+      if (apiErr.status === 409) {
+        toast.show(
+          "Audit is closed — reopen it to keep editing dispositions.",
+          "danger",
+          6000,
+        );
+      } else {
+        toast.show(friendlyDispositionError(err), "danger", 6000);
+      }
     } finally {
       setBusy(false);
     }
@@ -1070,6 +1087,19 @@ export function ComparisonFactorCard({
         "success",
         3000,
       );
+    } catch (err) {
+      // Was a bare try/finally with no catch — see dispatch()'s catch
+      // above for why that made a disposition drop fully silent.
+      const apiErr = err as { status?: number };
+      if (apiErr.status === 409) {
+        toast.show(
+          "Audit is closed — reopen it to keep editing dispositions.",
+          "danger",
+          6000,
+        );
+      } else {
+        toast.show(friendlyDispositionError(err), "danger", 6000);
+      }
     } finally {
       setBusy(false);
     }
@@ -1117,6 +1147,19 @@ export function ComparisonFactorCard({
         "success",
         3000,
       );
+    } catch (err) {
+      // Was a bare try/finally with no catch — see dispatch()'s catch
+      // above for why that made a disposition drop fully silent.
+      const apiErr = err as { status?: number };
+      if (apiErr.status === 409) {
+        toast.show(
+          "Audit is closed — reopen it to keep editing dispositions.",
+          "danger",
+          6000,
+        );
+      } else {
+        toast.show(friendlyDispositionError(err), "danger", 6000);
+      }
     } finally {
       setBusy(false);
     }

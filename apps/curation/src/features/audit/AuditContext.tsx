@@ -465,10 +465,25 @@ export function AuditProvider({
       if (extras.inheritedFrom) patch.inherited_from = extras.inheritedFrom;
       if (extras.structureOk !== undefined) patch.structure_ok = extras.structureOk;
       if (extras.detailsOk !== undefined) patch.details_ok = extras.detailsOk;
-      await patchDisposition.mutateAsync({
+      const refreshed = await patchDisposition.mutateAsync({
         auditId: report.audit_id,
         patch,
       });
+      // Same "smoking-gun" check usePatchDisposition's onSuccess already
+      // runs (audits.ts) — that one only console.warns for diagnostics.
+      // Throwing here turns a silent server-side drop into a real
+      // mutation failure so every existing call-site catch/toast picks
+      // it up automatically, instead of the curator finding out only
+      // when they later notice the finding is still pending (2026-07-30:
+      // "it didn't fully record some of my dispositions again").
+      const persisted = refreshed.dispositions?.some(
+        (d) => d.target_id === targetId,
+      );
+      if (!persisted) {
+        throw new Error(
+          "Disposition didn't persist — the server accepted the request but the refreshed report doesn't show it. Try again.",
+        );
+      }
     },
     [report, reviewer, patchDisposition],
   );
