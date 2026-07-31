@@ -214,7 +214,7 @@ export function FactorList({
                 // ring-flashes it. target_id format mirrors the agent
                 // contract (factor:<category-slug>); divergence breaks
                 // the dot resolver too, so they're locked in tandem.
-                data-audit-target={factorTarget(f.category?.label || "")}
+                data-audit-target={factorTarget(f.category?.label || "", f.id)}
                 className={cn(
                   "cursor-pointer transition-colors",
                   selected
@@ -263,7 +263,7 @@ export function FactorList({
                         a fallback so we don't silently match findings
                         against a renamed factor. */}
                     <AuditDot
-                      targetId={factorTarget(f.category?.label || "")}
+                      targetId={factorTarget(f.category?.label || "", f.id)}
                     />
                     <GemmaMatchDot factorLabel={f.category?.label || ""} />
                     {isAdded ? <NewBadge /> : null}

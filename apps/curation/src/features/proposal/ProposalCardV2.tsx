@@ -946,7 +946,10 @@ export function ProposalCardV2({
       // list expanded by their own card click.
       const firstFactor = acceptedFactors[0];
       if (firstFactor) {
-        const target = factorTarget(firstFactor.category.label);
+        const target = factorTarget(
+          firstFactor.category.label,
+          firstFactor.proposal_factor_id,
+        );
         // Defer one frame so apply() has flushed the new factor into
         // the draft before DesignEditor's subscriber tries to resolve
         // it.

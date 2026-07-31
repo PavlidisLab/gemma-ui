@@ -106,6 +106,19 @@ describe("resolveGoldFactorByIdOrIndex", () => {
     expect(got?.id).toBe(70503);
   });
 
+  it("resolves via the category+discriminator shape (factor:treatment#101)", () => {
+    // 2026-07-30 collision fix: graph_alignment.py can now emit
+    // ``factor:{category}#{id}`` for calibration findings too, not
+    // just the legacy bare-numeric ``factor:<id>`` shape. The
+    // discriminator id must win over gold_target_index.
+    const live = [fac(101, "treatment"), fac(102, "treatment")];
+    const got = resolveGoldFactorByIdOrIndex(
+      finding({ target_id: "factor:treatment#101", gold_target_index: 1 }),
+      [live],
+    );
+    expect(got?.id).toBe(101);
+  });
+
   it("returns null (no positional guess) when the explicit id is absent from the pool", () => {
     // Label-based target_id + a gemma_factor_id that isn't in the
     // stripped baseline → return null so the caller uses its self-carry

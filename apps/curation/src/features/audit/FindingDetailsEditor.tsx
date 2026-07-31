@@ -3060,9 +3060,21 @@ function CurrentVsAuditorFactor({
   if (parsed?.kind !== "factor") return null;
   const allAuditorFactors =
     report?.evidence?.comparison_proposal?.factors ?? [];
-  const currentFactors = (design?.factors ?? []).filter(
-    (f) => slug(f.category?.label ?? "") === parsed.factorSlug,
-  );
+  // Same-category collision (e.g. two `treatment` factors): a bare
+  // slug match returns both, blending an unrelated factor into what
+  // should be a precise 1:1 comparison. The `#{id}` discriminator
+  // (real Factor.id), when present, narrows to the specific factor
+  // this finding is about. Falls back to the full slug-match set —
+  // preserving the existing N:M comparison behaviour — when there's
+  // no discriminator or it doesn't match anything (legacy target_id).
+  const currentFactors = (() => {
+    const matches = (design?.factors ?? []).filter(
+      (f) => slug(f.category?.label ?? "") === parsed.factorSlug,
+    );
+    if (parsed.factorId == null || matches.length <= 1) return matches;
+    const byId = matches.filter((f) => f.id === parsed.factorId);
+    return byId.length > 0 ? byId : matches;
+  })();
   // Auditor side: first try slug match (the common case). If empty,
   // fall back to sample-set Jaccard across ALL of comparison_proposal.
   // That's what handles ``wrong_category`` — the auditor's renamed

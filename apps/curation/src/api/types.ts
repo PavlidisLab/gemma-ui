@@ -167,6 +167,13 @@ export interface FactorValueProposal {
 export interface FactorProposal {
   category: OntologyTerm;
   name_in_design: string;
+  /** Stable per-proposal factor id (wire: `proposalFactorId`), landed
+   *  2026-07-31 — replaces the fragile positional `p{idx}` scheme for
+   *  the `factor:{category}#{id}` target_id discriminator. Auto-stamped
+   *  1..N by the Proposal validator, idempotent across re-reads, so
+   *  every proposed factor on the wire carries one — optional here only
+   *  to tolerate proposals fetched before this field existed. */
+  proposal_factor_id?: number | null;
   /** ≤80-char LLM-emitted summary of what the factor encodes, used
    *  as a subtitle in factor headers. Optional; may be empty. */
   description?: string;

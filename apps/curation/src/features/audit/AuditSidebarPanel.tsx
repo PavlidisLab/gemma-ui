@@ -1825,12 +1825,14 @@ function synthesizeFromDraft(draft: Design): AuditReport {
   const f0 = draft.factors[0];
   if (f0) {
     // Mirror the dot anchor expressions exactly — see FactorList +
-    // FactorValueCard. Both sides slug `category.label || ""`; if
-    // they drift, target_ids stop matching and dots silently miss.
+    // FactorValueCard. Both sides slug `category.label || ""` and
+    // thread the real Factor.id/FactorValue.id as the `#{id}`
+    // discriminator; if they drift, target_ids stop matching and
+    // dots silently miss.
     const factorCatLabel = f0.category?.label || "";
     findings.push({
       target_kind: "factor",
-      target_id: factorTarget(factorCatLabel),
+      target_id: factorTarget(factorCatLabel, f0.id),
       severity: "major",
       issue_code: "forbidden_efc",
       rationale: `Demo: factor "${f0.name || f0.category?.label}" flagged as a forbidden EFC category.`,
@@ -1845,7 +1847,7 @@ function synthesizeFromDraft(draft: Design): AuditReport {
     if (fv0) {
       findings.push({
         target_kind: "fv",
-        target_id: fvTarget(factorCatLabel, fv0.free_text_label || ""),
+        target_id: fvTarget(factorCatLabel, fv0.free_text_label || "", fv0.id),
         severity: "major",
         issue_code: "missing_baseline",
         rationale: `Demo: factor "${f0.name || f0.category?.label}" has no FV marked as baseline.`,
@@ -1860,7 +1862,7 @@ function synthesizeFromDraft(draft: Design): AuditReport {
     if (fv1) {
       findings.push({
         target_kind: "fv",
-        target_id: fvTarget(factorCatLabel, fv1.free_text_label || ""),
+        target_id: fvTarget(factorCatLabel, fv1.free_text_label || "", fv1.id),
         severity: "ok",
         issue_code: "ok",
         rationale: `Demo: FV "${fv1.free_text_label || ""}" looks correctly grounded.`,

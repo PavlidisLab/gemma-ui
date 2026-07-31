@@ -126,6 +126,7 @@ export function FactorValueCard({
       data-audit-target={fvTarget(
         factorCategory?.label || "",
         fv.free_text_label || "",
+        fv.id,
       )}
       // In compact mode the FV label + statements render as read-only
       // spans, so double-clicking them does nothing. Promote the card
@@ -216,6 +217,7 @@ export function FactorValueCard({
             targetId={fvTarget(
               factorCategory?.label || "",
               fv.free_text_label || "",
+              fv.id,
             )}
           />
           {labelChanged && before ? (

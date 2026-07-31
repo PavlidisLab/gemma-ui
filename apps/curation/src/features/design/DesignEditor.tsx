@@ -132,19 +132,27 @@ export function DesignEditor({
       // not the curator-readable category-label slug. Try numeric
       // id first, then fall back to label-slug for legacy /
       // calibration target_ids that use the label form.
-      const resolveFactor = (sl: string) => {
+      const resolveFactor = (sl: string, discriminatorId?: number) => {
         if (!draft) return undefined;
         const asInt = Number.parseInt(sl, 10);
         if (Number.isFinite(asInt)) {
           const byId = draft.factors.find((f) => f.id === asInt);
           if (byId) return byId;
         }
-        return draft.factors.find(
+        const candidates = draft.factors.filter(
           (f) => slug(f.category?.label || "") === sl,
+        );
+        if (candidates.length <= 1) return candidates[0];
+        // Same-category collision (e.g. two `treatment` factors) — the
+        // `#{id}` discriminator (real Factor.id) breaks the tie. Falls
+        // back to the first match for legacy bare target_ids, matching
+        // pre-discriminator behaviour.
+        return (
+          candidates.find((f) => f.id === discriminatorId) ?? candidates[0]
         );
       };
       if (parsed.kind === "factor") {
-        const target = resolveFactor(parsed.factorSlug);
+        const target = resolveFactor(parsed.factorSlug, parsed.factorId);
         if (target) setSelectedFactorId(target.id);
         requestAnimationFrame(() => {
           focusByAuditTarget(targetId);
@@ -152,7 +160,7 @@ export function DesignEditor({
         return;
       }
       if (parsed.kind === "fv") {
-        const target = resolveFactor(parsed.factorSlug);
+        const target = resolveFactor(parsed.factorSlug, parsed.fvId);
         if (target) setSelectedFactorId(target.id);
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {

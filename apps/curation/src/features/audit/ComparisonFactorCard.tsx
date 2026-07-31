@@ -230,21 +230,31 @@ export function resolveGoldFactorByIdOrIndex(
   explicitGoldFactorId?: number | null,
 ): Factor | null {
   const parsed = parseTargetId(finding.target_id);
+  // Bare numeric shape (``factor:<id>``, no category) — the whole slug
+  // IS the id, pre-dating the ``#{id}`` discriminator.
   const fidFromTarget =
     parsed?.kind === "factor" && /^\d+$/.test(parsed.factorSlug)
       ? Number(parsed.factorSlug)
       : null;
-  // Prefer the id parsed out of ``target_id``; otherwise fall to the
+  // Category+discriminator shape (``factor:treatment#101``) — the
+  // 2026-07-30 collision fix. ``parsed.factorId`` is the id parsed off
+  // the ``#{id}`` suffix; check it ahead of the bare-numeric shape
+  // since it's the more specific / more recent addressing scheme (a
+  // target_id can't match both patterns at once, so order between
+  // these two doesn't matter in practice — kept explicit for clarity).
+  const fidFromDiscriminator =
+    parsed?.kind === "factor" ? (parsed.factorId ?? null) : null;
+  // Prefer an id parsed out of ``target_id``; otherwise fall to the
   // explicit ``gemma_factor_id`` carried on the rename /
   // partition_mismatch payload. Either key is a STABLE id join that
   // survives factor reordering, so try it before any positional
   // fallback.
   const idKey =
-    fidFromTarget != null
-      ? fidFromTarget
-      : explicitGoldFactorId != null && Number.isInteger(explicitGoldFactorId)
-        ? explicitGoldFactorId
-        : null;
+    fidFromDiscriminator ??
+    fidFromTarget ??
+    (explicitGoldFactorId != null && Number.isInteger(explicitGoldFactorId)
+      ? explicitGoldFactorId
+      : null);
   if (idKey != null) {
     for (const pool of pools) {
       const hit = pool?.find((f) => f.id === idKey);
@@ -1077,7 +1087,7 @@ export function ComparisonFactorCard({
       // intent as the Agree-add path on calibration_factor_extra.
       requestAuditFocus(
         experimentId,
-        factorTarget(agentFactor.category.label),
+        factorTarget(agentFactor.category.label, agentFactor.proposal_factor_id),
       );
       await setDisposition(finding.target_id, "accepted", {
         resolvedAt: new Date().toISOString(),
@@ -1135,7 +1145,7 @@ export function ComparisonFactorCard({
       }
       requestAuditFocus(
         experimentId,
-        factorTarget(agentFactor.category.label),
+        factorTarget(agentFactor.category.label, agentFactor.proposal_factor_id),
       );
       await setDisposition(finding.target_id, "accepted", {
         resolvedAt: new Date().toISOString(),

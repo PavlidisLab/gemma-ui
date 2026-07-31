@@ -18,6 +18,32 @@
  * formatters' fallback). `parseTargetId()` treats anything it
  * doesn't recognise as `null` so callers can safely fall through to
  * "no anchor".
+ *
+ * ## Discriminator suffix (`#{id}`) — 2026-07-30
+ *
+ * `target_id` used to be pure content-addressing (category/label
+ * only), which silently collides whenever two distinct factors or
+ * FVs share a category — a real, common design shape (two
+ * `treatment` factors), not an edge case. Confirmed cross-repo
+ * (`~/Dev/eclipseworkspace/Gemma/handoffs/
+ * STORE_REPLY_2026_07_30_DISPOSITION_DROPS_TARGET_ID_COLLISION.md`):
+ * the store's `MAX(id) GROUP BY target_id` read silently masks the
+ * older of two colliding dispositions. Fix: `factorTarget`/`fvTarget`
+ * now accept the entity's real Gemma id and append it as `#{id}` —
+ * `factor:treatment#101`, `fv:treatment/vehicle#205`. Tags stay bare
+ * for now (`Tag.id` isn't a Gemma id — see the same handoff thread,
+ * `UIB_REPLY_2026_07_30_TARGET_ID_ID_PROVENANCE_ANSWERS.md`).
+ *
+ * Backward-compatible by construction: the id is OPTIONAL on every
+ * formatter (omit it and you get the old bare form), and
+ * `parseTargetId` strips the suffix into a separate `factorId`/`fvId`
+ * field rather than folding it into `factorSlug`/`fvSlug` — so every
+ * existing slug-equality comparison in the codebase keeps working
+ * unchanged for the common (non-colliding) case. Callers that need to
+ * disambiguate a real collision (multiple factors sharing a category)
+ * should filter by slug first, then break ties with the id field when
+ * more than one candidate matches — see `resolveFactor` in
+ * `features/design/DesignEditor.tsx` for the reference pattern.
  */
 import type { AuditTargetKind } from "@/api/auditTypes";
 
@@ -36,16 +62,51 @@ function slugOr(s: string | null | undefined): string {
   return slug(s) || "?";
 }
 
+/** Strip a trailing ``#{id}`` discriminator off a target_id segment.
+ *  `slug()` never produces a `#` itself, so the first one found is
+ *  always the discriminator boundary. Returns the id as `undefined`
+ *  (not `null`) when absent or non-numeric, so callers can use it
+ *  directly in an optional object field. */
+function splitDiscriminator(segment: string): {
+  base: string;
+  id?: number;
+} {
+  const hash = segment.indexOf("#");
+  if (hash === -1) return { base: segment };
+  const idStr = segment.slice(hash + 1);
+  const id = Number(idStr);
+  return {
+    base: segment.slice(0, hash),
+    id: idStr !== "" && Number.isFinite(id) ? id : undefined,
+  };
+}
+
 export function experimentTarget(experimentId: number | string): string {
   return `experiment:${experimentId}`;
 }
 
-export function factorTarget(factorCategory: string): string {
-  return `factor:${slugOr(factorCategory)}`;
+/** `factorId` is the factor's real Gemma `ExperimentalFactor` id
+ *  (`Factor.id` for a freshly-imported design — see the discriminator
+ *  doc comment above for the proposal-accept caveat). Omit for the
+ *  legacy bare form (still correct for the common non-colliding case,
+ *  and the only option for agent-proposed factors, which have no id
+ *  yet — see the handoff thread). */
+export function factorTarget(
+  factorCategory: string,
+  factorId?: number | null,
+): string {
+  const disc = factorId != null ? `#${factorId}` : "";
+  return `factor:${slugOr(factorCategory)}${disc}`;
 }
 
-export function fvTarget(factorCategory: string, fvLabel: string): string {
-  return `fv:${slugOr(factorCategory)}/${slugOr(fvLabel)}`;
+/** `fvId` is the FactorValue's real Gemma id (`FactorValue.id`). */
+export function fvTarget(
+  factorCategory: string,
+  fvLabel: string,
+  fvId?: number | null,
+): string {
+  const disc = fvId != null ? `#${fvId}` : "";
+  return `fv:${slugOr(factorCategory)}/${slugOr(fvLabel)}${disc}`;
 }
 
 export function tagTarget(category: string, value: string): string {
@@ -61,8 +122,21 @@ export function assignmentTarget(biomaterialShortName: string): string {
  *  without throwing on unknown / future kinds. */
 export type ParsedTargetId =
   | { kind: "experiment"; experimentId: string }
-  | { kind: "factor"; factorSlug: string }
-  | { kind: "fv"; factorSlug: string; fvSlug: string }
+  /** ``factorId`` is the discriminator parsed off a ``#{id}`` suffix,
+   *  or ``undefined`` for the legacy bare form. ``factorSlug`` is
+   *  ALWAYS the pure category slug (discriminator already stripped)
+   *  so existing slug-equality comparisons keep working unchanged —
+   *  only disambiguate with ``factorId`` when more than one candidate
+   *  matches the slug. */
+  | { kind: "factor"; factorSlug: string; factorId?: number }
+  | {
+      kind: "fv";
+      factorSlug: string;
+      fvSlug: string;
+      /** Discriminator off the FV's own ``#{id}`` suffix — see
+       *  ``factorId`` above for the same stripped-slug contract. */
+      fvId?: number;
+    }
   | { kind: "tag"; categorySlug: string; valueSlug: string }
   /** Entity-frame proposer characteristic finding. ``axes`` is the
    *  list of raw BM column slugs the agent's proposal targets — one
@@ -84,15 +158,19 @@ export function parseTargetId(targetId: string): ParsedTargetId | null {
   switch (kind) {
     case "experiment":
       return { kind: "experiment", experimentId: rest };
-    case "factor":
-      return { kind: "factor", factorSlug: rest };
+    case "factor": {
+      const { base, id } = splitDiscriminator(rest);
+      return { kind: "factor", factorSlug: base, factorId: id };
+    }
     case "fv": {
       const slash = rest.indexOf("/");
       if (slash === -1) return null;
+      const { base, id } = splitDiscriminator(rest.slice(slash + 1));
       return {
         kind: "fv",
         factorSlug: rest.slice(0, slash),
-        fvSlug: rest.slice(slash + 1),
+        fvSlug: base,
+        fvId: id,
       };
     }
     case "tag": {
