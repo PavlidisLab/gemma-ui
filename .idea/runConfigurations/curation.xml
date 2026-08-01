@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="curation" type="CompoundRunConfigurationType">
+    <toRun name="curation js" type="JavascriptDebugType" />
+    <toRun name="dev:curation" type="js.build_tools.npm" />
+    <method v="2" />
+  </configuration>
+</component>
