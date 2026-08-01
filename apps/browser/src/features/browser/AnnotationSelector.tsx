@@ -872,14 +872,23 @@ function TermStateButton({
   disabled?: boolean;
   onClick: () => void;
 }) {
+  // ``disabled:`` styling is not optional here the way it is for the
+  // Taxa / Platforms facets: those are real ``<input type=checkbox>``
+  // and get the UA stylesheet's greyed-out rendering for free. This is
+  // a <button> painted to look like a checkbox (three states don't fit
+  // a native one), so it opts out of that and has to say "inert" for
+  // itself — otherwise a refetch leaves it looking fully live.
+  // ``enabled:hover:`` rather than ``hover:``: CSS :hover still matches
+  // disabled elements, so a plain hover class keeps recolouring the
+  // border under the cursor and reads as clickable.
   const base =
-    "inline-flex items-center justify-center h-4 w-4 shrink-0 rounded-sm border cursor-pointer transition-colors";
+    "inline-flex items-center justify-center h-4 w-4 shrink-0 rounded-sm border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
   const tone =
     state === 1
-      ? "bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
+      ? "bg-blue-600 border-blue-600 text-white enabled:hover:bg-blue-700"
       : state === -1
-        ? "bg-rose-600 border-rose-600 text-white hover:bg-rose-700"
-        : "bg-white border-stone-400 text-stone-400 hover:border-stone-600 dark:bg-slate-800 dark:border-slate-500 dark:hover:border-slate-300";
+        ? "bg-rose-600 border-rose-600 text-white enabled:hover:bg-rose-700"
+        : "bg-white border-stone-400 text-stone-400 enabled:hover:border-stone-600 dark:bg-slate-800 dark:border-slate-500 dark:enabled:hover:border-slate-300";
   return (
     <button
       type="button"
@@ -887,11 +896,13 @@ function TermStateButton({
       disabled={disabled}
       className={`${base} ${tone}`}
       title={
-        state === 1
-          ? "Selected (click to negate)"
-          : state === -1
-            ? "Negated (click to clear)"
-            : "Click to select"
+        disabled
+          ? "Refreshing annotations — unavailable for a moment"
+          : state === 1
+            ? "Selected (click to negate)"
+            : state === -1
+              ? "Negated (click to clear)"
+              : "Click to select"
       }
     >
       {state === 1 ? (
@@ -912,37 +923,38 @@ function CategoryStateButton({
   disabled?: boolean;
   onClick: () => void;
 }) {
+  // Same disabled-state reasoning as TermStateButton above.
   const base =
-    "inline-flex items-center justify-center h-4 w-4 shrink-0 rounded-sm border cursor-pointer transition-colors";
+    "inline-flex items-center justify-center h-4 w-4 shrink-0 rounded-sm border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
   let tone: string;
   let icon: React.ReactNode = null;
   switch (state) {
     case "all-pos":
-      tone = "bg-blue-600 border-blue-600 text-white hover:bg-blue-700";
+      tone = "bg-blue-600 border-blue-600 text-white enabled:hover:bg-blue-700";
       icon = <Check className="h-3 w-3" />;
       break;
     case "all-neg":
-      tone = "bg-rose-600 border-rose-600 text-white hover:bg-rose-700";
+      tone = "bg-rose-600 border-rose-600 text-white enabled:hover:bg-rose-700";
       icon = <X className="h-3 w-3" />;
       break;
     case "some-pos":
       tone =
-        "bg-white border-blue-500 text-blue-600 hover:border-blue-700 dark:bg-slate-800";
+        "bg-white border-blue-500 text-blue-600 enabled:hover:border-blue-700 dark:bg-slate-800";
       icon = <Minus className="h-3 w-3" />;
       break;
     case "some-neg":
       tone =
-        "bg-white border-rose-500 text-rose-600 hover:border-rose-700 dark:bg-slate-800";
+        "bg-white border-rose-500 text-rose-600 enabled:hover:border-rose-700 dark:bg-slate-800";
       icon = <Minus className="h-3 w-3" />;
       break;
     case "mixed":
       tone =
-        "bg-white border-stone-400 text-stone-500 hover:border-stone-600 dark:bg-slate-800";
+        "bg-white border-stone-400 text-stone-500 enabled:hover:border-stone-600 dark:bg-slate-800";
       icon = <Square className="h-3 w-3" />;
       break;
     case "empty":
       tone =
-        "bg-white border-stone-400 text-stone-400 hover:border-stone-600 dark:bg-slate-800 dark:border-slate-500";
+        "bg-white border-stone-400 text-stone-400 enabled:hover:border-stone-600 dark:bg-slate-800 dark:border-slate-500";
       icon = null;
       break;
   }
@@ -952,7 +964,9 @@ function CategoryStateButton({
       onClick={onClick}
       disabled={disabled}
       className={`${base} ${tone}`}
-      title="Cycle category"
+      title={
+        disabled ? "Refreshing annotations — unavailable for a moment" : "Cycle category"
+      }
     >
       {icon}
     </button>
