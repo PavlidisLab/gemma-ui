@@ -4,23 +4,45 @@
 
 import type { Taxon } from "./types";
 
-/** Base URL — empty in dev (Vite proxies /rest), full in prod build. */
-export const baseUrl: string = import.meta.env.VITE_GEMMA_BASE_URL ?? "";
+/** Base URL for absolute links into the Gemma web app — legacy JSP
+ *  pages (``/gene/showGene.html`` etc.) and the copy-paste API
+ *  snippets, both of which bypass the dev proxy and so need a real
+ *  origin. Resolution order:
+ *
+ *    1. ``VITE_GEMMA_BASE_URL`` — explicit client-side override.
+ *       Required for prod builds, where there is no dev proxy.
+ *    2. ``__GEMMA_TARGET__`` — the upstream the Vite dev proxy is
+ *       already fronting, injected by ``vite.config.ts`` from the
+ *       un-prefixed ``GEMMA_BASE_URL``. Only ``VITE_``-prefixed vars
+ *       reach client code, so without this fallback a dev server
+ *       with a perfectly good ``GEMMA_BASE_URL`` in ``.env.local``
+ *       still resolved to an empty ``baseUrl`` — and anything that
+ *       fed the result to ``new URL()`` threw mid-render.
+ *
+ *  Trailing slashes are stripped; every caller passes a path that
+ *  already starts with one. */
+function resolveBaseUrl(): string {
+  const explicit = import.meta.env.VITE_GEMMA_BASE_URL;
+  const proxied = typeof __GEMMA_TARGET__ === "string" ? __GEMMA_TARGET__ : "";
+  return (explicit || proxied || "").replace(/\/+$/, "");
+}
+
+export const baseUrl: string = resolveBaseUrl();
 
 let warnedMissingBaseUrl = false;
 
-/** Build an absolute Gemma URL for opening in a new tab. Requires
- *  ``VITE_GEMMA_BASE_URL`` to be set (build-time) — legacy links
- *  (``/gene/showGene.html`` etc.) need a real upstream and there's
- *  no default Gemma instance to fall back to. Returns ``path``
- *  unresolved (relative, so effectively inert) when unset, rather
- *  than throwing mid-render. */
+/** Build an absolute Gemma URL for opening in a new tab. Returns
+ *  ``path`` unresolved (relative, so effectively inert) when neither
+ *  source above is set, rather than throwing mid-render. Callers that
+ *  hand the result to ``new URL()`` must still pass a base. */
 export function gemmaUrl(path: string): string {
   if (!baseUrl) {
     if (!warnedMissingBaseUrl) {
       warnedMissingBaseUrl = true;
       console.warn(
-        "VITE_GEMMA_BASE_URL is not set — legacy Gemma links won't resolve. Set it to your Gemma instance's base URL.",
+        "No Gemma base URL configured — legacy Gemma links won't resolve. " +
+          "Set GEMMA_BASE_URL in apps/browser/.env.local (dev) or " +
+          "VITE_GEMMA_BASE_URL at build time (prod).",
       );
     }
     return path;

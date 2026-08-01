@@ -103,7 +103,11 @@ export function CodeSnippet({
       label: "HTTP/1.1",
       language: "http",
       content: (() => {
-        const u = new URL(compressedUrl);
+        // ``compressedUrl`` is relative when no Gemma base URL is
+        // configured. Resolve against the current origin so a missing
+        // env var can degrade to a wrong-but-harmless host instead of
+        // throwing during render and taking the whole page down.
+        const u = new URL(compressedUrl, window.location.origin);
         return `GET ${u.pathname}${u.search} HTTP/1.1\nHost: ${u.hostname}\nAccept: application/json`;
       })(),
       note: `Replace offset to retrieve all pages. Values: 0 to ${formatNumber(total)} step ${MAX_DATASETS}.`,
