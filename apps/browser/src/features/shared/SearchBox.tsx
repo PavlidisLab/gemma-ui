@@ -3,6 +3,12 @@
  * the user to ``/browser/q/<query>`` — the canonical search-results
  * route. Empty submission goes to ``/browser`` (un-queried browse).
  *
+ * Shortname shortcut: if the query is a single token that resolves to
+ * a dataset whose shortName matches exactly (case-insensitive) — e.g.
+ * ``GSE12345`` — we skip search and land straight on that dataset's
+ * page. Anything else (free text, gene symbols, non-matching tokens)
+ * falls through to the normal search route.
+ *
  * Two visual variants:
  *   - ``compact`` — slim inline input for the AppBar nav strip.
  *   - ``hero``    — large prominent input for the home page.
@@ -14,6 +20,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { getDatasetById } from "@/api/endpoints";
 
 export function SearchBox({
   variant = "compact",
@@ -25,12 +32,32 @@ export function SearchBox({
   const [q, setQ] = useState("");
   const navigate = useNavigate();
 
-  const submit = (e: FormEvent<HTMLFormElement>) => {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const v = q.trim();
-    navigate({
-      to: v ? `/browser/q/${encodeURIComponent(v)}` : "/browser",
-    });
+    if (!v) {
+      navigate({ to: "/browser" });
+      return;
+    }
+
+    // Single-token queries might be a dataset shortname/accession —
+    // try a direct resolve and jump to the dataset page on an exact
+    // shortName match. Multi-word queries can't be a shortname, so we
+    // skip the extra request. Any failure or non-match falls through
+    // to the normal search route.
+    if (!/\s/.test(v)) {
+      try {
+        const ds = await getDatasetById(v);
+        if (ds && ds.shortName?.toLowerCase() === v.toLowerCase()) {
+          navigate({ to: `/dataset/${encodeURIComponent(ds.shortName)}` });
+          return;
+        }
+      } catch {
+        // fall through to search
+      }
+    }
+
+    navigate({ to: `/browser/q/${encodeURIComponent(v)}` });
   };
 
   if (variant === "hero") {
