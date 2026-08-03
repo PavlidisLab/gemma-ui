@@ -1198,7 +1198,12 @@ export function FindingDetailsEditor({
 
   const isRemovalFinding =
     finding.issue_code === "calibration_factor_gold_only_miss" ||
-    finding.issue_code === "calibration_gold_only_miss";
+    finding.issue_code === "calibration_gold_only_miss" ||
+    // Any finding whose structured action is a tag removal — routes on
+    // the apply_action, not the issue_code, so new agent codes (an
+    // over-tag scan, etc.) reach the keep-vs-remove card instead of
+    // falling through to the match render with empty comparison rows.
+    finding.apply_action?.kind === "remove_tag";
 
   const isFactorExtraFinding =
     finding.issue_code === "calibration_factor_extra";
@@ -2159,6 +2164,21 @@ export function FindingDetailsEditor({
         if (slash !== -1) {
           return `${tail.slice(0, slash)}: ${tail.slice(slash + 1)}`;
         }
+      }
+      // Entity-frame removal (``remove_tag``) addresses the tag by
+      // ``tag:<cat-slug>/<val-slug>``. Resolve the real labels off the
+      // design tag (slugs are lossy — ``cell-type`` ≠ ``cell type``);
+      // if it's already gone from the draft, de-slug as a fallback.
+      const parsed = parseTargetId(finding.target_id);
+      if (parsed?.kind === "tag" && parsed.valueSlug) {
+        const t = design?.tags?.find(
+          (tag) =>
+            slug(tag.category?.label) === parsed.categorySlug &&
+            slug(tag.value?.label) === parsed.valueSlug,
+        );
+        if (t) return `${t.category?.label}: ${t.value?.label}`;
+        const unslug = (s: string) => s.replace(/-/g, " ");
+        return `${unslug(parsed.categorySlug)}: ${unslug(parsed.valueSlug)}`;
       }
       return firstBacktick(finding.rationale);
     })();
