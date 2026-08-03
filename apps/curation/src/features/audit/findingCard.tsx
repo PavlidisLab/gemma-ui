@@ -1457,7 +1457,22 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                   finding.issue_code === "calibration_factor_match_exact" ||
                   finding.issue_code === "calibration_factor_match_near" ||
                   finding.issue_code === "calibration_factor_match_close" ||
-                  finding.issue_code === "calibration_factor_match"));
+                  finding.issue_code === "calibration_factor_match")) ||
+              // Any TAG finding carrying a structured mutating
+              // ``apply_action`` routes through the apply path — the UI
+              // must NOT have to learn each new agent-invented
+              // ``issue_code`` (the accept was a silent no-op for issue
+              // codes the whitelist above didn't enumerate: the finding
+              // stamped "resolved" while the draft term never changed).
+              // The finding already carries the structured
+              // add_tag/remove_tag/replace_tag action; ``resolveApplyAction``
+              // returns ``mutates:false`` when accepting genuinely
+              // shouldn't touch the draft, so gating on ``action?.mutates``
+              // is the right generic signal. Scoped to tags because tags
+              // never use the per-row ``details_edit`` path
+              // (``applyDetailsEditsToDesign`` is factor-only), so there
+              // is no curator-row-edit precedence to preserve here.
+              (!!action?.mutates && finding.target_kind === "tag");
             if (
               isStructuralOnly &&
               status === "accepted" &&
