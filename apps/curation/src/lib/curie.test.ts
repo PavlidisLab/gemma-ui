@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { curieToUrl } from "./curie";
+import { cellosaurusUrl, curieToUrl, olsUrl } from "./curie";
 
 /**
  * Tests for curieToUrl() — the CURIE-to-clickable-URL router used by
@@ -101,5 +101,68 @@ describe("curieToUrl", () => {
         "http://purl.obolibrary.org/obo/http_//purl.obolibrary.org/obo/EFO_0000513",
       ),
     ).toBe("http://www.ebi.ac.uk/efo/EFO_0000513");
+  });
+});
+
+describe("cellosaurusUrl — cell lines only", () => {
+  it("links a CVCL accession straight to its Cellosaurus page (any wrapping shape)", () => {
+    for (const uri of [
+      "cellosaurus:CVCL_0395",
+      "CVCL_0395",
+      "https://www.cellosaurus.org/CVCL_0395",
+    ]) {
+      expect(cellosaurusUrl(uri)).toBe("https://www.cellosaurus.org/CVCL_0395");
+    }
+  });
+
+  it("drops the :SX sex-provenance suffix, keeping just the accession page", () => {
+    expect(cellosaurusUrl("cellosaurus:CVCL_1045:SX")).toBe(
+      "https://www.cellosaurus.org/CVCL_1045",
+    );
+  });
+
+  it("falls back to a site name-search for a CLO cell line (no CVCL, but a label)", () => {
+    // Gemma grounds cell lines to CLO, never CVCL — so the operative path
+    // is a Cellosaurus SEARCH by the cell-line name.
+    expect(
+      cellosaurusUrl("http://purl.obolibrary.org/obo/CLO_0051454", "KGN"),
+    ).toBe("https://www.cellosaurus.org/search?query=KGN");
+  });
+
+  it("returns null for a CLO term with no label (nothing to search by)", () => {
+    expect(
+      cellosaurusUrl("http://purl.obolibrary.org/obo/CLO_0051454"),
+    ).toBeNull();
+  });
+
+  it("returns null for non-cell-line ontology terms (UBERON / CL / EFO)", () => {
+    expect(
+      cellosaurusUrl("http://purl.obolibrary.org/obo/UBERON_0018241", "prime adult stage"),
+    ).toBeNull();
+    // CL is a cell TYPE, not a cell line — no Cellosaurus link.
+    expect(
+      cellosaurusUrl("http://purl.obolibrary.org/obo/CL_0000056", "myoblast"),
+    ).toBeNull();
+  });
+
+  it("returns null for empty input", () => {
+    expect(cellosaurusUrl(null)).toBeNull();
+    expect(cellosaurusUrl(undefined)).toBeNull();
+    expect(cellosaurusUrl("")).toBeNull();
+  });
+});
+
+describe("olsUrl", () => {
+  it("resolves a CURIE to its full IRI, then hands OLS an exact-match query", () => {
+    expect(olsUrl("EFO:0000513")).toBe(
+      "https://www.ebi.ac.uk/ols4/search?q=" +
+        encodeURIComponent("http://www.ebi.ac.uk/efo/EFO_0000513") +
+        "&exactMatch=true",
+    );
+  });
+
+  it("returns null for empty input", () => {
+    expect(olsUrl(null)).toBeNull();
+    expect(olsUrl("")).toBeNull();
   });
 });

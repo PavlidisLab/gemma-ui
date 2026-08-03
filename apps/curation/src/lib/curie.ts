@@ -42,7 +42,50 @@ const CURIE_TO_URL_PREFIX: Record<string, string> = {
   BFO: "http://purl.obolibrary.org/obo/BFO_",
   TGEMO: "http://gemma.msl.ubc.ca/ont/TGEMO_",
   NCBITaxon: "http://purl.obolibrary.org/obo/NCBITaxon_",
+  // Cellosaurus cell-line accessions ship as ``cellosaurus:CVCL_0395``.
+  // The accession already carries its ``CVCL_`` prefix, so the base is
+  // just the site root → ``https://www.cellosaurus.org/CVCL_0395``.
+  cellosaurus: "https://www.cellosaurus.org/",
 };
+
+/** Cellosaurus cell-line link — ONLY for cell lines. Two shapes:
+ *   1. Term carries a ``CVCL_<digits>`` accession (``cellosaurus:CVCL_0395``,
+ *      a bare ``CVCL_0395``, a full cellosaurus URL, or the
+ *      ``cellosaurus:CVCL_1045:SX`` sex-provenance shape — the trailing
+ *      ``:SX`` is dropped) → the canonical page
+ *      ``https://www.cellosaurus.org/CVCL_0395``.
+ *   2. Cell Line Ontology term (``…/obo/CLO_0051454``, no CVCL id) → we
+ *      can't address a page, so fall back to a Cellosaurus site SEARCH by
+ *      the cell-line name (``label``): ``…/search?query=KGN``. Needs the
+ *      label; returns ``null`` without one.
+ *  Returns ``null`` for any term that isn't a cell line. */
+export function cellosaurusUrl(
+  uri: string | null | undefined,
+  label?: string | null,
+): string | null {
+  if (!uri) return null;
+  const m = uri.match(/CVCL_\d+/i);
+  if (m) return `https://www.cellosaurus.org/${m[0].toUpperCase()}`;
+  const name = (label ?? "").trim();
+  if (name && /\bCLO_\d+/i.test(uri)) {
+    return `https://www.cellosaurus.org/search?query=${encodeURIComponent(
+      name,
+    )}`;
+  }
+  return null;
+}
+
+/** EBI OLS4 link-out for an ontology term. Resolves the input to a full
+ *  IRI first (so a bare CURIE still lands an exact match), then hands OLS
+ *  the IRI with ``exactMatch`` so the curator opens the term itself, not
+ *  a fuzzy result list. Returns ``null`` for empty input. */
+export function olsUrl(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  const iri = curieToUrl(uri) ?? uri;
+  return `https://www.ebi.ac.uk/ols4/search?q=${encodeURIComponent(
+    iri,
+  )}&exactMatch=true`;
+}
 
 export function curieToUrl(uri: string | null | undefined): string | null {
   if (!uri) return null;

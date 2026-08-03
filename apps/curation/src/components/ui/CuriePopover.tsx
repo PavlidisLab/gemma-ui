@@ -28,7 +28,13 @@ import {
   useTermChildren,
   type TermChildren,
 } from "@/api/annotations";
-import { curieToUrl, ncbiGeneIdFromUri, shortenUri } from "@/lib/curie";
+import {
+  cellosaurusUrl,
+  curieToUrl,
+  ncbiGeneIdFromUri,
+  olsUrl,
+  shortenUri,
+} from "@/lib/curie";
 
 export interface CuriePopoverProps {
   uri: string;
@@ -433,19 +439,83 @@ function Body({
             {formatOntologyVersion(detail.uri, detail.ontologyVersion)}
           </span>
         ) : null}
-        {detail.canonicalUrl ? (
+        <TermLinkOuts
+          uri={detail.uri}
+          source={detail.source}
+          oboUrl={detail.canonicalUrl ?? curieToUrl(detail.uri)}
+          label={detail.label}
+        />
+      </div>
+    </>
+  );
+}
+
+/** External link-outs for a term, shown in the popover footer. One
+ *  "open in" label followed by the applicable targets — the label is
+ *  never repeated per link (design review 2026-08-02). Ontology terms
+ *  get OBO (canonical resolver) + OLS. **Cell lines** also get a
+ *  Cellosaurus link: a native Cellosaurus term (CVCL accession) gets
+ *  ONLY that (OBO/OLS don't host it), while a Cell-Line-Ontology term
+ *  (CLO) keeps OBO + OLS and adds a Cellosaurus name-search alongside.
+ *  NCBI genes keep their single Gene link. */
+function TermLinkOuts({
+  uri,
+  source,
+  oboUrl,
+  label,
+}: {
+  uri: string;
+  source?: string;
+  oboUrl: string | null;
+  label?: string | null;
+}) {
+  const linkCls =
+    "text-[10px] text-blue-700 hover:underline dark:text-blue-300";
+  if (source === "ncbi") {
+    return oboUrl ? (
+      <a
+        href={oboUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className={`ml-auto ${linkCls}`}
+      >
+        open in NCBI Gene ↗
+      </a>
+    ) : null;
+  }
+  const cvcl = cellosaurusUrl(uri, label);
+  const nativeCvcl = /CVCL_\d+/i.test(uri);
+  const links: Array<{ key: string; href: string; label: string }> = [];
+  if (nativeCvcl && cvcl) {
+    // Native Cellosaurus entity — OBO/OLS don't host it.
+    links.push({ key: "cvcl", href: cvcl, label: "Cellosaurus" });
+  } else {
+    if (oboUrl) links.push({ key: "obo", href: oboUrl, label: "OBO" });
+    const ols = olsUrl(uri);
+    if (ols) links.push({ key: "ols", href: ols, label: "OLS" });
+    // CLO cell line (or any cell line resolvable by name) → Cellosaurus.
+    if (cvcl) links.push({ key: "cvcl", href: cvcl, label: "Cellosaurus" });
+  }
+  if (links.length === 0) return null;
+  return (
+    <span className="ml-auto flex items-baseline gap-1 text-[10px] text-slate-400 dark:text-slate-500">
+      <span>open in</span>
+      {links.map((l, i) => (
+        <span key={l.key} className="flex items-baseline gap-1">
+          {i > 0 ? <span aria-hidden>·</span> : null}
           <a
-            href={detail.canonicalUrl}
+            href={l.href}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="ml-auto text-[10px] text-blue-700 hover:underline dark:text-blue-300"
+            className={linkCls}
           >
-            {detail.source === "ncbi" ? "open in NCBI Gene ↗" : "open in OBO ↗"}
+            {l.label} ↗
           </a>
-        ) : null}
-      </div>
-    </>
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -472,15 +542,7 @@ function NotInGemmaCta({
         Fetch from OLS
       </button>
       <div className="text-[10px] text-slate-400">
-        <a
-          href={curieToUrl(uri) ?? uri}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="hover:underline"
-        >
-          or open in OBO ↗
-        </a>
+        <TermLinkOuts uri={uri} oboUrl={curieToUrl(uri)} />
       </div>
     </div>
   );
@@ -492,15 +554,7 @@ function NotFound({ uri }: { uri: string }) {
       <div className="italic text-slate-500 dark:text-slate-400">
         Term not found.
       </div>
-      <a
-        href={curieToUrl(uri) ?? uri}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        className="text-[10px] text-blue-700 hover:underline dark:text-blue-300"
-      >
-        open in OBO ↗
-      </a>
+      <TermLinkOuts uri={uri} oboUrl={curieToUrl(uri)} />
     </div>
   );
 }
