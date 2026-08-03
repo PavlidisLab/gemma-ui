@@ -79,7 +79,7 @@ export const DEV_STAGE_AGE_RANGES: { organism: string; ranges: string }[] = [
   {
     organism: "mouse",
     ranges:
-      "Neonate P0-P9 · Infant P10-1mo · Juvenile 1-6/8wk · Prime Adult 6-8wk-1yr · Late Adult >1yr",
+      "Neonate P0-P9 · Infant P10-1mo · Juvenile 1mo-8wk · Prime Adult 8wk-1yr · Late Adult >1yr",
   },
   {
     organism: "rat",
@@ -190,6 +190,7 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
           "; ",
         ) +
         ". See the Developmental stages crib sheet for the same table.",
+      "Mouse Juvenile↔Prime-Adult boundary: 8 weeks (56 days) is the ADULT floor. Classify a cohort by its YOUNGEST age — `8wk` / `8-10wk` → prime adult; `7wk` / `6-8wk` (dips below 8wk) → juvenile. A straddling range takes the younger stage; don't leave it blank.",
       "Ranges: same prefix on both ends, space-dash-space (`1 week - 4 week`, `E10 - E12`).",
       "Exact ages: free text, attached via `has developmental stage` (TGEMO_00168) to the UBERON stage. E.g. `embryo stage + has developmental stage + E10`.",
       ...PRENATAL_STAGING_BULLETS,
