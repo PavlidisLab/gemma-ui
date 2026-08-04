@@ -943,14 +943,17 @@ function MainGrid({
   }
 
   function submitAgentRun(req: AgentRunRequest) {
-    // Reference the experiment by its GEO accession (what the store shows
-    // on the left — "GSE279439"), NOT the local store's numeric id. Gemma
-    // numbers datasets independently, so the local id ("51") resolves to
-    // nothing in Gemma ("no Gemma dataset matches reference='51'"). The
-    // accession is the stable cross-system reference the proposer resolves.
+    // Reference the experiment by its shortName (what the store shows on
+    // the left — "GSE279439"), NOT the local store's numeric id. The
+    // proposer resolves by shortName and confirms the resolved design's
+    // experiment_short_name == the reference; sending a bare accession can
+    // bind to a sibling sub-experiment (GSE123 vs GSE123.1) and be
+    // rejected. For a 1:1 GEO experiment shortName == accession. The
+    // numeric store id resolves to nothing ("no Gemma dataset matches
+    // reference='51'"), so it's only a last-ditch fallback.
     const accession =
-      draft?.external_source?.accession ||
       draft?.experiment_short_name ||
+      draft?.external_source?.accession ||
       String(experimentId);
     if (req.kind === "proposal") {
       // No tier / scope from the UI — the agent runs with its default
