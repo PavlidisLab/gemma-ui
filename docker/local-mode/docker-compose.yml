@@ -100,6 +100,12 @@ services:
       # Gemma instance, or GEMMA_BASE_URL=http://gemma-rest:8080 for
       # the self-contained Linux setup with --profile gemma).
       GEMMA_BASE_URL: ${GEMMA_BASE_URL:?GEMMA_BASE_URL must be set — e.g. https://gemma.example.org or http://gemma-rest:8080 with --profile gemma}
+      # Ontology-search host for the resolver's /rest/v2/annotations/search.
+      # SEPARATE knob from GEMMA_BASE_URL (usually the same value). The
+      # resolver REFUSES to fall back to GEMMA_CURATION_URL (the store has no
+      # annotation index), so the proposer service errors without this. Default
+      # to GEMMA_BASE_URL when unset so a single export configures both.
+      GEMMA_ONTOLOGY_URL: ${GEMMA_ONTOLOGY_URL:-${GEMMA_BASE_URL}}
       # Match local_api: gemma-rest admin credentials. Same defaults so
       # both services authenticate as the seeded ``groupadmin`` against
       # local-mode gemma-rest; both flip together for staging / prod.
