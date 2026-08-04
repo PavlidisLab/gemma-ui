@@ -21,6 +21,7 @@
 import { useEffect } from "react";
 import { cn } from "@/lib/cn";
 import type { ServiceStatus } from "@/api/health";
+import { useAgentConfig, type AgentConfig } from "@/api/agentConfig";
 
 export type AgentRunKind = "proposal" | "audit";
 export type AgentRunMode = "fresh" | "redo";
@@ -63,6 +64,12 @@ export function AgentRunDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, busy, onCancel]);
+
+  // The run isn't parameterized from the UI — instead the dialog
+  // ANNOUNCES the agent's resolved config (models + options) so the
+  // curator confirms the right setup before firing. Null until the
+  // agent exposes GET /config; the block just omits itself.
+  const { data: agentConfig } = useAgentConfig();
 
   if (!open) return null;
 
@@ -127,6 +134,8 @@ export function AgentRunDialog({
           </div>
         ) : null}
 
+        <AgentSettingsBlock config={agentConfig ?? null} />
+
         <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
           <button
             type="button"
@@ -151,6 +160,84 @@ export function AgentRunDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Format an option value for display: booleans as on/off, arrays as a
+ *  comma list, everything else stringified. */
+function formatConfigValue(v: unknown): string {
+  if (typeof v === "boolean") return v ? "on" : "off";
+  if (Array.isArray(v)) return v.map((x) => String(x)).join(", ");
+  if (v == null) return "—";
+  return String(v);
+}
+
+/** Read-only "what the agent will run with" block: per-stage models +
+ *  default options. Renders whatever the agent's ``GET /config`` reports
+ *  (keys become labels), so a new model stage or switch surfaces without
+ *  a UI change. Omits itself entirely when no config is available. */
+function AgentSettingsBlock({
+  config,
+}: {
+  config: AgentConfig | null;
+}): JSX.Element | null {
+  if (!config) return null;
+  const models = config.models
+    ? Object.entries(config.models).filter(([, v]) => !!v)
+    : [];
+  const options = config.options
+    ? Object.entries(config.options).filter(([, v]) => v != null)
+    : [];
+  if (models.length === 0 && options.length === 0 && !config.agent_version) {
+    return null;
+  }
+  return (
+    <div className="rounded border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 p-2 text-xs space-y-1.5">
+      <div className="flex items-baseline gap-2">
+        <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300">
+          Agent settings
+        </span>
+        {config.agent_version ? (
+          <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500 truncate">
+            {config.agent_version}
+          </span>
+        ) : null}
+      </div>
+      {models.length > 0 ? (
+        <div>
+          <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
+            Models
+          </div>
+          <dl className="grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5">
+            {models.map(([stage, model]) => (
+              <div key={stage} className="contents">
+                <dt className="text-slate-500 dark:text-slate-400">{stage}</dt>
+                <dd className="font-mono text-slate-700 dark:text-slate-200 truncate">
+                  {model}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+      {options.length > 0 ? (
+        <div>
+          <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">
+            Options
+          </div>
+          <dl className="grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5">
+            {options.map(([key, val]) => (
+              <div key={key} className="contents">
+                <dt className="text-slate-500 dark:text-slate-400">{key}</dt>
+                <dd className="text-slate-700 dark:text-slate-200">
+                  {formatConfigValue(val)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -283,6 +283,14 @@ export default defineConfig(({ mode }) => {
           target: PROPOSER_URL,
           changeOrigin: true,
         },
+        // Agent config announce — GET /config reports the resolved
+        // models + default options the AgentRunDialog surfaces for
+        // confirmation. AGENT-PENDING (handoff AGENT_CONFIG_ANNOUNCE);
+        // 404s harmlessly until the agent ships it.
+        "/config": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
         "/audit": {
           target: PROPOSER_URL,
           changeOrigin: true,
