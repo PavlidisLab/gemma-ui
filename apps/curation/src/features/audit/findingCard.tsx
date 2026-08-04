@@ -52,6 +52,8 @@ import type {
   NotSureReason,
 } from "@/api/auditTypes";
 import { isAgentExtraIssue } from "@/api/auditTypes";
+import { BossReviewSection } from "./BossAnnotation";
+import type { GroupedBossReview } from "./bossCriticGrouping";
 import type { Design } from "@/features/experiment/types";
 
 import { useAudit, findingKey } from "./AuditContext";
@@ -181,7 +183,16 @@ export function PanelExpansionCycleButton({
 // CompactFindingCard — the card shell + header + body + action row
 // ---------------------------------------------------------------------------
 
-export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
+export function CompactFindingCard({
+  finding,
+  bossReviews,
+}: {
+  finding: AuditFinding;
+  /** Boss-critic verdicts anchored to this finding's element — rendered
+   *  as a collapsed-by-default section INSIDE the card so the boss
+   *  commentary stays with the proposal it's about. */
+  bossReviews?: GroupedBossReview[];
+}) {
   // Disposition state comes from context (server-authoritative for
   // live reports; in-memory for dev override). The card reads to
   // tint dismissed findings; the action row inside it does the writes.
@@ -928,6 +939,18 @@ export function CompactFindingCard({ finding }: { finding: AuditFinding }) {
           details so the curator reads the justification then drops
           straight onto the buttons. Collapses with the card. */}
       {cardOpen ? <FindingActionRow finding={finding} /> : null}
+      {/* Boss-critic verdicts for this element — collapsed-by-default
+          section INSIDE the card so the boss's commentary stays with the
+          proposal it's about. Auto-opens on a blocker so an escalation
+          isn't hidden behind a click. Stays visible even when the card
+          body is collapsed — it's its own toggle. */}
+      {bossReviews && bossReviews.length > 0 ? (
+        <BossReviewSection
+          reviews={bossReviews}
+          variant="nested"
+          autoOpen={bossReviews.some((g) => g.severity === "blocker")}
+        />
+      ) : null}
     </div>
   );
 }

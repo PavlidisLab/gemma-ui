@@ -947,6 +947,25 @@ export interface BossCriticReview {
   verdict: string;
   /** First sentence of the verdict, sentence-boundary truncated. */
   brief: string;
+  /** Stable grouping key = ``(normalized target_id, issue_code)``.
+   *  AGENT-PENDING (handoff BOSS_CRITIC_REVIEW_PRESENTATION_2026_08_03):
+   *  when present, the UI groups the review feed on this key so the
+   *  per-round collapse is a deterministic groupby instead of a
+   *  target_id heuristic (a single target can legitimately carry two
+   *  distinct issues). Absent on every package to date — the UI falls
+   *  back to ``target_id`` as the group key. */
+  finding_key?: string | null;
+  /** AGENT-PENDING: the latest round's verdict for a ``finding_key`` is
+   *  the OUTCOME the curator acts on; earlier rounds are the agent's
+   *  reasoning. When present, the UI shows the ``is_final`` verdict and
+   *  tucks the round history behind an expander. Absent → the UI treats
+   *  the highest-``round`` review in the group as final. */
+  is_final?: boolean | null;
+  /** AGENT-PENDING: on a superseded (non-final) round, points at the
+   *  ``finding_key`` of the verdict that replaced it. Informational —
+   *  the UI already reconstructs the progression from the grouped
+   *  ``round`` order. */
+  superseded_by?: string | null;
 }
 
 export interface AuditEvidence {

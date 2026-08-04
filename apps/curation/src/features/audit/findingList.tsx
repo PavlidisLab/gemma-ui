@@ -46,6 +46,13 @@ import {
 } from "@/api/pipelineCommentary";
 import { EscalationBanner } from "./EscalationBanner";
 import { BossReviewPanel } from "./BossReviewPanel";
+import { BossReviewSection } from "./BossAnnotation";
+import {
+  bossMatchesFinding,
+  bossSectionKind,
+  groupBossReviews,
+  type GroupedBossReview,
+} from "./bossCriticGrouping";
 import { PipelineAuditTrail } from "./PipelineAuditTrail";
 
 // ---------------------------------------------------------------------------
@@ -581,15 +588,32 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
     { kind: "experiment",     header: "Experiment" },
   ];
 
+  // Boss-critic review feed → grouped verdicts (round-collapsed +
+  // deduped), then partitioned by scope: ``design`` verdicts stay in the
+  // top BossReviewPanel; ``factor`` / ``fv`` / ``tag`` verdicts route
+  // inline into their finding section as a BossReviewSection. One
+  // ``groupBossReviews`` call feeds both surfaces so the collapse is
+  // computed once. Handoff BOSS_CRITIC_REVIEW_PRESENTATION_2026_08_03.
+  const bossGroups = groupBossReviews(report?.evidence?.boss_critic_reviews);
+  const bossDesignGroups = bossGroups.filter(
+    (g) => g.scopeKind === "design" || g.scopeKind === "other",
+  );
+  const bossRoutedGroups = bossGroups.filter(
+    (g) => bossSectionKind(g.scopeKind) !== null,
+  );
+  const bossRoutedForKind = (kind: AuditTargetKind): GroupedBossReview[] =>
+    bossRoutedGroups.filter((g) => bossSectionKind(g.scopeKind) === kind);
+
   // Section-visibility precompute — used both by the renderers below
   // and by the empty-state detector at the foot of this view.
   // `hasAnyVisible` covers every section that would normally surface a
   // finding card (per-kind actionable + matches, orphan matches,
-  // ok-toggle), so when it's false the body would otherwise be silent.
+  // routed boss annotations, ok-toggle), so when it's false the body
+  // would otherwise be silent.
   const hasGroupContent = GROUPS.some(({ kind: k }) => {
     const items = groupedActionable.get(k) ?? [];
     const matchesForKind = visibleMatches.filter((m) => m.target_kind === k);
-    return items.length + matchesForKind.length > 0;
+    return items.length + matchesForKind.length + bossRoutedForKind(k).length > 0;
   });
   const knownKindsForOrphan = new Set(GROUPS.map((g) => g.kind));
   const orphanMatches = visibleMatches.filter(
@@ -598,6 +622,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   const hasAnyVisible =
     hasGroupContent ||
     orphanMatches.length > 0 ||
+    bossDesignGroups.length > 0 ||
     visibleOk.length > 0;
 
   // Per-disposition rollup for the summary line — proposal kind frames
@@ -668,14 +693,15 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
         text={readCommentaryString(report?.evidence, "experiment_summary")}
       />
       {/* Experiment-level boss-critic review — gold-blind LLM
-          commentary scoped to the whole agent emission. Renders the
-          list once here instead of being fanned out per-card (the
-          v0.14.2-.4 fan-out duplicated the same paragraph across
-          every factor / tag card and read as noise; per design review
-          2026-06-16 ticket-60 walkthrough). Suppresses entirely
-          when the list is empty / absent. */}
+          commentary. Only the WHOLE-DESIGN verdicts render here now;
+          factor / FV / tag verdicts route inline onto their finding
+          section (handoff BOSS_CRITIC_REVIEW_PRESENTATION_2026_08_03).
+          The header still shows the experiment-wide severity tally + a
+          pointer to the routed count. Suppresses entirely when there's
+          no design verdict AND nothing routed. */}
       <BossReviewPanel
-        reviews={report?.evidence?.boss_critic_reviews}
+        designGroups={bossDesignGroups}
+        routedGroups={bossRoutedGroups}
       />
       {/* Summary header — always visible. Frames the body content
           ("N findings — X open, Y already triaged, Z noted") so a
@@ -721,7 +747,39 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
         const matchesForKind = visibleMatches.filter(
           (m) => m.target_kind === groupKind,
         );
-        if (items.length === 0 && matchesForKind.length === 0) return null;
+        // Boss-critic verdicts routed to this section. Each attaches
+        // under the finding card it's about (first slug match wins);
+        // any without a matching card render standalone at the section
+        // tail so a boss verdict about a factor with no finding still
+        // lands WITH that factor, not back in the top panel.
+        const bossForKind = bossRoutedForKind(groupKind);
+        if (
+          items.length === 0 &&
+          matchesForKind.length === 0 &&
+          bossForKind.length === 0
+        )
+          return null;
+        const cardFindings = [...items, ...matchesForKind];
+        const bossByFindingKey = new Map<string, GroupedBossReview[]>();
+        const matchedBossKeys = new Set<string>();
+        for (const g of bossForKind) {
+          const hit = cardFindings.find((f) => bossMatchesFinding(g, f));
+          if (!hit) continue;
+          const fk = `${hit.target_kind}:${hit.target_id}:${hit.issue_code}`;
+          const arr = bossByFindingKey.get(fk) ?? [];
+          arr.push(g);
+          bossByFindingKey.set(fk, arr);
+          matchedBossKeys.add(g.key);
+        }
+        const bossUnmatched = bossForKind.filter(
+          (g) => !matchedBossKeys.has(g.key),
+        );
+        // The matched boss verdicts for a given finding card — passed into
+        // the card so they render as a collapsible section INSIDE it.
+        const bossFor = (f: AuditFinding): GroupedBossReview[] | undefined =>
+          bossByFindingKey.get(
+            `${f.target_kind}:${f.target_id}:${f.issue_code}`,
+          );
         // Loading caption — only worth surfacing on the factor group
         // because that's where the rename / partition-mismatch cards
         // live (they're the cards that depend on the slow /curations
@@ -760,11 +818,13 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
                   rightLabel={comparatorLabel}
                   baselineSource={chip.baseline}
                   comparatorSource={chip.comparator}
+                  bossReviews={bossFor(f)}
                 />
               ) : (
                 <CompactFindingCard
                   key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
                   finding={f}
+                  bossReviews={bossFor(f)}
                 />
               ),
             )}
@@ -786,14 +846,26 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
                   rightLabel={comparatorLabel}
                   baselineSource={chip.baseline}
                   comparatorSource={chip.comparator}
+                  bossReviews={bossFor(f)}
                 />
               ) : (
                 <CompactFindingCard
                   key={`${f.target_kind}:${f.target_id}:${f.issue_code}`}
                   finding={f}
+                  bossReviews={bossFor(f)}
                 />
               ),
             )}
+            {/* Boss-critic verdicts for this section with no matching
+                finding card — one collapsible standalone block so they
+                still land in the right section. */}
+            {bossUnmatched.length > 0 ? (
+              <BossReviewSection
+                reviews={bossUnmatched}
+                variant="standalone"
+                autoOpen={bossUnmatched.some((g) => g.severity === "blocker")}
+              />
+            ) : null}
           </div>
         );
       })}

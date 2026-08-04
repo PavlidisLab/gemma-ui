@@ -1,0 +1,75 @@
+{
+  "_comment": "FIXTURE — the boss-critic round-collapse metadata that BOSS_CRITIC_REVIEW_PRESENTATION_2026_08_03 asks the panel to group on. Shape = evidence.comparisonProposal.evidence.bossCriticReviews[] as a real package emits it (camelCase, pre-UI-normalization). Case = GSE315061 (oxymatrine), the ad-hoc ticket Paul was reviewing. Exercises: (a) a factor finding that goes blocker(r1)->advisory(r2), collapsing to ONE final advisory card [findingKey factor:treatment::F11]; (b) the per-round overall-verdict row collapsing to the final round [findingKey design::__OVERALL__]; (c) two DISTINCT design-level issues on the same targetId 'design' that must NOT merge because their findingKey differs (D_SCAN_ANCHOR vs D_CONSTANT_PROMOTE); (d) a round-1-only design blocker that has no successor and stays final (the 'unresolved' case); (e) a single-round FV relabel, trivially final. Every isFinal:false row shares a findingKey with an isFinal:true row of a higher round. Produced by the agent-side change of 2026-08-03 (findingKey/round/isFinal/supersededBy). NB supersededBy carries the WINNING ROUND's subtask id (boss_critic_round_2), pinning which round replaced this one; the UI can equivalently reconstruct from round order within the findingKey group.",
+  "bossCriticReviews": [
+    {
+      "targetId": "design",
+      "round": 1,
+      "severity": "blocker",
+      "verdict": "Overall: the treatment factor's compound arms are not anchored by any varying axis in the scan (0 varying axes over the profiled samples) and several look fabricated. Blocking pending a re-run that either grounds them to real per-sample assignments or drops them.",
+      "brief": "Overall: the treatment factor's compound arms are not anchored by any varying axis in the scan.",
+      "findingKey": "design::__OVERALL__",
+      "isFinal": false,
+      "supersededBy": "boss_critic_round_2"
+    },
+    {
+      "targetId": "factor:treatment",
+      "round": 1,
+      "severity": "blocker",
+      "verdict": "The treatment factor lists five compounds (oxymatrine, berberine, N-feruloylserotonin, cepharanthine, +OXT) but the structural scan exposes 0 varying axes across the profiled samples — no per-sample axis distinguishes these arms. As emitted the arms are unsupported by the data and read as fabricated.\n\nSuggested fix: Drop the compound arms that no per-sample axis supports, or ground each to the samples that ARE it.",
+      "brief": "The treatment factor lists five compounds but the structural scan exposes 0 varying axes across the profiled samples.",
+      "findingKey": "factor:treatment::F11",
+      "isFinal": false,
+      "supersededBy": "boss_critic_round_2"
+    },
+    {
+      "targetId": "design",
+      "round": 1,
+      "severity": "blocker",
+      "verdict": "All 6 treatment FVs fail the scan-anchor check: none maps to a distinct set of profiled samples. A design whose only factor cannot be tied to the sample partition is not usable for downstream DEA.",
+      "brief": "All 6 treatment FVs fail the scan-anchor check: none maps to a distinct set of profiled samples.",
+      "findingKey": "design::D_SCAN_ANCHOR",
+      "isFinal": true,
+      "supersededBy": ""
+    },
+    {
+      "targetId": "design",
+      "round": 1,
+      "severity": "advisory",
+      "verdict": "Two ontology-grounded characteristics are constant across every sample (organism = Mus musculus; tissue = liver) but were not promoted to whole-experiment tags.",
+      "brief": "Two ontology-grounded characteristics are constant across every sample but were not promoted to whole-experiment tags.",
+      "findingKey": "design::D_CONSTANT_PROMOTE",
+      "isFinal": true,
+      "supersededBy": ""
+    },
+    {
+      "targetId": "fv:treatment/oxymatrine",
+      "round": 1,
+      "severity": "advisory",
+      "verdict": "The FV labelled 'oxymatrine' carries a subject grounded to `Ammothamnine` (CHEBI_2672) — a synonym mis-label of the same compound. Relabel the subject to `oxymatrine` so the surface label and the grounded term agree.",
+      "brief": "The FV labelled 'oxymatrine' carries a subject grounded to Ammothamnine (CHEBI_2672) — a synonym mis-label.",
+      "findingKey": "fv:treatment/oxymatrine::E_SYNONYM",
+      "isFinal": true,
+      "supersededBy": ""
+    },
+    {
+      "targetId": "design",
+      "round": 2,
+      "severity": "advisory",
+      "verdict": "Re-run kept the same compound arms. On re-review the LLM title-binding does support the compounds from the paper title/abstract even though the scan shows 0 varying axes; the paper also names WAY267464 / LIT001, an unresolved mismatch. Downgrading from blocker to advisory — surface to the curator, do not loop.",
+      "brief": "Re-run kept the same compound arms; LLM title-binding supports them despite 0 varying axes. Downgrading to advisory.",
+      "findingKey": "design::__OVERALL__",
+      "isFinal": true,
+      "supersededBy": ""
+    },
+    {
+      "targetId": "factor:treatment",
+      "round": 2,
+      "severity": "advisory",
+      "verdict": "The compounds (oxymatrine, berberine, N-feruloylserotonin, cepharanthine, +OXT) remain unsupported by the scan (0 varying axes) but the LLM title-binding backs them; the paper names WAY267464 / LIT001 — unresolved mismatch. Surface to the curator rather than re-run again.",
+      "brief": "The compounds remain unsupported by the scan but LLM title-binding backs them; paper names WAY267464 / LIT001.",
+      "findingKey": "factor:treatment::F11",
+      "isFinal": true,
+      "supersededBy": ""
+    }
+  ]
+}

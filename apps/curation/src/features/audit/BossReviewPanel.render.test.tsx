@@ -2,21 +2,31 @@
  * @vitest-environment jsdom
  *
  * Render-time regression tests for BossReviewPanel — the top-of-
- * experiment slot the reviewer moved the boss-critic surface into on
- * 2026-06-16 (after the fan-out spam complaint). Pins:
- *   - suppresses entirely on empty / missing input
- *   - severity chip counts ("1 blocker · 2 advisory") render
- *   - the "Round 1 only — proposer didn't re-evaluate" note fires
- *     when blockers exist but no higher round did
- *   - per-row scope label renders "Whole design" / "Factor: <cat>" /
- *     "Tag: <cat> : <val>" forms instead of raw target_ids
+ * experiment slot, now the DESIGN-scoped slice of the boss-critic feed
+ * (handoff BOSS_CRITIC_REVIEW_PRESENTATION_2026_08_03). Factor / FV /
+ * tag verdicts route inline onto their finding section (tested via
+ * ``bossCriticGrouping`` + ``findingList``); this panel renders the
+ * whole-design verdicts plus an experiment-wide severity tally.
+ *
+ * Pins:
+ *   - suppresses entirely when there's no design verdict AND nothing routed
+ *   - the experiment-wide severity tally spans design + routed groups
+ *   - the "Round 1 only — proposer didn't re-evaluate" note fires on an
+ *     unresolved design blocker
+ *   - design rows render "Whole design"; routed groups surface a
+ *     "N on factors …" pointer instead of their bodies
  */
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { BossCriticReview } from "@/api/auditTypes";
 import { BossReviewPanel } from "./BossReviewPanel";
+import {
+  bossSectionKind,
+  groupBossReviews,
+  type GroupedBossReview,
+} from "./bossCriticGrouping";
 
-function row(overrides: Partial<BossCriticReview> = {}): BossCriticReview {
+function rev(overrides: Partial<BossCriticReview> = {}): BossCriticReview {
   return {
     target_id: "design",
     round: 1,
@@ -27,32 +37,40 @@ function row(overrides: Partial<BossCriticReview> = {}): BossCriticReview {
   };
 }
 
+/** Build the {design, routed} split the panel takes, the same way
+ *  findingList does. */
+function split(reviews: BossCriticReview[]): {
+  designGroups: GroupedBossReview[];
+  routedGroups: GroupedBossReview[];
+} {
+  const groups = groupBossReviews(reviews);
+  return {
+    designGroups: groups.filter(
+      (g) => g.scopeKind === "design" || g.scopeKind === "other",
+    ),
+    routedGroups: groups.filter((g) => bossSectionKind(g.scopeKind) !== null),
+  };
+}
+
 describe("BossReviewPanel — empty-state", () => {
-  it("renders nothing when reviews is null", () => {
-    const { container } = render(<BossReviewPanel reviews={null} />);
-    expect(container.firstChild).toBeNull();
-  });
-  it("renders nothing when reviews is undefined", () => {
-    const { container } = render(<BossReviewPanel reviews={undefined} />);
-    expect(container.firstChild).toBeNull();
-  });
-  it("renders nothing when reviews is empty array", () => {
-    const { container } = render(<BossReviewPanel reviews={[]} />);
+  it("renders nothing when there are no groups", () => {
+    const { container } = render(
+      <BossReviewPanel designGroups={[]} routedGroups={[]} />,
+    );
     expect(container.firstChild).toBeNull();
   });
 });
 
 describe("BossReviewPanel — severity counts", () => {
-  it("renders one chip per severity present, with counts", () => {
+  it("tallies design + routed groups in the experiment-wide chips", () => {
+    const { designGroups, routedGroups } = split([
+      rev({ target_id: "design", severity: "blocker" }),
+      rev({ target_id: "factor:age", severity: "advisory" }),
+      rev({ target_id: "factor:sex", severity: "advisory" }),
+      rev({ target_id: "tag:cell-type|astrocyte", severity: "ok" }),
+    ]);
     render(
-      <BossReviewPanel
-        reviews={[
-          row({ target_id: "design", severity: "blocker" }),
-          row({ target_id: "factor:age", severity: "advisory" }),
-          row({ target_id: "factor:sex", severity: "advisory" }),
-          row({ target_id: "tag:cell-type|astrocyte", severity: "ok" }),
-        ]}
-      />,
+      <BossReviewPanel designGroups={designGroups} routedGroups={routedGroups} />,
     );
     expect(screen.getByText(/1\s+blocker/i)).toBeInTheDocument();
     expect(screen.getByText(/2\s+advisory/i)).toBeInTheDocument();
@@ -61,38 +79,25 @@ describe("BossReviewPanel — severity counts", () => {
 });
 
 describe("BossReviewPanel — unresolved-blocker note", () => {
-  it("shows the 'Round 1 only' note when blockers exist and no higher round did", () => {
+  it("shows the 'Round 1 only' note for an unresolved design blocker", () => {
+    const { designGroups, routedGroups } = split([
+      rev({ target_id: "design", severity: "blocker", round: 1 }),
+    ]);
     render(
-      <BossReviewPanel
-        reviews={[
-          row({ target_id: "design", severity: "blocker", round: 1 }),
-        ]}
-      />,
+      <BossReviewPanel designGroups={designGroups} routedGroups={routedGroups} />,
     );
     expect(
       screen.getByText(/proposer didn't re-evaluate/i),
     ).toBeInTheDocument();
   });
 
-  it("suppresses the note when a round-2 entry exists for the blocker target", () => {
+  it("suppresses the note when a round-2 entry resolved the blocker", () => {
+    const { designGroups, routedGroups } = split([
+      rev({ target_id: "design", severity: "blocker", round: 1 }),
+      rev({ target_id: "design", severity: "ok", round: 2 }),
+    ]);
     render(
-      <BossReviewPanel
-        reviews={[
-          row({ target_id: "design", severity: "blocker", round: 1 }),
-          row({ target_id: "design", severity: "ok", round: 2 }),
-        ]}
-      />,
-    );
-    expect(
-      screen.queryByText(/proposer didn't re-evaluate/i),
-    ).toBeNull();
-  });
-
-  it("suppresses the note when only OK rows are present", () => {
-    render(
-      <BossReviewPanel
-        reviews={[row({ target_id: "design", severity: "ok", round: 1 })]}
-      />,
+      <BossReviewPanel designGroups={designGroups} routedGroups={routedGroups} />,
     );
     expect(
       screen.queryByText(/proposer didn't re-evaluate/i),
@@ -100,34 +105,34 @@ describe("BossReviewPanel — unresolved-blocker note", () => {
   });
 });
 
-describe("BossReviewPanel — scope labels", () => {
-  it("renders target_ids as curator-readable scope labels", () => {
+describe("BossReviewPanel — design rows + routed pointer", () => {
+  it("renders the design verdict as a 'Whole design' row", () => {
+    const { designGroups, routedGroups } = split([
+      rev({ target_id: "design", severity: "blocker" }),
+    ]);
     render(
-      <BossReviewPanel
-        reviews={[
-          row({ target_id: "design" }),
-          row({ target_id: "factor:age" }),
-          row({ target_id: "tag:cell type|astrocyte" }),
-          row({ target_id: "tag:14" }),
-        ]}
-      />,
+      <BossReviewPanel designGroups={designGroups} routedGroups={routedGroups} />,
     );
     expect(screen.getByText(/Whole design/)).toBeInTheDocument();
-    expect(screen.getByText(/Factor: age/)).toBeInTheDocument();
-    expect(screen.getByText(/Tag: cell type : astrocyte/)).toBeInTheDocument();
-    expect(screen.getByText(/Tag #14/)).toBeInTheDocument();
   });
 
-  it("flags the row as 'proposer didn't address' when it's the unresolved blocker", () => {
+  it("points at the routed count instead of rendering routed bodies", () => {
+    const { designGroups, routedGroups } = split([
+      rev({ target_id: "design", severity: "blocker" }),
+      rev({
+        target_id: "factor:age",
+        severity: "advisory",
+        verdict: "AGE VERDICT BODY should not appear in the panel",
+      }),
+    ]);
     render(
-      <BossReviewPanel
-        reviews={[
-          row({ target_id: "design", severity: "blocker", round: 1 }),
-        ]}
-      />,
+      <BossReviewPanel designGroups={designGroups} routedGroups={routedGroups} />,
     );
+    // The routed factor verdict's prose stays out of the panel...
     expect(
-      screen.getByText(/proposer didn't address/i),
-    ).toBeInTheDocument();
+      screen.queryByText(/AGE VERDICT BODY/),
+    ).toBeNull();
+    // ...but its count is pointed at.
+    expect(screen.getByText(/1 on factor/i)).toBeInTheDocument();
   });
 });

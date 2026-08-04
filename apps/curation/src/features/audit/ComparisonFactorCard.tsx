@@ -42,6 +42,8 @@ import type {
 } from "@/api/auditTypes";
 import { FindingRecommendation } from "./FindingRecommendation";
 import { FindingReasoningPanel } from "./findingReasoningPanel";
+import { BossReviewSection } from "./BossAnnotation";
+import type { GroupedBossReview } from "./bossCriticGrouping";
 import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
@@ -413,6 +415,10 @@ export interface ComparisonFactorCardProps {
   /** Drift-card action: keep the displayed factor as-is and hide
    *  this card. Renders a "Keep" button alongside Remove when set. */
   onKeepFactor?: () => void;
+  /** Boss-critic verdicts anchored to this factor (and its FVs) —
+   *  rendered as a collapsed-by-default section INSIDE the card so the
+   *  boss commentary stays with the proposal. */
+  bossReviews?: GroupedBossReview[];
 }
 
 /** The card itself. Pulls baseline (Polished Gemma) from the design and
@@ -432,6 +438,7 @@ export function ComparisonFactorCard({
   readOnly: readOnlyProp,
   onRemoveFactor,
   onKeepFactor,
+  bossReviews,
 }: ComparisonFactorCardProps) {
   const { report, experimentId, setDisposition, dispositionByTarget } =
     useAudit();
@@ -1567,6 +1574,17 @@ export function ComparisonFactorCard({
             </div>
           ) : null}
         </>
+      ) : null}
+      {/* Boss-critic verdicts for this factor (+ its FVs) — collapsed
+          section INSIDE the card so the commentary stays with the
+          proposal. Its own toggle; visible even when the card body is
+          collapsed. */}
+      {bossReviews && bossReviews.length > 0 ? (
+        <BossReviewSection
+          reviews={bossReviews}
+          variant="nested"
+          autoOpen={bossReviews.some((g) => g.severity === "blocker")}
+        />
       ) : null}
     </div>
   );
