@@ -747,7 +747,7 @@ function parseOlsTerm(
     label,
     definition,
     parents: [],
-    synonyms: [],
+    synonyms: parseOlsSynonyms(t, label),
     alternativeIds: [],
     xrefs: [],
     ontologyVersion: null,
@@ -755,4 +755,90 @@ function parseOlsTerm(
     source: "ols",
     canonicalUrl: `https://www.ebi.ac.uk/ols4/search?q=${encodeURIComponent(uri)}`,
   };
+}
+
+/** Extract synonyms from an OLS4 term record. OLS ships plain-string
+ *  ``synonyms`` and scoped ``obo_synonym`` objects (``{name, scope}``);
+ *  merge both, dedupe case-insensitively, and drop the one that just
+ *  repeats the primary label. */
+export function parseOlsSynonyms(
+  t: Record<string, unknown>,
+  label: string,
+): TermSynonym[] {
+  const out: TermSynonym[] = [];
+  const seen = new Set<string>();
+  const labelKey = label.trim().toLowerCase();
+  const push = (value: string, type: string) => {
+    const v = value.trim();
+    if (!v) return;
+    const key = v.toLowerCase();
+    if (key === labelKey || seen.has(key)) return;
+    seen.add(key);
+    out.push({ value: v, type });
+  };
+  const plain = t.synonyms;
+  if (Array.isArray(plain)) {
+    for (const s of plain) if (typeof s === "string") push(s, "");
+  }
+  const obo = t.obo_synonym;
+  if (Array.isArray(obo)) {
+    for (const s of obo) {
+      if (!s || typeof s !== "object") continue;
+      const o = s as { name?: unknown; scope?: unknown };
+      if (typeof o.name === "string") {
+        push(o.name, typeof o.scope === "string" ? o.scope : "");
+      }
+    }
+  }
+  return out;
+}
+
+const OLS_SYNONYMS_KEY = (uri: string | null) =>
+  ["annotations-synonyms-ols", uri ?? ""] as const;
+
+/** Lazy, always-on OLS side-fetch for a term's synonyms — mirrors
+ *  ``useTermChildren``. Gemma's ``/annotations/term`` ships synonyms for
+ *  some terms but not others (CHEBI compounds routinely arrive with
+ *  none), so the popover fills the gap from OLS in parallel with the
+ *  primary lookup. Never blocks the card; the synonyms line just fills in
+ *  when it resolves, and only when the primary source shipped none. */
+export function useTermSynonyms(
+  uri: string | null | undefined,
+  enabled: boolean,
+) {
+  return useQuery<TermSynonym[]>({
+    queryKey: OLS_SYNONYMS_KEY(uri ?? null),
+    queryFn: async () => {
+      if (!uri) return [];
+      const iri = curieToUrl(uri) ?? uri;
+      const params = new URLSearchParams({
+        iri,
+        rows: "1",
+        fieldList: "label,synonym,obo_synonym",
+      });
+      const url = `https://www.ebi.ac.uk/ols4/api/terms?${params.toString()}`;
+      try {
+        const resp = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!resp.ok) return [];
+        const json = await resp.json();
+        const root = json as { _embedded?: { terms?: unknown[] } };
+        const terms = root._embedded?.terms ?? [];
+        if (!Array.isArray(terms) || terms.length === 0) return [];
+        const t = terms[0] as Record<string, unknown>;
+        const label =
+          typeof t.label === "string"
+            ? t.label
+            : Array.isArray(t.label)
+              ? (t.label[0] as string)
+              : "";
+        return parseOlsSynonyms(t, label);
+      } catch {
+        return [];
+      }
+    },
+    // Synonyms are immutable per ontology release — hold a day.
+    staleTime: 1000 * 60 * 60 * 24,
+    gcTime: 1000 * 60 * 60 * 24,
+    enabled: !!uri && enabled,
+  });
 }

@@ -3,6 +3,7 @@ import {
   orderCandidatesByTaxon,
   parseGemmaChildren,
   parseGemmaTerm,
+  parseOlsSynonyms,
   type AnnotationCandidate,
 } from "./annotations";
 
@@ -214,5 +215,33 @@ describe("parseGemmaChildren", () => {
     expect(parseGemmaChildren({ error: "boom" })).toBeNull();
     expect(parseGemmaChildren(null)).toBeNull();
     expect(parseGemmaChildren("nope")).toBeNull();
+  });
+});
+
+describe("parseOlsSynonyms", () => {
+  it("merges plain + obo_synonym, dedupes, and drops the label", () => {
+    const syns = parseOlsSynonyms(
+      {
+        synonyms: ["oxymatrine", "Matrine oxide"],
+        obo_synonym: [
+          { name: "matrine oxide", scope: "hasExactSynonym" }, // dup of above (case)
+          { name: "Sophocarpine N-oxide", scope: "hasRelatedSynonym" },
+          { name: "Ammothamnine" }, // repeats the primary label — dropped
+        ],
+      },
+      "Ammothamnine",
+    );
+    expect(syns.map((s) => s.value)).toEqual([
+      "oxymatrine",
+      "Matrine oxide",
+      "Sophocarpine N-oxide",
+    ]);
+    expect(syns.find((s) => s.value === "Sophocarpine N-oxide")?.type).toBe(
+      "hasRelatedSynonym",
+    );
+  });
+
+  it("returns an empty list when the term ships no synonyms", () => {
+    expect(parseOlsSynonyms({ label: "x" }, "x")).toEqual([]);
   });
 });

@@ -19,13 +19,14 @@
  * element so the underlying card (audit row, FV picker, …) doesn't
  * react to popover clicks.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   useGemmaTerm,
   useNcbiGene,
   useOlsTerm,
   useTermChildren,
+  useTermSynonyms,
   type TermChildren,
 } from "@/api/annotations";
 import {
@@ -81,6 +82,10 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // children). Runs in parallel with the primary lookup so it never
   // delays the card; the children line just fills in when it resolves.
   const childrenQ = useTermChildren(activeUri, !isNcbiGene);
+  // Synonyms side-fetch — Gemma's term payload ships synonyms for some
+  // terms but not others; fill the gap from OLS in parallel, used only
+  // when the primary source shipped none.
+  const synonymsQ = useTermSynonyms(activeUri, !isNcbiGene);
 
   const gemmaDone = !gemma.isLoading;
   const gemmaHit = !!gemma.data;
@@ -95,9 +100,21 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // Gemma stays the primary source when it knows the term (don't
   // surprise the curator by switching sources after they didn't ask);
   // fall back to a cached/just-fetched OLS result only when Gemma misses.
-  const detail = isNcbiGene
+  const detailRaw = isNcbiGene
     ? ncbi.data ?? null
     : gemma.data ?? (olsHit ? ols.data : null);
+  const sideSynonyms = synonymsQ.data;
+  // Backfill synonyms from the OLS side-fetch when the primary source
+  // (usually Gemma) shipped none — so a curator seeing "Ammothamnine"
+  // still gets "oxymatrine, matrine oxide, …" rather than a bare card.
+  // Memoized so the backfilled object keeps a stable identity across
+  // renders (a positioning effect depends on it).
+  const detail = useMemo(() => {
+    if (detailRaw && detailRaw.synonyms.length === 0 && (sideSynonyms?.length ?? 0) > 0) {
+      return { ...detailRaw, synonyms: sideSynonyms! };
+    }
+    return detailRaw;
+  }, [detailRaw, sideSynonyms]);
   // Show the CTA only when Gemma missed AND we have no OLS result yet.
   // ``!olsRequested`` keeps the CTA from flashing back during the
   // in-flight fetch (before ``ols.data`` resolves).
