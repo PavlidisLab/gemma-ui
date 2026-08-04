@@ -121,15 +121,15 @@ test.describe("Audit sidebar — agree + disposition flow @live", () => {
 
     // Either we see the empty state OR finding cards are already loaded.
     const emptyBody = page.getByText(/No audits on this experiment yet/i);
-    const loadBtn = page.getByRole("button", { name: /Load fixture audit/i });
     const cardsBtns = page
       .getByRole("button", { name: /expand card|collapse card/i });
 
     const hasCards = (await cardsBtns.count()) > 0;
     if (!hasCards) {
-      // Fresh DB — empty state should be visible.
+      // Fresh DB — the empty state should be visible. (The former dev
+      // "Load fixture audit" button was removed 2026-08-03; findings now
+      // come only from a real proposer/audit run.)
       await expect(emptyBody).toBeVisible({ timeout: 8_000 });
-      await expect(loadBtn).toBeVisible();
     }
     // Either branch: the audit tab rendered without crashing.
     await expect(page.locator("#root")).toBeVisible();

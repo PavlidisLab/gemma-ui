@@ -14,17 +14,11 @@ import {
 } from "./ProposerDetailsDialog";
 
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
-import type { useAuditStream } from "@/api/auditStream";
-import { ProposeProgressPanel } from "@/features/proposal/ProposeProgressPanel";
-import sampleReport from "./fixtures/sample_audit_report.json";
-import { useAudit } from "./AuditContext";
 import {
-  experimentTarget,
-  factorTarget,
-  fvTarget,
-  tagTarget,
-  assignmentTarget,
-} from "./targetIds";
+  ProposeProgressPanel,
+  type ProgressPanelState,
+} from "@/features/proposal/ProposeProgressPanel";
+import { useAudit } from "./AuditContext";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { useStickyState } from "@/lib/useStickyState";
 import { resolveApplyAction, type ApplyAction } from "./applyHandlers";
@@ -125,7 +119,6 @@ const KIND_COPY: Record<
     idleStreamLabel: "no proposal review running",
   },
 };
-import type { Design } from "@/features/experiment/types";
 import { DesignComparisonPanel } from "./AuditReportView";
 
 /**
@@ -150,8 +143,11 @@ export function AuditSidebarPanel({
   experimentId: number | string;
   /** Audit SSE stream lifted to the App shell so the unified
    *  AgentRunDialog can fire it from the sidebar header strip.
-   *  This panel just renders the progress / state. */
-  stream: ReturnType<typeof useAuditStream>;
+   *  This panel just renders the progress / state. Accepts either the
+   *  audit or the propose stream (both satisfy ``ProgressPanelState``);
+   *  the proposal view is fed the propose stream so its run shows a live
+   *  "waiting" state. */
+  stream: ProgressPanelState & { reset: () => void };
 }) {
   const { kind, report, setOverrideReport, hasOverride, loading, error } =
     useAudit();
@@ -268,15 +264,7 @@ export function AuditSidebarPanel({
             couldn't load {copy.nounPlural}: {error}
           </div>
         ) : !report ? (
-          <EmptyState
-            kind={kind}
-            onLoadFixture={() => setOverrideReport(adaptFixture(experimentId))}
-            onSynthesize={
-              draft
-                ? () => setOverrideReport(synthesizeFromDraft(draft))
-                : undefined
-            }
-          />
+          <EmptyState kind={kind} />
         ) : (
           <>
             {/* Findings collapse to a one-line summary once the
@@ -332,49 +320,24 @@ function SidebarTopBar({
 // Empty state
 // ---------------------------------------------------------------------------
 
-function EmptyState({
-  kind,
-  onLoadFixture,
-  onSynthesize,
-}: {
-  kind: CurationReviewKind;
-  onLoadFixture: () => void;
-  /** Optional — only available when a design draft is loaded.
-   *  Builds a synthetic report whose target_ids slug-match real
-   *  factors / FVs / tags / biomaterials in the current design,
-   *  so the inline severity dots actually appear. The static
-   *  fixture's hardcoded numeric ids don't resolve. */
-  onSynthesize?: () => void;
-}) {
-  const copy = KIND_COPY[kind];
+function EmptyState({ kind }: { kind: CurationReviewKind }) {
+  // Audit-kind empty state is effectively unreachable now (the sidebar
+  // starts on the proposal side for un-curated experiments), so the copy
+  // speaks to the common case: nothing proposed yet, run the proposer.
+  const isAudit = kind === "audit";
   return (
-    <div className="card p-3 text-xs text-slate-500 space-y-2">
-      <p className="italic">
-        {copy.emptyBody} The local server's GET / PATCH
-        endpoints are live; the in-UI trigger button (which would
-        POST to the agent's <code>/{copy.noun}/{"{accession}"}</code>)
-        lands once that service ships.
+    <div className="card p-3 text-xs text-slate-500 space-y-1.5">
+      <p>
+        Nothing proposed yet. Run{" "}
+        <span className="font-medium text-slate-700 dark:text-slate-300">
+          Propose…
+        </span>{" "}
+        and the agent will suggest factors and tags for this experiment —
+        they&rsquo;ll appear here for you to review.
       </p>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={onLoadFixture}
-          className="px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 text-[11px] font-medium"
-          title={`Load the bundled sample ${copy.noun} so the sidebar layout is testable in-context. Inline dots won't appear — the fixture's target_ids don't match this experiment.`}
-        >
-          Load fixture {copy.noun} (dev)
-        </button>
-        {onSynthesize ? (
-          <button
-            type="button"
-            onClick={onSynthesize}
-            className="px-2 py-1 rounded bg-violet-100 text-violet-800 hover:bg-violet-200 text-[11px] font-medium"
-            title={`Build a synthetic ${copy.noun} whose target_ids match this experiment's actual factors / FVs / tags / first sample, so inline severity dots appear in the design + samples views.`}
-          >
-            Synthesize from draft (dev)
-          </button>
-        ) : null}
-      </div>
+      {isAudit ? (
+        <p className="italic">No audit has been run on this experiment.</p>
+      ) : null}
     </div>
   );
 }
@@ -1788,186 +1751,4 @@ function formatShort(iso: string): string {
   } catch {
     return iso;
   }
-}
-
-/** Build a synthetic AuditReport whose target_ids slug-match real
- *  elements in the loaded design. Picks a few plausible (or
- *  intentionally wrong) findings so the inline severity dots have
- *  something to attach to during development.
- *
- *  Picks (in order, falls through if missing):
- *  - Experiment-wide blocker (always)
- *  - First factor → forbidden_efc major
- *  - First FV of first factor → missing_baseline major
- *  - Second FV (if any) → ok
- *  - First tag → ungrounded_term minor
- *  - First biomaterial → low_confidence_assignment major
- *
- *  Produces a report with a coherent summary roll-up. Removed once
- *  the live `useAuditForExperiment` hook lands. */
-function synthesizeFromDraft(draft: Design): AuditReport {
-  const findings: AuditFinding[] = [];
-  const now = new Date().toISOString();
-
-  findings.push({
-    target_kind: "experiment",
-    target_id: experimentTarget(draft.experiment_id),
-    severity: "blocker",
-    issue_code: "synth_demo_only",
-    rationale:
-      "Demo finding — wired to the experiment shell. Real audits won't emit this issue_code.",
-    citation: "(synthetic)",
-    citation_url: "",
-    suggested_fix: "n/a — this is a UI demo",
-    proposer_suggestion: "",
-  });
-
-  const f0 = draft.factors[0];
-  if (f0) {
-    // Mirror the dot anchor expressions exactly — see FactorList +
-    // FactorValueCard. Both sides slug `category.label || ""` and
-    // thread the real Factor.id/FactorValue.id as the `#{id}`
-    // discriminator; if they drift, target_ids stop matching and
-    // dots silently miss.
-    const factorCatLabel = f0.category?.label || "";
-    findings.push({
-      target_kind: "factor",
-      target_id: factorTarget(factorCatLabel, f0.id),
-      severity: "major",
-      issue_code: "forbidden_efc",
-      rationale: `Demo: factor "${f0.name || f0.category?.label}" flagged as a forbidden EFC category.`,
-      citation: "Curation-Rules §Forbidden EFC categories",
-      citation_url: "",
-      suggested_fix:
-        "Replace with a 'treatment' factor whose FV statements carry the dose as a 'has_dose' predicate.",
-      proposer_suggestion: "",
-    });
-
-    const fv0 = f0.factor_values[0];
-    if (fv0) {
-      findings.push({
-        target_kind: "fv",
-        target_id: fvTarget(factorCatLabel, fv0.free_text_label || "", fv0.id),
-        severity: "major",
-        issue_code: "missing_baseline",
-        rationale: `Demo: factor "${f0.name || f0.category?.label}" has no FV marked as baseline.`,
-        citation: "Curation-Rules §Baseline picks",
-        citation_url: "",
-        suggested_fix: `Mark "${fv0.free_text_label || "this FV"}" as baseline.`,
-        proposer_suggestion: "",
-      });
-    }
-
-    const fv1 = f0.factor_values[1];
-    if (fv1) {
-      findings.push({
-        target_kind: "fv",
-        target_id: fvTarget(factorCatLabel, fv1.free_text_label || "", fv1.id),
-        severity: "ok",
-        issue_code: "ok",
-        rationale: `Demo: FV "${fv1.free_text_label || ""}" looks correctly grounded.`,
-        citation: "",
-        citation_url: "",
-        suggested_fix: "",
-        proposer_suggestion: "",
-      });
-    }
-  }
-
-  const t0 = draft.tags?.[0];
-  if (t0) {
-    findings.push({
-      target_kind: "tag",
-      target_id: tagTarget(t0.category.label, t0.value.label),
-      severity: "minor",
-      issue_code: "ungrounded_term",
-      rationale: `Demo: tag "${t0.category.label}: ${t0.value.label}" is missing an ontology URI on the value side.`,
-      citation: "Curation-Rules §Ontology grounding",
-      citation_url: "",
-      suggested_fix: "Resolve to an ontology term.",
-      proposer_suggestion: "",
-    });
-  }
-
-  const bm0 = draft.biomaterials[0];
-  if (bm0) {
-    findings.push({
-      target_kind: "assignment",
-      target_id: assignmentTarget(bm0.short_name),
-      severity: "major",
-      issue_code: "low_confidence_assignment",
-      rationale: `Demo: sample ${bm0.short_name} flagged as a low-confidence assignment.`,
-      citation: "Curation-Rules §Sample assignment provenance",
-      citation_url: "",
-      suggested_fix: "Reconsider this sample's FV assignment.",
-      proposer_suggestion: "",
-    });
-  }
-
-  const counts = countSeverities(findings);
-  return {
-    audit_id: `synth-${draft.experiment_id}`,
-    experiment_id: draft.experiment_id,
-    experiment_short_name: draft.experiment_short_name || `experiment ${draft.experiment_id}`,
-    audited_at: now,
-    model: "(synthetic)",
-    scope: { include: ["factors", "fvs", "tags", "assignments"] },
-    findings,
-    evidence: {
-      preboarding_excerpt: "",
-      paper_source: null,
-      paper_excerpt: "",
-      comparison_proposal: null,
-    },
-    summary: {
-      ...counts,
-      overall_verdict: deriveVerdict(counts),
-    },
-    dispositions: [],
-  };
-}
-
-function countSeverities(findings: AuditFinding[]) {
-  let n_blocker = 0;
-  let n_major = 0;
-  let n_minor = 0;
-  let n_ok = 0;
-  for (const f of findings) {
-    if (f.severity === "blocker") n_blocker++;
-    else if (f.severity === "major") n_major++;
-    else if (f.severity === "minor") n_minor++;
-    else if (f.severity === "ok") n_ok++;
-  }
-  return { n_blocker, n_major, n_minor, n_ok };
-}
-
-function deriveVerdict(c: {
-  n_blocker: number;
-  n_major: number;
-  n_minor: number;
-}): AuditReport["summary"]["overall_verdict"] {
-  if (c.n_blocker > 0) return "blockers";
-  if (c.n_major > 0) return "major_issues";
-  if (c.n_minor > 0) return "minor_issues";
-  return "clean";
-}
-
-/** Adapt the bundled fixture (which targets a specific experiment id
- *  and pre-Step-3 numeric `target_id`s) to whatever experiment the
- *  curator is currently looking at. Lets the dev "Load fixture
- *  audit" button work on any open experiment without pretending the
- *  audit was actually run against it.
- *
- *  Normalises: experiment_id, dispositions=[]. Does NOT rewrite
- *  target_ids — the inline dots won't resolve against the fixture's
- *  hardcoded ids; that's expected for fixture mode. The agents-side
- *  next regen will use the slug format and dots will light up
- *  automatically. */
-function adaptFixture(experimentId: number | string): AuditReport {
-  const raw = sampleReport as unknown as AuditReport;
-  return {
-    ...raw,
-    experiment_id: experimentId,
-    dispositions: raw.dispositions ?? [],
-  };
 }

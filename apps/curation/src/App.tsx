@@ -913,11 +913,12 @@ function MainGrid({
     !auditsForExp.isLoading && !proposalReviewsForExp.isLoading;
   const sidebarView: "audit" | "proposalReview" = dataResolved
     ? sidebarViewNormalised === "audit"
-      ? hasAudits
+      ? // Sticky "audit": honour it only when an audit exists. On a
+        // fresh-from-GEO experiment there's nothing to audit — start on
+        // the proposal side so "Audit" doesn't headline an empty panel.
+        hasAudits
         ? "audit"
-        : hasProposalReviews
-          ? "proposalReview"
-          : "audit"
+        : "proposalReview"
       : hasProposalReviews
         ? "proposalReview"
         : hasAudits
@@ -942,26 +943,29 @@ function MainGrid({
   }
 
   function submitAgentRun(req: AgentRunRequest) {
-    const accession = String(experimentId);
+    // Reference the experiment by its GEO accession (what the store shows
+    // on the left — "GSE279439"), NOT the local store's numeric id. Gemma
+    // numbers datasets independently, so the local id ("51") resolves to
+    // nothing in Gemma ("no Gemma dataset matches reference='51'"). The
+    // accession is the stable cross-system reference the proposer resolves.
+    const accession =
+      draft?.external_source?.accession ||
+      draft?.experiment_short_name ||
+      String(experimentId);
     if (req.kind === "proposal") {
+      // No tier / scope from the UI — the agent runs with its default
+      // configuration. Redo forces a fresh pass; fresh trusts the
+      // proposer's cache behavior.
       proposeStream.start(accession, {
         fresh_preboarding: true,
-        // Redo mode always forces a fresh agent pass so the
-        // curator's notes / tier change actually shape the run.
-        // Fresh mode trusts the proposer's cache behavior.
         refresh_cache: req.mode === "redo",
-        tier: req.tier,
-        prior_feedback:
-          req.priorFeedback.length > 0 ? req.priorFeedback : null,
       });
+      // A proposer run's result lands in the Proposal-review view — put
+      // the curator there so they see the progress + the proposal.
+      setSidebarView("proposalReview");
     } else {
       auditStream.start(accession, {
-        tier: req.tier,
-        scope: req.scope,
-        with_comparison: req.withComparison,
         refresh_cache: req.mode === "redo",
-        prior_feedback:
-          req.priorFeedback.length > 0 ? req.priorFeedback : null,
       });
     }
     setAgentRunDialog(null);
@@ -1167,13 +1171,13 @@ function MainGrid({
                 panel) was hidden on 2026-05-25 in favour of the
                 unified kind=proposal CurationReview flow. */}
             <div className="flex items-center gap-1">
-              {/* Each toggle hides when its source has no rows for
-                  this experiment — keeps the sidebar header focused
-                  on actionable work. When the experiment has
-                  neither (the import-fresh case), we still render
-                  Audit + Proposal review as a stub so the chrome
-                  doesn't collapse to "(no work here)". */}
-              {hasAudits || (!hasAudits && !hasProposalReviews) ? (
+              {/* The Audit toggle appears only once an audit exists —
+                  on a fresh-from-GEO experiment there's nothing to audit,
+                  so surfacing "Audit" is noise. The Proposal-review
+                  toggle shows whenever there are proposals OR the
+                  experiment is un-curated (the starting point: propose
+                  first, then the review lands here). */}
+              {hasAudits ? (
                 <ViewToggleButton
                   active={sidebarView === "audit"}
                   onClick={() => setSidebarView("audit")}
@@ -1181,7 +1185,7 @@ function MainGrid({
                   Audit
                 </ViewToggleButton>
               ) : null}
-              {hasProposalReviews || (!hasAudits && !hasProposalReviews) ? (
+              {hasProposalReviews || !hasAudits ? (
                 <ViewToggleButton
                   active={sidebarView === "proposalReview"}
                   onClick={() => setSidebarView("proposalReview")}
@@ -1200,29 +1204,16 @@ function MainGrid({
                 <span>hide</span>
               </button>
             </div>
-            {/* Unified request affordance. Replaces the old per-tab
-                "+ propose" / "+ audit" buttons + the "use cache" /
-                "reset experiment" dev knobs. The button text depends
-                on which tab is active AND whether a standing run
-                already exists ("Request" vs "Re-run"). Click opens
-                AgentRunDialog which carries tier + scope + notes
-                inputs and gates on agent health. */}
-            {/* "Request proposal…" hidden 2026-06-15 (design review): the
-                proposal pane is read-only for now, and offering a
-                run-on-this-experiment button while editing isn't
-                available reads as confusing. "Run audit…" still
-                shows on the audit pane where the action is
-                meaningful. Flip the gate when the proposal pane
-                regains an editable affordance. */}
-            {sidebarView === "audit" ? (
-              <AgentRunButton
-                sidebarView={sidebarView}
-                proposeRunning={proposeStream.status === "running"}
-                auditRunning={auditStream.status === "running"}
-                agentDown={servicesHealth.data?.agent === "down"}
-                onRequest={openAgentRunDialog}
-              />
-            ) : null}
+            {/* Primary agent-run affordance — always "Propose…" (the
+                first meaningful step on any experiment). Opens the
+                confirm dialog; the run uses the agent's default config.
+                Shown on both views so proposing is always one click
+                away. */}
+            <AgentRunButton
+              proposeRunning={proposeStream.status === "running"}
+              agentDown={servicesHealth.data?.agent === "down"}
+              onRequest={openAgentRunDialog}
+            />
           </div>
         ) : (
           /*
@@ -1294,7 +1285,7 @@ function MainGrid({
               />
               <AuditSidebarPanel
                 experimentId={experimentId}
-                stream={auditStream}
+                stream={proposeStream}
               />
             </AuditProvider>
           )}
@@ -1314,10 +1305,6 @@ function MainGrid({
         mode={agentRunDialog?.mode ?? "fresh"}
         experimentShortName={draft?.experiment_short_name || String(experimentId)}
         agentStatus={servicesHealth.data?.agent ?? "unknown"}
-        curationEmpty={
-          (draft?.factors?.length ?? 0) === 0 &&
-          (draft?.tags ?? []).filter((t) => !t.inferred).length === 0
-        }
         busy={
           (agentRunDialog?.kind === "proposal" &&
             proposeStream.status === "running") ||
@@ -1332,47 +1319,24 @@ function MainGrid({
   );
 }
 
-/** Single context-aware request button that lives in the sidebar
- *  header strip. Replaces the old per-tab "+ propose" / "+ audit"
- *  buttons + the "use cache" / "reset experiment" knobs. Label flips
- *  between "Request …" (fresh) and "Re-run …" (something already
- *  exists); disabled when the agent service is down or a run of the
- *  matching kind is already in flight.
- *
- *  Audit-side redo detection: needs the AuditProvider's state to
- *  know whether an open audit exists. Today this button stays in
- *  "Run audit" copy regardless — the dialog still works the same
- *  (notes field is hidden when mode=fresh) and the Audit sidebar
- *  panel below the strip surfaces the standing-audit state. A
- *  follow-up wires the redo mode through here too. */
+/** Primary agent-run button in the sidebar header strip. Always offers
+ *  **Propose…** — the meaningful first step on an experiment: generate
+ *  the annotations. (Audit stays reachable through the dialog; it isn't
+ *  the primary action while the curation flow starts from a proposal.)
+ *  Disabled when the agent is down or a proposer run is already in
+ *  flight. */
 function AgentRunButton({
-  sidebarView,
   proposeRunning,
-  auditRunning,
   agentDown,
   onRequest,
 }: {
-  sidebarView: "audit" | "proposalReview";
   proposeRunning: boolean;
-  auditRunning: boolean;
   agentDown: boolean;
   onRequest: (kind: "proposal" | "audit") => void;
 }) {
-  const kind: "proposal" | "audit" =
-    sidebarView === "audit" ? "audit" : "proposal";
-  const running = kind === "audit" ? auditRunning : proposeRunning;
-  // Standing-proposal detection used to gate "Re-run …" vs
-  // "Request …" labels via the legacy pendingProposals count;
-  // with that surface hidden, this button is always "Request …"
-  // until we re-derive the signal off kind=proposal
-  // CurationReview presence.
-  const label = running
-    ? kind === "audit"
-      ? "auditing…"
-      : "proposing…"
-    : kind === "audit"
-      ? "Run audit…"
-      : "Request proposal…";
+  const kind = "proposal" as const;
+  const running = proposeRunning;
+  const label = running ? "proposing…" : "Propose…";
   const disabled = running || agentDown;
   const title = agentDown
     ? "Agent service is unreachable — start it to enable runs"

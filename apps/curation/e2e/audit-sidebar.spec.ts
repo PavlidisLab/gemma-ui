@@ -8,17 +8,17 @@ test.describe("Audit sidebar (EE shell) @live", () => {
     installErrorGuards(page);
   });
 
-  test("'Request proposal…' button is present on Overview", async ({ page }) => {
+  test("'Propose…' button is present on Overview", async ({ page }) => {
     await gotoSeedExperiment(page);
-    const reqBtn = page.getByRole("button", { name: /Request proposal/i }).first();
+    const reqBtn = page.getByRole("button", { name: /Propose/i }).first();
     if (await reqBtn.count()) {
       await expect(reqBtn).toBeVisible();
     }
   });
 
-  test("clicking 'Request proposal' opens its dialog/menu without crashing", async ({ page }) => {
+  test("clicking 'Propose' opens its dialog/menu without crashing", async ({ page }) => {
     await gotoSeedExperiment(page);
-    const reqBtn = page.getByRole("button", { name: /Request proposal/i }).first();
+    const reqBtn = page.getByRole("button", { name: /Propose/i }).first();
     if ((await reqBtn.count()) === 0) test.skip();
     await reqBtn.click();
     // Modal / popover should appear; we don't fire the request itself
