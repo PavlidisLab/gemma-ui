@@ -88,6 +88,13 @@ export function LeaveJobGuard({
 
   useEffect(() => {
     const unregister = registerNavigationBlocker((target) => {
+      // Same-experiment navigation (tab / chip-strip / param change)
+      // keeps the running job visible + attributable on this page — don't
+      // prompt. Only leaving the experiment (landing, inbox, a different
+      // experiment) risks losing track of it. Boundary-check the id so
+      // "51" doesn't prefix-match "510".
+      const prefix = `#/experiments/${String(eeId)}`;
+      if (target === prefix || target.startsWith(`${prefix}?`)) return true;
       const jobs = getJobsForEE(eeId);
       if (jobs.length === 0) return true;
       if (eeIsOnOpenTicket(eeId, ticketsRef.current)) return true;
