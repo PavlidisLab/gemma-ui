@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { agentPalette } from "@/lib/agentPalette";
+import { agentBadge } from "./agentLabel";
 import type { Proposal } from "@/api/types";
 import { experimentRoute, navigate } from "@/routes";
 
@@ -84,19 +85,24 @@ export function ProposalSummaryCard({
         <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 shrink-0">
           proposal
         </span>
-        {proposal.model ? (
-          <span
-            className={cn(
-              "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border shrink-0",
-              agentPalette(proposal.model),
-            )}
-            title={`AI agent: ${proposal.model}`}
-          >
-            <span className="text-[9px] uppercase tracking-wide opacity-70">
-              agent
-            </span>
-            <span className="truncate max-w-[10rem]">{proposal.model}</span>
-          </span>
+        {proposal.agent_version || proposal.model ? (
+          (() => {
+            const badge = agentBadge(proposal);
+            return (
+              <span
+                className={cn(
+                  "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border shrink-0",
+                  agentPalette(proposal.model),
+                )}
+                title={badge.title}
+              >
+                <span className="text-[9px] uppercase tracking-wide opacity-70">
+                  {badge.prefix}
+                </span>
+                <span className="truncate max-w-[10rem]">{badge.label}</span>
+              </span>
+            );
+          })()
         ) : null}
         <span className="flex-1 min-w-0 truncate text-slate-500 text-[10px] font-mono">
           {proposal.proposal_id ?? "(unsaved)"}

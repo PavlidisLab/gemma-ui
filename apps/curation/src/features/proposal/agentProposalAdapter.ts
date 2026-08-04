@@ -235,6 +235,12 @@ export function agentProposalToLegacyProposal(
     submitted_by: "agent",
     submitted_at: agentProposal.ran_at ?? "",
     model: agentProposal.model,
+    // The agent BUILD identity (v1.1-87-g5344f2e) — distinct from the
+    // LLM ``model`` a stage called. The badge names the agent by this;
+    // ``model`` demotes to a secondary chip / tooltip. Was dropped here
+    // (built with ``extra: {}`` and never copied), so proposals read as
+    // the model id.
+    agent_version: agentProposal.agent_version,
     status: "pending",
     tags: payload.tags.map(tagFromAgent),
     factors: payload.design.proposed_factors.map(factorFromAgent),

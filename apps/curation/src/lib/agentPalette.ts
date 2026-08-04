@@ -31,7 +31,7 @@ export function normalizeAgentName(model: string): string {
   return s.toLowerCase();
 }
 
-export function agentPalette(model: string): string {
+export function agentPalette(model: string | null | undefined): string {
   const key = normalizeAgentName(model || "agent");
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;

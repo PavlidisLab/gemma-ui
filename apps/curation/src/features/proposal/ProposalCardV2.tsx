@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { agentPalette } from "@/lib/agentPalette";
+import { agentBadge } from "./agentLabel";
 import { useStickyState } from "@/lib/useStickyState";
 import { Pill } from "@/components/ui/Pill";
 import { Term } from "@/components/ui/Term";
@@ -1059,19 +1060,24 @@ export function ProposalCardV2({
           <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">
             proposal
           </span>
-          {proposal.model ? (
-            <span
-              className={cn(
-                "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border",
-                agentPalette(proposal.model),
-              )}
-              title={`AI agent that produced this proposal: ${proposal.model}`}
-            >
-              <span className="text-[9px] uppercase tracking-wide opacity-70">
-                agent
-              </span>
-              <span className="truncate max-w-[14rem]">{proposal.model}</span>
-            </span>
+          {proposal.agent_version || proposal.model ? (
+            (() => {
+              const badge = agentBadge(proposal);
+              return (
+                <span
+                  className={cn(
+                    "inline-flex items-baseline gap-1 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border",
+                    agentPalette(proposal.model),
+                  )}
+                  title={badge.title}
+                >
+                  <span className="text-[9px] uppercase tracking-wide opacity-70">
+                    {badge.prefix}
+                  </span>
+                  <span className="truncate max-w-[14rem]">{badge.label}</span>
+                </span>
+              );
+            })()
           ) : null}
           {/* Status pill — toned-down palette matching the audit
               VerdictPill convention (-50 bg / -700 text / -200 border)

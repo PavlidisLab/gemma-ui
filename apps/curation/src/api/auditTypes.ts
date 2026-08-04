@@ -1479,6 +1479,12 @@ export interface RunProvenance {
   run_sha?: string;
   ran_at?: string;
   model?: string;
+  /** Agent BUILD identity (``v1.1-87-g5344f2e`` = tag + commits + sha,
+   *  from ``git describe``) — distinct from ``model`` (the LLM a stage
+   *  called). The provenance badge names the agent by this; ``model``
+   *  demotes to the tooltip. Blank on rows built before the agent
+   *  stamped it. Source: agents ``shared/agent_identity.py``. */
+  agent_identity?: string | null;
   batch_id?: string;
   git_describe?: string;
   git_dirty?: boolean;

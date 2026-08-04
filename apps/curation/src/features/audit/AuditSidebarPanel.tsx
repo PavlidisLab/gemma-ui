@@ -944,15 +944,26 @@ function SidebarHeader({
          *    tag-label "review". The agents-side builder writes prose
          *    here for inter-curator audits since "model" stops being
          *    the load-bearing identity for that surface. */}
-        {report.model ? (() => {
+        {report.model || report.run_provenance?.agent_identity ? (() => {
           const palette = agentPalette(report.model);
           const isProse = isProseModel(report.model);
-          // Tooltip noun mirrors the panel's kind so a proposal-
-          // review row reads "proposal context" / "agent that
-          // produced this proposal", not "audit …".
-          const contextNoun = isProse
-            ? `${copy.noun} context`
-            : `AI agent that produced this ${copy.noun}`;
+          // The agent is not the model: name it by its BUILD identity
+          // (run_provenance.agent_identity) and demote the LLM to the
+          // tooltip. Prose-context rows (inter-curator audits) keep the
+          // model-as-context render. Old rows with no build identity
+          // fall back to the model, labelled "model" so it doesn't
+          // masquerade as the agent.
+          const buildId = report.run_provenance?.agent_identity?.trim() || "";
+          const prefix = isProse ? "review" : buildId ? "agent" : "model";
+          const value = isProse ? report.model : buildId || report.model;
+          const when = report.audited_at
+            ? ` · ${formatShort(report.audited_at)}`
+            : "";
+          const title = isProse
+            ? `${copy.noun} context: ${report.model}${when}`
+            : buildId
+              ? `Agent build ${buildId} · ran on ${report.model}${when}`
+              : `AI model: ${report.model}${when}`;
           return (
             <span
               className={cn(
@@ -960,13 +971,13 @@ function SidebarHeader({
                 isProse ? null : "font-mono",
                 palette,
               )}
-              title={`${contextNoun}: ${report.model}${report.audited_at ? ` · ${formatShort(report.audited_at)}` : ""}`}
+              title={title}
             >
               <span className="text-[9px] uppercase tracking-wide opacity-70">
-                {isProse ? "review" : "agent"}
+                {prefix}
               </span>
               <span className={isProse ? "" : "truncate max-w-[14rem]"}>
-                {report.model}
+                {value}
               </span>
             </span>
           );

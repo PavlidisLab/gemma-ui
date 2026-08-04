@@ -163,7 +163,11 @@ export function sourceLabel(
       // "(agent_proposal)" kind — ``agent:<sha>`` → "agent <sha>"
       // (design review 2026-06-19: "proposal" is noise when a sha names the run).
       if (kind === "agent_proposal" || /^agent[:_-]/.test(producer)) {
-        const sha = producer.replace(/^agent[:_-]?/, "").trim().slice(0, 7);
+        const raw = producer.replace(/^agent[:_-]?/, "").trim();
+        // A bare git sha shortens to 7; a build identity token
+        // (``v1.1-87-g5344f2e``) is shown in full — slicing it to 7
+        // would drop the part that distinguishes two builds.
+        const sha = /^[0-9a-f]{12,}$/i.test(raw) ? raw.slice(0, 7) : raw;
         const date = shortRunDate(match.created_at);
         const parts = ["agent", sha, date].filter(Boolean);
         // Need at least a sha or date to be unique; else fall back.
