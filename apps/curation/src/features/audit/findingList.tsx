@@ -516,6 +516,31 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
     };
   }, [sorted]);
 
+  // Boss-critic routing index. Findings about an element already in the
+  // design carry only its storage id (``factor:2``, ``tag:1``); the boss
+  // feed always names the element (``fv:timepoint/2 h``). Index the
+  // design so the router can bridge the two — without it every such
+  // verdict misses its card and piles up in the unmatched block at the
+  // section tail. Declared with the other hooks, above the
+  // empty-findings early return.
+  const bossRouteIndex = useMemo(() => {
+    const design = draft ?? saved;
+    const factorSlugById = new Map<number, string>();
+    const tagSlugById = new Map<number, { cat: string; val: string }>();
+    for (const f of design?.factors ?? []) {
+      const label = f.category?.label || f.name || "";
+      if (f.id != null && label) factorSlugById.set(f.id, slug(label));
+    }
+    for (const t of design?.tags ?? []) {
+      const cat = t.category?.label || "";
+      const val = t.value?.label || "";
+      if (t.id != null && cat && val) {
+        tagSlugById.set(t.id, { cat: slug(cat), val: slug(val) });
+      }
+    }
+    return { factorSlugById, tagSlugById };
+  }, [draft, saved]);
+
   // `severity=ok` doesn't always mean "no curator action" — a
   // calibration_gold_only_miss whose value is BM-covered (already
   // ontologized in a constant BM column) ships as `ok` but is still a
@@ -763,7 +788,9 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
         const bossByFindingKey = new Map<string, GroupedBossReview[]>();
         const matchedBossKeys = new Set<string>();
         for (const g of bossForKind) {
-          const hit = cardFindings.find((f) => bossMatchesFinding(g, f));
+          const hit = cardFindings.find((f) =>
+            bossMatchesFinding(g, f, bossRouteIndex),
+          );
           if (!hit) continue;
           const fk = `${hit.target_kind}:${hit.target_id}:${hit.issue_code}`;
           const arr = bossByFindingKey.get(fk) ?? [];

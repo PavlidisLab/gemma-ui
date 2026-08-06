@@ -291,7 +291,9 @@ describe("bossMatchesFinding", () => {
     ).toBe(false);
   });
 
-  it("does NOT match a boss factor verdict to a numeric existing-design factor", () => {
+  it("does NOT match a numeric existing-design factor without a route index", () => {
+    // No index → the category isn't recoverable from ``factor:71798``,
+    // so routing degrades to standalone rather than guessing.
     const [g] = groupBossReviews([rev({ target_id: "factor:treatment" })]);
     expect(
       bossMatchesFinding(
@@ -299,6 +301,111 @@ describe("bossMatchesFinding", () => {
         finding({ target_kind: "factor", target_id: "factor:71798" }),
       ),
     ).toBe(false);
+  });
+
+  // GSE1658 / audit 87d9d77f: findings ship ``factor:1/2/3`` (storage
+  // ids) while the boss feed names the element (``fv:timepoint/2 h``).
+  // Pre-fix every such verdict missed its card and piled up in the
+  // unmatched block at the section tail.
+  describe("numeric existing-design ids, bridged by the route index", () => {
+    const index = {
+      factorSlugById: new Map([
+        [1, "cell-line"],
+        [2, "timepoint"],
+        [3, "treatment"],
+      ]),
+      tagSlugById: new Map([
+        [1, { cat: "developmental-stage", val: "prime-adult-stage" }],
+      ]),
+    };
+
+    it("nests an fv verdict into its numeric parent-factor card", () => {
+      const [g] = groupBossReviews([rev({ target_id: "fv:timepoint/2 h" })]);
+      expect(
+        bossMatchesFinding(
+          g,
+          finding({ target_kind: "factor", target_id: "factor:2" }),
+          index,
+        ),
+      ).toBe(true);
+      // and doesn't leak onto a sibling factor card
+      expect(
+        bossMatchesFinding(
+          g,
+          finding({ target_kind: "factor", target_id: "factor:3" }),
+          index,
+        ),
+      ).toBe(false);
+    });
+
+    it("nests a factor verdict into its numeric factor card", () => {
+      const [g] = groupBossReviews([rev({ target_id: "factor:timepoint" })]);
+      expect(
+        bossMatchesFinding(
+          g,
+          finding({ target_kind: "factor", target_id: "factor:2" }),
+          index,
+        ),
+      ).toBe(true);
+    });
+
+    it("nests a tag verdict into its numeric tag card", () => {
+      const [g] = groupBossReviews([
+        rev({ target_id: "tag:developmental stage|prime adult stage" }),
+      ]);
+      expect(
+        bossMatchesFinding(
+          g,
+          finding({ target_kind: "tag", target_id: "tag:1" }),
+          index,
+        ),
+      ).toBe(true);
+    });
+
+    it("leaves an id the index doesn't cover, and a foreign category, unmatched", () => {
+      const [g] = groupBossReviews([rev({ target_id: "fv:individual/H510" })]);
+      expect(
+        bossMatchesFinding(
+          g,
+          finding({ target_kind: "factor", target_id: "factor:2" }),
+          index,
+        ),
+      ).toBe(false);
+      expect(
+        bossMatchesFinding(
+          g,
+          finding({ target_kind: "factor", target_id: "factor:99" }),
+          index,
+        ),
+      ).toBe(false);
+    });
+
+    // Near-match cards hold BOTH namings of one factor: the boss
+    // reasons over the agent's proposal (``individual``) while the
+    // target_id and design say ``cell line``.
+    it("anchors an agent-named verdict to the near-match card that renames it", () => {
+      const nearMatch = finding({
+        target_kind: "factor",
+        target_id: "factor:1",
+        issue_code: "calibration_factor_match_near",
+        rename: {
+          agent: { category: { label: "individual", uri: null, resolver: null, score: null } },
+          gold: { category: { label: "cell line", uri: null, resolver: null, score: null } },
+          fv_pairs: [],
+          direction: "equivalent",
+        },
+      } as Partial<AuditFinding>);
+      for (const target of ["factor:individual", "fv:individual/H510"]) {
+        const [g] = groupBossReviews([rev({ target_id: target })]);
+        expect(bossMatchesFinding(g, nearMatch, index)).toBe(true);
+      }
+      // the gold-side naming still anchors to the same card
+      const [gGold] = groupBossReviews([rev({ target_id: "factor:cell line" })]);
+      expect(bossMatchesFinding(gGold, nearMatch, index)).toBe(true);
+      // an unrelated factor doesn't
+      const [gOther] = groupBossReviews([rev({ target_id: "factor:treatment" })]);
+      expect(bossMatchesFinding(gOther, nearMatch, index)).toBe(false);
+    });
   });
 
   it("matches a tag verdict to the calibration:extra tag shape", () => {

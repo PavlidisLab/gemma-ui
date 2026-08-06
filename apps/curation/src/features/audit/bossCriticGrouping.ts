@@ -263,32 +263,81 @@ export function bossSeverityCounts(
 // Routing — match a grouped review to the finding card it belongs on
 // ---------------------------------------------------------------------------
 
-/** Factor category slug of a finding, across every target_id shape the
- *  audit + proposal flows emit:
+/** Design-side id → slug lookups, so the router can anchor a boss
+ *  verdict to a finding whose ``target_id`` carries only a numeric id.
+ *
+ *  Every finding about an element that ALREADY EXISTS in the design
+ *  ships that shape — ``factor:2``, ``tag:1`` — because the id is what
+ *  storage hands back. The boss feed, meanwhile, always names the
+ *  element (``factor:timepoint``, ``fv:timepoint/2 h``). Without a
+ *  bridge the numeric branch bails to ``null`` and EVERY boss verdict
+ *  about an existing factor / tag misses its card and piles up in the
+ *  unmatched block at the tail of the section — the "boss-critic stuff
+ *  outside the associated item" report on GSE1658 (audit
+ *  87d9d77f, findings ``factor:1/2/3`` vs boss ``fv:timepoint/2 h``).
+ *
+ *  Built by the caller from the design draft; omit it and routing
+ *  degrades to the old slug-only behaviour rather than breaking. */
+export interface BossRouteIndex {
+  /** design factor id → category (or name) slug */
+  factorSlugById?: Map<number, string>;
+  /** design tag id → (category, value) slugs */
+  tagSlugById?: Map<number, { cat: string; val: string }>;
+}
+
+/** Every factor-category slug a finding can legitimately be addressed
+ *  by. A boss verdict names ONE of them; the card is the same card, so
+ *  matching any candidate anchors it.
+ *
  *    - ``factor:<cat>[#id]``                    → the category slug
  *    - ``calibration:factor_extra:<cat>:<val>`` → ``<cat>`` (an
  *      agent-proposed "ADD FACTOR" card — the common proposal-review case)
- *  Returns ``null`` for numeric existing-design factors (``factor:71798``,
- *  category not in the id) and non-factor findings — a boss category
- *  verdict can't anchor to those from the target_id alone. */
-function findingFactorCategorySlug(finding: AuditFinding): string | null {
-  if (finding.target_kind !== "factor") return null;
+ *    - ``factor:<numeric id>``                  → resolved through
+ *      ``index.factorSlugById`` (an existing-design factor; the category
+ *      isn't recoverable from the id alone)
+ *    - ``rename.{agent,gold}.category``         → a near-match card holds
+ *      BOTH namings of one factor. The boss reasons over the agent's
+ *      proposal, so it says ``factor:individual`` where the design (and
+ *      the target_id) say ``cell line`` — GSE11630 / audit 87d9d77f.
+ *      Without the agent-side name those verdicts miss the very card
+ *      that presents the rename.
+ *
+ *  Empty for non-factor findings and for a numeric id the index doesn't
+ *  cover. */
+function findingFactorCategorySlugs(
+  finding: AuditFinding,
+  index?: BossRouteIndex,
+): string[] {
+  if (finding.target_kind !== "factor") return [];
+  const out = new Set<string>();
+  const add = (s: string | null | undefined) => {
+    const v = slug(s || "");
+    if (v) out.add(v);
+  };
   const tid = finding.target_id || "";
   const extra = tid.match(/(?:^|:)factor_extra:([^:]+)(?::|$)/);
-  if (extra) return slug(extra[1]);
-  const p = parseTargetId(tid);
-  if (p?.kind === "factor" && !/^\d+$/.test(p.factorSlug)) {
-    return slug(p.factorSlug);
+  if (extra) add(extra[1]);
+  else {
+    const p = parseTargetId(tid);
+    if (p?.kind === "factor") {
+      if (!/^\d+$/.test(p.factorSlug)) add(p.factorSlug);
+      else add(index?.factorSlugById?.get(Number(p.factorSlug)));
+    }
   }
-  return null;
+  add(finding.rename?.agent?.category?.label);
+  add(finding.rename?.gold?.category?.label);
+  return [...out];
 }
 
 /** (category, value) slugs of a TAG finding, across its target_id shapes:
  *    - ``tag:<cat>/<val>``
  *    - ``calibration:{extra,miss,match}:<cat>/<val>``
- *  Returns ``null`` for numeric tag ids (``tag:2``) and non-tag findings. */
+ *    - ``tag:<numeric id>`` → resolved through ``index.tagSlugById``
+ *  Returns ``null`` for non-tag findings, and for a numeric id the index
+ *  doesn't cover. */
 function findingTagCatVal(
   finding: AuditFinding,
+  index?: BossRouteIndex,
 ): { cat: string; val: string } | null {
   if (finding.target_kind !== "tag") return null;
   const tid = finding.target_id || "";
@@ -300,7 +349,11 @@ function findingTagCatVal(
       : null;
   if (body == null) return null;
   const slash = body.indexOf("/");
-  if (slash === -1) return null; // numeric tag id / no value slug recoverable
+  if (slash === -1) {
+    // Numeric existing-design tag id — the slug pair isn't in the id.
+    if (!/^\d+$/.test(body)) return null;
+    return index?.tagSlugById?.get(Number(body)) ?? null;
+  }
   return { cat: slug(body.slice(0, slash)), val: slug(body.slice(slash + 1)) };
 }
 
@@ -319,12 +372,13 @@ function findingTagCatVal(
 export function bossMatchesFinding(
   g: GroupedBossReview,
   finding: AuditFinding,
+  index?: BossRouteIndex,
 ): boolean {
   const bp = parseTargetId(g.targetId);
   if (!bp) return false;
   if (bp.kind === "factor" || bp.kind === "fv") {
-    const fcat = findingFactorCategorySlug(finding);
-    if (fcat != null && fcat === slug(bp.factorSlug)) return true;
+    const bcat = slug(bp.factorSlug);
+    if (findingFactorCategorySlugs(finding, index).includes(bcat)) return true;
     if (bp.kind === "fv" && finding.target_kind === "fv") {
       const fp = parseTargetId(finding.target_id);
       return (
@@ -336,7 +390,7 @@ export function bossMatchesFinding(
     return false;
   }
   if (bp.kind === "tag") {
-    const tv = findingTagCatVal(finding);
+    const tv = findingTagCatVal(finding, index);
     return (
       tv != null &&
       tv.cat === slug(bp.categorySlug) &&
