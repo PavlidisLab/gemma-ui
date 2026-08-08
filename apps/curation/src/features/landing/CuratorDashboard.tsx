@@ -30,6 +30,7 @@ import {
 } from "@/api/tickets";
 import { navigate } from "@/routes";
 import { CreateScreeningTicketModal } from "@/features/tickets/CreateScreeningTicketModal";
+import { OntologyLookup } from "./OntologyLookup";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
@@ -480,6 +481,11 @@ export function CuratorDashboard({
             ) : null}
           </form>
         </section>
+
+        {/* Ontology lookup — a convenience beside the experiment
+            quick-search, so "what's the term for X?" doesn't require
+            opening an experiment first. Collapsed by default. */}
+        <OntologyLookup />
 
         {ticketPicker ? (
           <TicketPickerModal
