@@ -42,6 +42,8 @@ const BASELINE_TERM_LABELS = new Set<string>([
   "control role",
   "normal control group",
   "negative control role",
+  // Both numbers — Gemma's own detector carries the singular too.
+  "normal littermate",
   "normal littermates",
 ]);
 
@@ -54,6 +56,19 @@ const BASELINE_ROLE_URI_FRAGMENTS = [
   "EFO_0001461", // control
   "EFO_0005168", // wild type genotype
   "EFO_0004425", // initial time point
+  // Control-role URIs Gemma's detector recognises (backend commit
+  // be7b55b8fe, ``BaselineSelection.controlGroupUris``). None of these
+  // ontologies are loaded in Gemma, so in practice the labels arrive as
+  // free text — but a statement carrying ANY subject URI skips the
+  // free-text check, so a value already resolved to one of them would
+  // otherwise be missed on both sides.
+  "OBI_0000143", // baseline participant role
+  "birnlex_2201", // control group
+  "birnlex_2001", // normal control group
+  "MSIO_0000007", // negative control role
+  "SIO_010431", // control role
+  "SIO_001068", // control group
+  "NCIT_C28143", // control group
 ];
 
 /** True when a term (by label and/or URI) is a baseline / reference-level
@@ -62,7 +77,9 @@ export function isBaselineTerm(
   label?: string | null,
   uri?: string | null,
 ): boolean {
-  const l = (label ?? "").trim().toLowerCase();
+  // Underscores read as spaces, matching Gemma's own normalization, so
+  // ``Normal_Control_Group`` is recognised on both sides.
+  const l = (label ?? "").trim().toLowerCase().replace(/_/g, " ");
   if (l && BASELINE_TERM_LABELS.has(l)) return true;
   if (uri) {
     for (const frag of BASELINE_ROLE_URI_FRAGMENTS) {
@@ -70,4 +87,28 @@ export function isBaselineTerm(
     }
   }
   return false;
+}
+
+/** Is this factor value the baseline level?
+ *
+ *  Mirrors Gemma's own precedence (``BaselineSelection.java``, backend
+ *  commit be7b55b8fe):
+ *
+ *   1. An explicit flag DECIDES, in both directions. ``true`` wins
+ *      outright — nothing outranks a value the curator marked. ``false``
+ *      excludes it even when its label is a control term.
+ *   2. Only when the flag is ABSENT (the common case: it's best-effort
+ *      and usually null on the design endpoint) do we fall back to
+ *      reading the terms.
+ *
+ *  The false-excludes half is what a plain ``!!flag || terms`` misses:
+ *  it would show "baseline" on a value the curator deliberately
+ *  un-marked. Absent and false are therefore kept distinct. */
+export function isBaselineFactorValue(
+  flag: boolean | null | undefined,
+  hasBaselineTerm: boolean,
+): boolean {
+  if (flag === true) return true;
+  if (flag === false) return false;
+  return hasBaselineTerm;
 }

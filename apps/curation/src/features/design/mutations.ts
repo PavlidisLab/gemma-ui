@@ -19,7 +19,7 @@ import type {
   Statement,
   Tag,
 } from "@/features/experiment/types";
-import { NON_CANONICAL_BASELINE_LABELS } from "@/features/experiment/types";
+import { isNonCanonicalBaselineLabel } from "@/features/experiment/types";
 import type {
   FactorProposal,
   FactorValueProposal,
@@ -50,7 +50,7 @@ const BASELINE_TERM_LABELS = new Set<string>([
 function isBaselineTermLabel(label: string): boolean {
   const l = (label || "").trim().toLowerCase();
   if (!l) return false;
-  return BASELINE_TERM_LABELS.has(l) || NON_CANONICAL_BASELINE_LABELS.has(l);
+  return BASELINE_TERM_LABELS.has(l) || isNonCanonicalBaselineLabel(l);
 }
 
 /** Does this FV already say "I'm the control level"?

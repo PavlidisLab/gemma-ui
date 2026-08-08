@@ -487,8 +487,24 @@ export const NON_CANONICAL_BASELINE_LABELS = new Set<string>([
   "control role",
   "normal control group",
   "negative control role",
+  // Both numbers — Gemma's detector carries the singular too
+  // (`BaselineSelection.java`, backend commit be7b55b8fe).
+  "normal littermate",
   "normal littermates",
 ]);
+
+/** Compare a label against the non-canonical set the way GEMMA does:
+ *  case-insensitively, with underscores read as spaces, so
+ *  ``Normal_Control_Group`` matches. Mirrors ``controlGroupTerms``
+ *  normalization in ``BaselineSelection.java``; without the underscore
+ *  rule the UI silently disagreed with the backend about whether an
+ *  underscored label is a control level. */
+export function isNonCanonicalBaselineLabel(
+  label: string | null | undefined,
+): boolean {
+  const k = (label || "").trim().toLowerCase().replace(/_/g, " ");
+  return NON_CANONICAL_BASELINE_LABELS.has(k);
+}
 
 /** Per-category forbidden ontology prefixes. Source: Confluence
  *  Curating-EFC §EFC Ontology Standards + per-section notes. URI
@@ -579,8 +595,7 @@ export function validateDesign(design: Design): DesignValidationState {
           ]),
         ];
         for (const c of candidates) {
-          const k = (c || "").trim().toLowerCase();
-          if (NON_CANONICAL_BASELINE_LABELS.has(k)) {
+          if (isNonCanonicalBaselineLabel(c)) {
             deprecatedBaselineFvs.push({ fv_id: fv.id, label: c.trim() });
             break;
           }

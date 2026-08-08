@@ -34,7 +34,7 @@ import type {
 import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
-import { isBaselineTerm } from "@/lib/baseline";
+import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { gemmaUrl, geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
 import { capitalizeFirstLetter } from "@/lib/filter";
@@ -1095,14 +1095,15 @@ function FactorValueRow({
   // `isBaseline` flag is best-effort and usually absent on the Gemma 1.x
   // design endpoint), collapse the row to a plain "baseline" marker, and
   // drop the role term from the chips so it never renders as a value.
-  const isBaselineFv =
-    !!value.isBaseline ||
+  const isBaselineFv = isBaselineFactorValue(
+    value.isBaseline,
     chars.some((c) => isBaselineTerm(c.value, c.valueUri)) ||
-    stmts.some(
-      (s) =>
-        isBaselineTerm(s.subject, s.subjectUri) ||
-        isBaselineTerm(s.object, s.objectUri),
-    );
+      stmts.some(
+        (s) =>
+          isBaselineTerm(s.subject, s.subjectUri) ||
+          isBaselineTerm(s.object, s.objectUri),
+      ),
+  );
   const visibleChars = chars.filter(
     (c) => !isBaselineTerm(c.value, c.valueUri),
   );

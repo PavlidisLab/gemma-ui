@@ -330,3 +330,49 @@ describe("validateDesign — non-canonical baseline labels don't fail ok", () =>
     expect(v.ok).toBe(false);
   });
 });
+
+// Parity with Gemma's detector — backend commit be7b55b8fe, handoff
+// CAB_BASELINE_DETECTION_2026_08_08.md.
+describe("validateDesign — non-canonical labels match the way Gemma matches", () => {
+  const withLabel = (label: string) =>
+    emptyDesign({
+      factors: [
+        {
+          ...categoricalFactor(1, "treatment", [
+            fv(1, label, ["s1"], true),
+            fv(2, "drug treated", ["s2"]),
+          ]),
+          category: {
+            label: "treatment",
+            uri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+          },
+          description: "drug vs control",
+        },
+      ],
+      biomaterials: [
+        { short_name: "s1", name: "s1", characteristics: {} },
+        { short_name: "s2", name: "s2", characteristics: {} },
+      ],
+    });
+
+  it("matches the singular 'normal littermate' Gemma also carries", () => {
+    expect(
+      validateDesign(withLabel("normal littermate")).factors[0]
+        .deprecated_baseline_fvs,
+    ).toHaveLength(1);
+  });
+
+  it("reads underscores as spaces, as Gemma does", () => {
+    expect(
+      validateDesign(withLabel("Normal_Control_Group")).factors[0]
+        .deprecated_baseline_fvs,
+    ).toHaveLength(1);
+  });
+
+  it("still doesn't match a real value that merely looks similar", () => {
+    expect(
+      validateDesign(withLabel("normal diet")).factors[0]
+        .deprecated_baseline_fvs,
+    ).toHaveLength(0);
+  });
+});
