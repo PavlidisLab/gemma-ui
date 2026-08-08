@@ -75,12 +75,53 @@ export function cellosaurusUrl(
   return null;
 }
 
+/** Which registry actually hosts a term, decided by the canonical
+ *  namespace ``curieToUrl`` resolves it to. Drives the popover's
+ *  link-outs so we never offer a lookup that can't succeed.
+ *
+ *  - ``obo``  — an OBO Foundry ontology under ``purl.obolibrary.org``
+ *    (CL, UBERON, MONDO, CHEBI, GO, PATO, HP, NCBITaxon, …). Also in OLS.
+ *  - ``efo``  — EFO lives at ``ebi.ac.uk/efo``, NOT under the OBO purl,
+ *    but IS indexed by OLS.
+ *  - ``tgemo``— Gemma's own ontology. Its canonical home is
+ *    ``gemma.msl.ubc.ca/ont``; neither OBO nor OLS has it.
+ *  - ``other``— Cellosaurus (CVCL), MGI, NCBI Gene, and anything whose
+ *    prefix we don't recognise. No OBO or OLS link.
+ *
+ *  Deliberately keyed on the resolved namespace rather than a prefix
+ *  allow-list, so adding an entry to ``CURIE_TO_URL_PREFIX`` classifies
+ *  correctly without a second table to keep in sync. Unknown prefixes
+ *  fall through ``curieToUrl`` to an OLS *search* URL, which matches
+ *  none of the namespaces below and so lands in ``other`` — the safe
+ *  side. */
+export type TermRegistry = "obo" | "efo" | "tgemo" | "other";
+
+export function termRegistry(uri: string | null | undefined): TermRegistry {
+  if (!uri) return "other";
+  const iri = curieToUrl(uri) ?? uri;
+  if (/^https?:\/\/purl\.obolibrary\.org\/obo\//i.test(iri)) return "obo";
+  if (/^https?:\/\/(www\.)?ebi\.ac\.uk\/efo\//i.test(iri)) return "efo";
+  if (/^https?:\/\/gemma\.msl\.ubc\.ca\/ont\//i.test(iri)) return "tgemo";
+  return "other";
+}
+
+/** Does EBI's OLS4 index this term's ontology? OLS carries the OBO
+ *  Foundry set plus EFO; it does NOT carry TGEMO, Cellosaurus, or MGI,
+ *  so offering an OLS lookup for those only ever produces an empty
+ *  result page. */
+export function isOlsHosted(uri: string | null | undefined): boolean {
+  const r = termRegistry(uri);
+  return r === "obo" || r === "efo";
+}
+
 /** EBI OLS4 link-out for an ontology term. Resolves the input to a full
  *  IRI first (so a bare CURIE still lands an exact match), then hands OLS
  *  the IRI with ``exactMatch`` so the curator opens the term itself, not
- *  a fuzzy result list. Returns ``null`` for empty input. */
+ *  a fuzzy result list. Returns ``null`` for empty input, and for any
+ *  ontology OLS doesn't index — see ``isOlsHosted``. */
 export function olsUrl(uri: string | null | undefined): string | null {
   if (!uri) return null;
+  if (!isOlsHosted(uri)) return null;
   const iri = curieToUrl(uri) ?? uri;
   return `https://www.ebi.ac.uk/ols4/search?q=${encodeURIComponent(
     iri,

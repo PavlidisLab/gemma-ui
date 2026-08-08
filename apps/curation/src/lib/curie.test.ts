@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { cellosaurusUrl, curieToUrl, olsUrl } from "./curie";
+import {
+  cellosaurusUrl,
+  curieToUrl,
+  isOlsHosted,
+  olsUrl,
+  termRegistry,
+} from "./curie";
 
 /**
  * Tests for curieToUrl() — the CURIE-to-clickable-URL router used by
@@ -164,5 +170,64 @@ describe("olsUrl", () => {
   it("returns null for empty input", () => {
     expect(olsUrl(null)).toBeNull();
     expect(olsUrl("")).toBeNull();
+  });
+
+  // OLS indexes the OBO Foundry set plus EFO. Offering it for anything
+  // else only ever opens an empty result page.
+  it("returns null for ontologies OLS does not index", () => {
+    expect(olsUrl("TGEMO:00022")).toBeNull();
+    expect(olsUrl("http://gemma.msl.ubc.ca/ont/TGEMO_00022")).toBeNull();
+    expect(olsUrl("cellosaurus:CVCL_0395")).toBeNull();
+    expect(olsUrl("CVCL_0395")).toBeNull();
+    expect(olsUrl("MGI:97490")).toBeNull();
+    expect(olsUrl("NCBI:gene:948")).toBeNull();
+  });
+
+  it("still resolves for OBO Foundry terms", () => {
+    expect(olsUrl("CL:0000127")).toContain("ols4/search");
+    expect(olsUrl("http://purl.obolibrary.org/obo/UBERON_0000955")).toContain(
+      "ols4/search",
+    );
+  });
+});
+
+describe("termRegistry / isOlsHosted", () => {
+  it("places OBO Foundry terms, by CURIE and by IRI", () => {
+    expect(termRegistry("CL:0000127")).toBe("obo");
+    expect(termRegistry("http://purl.obolibrary.org/obo/MONDO_0004975")).toBe(
+      "obo",
+    );
+    expect(isOlsHosted("CHEBI:15377")).toBe(true);
+  });
+
+  it("places EFO on its own namespace but still inside OLS", () => {
+    expect(termRegistry("EFO:0000513")).toBe("efo");
+    // Mis-namespaced under the OBO purl upstream — curieToUrl rewrites
+    // it to the canonical EFO namespace, so it must still classify efo.
+    expect(termRegistry("http://purl.obolibrary.org/obo/EFO_0022874")).toBe(
+      "efo",
+    );
+    expect(isOlsHosted("EFO:0000513")).toBe(true);
+  });
+
+  it("places TGEMO at Gemma, in neither OBO nor OLS", () => {
+    expect(termRegistry("TGEMO:00022")).toBe("tgemo");
+    expect(termRegistry("http://gemma.msl.ubc.ca/ont/TGEMO_00022")).toBe(
+      "tgemo",
+    );
+    // Same mis-namespacing rewrite as EFO above.
+    expect(termRegistry("http://purl.obolibrary.org/obo/TGEMO_00171")).toBe(
+      "tgemo",
+    );
+    expect(isOlsHosted("TGEMO:00022")).toBe(false);
+  });
+
+  it("leaves Cellosaurus, MGI, NCBI genes and unknown prefixes unplaced", () => {
+    expect(termRegistry("cellosaurus:CVCL_0395")).toBe("other");
+    expect(termRegistry("MGI:97490")).toBe("other");
+    expect(termRegistry("NCBI:gene:948")).toBe("other");
+    expect(termRegistry("WHATEVER:123")).toBe("other");
+    expect(termRegistry(null)).toBe("other");
+    expect(isOlsHosted("MGI:97490")).toBe(false);
   });
 });

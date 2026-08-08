@@ -32,9 +32,11 @@ import {
 import {
   cellosaurusUrl,
   curieToUrl,
+  isOlsHosted,
   ncbiGeneIdFromUri,
   olsUrl,
   shortenUri,
+  termRegistry,
 } from "@/lib/curie";
 
 export interface CuriePopoverProps {
@@ -75,17 +77,23 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // E-utilities directly so the curator sees gene symbol +
   // description + organism the first time the popover opens.
   const isNcbiGene = !!ncbiGeneIdFromUri(activeUri);
+  // Every OLS path below — the primary fallback, the children and
+  // synonyms side-fetches, and the "Fetch from OLS" CTA — is gated on
+  // OLS actually indexing this ontology. TGEMO, Cellosaurus and MGI
+  // aren't in OLS, so those calls could only ever come back empty:
+  // wasted round-trips, and a CTA that promises a lookup it can't do.
+  const olsCapable = !isNcbiGene && isOlsHosted(activeUri);
   const gemma = useGemmaTerm(isNcbiGene ? null : activeUri);
-  const ols = useOlsTerm(isNcbiGene ? null : activeUri, olsRequested);
+  const ols = useOlsTerm(olsCapable ? activeUri : null, olsRequested);
   const ncbi = useNcbiGene(isNcbiGene ? activeUri : null);
   // Immediate children — a lazy, cached OLS4 side-fetch (Gemma ships no
   // children). Runs in parallel with the primary lookup so it never
   // delays the card; the children line just fills in when it resolves.
-  const childrenQ = useTermChildren(activeUri, !isNcbiGene);
+  const childrenQ = useTermChildren(activeUri, olsCapable);
   // Synonyms side-fetch — Gemma's term payload ships synonyms for some
   // terms but not others; fill the gap from OLS in parallel, used only
   // when the primary source shipped none.
-  const synonymsQ = useTermSynonyms(activeUri, !isNcbiGene);
+  const synonymsQ = useTermSynonyms(activeUri, olsCapable);
 
   const gemmaDone = !gemma.isLoading;
   const gemmaHit = !!gemma.data;
@@ -119,7 +127,7 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // ``!olsRequested`` keeps the CTA from flashing back during the
   // in-flight fetch (before ``ols.data`` resolves).
   const showOlsCta =
-    !isNcbiGene && gemmaDone && !gemmaHit && !olsRequested && !olsHit;
+    olsCapable && gemmaDone && !gemmaHit && !olsRequested && !olsHit;
   const primaryLoading = isNcbiGene ? ncbi.isLoading : gemma.isLoading;
 
   // Position: below the chip if there's room, else above. Width
@@ -469,12 +477,18 @@ function Body({
 
 /** External link-outs for a term, shown in the popover footer. One
  *  "open in" label followed by the applicable targets — the label is
- *  never repeated per link (design review 2026-08-02). Ontology terms
- *  get OBO (canonical resolver) + OLS. **Cell lines** also get a
- *  Cellosaurus link: a native Cellosaurus term (CVCL accession) gets
- *  ONLY that (OBO/OLS don't host it), while a Cell-Line-Ontology term
- *  (CLO) keeps OBO + OLS and adds a Cellosaurus name-search alongside.
- *  NCBI genes keep their single Gene link. */
+ *  never repeated per link (design review 2026-08-02).
+ *
+ *  **Every link offered must be able to resolve.** A term only gets the
+ *  registry that actually holds it, decided by ``termRegistry``: OBO
+ *  Foundry terms get OBO + OLS, EFO gets EFO + OLS (EFO isn't under the
+ *  OBO purl but OLS does index it), and TGEMO gets its own canonical
+ *  Gemma link and nothing else — neither OBO nor OLS has it. **Cell
+ *  lines** also get a Cellosaurus link: a native Cellosaurus term (CVCL
+ *  accession) gets ONLY that, while a Cell-Line-Ontology term (CLO)
+ *  keeps OBO + OLS and adds a Cellosaurus name-search alongside. NCBI
+ *  genes keep their single Gene link. Anything we can't place (MGI,
+ *  unrecognised prefixes) gets no registry link rather than a guess. */
 function TermLinkOuts({
   uri,
   source,
@@ -508,7 +522,19 @@ function TermLinkOuts({
     // Native Cellosaurus entity — OBO/OLS don't host it.
     links.push({ key: "cvcl", href: cvcl, label: "Cellosaurus" });
   } else {
-    if (oboUrl) links.push({ key: "obo", href: oboUrl, label: "OBO" });
+    // Only offer the registry that actually holds the term. TGEMO,
+    // Cellosaurus and MGI are in neither OBO nor OLS, so a blanket
+    // "OBO · OLS" pair on those sent the curator to a 404 or an empty
+    // OLS result page. TGEMO still gets its own canonical link — it has
+    // a real home at gemma.msl.ubc.ca/ont, it just isn't OBO's.
+    const registry = termRegistry(uri);
+    if (oboUrl && registry === "obo") {
+      links.push({ key: "obo", href: oboUrl, label: "OBO" });
+    } else if (oboUrl && registry === "efo") {
+      links.push({ key: "efo", href: oboUrl, label: "EFO" });
+    } else if (oboUrl && registry === "tgemo") {
+      links.push({ key: "tgemo", href: oboUrl, label: "TGEMO" });
+    }
     const ols = olsUrl(uri);
     if (ols) links.push({ key: "ols", href: ols, label: "OLS" });
     // CLO cell line (or any cell line resolvable by name) → Cellosaurus.
@@ -595,7 +621,14 @@ function formatOntologyVersion(uri: string, version: string): string {
   const curie = shortenUri(uri);
   const prefix =
     curie.includes(":") && !curie.includes("/") ? curie.split(":")[0] : "";
-  return prefix ? `${prefix} ${v}` : v;
+  if (!prefix) return v;
+  // Some ontologies ship a NAME where a version belongs — Gemma returns
+  // ``ontologyVersion: "TGEMO"`` for its own terms. Prefixing that gives
+  // "TGEMO TGEMO", so skip the prefix when the value already leads with
+  // it.
+  if (v.toUpperCase() === prefix.toUpperCase()) return v;
+  if (v.toUpperCase().startsWith(`${prefix.toUpperCase()} `)) return v;
+  return `${prefix} ${v}`;
 }
 
 /** Whitelist-based HTML sanitiser for ontology definitions.
