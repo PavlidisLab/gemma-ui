@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { InlineText } from "@/components/ui/InlineText";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { CurieLink } from "@/components/ui/CurieLink";
 import { Term } from "@/components/ui/Term";
 import {
   StatementEditor,
@@ -402,33 +401,10 @@ export function FactorValueCard({
             : compact
               ? (() => {
                   const grouped = groupStatementsBySubject(fv.statements);
-                  // When there's exactly one statement whose subject
-                  // label matches the FV's own free-text label, the
-                  // Term chip below would duplicate the header.
-                  // Drop the redundant label and surface just the
-                  // CURIE so the curator still sees the ontology
-                  // resolution without the same string twice.
-                  const fvLabel = (fv.free_text_label || "").trim().toLowerCase();
-                  const subjLabel = (fv.statements[0]?.subject?.label || "")
-                    .trim()
-                    .toLowerCase();
-                  // Hide the row's subject label when the header already
-                  // carries it as the FV name — either the free-text label
-                  // matches the subject, or the FV has no label of its own
-                  // and the header derives its name from this subject. Just
-                  // the CURIE stays on the row so ontology resolution is
-                  // still visible without echoing the same string twice.
-                  const hideRedundantSubject =
-                    fv.statements.length === 1 &&
-                    !!subjLabel &&
-                    (fvLabel === subjLabel || !fvLabel);
                   return grouped.map((group, gi) => (
                     <li key={`cgrp-${gi}`}>
                       {group.statements.length === 1 ? (
-                        <CompactStatementRow
-                          statement={group.statements[0]}
-                          hideSubjectLabel={hideRedundantSubject}
-                        />
+                        <CompactStatementRow statement={group.statements[0]} />
                       ) : (
                         <CompactStatementGroup statements={group.statements} />
                       )}
@@ -601,19 +577,22 @@ function ReadonlyStatement({
  *  ComparatorLine convention so the design and audit surfaces
  *  read the same way.
  *
- *  When `hideSubjectLabel` is true, the subject Term collapses to
- *  just its CURIE (no label, no chip frame) — used when the parent
- *  FV header already shows the same label and a full Term chip
- *  would duplicate it. Ontology-backed cells still surface their
- *  CURIE so the curator can see the resolution; free-text subjects
- *  with no URI render nothing under the label (the label alone
- *  suffices). */
+ *  The subject label is ALWAYS rendered. A previous pass dropped it
+ *  to a bare CURIE whenever the FV header already carried the same
+ *  string, to avoid printing it twice. That traded a small
+ *  duplication for two real losses: a free-text subject has no CURIE,
+ *  so the row collapsed to just the category chip and an ungrounded
+ *  term became indistinguishable from a rendering glitch; and a
+ *  grounded subject rendered as an unlabelled ``CL:0002322`` while the
+ *  category beside it kept label + CURIE, so the row read as though a
+ *  label were missing. It was also inconsistent with
+ *  ``CompactStatementGroup``, which always shows the subject — a
+ *  one-statement FV lost its subject where a two-statement FV kept it.
+ *  Echoing the header is the cheaper cost. */
 function CompactStatementRow({
   statement,
-  hideSubjectLabel = false,
 }: {
   statement: FactorValue["statements"][number];
-  hideSubjectLabel?: boolean;
 }) {
   const cat = statement.category;
   const subj = statement.subject;
@@ -638,22 +617,13 @@ function CompactStatementRow({
           {cat!.label!}
         </Term>
       ) : null}
-      {hideSubjectLabel ? (
-        subjUri ? (
-          <CurieLink
-            uri={subjUri}
-            className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer bg-transparent border-0 p-0"
-          />
-        ) : null
-      ) : (
-        <Term
-          uri={subjUri}
-          asLink={false}
-          className="!whitespace-normal break-words"
-        >
-          {subj?.label || "(blank)"}
-        </Term>
-      )}
+      <Term
+        uri={subjUri}
+        asLink={false}
+        className="!whitespace-normal break-words"
+      >
+        {subj?.label || "(blank)"}
+      </Term>
       {hasPred ? (
         <>
           <span className="text-slate-400 dark:text-slate-500"> - </span>
