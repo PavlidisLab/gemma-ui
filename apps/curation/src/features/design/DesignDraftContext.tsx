@@ -14,6 +14,7 @@ import type { Design } from "@/features/experiment/types";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
 import type { Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
+import { clearAgentFeedback } from "@/features/audit/agentFeedback";
 import {
   clearAllProposalStateForExperiment,
   notifyProposalStateReset,
@@ -606,6 +607,12 @@ export function DesignDraftProvider({
   // from the freshly-fetched ``saved``.
   const reload = useCallback(() => {
     clearCachedDraft(experimentId);
+    // Curator feedback on the agent's judgements is scoped to an audit
+    // run; a re-import replaces the design and invalidates those runs,
+    // so the feedback goes with them. Deliberately NOT cleared by
+    // ``discard()`` above — that undoes design edits, and an opinion
+    // about the boss-critic's reasoning survives an undo of the design.
+    clearAgentFeedback(experimentId);
     setDraft(null);
     prevSavedRef.current = null;
     setStaleCacheDiscarded(false);

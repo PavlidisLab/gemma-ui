@@ -17,6 +17,7 @@
  * render identically wherever a grouped review lands.
  */
 import { useState } from "react";
+import { AgentFeedbackControl } from "./AgentFeedbackControl";
 import {
   BOSS_SEVERITY_CHIP_CLS,
   BOSS_SEVERITY_LABEL,
@@ -59,8 +60,16 @@ export function BossVerdictBody({
   const earlier = group.history.filter((r) => r !== group.final);
   return (
     <div className="space-y-1">
-      <div className="text-[12px] leading-snug text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-        {group.final.verdict}
+      {/* Feedback sits on the FINAL verdict only. Where the agent
+          argued with itself over rounds, the outcome is the thing the
+          curator can have an opinion about — rating a superseded round
+          would be rating a position the agent already abandoned. The
+          history rows below deliberately carry no control. */}
+      <div className="flex items-start gap-1.5">
+        <div className="text-[12px] leading-snug text-slate-800 dark:text-slate-200 whitespace-pre-wrap flex-1 min-w-0">
+          {group.final.verdict}
+        </div>
+        <AgentFeedbackControl verdictKey={group.key} className="mt-0.5" />
       </div>
       {earlier.length > 0 ? (
         <div>

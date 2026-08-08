@@ -21,12 +21,14 @@ import {
   gzipJson,
   slugify,
   triggerDownload,
+  type AgentFeedbackExportEntry,
   type SetExportReviewStatus,
 } from "@/features/workflow/exportSet";
+import { exportAgentFeedback } from "@/features/audit/agentFeedback";
 import { api } from "@/api/client";
 import type { AuditReport } from "@/api/auditTypes";
 
-const BUNDLE_VERSION = 1 as const;
+const BUNDLE_VERSION = 2 as const;
 const UI_VERSION = "0.8.0";
 
 export interface TicketExportBundle {
@@ -59,6 +61,11 @@ export interface TicketExportExperiment {
    *  the set-export bundle so downstream consumers can use one
    *  reader. */
   review_status: SetExportReviewStatus | null;
+  /** Curator feedback on the agent's judgements — endorse / flag per
+   *  boss-critic verdict. Same field, same shape and same reasoning as
+   *  the set-export bundle: it travels with the review status because
+   *  it's part of the same act of review. Bundle v2. */
+  agent_feedback: AgentFeedbackExportEntry[];
   error: string | null;
 }
 
@@ -231,6 +238,7 @@ export async function buildTicketExport(
           experiment_id: design?.experiment_id ?? experimentId,
           design,
           review_status,
+          agent_feedback: exportAgentFeedback(experimentId).entries,
           error,
         };
       },

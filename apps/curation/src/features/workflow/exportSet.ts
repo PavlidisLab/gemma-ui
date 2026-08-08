@@ -36,11 +36,12 @@
  */
 import { fetchDesignSnapshot, fetchPolishedSnapshot } from "@/api/design";
 import { api } from "@/api/client";
+import { exportAgentFeedback } from "@/features/audit/agentFeedback";
 import type { AuditReport, CurationReviewKind } from "@/api/auditTypes";
 import type { Design } from "@/features/experiment/types";
 import type { Group } from "@/api/workflowTypes";
 
-const BUNDLE_VERSION = 2 as const;
+const BUNDLE_VERSION = 3 as const;
 // Bumped by hand alongside the apps/curation/package.json version.
 // Travels in the bundle so a downstream agent can branch on
 // producer version if the shape ever drifts.
@@ -115,7 +116,29 @@ export interface SetExportExperiment {
    *  receiver filter to reviewed-only without guessing from design
    *  heuristics. */
   review_status: SetExportReviewStatus | null;
+  /** Curator feedback on the agent's judgements — endorse / flag per
+   *  boss-critic verdict. Travels WITH the review status because it's
+   *  the same act of review: what the curator thought of the run, next
+   *  to what the run decided. Empty array when the curator rated
+   *  nothing, which is the common case (the control is optional and
+   *  expected to be used only on a notably good or bad call).
+   *
+   *  Bundle v3. Sourced client-side today — see ``agentFeedback.ts``
+   *  for why, and the ask in
+   *  ``handoffs/AGENT_FEEDBACK_ENDPOINT_2026_08_08.md`` for the
+   *  server-side home it moves to. */
+  agent_feedback: AgentFeedbackExportEntry[];
   error: string | null;
+}
+
+/** One rated judgement, flattened for the bundle. */
+export interface AgentFeedbackExportEntry {
+  verdict_key: string;
+  stance: "endorse" | "flag";
+  subject: "boss_critic";
+  auditId: string;
+  at: string;
+  note?: string;
 }
 
 /** Pull the numeric tail off a group ``member_id``. Plain numeric
@@ -240,6 +263,7 @@ export async function buildSetExport(
         experiment_id: design?.experiment_id ?? experimentId,
         design,
         review_status,
+        agent_feedback: exportAgentFeedback(experimentId).entries,
         error,
       };
     }),
