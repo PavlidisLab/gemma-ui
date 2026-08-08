@@ -18,6 +18,7 @@ import type {
   Statement,
   Tag,
 } from "@/features/experiment/types";
+import { NON_CANONICAL_BASELINE_LABELS } from "@/features/experiment/types";
 import type {
   FactorProposal,
   FactorValueProposal,
@@ -28,6 +29,8 @@ import { templatesFor } from "./statementTemplates";
 
 /** Confluence baseline-term labels used to detect whether an FV
  *  already carries a baseline-style statement. Match casing-loose. */
+/** The five canonical baseline terms the Confluence
+ *  Curating-Baseline-Factor-Values page prescribes. */
 const BASELINE_TERM_LABELS = new Set<string>([
   "control",
   "wild type genotype",
@@ -36,13 +39,30 @@ const BASELINE_TERM_LABELS = new Set<string>([
   "initial time point",
 ]);
 
+/** DETECTION accepts more than the guideline PRESCRIBES. The older
+ *  wordings ("Control group", "Normal littermates", …) still denote the
+ *  control level, and as of 2026-08-08 Gemma's DEA auto-assigns them
+ *  too — so treating an FV that carries one as "no baseline statement
+ *  here" and stacking a canonical statement on top of it would be
+ *  wrong. Guidance still steers new work to the canonical five; that
+ *  lives in the guideline text and the validator advisory, not here. */
+function isBaselineTermLabel(label: string): boolean {
+  const l = (label || "").trim().toLowerCase();
+  if (!l) return false;
+  return BASELINE_TERM_LABELS.has(l) || NON_CANONICAL_BASELINE_LABELS.has(l);
+}
+
+/** Does this FV already say "I'm the control level"?
+ *
+ *  The ``is_baseline`` flag ALWAYS wins: a curator (or Gemma) marking an
+ *  FV baseline is the authoritative answer, whatever its statements say
+ *  or don't say. Only when the flag is absent do we fall back to reading
+ *  the statements for a baseline term. */
 function fvHasBaselineStatement(fv: FactorValue): boolean {
+  if (fv.is_baseline) return true;
   for (const s of fv.statements) {
-    const subj = (s.subject?.label || "").trim().toLowerCase();
-    const obj = (s.object?.label || "").trim().toLowerCase();
-    if (BASELINE_TERM_LABELS.has(subj) || BASELINE_TERM_LABELS.has(obj)) {
-      return true;
-    }
+    if (isBaselineTermLabel(s.subject?.label || "")) return true;
+    if (isBaselineTermLabel(s.object?.label || "")) return true;
   }
   return false;
 }

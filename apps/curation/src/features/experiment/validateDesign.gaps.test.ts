@@ -274,3 +274,59 @@ describe("validateDesign — deprecated_baseline_fvs", () => {
     expect(validateDesign(design).ok).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Non-canonical baseline labels are ADVISORY, not a failure (2026-08-08)
+// ---------------------------------------------------------------------------
+
+describe("validateDesign — non-canonical baseline labels don't fail ok", () => {
+  /** One-factor design whose baseline FV carries `label`, fully assigned
+   *  and described so nothing else can be the reason `ok` flips. */
+  const designWithBaselineLabel = (label: string) =>
+    emptyDesign({
+      factors: [
+        {
+          ...categoricalFactor(1, "treatment", [
+            fv(1, label, ["s1"], true),
+            fv(2, "drug treated", ["s2"]),
+          ]),
+          // Grounded category + a description, so the ONLY thing these
+          // tests can be measuring is the baseline-label rule.
+          category: {
+            label: "treatment",
+            uri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+          },
+          description: "drug vs control",
+        },
+      ],
+      biomaterials: [
+        { short_name: "s1", name: "s1", characteristics: {} },
+        { short_name: "s2", name: "s2", characteristics: {} },
+      ],
+    });
+
+  it("still reports the label so a curator can see the older wording", () => {
+    const v = validateDesign(designWithBaselineLabel("control group"));
+    expect(v.factors[0].deprecated_baseline_fvs).toHaveLength(1);
+  });
+
+  it("but the design is valid — the FV IS the baseline and DEA uses it", () => {
+    // Was a hard failure on the premise that Gemma wouldn't auto-assign
+    // these terms. That stopped being true 2026-08-08.
+    const v = validateDesign(designWithBaselineLabel("control group"));
+    expect(v.ok).toBe(true);
+  });
+
+  it("matches a canonical label for ok, which must also stay valid", () => {
+    const v = validateDesign(designWithBaselineLabel("control"));
+    expect(v.factors[0].deprecated_baseline_fvs).toHaveLength(0);
+    expect(v.ok).toBe(true);
+  });
+
+  it("does not mask a real problem — a missing baseline still fails", () => {
+    const d = designWithBaselineLabel("control group");
+    d.factors[0].factor_values[0].is_baseline = false;
+    const v = validateDesign(d);
+    expect(v.ok).toBe(false);
+  });
+});

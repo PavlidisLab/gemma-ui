@@ -230,7 +230,7 @@ function warningsFor(s: DesignValidationState["factors"][number]): string[] {
       .map((d) => `"${d.label}"`)
       .join(", ");
     warnings.push(
-      `deprecated baseline term used (${labels}) — Gemma's DEA will not auto-pick this. Use control / wild type genotype / reference subject role / reference substance role / initial time point.`,
+      `non-canonical baseline term (${labels}) — this IS the baseline and DEA will use it; the guideline just prefers control / wild type genotype / reference subject role / reference substance role / initial time point for new work.`,
     );
   }
   if (s.forbidden_category) {

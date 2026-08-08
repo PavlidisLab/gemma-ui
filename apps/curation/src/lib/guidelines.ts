@@ -419,7 +419,7 @@ export const BASELINE_GUIDELINE: GuidelineSnippet = {
     "Some factors have no obvious baseline (e.g. heart vs liver). Gemma picks one at random in that case; force a choice with `control` if it matters.",
   ],
   donts: [
-    "DO NOT use as baseline: Baseline participant role, Control group, Control role, Normal control group, Negative control role, Normal littermates. Gemma will not auto-assign these as baseline.",
+    "Prefer the five terms above over: Baseline participant role, Control group, Control role, Normal control group, Negative control role, Normal littermates. These are a wording preference, not an error — Gemma auto-assigns them as baseline too (changed 2026-08-08), and an FV explicitly marked baseline is always treated as the baseline whatever term it carries. Existing designs using them don't need rewriting.",
   ],
 };
 

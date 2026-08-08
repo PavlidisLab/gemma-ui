@@ -431,11 +431,12 @@ export interface FactorValidationState {
    *  the commit-time normalizer auto-fills from the factor's category,
    *  but we surface the count so curators know what was inferred. */
   statements_missing_category: number;
-  /** FVs marked baseline whose statements use a Confluence-forbidden
-   *  baseline term (e.g. "Baseline participant role"). Per the
-   *  Curating-Baseline-Factor-Values page, these are not auto-assigned
-   *  by Gemma's DEA pipeline. The label-list per FV makes the warning
-   *  clickable / addressable. */
+  /** FVs marked baseline whose statements use a non-canonical baseline
+   *  term (e.g. "Baseline participant role") instead of one of the five
+   *  the Curating-Baseline-Factor-Values page prefers. ADVISORY ONLY —
+   *  it does not fail ``ok``: the FV is a real baseline, Gemma's DEA
+   *  auto-assigns it, and the flag on the FV is what decides. The
+   *  label-list per FV makes the note clickable / addressable. */
   deprecated_baseline_fvs: { fv_id: number; label: string }[];
   /** Confluence-forbidden ontologies for this category — e.g. EFO
    *  used for developmental stage, NIF used for cell type / organism
@@ -463,9 +464,24 @@ export interface FactorValidationState {
   factor_missing_description: boolean;
 }
 
-/** Confluence-forbidden baseline labels — DEA won't pick these up
- *  as the baseline. Source: Curating-Baseline-Factor-Values §Note. */
-const DEPRECATED_BASELINE_LABELS = new Set<string>([
+/** Non-canonical baseline labels. The Confluence
+ *  Curating-Baseline-Factor-Values page steers curators away from these
+ *  toward the five canonical terms (control / wild type genotype /
+ *  reference subject role / reference substance role / initial time
+ *  point).
+ *
+ *  They are a STYLE preference, not an error: an FV carrying one of
+ *  these really is the control level, and as of 2026-08-08 Gemma's DEA
+ *  auto-assigns them like any other. So the baseline DETECTOR must
+ *  recognise them (see ``ALTERNATE_BASELINE_LABELS`` in
+ *  ``features/design/mutations.ts``, and the browser's
+ *  ``lib/baseline.ts``), and they no longer fail ``DesignValidationState.ok``.
+ *  Surfaced as an advisory only, so a curator inheriting an old design
+ *  can still see which FVs use the older wording.
+ *
+ *  Exported so the detector and the validator can't drift apart — one
+ *  list, two readers. */
+export const NON_CANONICAL_BASELINE_LABELS = new Set<string>([
   "baseline participant role",
   "control group",
   "control role",
@@ -564,7 +580,7 @@ export function validateDesign(design: Design): DesignValidationState {
         ];
         for (const c of candidates) {
           const k = (c || "").trim().toLowerCase();
-          if (DEPRECATED_BASELINE_LABELS.has(k)) {
+          if (NON_CANONICAL_BASELINE_LABELS.has(k)) {
             deprecatedBaselineFvs.push({ fv_id: fv.id, label: c.trim() });
             break;
           }
@@ -673,7 +689,10 @@ export function validateDesign(design: Design): DesignValidationState {
         s.duplicate_assignments.length === 0 &&
         s.unknown_predicates === 0 &&
         s.statements_missing_category === 0 &&
-        s.deprecated_baseline_fvs.length === 0 &&
+        // ``deprecated_baseline_fvs`` deliberately absent: a non-canonical
+        // baseline label is a wording preference, not a broken design.
+        // It used to fail here on the premise that Gemma wouldn't
+        // auto-assign those terms, which stopped being true 2026-08-08.
         s.ontology_violations.length === 0 &&
         s.forbidden_category === null &&
         s.ungrounded_categories.length === 0 &&

@@ -24,11 +24,25 @@
  * initial-time-point baselines) — PATO/sex URIs are deliberately excluded.
  */
 const BASELINE_TERM_LABELS = new Set<string>([
+  // The five canonical terms the curation guideline prescribes.
   "control",
   "wild type genotype",
   "reference subject role",
   "reference substance role",
   "initial time point",
+  // Older wordings the guideline steers away from but which still mark
+  // the control level. Detection is deliberately WIDER than the
+  // guideline: a browsing reader should see "baseline" on a legacy
+  // design just as on a freshly-curated one, and as of 2026-08-08
+  // Gemma's DEA auto-assigns these too. Mirrors
+  // ``NON_CANONICAL_BASELINE_LABELS`` in the curation app's
+  // ``features/experiment/types.ts``.
+  "baseline participant role",
+  "control group",
+  "control role",
+  "normal control group",
+  "negative control role",
+  "normal littermates",
 ]);
 
 // URI fragments that only ever mark a baseline level, so safe to match by
