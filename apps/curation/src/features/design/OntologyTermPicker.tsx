@@ -16,6 +16,16 @@ import { useGemmaMode } from "@/lib/gemmaMode";
 import type { OntologyTerm } from "@/features/experiment/types";
 import { getRecentTerms, pushRecentTerm, type RecentTerm } from "./recentTerms";
 
+/** "No row is targeted" sentinel for the dropdown's keyboard/pointer
+ *  highlight. Deliberately NOT 0 — a highlight that defaults to the
+ *  first candidate makes Enter bind whatever the catalog happened to
+ *  return first, which is a silent ontology binding the curator never
+ *  picked. That breaks the opt-in rule documented on
+ *  ``commitFreeText`` (design review 2026-07-13). With the sentinel,
+ *  Enter falls back to free text until the curator arrows to (or
+ *  hovers) a row. */
+const HIGHLIGHT_NONE = -1;
+
 /**
  * Typeahead picker over Gemma's annotation catalog. Used for
  * **value-level** terms — Statement subjects, predicate objects,
@@ -39,8 +49,9 @@ import { getRecentTerms, pushRecentTerm, type RecentTerm } from "./recentTerms";
  * pick.
  *
  * Affordance: single-click opens edit mode and shows the typeahead.
- * Enter commits; Escape cancels; arrow keys move the highlighted
- * suggestion.
+ * Arrow keys move the highlighted suggestion; Enter commits the
+ * highlighted row, or — when nothing is highlighted — the typed text
+ * as free text; Escape cancels.
  */
 export function OntologyTermPicker({
   value,
@@ -103,7 +114,7 @@ export function OntologyTermPicker({
   const [editing, setEditing] = useState(autoOpen && !readOnly);
   const [uriEditing, setUriEditing] = useState(false);
   const [draft, setDraft] = useState(value?.label ?? "");
-  const [highlight, setHighlight] = useState(0);
+  const [highlight, setHighlight] = useState(HIGHLIGHT_NONE);
   const [recent, setRecent] = useState<RecentTerm[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -210,9 +221,6 @@ export function OntologyTermPicker({
     if (!editing) setDraft(value?.label ?? "");
   }, [editing, value]);
 
-  // Reset the highlighted row whenever the candidate list shifts.
-  useEffect(() => setHighlight(0), [debounced, candidates.length]);
-
   function commitCandidate(c: AnnotationCandidate) {
     const term = { label: c.label, uri: c.uri ?? null };
     recordRecent(term);
@@ -250,6 +258,18 @@ export function OntologyTermPicker({
     find.data?.candidates.filter((c) => !catalogUris.has(c.uri)) ?? [];
   const findStale =
     !!findTermQuery && findTermQuery !== draft.trim() && find.data != null;
+
+  // Drop the targeted row whenever the curator types or the row set
+  // shifts under them. Two reasons, both of which end in a URI the
+  // curator never picked: a highlight held over from an older query
+  // points at a different term now, and a highlight parked on the
+  // free-text row slides onto an ontology row when agent results
+  // arrive and push that row down. Resetting to HIGHLIGHT_NONE (not
+  // 0) means the fallback is free text, never row 0.
+  useEffect(
+    () => setHighlight(HIGHLIGHT_NONE),
+    [draft, candidates.length, findCandidates.length],
+  );
 
   /** Commit ``text`` as free text or as a matched candidate.
    *
@@ -322,9 +342,16 @@ export function OntologyTermPicker({
     // Design review 2026-07-13: "if I explicitly don't click on the ontology term
     // that comes up, it should keep it as free text."
     const freeTextRowVisible = !!draft.trim();
-    const freeTextRowIdx = freeTextRowVisible ? totalRows : -1;
+    const freeTextRowIdx = freeTextRowVisible ? totalRows : HIGHLIGHT_NONE;
 
     function commitHighlighted() {
+      // No row targeted → the curator picked nothing, so nothing gets
+      // bound. Free text is a safe landing (an ungrounded subject is
+      // flagged "needs grounding" downstream); a wrong URI isn't.
+      if (highlight === HIGHLIGHT_NONE) {
+        commitFreeText(draft);
+        return;
+      }
       if (highlight < candidates.length) {
         commitCandidate(candidates[highlight]);
         return;
@@ -371,19 +398,33 @@ export function OntologyTermPicker({
               setEditing(false);
               e.preventDefault();
             } else if (e.key === "Enter") {
-              if (totalRows > 0 || freeTextRowVisible) {
+              // Only a row the curator deliberately targeted (arrowed
+              // to, or hovered) gets committed. Enter on an untouched
+              // dropdown commits the typed text, honouring the opt-in
+              // binding rule on ``commitFreeText`` (design review
+              // 2026-07-13).
+              if (
+                highlight !== HIGHLIGHT_NONE &&
+                (totalRows > 0 || freeTextRowVisible)
+              ) {
                 commitHighlighted();
               } else {
                 commitFreeText(draft);
               }
               e.preventDefault();
             } else if (e.key === "ArrowDown") {
-              const max =
-                freeTextRowVisible ? totalRows : Math.max(0, totalRows - 1);
+              // ``max`` goes negative when there's nothing to land on,
+              // which keeps the highlight unset rather than pointing
+              // at a row that isn't rendered.
+              const max = freeTextRowVisible ? totalRows : totalRows - 1;
               setHighlight((h) => Math.min(h + 1, max));
               e.preventDefault();
             } else if (e.key === "ArrowUp") {
-              setHighlight((h) => Math.max(0, h - 1));
+              // Arrowing up off the first row returns to "nothing
+              // targeted" — the curator can back out of a selection
+              // and get free text back, instead of being stuck on
+              // row 0.
+              setHighlight((h) => (h <= 0 ? HIGHLIGHT_NONE : h - 1));
               e.preventDefault();
             }
           }}
@@ -400,6 +441,11 @@ export function OntologyTermPicker({
                 style={{ left: dropdownPos.left, top: dropdownPos.top }}
                 // mousedown-based commit so blur never fires first
                 onMouseDown={(e) => e.preventDefault()}
+                // Hover targets a row; the pointer leaving un-targets
+                // it again. Without this, a row the curator merely
+                // passed over on the way somewhere else stays armed,
+                // and the next Enter binds it.
+                onMouseLeave={() => setHighlight(HIGHLIGHT_NONE)}
               >
           {/* Section 0: recently-selected terms — client-side MRU,
               shown only before the curator starts typing (once they
@@ -433,6 +479,11 @@ export function OntologyTermPicker({
                 label="In Gemma's catalog"
                 hint="terms already curated in Gemma — usage counts shown"
               />
+              {/* Hovering a row counts as deliberately targeting it:
+                  the pointer only reaches the list by being moved
+                  there, and the row lights up under it, so an Enter
+                  that follows commits what the curator can see is
+                  selected. */}
               {candidates.map((c, i) => (
                 <CandidateRow
                   key={`${c.label}|${c.uri ?? ""}`}
@@ -565,10 +616,11 @@ export function OntologyTermPicker({
           ) : null}
 
           {/* Section 4: explicit free-text commit. Visible whenever
-              the curator's draft isn't already mirrored by a catalog
-              candidate. Highlighted via the same index space as
-              search rows so Enter still lands here on an empty
-              search. */}
+              there's draft text. Sits last in the same index space as
+              the search rows, so the curator can arrow down to it —
+              but Enter on an untouched dropdown already commits free
+              text, so reaching it by keyboard is only needed to drop
+              a URI from an unchanged label. */}
           {freeTextRowVisible ? (
             <li
               className={
