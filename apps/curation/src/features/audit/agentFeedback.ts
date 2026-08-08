@@ -38,14 +38,24 @@ const PREFIX = "gca:agent-feedback:";
  *  scale invites deliberation on a control that should cost nothing. */
 export type FeedbackStance = "endorse" | "flag";
 
-/** What the feedback is about. Only ``boss_critic`` is wired today;
- *  the field exists so defender / arbiter verdicts can share the same
- *  store and the same endpoint rather than growing parallel ones. */
-export type FeedbackSubject = "boss_critic";
+/** WHICH AGENT produced the judgement being rated. Only ``boss_critic``
+ *  is wired today; the field exists so defender / arbiter verdicts can
+ *  share the same store and the same endpoint rather than growing
+ *  parallel ones.
+ *
+ *  Named ``judge`` to reuse the vocabulary the store already has on
+ *  ``curation_review_disposition.judge`` (empty on every existing row,
+ *  so nothing to migrate) instead of minting a third way to say "which
+ *  agent said this" alongside that and ``AttachedDefenderVerdict.side``.
+ *  NOT ``subject``: in this codebase ``subject`` is the S of an S-P-O
+ *  statement in several hundred places, and overloading it here would
+ *  make ``feedback.subject`` and ``statement.subject`` read as the same
+ *  kind of thing. Settled with the agents side 2026-08-08. */
+export type FeedbackJudge = "boss_critic";
 
 export interface AgentFeedbackEntry {
   stance: FeedbackStance;
-  subject: FeedbackSubject;
+  judge: FeedbackJudge;
   /** Audit the judgement belongs to — carried so the eventual POST can
    *  be grouped per audit without re-deriving it. */
   auditId: string;
@@ -75,13 +85,13 @@ function validEntry(raw: unknown): AgentFeedbackEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const e = raw as Partial<AgentFeedbackEntry>;
   if (!isStance(e.stance)) return null;
-  if (e.subject !== "boss_critic") return null;
+  if (e.judge !== "boss_critic") return null;
   if (typeof e.auditId !== "string" || !e.auditId) return null;
   if (typeof e.at !== "string" || !e.at) return null;
   const note = typeof e.note === "string" ? e.note : undefined;
   return {
     stance: e.stance,
-    subject: e.subject,
+    judge: e.judge,
     auditId: e.auditId,
     at: e.at,
     ...(note ? { note } : {}),
@@ -132,7 +142,7 @@ export function setAgentFeedback(
   verdictKey: string,
   next: {
     stance: FeedbackStance;
-    subject: FeedbackSubject;
+    judge: FeedbackJudge;
     auditId: string;
     note?: string;
     /** Injected so tests are deterministic; defaults to now. */
@@ -146,7 +156,7 @@ export function setAgentFeedback(
   } else {
     map[verdictKey] = {
       stance: next.stance,
-      subject: next.subject,
+      judge: next.judge,
       auditId: next.auditId,
       at: next.at ?? new Date().toISOString(),
       ...(next.note ? { note: next.note } : {}),

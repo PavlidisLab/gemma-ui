@@ -135,7 +135,7 @@ export interface SetExportExperiment {
 export interface AgentFeedbackExportEntry {
   verdict_key: string;
   stance: "endorse" | "flag";
-  subject: "boss_critic";
+  judge: "boss_critic";
   auditId: string;
   at: string;
   note?: string;

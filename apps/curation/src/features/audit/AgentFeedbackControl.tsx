@@ -28,7 +28,7 @@ import {
   readAgentFeedback,
   setAgentFeedback,
   type FeedbackStance,
-  type FeedbackSubject,
+  type FeedbackJudge,
 } from "./agentFeedback";
 
 /** Unset reads as plain grey — the control has to be ignorable. Set
@@ -59,13 +59,13 @@ const STANCE_TITLE: Record<FeedbackStance, string> = {
 
 export function AgentFeedbackControl({
   verdictKey,
-  subject = "boss_critic",
+  judge = "boss_critic",
   className,
 }: {
   /** Stable id of the judgement being rated — the grouped boss
    *  review's ``key``. */
   verdictKey: string;
-  subject?: FeedbackSubject;
+  judge?: FeedbackJudge;
   className?: string;
 }): JSX.Element | null {
   // Sourced here, LENIENTLY, so the boss-critic renderers stay
@@ -87,7 +87,7 @@ export function AgentFeedbackControl({
   const click = (next: FeedbackStance) => {
     const map = setAgentFeedback(experimentId, verdictKey, {
       stance: next,
-      subject,
+      judge,
       auditId,
     });
     setStance(map[verdictKey]?.stance ?? null);

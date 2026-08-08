@@ -35,7 +35,7 @@ const EXP = 2427;
 const KEY = "fv:timepoint/2h::CORRECTNESS";
 const AUDIT = "audit-123";
 
-const base = { subject: "boss_critic" as const, auditId: AUDIT, at: "2026-08-08T00:00:00Z" };
+const base = { judge: "boss_critic" as const, auditId: AUDIT, at: "2026-08-08T00:00:00Z" };
 
 beforeEach(() => window.localStorage.clear());
 
@@ -44,7 +44,7 @@ describe("agentFeedback", () => {
     setAgentFeedback(EXP, KEY, { stance: "endorse", ...base });
     expect(readAgentFeedback(EXP)[KEY]).toEqual({
       stance: "endorse",
-      subject: "boss_critic",
+      judge: "boss_critic",
       auditId: AUDIT,
       at: "2026-08-08T00:00:00Z",
     });
@@ -93,13 +93,13 @@ describe("agentFeedback", () => {
       expect(readAgentFeedback(EXP)).toEqual({});
     });
 
-    it("drops an entry with an unknown subject — a future build's shape", () => {
-      put({ ...base, stance: "endorse", subject: "arbiter" });
+    it("drops an entry with an unknown judge — a future build's shape", () => {
+      put({ ...base, stance: "endorse", judge: "arbiter" });
       expect(readAgentFeedback(EXP)).toEqual({});
     });
 
     it("drops an entry missing its audit id, which can't be attributed", () => {
-      put({ stance: "endorse", subject: "boss_critic", at: base.at });
+      put({ stance: "endorse", judge: "boss_critic", at: base.at });
       expect(readAgentFeedback(EXP)).toEqual({});
     });
 
@@ -128,7 +128,7 @@ describe("agentFeedback", () => {
         {
           verdict_key: KEY,
           stance: "flag",
-          subject: "boss_critic",
+          judge: "boss_critic",
           auditId: AUDIT,
           at: base.at,
           note: "wrong axis",
