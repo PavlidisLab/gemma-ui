@@ -10,6 +10,7 @@
  */
 
 import type {
+  Biomaterial,
   Design,
   Factor,
   FactorType,
@@ -314,6 +315,67 @@ export function addCollectionOfMaterialFactor(
   };
 }
 
+/** The ontology URI Gemma mapped onto a characteristic's CATEGORY, and
+ *  a per-value lookup for the VALUE side.
+ *
+ *  ``biomaterial.characteristic_uris`` is the parallel map to
+ *  ``characteristics``: for each key it carries ``{category_uri,
+ *  value_uri}``. Promotion used to read only ``characteristics`` (the
+ *  label map) and drop this entirely, so a fully-grounded column —
+ *  ``biological sex`` PATO_0000047 / ``female`` PATO_0000384 — landed as
+ *  a free-text factor with free-text values, and the curator had to
+ *  re-resolve every term the import had already resolved.
+ *
+ *  The two sides are independent: a key can have a grounded category
+ *  and free-text values (``strain`` EFO_0005135), or the reverse
+ *  (``GEO Sample characteristic`` with a CL value and no category).
+ *  Each is carried when present, ``null`` otherwise.
+ *
+ *  ``value_uri`` is per-biomaterial, so it's keyed by the trimmed value
+ *  string — every BM sharing a value shares its URI. The first non-null
+ *  wins; a later disagreement is left alone rather than guessed at. */
+function characteristicUris(
+  biomaterials: Biomaterial[],
+  key: string,
+): { categoryUri: string | null; valueUriByValue: Map<string, string> } {
+  let categoryUri: string | null = null;
+  const valueUriByValue = new Map<string, string>();
+  for (const bm of biomaterials ?? []) {
+    const entry = bm.characteristic_uris?.[key];
+    if (!entry) continue;
+    if (!categoryUri && entry.category_uri) categoryUri = entry.category_uri;
+    const value = String(bm.characteristics?.[key] ?? "").trim();
+    if (!value || !entry.value_uri) continue;
+    if (!valueUriByValue.has(value)) {
+      valueUriByValue.set(value, entry.value_uri);
+    }
+  }
+  return { categoryUri, valueUriByValue };
+}
+
+/** The statement that carries a promoted value's grounding.
+ *
+ *  An FV's own ``free_text_label`` has nowhere to hold a URI — in this
+ *  model the ontology term lives on a statement subject. So a grounded
+ *  value becomes ``{category, subject: {label, uri}}``, the same shape
+ *  ``addFactorFromProposal`` produces when a curator accepts a proposed
+ *  factor. Returns an empty list when there's no URI to carry: an
+ *  ungrounded value is already fully described by the FV label, and a
+ *  statement echoing it would add a row saying nothing. */
+function groundingStatements(
+  category: OntologyTerm,
+  value: string,
+  valueUri: string | null | undefined,
+): Statement[] {
+  if (!valueUri) return [];
+  return [
+    {
+      category: { ...category },
+      subject: { label: value, uri: valueUri },
+    },
+  ];
+}
+
 /**
  * Promote a per-sample biomaterial characteristic into a continuous
  * factor. Mirrors a feature in the legacy Gemma UI: when a dataset
@@ -350,6 +412,12 @@ export function addContinuousFactorFromCharacteristic(
   }
   const factorId = nextFactorId(design);
   let nextFvId = nextFvIdValue(design);
+  const { categoryUri, valueUriByValue } = characteristicUris(
+    design.biomaterials ?? [],
+    key,
+  );
+  const category: OntologyTerm =
+    options?.category ?? { label: key, uri: categoryUri };
   const factorValues: FactorValue[] = [];
   for (const bm of design.biomaterials ?? []) {
     const raw = bm.characteristics?.[key];
@@ -361,13 +429,17 @@ export function addContinuousFactorFromCharacteristic(
       free_text_label: value,
       is_baseline: false,
       biomaterial_short_names: [bm.short_name],
-      statements: [],
+      statements: groundingStatements(
+        category,
+        value,
+        valueUriByValue.get(value),
+      ),
     });
   }
   const factor: Factor = {
     id: factorId,
     name: options?.name?.trim() || key,
-    category: options?.category ?? { label: key, uri: null },
+    category,
     description: "",
     type: "continuous",
     factor_values: factorValues,
@@ -445,18 +517,28 @@ export function addCategoricalFactorFromCharacteristic(
     buckets.get(value)!.push(bm.short_name);
   }
 
+  const { categoryUri, valueUriByValue } = characteristicUris(
+    design.biomaterials ?? [],
+    key,
+  );
+  const category: OntologyTerm =
+    options?.category ?? { label: key, uri: categoryUri };
   const factorValues: FactorValue[] = order.map((value) => ({
     id: nextFvId++,
     free_text_label: value,
     is_baseline: false,
     biomaterial_short_names: buckets.get(value) ?? [],
-    statements: [],
+    statements: groundingStatements(
+      category,
+      value,
+      valueUriByValue.get(value),
+    ),
   }));
 
   const factor: Factor = {
     id: factorId,
     name: options?.name?.trim() || key,
-    category: options?.category ?? { label: key, uri: null },
+    category,
     description: "",
     type: "categorical",
     factor_values: factorValues,

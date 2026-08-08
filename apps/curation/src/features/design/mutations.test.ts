@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  addCategoricalFactorFromCharacteristic,
   addContinuousFactorFromCharacteristic,
   isContinuousCharacteristic,
   removeAppliedProposalFromDesign,
@@ -496,5 +497,181 @@ describe("isContinuousCharacteristic", () => {
       { characteristics: { individual: "3" } },
     ];
     expect(isContinuousCharacteristic(individualBms, "individual")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Promotion carries the ontology grounding Gemma already resolved
+// ---------------------------------------------------------------------------
+
+describe("promoting a characteristic carries its ontology URIs", () => {
+  /** Shapes taken verbatim from GSE11523 / experiment 2427's
+   *  ``characteristic_uris``, including the two asymmetric cases:
+   *  ``strain`` has a grounded category and free-text values, and
+   *  ``GEO Sample characteristic`` has grounded values and no category. */
+  function bmWithUris(
+    short_name: string,
+    characteristics: Record<string, string>,
+    characteristic_uris: Biomaterial["characteristic_uris"],
+  ): Biomaterial {
+    return { short_name, name: short_name, characteristics, characteristic_uris };
+  }
+  const designOf = (bms: Biomaterial[]): Design => ({
+    experiment_id: 1,
+    experiment_short_name: "GSE1",
+    factors: [],
+    biomaterials: bms,
+    tags: [],
+  });
+
+  const SEX_CAT = "http://purl.obolibrary.org/obo/PATO_0000047";
+  const FEMALE = "http://purl.obolibrary.org/obo/PATO_0000384";
+  const MALE = "http://purl.obolibrary.org/obo/PATO_0000383";
+
+  const fullyGrounded = () =>
+    designOf([
+      bmWithUris(
+        "s1",
+        { "biological sex": "female" },
+        { "biological sex": { category_uri: SEX_CAT, value_uri: FEMALE } },
+      ),
+      bmWithUris(
+        "s2",
+        { "biological sex": "male" },
+        { "biological sex": { category_uri: SEX_CAT, value_uri: MALE } },
+      ),
+      bmWithUris(
+        "s3",
+        { "biological sex": "female" },
+        { "biological sex": { category_uri: SEX_CAT, value_uri: FEMALE } },
+      ),
+    ]);
+
+  it("carries the category URI onto the new factor", () => {
+    const { design: next } = addCategoricalFactorFromCharacteristic(
+      fullyGrounded(),
+      "biological sex",
+    );
+    expect(next.factors[0].category).toEqual({
+      label: "biological sex",
+      uri: SEX_CAT,
+    });
+  });
+
+  it("carries each distinct value's URI onto that FV, as a statement", () => {
+    const { design: next } = addCategoricalFactorFromCharacteristic(
+      fullyGrounded(),
+      "biological sex",
+    );
+    const byLabel = new Map(
+      next.factors[0].factor_values.map((fv) => [fv.free_text_label, fv]),
+    );
+    expect(byLabel.get("female")!.statements[0].subject).toEqual({
+      label: "female",
+      uri: FEMALE,
+    });
+    expect(byLabel.get("male")!.statements[0].subject).toEqual({
+      label: "male",
+      uri: MALE,
+    });
+    // The statement's category mirrors the factor's, as elsewhere.
+    expect(byLabel.get("female")!.statements[0].category).toEqual({
+      label: "biological sex",
+      uri: SEX_CAT,
+    });
+  });
+
+  it("grounds the category even when the values are free text (strain)", () => {
+    const d = designOf([
+      bmWithUris(
+        "s1",
+        { strain: "C57BL/6" },
+        {
+          strain: {
+            category_uri: "http://www.ebi.ac.uk/efo/EFO_0005135",
+            value_uri: null,
+          },
+        },
+      ),
+    ]);
+    const { design: next } = addCategoricalFactorFromCharacteristic(d, "strain");
+    expect(next.factors[0].category.uri).toBe(
+      "http://www.ebi.ac.uk/efo/EFO_0005135",
+    );
+    // Nothing to ground on the value side — no statement echoing the label.
+    expect(next.factors[0].factor_values[0].statements).toEqual([]);
+  });
+
+  it("grounds the values even when the category is free text", () => {
+    const d = designOf([
+      bmWithUris(
+        "s1",
+        { "GEO Sample characteristic": "embryonic stem cell" },
+        {
+          "GEO Sample characteristic": {
+            category_uri: null,
+            value_uri: "http://purl.obolibrary.org/obo/CL_0002322",
+          },
+        },
+      ),
+    ]);
+    const { design: next } = addCategoricalFactorFromCharacteristic(
+      d,
+      "GEO Sample characteristic",
+    );
+    expect(next.factors[0].category.uri).toBe(null);
+    expect(next.factors[0].factor_values[0].statements[0].subject.uri).toBe(
+      "http://purl.obolibrary.org/obo/CL_0002322",
+    );
+  });
+
+  it("leaves a wholly ungrounded characteristic exactly as before", () => {
+    const d = designOf([
+      { short_name: "s1", name: "s1", characteristics: { batch: "B1" } },
+    ]);
+    const { design: next } = addCategoricalFactorFromCharacteristic(d, "batch");
+    expect(next.factors[0].category).toEqual({ label: "batch", uri: null });
+    expect(next.factors[0].factor_values[0].statements).toEqual([]);
+  });
+
+  it("carries grounding through the CONTINUOUS path too", () => {
+    const d = designOf([
+      bmWithUris(
+        "s1",
+        { age: "23.5" },
+        {
+          age: {
+            category_uri: "http://www.ebi.ac.uk/efo/EFO_0000246",
+            value_uri: null,
+          },
+        },
+      ),
+      bmWithUris(
+        "s2",
+        { age: "47" },
+        {
+          age: {
+            category_uri: "http://www.ebi.ac.uk/efo/EFO_0000246",
+            value_uri: null,
+          },
+        },
+      ),
+    ]);
+    const { design: next } = addContinuousFactorFromCharacteristic(d, "age");
+    expect(next.factors[0].category.uri).toBe(
+      "http://www.ebi.ac.uk/efo/EFO_0000246",
+    );
+  });
+
+  it("an explicit category override still wins over the imported URI", () => {
+    const { design: next } = addCategoricalFactorFromCharacteristic(
+      fullyGrounded(),
+      "biological sex",
+      { category: { label: "sex", uri: "http://example.org/custom" } },
+    );
+    expect(next.factors[0].category).toEqual({
+      label: "sex",
+      uri: "http://example.org/custom",
+    });
   });
 });
