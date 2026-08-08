@@ -148,6 +148,15 @@ export function BossReviewSection({
         <span className="text-[10px] uppercase tracking-wide font-semibold text-violet-700 dark:text-violet-300">
           Boss-critic{reviews.length > 1 ? ` (${reviews.length})` : ""}
         </span>
+        {/* A standalone box sits BETWEEN cards, so without this it
+            reads as commentary that landed in the wrong place. Say
+            plainly that these name a design element the agent didn't
+            raise a finding for, so there's no card to nest them in. */}
+        {variant === "standalone" ? (
+          <span className="text-[10px] italic text-violet-600/80 dark:text-violet-400/80">
+            no matching card — the boss named an element no finding targets
+          </span>
+        ) : null}
         <span className="ml-auto flex items-baseline gap-1">
           {BOSS_SEVERITY_ORDER.map((s) =>
             counts[s] ? (

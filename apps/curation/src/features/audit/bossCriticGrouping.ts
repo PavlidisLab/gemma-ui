@@ -203,6 +203,51 @@ function dedupeHistory(group: BossCriticReview[]): BossCriticReview[] {
   return out;
 }
 
+/** Merge groups that would RENDER identically — same target, same
+ *  severity, same final verdict text — keeping the one that got
+ *  furthest and folding the other's rounds into its history.
+ *
+ *  ``finding_key`` splits per issue code, which is right when the two
+ *  issues say different things but wrong when the boss re-emits one
+ *  point under a second code. GSE28555 / audit ``2d3a1434`` shipped
+ *  ``fv:…/wm266-4::CORRECTNESS`` (round 1) and ``…::E4`` (round 2) with
+ *  character-identical verdicts, so the card showed the same advisory
+ *  twice. Matching on the rendered content — not on the key — means a
+ *  genuine second issue on the same target still gets its own row. */
+function mergeIdenticalGroups(
+  groups: GroupedBossReview[],
+): GroupedBossReview[] {
+  const byContent = new Map<string, GroupedBossReview>();
+  const order: string[] = [];
+  for (const g of groups) {
+    const sig = `${g.targetId} ${g.severity} ${(
+      g.final.verdict || ""
+    ).trim()}`;
+    const prior = byContent.get(sig);
+    if (!prior) {
+      byContent.set(sig, g);
+      order.push(sig);
+      continue;
+    }
+    const winner = g.maxRound > prior.maxRound ? g : prior;
+    const loser = winner === g ? prior : g;
+    byContent.set(sig, {
+      ...winner,
+      // Keep the FIRST key seen so the DOM key is stable across
+      // renders regardless of which round wins.
+      key: prior.key,
+      history: dedupeHistory(
+        [...winner.history, ...loser.history].sort((a, b) => a.round - b.round),
+      ),
+      maxRound: Math.max(winner.maxRound, loser.maxRound),
+      unresolvedBlocker:
+        winner.severity === "blocker" &&
+        Math.max(winner.maxRound, loser.maxRound) <= 1,
+    });
+  }
+  return order.map((sig) => byContent.get(sig)!);
+}
+
 /** Collapse the raw boss-critic feed to one grouped verdict per
  *  ``(target, issue)``, ordered by severity (blockers first) then
  *  design-first then target. */
@@ -248,7 +293,7 @@ export function groupBossReviews(
     if (b.scopeKind === "design" && a.scopeKind !== "design") return 1;
     return a.targetId.localeCompare(b.targetId);
   });
-  return groups;
+  return mergeIdenticalGroups(groups);
 }
 
 export function bossSeverityCounts(

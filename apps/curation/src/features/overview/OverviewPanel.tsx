@@ -1103,21 +1103,30 @@ function TagBarLegend() {
     palette,
     val,
     italic,
+    mark,
   }: {
     palette: keyof typeof TAG_PALETTE;
     val: string;
     italic?: boolean;
+    /** Trailing marker glyph, matching the live chip (e.g. the amber
+     *  ``Δ`` a direct free-text value carries). */
+    mark?: string;
   }) => {
     const p = TAG_PALETTE[palette];
     return (
       <span
-        className={`inline-flex items-baseline px-1.5 py-0.5 text-[11px] rounded border ${p.outer}`}
+        className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border ${p.outer}`}
       >
         <span
           className={italic ? "italic opacity-80" : "font-medium"}
         >
           {val}
         </span>
+        {mark ? (
+          <span className="text-[10px] leading-none font-medium text-amber-700 dark:text-amber-400">
+            {mark}
+          </span>
+        ) : null}
       </span>
     );
   };
@@ -1163,6 +1172,18 @@ function TagBarLegend() {
           <span>
             <span className="italic">Italic</span> — free text, no
             ontology URI yet.
+          </span>
+          <Sample palette="direct" val="pLX304 empty vector" italic mark="Δ" />
+          <span>
+            <span className="font-medium text-amber-700 dark:text-amber-400">
+              Δ
+            </span>{" "}
+            — <span className="font-medium">needs grounding</span>. Free
+            text is allowed on a direct tag: the term may not exist yet,
+            or just hasn&apos;t been found. Usually it&apos;s the latter.
+            The marker says the tag isn&apos;t finished, not that
+            it&apos;s wrong — and these are never hidden by{" "}
+            <span className="font-medium">Hide free-text</span>.
           </span>
         </div>
       </div>
@@ -1894,16 +1915,21 @@ function TagBar({
   // only counts toward a box when the other box isn't already hiding it.
   const isFreeText = (t: Tag) => !tagIsResolved(t);
   const anyInferred = dedupedAll.some((t) => t.inferred);
-  const anyFreeText = dedupedAll.some((t) => isFreeText(t));
+  // "Hide free-text" is a NOISE filter over inherited values — raw
+  // numbers, dates, batch ids, per-sample descriptions bubbled up from
+  // characteristics. A DIRECT EE-tag is curation content: an ungrounded
+  // one is the curator's own work item ("find the term, or mint it"),
+  // so hiding it behind a noise filter buries the very thing that needs
+  // action. Direct chips are therefore never free-text-filtered — they
+  // carry the "needs grounding" marker instead.
+  const anyFreeText = dedupedAll.some((t) => t.inferred && isFreeText(t));
   const inferredCount = dedupedAll.filter(
     (t) => t.inferred && !(hideFreeText && isFreeText(t)),
   ).length;
   const freeTextCount = dedupedAll.filter(
-    (t) => isFreeText(t) && !(hideInferred && t.inferred),
+    (t) => t.inferred && isFreeText(t) && !hideInferred,
   ).length;
-  const dedupedDirect = dedupedAll.filter(
-    (t) => !t.inferred && !(hideFreeText && isFreeText(t)),
-  );
+  const dedupedDirect = dedupedAll.filter((t) => !t.inferred);
   const dedupedInferred = hideInferred
     ? []
     : dedupedAll.filter(
@@ -1969,7 +1995,7 @@ function TagBar({
             {anyFreeText ? (
               <label
                 className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
-                title="Hide unresolved free-text chips — raw inherited values with no ontology term (EE-tags are always grounded, so this only ever hides inferred chips); resolved chips stay."
+                title="Hide unresolved free-text chips — raw inherited values with no ontology term. Only inherited chips are hidden: an ungrounded direct tag is a work item, so it stays put and carries the Δ needs-grounding marker instead."
               >
                 <input
                   type="checkbox"
@@ -2427,6 +2453,7 @@ function TagValueChip({
   value,
   categoryLabel,
   demoted = false,
+  needsGrounding = false,
 }: {
   value: TagValue;
   /** Category label for this value. Surfaced when the chip is
@@ -2440,6 +2467,12 @@ function TagValueChip({
    *  weight) so the eye lands on the anchored terms first. URI
    *  values ignore this prop — they're always the prominent ones. */
   demoted?: boolean;
+  /** Free text is legitimate on a direct EE-tag — the term may not
+   *  exist yet, or just hasn't been found. It is NOT finished work
+   *  though, so mark it: same ``Δ ground`` vocabulary the audit cards
+   *  use for ``ungrounded_term``, so one cue means one thing across
+   *  surfaces. Ignored on URI-bearing values. */
+  needsGrounding?: boolean;
 }) {
   const display = abbreviateValueLabel(value.label);
   // Full label (+ category) recoverable on hover, since ``display`` is
@@ -2469,16 +2502,27 @@ function TagValueChip({
   // Free-text variant: italic, truncated, demoted when the group has
   // ontology-resolved siblings.
   return (
-    <Term
-      variant="bare"
-      title={title}
-      className={cn(
-        "italic max-w-[22ch]",
-        demoted ? "opacity-50 text-[10px]" : "opacity-80",
-      )}
-    >
-      {display}
-    </Term>
+    <>
+      <Term
+        variant="bare"
+        title={title}
+        className={cn(
+          "italic max-w-[22ch]",
+          demoted ? "opacity-50 text-[10px]" : "opacity-80",
+        )}
+      >
+        {display}
+      </Term>
+      {needsGrounding ? (
+        <span
+          className="text-[10px] leading-none font-medium text-amber-700 dark:text-amber-400 shrink-0"
+          title={`"${value.label}" has no ontology term yet — find one, or mint one if it doesn't exist. Free text is allowed here, but it isn't finished.`}
+          aria-label="needs grounding"
+        >
+          Δ
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -2755,6 +2799,29 @@ function EditableDirectGroupChip({
     // more than a flat per-sample characteristic can match — neither is
     // an exact-statement match, so neither glints. Design review 2026-07-20.
     const isFlatTag = (tag.statements?.length ?? 0) === 0;
+    // Free text is LEGITIMATE on a direct tag's subject — the term may
+    // not exist yet, or (usually) just hasn't been found. It is not
+    // finished work though, so mark it. Reads the subject wherever the
+    // chip actually shows it: the flat ``value`` on a plain tag, the
+    // statement subjects on a statement-shaped one. Load-time tags are
+    // exempt — the curator can't act on a locked chip, so a marker there
+    // is pure noise.
+    const subjectNeedsGrounding =
+      !protectedCategory &&
+      (isFlatTag
+        ? !!tag.value.label && !tag.value.uri
+        : (tag.statements ?? []).some(
+            (s) => !!s.subject?.label && !s.subject?.uri,
+          ));
+    const groundingMark = subjectNeedsGrounding ? (
+      <span
+        className="text-[10px] leading-none font-medium text-amber-700 dark:text-amber-400 shrink-0"
+        title={`No ontology term on this tag's subject yet — find one, or mint one if it doesn't exist. Free text is allowed here, but it isn't finished.`}
+        aria-label="needs grounding"
+      >
+        Δ
+      </span>
+    ) : null;
     const inheritedKey = tag.value.uri
       ? `${(tag.category.label || "").trim().toLowerCase()}|${tag.value.uri.trim()}`
       : "";
@@ -2831,9 +2898,12 @@ function EditableDirectGroupChip({
           // the flat value label. ``tag.value.label`` (if any) still
           // exists as a fallback summary but the structured form is
           // more useful for the curator.
-          <span className="max-w-[40ch]">
-            <TagStatementInline statements={tag.statements} />
-          </span>
+          <>
+            <span className="max-w-[40ch]">
+              <TagStatementInline statements={tag.statements} />
+            </span>
+            {groundingMark}
+          </>
         ) : (
           <>
             <span
@@ -2858,6 +2928,7 @@ function EditableDirectGroupChip({
                 className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
               />
             ) : null}
+            {groundingMark}
           </>
         )}
         <AuditDot
@@ -3286,6 +3357,7 @@ function TagGroupChip({
             value={v}
             categoryLabel={category.label}
             demoted={hasUriValue && !v.uri}
+            needsGrounding={variant === "direct" && !v.uri}
           />
         </span>
       ))}

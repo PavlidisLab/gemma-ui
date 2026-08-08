@@ -421,3 +421,47 @@ describe("bossMatchesFinding", () => {
     ).toBe(true);
   });
 });
+
+describe("identical verdicts re-emitted under a second issue code", () => {
+  /** GSE28555 / audit 2d3a1434: the boss raised one ungrounded-FV point
+   *  in round 1 under CORRECTNESS and again in round 2 under E4, with
+   *  byte-identical text. finding_key splits per issue, so the card
+   *  showed the same advisory twice. */
+  const wm = (findingKey: string, round: number) => ({
+    target_id: "fv:melanoma cell line vs normal/neural crest cells/WM266-4",
+    finding_key: findingKey,
+    round,
+    is_final: true,
+    severity: "advisory",
+    verdict:
+      "WM266-4 ungrounded while sibling lines carry CLO URIs — resolver gap for this melanoma line",
+  });
+
+  it("merges them into one row", () => {
+    const groups = groupBossReviews([
+      wm("fv:…/wm266-4::CORRECTNESS", 1),
+      wm("fv:…/wm266-4::E4", 2),
+    ] as unknown as BossCriticReview[]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].maxRound).toBe(2);
+  });
+
+  it("keeps a genuine second issue on the same target as its own row", () => {
+    const groups = groupBossReviews([
+      wm("fv:…/wm266-4::CORRECTNESS", 1),
+      {
+        ...wm("fv:…/wm266-4::E4", 2),
+        verdict: "WM266-4 assigned to 5 samples but n=11 elsewhere",
+      },
+    ] as unknown as BossCriticReview[]);
+    expect(groups).toHaveLength(2);
+  });
+
+  it("does not merge across different severities", () => {
+    const groups = groupBossReviews([
+      wm("fv:…/wm266-4::CORRECTNESS", 1),
+      { ...wm("fv:…/wm266-4::E4", 2), severity: "blocker" },
+    ] as unknown as BossCriticReview[]);
+    expect(groups).toHaveLength(2);
+  });
+});
