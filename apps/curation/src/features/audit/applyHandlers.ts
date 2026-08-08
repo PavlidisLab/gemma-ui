@@ -1790,20 +1790,11 @@ export function addFactorFromProposal(
       free_text_label: fv.free_text_label,
       is_baseline: !!fv.is_baseline,
       numeric_value: fv.numeric_value ?? null,
-      biomaterial_short_names: [...fv.biomaterial_short_names],
-      statements: (fv.statements ?? []).map((s) => ({
-        category: {
-          label: proposal.category.label,
-          uri: proposal.category.uri ?? null,
-        },
-        subject: { label: s.subject.label, uri: s.subject.uri ?? null },
-        predicate: s.predicate
-          ? { label: s.predicate.label, uri: s.predicate.uri ?? null }
-          : null,
-        object: s.object
-          ? { label: s.object.label, uri: s.object.uri ?? null }
-          : null,
-      })),
+      biomaterial_short_names: [...(fv.biomaterial_short_names ?? [])],
+      statements: toDesignStatements(fv.statements ?? [], {
+        label: proposal.category.label,
+        uri: proposal.category.uri ?? null,
+      }),
     }),
   );
   const newFactor: Factor = {
@@ -1867,12 +1858,20 @@ function proposedTagStatements(
 }
 
 /** Convert proposer ``StatementProposal[]`` to the design ``Statement``
- *  shape, dropping entries without a subject. */
-function toDesignStatements(proposed: StatementProposal[]): Statement[] {
+ *  shape, dropping entries without a subject.
+ *
+ *  ``categoryOverride`` forces every statement onto one category —
+ *  what the add-factor path wants, since statements on a new factor's
+ *  FVs take that factor's category. Omitted, each statement keeps its
+ *  own. */
+function toDesignStatements(
+  proposed: StatementProposal[],
+  categoryOverride?: OntologyTerm,
+): Statement[] {
   return proposed
-    .filter((s) => s.subject?.label)
+    .filter((s) => s?.subject?.label)
     .map((s) => ({
-      category: s.category ?? null,
+      category: categoryOverride ?? s.category ?? null,
       subject: s.subject,
       predicate: s.predicate ?? null,
       object: s.object ?? null,

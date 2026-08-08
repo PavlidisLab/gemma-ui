@@ -29,7 +29,10 @@ import type {
   FactorProposal,
   FactorValueProposal,
   Proposal,
+  StatementProposal,
 } from "@/api/types";
+import type { AgentProposalStatement } from "@/api/agentProposals";
+import { statementFromAgent } from "@/features/proposal/agentProposalAdapter";
 import type {
   Factor,
   FactorValue,
@@ -302,7 +305,39 @@ export function factorProposalFromApplyAction(
   // fall back to the comparison-proposal resolver.
   if (!p.category || typeof p.category.label !== "string") return null;
   if (!Array.isArray(p.factor_values)) return null;
-  return p as FactorProposal;
+  return {
+    ...p,
+    factor_values: p.factor_values.map(normalizeFvStatements),
+  } as FactorProposal;
+}
+
+/** Rewrite one proposed FV's statements into the nested
+ *  ``StatementProposal`` shape, whichever shape the producer emitted.
+ *
+ *  ``new_factor_payload`` has two producers with two statement shapes:
+ *  the finding generator emits nested (``subject: {label, uri}``),
+ *  while the calibration-batch builder dumps the agent factor model
+ *  straight through, which is flat (``subject_label`` /
+ *  ``subject_uri``). Normalising here — the one place the payload
+ *  becomes a ``FactorProposal`` — keeps every downstream reader on a
+ *  single shape. Without it the apply path dereferences an undefined
+ *  ``s.subject`` and takes the whole ``DesignDraftProvider`` down
+ *  (GSE89895 / calibration audit ``29d14b0f``, add-factor "individual").
+ *  Entries carrying neither shape are dropped rather than passed on
+ *  half-built. */
+function normalizeFvStatements(fv: FactorValueProposal): FactorValueProposal {
+  const raw = Array.isArray(fv.statements) ? fv.statements : [];
+  const statements = raw
+    .map((s) => {
+      if (!s || typeof s !== "object") return null;
+      const flat = s as unknown as Partial<AgentProposalStatement>;
+      if (typeof flat.subject_label === "string") {
+        return statementFromAgent(flat as AgentProposalStatement);
+      }
+      return s?.subject?.label ? s : null;
+    })
+    .filter((s): s is StatementProposal => s !== null);
+  return { ...fv, statements };
 }
 
 /** Synthesize the agent ``FactorProposal`` for a factor *near-match /

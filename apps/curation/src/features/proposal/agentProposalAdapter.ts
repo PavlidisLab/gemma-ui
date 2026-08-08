@@ -141,7 +141,14 @@ function bmMetaFromAgent(
   };
 }
 
-function statementFromAgent(s: AgentProposalStatement): StatementProposal {
+/** Flat agent statement (``subject_label`` / ``subject_uri`` / …) →
+ *  nested ``StatementProposal`` (``subject: {label, uri}``). Exported
+ *  because the audit side needs the same conversion: an add-factor
+ *  finding's ``apply_action.new_factor_payload`` carries whichever of
+ *  the two statement shapes its producer emitted. */
+export function statementFromAgent(
+  s: AgentProposalStatement,
+): StatementProposal {
   const hasPredicate = !!(s.predicate_label || s.predicate_uri);
   const hasObject = !!(s.object_label || s.object_uri);
   return {

@@ -375,6 +375,93 @@ describe("factorProposalFromApplyAction", () => {
       ),
     ).toBe(null);
   });
+
+  describe("statement shape normalization", () => {
+    /** Build an add-factor finding whose FV carries ``statements``
+     *  verbatim, so each test can pin one producer's shape. */
+    const withStatements = (statements: unknown[]) =>
+      finding({
+        issue_code: "calibration_factor_extra",
+        apply_action: {
+          kind: "add_factor",
+          new_category: "individual",
+          new_factor_payload: {
+            category: term("individual"),
+            name_in_design: "donor identity",
+            factor_values: [
+              {
+                free_text_label: "donor 828",
+                is_baseline: false,
+                statements,
+                biomaterial_short_names: ["GSM2392481"],
+              },
+            ],
+          },
+        } as unknown as AuditFinding["apply_action"],
+      });
+
+    it("converts the calibration builder's FLAT statements to the nested shape", () => {
+      // The calibration-batch builder dumps the agent factor model
+      // straight into new_factor_payload, which is flat. Left
+      // unconverted, the apply path reads ``s.subject.label`` off
+      // undefined and takes DesignDraftProvider down.
+      const p = factorProposalFromApplyAction(
+        withStatements([
+          {
+            subject_label: "donor 828",
+            subject_uri: "",
+            predicate_label: "",
+            predicate_uri: "",
+            object_label: "",
+            object_uri: "",
+          },
+        ]),
+      );
+      const s = p?.factor_values[0].statements ?? [];
+      expect(s).toHaveLength(1);
+      expect(s[0].subject.label).toBe("donor 828");
+      expect(s[0].predicate).toBe(null);
+      expect(s[0].object).toBe(null);
+    });
+
+    it("leaves the finding generator's already-nested statements alone", () => {
+      const p = factorProposalFromApplyAction(
+        withStatements([
+          {
+            category: { label: "individual", uri: null },
+            subject: { label: "donor 828", uri: null },
+            predicate: null,
+            object: null,
+          },
+        ]),
+      );
+      const s = p?.factor_values[0].statements ?? [];
+      expect(s).toHaveLength(1);
+      expect(s[0].subject.label).toBe("donor 828");
+    });
+
+    it("drops entries carrying neither shape rather than passing them on half-built", () => {
+      const p = factorProposalFromApplyAction(
+        withStatements([{ predicate_label: "treated with" }, {}, null]),
+      );
+      expect(p?.factor_values[0].statements).toEqual([]);
+    });
+
+    it("tolerates a missing statements array", () => {
+      const p = factorProposalFromApplyAction(
+        finding({
+          apply_action: {
+            kind: "add_factor",
+            new_factor_payload: {
+              category: term("individual"),
+              factor_values: [{ free_text_label: "donor 828" }],
+            },
+          } as unknown as AuditFinding["apply_action"],
+        }),
+      );
+      expect(p?.factor_values[0].statements).toEqual([]);
+    });
+  });
 });
 
 describe("factorProposalFromRename", () => {
