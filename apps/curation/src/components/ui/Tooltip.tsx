@@ -38,9 +38,23 @@ import { cn } from "@/lib/cn";
  * The `label` prop accepts string OR ReactNode — use a node when
  * the tooltip body needs richer content (multiple lines, a mini
  * key/value list, etc.).
+ *
+ * `interactive` is for bodies the curator has to reach into — a
+ * long GEO protocol in a `max-h-* overflow-auto` box, say. The
+ * default bubble is `pointer-events-none` and dies on the trigger's
+ * mouseleave, so its own scrollbar is unreachable: the cursor has to
+ * cross the gap to grab it, and the tooltip is gone before it gets
+ * there. Interactive mode gives the bubble pointer events, a short
+ * grace period to cross that gap, and exempts scrolls that start
+ * INSIDE the bubble from the close-on-scroll rule (a scroll event
+ * doesn't bubble, but it does reach a capture-phase window listener).
+ * Opt-in, because a pointer-events bubble swallows clicks on
+ * whatever it covers — which is wrong for a two-word tooltip.
  */
 
 const OPEN_DELAY_MS = 150;
+/** Grace period for the cursor to cross the trigger→bubble gap. */
+const CLOSE_DELAY_MS = 160;
 const VIEWPORT_GUTTER = 6;
 const ARROW_SIZE = 5;
 
@@ -49,6 +63,8 @@ export function Tooltip({
   children,
   side = "top",
   disabled = false,
+  interactive = false,
+  wide = false,
 }: {
   label: ReactNode | string;
   children: ReactElement;
@@ -57,10 +73,15 @@ export function Tooltip({
   /** When true, the tooltip never opens. Useful for conditionally
    *  suppressing tooltips on disabled-looking elements. */
   disabled?: boolean;
+  /** Hoverable + scrollable bubble; see the note above. */
+  interactive?: boolean;
+  /** Widen the bubble to `max-w-md` for prose-length bodies. */
+  wide?: boolean;
 }) {
   const triggerRef = useRef<HTMLElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<number | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{
     top: number;
@@ -68,28 +89,55 @@ export function Tooltip({
     placement: "top" | "bottom";
   } | null>(null);
 
-  const scheduleOpen = useCallback(() => {
-    if (disabled) return;
-    if (timerRef.current != null) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
-      setOpen(true);
-      timerRef.current = null;
-    }, OPEN_DELAY_MS);
-  }, [disabled]);
-
-  const cancelOpen = useCallback(() => {
+  const clearTimers = useCallback(() => {
     if (timerRef.current != null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    setOpen(false);
+    if (closeTimerRef.current != null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current != null) window.clearTimeout(timerRef.current);
-    };
+  const scheduleOpen = useCallback(() => {
+    if (disabled) return;
+    clearTimers();
+    timerRef.current = window.setTimeout(() => {
+      setOpen(true);
+      timerRef.current = null;
+    }, OPEN_DELAY_MS);
+  }, [disabled, clearTimers]);
+
+  /** Close now — Escape, blur, page scroll. */
+  const cancelOpen = useCallback(() => {
+    clearTimers();
+    setOpen(false);
+  }, [clearTimers]);
+
+  /** Leaving the trigger: interactive bubbles get a grace period so
+   *  the cursor can reach them; plain ones close immediately. */
+  const scheduleClose = useCallback(() => {
+    if (!interactive) {
+      cancelOpen();
+      return;
+    }
+    clearTimers();
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimerRef.current = null;
+    }, CLOSE_DELAY_MS);
+  }, [interactive, cancelOpen, clearTimers]);
+
+  /** Cursor made it into the bubble (or came back to the trigger). */
+  const keepOpen = useCallback(() => {
+    if (closeTimerRef.current != null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
   }, []);
+
+  useEffect(() => clearTimers, [clearTimers]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -129,7 +177,17 @@ export function Tooltip({
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") cancelOpen();
     }
-    function onScroll() {
+    function onScroll(e: Event) {
+      // The bubble's own scroller must not close the bubble. Scroll
+      // events don't bubble, but this listener is capture-phase on
+      // window, so it sees them anyway.
+      if (
+        interactive &&
+        e.target instanceof Node &&
+        bubbleRef.current?.contains(e.target)
+      ) {
+        return;
+      }
       cancelOpen();
     }
     document.addEventListener("keydown", onKey);
@@ -138,7 +196,7 @@ export function Tooltip({
       document.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", onScroll, true);
     };
-  }, [open, cancelOpen]);
+  }, [open, cancelOpen, interactive]);
 
   if (!isValidElement(children)) {
     return children as unknown as ReactElement;
@@ -160,14 +218,15 @@ export function Tooltip({
         }
       },
       onMouseEnter: (e: React.MouseEvent) => {
-        scheduleOpen();
+        if (open) keepOpen();
+        else scheduleOpen();
         const orig = childProps.onMouseEnter as
           | ((ev: React.MouseEvent) => void)
           | undefined;
         if (orig) orig(e);
       },
       onMouseLeave: (e: React.MouseEvent) => {
-        cancelOpen();
+        scheduleClose();
         const orig = childProps.onMouseLeave as
           | ((ev: React.MouseEvent) => void)
           | undefined;
@@ -199,11 +258,13 @@ export function Tooltip({
               ref={bubbleRef}
               role="tooltip"
               className={cn(
-                "fixed z-[1000] pointer-events-none",
+                "fixed z-[1000]",
+                interactive ? "pointer-events-auto" : "pointer-events-none",
                 "rounded px-2 py-1 text-[11px] leading-snug",
                 "bg-slate-800 text-slate-50 shadow-md",
                 "dark:bg-slate-700 dark:text-slate-50",
-                "max-w-[280px] whitespace-normal break-words",
+                wide ? "max-w-md" : "max-w-[280px]",
+                "whitespace-normal break-words",
                 pos ? "" : "opacity-0",
               )}
               style={
@@ -211,6 +272,8 @@ export function Tooltip({
                   ? { top: pos.top, left: pos.left }
                   : { top: -9999, left: -9999 }
               }
+              onMouseEnter={interactive ? keepOpen : undefined}
+              onMouseLeave={interactive ? scheduleClose : undefined}
             >
               {label}
             </div>,

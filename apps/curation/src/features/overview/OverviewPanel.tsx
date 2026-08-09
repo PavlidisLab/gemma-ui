@@ -348,8 +348,17 @@ export function OverviewPanel() {
                   k={label}
                   v={
                     <Tooltip
+                      interactive
+                      wide
                       label={
-                        <div className="max-w-md max-h-80 overflow-auto whitespace-pre-wrap text-left">
+                        // GEO protocol prose runs to paragraphs; the
+                        // curator has to be able to scroll it, which
+                        // needs `interactive` on the Tooltip (the
+                        // default bubble ignores the pointer).
+                        // `overscroll-contain`: without it, hitting the
+                        // bottom of the protocol chains the wheel to the
+                        // page, and the page scroll closes the tooltip.
+                        <div className="max-h-80 overflow-auto overscroll-contain whitespace-pre-wrap text-left">
                           {text}
                         </div>
                       }
