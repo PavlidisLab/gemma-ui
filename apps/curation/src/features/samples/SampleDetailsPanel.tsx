@@ -57,6 +57,21 @@ interface SortState {
   dir: SortDir;
 }
 
+/** Stable empty list for "no proposal overlay is active".
+ *
+ *  Must NOT be an inline ``?? []``: that allocates a fresh array every
+ *  render, and ``proposalFactors`` is a dependency of the
+ *  ``confidenceRows`` memo, whose result is in turn the dependency of
+ *  ``worstConfBySample`` and ``confBySampleAndFactor`` — so a new
+ *  identity here kills all three. This panel re-renders per keystroke
+ *  in the sample filter and per mousemove during a column drag, and on
+ *  an experiment with a pending agent proposal each of those runs
+ *  re-does a ``JSON.parse`` of the proposal payload plus a walk over
+ *  factors x FVs x assignment-meta. ``activeProposal`` is held in
+ *  useState, so the populated branch is already stable; this makes the
+ *  empty branch stable too. */
+const NO_PROPOSAL_FACTORS: FactorProposal[] = [];
+
 /**
  * Sample-level view of the experiment with editing, bulk changes,
  * and sorting.
@@ -304,7 +319,8 @@ function SampleTable({
     activeProposal.factors.length > 0
       ? activeProposal
       : null;
-  const proposalFactors: FactorProposal[] = overlayProposal?.factors ?? [];
+  const proposalFactors: FactorProposal[] =
+    overlayProposal?.factors ?? NO_PROPOSAL_FACTORS;
 
   // For the inline per-cell confidence ⚠ markers we don't want to
   // require the curator to have activated a proposal — the iffy-
