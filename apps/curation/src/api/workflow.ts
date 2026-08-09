@@ -258,7 +258,22 @@ export function useDatasetsPaginated(params: DatasetListParams) {
       );
       return adaptDatasetListResponse(raw);
     },
-    refetchOnWindowFocus: true,
+    // ``/rest/v2/datasets`` costs ~3.3 s on the local store REGARDLESS
+    // of ``ids`` or ``limit`` — measured 2026-08-09: the handler loads
+    // every design's ``body_json`` (534 rows, 30.8 MB), json.loads
+    // (0.33 s) + normalize_keys (2.35 s) over the lot, then filters in
+    // Python. Every ticket page and dashboard load waits on it.
+    //
+    // So: no refetch on window focus (this query used to override the
+    // app default to ``true``, which meant a fresh 3.3 s wait every
+    // time the curator tabbed back), and a long staleTime — the row
+    // fields here (short_name, name, GEEQ, troubled) change rarely, and
+    // per-target ticket status comes from ``useTicket``, not this call.
+    //
+    // Mitigation, not a fix. The endpoint is agents-side; see handoff
+    // UI_ASK_2026_08_09_DATASETS_LIST_FULL_SCAN.md.
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60_000,
     placeholderData: (prev) => prev,
   });
 }
