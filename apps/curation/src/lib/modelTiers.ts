@@ -52,8 +52,6 @@ export const MODEL_TIERS: Record<ModelTier, ModelTierDef> = {
   },
 };
 
-export const DEFAULT_MODEL_TIER: ModelTier = "standard";
-
 export const MODEL_TIER_ORDER: ModelTier[] = ["fast", "standard", "strong"];
 
 /**

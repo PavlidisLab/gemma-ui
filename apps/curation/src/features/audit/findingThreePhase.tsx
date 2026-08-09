@@ -30,20 +30,12 @@
  *   - Nested-box decoration (the slate / blue / emerald per-section
  *     bordered envelopes that ``SectionedJudgeChain`` shipped).
  *
- * Wire shape (additive, transitional):
- *   - Reads ``finding.why`` / ``finding.reviews`` / ``finding.comparison``
- *     when present (Path B per the spec — wire-side rename landing in
- *     parallel).
- *   - Falls back to ``finding.proposer_defense`` /
- *     ``finding.supporting_evidence`` / ``finding.citation`` for Why,
- *     and to ``finding.defender_verdict`` + ``findArbiterForFinding`` +
- *     ``findBossForFinding`` for Reviews — same data, projected into
- *     the new shape at render time.
- *   - Vocabulary cleanup is producer-side per design review (single source of
- *     truth on the wire). Until the producer-rename lands, ``verdictLabel``
- *     below ships a small TEMPORARY translation table marked with a
- *     TODO so the curator doesn't read raw debug strings. Drop the
- *     table once the wire ships curator-friendly labels.
+ * Wire shape: reads ``finding.why`` / ``finding.reviews`` /
+ * ``finding.comparison`` directly. The transitional legacy-field
+ * fallbacks (``proposer_defense`` / ``defender_verdict`` / … projected
+ * into the new shape at render time) were dropped once the producer
+ * shipped the three blocks — see the phase-3 note below the imports
+ * for what replaced them.
  */
 
 import { useState, type ReactNode } from "react";
@@ -667,79 +659,21 @@ function ReviewRow({ review }: { review: ReviewVerdict }): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3 — Comparison vs <comparator>
+// Three-phase body — composes all three phases.
 // ---------------------------------------------------------------------------
 
-/** Phase 3 render. Caller owns the comparator chip strip / grid (the
- *  shape varies by finding-kind: tag = chip strip; factor =
- *  FactorComparisonGrid). This component just labels the section,
- *  renders the supplied chip strip / grid, surfaces the judge's
- *  verdict line, and exposes the optional accept/reject buttons.
+/** The three-phase render. Pass-through for ``FindingEvidence``
+ *  rendering (uses the existing ``FindingEvidenceBlock`` so quote /
+ *  context / highlight behaviour stays consistent with the legacy
+ *  panel).
  *
- *  When ``comparator`` is null/undefined AND no chip-strip /
- *  comparison node is passed, the section is OMITTED ENTIRELY — no
- *  placeholder. */
-export function ComparisonPhase({
-  comparatorLabel,
-  chipStrip,
-  judgeVerdict,
-  judgeRationale,
-  actions,
-}: {
-  comparatorLabel?: string | null;
-  chipStrip?: ReactNode;
-  judgeVerdict?: string | null;
-  judgeRationale?: string | null;
-  actions?: ReactNode;
-}): JSX.Element | null {
-  const hasChip = !!chipStrip;
-  const hasJudge = !!(judgeVerdict?.trim() || judgeRationale?.trim());
-  const hasActions = !!actions;
-  if (!hasChip && !hasJudge && !hasActions) return null;
-  const label = comparatorLabel?.trim() || "comparison";
-  const header = `Comparison vs ${label}`;
-  const brief = (
-    <div className="space-y-1.5">
-      {chipStrip}
-      {hasJudge ? (
-        <div className="rs-11 text-slate-700 dark:text-slate-200 leading-snug">
-          {judgeVerdict ? (
-            <span className="font-semibold mr-1">
-              {verdictLabel(judgeVerdict)}.
-            </span>
-          ) : null}
-          {judgeRationale ? (
-            <span className="italic text-slate-600 dark:text-slate-300">
-              {judgeRationale}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      {hasActions ? <div className="pt-1">{actions}</div> : null}
-    </div>
-  );
-  return (
-    <PhaseSection
-      header={header}
-      brief={brief}
-      detail={null}
-      defaultOpen
-      alwaysShowHeader
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Three-phase body — composes Phase 1 + Phase 2; Phase 3 is rendered
-// by the caller (it owns the comparator shape).
-// ---------------------------------------------------------------------------
-
-/** Phase 1 + Phase 2 of the three-phase render. Pass-through for
- *  ``FindingEvidence`` rendering (uses the existing
- *  ``FindingEvidenceBlock`` so quote / context / highlight behaviour
- *  stays consistent with the legacy panel). Phase 3 is rendered by
- *  the caller because the chip-strip shape varies per finding kind
- *  (tag = chip strip; factor = FactorComparisonGrid). */
+ *  Phase 3 renders from ``finding.comparison`` via
+ *  ``ComparisonJudgePhase`` below, and is omitted entirely when no
+ *  comparison ran. An earlier design had the CALLER own phase 3 (so it
+ *  could supply a per-kind chip strip / FactorComparisonGrid) via an
+ *  exported ``ComparisonPhase``; no caller ever adopted it, so that
+ *  half was removed rather than left as a second way to draw the same
+ *  section. */
 export function ThreePhaseFindingBody({
   finding,
   report,

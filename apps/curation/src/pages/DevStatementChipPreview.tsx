@@ -278,7 +278,6 @@ export function DevStatementChipPreview() {
         onCancel={() => setEditOpen(false)}
         onSave={(next) => {
           setLastSaved(next);
-          // eslint-disable-next-line no-console
           console.log("StatementEditModal saved:", next);
           setEditOpen(false);
         }}

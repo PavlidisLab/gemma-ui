@@ -40,7 +40,7 @@
  * curator can still click either button.
  */
 
-import type { AuditFinding, AttachedDefenderVerdict } from "@/api/auditTypes";
+import type { AuditFinding } from "@/api/auditTypes";
 
 /** Which side the judge leans toward. */
 export type DefenderLean = "pro_agent" | "pro_gold" | "neutral";
@@ -122,18 +122,6 @@ export function findingLean(finding: AuditFinding): DefenderLean {
   const flags = finding.proposer_flags ?? [];
   if (flags.includes("judge_agrees_agent")) return "pro_agent";
   return "neutral";
-}
-
-/** Strength surfaced as upper-case prefix text. Returns `null` when
- *  no defender verdict is attached — caller should suppress the
- *  label entirely in that case. */
-export function leanLabelPrefix(
-  dv: AttachedDefenderVerdict | null | undefined,
-  fallbackStrength: "weak" | "moderate" | "strong" | null,
-): string | null {
-  const strength = dv?.strength ?? fallbackStrength;
-  if (!strength) return null;
-  return strength.toUpperCase();
 }
 
 /** Strength bucket used by the single-axis label mapping. */

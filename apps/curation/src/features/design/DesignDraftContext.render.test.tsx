@@ -49,7 +49,17 @@ vi.mock("@/features/proposal/proposalDispositions", () => ({
   clearAllProposalStateForExperiment: vi.fn(),
   notifyProposalStateReset: vi.fn(),
 }));
+// Apply-All undo registry — spied on to assert the draft lifecycle
+// invalidates its pre-commit snapshots (see the third describe below).
+vi.mock("@/features/audit/appliedBatches", () => ({
+  clearAppliedBatches: vi.fn(),
+}));
+vi.mock("@/features/proposal/paperDismissal", () => ({
+  clearPaperDismissals: vi.fn(),
+}));
 
+import { clearAppliedBatches } from "@/features/audit/appliedBatches";
+import { clearPaperDismissals } from "@/features/proposal/paperDismissal";
 import { useDesign, useUpdateDesign, useUpdatePolished } from "@/api/design";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
@@ -442,5 +452,127 @@ describe("DesignDraftProvider — commit gates the checkpoint on the polished mi
     expect(screen.getByTestId("settled-result").textContent).toBe(
       "error:network down",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 4 — the Apply-All undo registry is invalidated by the draft
+// lifecycle.
+//
+// ``appliedBatches`` snapshots the draft as it was BEFORE an "Apply
+// All" so a single finding can be surgically undone. Those snapshots
+// describe a pre-commit design, and the undo handler consults the
+// registry BEFORE the per-finding snapshot — so a snapshot that
+// outlives its draft silently wins and rewinds the design past work
+// that already landed. Commit / discard / reload must drop them, for
+// the same reason each already drops the undo+redo stacks.
+// ---------------------------------------------------------------------------
+describe("DesignDraftProvider — invalidates Apply-All undo snapshots", () => {
+  const clearAppliedBatchesMock = clearAppliedBatches as ReturnType<
+    typeof vi.fn
+  >;
+
+  function LifecycleProbe() {
+    const { commit, discard, reload, draft } = useDesignDraft();
+    return (
+      <div>
+        <span data-testid="draft-eid">{draft?.experiment_id ?? "null"}</span>
+        <button data-testid="commit-btn" onClick={() => commit()} />
+        <button data-testid="discard-btn" onClick={() => discard()} />
+        <button data-testid="reload-btn" onClick={() => reload()} />
+      </div>
+    );
+  }
+
+  beforeEach(() => {
+    useDesignMock.mockReturnValue({
+      data: makeDesign(ROUTE_EID, "GSE253365"),
+      isLoading: false,
+      error: null,
+    });
+    useCurationsMock.mockReturnValue({ data: [], isLoading: false, error: null });
+    resolveCurationMock.mockReturnValue(null);
+  });
+
+  async function renderSeeded() {
+    render(
+      // No ``reviewer`` — commit's polished mirror is skipped, so
+      // ``finalizeCheckpoint`` runs straight off the /design success.
+      <DesignDraftProvider experimentId={ROUTE_ID}>
+        <LifecycleProbe />
+      </DesignDraftProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("draft-eid").textContent).toBe(
+        String(ROUTE_EID),
+      ),
+    );
+  }
+
+  it("clears the registry for this experiment on a successful commit", async () => {
+    useUpdateDesignMock.mockReturnValue({
+      mutate: vi.fn((design, opts) => opts?.onSuccess?.(design)),
+      reset: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    });
+    await renderSeeded();
+
+    expect(clearAppliedBatchesMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("commit-btn"));
+    expect(clearAppliedBatchesMock).toHaveBeenCalledWith(ROUTE_ID);
+  });
+
+  it("does NOT clear the registry when the commit fails", async () => {
+    // The draft stays dirty and the curator retries — the Apply-All
+    // mutations are still in the draft, so their undo must still work.
+    useUpdateDesignMock.mockReturnValue({
+      mutate: vi.fn((_design, opts) => opts?.onError?.(new Error("network down"))),
+      reset: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: new Error("network down"),
+    });
+    await renderSeeded();
+
+    fireEvent.click(screen.getByTestId("commit-btn"));
+    expect(clearAppliedBatchesMock).not.toHaveBeenCalled();
+  });
+
+  it("clears the registry on discard", async () => {
+    await renderSeeded();
+
+    fireEvent.click(screen.getByTestId("discard-btn"));
+    expect(clearAppliedBatchesMock).toHaveBeenCalledWith(ROUTE_ID);
+  });
+
+  it("clears the registry on reload (re-import)", async () => {
+    await renderSeeded();
+
+    fireEvent.click(screen.getByTestId("reload-btn"));
+    expect(clearAppliedBatchesMock).toHaveBeenCalledWith(ROUTE_ID);
+  });
+
+  it("clears the paper-dismissal flags on reload (re-import)", async () => {
+    // A re-import drops the auto-applied Publication row but keeps the
+    // proposal; a surviving flag would suppress auto-apply forever.
+    await renderSeeded();
+
+    fireEvent.click(screen.getByTestId("reload-btn"));
+    expect(clearPaperDismissals as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+      ROUTE_ID,
+    );
+  });
+
+  it("does NOT clear the paper-dismissal flags on a plain discard", async () => {
+    // Discard undoes design edits; it does not re-import, so the
+    // curator's "I already dealt with this paper" decision stands.
+    await renderSeeded();
+
+    fireEvent.click(screen.getByTestId("discard-btn"));
+    expect(
+      clearPaperDismissals as ReturnType<typeof vi.fn>,
+    ).not.toHaveBeenCalled();
   });
 });

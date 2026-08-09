@@ -222,6 +222,44 @@ function labelEq(a: string | null | undefined, b: string): boolean {
   return (a || "").trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+/** Is this ``(category, value[, uri])`` already a REAL tag on the design?
+ *
+ *  The single "is it already there?" test for this module. Both the
+ *  resolver arms that decide whether to OFFER an add and the mutator
+ *  guard that refuses to APPEND a duplicate go through here, because
+ *  they have to agree: a resolver that offers "Agree (add)" over a guard
+ *  that then silently declines is a no-op click, which is the failure
+ *  this module keeps re-growing. Four hand-rolled copies had already
+ *  drifted apart on both rules below.
+ *
+ *  Two rules, both deliberate:
+ *
+ *   - **Inferred rows don't count.** An inferred chip is a projection of
+ *     a sample characteristic, not a stored experiment tag, so a value
+ *     present only as a projection is still curatable into a real tag.
+ *     What happens once both exist is a DISPLAY question and already
+ *     answered elsewhere: TagBar shows the direct chip with a violet
+ *     redundancy glint when every sample carries the same grounded term.
+ *     Surfacing an overlap is not a reason to block creating one.
+ *   - **URIs are compared only when BOTH sides carry one.** The same
+ *     words under a different ontology term are a different concept and
+ *     remain addable; when either side is ungrounded there is no URI
+ *     evidence to disagree on, so the labels decide. */
+function tagAlreadyOnDesign(
+  design: Design | null | undefined,
+  categoryLabel: string,
+  valueLabel: string,
+  valueUri: string | null,
+): boolean {
+  return (design?.tags ?? []).some((t) => {
+    if (t.inferred) return false;
+    if (!labelEq(t.category?.label, categoryLabel)) return false;
+    if (!labelEq(t.value?.label, valueLabel)) return false;
+    if (valueUri && t.value?.uri) return t.value.uri === valueUri;
+    return true;
+  });
+}
+
 /** Exact URI equality (trimmed). The finding's ``proposer_term.uri``
  *  (the agent's wrong bind) and the FV's stored statement URI both
  *  originate from the same Gemma import, so an exact compare is enough
@@ -472,12 +510,7 @@ function resolveProposalApply(
     }
     // Idempotency: baseline already gone AND replacement already on the
     // draft → nothing to do, surface as already-applied.
-    const replacementPresent = (design.tags ?? []).some((t) => {
-      if (!labelEq(t.category?.label, categoryLabel)) return false;
-      if (!labelEq(t.value?.label, valueLabel)) return false;
-      if (valueUri && t.value?.uri) return t.value.uri === valueUri;
-      return true;
-    });
+    const replacementPresent = tagAlreadyOnDesign(design, categoryLabel, valueLabel, valueUri);
     if (!baseline && replacementPresent) {
       return {
         mutates: false,
@@ -525,14 +558,7 @@ function resolveProposalApply(
     proposedTagStatements(finding, action.statements),
   );
 
-  const alreadyApplied = (design?.tags ?? []).some((tag) => {
-    if (!labelEq(tag.category?.label, categoryLabel)) return false;
-    if (!labelEq(tag.value?.label, valueLabel)) return false;
-    if (valueUri && tag.value?.uri) {
-      return tag.value.uri === valueUri;
-    }
-    return true;
-  });
+  const alreadyApplied = tagAlreadyOnDesign(design, categoryLabel, valueLabel, valueUri);
   if (alreadyApplied) {
     return {
       mutates: false,
@@ -720,12 +746,7 @@ function resolveCalibrationApply(
       if (slugMatch) categoryLabel = slugMatch[1].replace(/-/g, " ");
     }
     if (!categoryLabel || !valueLabel) return null;
-    const alreadyApplied = (design?.tags ?? []).some((tag) => {
-      if (!labelEq(tag.category?.label, categoryLabel)) return false;
-      if (!labelEq(tag.value?.label, valueLabel)) return false;
-      if (valueUri && tag.value?.uri) return tag.value.uri === valueUri;
-      return true;
-    });
+    const alreadyApplied = tagAlreadyOnDesign(design, categoryLabel, valueLabel, valueUri);
     if (alreadyApplied) {
       return {
         mutates: false,
@@ -769,20 +790,7 @@ function resolveCalibrationApply(
     // insensitive) AND — when both sides have a URI — on URI too.
     // Tags without URIs match by label alone. See
     // HANDOFF_2026-05-19_INTER_CURATOR_AUDIT_FOLLOWUPS §3.
-    const alreadyApplied = (design?.tags ?? []).some((tag) => {
-      const sameCategory =
-        tag.category.label.toLowerCase().trim() ===
-        categoryLabel.toLowerCase().trim();
-      if (!sameCategory) return false;
-      const sameValueLabel =
-        tag.value.label.toLowerCase().trim() ===
-        valueLabel.toLowerCase().trim();
-      if (!sameValueLabel) return false;
-      if (valueUri && tag.value.uri) {
-        return tag.value.uri === valueUri;
-      }
-      return true;
-    });
+    const alreadyApplied = tagAlreadyOnDesign(design, categoryLabel, valueLabel, valueUri);
     if (alreadyApplied) {
       return {
         mutates: false,
@@ -1019,13 +1027,20 @@ function resolveFactorCalibrationApply(
     // biomaterial-set) tuples — captures partition + labels in one
     // signature. Two factors are "already applied" iff their FV
     // signature sets are equal.
+    //
+    // NUL joins the two halves of the key because it can't occur in a
+    // label or a biomaterial name, so the signature is unambiguous.
+    // Keep it spelled as the `` `` ESCAPE: a raw NUL byte in the
+    // source makes grep classify this entire file as binary and skip it
+    // without saying so, which hides every symbol in here from a repo
+    // search (and from any dead-code sweep that relies on one).
     const fvSig = (
       fvs: { free_text_label: string; biomaterial_short_names: string[] }[],
     ) =>
       new Set(
         fvs.map(
           (fv) =>
-            `${(fv.free_text_label || "").toLowerCase().trim()} ${[
+            `${(fv.free_text_label || "").toLowerCase().trim()}\u0000${[
               ...fv.biomaterial_short_names,
             ]
               .sort()
@@ -1373,6 +1388,31 @@ function resolveNearMatchApply(
     goldFactor = pickGoldFactor(proposal, fallbackCandidates);
   }
   if (!goldFactor) return null;
+
+  // The resolved gold factor may be SYNTHETIC — ``resolveGoldFactor``
+  // falls back to ``synthesizeGoldFactorFromRename`` (id ``-1``) when
+  // the curator's baseline doesn't carry the factor, so the card can
+  // still render both sides. There is nothing in the draft to rename in
+  // that case: ``replaceFactorWithProposal`` would find no factor with
+  // that id and hand the draft straight back, while this action still
+  // claimed ``mutates: true`` and fired an "Adopted agent's labels …
+  // Commit to save" toast for a design that never changed. Say so
+  // instead, matching the ``calibration_factor_partition_mismatch``
+  // branch's handling of the same situation.
+  const goldInDraft = (design.factors ?? []).some(
+    (f) => f.id === goldFactor.id,
+  );
+  if (!goldInDraft) {
+    return {
+      mutates: false,
+      label: "✓ Factor not in draft",
+      tooltip:
+        `No factor "${goldFactor.category.label}" in the current draft — ` +
+        `there is nothing to rename. Agree to disposition without ` +
+        `re-applying.`,
+      successMessage: "",
+    };
+  }
 
   // Idempotency: if the gold factor already matches the agent's
   // labels + URIs and there's no FV-level drift, the apply is a
@@ -1944,13 +1984,9 @@ function addPopulatedTag(
   statements?: Statement[],
 ): Design {
   const existing = design.tags ?? [];
-  const dup = existing.some(
-    (t) =>
-      !t.inferred &&
-      labelEq(t.category?.label, categoryLabel) &&
-      labelEq(t.value?.label, valueLabel),
-  );
-  if (dup) return design;
+  if (tagAlreadyOnDesign(design, categoryLabel, valueLabel, valueUri)) {
+    return design;
+  }
   let next = 0;
   for (const t of existing) if (t.id > next) next = t.id;
   const newTag: Tag = {

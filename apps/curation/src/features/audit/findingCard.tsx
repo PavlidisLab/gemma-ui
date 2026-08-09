@@ -1635,7 +1635,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             //      draft = snapshot + all OTHER batch mutations, so
             //      undoing this one finding leaves siblings'
             //      contributions intact.
-            const batched = undoBatched(finding.target_id);
+            const batched = undoBatched(experimentId, finding.target_id);
             if (batched) {
               applyDraft(batched);
             } else if (preApplyDraftSnapshot) {
@@ -1891,7 +1891,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               onClick={() => {
                 // See the editor-card onUndo above for the two-path
                 // rationale (per-finding snapshot vs Apply-All batch).
-                const batched = undoBatched(finding.target_id);
+                const batched = undoBatched(experimentId, finding.target_id);
                 if (batched) {
                   applyDraft(batched);
                 } else if (preApplyDraftSnapshot) {

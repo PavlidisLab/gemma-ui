@@ -7,10 +7,23 @@ backend work.
 ## Stack
 
 React + TypeScript + Vite + TanStack Query + Tailwind. Path alias
-`@/` → `src/`. No formal test suite — **`npx tsc -p tsconfig.app.json
---noEmit`** for correctness (the root `tsconfig.json` has empty
-`files` and skips the app code — running it directly catches
-nothing) and the browser for everything else. Dev server:
+`@/` → `src/`.
+
+**Checks, in the order they're cheapest to run:**
+
+| What | Command |
+|---|---|
+| Types | `npx tsc -p tsconfig.app.json --noEmit` |
+| Unit / render (vitest) | `npm run test` |
+| Lint | `npm run lint` |
+| E2E, mocked | `npm run e2e:critical` |
+| E2E, needs a live backend | `npm run e2e:live` |
+
+Typecheck must name `tsconfig.app.json` — the root `tsconfig.json`
+has empty `files` and skips the app code, so running it directly
+catches nothing.
+
+Dev server:
 `npm run dev` → `:5173`. Vite proxies `/rest`, `/propose`, `/audit`,
 `/find-publication`, `/find-term` to the local_api curation server
 (default `:8082`). Auth token `dev-token-123`. Override via

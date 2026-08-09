@@ -419,7 +419,7 @@ function SidebarHeader({
   // ticket-target's status to DONE so the popover + dashboard reflect
   // the finished work. Design review 2026-06-11: "this isn't updating … we used
   // to have little circles" — the ticket-member popover was still
-  // showing TODO on a finalized experiment.
+  // showing the target as not-yet-started on a finalized experiment.
   // Resolve the ticket-patch decision purely off (experimentId, route)
   // via the ``ticketTargetPatchForFinalize`` helper so the call site
   // can't accidentally lose ``experimentId`` from scope. The helper
@@ -520,7 +520,7 @@ function SidebarHeader({
           targetId: finding.target_id,
           mutate: action.mutate!,
         }));
-        registerAppliedBatch(snapshot, mutations);
+        registerAppliedBatch(experimentId, snapshot, mutations);
         applyDraft((d) => {
           let acc = d;
           for (const m of mutations) acc = m.mutate(acc);
@@ -697,7 +697,7 @@ function SidebarHeader({
               targetId: finding.target_id,
               mutate: action.mutate!,
             }));
-            registerAppliedBatch(snapshot, mutations);
+            registerAppliedBatch(experimentId, snapshot, mutations);
             applyDraft((d) => {
               let acc = d;
               for (const m of mutations) acc = m.mutate(acc);

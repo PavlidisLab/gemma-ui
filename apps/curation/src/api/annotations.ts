@@ -10,9 +10,8 @@ import { readTermCache, writeTermCache } from "@/lib/termCache";
  * consume directly. Gemma's `/annotations/search` carries
  * `usageCount` (camelCase) on the wire; whichever adapter feeds
  * this hook is responsible for translating to the snake_case shape
- * declared here. The 2026-05-xx "endpoint doesn't expose
- * usage_count" TODO is stale — the field is exposed, just under a
- * different name on the wire.
+ * declared here. (No gap here despite an old note claiming otherwise:
+ * the endpoint DOES expose the usage count, just as `usageCount`.)
  */
 export interface AnnotationCandidate {
   label: string;

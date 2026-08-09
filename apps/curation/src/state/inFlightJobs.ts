@@ -12,9 +12,10 @@
  *     provider would unmount it the moment the curator navigates
  *     away (the whole point of the guard).
  *
- * React surfaces subscribe via ``useInFlightJobsFor(eeId)`` — a
- * useSyncExternalStore wrapper that re-renders when the registry
- * mutates.
+ * Read synchronously via ``getJobsForEE`` — the guard re-reads on each
+ * navigate, so there is no subscription surface. (An earlier
+ * ``useInFlightJobsFor`` useSyncExternalStore wrapper was planned and
+ * never built; its listener plumbing is gone with it.)
  *
  * Forward-compat: when tickets move to gemma-rest (Java), the
  * registry surface stays UI-side; only the helper that resolves
@@ -36,38 +37,20 @@ export interface InFlightJob {
 }
 
 const jobs = new Map<string, InFlightJob>();
-const listeners = new Set<() => void>();
-
-function emit() {
-  for (const l of listeners) l();
-}
 
 export function registerJob(job: Omit<InFlightJob, "startedAt">): () => void {
   jobs.set(job.id, { ...job, startedAt: Date.now() });
-  emit();
   // Return an idempotent unregister so callers can wire it to the
-  // mutation lifecycle without juggling two refs.
+  // mutation lifecycle without juggling two refs. This closure is the
+  // ONLY way to deregister — there is deliberately no free-standing
+  // ``unregisterJob(id)``, so a caller can't drop a job it didn't
+  // start.
   return () => {
-    if (jobs.delete(job.id)) emit();
+    jobs.delete(job.id);
   };
-}
-
-export function unregisterJob(id: string): void {
-  if (jobs.delete(id)) emit();
 }
 
 export function getJobsForEE(eeId: number | string): InFlightJob[] {
   const key = String(eeId);
   return Array.from(jobs.values()).filter((j) => String(j.eeId) === key);
-}
-
-export function getAllJobs(): InFlightJob[] {
-  return Array.from(jobs.values());
-}
-
-export function subscribe(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => {
-    listeners.delete(fn);
-  };
 }

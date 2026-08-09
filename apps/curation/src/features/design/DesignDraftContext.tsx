@@ -15,6 +15,8 @@ import { useCurations } from "@/features/comparison/useSourceAvailability";
 import type { Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
 import { clearAgentFeedback } from "@/features/audit/agentFeedback";
+import { clearAppliedBatches } from "@/features/audit/appliedBatches";
+import { clearPaperDismissals } from "@/features/proposal/paperDismissal";
 import {
   clearAllProposalStateForExperiment,
   notifyProposalStateReset,
@@ -553,6 +555,10 @@ export function DesignDraftProvider({
       clearCachedDraft(experimentId);
       setUndoStack([]);
       setRedoStack([]);
+      // Apply-All undo snapshots are pre-commit drafts — replaying one
+      // now would rewind past the design we just committed. Same
+      // invalidation reason as the undo/redo stacks above.
+      clearAppliedBatches(experimentId);
       onSettled?.({ ok: true });
     };
     updater.mutate(normalizeForCommit(draft), {
@@ -595,6 +601,10 @@ export function DesignDraftProvider({
     setDraft(saved ?? null);
     setUndoStack([]);
     setRedoStack([]);
+    // The Apply-All mutations these snapshots would revert are already
+    // gone from the draft — replaying one would reinstate a design the
+    // curator just threw away.
+    clearAppliedBatches(experimentId);
     clearCachedDraft(experimentId);
     // Roll the proposal-review surface back in lockstep with the
     // design draft — without this the Accept-all / per-element
@@ -641,6 +651,14 @@ export function DesignDraftProvider({
     // ``discard()`` above — that undoes design edits, and an opinion
     // about the boss-critic's reasoning survives an undo of the design.
     clearAgentFeedback(experimentId);
+    // A re-import replaces the design server-side, so every Apply-All
+    // snapshot describes a design that no longer exists.
+    clearAppliedBatches(experimentId);
+    // The re-import also wipes the draft Publication row that the
+    // auto-apply effect added, but NOT the proposal that supplied it.
+    // Leaving the dismissal flag set would keep auto-apply suppressed
+    // and the paper would never come back.
+    clearPaperDismissals(experimentId);
     setDraft(null);
     prevSavedRef.current = null;
     setStaleCacheDiscarded(false);

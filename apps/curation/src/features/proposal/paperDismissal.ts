@@ -52,3 +52,31 @@ export function markPaperDismissed(
   }
 }
 
+/** Clear every dismissal flag for one experiment, across all of its
+ *  proposals.
+ *
+ *  Wired into the "Reset experiment" path. A reset wipes the design but
+ *  NOT the proposals, so without this the flag outlives the publication
+ *  row it was gating: auto-apply stays suppressed forever and the paper
+ *  never comes back, with nothing on screen explaining why. The
+ *  experiment id is embedded in the key precisely so this clear can be
+ *  scoped — other experiments' dismissals must survive.
+ *
+ *  The trailing ``:`` in the prefix keeps experiment 1 from matching
+ *  experiment 12. */
+export function clearPaperDismissals(experimentId: number | string): void {
+  try {
+    const prefix = `${PREFIX}${experimentId}:`;
+    const doomed: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(prefix)) doomed.push(key);
+    }
+    // Collect first, then remove — removing during the scan reindexes
+    // the store and skips entries.
+    for (const key of doomed) window.localStorage.removeItem(key);
+  } catch {
+    // ignore — best-effort.
+  }
+}
+

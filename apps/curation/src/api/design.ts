@@ -284,8 +284,12 @@ function extractOverlayFromProposalsResponse(
  *  Rather than chasing every producer (there are several), wrap every
  *  save in a normaliser that coerces flat-shape tags to canonical
  *  form. Idempotent — already-canonical tags pass through unchanged.
+ *
+ *  Exported for tests only: it is the last thing to touch a design
+ *  before the PUT, so its coercions are worth pinning directly rather
+ *  than inferring them from an end-to-end save.
  */
-function normaliseDesignForSave(design: Design): Design {
+export function normaliseDesignForSave(design: Design): Design {
   const existingIds = new Set<number>();
   for (const t of design.tags ?? []) {
     const tId = (t as { id?: unknown }).id;

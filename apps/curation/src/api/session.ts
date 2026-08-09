@@ -1,30 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
+import { saveStoredSession, type User } from "@/lib/sessionStorage";
 
-// SECURITY-TODO (review 2026-04-27, deferred): the bearer token is
-// stored in ``localStorage``, which is readable by any JavaScript
-// running on the same origin. If an XSS bug ever ships, the token
-// can be exfiltrated and used to impersonate the curator until it
-// expires. The right fix is HttpOnly cookies set by the real
-// Gemma backend, but that's out of scope while the mock uses a
-// static dev token; the mock would need to issue ``Set-Cookie``
-// on ``/login``, the Vite proxy would need to pass cookies
-// through, and the agents-CLI bearer-token path would still need
-// to coexist. Track this here so it's not forgotten when real
-// Gemma auth lands. See REVIEW.md item #5.
-
-export interface User {
-  username: string;
-  full_name: string;
-  email: string;
-  /** Spring Security authority names from gemma-rest (e.g.
-   *  ``["GROUP_ADMIN", "GROUP_USER"]``). Exposed on /me as of
-   *  gemma-rest commit 4a9605c23f (2026-06-07). Used by the
-   *  AppHeader Administration tab visibility gate. May be undefined
-   *  on responses from older Gemma versions. */
-  authorities?: string[];
-}
+export type { User } from "@/lib/sessionStorage";
 
 interface LoginResponse {
   token: string;
@@ -66,34 +45,6 @@ function normalizeUser(u: unknown): User | null {
     ? authoritiesRaw.filter((a): a is string => typeof a === "string")
     : undefined;
   return { username, full_name: fullName, email, authorities };
-}
-
-const STORAGE_KEY = "gemma-curation-session";
-
-interface StoredSession {
-  token: string;
-  user: User;
-}
-
-export function loadStoredSession(): StoredSession | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (typeof parsed?.token !== "string") return null;
-    if (typeof parsed?.user?.username !== "string") return null;
-    return parsed as StoredSession;
-  } catch {
-    return null;
-  }
-}
-
-export function saveStoredSession(s: StoredSession | null): void {
-  if (s) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
 }
 
 /** Synthetic curator identity used in local mode so the UI skips

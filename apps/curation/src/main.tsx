@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import App from "./App";
 import { ApiError } from "./api/client";
-import { saveStoredSession } from "./api/session";
+import { saveStoredSession } from "@/lib/sessionStorage";
 import { initTheme } from "./features/settings/useTheme";
 import { initTextScale } from "./features/settings/useTextScale";
 import { GlobalTooltips } from "./components/ui/GlobalTooltips";

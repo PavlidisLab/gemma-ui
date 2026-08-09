@@ -75,8 +75,8 @@ export function useAuditsForExperiment(
 }
 
 /** Cross-experiment inbox list. Backed by `/rest/v2/audits`
- *  (paginated response with offset/limit/totalElements). The
- *  inbox UI surface that consumes it is still TODO. */
+ *  (paginated response with offset/limit/totalElements). Consumed by
+ *  `features/inbox/AuditsInbox.tsx`. */
 export function useAuditsInbox() {
   return useQuery({
     queryKey: KEY.inbox(),

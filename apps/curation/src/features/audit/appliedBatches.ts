@@ -40,9 +40,21 @@ interface BatchEntry {
 
 const batches: Map<string, BatchEntry> = new Map();
 
+/** Map key. ``target_id`` alone is NOT unique across experiments —
+ *  slugs like ``factor:disease`` recur on every experiment — and this
+ *  registry is module-global, so it outlives route changes. Keying on
+ *  the bare slug let an undo on experiment B find experiment A's batch
+ *  and restore A's whole Design over B's draft. Scope by experiment so
+ *  that collision is impossible by construction rather than by
+ *  remembering to clear at the right moment. */
+function batchKey(experimentId: number | string, targetId: string): string {
+  return `${experimentId}::${targetId}`;
+}
+
 /** Register a multi-finding apply batch. All findings in
  *  ``mutations`` share the same ``snapshot`` reference. */
 export function registerAppliedBatch(
+  experimentId: number | string,
   snapshot: Design,
   mutations: Array<{ targetId: string; mutate: (d: Design) => Design }>,
 ): void {
@@ -52,7 +64,7 @@ export function registerAppliedBatch(
     mutations: mutations.slice(),
   };
   for (const m of mutations) {
-    batches.set(m.targetId, batch);
+    batches.set(batchKey(experimentId, m.targetId), batch);
   }
 }
 
@@ -64,12 +76,13 @@ export function registerAppliedBatch(
  *  Side effect: drops the target from the shared batch so siblings'
  *  undo replays don't re-include it. */
 export function undoBatched(
+  experimentId: number | string,
   targetId: string,
 ): ((d: Design) => Design) | null {
-  const batch = batches.get(targetId);
+  const batch = batches.get(batchKey(experimentId, targetId));
   if (!batch) return null;
   batch.mutations = batch.mutations.filter((m) => m.targetId !== targetId);
-  batches.delete(targetId);
+  batches.delete(batchKey(experimentId, targetId));
   const remaining = batch.mutations;
   const snapshot = batch.snapshot;
   return () => {
@@ -79,9 +92,23 @@ export function undoBatched(
   };
 }
 
-/** Drop every tracked batch. Snapshots reference pre-commit drafts
- *  and become stale once the curator commits — call this from the
- *  commit success path or on unmount. */
-export function clearAppliedBatches(): void {
-  batches.clear();
+/** Drop tracked batches for one experiment (or all of them when
+ *  ``experimentId`` is omitted).
+ *
+ *  Snapshots reference PRE-commit drafts, so they go stale the moment
+ *  the curator commits, discards, or re-imports: replaying one would
+ *  rewind the design past work that has already landed. ``undoBatched``
+ *  is consulted BEFORE the per-finding snapshot in the undo handler, so
+ *  a stale entry silently wins over the correct one. Wired into
+ *  ``DesignDraftContext``'s commit / discard / reset alongside the
+ *  undo-redo stack reset, which invalidates for the same reason. */
+export function clearAppliedBatches(experimentId?: number | string): void {
+  if (experimentId === undefined) {
+    batches.clear();
+    return;
+  }
+  const prefix = `${experimentId}::`;
+  for (const key of Array.from(batches.keys())) {
+    if (key.startsWith(prefix)) batches.delete(key);
+  }
 }

@@ -11,7 +11,7 @@
  * tokens.
  */
 
-const STORAGE_KEY = "gemma-curation-session";
+import { loadStoredSession } from "@/lib/sessionStorage";
 
 /**
  * Typed fetch error. Use ``err instanceof ApiError`` to type-narrow
@@ -40,15 +40,8 @@ export class ApiError extends Error {
 
 export function bearerToken(): string {
   // Session tokens win — set by useLogin via saveStoredSession.
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed?.token === "string") return parsed.token;
-    }
-  } catch {
-    /* fall through */
-  }
+  const session = loadStoredSession();
+  if (session) return session.token;
   return import.meta.env.VITE_GEMMA_CURATION_API_KEY ?? "";
 }
 
