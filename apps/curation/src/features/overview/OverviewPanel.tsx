@@ -24,6 +24,10 @@ import {
   markPaperDismissed,
 } from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
+import {
+  descriptionWithoutGeoRecordBlock,
+  overallDesignFromDescription,
+} from "./geoRecordBlock";
 import { useStickyState } from "@/lib/useStickyState";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { FindPublicationButton } from "./FindPublicationButton";
@@ -78,21 +82,9 @@ import {
  * digging into the design.
  */
 
-/** Legacy fallback: older stored designs FOLDED the GEO series overall
- *  design into ``description`` as a ``\n\nOverall design: …`` tail (before
- *  it moved to its own ``overall_design`` field). Pull it back out for
- *  those. Returns "" when no such section is present. New ingests /
- *  re-imported packs carry ``meta.overall_design`` directly and never hit
- *  this. */
-export function overallDesignFromDescription(desc: string | null | undefined): string {
-  if (!desc) return "";
-  const m = desc.match(/Overall design:\s*([\s\S]*)$/i);
-  return m ? m[1].trim() : "";
-}
-
 /** GEO per-sample protocol fields that are experiment-wide facts when
  *  they're identical across every sample (e.g. GSE99114's growth_protocol
- *  "immunized with MOG35-55/CFA to induce EAE" — the load-bearing disease
+ *  "immunized with MOG35-55/CFA to induce EAE" — the useful disease
  *  induction). Mirrors preboarding's ``_GEO_COLLAPSIBLE_FIELDS``. Order =
  *  render order. */
 const GEO_CONSTANT_PROTOCOLS: ReadonlyArray<{ key: string; label: string }> = [
@@ -151,6 +143,12 @@ export function OverviewPanel() {
   // fields below stay sourced from draft so counts reflect any
   // pending edits the curator made on other tabs.
   const meta = draft;
+  // The GEO series overall design, from its own field or (legacy packs)
+  // dug back out of the description fold. Rendered as the "design (GEO)"
+  // row below, and used to de-duplicate the description read view.
+  const overallDesign =
+    (meta?.overall_design ?? "").trim() ||
+    overallDesignFromDescription(meta?.description);
   // Pull every proposal for this experiment so the Publications
   // card can surface paper excerpts the agent fetched. The most
   // recent submission with a non-empty ``paper_excerpt`` wins —
@@ -291,6 +289,15 @@ export function OverviewPanel() {
         ) : null}
         <EditableDescription
           value={meta?.description ?? ""}
+          displayValue={descriptionWithoutGeoRecordBlock(meta?.description, {
+            overallDesign,
+            title: meta?.title,
+            taxon: meta?.taxon,
+            pubmedIds: (meta?.publications ?? [])
+              .map((p) => p.pubmed_id ?? "")
+              .filter(Boolean),
+            accession: meta?.experiment_short_name,
+          })}
           onCommit={(description) =>
             draft && apply(setDesignDescription(draft, description))
           }
@@ -330,9 +337,6 @@ export function OverviewPanel() {
           ) : null}
           <KV k="loaded at" v={formatTimestamp(meta?.loaded_at) || "—"} />
           {(() => {
-            const overallDesign =
-              (meta?.overall_design ?? "").trim() ||
-              overallDesignFromDescription(meta?.description);
             const rows: Array<{ label: string; text: string }> = [];
             if (overallDesign) rows.push({ label: "design (GEO)", text: overallDesign });
             rows.push(...constantGeoProtocols(meta?.biomaterials));
@@ -3122,7 +3126,7 @@ function evidenceCodeName(code: string | undefined): string {
 
 /** Three-way palette for the two-tone tag chip. The provenance signal
  *  (curator-direct vs factor-derived vs biomaterial-inferred) is the
- *  load-bearing distinction a curator is trying to read at a glance:
+ *  useful distinction a curator is trying to read at a glance:
  *  EE tags they own, FV-synth tags that mirror a factor (so editing
  *  the factor is the way to change them), and BM-inferred tags that
  *  ride along from the biomaterials. Three palettes so the eye can
@@ -3398,17 +3402,27 @@ function TagGroupChip({
  * no real text to select there.
  * Edit mode: textarea, Esc to revert, Cmd/Ctrl-Enter to commit,
  * blur to commit.
+ *
+ * ``displayValue`` lets the caller show LESS than it stores — the read
+ * view drops the legacy GEO-record block the rest of the page already
+ * renders. The editor always opens on ``value``, the full stored text,
+ * so an edit can't silently drop what the read view hid; a note says so
+ * when the two differ.
  */
 function EditableDescription({
   value,
+  displayValue,
   onCommit,
 }: {
   value: string;
+  displayValue?: string;
   onCommit: (next: string) => void;
 }) {
   const readOnly = useIsReadOnly();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  const shown = displayValue ?? value;
+  const hidesSome = shown !== value;
 
   const beginEdit = () => {
     if (readOnly) return;
@@ -3417,7 +3431,7 @@ function EditableDescription({
   };
 
   if (!editing) {
-    const paragraphs = value
+    const paragraphs = shown
       .split(/\n\s*\n/)
       .filter((p) => p.trim());
     const isEmpty = paragraphs.length === 0;
@@ -3493,6 +3507,15 @@ function EditableDescription({
       />
       <div className="text-[10px] text-slate-500">
         ⌘ / Ctrl+Enter to save · Esc to revert
+        {hidesSome ? (
+          <>
+            {" · "}
+            <span className="text-slate-400">
+              includes the verbatim GEO record block, hidden while reading
+              (it repeats the design (GEO), taxon and source rows)
+            </span>
+          </>
+        ) : null}
       </div>
     </div>
   );

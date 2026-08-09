@@ -33,6 +33,50 @@ export function taxonAbbreviation(
 }
 
 /**
+ * Common name ↔ scientific name, for the species a curator meets. Gemma
+ * stores a design's taxon as the common name (``"human"``) while GEO
+ * writes the scientific one (``"Homo sapiens"``), so comparing the two
+ * needs the pairing.
+ */
+const TAXON_NAME_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ["human", "homo sapiens"],
+  ["mouse", "mus musculus"],
+  ["rat", "rattus norvegicus"],
+  ["zebrafish", "danio rerio"],
+  ["fly", "drosophila melanogaster"],
+  ["worm", "caenorhabditis elegans"],
+  ["yeast", "saccharomyces cerevisiae"],
+  ["chicken", "gallus gallus"],
+  ["pig", "sus scrofa"],
+  ["cow", "bos taurus"],
+  ["dog", "canis lupus familiaris"],
+  ["rabbit", "oryctolagus cuniculus"],
+  ["macaque", "macaca mulatta"],
+];
+
+/**
+ * Do two taxon names refer to the same species? Accepts either name
+ * form on either side (``"human"`` vs ``"Homo sapiens"`` matches).
+ *
+ * Returns ``false`` for a species not in the table above rather than
+ * guessing — callers use this to decide whether a fact is already shown
+ * elsewhere, and a wrong ``true`` there hides something.
+ */
+export function taxonNamesMatch(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const x = (a ?? "").trim().toLowerCase();
+  const y = (b ?? "").trim().toLowerCase();
+  if (!x || !y) return false;
+  if (x === y) return true;
+  return TAXON_NAME_PAIRS.some(
+    ([common, scientific]) =>
+      (x === common && y === scientific) || (x === scientific && y === common),
+  );
+}
+
+/**
  * Rough lab-frequency ordering so that, when a gene symbol matches
  * across species, the picker clusters them human → mouse → rat →
  * everything else. Lower number sorts first. Keyed on common name
