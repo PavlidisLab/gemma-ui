@@ -108,12 +108,52 @@ function snakifyKey(key: string): string {
   return key.replace(/([A-Z])/g, (_, ch) => `_${(ch as string).toLowerCase()}`);
 }
 
+/** Fields whose CHILD KEYS are data, not field names.
+ *
+ *  Only the names of *variables* may be rewritten here — never
+ *  literals. These maps are keyed by user-facing strings that came out
+ *  of GEO: ``characteristics`` is ``{"BioSource": …, "shRNA": …}``,
+ *  ``characteristic_uris`` is the same key space, ``geo_fields`` holds
+ *  GEO's own field names which we render verbatim. Renaming any of
+ *  those changes the DATA.
+ *
+ *  This is structural on purpose. The previous defence was a heuristic
+ *  on key shape (skip whitespace, skip leading capital) which is
+ *  unfixable in principle — it has to guess whether a string is a name
+ *  or a value, and it guessed wrong on ``shRNA``, rewriting GSE121949's
+ *  characteristic to ``sh_r_n_a`` on the curator's screen. Naming the
+ *  maps removes the guess.
+ *
+ *  Matched AFTER key normalization, so both ``characteristicUris`` and
+ *  ``characteristic_uris`` hit. Values are still normalized one level
+ *  down — ``characteristic_uris``' entries are ``{categoryUri,
+ *  valueUri}``, and those ARE field names. */
+const DATA_KEYED_MAPS: ReadonlySet<string> = new Set([
+  "characteristics",
+  "characteristic_uris",
+  "geo_fields",
+]);
+
+/** Normalize a data-keyed map: keys pass through untouched, values
+ *  still go through the normal transform. */
+function snakeifyDataMap(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return snakeify(value);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = snakeify(v);
+  }
+  return out;
+}
+
 export function snakeify(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(snakeify);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[snakifyKey(k)] = snakeify(v);
+    const nk = snakifyKey(k);
+    out[nk] = DATA_KEYED_MAPS.has(nk) ? snakeifyDataMap(v) : snakeify(v);
   }
   return out;
 }

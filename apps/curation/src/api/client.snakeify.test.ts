@@ -113,3 +113,69 @@ describe("snakeify", () => {
     });
   });
 });
+
+// Only VARIABLE names may be rewritten, never literals. The keys of a
+// data-keyed map are data: renaming one changes what the curator sees.
+// A shape heuristic can't decide this — it guessed wrong on `shRNA` and
+// rewrote GSE121949's characteristic to `sh_r_n_a`.
+describe("snakeify — keys of data-keyed maps are literals, not names", () => {
+  it("leaves acronym characteristic keys alone", () => {
+    const out = snakeify({
+      characteristics: { shRNA: "shMETTl14", mRNA: "x", cDNA: "y" },
+    }) as Record<string, Record<string, string>>;
+    expect(Object.keys(out.characteristics).sort()).toEqual([
+      "cDNA",
+      "mRNA",
+      "shRNA",
+    ]);
+  });
+
+  it("leaves ANY characteristic key alone, whatever its shape", () => {
+    const out = snakeify({
+      characteristics: {
+        shRNA: "a", BioSource: "b", "GEO Sample characteristic": "c",
+        timePoint: "d", pH: "e", strain: "f",
+      },
+    }) as Record<string, Record<string, string>>;
+    expect(Object.keys(out.characteristics).sort()).toEqual([
+      "BioSource", "GEO Sample characteristic", "pH", "shRNA", "strain", "timePoint",
+    ]);
+  });
+
+  it("protects the same key space on characteristic_uris, camel or snake", () => {
+    const out = snakeify({
+      characteristicUris: { shRNA: { categoryUri: "c", valueUri: "v" } },
+    }) as Record<string, Record<string, Record<string, string>>>;
+    // Outer key is data; INNER keys are field names and must convert.
+    expect(Object.keys(out.characteristic_uris)).toEqual(["shRNA"]);
+    expect(Object.keys(out.characteristic_uris.shRNA).sort()).toEqual([
+      "category_uri",
+      "value_uri",
+    ]);
+  });
+
+  it("leaves geo_fields keys alone too", () => {
+    const out = snakeify({
+      geoFields: { treatment_protocol: "x", ch2_source_name: "y" },
+    }) as Record<string, Record<string, string>>;
+    expect(Object.keys(out.geo_fields).sort()).toEqual([
+      "ch2_source_name",
+      "treatment_protocol",
+    ]);
+  });
+
+  it("still converts real wire fields, which capitalise one letter per word", () => {
+    const out = snakeify({
+      experimentId: 1,
+      bioAssayCount: 2,
+      externalDatabaseUri: "u",
+      overallDesign: "d",
+    }) as Record<string, unknown>;
+    expect(Object.keys(out).sort()).toEqual([
+      "bio_assay_count",
+      "experiment_id",
+      "external_database_uri",
+      "overall_design",
+    ]);
+  });
+});
