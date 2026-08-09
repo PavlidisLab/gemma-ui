@@ -269,12 +269,40 @@ export function DesignDraftProvider({
   // payload is, by convention, a snapshot of the local /design at
   // pack-import time. PUT /design is the canonical write surface;
   // the curation row is a frozen view created by setup.py.
-  const _EDITABLE_KINDS = new Set(["consensus", "curator_polish"]);
   const usingBaseline = savedFromBaseline !== null;
+  // A ``curator_polish`` row is only editable when it is THIS
+  // curator's. The rule below always said so; the code didn't check,
+  // so selecting another curator's polish (``polished:gold``, the
+  // baseline every calibration ticket now pins) counted as editable
+  // and ``saved`` silently fell back to ``/design``.
+  //
+  // That is how GSE102352 lost tags. Gold held three — a real `assay`
+  // tag plus two inferred rows — while ``/design`` held none; the page
+  // said "Gold polished" and edited the empty local design, and the
+  // commit mirrored that into the curator's polished row. Gold's real
+  // tag was never deleted, it was never in the buffer. The same wrong
+  // seed explains the "promotion": accepting the agent's `cell type`
+  // proposal added it as a direct tag because the draft had no copy to
+  // dedupe against, where gold's inferred row would have suppressed it
+  // (agents handoff AGENTS_REPLY_2026_08_09_DATASETS_PERF_AND_MATCH_
+  // ACTION_FIXED, §3 — 1 promotion, 3 inferred rows dropped).
+  //
+  // Producer arrives as ``curator:<name>``; the token carries the bare
+  // name. Compare on the bare name, case-insensitively. With no
+  // reviewer to compare against we cannot claim the row is ours, so it
+  // reads as someone else's — the safe direction, since it renders the
+  // row the chip names instead of quietly showing different content.
+  const baselineProducer = (baselineCuration?.producer ?? "")
+    .replace(/^curator:/, "")
+    .trim()
+    .toLowerCase();
+  const reviewerName = (reviewer ?? "").trim().toLowerCase();
   const baselineIsEditable =
     usingBaseline &&
-    !!(baselineCuration?.source_kind &&
-       _EDITABLE_KINDS.has(baselineCuration.source_kind));
+    (baselineCuration?.source_kind === "consensus" ||
+      (baselineCuration?.source_kind === "curator_polish" &&
+        !!reviewerName &&
+        baselineProducer === reviewerName));
 
   // Effective saved design.
   //
