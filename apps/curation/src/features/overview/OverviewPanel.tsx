@@ -33,6 +33,10 @@ import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import { augmentInferredFromFactors } from "./augmentFactorTags";
+import {
+  hiddenFreeTextValueCount,
+  visibleTagValues,
+} from "./tagFreeTextFilter";
 import { shortenUri } from "@/lib/curie";
 import { cn } from "@/lib/cn";
 import { ONTOLOGY_ANCHOR_CLS } from "@/lib/ontologyAnchor";
@@ -1935,13 +1939,33 @@ function TagBar({
   // so hiding it behind a noise filter buries the very thing that needs
   // action. Direct chips are therefore never free-text-filtered — they
   // carry the "needs grounding" marker instead.
-  const anyFreeText = dedupedAll.some((t) => t.inferred && isFreeText(t));
+  // The "(N)" beside the box counts CHIPS, not tags — a mixed tag
+  // contributes its raw values, a wholly-raw tag goes whole so all of
+  // its values count, and a tag rescued by a resolving statement
+  // contributes nothing because it isn't hidden.
+  const hiddenFreeTextValues = (t: Tag): number =>
+    hiddenFreeTextValueCount(
+      splitTagValues(
+        [t],
+        t.category,
+        charUriLookup,
+        fvUriLookup,
+        baselineLookup,
+      ),
+      !isFreeText(t),
+    );
+  const anyFreeText = dedupedAll.some(
+    (t) => t.inferred && hiddenFreeTextValues(t) > 0,
+  );
   const inferredCount = dedupedAll.filter(
     (t) => t.inferred && !(hideFreeText && isFreeText(t)),
   ).length;
-  const freeTextCount = dedupedAll.filter(
-    (t) => t.inferred && isFreeText(t) && !hideInferred,
-  ).length;
+  const freeTextCount = hideInferred
+    ? 0
+    : dedupedAll.reduce(
+        (n, t) => n + (t.inferred ? hiddenFreeTextValues(t) : 0),
+        0,
+      );
   const dedupedDirect = dedupedAll.filter((t) => !t.inferred);
   const dedupedInferred = hideInferred
     ? []
@@ -2090,6 +2114,7 @@ function TagBar({
                 fvUriLookup={fvUriLookup}
                 baselineLookup={baselineLookup}
                 experimentId={experimentId}
+                hideFreeTextValues={hideFreeText}
               />
               <EditableDirectTagGroups
                 tags={directByGroup.get(g) ?? []}
@@ -2103,6 +2128,7 @@ function TagBar({
                 fvUriLookup={fvUriLookup}
                 baselineLookup={baselineLookup}
                 experimentId={experimentId}
+                hideFreeTextValues={hideFreeText}
               />
             </div>,
           );
@@ -2565,6 +2591,7 @@ function TagGroups({
   fvUriLookup,
   baselineLookup,
   experimentId,
+  hideFreeTextValues = false,
 }: {
   tags: Tag[];
   variant: TagGroupVariant;
@@ -2572,6 +2599,7 @@ function TagGroups({
   fvUriLookup: Map<string, string>;
   baselineLookup: Set<string>;
   experimentId: number | string;
+  hideFreeTextValues?: boolean;
 }) {
   if (tags.length === 0) return null;
   const groups = groupTagsByCategoryLabel(tags);
@@ -2587,6 +2615,7 @@ function TagGroups({
           fvUriLookup={fvUriLookup}
           baselineLookup={baselineLookup}
           experimentId={experimentId}
+          hideFreeTextValues={hideFreeTextValues}
         />
       ))}
     </>
@@ -3224,6 +3253,7 @@ function TagGroupChip({
   fvUriLookup,
   baselineLookup,
   experimentId,
+  hideFreeTextValues = false,
 }: {
   category: Tag["category"];
   tags: Tag[];
@@ -3232,8 +3262,18 @@ function TagGroupChip({
   fvUriLookup: Map<string, string>;
   baselineLookup: Set<string>;
   experimentId: number | string;
+  /** "Hide free-text" is checked — drop this group's unresolved
+   *  VALUES, not just wholly-unresolved tags. */
+  hideFreeTextValues?: boolean;
 }) {
-  const values = splitTagValues(tags, category, charUriLookup, fvUriLookup, baselineLookup);
+  // Hide free-text bites per VALUE — one inherited tag renders N
+  // chips, so the tag-level test alone let a mixed tag's ungrounded
+  // values through a checked box. Rule + rationale in
+  // ``tagFreeTextFilter.ts``.
+  const values = visibleTagValues(
+    splitTagValues(tags, category, charUriLookup, fvUriLookup, baselineLookup),
+    hideFreeTextValues,
+  );
   const [showAllValues, setShowAllValues] = useState(false);
 
   // Single value (after comma-split) renders flat — no collapse to
