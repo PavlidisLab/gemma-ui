@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePmidOrDoi } from "./OverviewPanel";
+import { parsePmidOrDoi } from "./publications";
 
 describe("parsePmidOrDoi", () => {
   it("classifies bare digits as a PMID", () => {
