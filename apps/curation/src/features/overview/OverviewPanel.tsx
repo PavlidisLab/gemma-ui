@@ -34,6 +34,10 @@ import { FindPublicationButton } from "./FindPublicationButton";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import { augmentInferredFromFactors } from "./augmentFactorTags";
 import {
+  buildConstancyIndex,
+  isVariableInferredTag,
+} from "./constantAnnotations";
+import {
   hiddenFreeTextValueCount,
   visibleTagValues,
 } from "./tagFreeTextFilter";
@@ -1227,6 +1231,14 @@ function TagBarLegend() {
             thin a busy row.
           </li>
           <li>
+            <span className="font-medium">Hide variables</span> (on by
+            default) keeps only the inherited annotations that are true
+            of EVERY sample. The ones that vary — factor levels,
+            per-sample characteristics — are the design, and the factor
+            chips below already carry them. Uncheck to see them here
+            too. Direct tags are never hidden by it.
+          </li>
+          <li>
             A <span className="text-violet-500 dark:text-violet-400">violet
             glint</span> on a direct chip means every sample already carries
             that exact ontology term as a characteristic — the tag is
@@ -1555,6 +1567,17 @@ function TagBar({
     "overview.tags.hideInferred",
     true,
   );
+  // Variables filter: an inherited chip that applies to only SOME
+  // samples is the design re-rendered as tags. GSE41840 put five ƒ
+  // ``exposure to …`` chips in the CONDITION row — the levels of a
+  // ``treatment`` factor whose own chip sits two rows down carrying all
+  // six. The question this row answers is "what constant properties are
+  // already annotated", so variables are off by default and one click
+  // away. Sticky app-wide like the other two.
+  const [hideVariables, setHideVariables] = useStickyState<boolean>(
+    "overview.tags.hideVariables",
+    true,
+  );
   // Modal state: ``mode`` distinguishes add (no tag id yet) vs edit
   // (existing tag id). Initial draft is rebuilt on every open from the
   // tag at the moment of click — guarantees the modal can't show stale
@@ -1724,10 +1747,24 @@ function TagBar({
   // factor with 11+ levels swamps the bar. The batch factor
   // itself still shows on the Design tab; the curator doesn't
   // need to see every level on the overview header.
+  // Which inherited categories are constant across the cohort — see
+  // ``constantAnnotations.ts``. Built from the DRAFT's biomaterials +
+  // factors so it tracks the curator's uncommitted edits.
+  const constancy = useMemo(
+    () => buildConstancyIndex(biomaterials, draft?.factors),
+    [biomaterials, draft?.factors],
+  );
   const visibleTags = augmentedTags.filter((t) => {
     const cat = (t.category.label || "").trim().toLowerCase();
     if (cat === "block" || cat === "batch") return false;
     if (t.inferred && INFERRED_HIDE_CATEGORIES.has(cat)) return false;
+    // The variables filter runs HERE, before the dedup below, not at
+    // render time. A direct tag is suppressed when an FV-synth chip
+    // covers the same (category, value) — drop the FV chip later and
+    // the value disappears from the row entirely, taking the curator's
+    // own tag with it. Filtering first keeps the dedup's input equal to
+    // what actually renders.
+    if (hideVariables && isVariableInferredTag(t, constancy)) return false;
     return true;
   });
 
@@ -1966,6 +2003,31 @@ function TagBar({
         (n, t) => n + (t.inferred ? hiddenFreeTextValues(t) : 0),
         0,
       );
+  // The variables count has to be taken from the PRE-filter set —
+  // ``visibleTags`` (and everything downstream of it) has already
+  // dropped them. Same reveal-accurate convention as the other two: 0
+  // when "Hide inherited" is already hiding the lot.
+  const variableTags = augmentedTags.filter((t) => {
+    const cat = (t.category.label || "").trim().toLowerCase();
+    if (cat === "block" || cat === "batch") return false;
+    if (t.inferred && INFERRED_HIDE_CATEGORIES.has(cat)) return false;
+    return isVariableInferredTag(t, constancy);
+  });
+  const anyVariables = variableTags.length > 0;
+  const variableCount = hideInferred
+    ? 0
+    : variableTags.reduce(
+        (n, t) =>
+          n +
+          splitTagValues(
+            [t],
+            t.category,
+            charUriLookup,
+            fvUriLookup,
+            baselineLookup,
+          ).length,
+        0,
+      );
   const dedupedDirect = dedupedAll.filter((t) => !t.inferred);
   const dedupedInferred = hideInferred
     ? []
@@ -2010,7 +2072,7 @@ function TagBar({
             available even when the other filter is currently hiding its
             share); the "(N)" is the reveal count for the current state.
             Both prefs are sticky app-wide and default ON. */}
-        {anyInferred || anyFreeText ? (
+        {anyInferred || anyFreeText || anyVariables ? (
           <div className="ml-auto inline-flex items-center gap-3">
             {anyInferred ? (
               <label
@@ -2043,6 +2105,23 @@ function TagBar({
                 Hide free-text
                 <span className="tabular-nums text-slate-400 dark:text-slate-500">
                   ({freeTextCount})
+                </span>
+              </label>
+            ) : null}
+            {anyVariables ? (
+              <label
+                className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 cursor-pointer select-none normal-case tracking-normal"
+                title="Hide inherited chips that apply to only SOME samples — factor levels and per-sample characteristics. This row is for what's annotated about the experiment as a whole; the varying ones are the design, and the factor chips below carry them."
+              >
+                <input
+                  type="checkbox"
+                  className="h-3 w-3 accent-blue-600"
+                  checked={hideVariables}
+                  onChange={(e) => setHideVariables(e.target.checked)}
+                />
+                Hide variables
+                <span className="tabular-nums text-slate-400 dark:text-slate-500">
+                  ({variableCount})
                 </span>
               </label>
             ) : null}
