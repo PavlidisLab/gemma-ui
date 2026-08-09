@@ -334,11 +334,32 @@ export function defaultSlots(
      *  back-compat with callers that don't have the availability
      *  map. */
     availability?: Partial<Record<Source, { available: boolean }>>;
+    /** The baseline the active ticket pins — the source its findings
+     *  were computed against. Wins over every flow default, because a
+     *  ticket-scoped review that opens on a different baseline asks
+     *  the curator about differences the findings never saw
+     *  (handoff ``AGENTS_ASK_2026_08_09_TICKET_SHOULD_PIN_ITS_BASELINE``).
+     *  Ignored when the source isn't loaded for this experiment —
+     *  a baseline that resolves to nothing is worse than the flow
+     *  default, and the chip strip says so rather than silently
+     *  substituting. */
+    pinnedBaseline?: Source | null;
   },
 ): { baseline: Source; comparator: Source } {
   const av = options?.availability;
   const isAvail = (s: Source): boolean =>
     av ? (av[s]?.available ?? true) : true;
+
+  const pinned = options?.pinnedBaseline;
+  if (
+    pinned &&
+    isSourceValidInSlot("baseline", pinned) &&
+    isAvail(pinned)
+  ) {
+    // Comparator is the agent's proposal in both flows — the pin only
+    // speaks to the baseline slot.
+    return { baseline: pinned, comparator: "agent_proposal" };
+  }
 
   if (flow === "edit") {
     // Edit flow: prefer preboard → live → first polished.

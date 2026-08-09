@@ -123,6 +123,25 @@ export interface Ticket {
    *  still functions (the chip strip falls back to its
    *  no-ticket default, ``review``). */
   flow?: TicketFlow;
+  /** The comparison baseline this ticket's findings were computed
+   *  against — a chip-strip source token, spelled as the URL spells
+   *  it (``polished:gold``, ``polished:consensus_strict_consensus``,
+   *  ``live``, ``preboard``).
+   *
+   *  A ticket built against gold polished, reviewed with the selector
+   *  sitting on the curator's own newer polished row, asks the curator
+   *  to re-fix things they already fixed — both sides telling the
+   *  truth about different baselines, with nothing on screen marking
+   *  the difference (handoff
+   *  ``AGENTS_ASK_2026_08_09_TICKET_SHOULD_PIN_ITS_BASELINE.md``).
+   *  When set, the chip strip opens on this source and says so plainly
+   *  if the reviewer moves off it.
+   *
+   *  Optional: absent on every ticket built before the field existed,
+   *  in which case the chip strip keeps its own defaults. Read it via
+   *  ``ticketBaselineSource`` — ``payload_json`` is the other place it
+   *  can arrive. */
+  baseline_source?: string | null;
   /** Server-side payload blob (JSON string). For ``SCREENING``
    *  triage tickets the scrape script stashes the candidate map
    *  here so the UI can read per-target accession + identifying
@@ -159,6 +178,34 @@ export interface Ticket {
    *  hand (light list mode). */
   investigation_kind?: string;
   investigation_id?: number;
+}
+
+/** The chip-strip baseline a ticket pins, or ``null`` when it pins
+ *  none (every ticket built before the field existed).
+ *
+ *  Two accepted homes, because the agents side can land the field in
+ *  either without a schema migration: the top-level
+ *  ``baseline_source`` column, or ``baseline_source`` inside the
+ *  free-form ``payload_json`` blob. Top level wins when both are
+ *  present. A malformed blob is not an error here — it just means no
+ *  pin, and the chip strip keeps its own defaults. */
+export function ticketBaselineSource(
+  ticket: Ticket | null | undefined,
+): string | null {
+  if (!ticket) return null;
+  const top = (ticket.baseline_source || "").trim();
+  if (top) return top;
+  if (!ticket.payload_json) return null;
+  try {
+    const obj: unknown = JSON.parse(ticket.payload_json);
+    if (!obj || typeof obj !== "object") return null;
+    const raw = (obj as Record<string, unknown>).baseline_source;
+    if (typeof raw !== "string") return null;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Fetch a single ticket by id.

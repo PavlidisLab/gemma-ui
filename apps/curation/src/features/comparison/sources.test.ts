@@ -131,6 +131,59 @@ describe("defaults", () => {
   });
 });
 
+describe("ticket-pinned baseline", () => {
+  // A ticket declares the baseline its findings were computed
+  // against; the strip must open there rather than on whichever
+  // polished row happens to sort first. Handoff
+  // AGENTS_ASK_2026_08_09_TICKET_SHOULD_PIN_ITS_BASELINE.
+  const GOLD: Source = "polished:gold";
+
+  it("beats the review default, including a newer polished row", () => {
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["local-curator", "gold"],
+        pinnedBaseline: GOLD,
+      }),
+    ).toEqual({ baseline: GOLD, comparator: "agent_proposal" });
+  });
+
+  it("beats the edit default too", () => {
+    expect(
+      defaultSlots("edit", { pinnedBaseline: GOLD }),
+    ).toEqual({ baseline: GOLD, comparator: "agent_proposal" });
+  });
+
+  it("is ignored when the pinned source isn't loaded here", () => {
+    // A baseline that resolves to nothing is worse than the flow
+    // default; the strip says the pin couldn't be honoured instead.
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["local-curator"],
+        availability: { [GOLD]: { available: false } },
+        pinnedBaseline: GOLD,
+      }),
+    ).toEqual({
+      baseline: "polished:local-curator",
+      comparator: "agent_proposal",
+    });
+  });
+
+  it("is ignored when it names a source that can't be a baseline", () => {
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["gold"],
+        pinnedBaseline: "agent_proposal",
+      }),
+    ).toEqual({ baseline: "polished:gold", comparator: "agent_proposal" });
+  });
+
+  it("no pin leaves every existing default untouched", () => {
+    expect(
+      defaultSlots("review", { polishedCurators: ["gold"], pinnedBaseline: null }),
+    ).toEqual({ baseline: "polished:gold", comparator: "agent_proposal" });
+  });
+});
+
 describe("parseSource", () => {
   it("round-trips every system token", () => {
     for (const s of SYSTEM_SOURCES) {

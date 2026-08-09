@@ -1,4 +1,4 @@
-import { useTicket } from "@/api/tickets";
+import { ticketBaselineSource, useTicket } from "@/api/tickets";
 import {
   defaultSlots,
   isSourceValidInSlot,
@@ -54,6 +54,10 @@ export function useActiveBaselineSource(args: {
   const defaults = defaultSlots(flow, {
     polishedCurators,
     availability: universe.availability,
+    // Same pin the chip strip honours — both sides must resolve the
+    // same baseline or the draft's ``saved`` source drifts from the
+    // one the strip is displaying.
+    pinnedBaseline: ticketBaselineSource(activeTicket.data),
   });
   return defaults.baseline;
 }

@@ -37,7 +37,14 @@ export function ChipStrip({
   groupContext?: string;
   ticketContext?: string;
 }) {
-  const { baseline, comparator, setBaseline, setComparator } = useChipState({
+  const {
+    baseline,
+    comparator,
+    setBaseline,
+    setComparator,
+    pinnedBaseline,
+    pinnedBaselineUnavailable,
+  } = useChipState({
     experimentId,
     flow,
     tab,
@@ -97,11 +104,78 @@ export function ChipStrip({
         availability={universe.availability}
         curations={curations}
       />
+      <PinnedBaselineNote
+        pinned={pinnedBaseline}
+        current={baseline}
+        unavailable={pinnedBaselineUnavailable}
+        curations={curations}
+        onRestore={setBaseline}
+      />
       <DiffSummaryReadout
         summary={diff.summary}
         isLoading={diff.isLoading}
       />
     </div>
+  );
+}
+
+/** "Findings computed against X — you are viewing Y."
+ *
+ *  A ticket pins the baseline its findings were computed against; the
+ *  strip opens on it. The selector stays live — comparing freely is
+ *  the point of a review — so the only thing that has to be fixed is
+ *  that the two states used to look identical. Reviewing ticket 168
+ *  with the selector on Local-Curator polished re-asked a question
+ *  gold-polished had already answered, and nothing on screen marked
+ *  the difference (handoff
+ *  ``AGENTS_ASK_2026_08_09_TICKET_SHOULD_PIN_ITS_BASELINE.md``).
+ *
+ *  Amber = warning, per the house palette rule. Silent when the
+ *  reviewer is on the pinned baseline, which is the normal case. */
+function PinnedBaselineNote({
+  pinned,
+  current,
+  unavailable,
+  curations,
+  onRestore,
+}: {
+  pinned: Source | null;
+  current: Source;
+  unavailable: boolean;
+  curations?: readonly CurationRow[];
+  onRestore: (s: Source) => void;
+}) {
+  if (!pinned) return null;
+  if (pinned === current && !unavailable) return null;
+  const pinnedName = sourceLabel(pinned, curations);
+  const currentName = sourceLabel(current, curations);
+  // One line, always: the strip rides inside the sticky header row,
+  // and a wrapped sentence there pushes the whole header apart. The
+  // chip states the mismatch; the full "you are viewing …" sentence
+  // lives in the title, and clicking restores the pinned baseline.
+  const frame =
+    "inline-flex items-baseline gap-1 px-2 py-0.5 rounded border whitespace-nowrap border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-100";
+  if (unavailable) {
+    return (
+      <span
+        className={frame}
+        title={`This ticket's findings were computed against ${pinnedName}, which isn't loaded for this experiment. You are viewing ${currentName}, so a finding may describe a difference this baseline doesn't have.`}
+      >
+        ticket baseline <span className="font-semibold">{pinnedName}</span> not
+        loaded here
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onRestore(pinned)}
+      className={cn(frame, "hover:border-amber-400 dark:hover:border-amber-600")}
+      title={`This ticket's findings were computed against ${pinnedName}. You are viewing ${currentName}, so a finding may already be resolved in what you see — or describe a difference this baseline doesn't have.\n\nClick to switch back to ${pinnedName}.`}
+    >
+      findings used <span className="font-semibold">{pinnedName}</span>
+      <span className="underline underline-offset-2">switch back</span>
+    </button>
   );
 }
 

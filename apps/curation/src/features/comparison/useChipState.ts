@@ -8,6 +8,7 @@ import {
 } from "./sources";
 import { useSourceUniverse, usePolishedCuratorList } from "./useSourceAvailability";
 import { experimentRoute, navigate, parseRoute } from "../../routes";
+import { ticketBaselineSource, useTicket } from "../../api/tickets";
 
 /** Comparison-view chip state. Mirrors the URL ``?base=`` /
  *  ``?cmp=`` query params; defaults from the ``flow`` argument when
@@ -21,6 +22,13 @@ export interface ChipState {
   setBaseline: (s: Source) => void;
   /** Switch the comparator slot. */
   setComparator: (s: Source) => void;
+  /** The baseline the active ticket pins — the source its findings
+   *  were computed against — or ``null`` when no ticket is in scope
+   *  or the ticket pins none. */
+  pinnedBaseline: Source | null;
+  /** ``true`` when the ticket pins a baseline that isn't loaded for
+   *  this experiment, so the pin couldn't be honoured. */
+  pinnedBaselineUnavailable: boolean;
 }
 
 /** Reads the chip selection out of the URL; falls back to
@@ -50,10 +58,6 @@ export function useChipState(args: {
   // no preboard.
   const universe = useSourceUniverse(experimentId);
   const polishedCurators = usePolishedCuratorList(experimentId);
-  const defaults = defaultSlots(flow, {
-    polishedCurators,
-    availability: universe.availability,
-  });
 
   const [route, setRoute] = useState(() => parseRoute());
 
@@ -64,6 +68,30 @@ export function useChipState(args: {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  // The ticket comes off the ROUTE, not the args: ``findingList``
+  // calls this hook without a ticketContext (it only wants the two
+  // labels), and a caller that resolved a different baseline than the
+  // chip strip would relabel the comparison columns wrongly. One
+  // reading, every caller.
+  const routeTicket =
+    route.kind === "experiment" ? route.ticketContext : undefined;
+  const routeTicketId = routeTicket ? Number.parseInt(routeTicket, 10) : NaN;
+  const activeTicket = useTicket(
+    Number.isFinite(routeTicketId) ? routeTicketId : null,
+  );
+  const pinnedBaseline = ticketBaselineSource(activeTicket.data);
+  const pinnedBaselineUnavailable = Boolean(
+    pinnedBaseline &&
+      !universe.isLoading &&
+      !(universe.availability[pinnedBaseline]?.available ?? true),
+  );
+
+  const defaults = defaultSlots(flow, {
+    polishedCurators,
+    availability: universe.availability,
+    pinnedBaseline,
+  });
 
   const fromUrl =
     route.kind === "experiment" && String(route.id) === String(experimentId)
@@ -125,5 +153,12 @@ export function useChipState(args: {
     [writeUrl, baseline],
   );
 
-  return { baseline, comparator, setBaseline, setComparator };
+  return {
+    baseline,
+    comparator,
+    setBaseline,
+    setComparator,
+    pinnedBaseline,
+    pinnedBaselineUnavailable,
+  };
 }
