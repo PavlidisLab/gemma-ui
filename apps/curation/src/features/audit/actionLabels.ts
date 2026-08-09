@@ -19,7 +19,7 @@
  *   | add          | "don't add"   | "add"         |
  *   | remove       | "don't remove"| "remove"      |
  *   | change       | "don't change"| "adopt"       |
- *   | match        | "confirm"     | —             |
+ *   | match        | "disagree"    | "confirm"     |
  *
  * Principle: the button text describes THE ACTION THE CURATOR TAKES
  * by clicking it, not the generic verb ("keep / accept"). The
@@ -170,7 +170,14 @@ export function actionLabels(shape: ActionShape): {
 } {
   if (shape === "add") return { keep: "don't add", adopt: "add" };
   if (shape === "remove") return { keep: "don't remove", adopt: "remove" };
-  if (shape === "match") return { keep: "confirm", adopt: "confirm" };
+  // The keep side of a match is a DISAGREEMENT — it opens the reason
+  // picker, because taking "current" over a claimed match means the
+  // curator rejects the match assessment. It used to read "confirm"
+  // too, which put two identically-labelled buttons on any row that
+  // didn't collapse the pair, and clicking one opened a dialog titled
+  // "Disagree" (reported 2026-08-09). Rows that DO collapse render the
+  // single ``adopt`` verb and never show this.
+  if (shape === "match") return { keep: "disagree", adopt: "confirm" };
   // change (default)
   return { keep: "don't change", adopt: "adopt" };
 }

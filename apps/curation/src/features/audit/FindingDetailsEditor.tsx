@@ -1203,7 +1203,19 @@ export function FindingDetailsEditor({
     // the apply_action, not the issue_code, so new agent codes (an
     // over-tag scan, etc.) reach the keep-vs-remove card instead of
     // falling through to the match render with empty comparison rows.
-    finding.apply_action?.kind === "remove_tag";
+    //
+    // ...unless the code says the two sides MATCH. 38 stored
+    // `calibration_tag_match_exact` findings carry `remove_tag` from a
+    // retired dismiss-with-curator_wrong branch, so the card rendered
+    // "reject the removal" / "accept the removal" over a finding whose
+    // content is "both sides already agree" — and once the match shape
+    // gave both buttons the label "confirm", clicking one opened the
+    // Disagree dialog. The issue code is the authority for what a card
+    // IS; apply_action only says what accept DOES. New packages ship
+    // none (agents handoff AGENTS_REPLY_2026_08_09_DATASETS_PERF_AND_
+    // MATCH_ACTION_FIXED, §2); the imported ones stay until rebuilt.
+    (finding.apply_action?.kind === "remove_tag" &&
+      findingActionShape(finding) !== "match");
 
   const isFactorExtraFinding =
     finding.issue_code === "calibration_factor_extra";

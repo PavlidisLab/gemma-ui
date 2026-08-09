@@ -122,11 +122,21 @@ describe("actionLabels", () => {
     });
   });
 
-  it("match → (confirm, confirm)", () => {
+  it("match → (disagree, confirm) — never two identical labels", () => {
+    // Two buttons reading "confirm", one of which opened a dialog
+    // titled "Disagree" (2026-08-09). Rows that collapse the pair show
+    // only the adopt verb; rows that don't must still read correctly.
     expect(actionLabels("match")).toEqual({
-      keep: "confirm",
+      keep: "disagree",
       adopt: "confirm",
     });
+  });
+
+  it("no shape produces the same label on both buttons", () => {
+    for (const shape of ["add", "remove", "change", "match"] as const) {
+      const { keep, adopt } = actionLabels(shape);
+      expect(keep).not.toBe(adopt);
+    }
   });
 });
 
@@ -141,7 +151,7 @@ describe("tag-side match codes (2026-08-09)", () => {
     );
     expect(
       actionLabels(findingActionShape(f("calibration_tag_match_exact", "ok"))),
-    ).toEqual({ keep: "confirm", adopt: "confirm" });
+    ).toEqual({ keep: "disagree", adopt: "confirm" });
   });
 
   it("calibration_tag_match_near → change (a different term IS a change)", () => {
