@@ -129,3 +129,32 @@ describe("actionLabels", () => {
     });
   });
 });
+
+describe("tag-side match codes (2026-08-09)", () => {
+  // GSE198756 rendered "don't change" / "adopt Auditor's" on a card
+  // reading "TAG MATCH — developmental stage : embryo stage", because
+  // `calibration_tag_match_exact` was absent from the mapping and fell
+  // to the "change" default. A match offers ONE confirm.
+  it("calibration_tag_match_exact → match", () => {
+    expect(findingActionShape(f("calibration_tag_match_exact", "ok"))).toBe(
+      "match",
+    );
+    expect(
+      actionLabels(findingActionShape(f("calibration_tag_match_exact", "ok"))),
+    ).toEqual({ keep: "confirm", adopt: "confirm" });
+  });
+
+  it("calibration_tag_match_near → change (a different term IS a change)", () => {
+    expect(findingActionShape(f("calibration_tag_match_near", "minor"))).toBe(
+      "change",
+    );
+  });
+
+  it("still downgrades to add when the displayed baseline is empty", () => {
+    // The match-downgrade rule owns the goldEmpty case; the new
+    // mappings must not shadow it.
+    expect(
+      findingActionShape(f("calibration_match", "ok"), { goldEmpty: true }),
+    ).toBe("add");
+  });
+});

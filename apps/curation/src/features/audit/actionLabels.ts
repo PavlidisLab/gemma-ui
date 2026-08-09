@@ -102,6 +102,19 @@ export function findingActionShape(
   if (code === "calibration_factor_rename") return "change";
   if (code === "calibration_factor_match_exact") return "match";
   if (code === "calibration_match") return "match";
+  // Tag-side match codes. These were never listed, so they fell to
+  // the "change" default and rendered "don't change" / "adopt
+  // Auditor's" on a card whose whole content is "both sides already
+  // agree" — reported 2026-08-09 on GSE198756's `developmental stage:
+  // embryo stage`. A match gets ONE "Confirm all"; Reject and Park
+  // stay available as escape hatches (design review 2026-06-11:
+  // "reject should be an option, even if the proposal is 'close'").
+  //
+  // ``_near`` genuinely is a change (the agent proposes a different
+  // term for the same slot) and was landing on the right default by
+  // accident. Listed explicitly so it stays right on purpose.
+  if (code === "calibration_tag_match_exact") return "match";
+  if (code === "calibration_tag_match_near") return "change";
   // Legacy `calibration_factor_match` at ok severity is a match;
   // at minor it's an actionable near-match (change). Keep symmetric
   // with `factorMatchVariant` in factorMatch.ts.
