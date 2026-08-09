@@ -4,6 +4,7 @@ import {
   curieToUrl,
   isOlsHosted,
   olsUrl,
+  ontobeeUrl,
   termRegistry,
 } from "./curie";
 
@@ -74,7 +75,7 @@ describe("curieToUrl", () => {
   });
 
   it("rewrites a mis-namespaced obo-purl EFO full URL to EFO's canonical namespace (obo-purl does not host EFO → 404)", () => {
-    // GSE87281: agent index emitted this form; "open in OBO" 404'd.
+    // GSE87281: agent index emitted this form; the registry link-out 404'd.
     expect(
       curieToUrl("http://purl.obolibrary.org/obo/EFO_0022874"),
     ).toBe("http://www.ebi.ac.uk/efo/EFO_0022874");
@@ -89,7 +90,7 @@ describe("curieToUrl", () => {
 
   it("repairs a double-mangled IRI: obo-purl prefix glued onto a full gemma IRI with the inner scheme collapsed to _//", () => {
     // The shipped TGEMO.tsv synonym snapshot emits Homozygous negative
-    // as this butchered IRI; left as-is it 404s in "open in OBO" and
+    // as this butchered IRI; left as-is it 404s in the registry link-out and
     // misses Gemma's IRI-keyed term endpoint ("Gemma doesn't know this
     // term"). Must recover the canonical Gemma IRI.
     expect(
@@ -188,6 +189,45 @@ describe("olsUrl", () => {
     expect(olsUrl("http://purl.obolibrary.org/obo/UBERON_0000955")).toContain(
       "ols4/search",
     );
+  });
+});
+
+describe("ontobeeUrl", () => {
+  // The purl content-negotiates HTML to OLS, so an "OBO" link built from
+  // it duplicated the OLS link beside it. Ontobee is the distinct view.
+  it("addresses the term inside its ontology, from a CURIE or an IRI", () => {
+    expect(ontobeeUrl("CL:0000127")).toBe(
+      "https://ontobee.org/ontology/CL?iri=" +
+        encodeURIComponent("http://purl.obolibrary.org/obo/CL_0000127"),
+    );
+    expect(ontobeeUrl("http://purl.obolibrary.org/obo/UBERON_0000955")).toBe(
+      "https://ontobee.org/ontology/UBERON?iri=" +
+        encodeURIComponent("http://purl.obolibrary.org/obo/UBERON_0000955"),
+    );
+  });
+
+  // The purl's own casing is what Ontobee lists the ontology under.
+  it("keeps the ontology token's case", () => {
+    expect(ontobeeUrl("NCBITaxon:9606")).toContain(
+      "ontobee.org/ontology/NCBITaxon?",
+    );
+  });
+
+  it("returns null for anything not under the OBO purl", () => {
+    expect(ontobeeUrl(null)).toBeNull();
+    expect(ontobeeUrl("")).toBeNull();
+    expect(ontobeeUrl("EFO:0000513")).toBeNull();
+    expect(ontobeeUrl("TGEMO:00022")).toBeNull();
+    expect(ontobeeUrl("cellosaurus:CVCL_0395")).toBeNull();
+    expect(ontobeeUrl("MGI:97490")).toBeNull();
+    expect(ontobeeUrl("NCBI:gene:948")).toBeNull();
+  });
+
+  // Mis-namespaced upstream shapes are rewritten by curieToUrl before we
+  // classify — EFO under the OBO purl must NOT produce an Ontobee link.
+  it("does not offer Ontobee for terms curieToUrl rewrites off the purl", () => {
+    expect(ontobeeUrl("http://purl.obolibrary.org/obo/EFO_0022874")).toBeNull();
+    expect(ontobeeUrl("http://purl.obolibrary.org/obo/TGEMO_00171")).toBeNull();
   });
 });
 

@@ -128,6 +128,32 @@ export function olsUrl(uri: string | null | undefined): string | null {
   )}&exactMatch=true`;
 }
 
+/** Ontobee link-out for an OBO Foundry term.
+ *
+ *  The purl itself is NOT a usable second link: ``purl.obolibrary.org``
+ *  content-negotiates an HTML request straight to OLS, so an "OBO" link
+ *  built from the purl and the "OLS" link beside it landed the curator
+ *  on the same EBI page. Ontobee is the distinct second view — same
+ *  term, different browser (axiom/RDF rendering, cross-ontology usage).
+ *
+ *  URL shape: ``ontobee.org/ontology/<ONT>?iri=<full purl IRI>``, where
+ *  ``<ONT>`` is the ontology token of the purl id (``CL_0000127`` → ``CL``)
+ *  in the case Ontobee lists it under — the OBO purl already uses that
+ *  case (``NCBITaxon``, ``CL``, ``UBERON``), so pass it through rather
+ *  than upcasing.
+ *
+ *  Returns ``null`` for anything not under the OBO purl — Ontobee
+ *  doesn't carry EFO, TGEMO, Cellosaurus or MGI. */
+export function ontobeeUrl(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  const iri = curieToUrl(uri) ?? uri;
+  const m = iri.match(
+    /^https?:\/\/purl\.obolibrary\.org\/obo\/([A-Za-z]+)_[^/#?]+$/,
+  );
+  if (!m) return null;
+  return `https://ontobee.org/ontology/${m[1]}?iri=${encodeURIComponent(iri)}`;
+}
+
 export function curieToUrl(uri: string | null | undefined): string | null {
   if (!uri) return null;
   // Double-mangled IRI: some upstream snapshots glue the obo-purl
@@ -136,7 +162,7 @@ export function curieToUrl(uri: string | null | undefined): string | null {
   // snapshot emits
   // ``http://purl.obolibrary.org/obo/http_//gemma.msl.ubc.ca/ont/TGEMO_00001``
   // for what should be ``http://gemma.msl.ubc.ca/ont/TGEMO_00001``. Left
-  // as-is this 404s in the "open in OBO" link AND misses Gemma's term
+  // as-is this 404s in the registry link-out AND misses Gemma's term
   // endpoint (queried by IRI), so the popover wrongly reads "Gemma
   // doesn't know this term". Peel the bogus prefix, restore the inner
   // scheme, and re-run through this router so the recovered IRI still

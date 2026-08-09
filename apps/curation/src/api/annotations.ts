@@ -281,8 +281,9 @@ export interface AnnotationTermDetail {
    *  so curators know whether they're looking at Gemma's cached view,
    *  a fresh OLS hit, or NCBI Gene metadata. */
   source: "gemma" | "ols" | "ncbi";
-  /** Canonical resolver URL — the curator can click "open in OBO" /
-   *  "open in OLS" to verify on the upstream page. */
+  /** Canonical resolver URL — feeds the popover's registry link-outs
+   *  ("open in Ontobee / OLS / …") so the curator can verify on the
+   *  upstream page. */
   canonicalUrl: string | null;
   /** Species for gene records (NCBI Gene path); null for ontology
    *  terms. Lets the popover header disambiguate which species' gene

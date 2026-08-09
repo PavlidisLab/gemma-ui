@@ -5,8 +5,9 @@
  * small floating card with the term's label, definition, parents,
  * and a footer source pill ("from Gemma" / "from OLS"). Beats
  * tabbing out to ``purl.obolibrary.org`` for the quick-verify case
- * — the canonical resolver is still available via the
- * "open in OBO ↗" link inside the popover.
+ * — the external browsers are still available via the
+ * "open in Ontobee ↗ · OLS ↗" links inside the popover, and the raw
+ * IRI is one click away via the footer copy button.
  *
  * Two-stage fetch (per design review 2026-06-13 "fallback to OLS: require
  * another click"):
@@ -35,6 +36,7 @@ import {
   isOlsHosted,
   ncbiGeneIdFromUri,
   olsUrl,
+  ontobeeUrl,
   shortenUri,
   termRegistry,
 } from "@/lib/curie";
@@ -477,18 +479,21 @@ function Body({
 
 /** External link-outs for a term, shown in the popover footer. One
  *  "open in" label followed by the applicable targets — the label is
- *  never repeated per link (design review 2026-08-02).
+ *  never repeated per link (design review 2026-08-02) — then a
+ *  copy-the-IRI button, which is always present even when the term has
+ *  no browsable home.
  *
- *  **Every link offered must be able to resolve.** A term only gets the
- *  registry that actually holds it, decided by ``termRegistry``: OBO
- *  Foundry terms get OBO + OLS, EFO gets EFO + OLS (EFO isn't under the
- *  OBO purl but OLS does index it), and TGEMO gets its own canonical
- *  Gemma link and nothing else — neither OBO nor OLS has it. **Cell
- *  lines** also get a Cellosaurus link: a native Cellosaurus term (CVCL
- *  accession) gets ONLY that, while a Cell-Line-Ontology term (CLO)
- *  keeps OBO + OLS and adds a Cellosaurus name-search alongside. NCBI
- *  genes keep their single Gene link. Anything we can't place (MGI,
- *  unrecognised prefixes) gets no registry link rather than a guess. */
+ *  **Every link offered must be able to resolve, and to a DISTINCT
+ *  page.** A term only gets the registry that actually holds it,
+ *  decided by ``termRegistry``: OBO Foundry terms get Ontobee + OLS,
+ *  EFO gets a single OLS link (its canonical IRI already redirects
+ *  there), and TGEMO gets its own canonical Gemma link and nothing
+ *  else — neither Ontobee nor OLS has it. **Cell lines** also get a
+ *  Cellosaurus link: a native Cellosaurus term (CVCL accession) gets
+ *  ONLY that, while a Cell-Line-Ontology term (CLO) keeps Ontobee + OLS
+ *  and adds a Cellosaurus name-search alongside. NCBI genes keep their
+ *  single Gene link. Anything we can't place (MGI, unrecognised
+ *  prefixes) gets no registry link rather than a guess. */
 function TermLinkOuts({
   uri,
   source,
@@ -502,23 +507,12 @@ function TermLinkOuts({
 }) {
   const linkCls =
     "text-[10px] text-blue-700 hover:underline dark:text-blue-300";
-  if (source === "ncbi") {
-    return oboUrl ? (
-      <a
-        href={oboUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        className={`ml-auto ${linkCls}`}
-      >
-        open in NCBI Gene ↗
-      </a>
-    ) : null;
-  }
+  const links: Array<{ key: string; href: string; label: string }> = [];
   const cvcl = cellosaurusUrl(uri, label);
   const nativeCvcl = /CVCL_\d+/i.test(uri);
-  const links: Array<{ key: string; href: string; label: string }> = [];
-  if (nativeCvcl && cvcl) {
+  if (source === "ncbi") {
+    if (oboUrl) links.push({ key: "ncbi", href: oboUrl, label: "NCBI Gene" });
+  } else if (nativeCvcl && cvcl) {
     // Native Cellosaurus entity — OBO/OLS don't host it.
     links.push({ key: "cvcl", href: cvcl, label: "Cellosaurus" });
   } else {
@@ -527,23 +521,33 @@ function TermLinkOuts({
     // "OBO · OLS" pair on those sent the curator to a 404 or an empty
     // OLS result page. TGEMO still gets its own canonical link — it has
     // a real home at gemma.msl.ubc.ca/ont, it just isn't OBO's.
+    //
+    // For OBO terms the first link is Ontobee, NOT the bare purl: the
+    // purl content-negotiates an HTML request straight to OLS, so the
+    // old "OBO" link and the "OLS" link beside it opened the same page.
     const registry = termRegistry(uri);
-    if (oboUrl && registry === "obo") {
-      links.push({ key: "obo", href: oboUrl, label: "OBO" });
-    } else if (oboUrl && registry === "efo") {
-      links.push({ key: "efo", href: oboUrl, label: "EFO" });
+    const ontobee = ontobeeUrl(uri);
+    if (registry === "obo" && ontobee) {
+      links.push({ key: "ontobee", href: ontobee, label: "Ontobee" });
     } else if (oboUrl && registry === "tgemo") {
       links.push({ key: "tgemo", href: oboUrl, label: "TGEMO" });
     }
-    const ols = olsUrl(uri);
-    if (ols) links.push({ key: "ols", href: ols, label: "OLS" });
+    if (oboUrl && registry === "efo") {
+      // EFO's canonical IRI redirects to the OLS4 *entity* page — a
+      // better target than the OLS search below, and the same
+      // destination, so it takes the OLS slot rather than sitting
+      // beside it under a second label.
+      links.push({ key: "efo", href: oboUrl, label: "OLS" });
+    } else {
+      const ols = olsUrl(uri);
+      if (ols) links.push({ key: "ols", href: ols, label: "OLS" });
+    }
     // CLO cell line (or any cell line resolvable by name) → Cellosaurus.
     if (cvcl) links.push({ key: "cvcl", href: cvcl, label: "Cellosaurus" });
   }
-  if (links.length === 0) return null;
   return (
     <span className="ml-auto flex items-baseline gap-1 text-[10px] text-slate-400 dark:text-slate-500">
-      <span>open in</span>
+      {links.length > 0 ? <span>open in</span> : null}
       {links.map((l, i) => (
         <span key={l.key} className="flex items-baseline gap-1">
           {i > 0 ? <span aria-hidden>·</span> : null}
@@ -558,7 +562,56 @@ function TermLinkOuts({
           </a>
         </span>
       ))}
+      {links.length > 0 ? (
+        // Divider, not the "·" used between link-outs — copy isn't one
+        // of the "open in" targets.
+        <span aria-hidden className="text-slate-300 dark:text-slate-600">
+          |
+        </span>
+      ) : null}
+      <CopyUriButton uri={uri} className={linkCls} />
     </span>
+  );
+}
+
+/** Copy the term's full IRI to the clipboard. The IRI — not the CURIE
+ *  — because that's what every downstream box wants pasted into it
+ *  (Gemma's term endpoint, an OLS search, a ticket, a note); the CURIE
+ *  is already on screen and selectable. Bare CURIEs are resolved
+ *  through ``curieToUrl`` first so the copied value is the same string
+ *  the link-outs point at.
+ *
+ *  Confirms in place for ~1.2 s rather than raising a toast — the
+ *  popover is transient and a toast outliving it reads as unrelated. */
+function CopyUriButton({ uri, className }: { uri: string; className: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const iri = curieToUrl(uri) ?? uri;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        try {
+          navigator.clipboard?.writeText(iri);
+        } catch {
+          // best effort
+        }
+        setCopied(true);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), 1200);
+      }}
+      className={className}
+      title={`Copy ${iri} to the clipboard`}
+    >
+      {copied ? "copied ✓" : "copy URI"}
+    </button>
   );
 }
 
