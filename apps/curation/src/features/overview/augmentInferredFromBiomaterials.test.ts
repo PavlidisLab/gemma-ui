@@ -248,4 +248,55 @@ describe("augmentInferredFromBiomaterials", () => {
     );
     expect(synth?.value.label).toBe("tamoxifen");
   });
+
+  // -------------------------------------------------------------------------
+  // Whitespace drift between hand-typed per-sample values
+  // -------------------------------------------------------------------------
+
+  it("collapses internal whitespace drift into one value", () => {
+    // Real GSE102352 characteristics: the same cell type arrived with a
+    // double space on one sample. A trim-only key kept both, and since
+    // the chip comma-joins a category's values the curator read the same
+    // text twice inside one chip.
+    const bms = [
+      bm("s1", {
+        "cell type": "Cortical NSC/neurons at day 33 of neuronal  differentiation",
+      }),
+      bm("s2", {
+        "cell type": "Cortical NSC/neurons at day 33 of neuronal differentiation",
+      }),
+    ];
+    const synth = augmentInferredFromBiomaterials([], bms).find((t) => t.inferred);
+    // First-seen spelling wins — a submitter's spacing is never rewritten.
+    expect(synth?.value.label).toBe(
+      "Cortical NSC/neurons at day 33 of neuronal  differentiation",
+    );
+  });
+
+  it("still separates values that genuinely differ", () => {
+    const bms = [
+      bm("s1", { "cell type": "induced pluripotent stem cell line cell" }),
+      bm("s2", { "cell type": "Cortical neurons at day 41 of neuronal differentiation" }),
+    ];
+    const synth = augmentInferredFromBiomaterials([], bms).find((t) => t.inferred);
+    expect(synth?.value.label.split(", ")).toHaveLength(2);
+  });
+
+  it("treats leading/trailing and case drift as the same value", () => {
+    const bms = [
+      bm("s1", { treatment: "Tamoxifen" }),
+      bm("s2", { treatment: "  tamoxifen  " }),
+    ];
+    const synth = augmentInferredFromBiomaterials([], bms).find((t) => t.inferred);
+    expect(synth?.value.label).toBe("Tamoxifen");
+  });
+
+  it("a direct tag covers a per-sample value that differs only by spacing", () => {
+    // Otherwise the direct chip and an inherited chip would render the
+    // same words side by side, with no redundancy glint linking them.
+    const direct = directTag(1, "treatment", "high dose tamoxifen");
+    const bms = [bm("s1", { treatment: "high  dose   tamoxifen" })];
+    const next = augmentInferredFromBiomaterials([direct], bms);
+    expect(next.filter((t) => t.inferred)).toHaveLength(0);
+  });
 });

@@ -20,11 +20,26 @@ import type { Biomaterial, Tag } from "@/features/experiment/types";
  *  Lives in its own .ts (not .tsx) file so React Fast Refresh
  *  doesn't complain about mixing component and non-component exports
  *  out of OverviewPanel.tsx. */
+/** Dedupe key for a characteristic value: case-folded with INTERNAL
+ *  whitespace collapsed, not just trimmed.
+ *
+ *  Submitters hand-type these strings per sample, so the same value
+ *  arrives with drifting spacing — GSE102352 carries both
+ *  ``"Cortical NSC/neurons at day 33 of neuronal  differentiation"``
+ *  (two spaces) and the single-space spelling. A trim-only key treats
+ *  those as two values, and since the synth chip comma-joins a
+ *  category's values the curator reads the same text twice inside one
+ *  chip. */
+const valueKey = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+
 export function augmentInferredFromBiomaterials(
   tags: Tag[],
   biomaterials: Biomaterial[],
 ): Tag[] {
-  const valuesByCat = new Map<string, Set<string>>();
+  // catKey → (value dedupe key → first-seen spelling). The first
+  // spelling wins for display; the key only decides sameness, so a
+  // submitter's original spacing is never rewritten.
+  const valuesByCat = new Map<string, Map<string, string>>();
   const catLabels = new Map<string, string>();
   for (const bm of biomaterials) {
     const chars = bm.characteristics ?? {};
@@ -34,9 +49,10 @@ export function augmentInferredFromBiomaterials(
       if (!cat || !val) continue;
       const key = cat.toLowerCase();
       if (!catLabels.has(key)) catLabels.set(key, cat);
-      const set = valuesByCat.get(key) ?? new Set<string>();
-      set.add(val);
-      valuesByCat.set(key, set);
+      const byValue = valuesByCat.get(key) ?? new Map<string, string>();
+      const vk = valueKey(val);
+      if (!byValue.has(vk)) byValue.set(vk, val);
+      valuesByCat.set(key, byValue);
     }
   }
   if (valuesByCat.size === 0) return tags;
@@ -49,7 +65,7 @@ export function augmentInferredFromBiomaterials(
   for (const t of tags) {
     if (t.inferred) continue;
     const c = (t.category.label || "").trim().toLowerCase();
-    const v = (t.value?.label || "").trim().toLowerCase();
+    const v = valueKey(t.value?.label || "");
     if (c && v) directPairs.add(`${c}|${v}`);
   }
 
@@ -72,13 +88,13 @@ export function augmentInferredFromBiomaterials(
   // (server-assigned) tag id space. They're ephemeral display
   // entries; never round-tripped to the server.
   let nextSynthId = -1;
-  for (const [catKey, valSet] of valuesByCat.entries()) {
+  for (const [catKey, byValue] of valuesByCat.entries()) {
     // Synth only the values NOT already carried by a direct tag; the
     // direct wins (and gets the redundancy glint), the rest surface as
     // inherited. Every value covered ⇒ nothing synthesized.
-    const uncovered = Array.from(valSet).filter(
-      (v) => !directPairs.has(`${catKey}|${v.trim().toLowerCase()}`),
-    );
+    const uncovered = Array.from(byValue.entries())
+      .filter(([vk]) => !directPairs.has(`${catKey}|${vk}`))
+      .map(([, display]) => display);
     if (uncovered.length === 0) continue;
     const sortedValues = uncovered.sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
