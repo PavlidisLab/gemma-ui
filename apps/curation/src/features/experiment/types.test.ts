@@ -85,6 +85,14 @@ describe("factorRequiresBaseline", () => {
     expect(factorRequiresBaseline({ label: "batch" })).toBe(false);
     expect(factorRequiresBaseline({ label: "organism part" })).toBe(false);
     expect(factorRequiresBaseline({ label: "cell type" })).toBe(false);
+    // Procurement axis — biopsy vs autopsy has no control arm.
+    // Curator ruling 2026-08-09; 67 of 78 in the corpus carry none.
+    expect(factorRequiresBaseline({ label: "collection of material" })).toBe(
+      false,
+    );
+    expect(factorRequiresBaseline({ label: "Collection of Material" })).toBe(
+      false,
+    );
   });
 
   it("returns true for typical experimental categories", () => {

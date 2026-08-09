@@ -321,6 +321,16 @@ const NO_BASELINE_CATEGORIES = new Set<string>([
   // proposer / curator output.
   "cell line",
   "cell_line",
+  // How the material was obtained (biopsy / autopsy / surgical
+  // resection / …). A procurement axis, not a perturbation: there's no
+  // control arm to be the reference, same as organism part and cell
+  // type. Curator ruling 2026-08-09, and the corpus agrees — 67 of the
+  // 78 multi-level `collection of material` factors carry no baseline,
+  // the profile of the exempt categories (cell line 106/114, organism
+  // part 87/92, cell type 74/82) and nothing like `treatment` (7/539)
+  // or `genotype` (10/513).
+  "collection of material",
+  "collection_of_material",
 ]);
 
 /** Accepts either a ``Factor`` (preferred — captures both type and
