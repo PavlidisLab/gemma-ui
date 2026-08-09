@@ -470,6 +470,19 @@ export function CompactFindingCard({
                   // case-restore pass from a case-preserving source before
                   // the render. Design review 2026-07-19.
                   let labelsFromSlug = false;
+                  // The row this finding landed on is an INHERITED
+                  // annotation, not a stored EE-tag — Gemma's display of
+                  // a characteristic every sample carries. Nothing in
+                  // the corpus targets one today (0 of 573 stored tag
+                  // findings), and the agents side excludes them from
+                  // the tag scorer, but the card would otherwise present
+                  // a projection of the sample table as a tag to
+                  // dispose of, and "removing" it edits a row that was
+                  // never a tag. Handoff
+                  // AGENTS_ASK_2026_08_09_TICKET_SHOULD_PIN_ITS_BASELINE,
+                  // addendum. Marked, not hidden: a finding we can't
+                  // explain is worse than one we can.
+                  let targetIsInherited = false;
                   const parsed = parseTargetId(finding.target_id);
                   if (parsed?.kind === "tag") {
                     const matchedBySlug = draft?.tags?.find(
@@ -482,6 +495,7 @@ export function CompactFindingCard({
                       valLabel = matchedBySlug.value?.label ?? null;
                       catUri = matchedBySlug.category?.uri ?? null;
                       valUri = matchedBySlug.value?.uri ?? null;
+                      targetIsInherited = Boolean(matchedBySlug.inferred);
                     } else {
                       // Slug-only fallback: cosmetic
                       // (dashes-for-spaces) but at least the curator
@@ -580,6 +594,8 @@ export function CompactFindingCard({
                         valUri ??
                         matchedByLabel.value?.uri ??
                         null;
+                      targetIsInherited =
+                        targetIsInherited || Boolean(matchedByLabel.inferred);
                     }
                   }
                   // Category-only fallback for ADD TAG: the
@@ -740,6 +756,14 @@ export function CompactFindingCard({
                       <span className="text-slate-500 dark:text-slate-400">
                         —
                       </span>
+                      {targetIsInherited ? (
+                        <span
+                          className="inline-flex items-baseline px-1.5 py-0.5 rounded border text-[10px] uppercase tracking-wide whitespace-nowrap border-violet-300 bg-violet-50 text-violet-800 dark:bg-violet-900/30 dark:border-violet-700 dark:text-violet-200"
+                          title="This row is an INHERITED annotation — Gemma's display of a characteristic every sample carries — not a stored experiment tag. It can't be removed as a tag: the sample characteristics are what would have to change. Treat this finding as being about the samples, not about curation."
+                        >
+                          inherited
+                        </span>
+                      ) : null}
                       {catLabel ? (
                         <>
                           {/* Grounding must read at a glance. GROUNDED

@@ -607,8 +607,21 @@ export function summariseSemanticDiff(
     if (!cmpByFactor.has(k)) removedFactors++;
   }
 
-  const baseTags = baseline.tags ?? [];
-  const cmpTags = comparator.tags ?? [];
+  // Inferred rows are excluded from BOTH sides. An ``inferred`` row is
+  // Gemma's display of a constant biomaterial characteristic, not a
+  // stored ExperimentTag — it isn't something either curation lineage
+  // asserted, so it can't be added or removed BY one. Counting them
+  // made GSE102352 read "TAGS -3" for gold vs the agent's proposal
+  // where gold holds one real tag and two projections of the sample
+  // table (handoff AGENTS_ASK_2026_08_09_TICKET_SHOULD_PIN_ITS_BASELINE,
+  // addendum). The Overview marks them inherited and offers a Hide
+  // toggle; this readout had no such out.
+  //
+  // Consequence worth knowing: when one side carries a value only as a
+  // projection and the other has curated it into a real tag, that now
+  // reads as an added tag — which is exactly what happened.
+  const baseTags = (baseline.tags ?? []).filter((t) => !t.inferred);
+  const cmpTags = (comparator.tags ?? []).filter((t) => !t.inferred);
   const baseByTag = new Map(baseTags.map((t) => [tagKey(t), t]));
   const cmpByTag = new Map(cmpTags.map((t) => [tagKey(t), t]));
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffDesign } from "./diff";
+import { diffDesign, summariseSemanticDiff } from "./diff";
 import type {
   Biomaterial,
   Design,
@@ -281,5 +281,67 @@ describe("diffDesign — statement-shaped tag edits dirty the draft (2026-07-21)
     const r = diffDesign(saved, draft);
     expect(r.isDirty).toBe(false);
     expect(r.tags.modified).toHaveLength(0);
+  });
+});
+
+describe("summariseSemanticDiff — inherited rows are not tags (2026-08-09)", () => {
+  // GSE102352's gold polished row holds one real tag plus two
+  // projections of constant biomaterial characteristics. Against the
+  // agent's proposal the readout said "TAGS -3" — the agent dropped
+  // one thing, not three. An `inferred` row is Gemma's display of a
+  // sample characteristic; neither curation lineage asserted it, so
+  // neither can add or remove it. Handoff
+  // AGENTS_ASK_2026_08_09_TICKET_SHOULD_PIN_ITS_BASELINE, addendum.
+  const term = (label: string, uri: string | null = null) => ({ label, uri });
+  const tag = (
+    id: number,
+    cat: string,
+    val: string,
+    inferred = false,
+  ) => ({ id, category: term(cat), value: term(val), inferred });
+
+  const GOLD = baseDesign({
+    tags: [
+      tag(1, "assay", "bulk RNA-seq assay"),
+      tag(2, "biological sex", "female", true),
+      tag(3, "cell type", "induced pluripotent stem cell line cell", true),
+    ],
+  });
+
+  it("counts only the real tag as removed", () => {
+    const proposal = baseDesign({ tags: [] });
+    const s = summariseSemanticDiff(GOLD, proposal);
+    expect(s.removedTags).toBe(1);
+    expect(s.addedTags).toBe(0);
+  });
+
+  it("calls two designs equal when they differ only in inherited rows", () => {
+    const noProjections = baseDesign({
+      tags: [tag(1, "assay", "bulk RNA-seq assay")],
+    });
+    const s = summariseSemanticDiff(GOLD, noProjections);
+    expect(s.empty).toBe(true);
+  });
+
+  it("reads a curated projection as an ADDED tag", () => {
+    // The reviewer turning an inherited row into a real EE-tag is a
+    // genuine curation act, and now says so.
+    const curated = baseDesign({
+      tags: [
+        tag(1, "assay", "bulk RNA-seq assay"),
+        tag(3, "cell type", "induced pluripotent stem cell line cell"),
+      ],
+    });
+    const s = summariseSemanticDiff(GOLD, curated);
+    expect(s.addedTags).toBe(1);
+    expect(s.removedTags).toBe(0);
+  });
+
+  it("leaves an all-real tag comparison untouched", () => {
+    const a = baseDesign({ tags: [tag(1, "assay", "bulk RNA-seq assay")] });
+    const b = baseDesign({ tags: [tag(9, "disease", "melanoma")] });
+    const s = summariseSemanticDiff(a, b);
+    expect(s.addedTags).toBe(1);
+    expect(s.removedTags).toBe(1);
   });
 });
