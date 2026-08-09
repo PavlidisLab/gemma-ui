@@ -76,7 +76,11 @@ export function ChipStrip({
 
   return (
     <div
-      className="inline-flex items-center gap-2 text-[11px]"
+      // ``flex-wrap``: when the header runs out of room the strip
+      // breaks between chips. Every chip below is
+      // ``whitespace-nowrap``, so "Local-Curator polished" can't come
+      // apart across three lines the way it used to.
+      className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]"
       role="region"
       aria-label="Comparison source selection"
     >
@@ -192,14 +196,14 @@ function DiffSummaryReadout({
 }) {
   if (summary === null) {
     return (
-      <span className="ml-auto text-[11px] uppercase tracking-wide text-slate-400">
+      <span className="ml-auto text-[11px] uppercase tracking-wide text-slate-400 whitespace-nowrap">
         {isLoading ? "diffing…" : ""}
       </span>
     );
   }
   if (summary.empty) {
     return (
-      <span className="ml-auto text-[11px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400 font-semibold">
+      <span className="ml-auto text-[11px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
         no differences
       </span>
     );
@@ -214,7 +218,7 @@ function DiffSummaryReadout({
   if (summary.modifiedFactors) factorParts.push(`~${summary.modifiedFactors}`);
 
   return (
-    <span className="ml-auto text-[11px] uppercase tracking-wide text-slate-600 dark:text-slate-300 flex items-baseline gap-3">
+    <span className="ml-auto text-[11px] uppercase tracking-wide text-slate-600 dark:text-slate-300 flex items-baseline gap-3 whitespace-nowrap">
       {tagParts.length ? (
         <span>
           tags <span className="font-mono font-semibold">{tagParts.join(" ")}</span>
@@ -253,7 +257,7 @@ function ChipLabel({
     >
       <span
         className={cn(
-          "text-[12px] uppercase tracking-wide font-semibold",
+          "text-[12px] uppercase tracking-wide font-semibold whitespace-nowrap",
           palette.label,
         )}
       >
@@ -263,7 +267,7 @@ function ChipLabel({
         className={cn(
           // Matches ChipDropdown sizing so locked + selectable chips
           // line up visually in the strip.
-          "inline-flex items-center gap-1 px-3 py-1 rounded border border-dashed text-[14px] font-medium opacity-90",
+          "inline-flex items-center gap-1 px-3 py-1 rounded border border-dashed text-[14px] font-medium opacity-90 whitespace-nowrap",
           palette.chip,
         )}
         title={provTitle || undefined}
@@ -356,7 +360,7 @@ function ChipDropdown({
     <div ref={ref} className="relative inline-flex items-center gap-2">
       <span
         className={cn(
-          "text-[12px] uppercase tracking-wide font-semibold",
+          "text-[12px] uppercase tracking-wide font-semibold whitespace-nowrap",
           palette.label,
         )}
       >
@@ -370,7 +374,7 @@ function ChipDropdown({
           // triggers to change the baseline/audit are too small again".
           // Bumped padding + font size so the clickable target reads
           // as a button at a glance.
-          "inline-flex items-center gap-1.5 px-3 py-1 rounded border text-[14px] font-medium",
+          "inline-flex items-center gap-1.5 px-3 py-1 rounded border text-[14px] font-medium whitespace-nowrap",
           palette.chip,
         )}
         aria-haspopup="listbox"

@@ -57,7 +57,14 @@ export function AppHeader({
   const me = useMe();
   const isAdmin = me.data?.authorities?.includes("GROUP_ADMIN") ?? false;
   return (
-    <header className="flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 shrink-0">
+    // ``min-h-12`` rather than a fixed ``h-12``: the chip strip in the
+    // children slot is the widest thing here, and on a crowded header
+    // (long ticket title + a two-word polished baseline + the
+    // ticket-baseline note) it needs a second line. A fixed height made
+    // it spill above and below the bar instead. Nothing inside breaks
+    // mid-label — the strip wraps BETWEEN chips — so the bar is one row
+    // in the ordinary case and grows by one only when it has to.
+    <header className="flex items-center gap-3 min-h-12 py-1 px-4 border-b border-stone-900 bg-stone-100 text-stone-900 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 shrink-0">
       {/* Brand + section title. Clicking returns to the curator
           dashboard. We render "Gemma Curation" as a single label
           (rather than a separate "Curation" nav tab) so the title
@@ -67,7 +74,7 @@ export function AppHeader({
       <button
         type="button"
         onClick={() => navigate("#/")}
-        className="flex items-center gap-2 font-semibold text-stone-900 dark:text-slate-100 bg-transparent border-none cursor-pointer p-0"
+        className="flex items-center gap-2 font-semibold text-stone-900 dark:text-slate-100 bg-transparent border-none cursor-pointer p-0 shrink-0 whitespace-nowrap"
         title="Curator dashboard"
       >
         <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
@@ -101,7 +108,7 @@ export function AppHeader({
           accidental "I clicked Browse and got dropped out of the
           curation app" risk away from natural reading order. Per
           Design review 2026-05-27. */}
-      <nav className="flex items-center gap-1">
+      <nav className="flex items-center gap-1 shrink-0 whitespace-nowrap">
         <ExternalNavTab href={browserUrl("/browser")}>Browse</ExternalNavTab>
         {isAdmin ? (
           <ExternalNavTab href={adminUrl()}>Administration</ExternalNavTab>
@@ -141,7 +148,7 @@ function BackToDashboardLink() {
       type="button"
       onClick={() => navigate("#/")}
       title="Back to the curator dashboard"
-      className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-stone-300 text-stone-700 hover:bg-stone-200/60 hover:text-stone-900 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/40 dark:hover:text-slate-100 bg-transparent cursor-pointer"
+      className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-stone-300 text-stone-700 hover:bg-stone-200/60 hover:text-stone-900 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/40 dark:hover:text-slate-100 bg-transparent cursor-pointer shrink-0 whitespace-nowrap"
     >
       <span aria-hidden>←</span>
       <span>Dashboard</span>
