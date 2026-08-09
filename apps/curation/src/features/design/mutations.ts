@@ -1630,6 +1630,68 @@ export function assignRemainingBiomaterials(
   }));
 }
 
+/** Which factor in the WRITABLE draft an adopt / merge should land on.
+ *
+ *  All three fields describe the CURRENT (gold) side, not the agent's
+ *  proposal: the factor id the finding names
+ *  (``rename.gold.gemma_factor_id``), and the category the card is
+ *  displaying on its left. Every field optional — an older finding
+ *  carries none and resolution falls back to the agent's own category,
+ *  which is the pre-2026-08-09 behaviour. */
+export interface AdoptTargetHint {
+  factorId?: number | null;
+  categoryLabel?: string | null;
+  categoryUri?: string | null;
+}
+
+/**
+ * Find the draft factor an agent proposal should be adopted onto.
+ *
+ * Resolution runs CURRENT-side first, agent-side last, and that order
+ * is the whole point. Matching on the agent's category can only ever
+ * work when the two sides already agree on it — which is exactly the
+ * case a rename is not. GSE11630's near-match proposes `individual`
+ * (EFO:0000542) for a factor Gemma calls `cell line` (CLO:0000031);
+ * the agent-first lookup matched nothing, `find` returned undefined,
+ * and the mutator returned the design unchanged. The curator clicked
+ * "Proposal is better", the disposition recorded, and the factor sat
+ * there — reported 2026-08-09.
+ *
+ * The id is tried first but can't be trusted alone: the chip strip may
+ * be showing a curation whose ids don't line up with the local draft
+ * (the reason the id-only path was replaced in the first place, design
+ * review 2026-06-12). Hence id → current category → agent category,
+ * each only accepted on a hit.
+ */
+export function resolveAdoptTargetFactor(
+  design: Design,
+  agentFactor: FactorProposal,
+  target?: AdoptTargetHint,
+): Factor | undefined {
+  const byUri = (uri: string | null | undefined) =>
+    uri
+      ? design.factors.find((f) => !!f.category?.uri && f.category.uri === uri)
+      : undefined;
+  const byLabel = (label: string | null | undefined) => {
+    const lc = (label ?? "").trim().toLowerCase();
+    if (!lc) return undefined;
+    return design.factors.find(
+      (f) => (f.category?.label ?? "").trim().toLowerCase() === lc,
+    );
+  };
+
+  if (target?.factorId != null) {
+    const byId = design.factors.find((f) => f.id === target.factorId);
+    if (byId) return byId;
+  }
+  return (
+    byUri(target?.categoryUri) ??
+    byLabel(target?.categoryLabel) ??
+    byUri(agentFactor.category?.uri) ??
+    byLabel(agentFactor.category?.label)
+  );
+}
+
 /**
  * Adopt an agent's near-match factor proposal into an existing gold
  * factor — the curator's "Alt is better" button on a
@@ -1661,28 +1723,9 @@ export function assignRemainingBiomaterials(
 export function adoptNearMatchAgentFactor(
   design: Design,
   agentFactor: FactorProposal,
+  target?: AdoptTargetHint,
 ): Design {
-  // Locate the factor in the WRITABLE design (not a chip-strip
-  // baseline that may be a non-writable curation). Match by category
-  // URI when present (most reliable; survives label drift), fall
-  // back to case-insensitive label. Without this lookup-by-content
-  // step the earlier "match by goldFactorId" path silently no-op'd
-  // when the chip strip was showing a curation whose ids don't line
-  // up with the local draft (design review 2026-06-12: "I see the message
-  // accepted the alts but the factor doesn't get updated").
-  const agentCatUri = agentFactor.category?.uri ?? null;
-  const agentCatLabel = (agentFactor.category?.label ?? "")
-    .trim()
-    .toLowerCase();
-  const factor = design.factors.find((f) => {
-    if (agentCatUri && f.category?.uri && f.category.uri === agentCatUri) {
-      return true;
-    }
-    return (
-      !!agentCatLabel &&
-      (f.category?.label ?? "").trim().toLowerCase() === agentCatLabel
-    );
-  });
+  const factor = resolveAdoptTargetFactor(design, agentFactor, target);
   if (!factor) return design;
   const goldFactorId = factor.id;
 
@@ -1820,20 +1863,9 @@ function mergeAgentFvIntoGold(
 export function mergeNearMatchAgentFactor(
   design: Design,
   agentFactor: FactorProposal,
+  target?: AdoptTargetHint,
 ): Design {
-  const agentCatUri = agentFactor.category?.uri ?? null;
-  const agentCatLabel = (agentFactor.category?.label ?? "")
-    .trim()
-    .toLowerCase();
-  const factor = design.factors.find((f) => {
-    if (agentCatUri && f.category?.uri && f.category.uri === agentCatUri) {
-      return true;
-    }
-    return (
-      !!agentCatLabel &&
-      (f.category?.label ?? "").trim().toLowerCase() === agentCatLabel
-    );
-  });
+  const factor = resolveAdoptTargetFactor(design, agentFactor, target);
   if (!factor) return design;
   const goldFactorId = factor.id;
 

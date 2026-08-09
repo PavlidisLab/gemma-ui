@@ -57,6 +57,8 @@ import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
   adoptNearMatchAgentFactor,
   mergeNearMatchAgentFactor,
+  resolveAdoptTargetFactor,
+  type AdoptTargetHint,
 } from "@/features/design/mutations";
 import { addFactorFromProposal } from "./applyHandlers";
 import { friendlyDispositionError } from "./dispositionSave";
@@ -1071,6 +1073,41 @@ export function ComparisonFactorCard({
       isCloseFactorMatch(finding)
     );
 
+  // Which draft factor an adopt / merge lands on. The CURRENT side —
+  // the finding's own gold factor id, and the category this card is
+  // displaying on the left — not the agent's proposed category. On a
+  // rename those differ by definition, and resolving by the agent's
+  // side found nothing and silently changed nothing (GSE11630: agent
+  // proposes `individual` for Gemma's `cell line`; reported
+  // 2026-08-09).
+  const adoptTarget: AdoptTargetHint = {
+    factorId:
+      finding.rename?.gold?.gemma_factor_id ??
+      finding.partition_mismatch?.gold?.gemma_factor_id ??
+      leftFactor?.id ??
+      null,
+    categoryLabel: leftFactorCategory?.label ?? null,
+    categoryUri: leftFactorCategory?.uri ?? null,
+  };
+
+  /** Refuse to record an "accepted" the draft didn't actually take.
+   *  Returns true when the adopt / merge has somewhere to land. */
+  function adoptTargetMissing(): boolean {
+    const agentFactor = rightFactor as FactorProposal | null;
+    if (!agentFactor || !draftDesign) return false;
+    if (matchedButMissingFromBaseline) return false; // routes to add-factor
+    const hit = resolveAdoptTargetFactor(draftDesign, agentFactor, adoptTarget);
+    if (hit) return false;
+    toast.show(
+      `Couldn't apply — no factor matching "${
+        leftFactorCategory?.label || agentFactor.category?.label || "this card"
+      }" in the current draft. The disposition was NOT recorded.`,
+      "danger",
+      6000,
+    );
+    return true;
+  }
+
   async function dispatchNearMatchMerge(): Promise<void> {
     // Curator's "+ Merge" — take the union of both sides' per-FV
     // statements (dedupe by full S-P-O signature). Motivating case
@@ -1086,9 +1123,10 @@ export function ComparisonFactorCard({
       );
       return;
     }
+    if (adoptTargetMissing()) return;
     setBusy(true);
     try {
-      applyDraft((d) => mergeNearMatchAgentFactor(d, agentFactor));
+      applyDraft((d) => mergeNearMatchAgentFactor(d, agentFactor, adoptTarget));
       // Focus the merged factor in the design tab so the curator
       // sees the new statements on the FVs without hunting. Same
       // intent as the Agree-add path on calibration_factor_extra.
@@ -1138,6 +1176,7 @@ export function ComparisonFactorCard({
       );
       return;
     }
+    if (adoptTargetMissing()) return;
     setBusy(true);
     try {
       // Match-downgrade: the displayed gold baseline doesn't carry
@@ -1148,7 +1187,7 @@ export function ComparisonFactorCard({
       if (matchedButMissingFromBaseline) {
         applyDraft((d) => addFactorFromProposal(d, agentFactor));
       } else {
-        applyDraft((d) => adoptNearMatchAgentFactor(d, agentFactor));
+        applyDraft((d) => adoptNearMatchAgentFactor(d, agentFactor, adoptTarget));
       }
       requestAuditFocus(
         experimentId,
