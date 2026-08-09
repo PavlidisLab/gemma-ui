@@ -61,16 +61,34 @@ describe("parity with Gemma's BaselineSelection", () => {
     expect(isBaselineTerm("negative_control_role")).toBe(true);
   });
 
-  it("recognises the control-role URIs Gemma's detector lists", () => {
+  it("recognises baseline participant role by URI — OBI is loaded", () => {
+    expect(
+      isBaselineTerm("some label", "http://purl.obolibrary.org/obo/OBI_0000143"),
+    ).toBe(true);
+  });
+
+  // Gemma's controlGroupUris also lists birnlex / MSIO / SIO / NCIT
+  // terms, but none of those ontologies are loaded, so such a URI can't
+  // legitimately reach our data. Matching it would be dead weight with
+  // false-positive surface. The LABELS still match as free text, which
+  // is how these actually arrive.
+  it("does NOT match URIs from ontologies Gemma doesn't load", () => {
     for (const u of [
-      "http://purl.obolibrary.org/obo/OBI_0000143",
       "http://purl.obolibrary.org/obo/MSIO_0000007",
       "http://semanticscience.org/resource/SIO_010431",
+      "http://semanticscience.org/resource/SIO_001068",
       "http://purl.obolibrary.org/obo/NCIT_C28143",
       "http://ontology.neuinfo.org/NIF/Backend/BIRNLex-OBO-UBO.owl#birnlex_2201",
+      "http://ontology.neuinfo.org/NIF/Backend/BIRNLex-OBO-UBO.owl#birnlex_2001",
     ]) {
-      expect(isBaselineTerm("some label", u)).toBe(true);
+      expect(isBaselineTerm("some label", u)).toBe(false);
     }
+  });
+
+  it("but their LABELS still match, which is how they actually arrive", () => {
+    expect(isBaselineTerm("negative control role")).toBe(true);
+    expect(isBaselineTerm("control role")).toBe(true);
+    expect(isBaselineTerm("normal control group")).toBe(true);
   });
 
   it("still doesn't swallow real values after widening", () => {

@@ -56,20 +56,20 @@ const BASELINE_ROLE_URI_FRAGMENTS = [
   "EFO_0001461", // control
   "EFO_0005168", // wild type genotype
   "EFO_0004425", // initial time point
-  // Control-role URIs Gemma's detector recognises (backend commit
-  // be7b55b8fe, ``BaselineSelection.controlGroupUris``). None of these
-  // ontologies are loaded in Gemma, so in practice the labels arrive as
-  // free text — but a statement carrying ANY subject URI skips the
-  // free-text check, so a value already resolved to one of them would
-  // otherwise be missed on both sides.
   "OBI_0000143", // baseline participant role
-  "birnlex_2201", // control group
-  "birnlex_2001", // normal control group
-  "MSIO_0000007", // negative control role
-  "SIO_010431", // control role
-  "SIO_001068", // control group
-  "NCIT_C28143", // control group
 ];
+
+// Gemma's own ``controlGroupUris`` also lists birnlex, MSIO, SIO and
+// NCIT control-role terms. We deliberately do NOT mirror those: none of
+// those ontologies are loaded in Gemma (stated in backend commit
+// be7b55b8fe's handoff), so such a URI can't legitimately reach our
+// data, and matching it would be dead weight that only creates
+// false-positive surface — these fragments are matched with
+// ``includes``, and a short token like ``SIO_001068`` is exactly the
+// shape that goes wrong. Those labels still match as FREE TEXT via
+// BASELINE_TERM_LABELS above, which is how they actually arrive.
+// Only OBI and EFO terms are matched by URI, because those are the
+// ontologies Gemma actually loads.
 
 /** True when a term (by label and/or URI) is a baseline / reference-level
  *  placeholder rather than a real biological value. */
