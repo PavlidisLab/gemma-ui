@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import { DesignDraftContext } from "@/features/design/DesignDraftContext";
 import {
   isPairAllowed,
   isSourceValidInSlot,
@@ -108,6 +109,7 @@ export function ChipStrip({
         availability={universe.availability}
         curations={curations}
       />
+      <CuratingOnTopNote />
       <PinnedBaselineNote
         pinned={pinnedBaseline}
         current={baseline}
@@ -120,6 +122,37 @@ export function ChipStrip({
         isLoading={diff.isLoading}
       />
     </div>
+  );
+}
+
+/** "You are curating on top of X."
+ *
+ *  A ticket's baseline is not a view the curator picked — it names
+ *  what the curation is built on top of. It seeds the buffer for a
+ *  fresh curation, and once the curator commits, the page shows their
+ *  own design instead: commits write /design and the curator's own
+ *  polished row, never the seed. The baseline chip keeps naming the
+ *  seed, so without this note the chip would name one thing while the
+ *  page rendered another — the disconnect ``9b5d1f5`` closed.
+ *
+ *  Neutral, not amber: nothing is wrong here. Amber is reserved for
+ *  the pinned-baseline warning below, where a finding may not match
+ *  what is on screen.
+ *
+ *  Reads the context directly rather than through ``useDesignDraft``
+ *  so the strip still renders if it is ever mounted outside the
+ *  draft provider. */
+function CuratingOnTopNote() {
+  const draft = useContext(DesignDraftContext);
+  const seed = draft?.curatingOnTopOf;
+  if (!seed) return null;
+  return (
+    <span
+      className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded border whitespace-nowrap border-slate-300 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200"
+      title={`This curation was started from ${seed} and you have committed on top of it, so the page shows YOUR design — not ${seed} as it stands now. Select ${seed} in the comparator to see it.`}
+    >
+      curating on top of <span className="font-semibold">{seed}</span>
+    </span>
   );
 }
 

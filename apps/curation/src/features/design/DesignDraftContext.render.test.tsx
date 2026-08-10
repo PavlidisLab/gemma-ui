@@ -576,3 +576,194 @@ describe("DesignDraftProvider — invalidates Apply-All undo snapshots", () => {
     ).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// A ticket's baseline is a SEED, not a permanent checkpoint
+// ---------------------------------------------------------------------------
+// ``polished:gold`` is what a calibration ticket says we curate on top
+// of. commit() writes /design + this curator's own polished row and
+// never writes gold, so if gold stayed the checkpoint the diff could
+// never reach zero: CommitBar stays dirty, the committed edit renders
+// as still-pending, and the curator re-commits forever. Experiment
+// 9909 / ticket 177 — six identical commits in 70 s, every one landing
+// server-side, deleting `disease model = retinitis pigmentosa` from
+// /design and the curator's polished row while the page kept showing
+// gold's copy of it.
+describe("DesignDraftProvider — curating on top of a foreign polished baseline", () => {
+  const GOLD_ROW = {
+    curation_id: "polished:gold",
+    source_kind: "curator_polish",
+    producer: "curator:gold",
+    label: "Gold polished",
+  };
+  const OWN_ROW = {
+    curation_id: "polished:local-curator",
+    source_kind: "curator_polish",
+    producer: "curator:local-curator",
+    label: "Local-Curator polished",
+  };
+
+  /** Surfaces which design the page landed on, plus the dirty flag. */
+  function SeedProbe() {
+    const { saved, diff, curatingOnTopOf, commit } = useDesignDraft();
+    return (
+      <div>
+        <span data-testid="saved-name">
+          {saved?.experiment_short_name ?? "null"}
+        </span>
+        <span data-testid="dirty">{diff.isDirty ? "yes" : "no"}</span>
+        <span data-testid="on-top-of">{curatingOnTopOf ?? ""}</span>
+        <button data-testid="commit-btn" onClick={() => commit()} />
+      </div>
+    );
+  }
+
+  /** ``/design`` is the curator's own work; gold is the seed. Distinct
+   *  short names make it unambiguous which one the page landed on. */
+  function mockRows(rows: object[]) {
+    useDesignMock.mockReturnValue({
+      data: makeDesign(ROUTE_EID, "MINE"),
+      isLoading: false,
+      error: null,
+    });
+    useCurationsMock.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      error: null,
+    });
+    resolveCurationMock.mockReturnValue({
+      ...GOLD_ROW,
+      design: makeDesign(ROUTE_EID, "GOLD"),
+    });
+  }
+
+  it("seeds a FRESH curation from the baseline the ticket names", async () => {
+    // No polished row of this curator's own ⇒ nothing has been curated
+    // on top of gold yet, so gold is where the curation starts.
+    mockRows([GOLD_ROW]);
+
+    render(
+      <DesignDraftProvider
+        experimentId={ROUTE_ID}
+        reviewer="local-curator"
+        baselineSource="polished:gold"
+      >
+        <SeedProbe />
+      </DesignDraftProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("saved-name").textContent).toBe("GOLD"),
+    );
+    // The chip and the content are the same thing here — nothing to say.
+    expect(screen.getByTestId("on-top-of").textContent).toBe("");
+  });
+
+  it("lands on the curator's committed work once they have their own row", async () => {
+    // The curator's own polished row exists ⇒ they have committed on
+    // top of gold at least once. Reopening the ticket must land on that
+    // work, not reset them to gold and resurrect what they removed.
+    mockRows([GOLD_ROW, OWN_ROW]);
+
+    render(
+      <DesignDraftProvider
+        experimentId={ROUTE_ID}
+        reviewer="local-curator"
+        baselineSource="polished:gold"
+      >
+        <SeedProbe />
+      </DesignDraftProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("saved-name").textContent).toBe("MINE"),
+    );
+    expect(screen.getByTestId("dirty").textContent).toBe("no");
+    // The chip still names gold, so the strip has to say the content
+    // isn't gold.
+    expect(screen.getByTestId("on-top-of").textContent).toBe("Gold polished");
+  });
+
+  it("another curator's polished row is still only a seed, not editable-in-place", async () => {
+    // Same rule with a third party's row: the reviewer is `cy`, whose
+    // own polished row doesn't exist, so `am`'s polish seeds the buffer.
+    useDesignMock.mockReturnValue({
+      data: makeDesign(ROUTE_EID, "MINE"),
+      isLoading: false,
+      error: null,
+    });
+    const amRow = {
+      curation_id: "polished:am",
+      source_kind: "curator_polish",
+      producer: "curator:am",
+      label: "Am polished",
+    };
+    useCurationsMock.mockReturnValue({
+      data: [amRow],
+      isLoading: false,
+      error: null,
+    });
+    resolveCurationMock.mockReturnValue({
+      ...amRow,
+      design: makeDesign(ROUTE_EID, "AM"),
+    });
+
+    render(
+      <DesignDraftProvider
+        experimentId={ROUTE_ID}
+        reviewer="cy"
+        baselineSource="polished:am"
+      >
+        <SeedProbe />
+      </DesignDraftProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("saved-name").textContent).toBe("AM"),
+    );
+  });
+
+  it("a successful commit moves the checkpoint off the seed, so the bar clears", async () => {
+    // The reported break. Fresh curation seeded from gold; committing
+    // writes /design + the curator's own row. If gold stayed the
+    // checkpoint the page would still be diffing against it.
+    mockRows([GOLD_ROW]);
+    useUpdateDesignMock.mockReturnValue({
+      mutate: vi.fn((payload, opts) => opts?.onSuccess?.(payload)),
+      reset: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    });
+    useUpdatePolishedMock.mockReturnValue({
+      mutate: vi.fn((_server, opts) => opts?.onSuccess?.()),
+      reset: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    });
+
+    render(
+      <DesignDraftProvider
+        experimentId={ROUTE_ID}
+        reviewer="local-curator"
+        baselineSource="polished:gold"
+      >
+        <SeedProbe />
+      </DesignDraftProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("saved-name").textContent).toBe("GOLD"),
+    );
+
+    fireEvent.click(screen.getByTestId("commit-btn"));
+
+    // Checkpoint is now the curator's own design, and the draft equals
+    // it — clean, and the strip says what the curation was built on.
+    await waitFor(() =>
+      expect(screen.getByTestId("saved-name").textContent).toBe("MINE"),
+    );
+    expect(screen.getByTestId("dirty").textContent).toBe("no");
+    expect(screen.getByTestId("on-top-of").textContent).toBe("Gold polished");
+  });
+});

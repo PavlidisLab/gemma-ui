@@ -147,6 +147,14 @@ export interface DesignDraftValue {
    *  Surfaced in the read-only banner so the curator knows why
    *  editing is locked. */
   baselineLabel: string | null;
+  /** Label of the baseline the curation was SEEDED from, when the
+   *  page is no longer rendering that row — the curator has committed
+   *  on top of it and is now looking at their own design. Null
+   *  whenever the chip and the content are the same thing. The chip
+   *  keeps naming the seed (the ticket's "what are we curating on top
+   *  of"), so a consumer that renders content must say which of the
+   *  two it is showing. */
+  curatingOnTopOf: string | null;
 }
 
 // Exported so render-time tests can wrap with a stub draft value
@@ -181,6 +189,15 @@ const EMPTY_DIFF: DesignDiff = {
     modifiedTags: 0,
   },
 };
+
+/** ``curator:gold`` → ``gold``. Producers arrive namespaced; the
+ *  reviewer token carries the bare name. */
+function bareCurator(producer: string | null | undefined): string {
+  return (producer ?? "")
+    .replace(/^curator:/, "")
+    .trim()
+    .toLowerCase();
+}
 
 export function DesignDraftProvider({
   experimentId,
@@ -294,10 +311,7 @@ export function DesignDraftProvider({
   // reviewer to compare against we cannot claim the row is ours, so it
   // reads as someone else's — the safe direction, since it renders the
   // row the chip names instead of quietly showing different content.
-  const baselineProducer = (baselineCuration?.producer ?? "")
-    .replace(/^curator:/, "")
-    .trim()
-    .toLowerCase();
+  const baselineProducer = bareCurator(baselineCuration?.producer);
   const reviewerName = (reviewer ?? "").trim().toLowerCase();
   const baselineIsEditable =
     usingBaseline &&
@@ -306,32 +320,74 @@ export function DesignDraftProvider({
         !!reviewerName &&
         baselineProducer === reviewerName));
 
-  // Effective saved design.
+  // Has this curator already curated this experiment? Their own
+  // ``curator_polish`` row is the signal: ``commit()`` mirrors every
+  // commit into it and nothing else writes one, so its presence means
+  // "I have committed here at least once".
+  const ownCurationExists = useMemo(
+    () =>
+      !!reviewerName &&
+      curations.some(
+        (c) =>
+          c.source_kind === "curator_polish" &&
+          bareCurator(c.producer) === reviewerName,
+      ),
+    [curations, reviewerName],
+  );
+  // Set by ``commit()``. Covers the window between a successful commit
+  // and the /curations refetch that makes ``ownCurationExists`` true,
+  // and covers baselines that are views rather than curations (live /
+  // preboard / agent_proposal) — after a commit the checkpoint is what
+  // the curator just wrote, whatever chip is selected.
+  const [committedHere, setCommittedHere] = useState(false);
+  useEffect(() => {
+    setCommittedHere(false);
+  }, [experimentId]);
+
+  // A foreign ``curator_polish`` row (gold, another curator's polish)
+  // is not a view the curator chose. It is the ticket's answer to
+  // "what are we curating on top of" — a SEED for a fresh curation,
+  // not a permanent checkpoint. ``commit()`` writes /design and this
+  // curator's own polished row; it never writes gold. So once the
+  // curator has committed, gold can no longer be the thing we diff
+  // against: the diff never reaches zero, CommitBar never clears, and
+  // the committed edit renders as still-pending. Deleting a tag on a
+  // gold-pinned ticket looked impossible for exactly this reason —
+  // every click landed server-side and nothing on screen moved
+  // (experiment 9909 / ticket 177: six identical commits in 70 s).
+  const baselineIsForeignPolish =
+    usingBaseline &&
+    !baselineIsEditable &&
+    baselineCuration?.source_kind === "curator_polish";
+  const seededFromBaseline =
+    usingBaseline &&
+    !baselineIsEditable &&
+    !committedHere &&
+    !(baselineIsForeignPolish && ownCurationExists);
+
+  // Effective saved design — the checkpoint the draft is diffed
+  // against, and the seed the buffer starts from.
   //
-  // - Non-editable chip baseline (live / preboard / agent_proposal /
-  //   curator_polish for another curator): ``saved`` reads from the
-  //   curation row payload. The page renders against a frozen
-  //   snapshot — read-only by ``useIsReadOnly``.
   // - Editable chip baseline (consensus / curator_polish for *this*
-  //   curator) OR no chip baseline at all: ``saved`` reads from
-  //   ``/design``. The chip is a NAMED VIEW of /design content,
-  //   initialized equal at pack-import time, and the curator's
-  //   commits update /design — so the saved-state must track /design,
-  //   not the frozen curation-row snapshot. Without this, after a
-  //   successful commit the curation row stays stale, ``diff`` stays
-  //   dirty against the snapshot, and the CommitBar never clears.
-  const saved =
-    usingBaseline && !baselineIsEditable
-      ? savedFromBaseline
-      : localDesign.data;
-  const isLoading =
-    usingBaseline && !baselineIsEditable
-      ? curationsQuery.isLoading
-      : localDesign.isLoading;
-  const error =
-    usingBaseline && !baselineIsEditable
-      ? (curationsQuery.error as Error | null)
-      : localDesign.error;
+  //   curator) OR no chip baseline at all: ``/design``. The chip is a
+  //   NAMED VIEW of /design content, initialized equal at pack-import
+  //   time, and commits update /design — so the checkpoint must track
+  //   /design, not the frozen curation-row snapshot.
+  // - A foreign baseline the curator has NOT curated on top of yet:
+  //   the curation row payload. This is the seeding case — the ticket
+  //   says what we curate on top of, and a fresh curation starts from
+  //   that content.
+  // - A foreign baseline the curator HAS committed on top of: back to
+  //   ``/design``, which is that curation-on-top and is what the
+  //   curator must land on when they reopen the ticket. The chip still
+  //   names the seed; ``curatingOnTopOf`` lets the UI say so.
+  const saved = seededFromBaseline ? savedFromBaseline : localDesign.data;
+  const isLoading = seededFromBaseline
+    ? curationsQuery.isLoading
+    : localDesign.isLoading;
+  const error = seededFromBaseline
+    ? (curationsQuery.error as Error | null)
+    : localDesign.error;
 
   // The provider-side write gate (``providerReadOnly``) was dropped
   // 2026-06-14 — the reviewer: "the baseline has to always be editable."
@@ -552,6 +608,11 @@ export function DesignDraftProvider({
     // intermediate state is uninteresting after a full commit.
     const finalizeCheckpoint = (server: Design) => {
       setDraft(server);
+      // From here on the checkpoint is what we just wrote, not the
+      // baseline we seeded from. Without this the diff is computed
+      // against a row commit() never writes, so a successful commit
+      // leaves the bar dirty and the curator re-commits forever.
+      setCommittedHere(true);
       clearCachedDraft(experimentId);
       setUndoStack([]);
       setRedoStack([]);
@@ -694,6 +755,10 @@ export function DesignDraftProvider({
     usingBaseline,
     baselineSourceKind: baselineCuration?.source_kind ?? null,
     baselineLabel: baselineCuration?.label ?? null,
+    curatingOnTopOf:
+      usingBaseline && !baselineIsEditable && !seededFromBaseline
+        ? (baselineCuration?.label ?? baselineCuration?.source_kind ?? null)
+        : null,
   };
 
   return (
