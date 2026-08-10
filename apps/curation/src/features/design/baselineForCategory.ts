@@ -49,6 +49,10 @@ const TERMS = {
     label: "initial time point",
     uri: "http://www.ebi.ac.uk/efo/EFO_0004425",
   } satisfies OntologyTerm,
+  female: {
+    label: "female",
+    uri: "http://purl.obolibrary.org/obo/PATO_0000383",
+  } satisfies OntologyTerm,
 };
 
 /**
@@ -124,6 +128,25 @@ export function baselineFor(category: OntologyTerm | null): BaselineTemplate | n
           "Timepoint EFC: initial time point (EFO_0004425) — Gemma uses this as the DEA baseline.",
       };
     case "biological sex":
+      // Not an arbitrary pick, and not "control": Gemma's own detector
+      // carries `female` in both lists — the label in
+      // ``controlGroupTerms`` and PATO_0000383 in ``controlGroupUris``
+      // (``BaselineSelection.java``, whose comment reads
+      // "alphabetically before male"). So a sex factor with a female
+      // FV already HAS its reference level and needs nothing marked;
+      // this template exists for the curator who marks one anyway, so
+      // that what gets stamped is the house standard rather than
+      // "female has role control".
+      return {
+        baselineTerm: TERMS.female,
+        asStandalone: true,
+        fvLabel: "female",
+        rationale:
+          "Biological sex: female (PATO_0000383) is the standard " +
+          "reference level and Gemma auto-assigns it — marking a " +
+          "baseline here is optional. Marking `male` instead overrides " +
+          "that, since an explicit mark outranks the term.",
+      };
     case "cell line":
     case "cell type":
     case "organism part":

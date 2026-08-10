@@ -323,10 +323,29 @@ describe("validateDesign — non-canonical baseline labels don't fail ok", () =>
     expect(v.ok).toBe(true);
   });
 
-  it("does not mask a real problem — a missing baseline still fails", () => {
+  it("unmarking it changes nothing — Gemma reads the term either way", () => {
+    // The flag is not what makes this the baseline. Gemma's
+    // ``isBaselineCondition`` matches the FV's own value against
+    // ``controlGroupTerms``, "control group" among them, so DEA lands
+    // on it whether or not a curator ticked the box. Asking for the
+    // tick is asking for work with no downstream effect.
     const d = designWithBaselineLabel("control group");
     d.factors[0].factor_values[0].is_baseline = false;
     const v = validateDesign(d);
+    expect(v.factors[0].gemma_auto_baseline).toHaveLength(1);
+    expect(v.factors[0].baseline_satisfied).toBe(true);
+    expect(v.ok).toBe(true);
+  });
+
+  it("does not mask a real problem — a factor with NO reference still fails", () => {
+    // Neither FV says control, neither is marked: Gemma would fall
+    // through to its arbitrary pick, which is the case the warning
+    // exists for.
+    const d = designWithBaselineLabel("high dose");
+    d.factors[0].factor_values[0].is_baseline = false;
+    const v = validateDesign(d);
+    expect(v.factors[0].gemma_auto_baseline).toHaveLength(0);
+    expect(v.factors[0].baseline_satisfied).toBe(false);
     expect(v.ok).toBe(false);
   });
 });
@@ -374,5 +393,112 @@ describe("validateDesign — non-canonical labels match the way Gemma matches", 
       validateDesign(withLabel("normal diet")).factors[0]
         .deprecated_baseline_fvs,
     ).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gemma already knows the baseline — stop asking the curator to pick one
+// ---------------------------------------------------------------------------
+// ``BaselineSelection.getBaselineLevels`` takes an explicitly-marked FV
+// first, then the first FV whose statements carry a term or URI it
+// recognises, and only picks arbitrarily when neither exists. So a sex
+// factor holding "female", or a treatment factor holding "reference
+// substance role", has its reference level decided — marking one
+// changes nothing downstream.
+describe("validateDesign — a baseline Gemma detects needs no marking", () => {
+  /** Two-FV factor, fully assigned + described, nothing marked. */
+  const factorWith = (
+    category: string,
+    fvs: FactorValue[],
+    categoryUri: string,
+  ): Design =>
+    emptyDesign({
+      factors: [
+        {
+          ...categoricalFactor(1, category, fvs),
+          category: { label: category, uri: categoryUri },
+          description: `${category} contrast`,
+        },
+      ],
+      biomaterials: [
+        { short_name: "s1", name: "s1", characteristics: {} },
+        { short_name: "s2", name: "s2", characteristics: {} },
+      ],
+    });
+
+  const SEX_URI = "http://purl.obolibrary.org/obo/PATO_0000047";
+  const TREATMENT_URI = "http://www.ebi.ac.uk/efo/EFO_0000727";
+
+  it("a sex factor with female is satisfied — female IS Gemma's reference", () => {
+    const d = factorWith(
+      "biological sex",
+      [
+        fvWithSubjectUri(1, "female", ["s1"], "female",
+          "http://purl.obolibrary.org/obo/PATO_0000383"),
+        fvWithSubjectUri(2, "male", ["s2"], "male",
+          "http://purl.obolibrary.org/obo/PATO_0000384"),
+      ],
+      SEX_URI,
+    );
+    const v = validateDesign(d);
+    // Nothing marked, and nothing to mark: PATO_0000383 is in Gemma's
+    // ``controlGroupUris``. (``ok`` isn't asserted here — the helper
+    // builds statements with no category, which fails a different rule.)
+    expect(v.factors[0].baseline_count).toBe(0);
+    expect(v.factors[0].baseline_satisfied).toBe(true);
+    expect(v.factors[0].gemma_auto_baseline[0].matched).toBe("female");
+  });
+
+  it("matches female by free text too — the label is in Gemma's term set", () => {
+    const d = factorWith(
+      "biological sex",
+      [fv(1, "female", ["s1"]), fv(2, "male", ["s2"])],
+      SEX_URI,
+    );
+    const v = validateDesign(d);
+    expect(v.factors[0].baseline_satisfied).toBe(true);
+    // …and the design commits with no baseline marked at all.
+    expect(v.ok).toBe(true);
+  });
+
+  it("a reference-substance-role control is satisfied unmarked", () => {
+    const d = factorWith(
+      "treatment",
+      [
+        fvWithSubjectUri(1, "DMSO", ["s1"], "reference substance role",
+          "http://purl.obolibrary.org/obo/OBI_0000025"),
+        fv(2, "compound X", ["s2"]),
+      ],
+      TREATMENT_URI,
+    );
+    expect(validateDesign(d).factors[0].baseline_satisfied).toBe(true);
+  });
+
+  it("flags a marked 'male' on a factor where female is the standard", () => {
+    // The explicit flag outranks the term (``getIsBaseline()`` decides
+    // first), so this silently makes male the reference. Advisory, not
+    // a failure — forcing a baseline is legitimate, it just has to be
+    // deliberate.
+    const d = factorWith(
+      "biological sex",
+      [fv(1, "female", ["s1"]), fv(2, "male", ["s2"], true)],
+      SEX_URI,
+    );
+    const v = validateDesign(d);
+    expect(v.factors[0].nonstandard_marked_baseline).toEqual({
+      fv_id: 2,
+      label: "male",
+      standard: "female",
+    });
+    expect(v.ok).toBe(true);
+  });
+
+  it("says nothing when the marked FV IS the standard one", () => {
+    const d = factorWith(
+      "biological sex",
+      [fv(1, "female", ["s1"], true), fv(2, "male", ["s2"])],
+      SEX_URI,
+    );
+    expect(validateDesign(d).factors[0].nonstandard_marked_baseline).toBeNull();
   });
 });

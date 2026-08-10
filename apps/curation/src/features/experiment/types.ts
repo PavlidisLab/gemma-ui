@@ -16,6 +16,11 @@
  */
 
 import type { FindingEvidence } from "@/api/auditTypes";
+import {
+  gemmaAutoBaselineFvs,
+  gemmaAutoDetectsBaseline,
+  type AutoBaselineFv,
+} from "@/features/design/gemmaBaseline";
 
 export interface OntologyTerm {
   label: string;
@@ -405,6 +410,13 @@ export function factorBaselineBlocksCommit(
   // factorRequiresBaseline above; this catches the structural case.
   const fvCount = factor?.factor_values?.length ?? 0;
   if (fvCount <= 1) return false;
+  // Gemma already has a baseline here. ``getBaselineLevels()`` takes
+  // the first FV whose statements carry a recognised control term —
+  // "reference substance role", "wild type genotype", "female" — with
+  // no ``is_baseline`` flag needed, so marking one changes nothing
+  // downstream. Asking anyway is asking for busywork, and worse, it
+  // invites a curator to mark the value Gemma would NOT have chosen.
+  if (factor && gemmaAutoBaselineFvs(factor).length > 0) return false;
   return true;
 }
 
@@ -472,6 +484,30 @@ export interface FactorValidationState {
   /** Factor has no description text. Curators are expected to describe
    *  every experimental factor; blocks commit. */
   factor_missing_description: boolean;
+  /** FVs Gemma's own detector would take as the baseline without the
+   *  curator marking anything — a "reference substance role" control, a
+   *  "wild type genotype" arm, "female" on a sex factor. Non-empty
+   *  means the factor HAS a baseline downstream, so nothing should ask
+   *  for one. Mirrors ``BaselineSelection.getBaselineLevels``; the
+   *  first entry is the FV it would land on. */
+  gemma_auto_baseline: AutoBaselineFv[];
+  /** The baseline question is answered — one marked FV, or Gemma
+   *  detects one on its own. Consumers should read THIS rather than
+   *  comparing ``baseline_count`` to 1. */
+  baseline_satisfied: boolean;
+  /** A curator marked an FV that Gemma would NOT have recognised,
+   *  while another FV in the same factor carries a term it WOULD —
+   *  "male" marked baseline on a factor that has "female". The mark
+   *  wins (``getIsBaseline()`` decides ahead of everything), so this
+   *  silently overrides the house standard. Advisory: sometimes it is
+   *  deliberate, and forcing a baseline is legitimate. Null when
+   *  there's nothing to say. */
+  nonstandard_marked_baseline: {
+    fv_id: number;
+    label: string;
+    /** What Gemma would have used instead. */
+    standard: string;
+  } | null;
 }
 
 /** Non-canonical baseline labels. The Confluence
@@ -677,9 +713,31 @@ export function validateDesign(design: Design): DesignValidationState {
       .sort();
     const uncertain =
       f.baseline_relevance === "uncertain" && baselineCount === 0;
+    // What Gemma would do with this factor if nobody marked anything.
+    const autoBaseline = isContinuous ? [] : gemmaAutoBaselineFvs(f);
+    const baselineSatisfied = baselineCount === 1 || autoBaseline.length > 0;
+    // A marked FV that Gemma wouldn't have recognised, on a factor
+    // where it would have recognised something else. The mark wins, so
+    // "male" quietly becomes the reference on a factor holding
+    // "female".
+    let nonstandardMarked: FactorValidationState["nonstandard_marked_baseline"] =
+      null;
+    if (baselineCount === 1 && autoBaseline.length > 0) {
+      const marked = f.factor_values.find((fv) => fv.is_baseline);
+      if (marked && !gemmaAutoDetectsBaseline(marked)) {
+        nonstandardMarked = {
+          fv_id: marked.id,
+          label: marked.free_text_label,
+          standard: autoBaseline[0].matched,
+        };
+      }
+    }
     return {
       factor_id: f.id,
       baseline_count: baselineCount,
+      gemma_auto_baseline: autoBaseline,
+      baseline_satisfied: baselineSatisfied,
+      nonstandard_marked_baseline: nonstandardMarked,
       baseline_required: factorRequiresBaseline(f),
       baseline_blocks_commit: factorBaselineBlocksCommit(f),
       baseline_uncertain: uncertain,
@@ -707,9 +765,12 @@ export function validateDesign(design: Design): DesignValidationState {
     factorStates.length > 0 &&
     factorStates.every(
       (s) =>
-        // Baseline-count rule only applies to factors that require a
-        // baseline. Batch / block factors flow through regardless.
-        (!s.baseline_required || s.baseline_count === 1) &&
+        // Baseline rule only applies to factors that require a
+        // baseline. Batch / block factors flow through regardless, and
+        // so does a factor Gemma already reads a baseline off (a
+        // "female" sex FV, a "reference substance role" control) —
+        // marking it would change nothing downstream.
+        (!s.baseline_required || s.baseline_satisfied) &&
         s.unassigned_biomaterials.length === 0 &&
         s.duplicate_assignments.length === 0 &&
         s.unknown_predicates === 0 &&

@@ -526,7 +526,7 @@ function ValidationSummary({
 
 function factorIssueCount(s: ReturnType<typeof validateDesign>["factors"][number]): number {
   return (
-    (s.baseline_required && s.baseline_count !== 1 ? 1 : 0) +
+    (s.baseline_required && !s.baseline_satisfied ? 1 : 0) +
     (s.unassigned_biomaterials.length > 0 ? 1 : 0) +
     (s.duplicate_assignments.length > 0 ? 1 : 0) +
     (s.unknown_predicates > 0 ? 1 : 0) +
@@ -543,7 +543,10 @@ function factorIssueLines(
   s: ReturnType<typeof validateDesign>["factors"][number],
 ): string[] {
   const out: string[] = [];
-  if (s.baseline_required && s.baseline_count !== 1) {
+  // ``baseline_satisfied`` covers the case Gemma resolves on its own
+  // (an unmarked "reference substance role" / "female" FV) — that
+  // factor has a reference for DEA and isn't a quality issue.
+  if (s.baseline_required && !s.baseline_satisfied) {
     out.push(
       s.baseline_count === 0
         ? "no baseline FV marked"

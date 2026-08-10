@@ -25,6 +25,7 @@ import type {
   FactorValueProposal,
 } from "@/api/types";
 import { baselineFor, HAS_ROLE_PREDICATE } from "./baselineForCategory";
+import { isGemmaBaselineTerm } from "./gemmaBaseline";
 import { factorFromTemplate, type FactorTemplate } from "./factorTemplates";
 import { templatesFor } from "./statementTemplates";
 
@@ -46,11 +47,23 @@ const BASELINE_TERM_LABELS = new Set<string>([
  *  too — so treating an FV that carries one as "no baseline statement
  *  here" and stacking a canonical statement on top of it would be
  *  wrong. Guidance still steers new work to the canonical five; that
- *  lives in the guideline text and the validator advisory, not here. */
+ *  lives in the guideline text and the validator advisory, not here.
+ *
+ *  The widest reading is Gemma's own (``gemmaBaseline.ts``, mirroring
+ *  ``BaselineSelection.java``): it also carries "untreated", "placebo",
+ *  "normal", "female" and the rest. Injecting "untreated + has role +
+ *  control" over an FV Gemma already reads as the control is exactly
+ *  the stacking this guard exists to prevent, so detection defers to
+ *  that list. ``BASELINE_TERM_LABELS`` above stays as the PRESCRIBED
+ *  set — it is what the templates write, not what they recognise. */
 function isBaselineTermLabel(label: string): boolean {
   const l = (label || "").trim().toLowerCase();
   if (!l) return false;
-  return BASELINE_TERM_LABELS.has(l) || isNonCanonicalBaselineLabel(l);
+  return (
+    BASELINE_TERM_LABELS.has(l) ||
+    isNonCanonicalBaselineLabel(l) ||
+    isGemmaBaselineTerm(l)
+  );
 }
 
 /** Does this FV already say "I'm the control level"?

@@ -17,6 +17,7 @@ import {
   type FactorValue,
   type OntologyTerm,
 } from "@/features/experiment/types";
+import { gemmaAutoDetectsBaseline } from "./gemmaBaseline";
 import type { FvChange } from "./diff";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { fvTarget } from "@/features/audit/targetIds";
@@ -238,11 +239,28 @@ export function FactorValueCard({
             <button
               type="button"
               onClick={onToggleBaseline}
-              title={fv.is_baseline ? "Unmark as baseline" : "Mark as baseline"}
+              title={
+                fv.is_baseline
+                  ? "Unmark as baseline"
+                  : gemmaAutoDetectsBaseline(fv)
+                    ? "Gemma's DEA already treats this value as the reference " +
+                      "level — marking it is optional. Marking a different " +
+                      "value overrides this one."
+                    : "Mark as baseline"
+              }
               className="cursor-pointer"
             >
               {fv.is_baseline ? (
                 <Pill variant="baseline">▂ baseline</Pill>
+              ) : gemmaAutoDetectsBaseline(fv) ? (
+                // Gemma's own detector already reads this FV as the
+                // reference level ("female", "reference substance
+                // role", …) and DEA will use it with nothing marked, so
+                // the card says so instead of asking. Still clickable —
+                // marking it is allowed, it just isn't needed.
+                <Pill variant="baseline" className="opacity-70">
+                  ▂ baseline (Gemma)
+                </Pill>
               ) : (
                 <span className="text-xs text-slate-400 hover:text-slate-700 underline">
                   set baseline

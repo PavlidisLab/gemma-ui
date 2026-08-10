@@ -205,10 +205,26 @@ function SoftFactorNotes({
 
 function warningsFor(s: DesignValidationState["factors"][number]): string[] {
   const warnings: string[] = [];
-  if (s.baseline_required && s.baseline_count === 0)
+  // Silent when Gemma's own detector already reads a baseline off this
+  // factor — an unmarked "reference substance role" control, "wild type
+  // genotype", or "female" on a sex factor. Marking it changes nothing
+  // downstream, so asking is busywork.
+  if (
+    s.baseline_required &&
+    s.baseline_count === 0 &&
+    s.gemma_auto_baseline.length === 0
+  )
     warnings.push("no baseline marked");
   if (s.baseline_required && s.baseline_count > 1)
     warnings.push(`${s.baseline_count} baselines marked (should be 1)`);
+  if (s.nonstandard_marked_baseline) {
+    const { label, standard } = s.nonstandard_marked_baseline;
+    warnings.push(
+      `baseline is marked "${label}", but Gemma's standard reference here ` +
+        `is "${standard}" — an explicit mark overrides it, so check this ` +
+        `is deliberate`,
+    );
+  }
   if (s.unassigned_biomaterials.length > 0)
     warnings.push(`${s.unassigned_biomaterials.length} unassigned`);
   if (s.duplicate_assignments.length > 0)
