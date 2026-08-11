@@ -39,6 +39,36 @@ import {
 export const SHOW_PARK_AFFORDANCE = false;
 
 // ---------------------------------------------------------------------------
+// Bulk-resolution disposition notes
+// ---------------------------------------------------------------------------
+
+/** Note written on findings resolved by the close dialog's "accept
+ *  remaining" pick.
+ *
+ *  These strings leave the UI: the agents-side gold-apply pass reads
+ *  them back to judge how much weight a disposition carries. They are
+ *  therefore a wire contract, not decoration — hence one exported
+ *  constant per side rather than a literal at the call site.
+ *
+ *  Wording matters here. The earlier "Implicit accept — curator closed
+ *  the review without explicitly rejecting this proposal" read as
+ *  passive, so the gold pass treated it as low-confidence and re-asked
+ *  a question the curator had already answered. Accept is NOT the
+ *  dialog's default; picking it is an act. What's worth flagging is
+ *  only that the proposal wasn't looked at one by one (handoff
+ *  ``CAB_TO_UI_2026_08_10_IMPLICIT_ACCEPT_WORDING_AND_SWALLOWED_ERRORS``). */
+export const BULK_ACCEPT_NOTE =
+  'Bulk accept — curator chose "accept remaining" when closing the ' +
+  "review; this proposal was not individually reviewed.";
+
+/** Note written on findings resolved by the close dialog's default.
+ *  "Implicit" is accurate on this side and stays: reject is what a
+ *  curator who touched nothing gets. */
+export const IMPLICIT_REJECT_NOTE =
+  "Implicit reject — curator closed the review without acting on this " +
+  "proposal.";
+
+// ---------------------------------------------------------------------------
 // Target kinds — ordering and human-facing labels
 // ---------------------------------------------------------------------------
 

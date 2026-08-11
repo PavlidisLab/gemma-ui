@@ -34,7 +34,11 @@ import { parseRoute } from "@/routes";
 import { ticketTargetPatchForFinalize } from "./finalizeTicketSync";
 import { materializedRecoveryToasts } from "./materializedToast";
 import { registerAppliedBatch } from "./appliedBatches";
-import { severityTextCls } from "./auditPresentation";
+import {
+  BULK_ACCEPT_NOTE,
+  IMPLICIT_REJECT_NOTE,
+  severityTextCls,
+} from "./auditPresentation";
 import { isAgentExtraIssue } from "@/api/auditTypes";
 import {
   PanelExpansionContext,
@@ -642,6 +646,23 @@ function SidebarHeader({
     notes: string,
     pendingResolution: "accept" | "reject" = "reject",
   ): Promise<CloseOutcome> {
+    // Dispositions that never persisted. Every sweep below keeps
+    // going on failure — one bad PATCH must not strand a close — but
+    // discarding the error made a store outage look exactly like a
+    // decision the curator never made. These rows are what
+    // ``apply_ticket_disposition_to_gold.py`` reads, so a silently
+    // failed disposition becomes a gold edit that silently doesn't
+    // happen, and the next scoring run blames the agent for the
+    // difference (handoff
+    // ``CAB_TO_UI_2026_08_10_IMPLICIT_ACCEPT_WORDING_AND_SWALLOWED_ERRORS``).
+    //
+    // 409 stays quiet: it means a parallel finalize landed first, the
+    // row is settled, and there is nothing for the curator to do.
+    const failedDispositions: { targetId: string; error: unknown }[] = [];
+    const noteFailure = (targetId: string, error: unknown) => {
+      if ((error as { status?: number })?.status === 409) return;
+      failedDispositions.push({ targetId, error });
+    };
     try {
       // Sweep pending severity=ok findings to "accepted" before
       // finalize. The agent's storage layer dropped the
@@ -659,10 +680,10 @@ function SidebarHeader({
       for (const f of pendingOk) {
         try {
           await setDisposition(f.target_id, "accepted");
-        } catch {
+        } catch (e) {
           // Best-effort — don't block close on a single sweep
-          // failure. Swallows 409 too if the audit got finalized
-          // between this PATCH and the loop start.
+          // failure. Counted, not discarded.
+          noteFailure(f.target_id, e);
         }
       }
       // Proposal-kind only: resolve the pending NON-OK findings
@@ -714,11 +735,10 @@ function SidebarHeader({
                 appliedFix: action?.appliedFix,
                 resolvedAt,
                 acceptReason,
-                notes:
-                  "Implicit accept — curator closed the review without explicitly rejecting this proposal.",
+                notes: BULK_ACCEPT_NOTE,
               });
-            } catch {
-              // Best-effort — same swallow rationale as above.
+            } catch (e) {
+              noteFailure(finding.target_id, e);
             }
           }
         } else {
@@ -726,14 +746,21 @@ function SidebarHeader({
             try {
               await setDisposition(f.target_id, "dismissed", {
                 dismissReason: "wont_fix",
-                notes:
-                  "Implicit reject — curator closed the review without acting on this proposal.",
+                notes: IMPLICIT_REJECT_NOTE,
               });
-            } catch {
-              // Best-effort — same swallow rationale as above.
+            } catch (e) {
+              noteFailure(f.target_id, e);
             }
           }
         }
+      }
+      // Log before finalize, so the detail survives even if the
+      // finalize itself throws and takes the toast path below.
+      if (failedDispositions.length > 0) {
+        console.warn(
+          "[audit] disposition sweep failures",
+          failedDispositions,
+        );
       }
       const finalizeResult = await finalize(notes || undefined);
       // Flip the ticket-target status to DONE so the ticket member
@@ -757,6 +784,18 @@ function SidebarHeader({
         // Swallowed.
       }
       toast.show(copy.closedToast, "success");
+      // A closed review reads as "the record is complete". Say so when
+      // it isn't. Separate WARN toast rather than a softened success
+      // line, same reasoning as the recovery toasts below: the curator
+      // has to know which rows to go back for.
+      if (failedDispositions.length > 0) {
+        toast.show(
+          `${failedDispositions.length} disposition${failedDispositions.length === 1 ? "" : "s"} ` +
+            `did not save — reopen the ${copy.noun} to retry.`,
+          "warn",
+          8000,
+        );
+      }
       // Surface any accepts the backend safety net had to
       // re-materialize onto the polished design because the UI dropped
       // the apply_action (ordering / reload race). Distinct WARN toast,
