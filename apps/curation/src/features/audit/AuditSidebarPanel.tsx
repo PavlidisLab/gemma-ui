@@ -37,6 +37,7 @@ import { registerAppliedBatch } from "./appliedBatches";
 import {
   BULK_ACCEPT_NOTE,
   IMPLICIT_REJECT_NOTE,
+  partitionFvShapedTagFindings,
   severityTextCls,
 } from "./auditPresentation";
 import { isAgentExtraIssue } from "@/api/auditTypes";
@@ -1716,12 +1717,21 @@ function ClosedFindingsSummary({
   findings: AuditFinding[];
 }) {
   const { kind } = useAudit();
+  const { draft, saved } = useDesignDraft();
   const [open, setOpen] = useState(false);
+  // Count what expanding actually shows. FindingList hides tag-shaped
+  // findings whose (category, value) pair is a factor value in the
+  // design, so counting the raw list promised a card that never
+  // renders — "2 findings — 2 proposals" over a single visible one.
+  const { visible: findingsShown } = partitionFvShapedTagFindings(
+    findings,
+    draft ?? saved,
+  );
   let nBlocker = 0;
   let nMajor = 0;
   let nMinor = 0;
   let nOk = 0;
-  for (const f of findings) {
+  for (const f of findingsShown) {
     if (f.severity === "blocker") nBlocker++;
     else if (f.severity === "major") nMajor++;
     else if (f.severity === "minor") nMinor++;
@@ -1743,7 +1753,8 @@ function ClosedFindingsSummary({
           {open ? "▾" : "▸"}
         </span>
         <span className="flex-1">
-          {findings.length} finding{findings.length === 1 ? "" : "s"}
+          {findingsShown.length} finding
+          {findingsShown.length === 1 ? "" : "s"}
           {actionable > 0 ? (
             kind === "proposal" ? (
               <>

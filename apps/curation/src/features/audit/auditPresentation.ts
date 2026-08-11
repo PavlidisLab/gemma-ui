@@ -19,10 +19,12 @@ import type {
   AuditTargetKind,
   Severity,
 } from "@/api/auditTypes";
+import type { Design } from "@/features/experiment/types";
 import {
   isEvidencelessCrossCut,
   isSamePartitionTermDiff,
 } from "./factorMatch";
+import { slug } from "./targetIds";
 
 // ---------------------------------------------------------------------------
 // Feature gates
@@ -37,6 +39,69 @@ import {
  *  restoring the affordance is a single-file flip to `true` rather than
  *  two files drifting apart. */
 export const SHOW_PARK_AFFORDANCE = false;
+
+// ---------------------------------------------------------------------------
+// FV-shaped tag findings — hidden, and therefore not counted
+// ---------------------------------------------------------------------------
+
+/** Target ids a tag-shaped finding would use for things that are
+ *  actually FACTOR VALUES in the design.
+ *
+ *  Tags and factor values are separate entity types; the agent /
+ *  upstream sometimes emits a tag-target finding whose (category,
+ *  value) slug pair matches a real FV, which surfaces as a REMOVE TAG
+ *  card for something that was never a tag. Those cards are hidden.
+ *
+ *  Read from the draft when available — the curator's edits are the
+ *  current state — falling back to the saved design. */
+export function fvShapedTagTargets(
+  design: Design | null | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  if (!design) return out;
+  for (const factor of design.factors ?? []) {
+    const factorCatSlug = slug(factor.category?.label || "");
+    if (!factorCatSlug) continue;
+    for (const fv of factor.factor_values ?? []) {
+      const fvLabelSlug = slug(fv.free_text_label || "");
+      if (fvLabelSlug) out.add(`tag:${factorCatSlug}/${fvLabelSlug}`);
+      // Sometimes the upstream "tag" is the FV's subject or object
+      // term (the gene / drug behind the FV) rather than its
+      // free-text label.
+      for (const st of fv.statements ?? []) {
+        const subjSlug = slug(st.subject?.label || "");
+        if (subjSlug) out.add(`tag:${factorCatSlug}/${subjSlug}`);
+        const objSlug = slug(st.object?.label || "");
+        if (objSlug) out.add(`tag:${factorCatSlug}/${objSlug}`);
+      }
+    }
+  }
+  return out;
+}
+
+/** Split findings into what the panel SHOWS and what it hides.
+ *
+ *  Both halves matter, and they have to come from one call. The
+ *  counts in the headers used to be taken off the raw list while the
+ *  body rendered the filtered one, so a review with a single visible
+ *  card announced "2 findings — 2 proposals" above it and the curator
+ *  went looking for a card that was never going to render. The
+ *  suppression caption explained the gap, but a caption arguing with a
+ *  number loses. Count what you show. */
+export function partitionFvShapedTagFindings(
+  findings: readonly AuditFinding[],
+  design: Design | null | undefined,
+): { visible: AuditFinding[]; hidden: AuditFinding[] } {
+  const targets = fvShapedTagTargets(design);
+  if (targets.size === 0) return { visible: [...findings], hidden: [] };
+  const visible: AuditFinding[] = [];
+  const hidden: AuditFinding[] = [];
+  for (const f of findings) {
+    if (f.target_kind === "tag" && targets.has(f.target_id)) hidden.push(f);
+    else visible.push(f);
+  }
+  return { visible, hidden };
+}
 
 // ---------------------------------------------------------------------------
 // Bulk-resolution disposition notes

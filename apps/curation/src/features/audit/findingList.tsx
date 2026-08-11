@@ -32,7 +32,11 @@ import {
 } from "@/features/comparison/useSourceAvailability";
 import { sourceLabel, type Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
-import { SEVERITY_RANK, TARGET_KIND_ORDER } from "./auditPresentation";
+import {
+  SEVERITY_RANK,
+  TARGET_KIND_ORDER,
+  partitionFvShapedTagFindings,
+} from "./auditPresentation";
 import { parseTargetId, slug } from "./targetIds";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { isMatchFinding, isRenameMatch } from "./findingHelpers";
@@ -401,38 +405,11 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   // slug matches the value slug. Read from the draft when available
   // (the curator's edits are the authoritative current state); fall
   // back to ``saved`` when the draft hasn't loaded yet.
-  const fvShapedTagTargets = useMemo(() => {
-    const design = draft ?? saved;
-    if (!design) return new Set<string>();
-    const out = new Set<string>();
-    for (const factor of design.factors ?? []) {
-      const factorCatSlug = slug(factor.category?.label || "");
-      if (!factorCatSlug) continue;
-      for (const fv of factor.factor_values ?? []) {
-        const fvLabelSlug = slug(fv.free_text_label || "");
-        if (!fvLabelSlug) continue;
-        out.add(`tag:${factorCatSlug}/${fvLabelSlug}`);
-        // Also fold each statement subject in — sometimes the
-        // upstream "tag" is the FV's subject term (e.g. the gene /
-        // drug behind the FV) rather than the FV's free-text label.
-        for (const st of fv.statements ?? []) {
-          const subjSlug = slug(st.subject?.label || "");
-          if (subjSlug) out.add(`tag:${factorCatSlug}/${subjSlug}`);
-          const objSlug = slug(st.object?.label || "");
-          if (objSlug) out.add(`tag:${factorCatSlug}/${objSlug}`);
-        }
-      }
-    }
-    return out;
-  }, [draft, saved]);
-
-  const fvShapedTagFindings = useMemo(
-    () =>
-      findings.filter(
-        (f) =>
-          f.target_kind === "tag" && fvShapedTagTargets.has(f.target_id),
-      ),
-    [findings, fvShapedTagTargets],
+  // The rule itself lives in ``auditPresentation`` so the summary
+  // counts and this body can't disagree about what's on screen.
+  const { visible: shownFindings, hidden: fvShapedTagFindings } = useMemo(
+    () => partitionFvShapedTagFindings(findings, draft ?? saved),
+    [findings, draft, saved],
   );
   // Chip-strip selection drives the ComparisonFactorCard's column
   // labels (LEFT = baseline source, RIGHT = comparator source). The
@@ -458,9 +435,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   // first, regardless of what they're about. Curator's attention should
   // land on blockers immediately.
   const sorted = useMemo(() => {
-    const arr = findings.filter(
-      (f) => !(f.target_kind === "tag" && fvShapedTagTargets.has(f.target_id)),
-    );
+    const arr = [...shownFindings];
     arr.sort((a, b) => {
       const sev = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
       if (sev !== 0) return sev;
@@ -470,7 +445,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
       );
     });
     return arr;
-  }, [findings, fvShapedTagTargets]);
+  }, [shownFindings]);
 
   // FV-finding suppression. When the audit reports a non-ok finding at
   // the parent factor (forbidden_efc, vague_fv_labels, conflated,
@@ -734,7 +709,10 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
           "everything's accounted for" rather than a blank panel. */}
       <ReviewSummaryHeader
         kind={kind}
-        totalFindings={findings.length}
+        // What's on screen, not what arrived. The hidden FV-shaped
+        // findings get their own caption above; counting them here
+        // sent the curator hunting for a card that never renders.
+        totalFindings={shownFindings.length}
         nApplied={nApplied}
         nOpenActionable={nOpenActionable}
         nNoted={nNoted}
