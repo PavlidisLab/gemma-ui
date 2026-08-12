@@ -8,7 +8,6 @@ import {
   reassignSample,
   reassignSamples,
   setBiomaterialCharacteristic,
-  setBiomaterialName,
 } from "@/features/design/mutations";
 import { useToast } from "@/components/ui/Toast";
 import { InlineText } from "@/components/ui/InlineText";
@@ -173,9 +172,6 @@ export function SampleDetailsPanel({ experimentId }: { experimentId: number | st
         // size.
         apply((d) => reassignSamples(d, factorId, shortNames, toFvId))
       }
-      onSetName={(shortName, name) =>
-        apply((d) => setBiomaterialName(d, shortName, name))
-      }
       onSetCharacteristic={(shortName, key, value) =>
         apply((d) => setBiomaterialCharacteristic(d, shortName, key, value))
       }
@@ -224,7 +220,6 @@ function SampleTable({
   onSelectedChange,
   onReassign,
   onReassignBulk,
-  onSetName,
   onSetCharacteristic,
   onPromoteCharacteristic,
 }: {
@@ -245,7 +240,6 @@ function SampleTable({
     factorId: number,
     toFvId: number,
   ) => void;
-  onSetName: (shortName: string, name: string) => void;
   onSetCharacteristic: (shortName: string, key: string, value: string) => void;
   onPromoteCharacteristic: (key: string) => void;
 }) {
@@ -1546,8 +1540,8 @@ function SampleTable({
                     Row-selection gutter. *Only* the gutter is the
                     selection click-target — clicking elsewhere on
                     the row triggers the cell's own behaviour (the
-                    name / characteristic InlineTexts switch to
-                    edit on double-click; factor cells open the FV
+                    characteristic InlineTexts switch to edit on
+                    double-click; factor cells open the FV
                     `<select>`; etc.). Putting a row-level click
                     handler on top of those would conflict.
                     Trade-off: shift-click for range works only
@@ -1718,14 +1712,17 @@ function SampleTable({
                           className="px-3 py-0.5 text-slate-700 whitespace-nowrap max-w-[16rem] truncate"
                           title={repr.name}
                         >
-                          <InlineText
-                            value={repr.name}
-                            placeholder="add name"
-                            onCommit={(name) => {
-                              for (const sn of allShortNames)
-                                onSetName(sn, name);
-                            }}
-                          />
+                          {/* Read-only: the sample name is the
+                              upstream record's own title (the GSM
+                              title for a GEO import), so it is
+                              provenance, not a curation surface.
+                              Curation happens in the characteristic
+                              and factor cells. */}
+                          {repr.name ? (
+                            <span>{repr.name}</span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
                         </td>
                       );
                     }

@@ -1513,19 +1513,6 @@ export function deletePublication(
 // Biomaterial-level mutations (Sample Details tab)
 // ---------------------------------------------------------------------------
 
-export function setBiomaterialName(
-  design: Design,
-  shortName: string,
-  name: string,
-): Design {
-  return {
-    ...design,
-    biomaterials: design.biomaterials.map((b) =>
-      b.short_name === shortName ? { ...b, name } : b,
-    ),
-  };
-}
-
 /**
  * Set a single characteristic on one biomaterial. An empty
  * ``value`` clears the key. Adding new keys is allowed; the

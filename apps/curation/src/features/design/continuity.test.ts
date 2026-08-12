@@ -7,7 +7,6 @@ import {
   deleteFactorValue,
   deletePublication,
   setBiomaterialCharacteristic,
-  setBiomaterialName,
   setDesignDescription,
   setDesignShortName,
   setDesignTitle,
@@ -79,6 +78,19 @@ const mkDesign = (overrides: Partial<Design> = {}): Design =>
     publications: [],
     ...overrides,
   }) as Design;
+
+/**
+ * A biomaterial name is upstream provenance (the GSM title for a GEO
+ * import) and the UI has no editor for it — but a renamed biomaterial
+ * can still arrive from the server or an agent apply, so the diff must
+ * keep seeing it. No mutator to call, hence the local rename.
+ */
+const renameBm = (design: Design, shortName: string, name: string): Design => ({
+  ...design,
+  biomaterials: design.biomaterials.map((b) =>
+    b.short_name === shortName ? { ...b, name } : b,
+  ),
+});
 
 describe("continuity: every mutator dirties the draft", () => {
   describe("Factors", () => {
@@ -181,9 +193,9 @@ describe("continuity: every mutator dirties the draft", () => {
   });
 
   describe("Biomaterials (the sweep blind spot)", () => {
-    it("setBiomaterialName flips isDirty", () => {
+    it("a renamed biomaterial flips isDirty", () => {
       const saved = mkDesign();
-      const draft = setBiomaterialName(saved, "S1", "Sample 1 renamed");
+      const draft = renameBm(saved, "S1", "Sample 1 renamed");
       const r = diffDesign(saved, draft);
       expect(r.isDirty).toBe(true);
       expect(r.metadata.biomaterialsModified).toBe(1);
@@ -205,15 +217,15 @@ describe("continuity: every mutator dirties the draft", () => {
       expect(r.metadata.biomaterialsModified).toBe(1);
     });
 
-    it("setBiomaterialName to same value does NOT flip isDirty", () => {
+    it("a same-value biomaterial rename does NOT flip isDirty", () => {
       const saved = mkDesign();
-      const draft = setBiomaterialName(saved, "S1", "Sample 1");
+      const draft = renameBm(saved, "S1", "Sample 1");
       expect(diffDesign(saved, draft).isDirty).toBe(false);
     });
 
-    it("setBiomaterialName on a missing short_name is a no-op", () => {
+    it("a rename of a missing short_name is a no-op", () => {
       const saved = mkDesign();
-      const draft = setBiomaterialName(saved, "S-missing", "Whatever");
+      const draft = renameBm(saved, "S-missing", "Whatever");
       expect(diffDesign(saved, draft).isDirty).toBe(false);
     });
 
@@ -224,8 +236,8 @@ describe("continuity: every mutator dirties the draft", () => {
           mkBm({ short_name: "S2", name: "B" }),
         ],
       });
-      let draft = setBiomaterialName(saved, "S1", "A renamed");
-      draft = setBiomaterialName(draft, "S2", "B renamed");
+      let draft = renameBm(saved, "S1", "A renamed");
+      draft = renameBm(draft, "S2", "B renamed");
       const r = diffDesign(saved, draft);
       expect(r.metadata.biomaterialsModified).toBe(2);
     });
@@ -317,7 +329,7 @@ describe("continuity: every mutator dirties the draft", () => {
     it("title + biomaterial + publication all dirty together", () => {
       const saved = mkDesign({ publications: [] });
       let draft = setDesignTitle(saved, "T2");
-      draft = setBiomaterialName(draft, "S1", "S1 renamed");
+      draft = renameBm(draft, "S1", "S1 renamed");
       draft = addPublication(draft, {
         pubmed_id: "1",
         doi: "",
@@ -334,10 +346,10 @@ describe("continuity: every mutator dirties the draft", () => {
     it("revert all compound mutations back to identity: isDirty=false", () => {
       const saved = mkDesign({ publications: [] });
       let draft = setDesignTitle(saved, "T2");
-      draft = setBiomaterialName(draft, "S1", "S1 renamed");
+      draft = renameBm(draft, "S1", "S1 renamed");
       // Revert
       draft = setDesignTitle(draft, saved.title!);
-      draft = setBiomaterialName(draft, "S1", "Sample 1");
+      draft = renameBm(draft, "S1", "Sample 1");
       expect(diffDesign(saved, draft).isDirty).toBe(false);
     });
   });
