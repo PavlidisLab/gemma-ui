@@ -40,11 +40,27 @@ export type TicketTargetType =
 
 export type TicketTargetStatus = "NOT_DONE" | "UNDERWAY" | "DONE";
 
-/** Per-target triage decision used by ``SCREENING`` tickets. ``null``
- *  / undefined = curator hasn't decided yet; ``include`` = ship to
- *  the follow-up curation ticket; ``exclude`` = drop. Independent of
- *  ``status`` (which tracks "processed" vs "not"). */
-export type TicketTargetTriageDisposition = "include" | "exclude" | null;
+/** Per-target triage decision used by ``SCREENING`` tickets.
+ *
+ *  - ``include`` — ship to the follow-up curation ticket
+ *  - ``exclude`` — drop
+ *  - ``unsure``  — REVIEWED and unresolved. Distinct from ``null``,
+ *    which is nobody-has-looked-yet. Collapsing the two would make a
+ *    curator's work product indistinguishable from an untouched row
+ *    and leave no way to hand it on; the split is why this value
+ *    exists. Implies ``status=DONE`` server-side (the coupling keys
+ *    on the decision being non-null, not on which decision it is).
+ *  - ``null`` / undefined — not yet reviewed.
+ *
+ *  Independent of ``status`` (which tracks "processed" vs "not").
+ *
+ *  🛑 Clearing back to undecided is spelled ``""`` on the wire, not
+ *  ``null`` — see ``toWirePatch``. An explicit ``null`` is now a 400. */
+export type TicketTargetTriageDisposition =
+  | "include"
+  | "exclude"
+  | "unsure"
+  | null;
 
 export interface TicketTarget {
   /** Wire-shape ID of the targeted entity. For
@@ -80,6 +96,12 @@ export interface TicketTarget {
    *  decides. Set via ``usePatchTicketTarget`` and consumed by
    *  ``useFinalizeTriage`` at the end of the worklist. */
   triage_disposition?: TicketTargetTriageDisposition;
+  /** Free text explaining an ``unsure`` — cleared with the decision
+   *  server-side, so a stale reason can't outlive the ``unsure`` it
+   *  belonged to and reattach to a later ``include``. Comes back on
+   *  the BULK read: a leftover pile is a class-level signal, and
+   *  behind a per-target fetch nobody would wire it. */
+  triage_disposition_reason?: string | null;
 }
 
 export type TicketMode = "MANUAL" | "AUTO";
@@ -170,6 +192,11 @@ export interface Ticket {
   disposition_summary?: {
     include: number;
     exclude: number;
+    /** Reviewed and unresolved — NOT folded into ``undecided``. The
+     *  natural way to write that rollup (``else: undecided += 1``)
+     *  puts reviewed-and-unresolved back in the same bucket as
+     *  nobody-has-looked, which would silently undo the feature. */
+    unsure?: number;
     undecided: number;
   };
   /** Legacy single-investigation pointer the server backfills from the
@@ -483,6 +510,10 @@ export function ticketPriorityRank(p: TicketPriority): number {
 export interface TicketTargetPatchBody {
   status?: TicketTargetStatus;
   triage_disposition?: TicketTargetTriageDisposition;
+  /** Why the curator couldn't resolve it. Only meaningful alongside
+   *  ``unsure``; the store clears it whenever the decision changes,
+   *  so there is no need to send an explicit clear. */
+  triage_disposition_reason?: string | null;
 }
 
 /**

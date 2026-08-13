@@ -40,6 +40,7 @@ import type {
   TriageFinalizeResponse,
 } from "@/api/tickets";
 import { DispositionPicker } from "@/components/ui/DispositionPicker";
+import { TriageCloseDialog } from "./TriageCloseDialog";
 import { navigate } from "@/routes";
 import {
   decisionLabels,
@@ -48,7 +49,7 @@ import {
   type DisplayField,
 } from "@/features/triage/triagePayload";
 
-type Filter = "all" | "undecided" | "include" | "exclude";
+type Filter = "all" | "undecided" | "include" | "exclude" | "unsure";
 
 export function TriageView({ ticket }: { ticket: Ticket }) {
   const parsed = useMemo(() => parsePayload(ticket.payload_json), [
@@ -59,6 +60,8 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
   const [facets, setFacets] = useState<Record<string, string>>({});
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [finalized, setFinalized] = useState<TriageFinalizeResponse | null>(
     null,
   );
@@ -111,14 +114,25 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
   }, [triageTargets, parsed.candidates]);
 
   const counts = useMemo(() => {
-    let inc = 0, exc = 0, und = 0;
+    let inc = 0, exc = 0, uns = 0, und = 0;
     for (const t of triageTargets) {
       const d = t.triage_disposition ?? null;
       if (d === "include") inc++;
       else if (d === "exclude") exc++;
+      // `unsure` is REVIEWED-and-unresolved and must not fall into
+      // `undecided`. Writing this loop with a bare `else` is the
+      // natural mistake and would put a curator's work product back in
+      // the nobody-has-looked bucket.
+      else if (d === "unsure") uns++;
       else und++;
     }
-    return { include: inc, exclude: exc, undecided: und, total: triageTargets.length };
+    return {
+      include: inc,
+      exclude: exc,
+      unsure: uns,
+      undecided: und,
+      total: triageTargets.length,
+    };
   }, [triageTargets]);
 
   const q = search.trim().toLowerCase();
@@ -128,6 +142,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
     if (filter === "undecided" && d !== null) return false;
     if (filter === "include" && d !== "include") return false;
     if (filter === "exclude" && d !== "exclude") return false;
+    if (filter === "unsure" && d !== "unsure") return false;
     const meta = metaOf(t);
     // facet dropdowns (tier / badge fields)
     for (const [label, sel] of Object.entries(facets)) {
@@ -195,19 +210,74 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
   };
 
   const finalize = useFinalizeTriage(ticket.id);
-  const handleFinalize = async () => {
-    if (counts.undecided > 0) {
-      const ok = window.confirm(
-        `${counts.undecided} row(s) still undecided — finalize anyway? ` +
-          `Undecided rows are excluded from the follow-up curation ticket.`,
-      );
-      if (!ok) return;
-    }
+
+  /** Undecided rows, named so the close dialog can show WHICH
+   *  candidates a blanket decision is about to land on. */
+  const undecidedRows = useMemo(
+    () =>
+      triageTargets
+        .filter((t) => {
+          const d = t.triage_disposition ?? null;
+          // Both buckets block the close, for different reasons:
+          // `null` was never looked at, `unsure` was looked at and
+          // couldn't be resolved. Neither is a decision the follow-up
+          // ticket can act on.
+          return d === null || d === "unsure";
+        })
+        .map((t) => ({
+          targetId: t.target_id,
+          label: metaOf(t)?.accession || String(t.target_id),
+          // Populated for `unsure` rows; null for never-reviewed ones.
+          // The dialog groups on it so a leftover CLASS is visible as
+          // one thing to decide rather than N rows to escalate.
+          reason: t.triage_disposition_reason ?? null,
+        })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [triageTargets],
+  );
+
+  const closeTicket = async () => {
     try {
       const res = await finalize.mutateAsync();
       setFinalized(res);
     } catch {
       // Error chip below surfaces details.
+    }
+  };
+
+  const handleFinalize = async () => {
+    // Undecided rows used to be swept to "excluded" by a confirm that
+    // only offered cancel. Make it a choice, and show what it lands on.
+    // `unsure` blocks the close too — it is reviewed-but-unresolved,
+    // which the follow-up ticket can no more act on than an untouched
+    // row. `undecidedRows` carries both.
+    if (undecidedRows.length > 0) {
+      setCloseOpen(true);
+      return;
+    }
+    await closeTicket();
+  };
+
+  /** Apply one disposition to every undecided row, then close. The
+   *  patches go through the same mutation the bulk bar uses, so the
+   *  status/disposition coupling stays in one place. */
+  const resolvePendingThenClose = async (d: "include" | "exclude") => {
+    setClosing(true);
+    try {
+      await Promise.all(
+        undecidedRows.map((r) => {
+          const t = triageTargets.find((x) => x.target_id === r.targetId)!;
+          return bulkPatch.mutateAsync({
+            target_type: t.target_type,
+            target_id: t.target_id,
+            patch: { triage_disposition: d, status: "DONE" },
+          });
+        }),
+      );
+      setCloseOpen(false);
+      await closeTicket();
+    } finally {
+      setClosing(false);
     }
   };
 
@@ -255,6 +325,16 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
           active={filter === "exclude"}
           onClick={() => { setFilter("exclude"); setPage(0); }}
         />
+        {/* Only shown once something is unsure — an empty bucket is
+            noise on the common ticket, and the tab appearing IS the
+            signal that a leftover class exists. */}
+        {counts.unsure > 0 ? (
+          <FilterButton
+            label={`Unsure (${counts.unsure})`}
+            active={filter === "unsure"}
+            onClick={() => { setFilter("unsure"); setPage(0); }}
+          />
+        ) : null}
         <FilterButton
           label={`All (${counts.total})`}
           active={filter === "all"}
@@ -299,6 +379,23 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
           {finalize.isPending ? "finalising…" : "Finalize triage"}
         </button>
       </div>
+
+      <TriageCloseDialog
+        open={closeOpen}
+        undecided={undecidedRows}
+        includedCount={counts.include}
+        excludedCount={counts.exclude}
+        busy={closing || finalize.isPending}
+        onResolve={resolvePendingThenClose}
+        onCancel={() => {
+          setCloseOpen(false);
+          // Drop them on the "To review" tab rather than just closing
+          // the dialog — "go back and decide" should land the curator
+          // where the undecided rows are, not where they were.
+          setFilter("undecided");
+          setPage(0);
+        }}
+      />
 
       {finalize.isError ? (
         <div className="text-xs text-rose-700 dark:text-rose-400">
@@ -633,13 +730,19 @@ function TriageRow({
   const matched = meta?.matched_criteria ?? [];
   const disposition = target.triage_disposition ?? null;
 
-  const apply = (next: TicketTargetTriageDisposition) => {
+  const apply = (
+    next: TicketTargetTriageDisposition,
+    reason?: string,
+  ) => {
     patch.mutate({
       target_type: "GEO_ACCESSION",
       target_id: target.target_id,
       patch: {
         triage_disposition: next,
+        // `unsure` counts as decided — the coupling keys on the
+        // decision being non-null, not on which decision it is.
         status: next === null ? "NOT_DONE" : "DONE",
+        ...(reason ? { triage_disposition_reason: reason } : {}),
       },
     });
   };
@@ -775,6 +878,8 @@ function TriageRow({
           disabled={patch.isPending}
           confirmLabel={confirmLabel}
           rejectLabel={rejectLabel}
+          showUnsure
+          reason={target.triage_disposition_reason}
         />
         {patch.isError ? (
           <div className="text-[10px] text-rose-700 mt-1">
@@ -931,13 +1036,19 @@ function CandidateCard({
   )?.title;
   const disposition = target.triage_disposition ?? null;
 
-  const apply = (next: TicketTargetTriageDisposition) => {
+  const apply = (
+    next: TicketTargetTriageDisposition,
+    reason?: string,
+  ) => {
     patch.mutate({
       target_type: target.target_type,
       target_id: target.target_id,
       patch: {
         triage_disposition: next,
+        // `unsure` counts as decided — the coupling keys on the
+        // decision being non-null, not on which decision it is.
         status: next === null ? "NOT_DONE" : "DONE",
+        ...(reason ? { triage_disposition_reason: reason } : {}),
       },
     });
   };
@@ -1008,6 +1119,8 @@ function CandidateCard({
             disabled={patch.isPending}
             confirmLabel={confirmLabel}
             rejectLabel={rejectLabel}
+            showUnsure
+            reason={target.triage_disposition_reason}
           />
         </div>
       </div>

@@ -143,6 +143,31 @@ export function consequentHint(
   if (finding.consequent_of) {
     linked = findings.find((f) => f.target_id === finding.consequent_of);
     side = "downstream";
+  } else if (finding.paired_finding_id) {
+    // Third linkage source, and the one that covers the SWAP case:
+    // when the matcher demotes a partition-mismatched same-label pair
+    // it stamps both halves — the `_factor_extra` (add the agent's)
+    // and the `_factor_gold_only_miss` (remove the current) — with one
+    // UUID. That is one curator decision presented as two findings,
+    // which is exactly what this hint exists to reconcile.
+    //
+    // `PairedFindingBadge` already resolved siblings this way, so the
+    // link was visible as a jump but not as a CUE: a curator could
+    // accept one half and reject the other with nothing pointing out
+    // the inconsistency. Worse, the two halves score independently —
+    // a swap costs the agent an FN and an FP for one decision — so
+    // dispositioning them inconsistently corrupts calibration twice.
+    //
+    // Symmetric pair rather than upstream/downstream: neither half is
+    // primary, so it is treated as the downstream side, which is the
+    // direction that reads "the linked one was decided, this one
+    // should follow".
+    const pairId = finding.paired_finding_id;
+    linked = findings.find(
+      (f) =>
+        f.paired_finding_id === pairId && f.target_id !== finding.target_id,
+    );
+    side = "downstream";
   } else if (finding.consequents && finding.consequents.length > 0) {
     for (const id of finding.consequents) {
       const cand = findings.find((f) => f.target_id === id);
