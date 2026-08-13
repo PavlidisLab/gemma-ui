@@ -485,6 +485,34 @@ export interface TicketTargetPatchBody {
   triage_disposition?: TicketTargetTriageDisposition;
 }
 
+/**
+ * Translate a UI-land patch into the wire's sentinels.
+ *
+ * 🛑 **Clearing a triage decision is ``""`` on the wire, never ``null``.**
+ * The store reads a patch field-by-field and skips anything that arrives
+ * as ``None`` — that is how "field not provided" is expressed — so a
+ * JSON ``null`` returns 200, applies the rest of the patch, and leaves
+ * the disposition exactly as it was. The UI sent ``null`` for months
+ * and the "click again to undecide" path silently did nothing against a
+ * live store; unit tests didn't catch it because they assert the mutate
+ * call, not the server's reply.
+ *
+ * UI code keeps using ``null`` — it is the honest in-memory value for
+ * "no decision". The translation happens here, once, at the boundary.
+ *
+ * Store contract: ``local_api/curation_workflow.py`` —
+ * ``if patch.triage_disposition is not None: new_val = patch.triage_disposition or None``.
+ */
+export function toWirePatch(
+  patch: TicketTargetPatchBody,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...patch };
+  if ("triage_disposition" in patch && patch.triage_disposition === null) {
+    out.triage_disposition = "";
+  }
+  return out;
+}
+
 /** Mutation hook for per-target patches on a ticket. Optimistically
  *  updates the cached ticket so the row flips immediately; server
  *  response replaces the cache on success. */
@@ -499,7 +527,7 @@ export function usePatchTicketTarget(ticketId: number) {
       const path =
         `/rest/v2/tickets/${ticketId}/targets/` +
         `${encodeURIComponent(args.target_type)}/${args.target_id}`;
-      return await api.patch<Ticket>(path, args.patch);
+      return await api.patch<Ticket>(path, toWirePatch(args.patch));
     },
     onSuccess: (next) => {
       qc.setQueryData(["ticket", ticketId], next);
