@@ -88,7 +88,9 @@ export default defineConfig(({ mode }) => {
 
   console.log(`[curation] /local-api → ${LOCAL_API_URL} (explicit local_api passthrough)`);
    
-  console.log(`[curation] /propose,/audit,/find-* → ${PROPOSER_URL}`);
+  console.log(
+    `[curation] /propose,/audit,/find-*,/validate-terms → ${PROPOSER_URL}`,
+  );
   return {
     plugins: [react()],
     resolve: {
@@ -282,6 +284,18 @@ export default defineConfig(({ mode }) => {
         "/find-term": {
           target: PROPOSER_URL,
           changeOrigin: true,
+        },
+        // Read-only canonicaliser — validates (label, uri) pairs in one
+        // batch per experiment. Lives on the proposer beside
+        // /find-term, but does NOT match the /find-* shape, so it needs
+        // its own entry or every request 404s in dev.
+        "/validate-terms": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+          // A whole experiment's terms in one call — including every
+          // sample characteristic — so it can outrun the default.
+          timeout: 0,
+          proxyTimeout: 0,
         },
         // Agent config announce — GET /config reports the resolved
         // models + default options the AgentRunDialog surfaces for

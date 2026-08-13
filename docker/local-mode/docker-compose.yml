@@ -93,6 +93,15 @@ services:
       # `cell_line_rag` volume below and scripts/cell_line_rag/README.md.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CELL_LINE_RAG_INDEX_DIR: ${CELL_LINE_RAG_INDEX_DIR:-}
+      # Ontology term index (per-ontology ``terms.parquet``), mounted
+      # read-only below. Without it every ontology lookup that reads the
+      # index answers "I don't know" — and for ``POST /validate-terms``
+      # that is a SILENT failure by design: an unnameable URI is spec'd as
+      # `unknown` / "not checked", never red, so the curator's Validate
+      # button comes back clean on an experiment it never checked.
+      # Measured 2026-08-13: 100% `unknown` in-container vs ok /
+      # label_mismatch for the same triples on the host.
+      EMBEDDING_INDEX_DIR: /ontology_index
       GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
       # Proposer points at local-api over the compose network.
       GEMMA_CURATION_URL: http://local-api:8000
@@ -126,6 +135,24 @@ services:
       # path breaks `up`; uncomment once the index exists. See
       # scripts/cell_line_rag/README.md.
       # - ${CELL_LINE_RAG_HOST_DIR:-${HOME}/Data/gemma-curation-agents-data/cell_line_rag}:/cell_line_rag:ro
+      # Ontology index — read-only, ~565 MB, built by the agents repo's
+      # ontology index builder (default ~/Data/ontology_index, one
+      # subdirectory per ontology: EFO, CLO, CL, UBERON, MONDO, …).
+      # NOT commented out like cell_line_rag above: /validate-terms is a
+      # curator-facing check and its no-index behaviour is a green light on
+      # an unchecked experiment, which is worse than the feature being
+      # absent. On a box without the index, point ONTOLOGY_INDEX_HOST_DIR
+      # at an existing directory (the endpoint then degrades to `unknown`)
+      # or comment this line and drop EMBEDDING_INDEX_DIR above.
+      - ${ONTOLOGY_INDEX_HOST_DIR:-${HOME}/Data/ontology_index}:/ontology_index:ro
+      # NCBI gene_info dumps (human / mouse / rat), read-only. Gemma binds gene
+      # perturbations to purl.org/commons/record/ncbi_gene/<entrez>, which is
+      # not an ontology term and so is absent from the index above — without
+      # this, every genotype tag and every genotype statement subject validates
+      # as `unknown` (26% of statement slots, measured 2026-08-13). The
+      # validator reads this cache ONLY; it never downloads, so an absent
+      # directory degrades to `unknown` rather than blocking a request.
+      - ${GENE_INFO_CACHE_HOST_DIR:-${HOME}/.cache/gemma_curation_agents}:/root/.cache/gemma_curation_agents:ro
     ports:
       - "8082:8000"
     command: ["python", "-m", "gemma_curation_agents.cli", "proposer-service", "serve", "--host", "0.0.0.0", "--port", "8000"]

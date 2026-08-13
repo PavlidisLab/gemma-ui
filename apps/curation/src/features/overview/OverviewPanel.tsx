@@ -15,7 +15,8 @@ import { DesignSummary } from "./DesignSummary";
 import { TagBar } from "./TagBar";
 import { abstractForPublication, AddPublicationForm, anyPublicationGetsAbstract, ProposedAbstract, PublicationRow } from "./publications";
 import { addPublication, deletePublication, setDesignDescription } from "@/features/design/mutations";
-import { ONTOLOGY_GUIDELINE, FREE_TEXT_GUIDELINE, PREDICATE_GUIDELINE, BASELINE_GUIDELINE, TAGS_GUIDELINE, DEV_STAGE_GUIDELINE, CHECKLIST_GUIDELINE } from "@/lib/guidelines";
+import { TermValidationPanel } from "@/features/design/TermValidationPanel";
+import { ONTOLOGY_GUIDELINE, FREE_TEXT_GUIDELINE, PREDICATE_GUIDELINE, BASELINE_GUIDELINE, TAGS_GUIDELINE, DEV_STAGE_GUIDELINE, DERIVED_MATERIAL_GUIDELINE, GRAFT_GUIDELINE, CHECKLIST_GUIDELINE } from "@/lib/guidelines";
 import { focusByAuditTarget, onAuditFocusTarget } from "@/lib/scrollToAuditTarget";
 
 
@@ -217,10 +218,24 @@ export function OverviewPanel() {
           <GuidelinePopup snippet={DEV_STAGE_GUIDELINE} size="md" />
         </span>
         <span className="inline-flex items-center gap-1">
+          derived material{" "}
+          <GuidelinePopup snippet={DERIVED_MATERIAL_GUIDELINE} size="md" />
+        </span>
+        <span className="inline-flex items-center gap-1">
+          grafts <GuidelinePopup snippet={GRAFT_GUIDELINE} size="md" />
+        </span>
+        <span className="inline-flex items-center gap-1">
           pre-publish checklist{" "}
           <GuidelinePopup snippet={CHECKLIST_GUIDELINE} size="md" align="right" />
         </span>
       </div>
+
+      {/* Experiment-wide ontology check. Lives here rather than in the
+          Design tab's ValidatorBanner because it spans tags, factor
+          values, statement slots and sample characteristics; and rather
+          than in the audit sidebar because that toggle is hidden until
+          an audit exists, which is precisely when this is most useful. */}
+      {meta ? <TermValidationPanel experimentId={meta.experiment_id} /> : null}
 
       <article className="card p-3 space-y-2">
         {/* Title + "re-import from Gemma" both moved to the
