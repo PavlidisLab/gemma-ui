@@ -19,7 +19,7 @@ import {
   useRunTicketAction,
   useTicket,
 } from "@/api/tickets";
-import type { Ticket, TicketMode, TicketType } from "@/api/tickets";
+import type { Ticket, TicketMode } from "@/api/tickets";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
 import { fetchDesignSnapshot } from "@/api/design";
 import { Spinner } from "@gemma/ui";
@@ -34,6 +34,7 @@ import {
   reconcileDirtyTargets,
   type DirtyTargetReport,
 } from "./exportTicket";
+import { followUpTicketBody, nextStageFor, type NextStage } from "./nextStage";
 
 export function TicketDetailPage({
   ticketId,
@@ -281,13 +282,9 @@ interface NextAction {
    *  finished, the curator now needs to walk the targets and
    *  curate them. The new ticket inherits the same EE targets in
    *  ``NOT_DONE`` state so the curator can pick up where preload
-   *  left off. Future stages slot in via the resolver. */
-  nextStage?: {
-    type: TicketType;
-    title: (current: Ticket) => string;
-    body: string;
-    actionLabel: string;
-  };
+   *  left off. Resolved by ``nextStageFor`` — shared with the triage
+   *  close flow, which spawns its own follow-up the same way. */
+  nextStage?: NextStage;
 }
 
 /** Resolve the next action the curator can fire on this ticket.
@@ -310,15 +307,7 @@ function nextActionFor(ticket: Ticket): NextAction | null {
       readyTitle: "Fetch GEO metadata for every target in this ticket",
       busyTitle: "A preload run is in progress — watch the progress bar above.",
       doneNote: "All targets preloaded. Ready for curator screening.",
-      nextStage: {
-        type: "CURATION",
-        title: (t) =>
-          `Curate: ${t.title.replace(/^Preload\s*[—:-]\s*/i, "").trim() || `ticket #${t.id}`}`,
-        body:
-          "Auto-spawned from the PRELOAD close flow. Targets carry over " +
-          "from the preload ticket and are ready for curator review.",
-        actionLabel: "Close & start curation",
-      },
+      nextStage: nextStageFor(ticket) ?? undefined,
     };
   }
   return null;
@@ -421,22 +410,15 @@ function NextActionBar({
           onCloseAndNext={async () => {
             if (!action.nextStage) return;
             try {
-              const newTicket = await create.mutateAsync({
-                type: action.nextStage.type,
-                title: action.nextStage.title(ticket),
-                body: action.nextStage.body,
-                priority: ticket.priority,
-                mode: "MANUAL",
-                targets: ticket.targets
-                  .filter(
+              const newTicket = await create.mutateAsync(
+                followUpTicketBody(
+                  action.nextStage,
+                  ticket,
+                  ticket.targets.filter(
                     (t) => t.target_type === "EXPRESSION_EXPERIMENT",
-                  )
-                  .map((t) => ({
-                    target_type: t.target_type,
-                    target_id: t.target_id,
-                    status: "NOT_DONE" as const,
-                  })),
-              });
+                  ),
+                ),
+              );
               await patch.mutateAsync({ state: "RESOLVED" });
               setConfirmOpen(false);
               navigate(`#/tickets/${newTicket.id}`);

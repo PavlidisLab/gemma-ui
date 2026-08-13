@@ -41,6 +41,10 @@ import type {
   TriageFinalizeResponse,
 } from "@/api/tickets";
 import { DispositionPicker } from "@/components/ui/DispositionPicker";
+import {
+  followUpTicketBody,
+  nextStageFor,
+} from "@/features/tickets/nextStage";
 import { TriageCloseDialog } from "./TriageCloseDialog";
 import { navigate } from "@/routes";
 import {
@@ -66,6 +70,11 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
   const [finalized, setFinalized] = useState<TriageFinalizeResponse | null>(
     null,
   );
+  /** The follow-up ticket the unsure rows were carried into, if any.
+   *  Held so the finalized summary can NAME it — a curator who just
+   *  escalated seven candidates needs the id of the thing that now
+   *  holds them, not a claim that triage is done. */
+  const [carriedTo, setCarriedTo] = useState<Ticket | null>(null);
   const bulkPatch = usePatchTicketTarget(ticket.id);
   const createTicket = useCreateTicket();
 
@@ -286,28 +295,30 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
    *  then close this one. The subset is expressible because
    *  ``TicketCreate.targets`` is a plain list — there is no
    *  inherit-everything behaviour to work around. An assignee makes it
-   *  an escalation; blank keeps it with the same owner. */
+   *  an escalation; blank keeps it with the same owner.
+   *
+   *  The destination + payload come from ``nextStageFor`` /
+   *  ``followUpTicketBody``, shared with the ticket-detail close flow.
+   *  That is also where the follow-up picks up the parent's
+   *  ``priority`` — spawning it by hand here used to drop it, so the
+   *  leftovers of an URGENT screen came back NORMAL. */
   const carryUnsureForward = async (assignee: string) => {
+    const stage = nextStageFor(ticket);
+    if (!stage) return;
     setClosing(true);
     try {
-      await createTicket.mutateAsync({
-        type: "SCREENING",
-        title: `Unresolved from: ${ticket.title}`,
-        ...(assignee ? { assignee } : {}),
-        body:
-          `Carried forward from ticket #${ticket.id} — ${openRows.unsure.length} ` +
-          `candidate(s) the curator reviewed but could not resolve. ` +
-          `Reasons travel with each row.`,
-        targets: openRows.unsure.map((r) => {
-          const t = triageTargets.find((x) => x.target_id === r.targetId)!;
-          return {
-            target_type: t.target_type,
-            target_id: t.target_id,
-            status: "NOT_DONE" as const,
-          };
-        }),
-      });
+      const created = await createTicket.mutateAsync(
+        followUpTicketBody(
+          stage,
+          ticket,
+          openRows.unsure.map(
+            (r) => triageTargets.find((x) => x.target_id === r.targetId)!,
+          ),
+          { assignee },
+        ),
+      );
       setCloseOpen(false);
+      setCarriedTo(created);
       await closeTicket();
     } finally {
       setClosing(false);
@@ -438,7 +449,9 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
         </div>
       ) : null}
 
-      {finalized ? <FinalizedSummary res={finalized} /> : null}
+      {finalized ? (
+        <FinalizedSummary res={finalized} carriedTo={carriedTo} />
+      ) : null}
 
       {/* Bulk bar is about SELECTION, not about which renderer the
           ticket opted into — it used to be gated on ``generic``, so a
@@ -1386,7 +1399,15 @@ function StudyReadonlyBody({ d }: { d: GemmaDataset }) {
   );
 }
 
-function FinalizedSummary({ res }: { res: TriageFinalizeResponse }) {
+function FinalizedSummary({
+  res,
+  carriedTo,
+}: {
+  res: TriageFinalizeResponse;
+  /** Follow-up ticket the unsure rows went into, when the curator
+   *  carried them forward. Null on a plain close. */
+  carriedTo: Ticket | null;
+}) {
   return (
     <div className="card p-3 border border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700 text-xs space-y-1">
       <div className="font-semibold text-emerald-900 dark:text-emerald-100">
@@ -1402,6 +1423,21 @@ function FinalizedSummary({ res }: { res: TriageFinalizeResponse }) {
           <span className="font-mono">
             {res.included.map((c) => c.accession).join(", ")}
           </span>
+        </div>
+      ) : null}
+      {carriedTo ? (
+        // The escalation is the part the curator can't reconstruct
+        // later: which ticket holds the rows they couldn't resolve,
+        // and who it went to. Name it and link it.
+        <div className="text-amber-800 dark:text-amber-200">
+          {carriedTo.targets.length} unresolved carried into{" "}
+          <a
+            href={`#/tickets/${carriedTo.id}`}
+            className="font-medium underline underline-offset-2"
+          >
+            ticket #{carriedTo.id}
+          </a>
+          {carriedTo.assignee_name ? ` · assigned to ${carriedTo.assignee_name}` : null}
         </div>
       ) : null}
       <div className="text-emerald-800/80 dark:text-emerald-200/80 italic">
