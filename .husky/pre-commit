@@ -2,8 +2,17 @@
 # Critical-test gate. Runs on every commit; fails the commit if the
 # regression tests don't pass.
 #
-# Scope: vitest unit + render tests (fast — ~5 s) PLUS the
-# ``@critical``-tagged Playwright specs. The full Playwright run is
+# Scope: ``tsc --noEmit`` PLUS vitest unit + render tests (fast — ~5 s)
+# PLUS the ``@critical``-tagged Playwright specs.
+#
+# Typecheck is first because it is the cheapest and because vitest
+# STRIPS types rather than checking them — a broken cast in a test
+# file passes every test it contains. One rode in on a green commit
+# (``fvShapedTagFindings.test.ts``, 89fd92e → caught 2026-08-13) and
+# nothing in the gate was looking. It must name ``tsconfig.app.json``:
+# the root ``tsconfig.json`` has empty ``files`` and checks nothing.
+#
+# The full Playwright run is
 # too slow for a precommit gate; ``@critical`` is the narrow set
 # that pins behaviour we've broken before — finding-card titles,
 # action-row buttons, dismiss-dialog vocab — and would catch the
@@ -23,6 +32,9 @@
 set -eu
 
 cd apps/curation
+
+echo "[pre-commit] tsc --noEmit"
+npx tsc -p tsconfig.app.json --noEmit
 
 echo "[pre-commit] vitest run (unit + render)"
 npx vitest run --silent
