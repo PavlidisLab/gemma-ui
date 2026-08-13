@@ -2008,7 +2008,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             return (
               <DismissDialog
                 mode="accept"
-                chips={acceptChipsFor(finding.issue_code)}
+                chips={acceptChipsFor(finding.issue_code, finding.target_kind)}
                 finding={finding}
                 targetId={finding.target_id}
                 anchor={acceptBtnRef.current}

@@ -5,9 +5,15 @@ import {
   CAL_EXTRA_TAG_DISMISS_CHIPS,
   CAL_MISS_FACTOR_DISMISS_CHIPS,
   CAL_MISS_TAG_DISMISS_CHIPS,
+  CAL_EXTRA_ACCEPT_CHIPS,
+  CAL_MISS_ACCEPT_CHIPS,
+  CAL_MISS_FACTOR_ACCEPT_CHIPS,
   DISMISS_CHIPS,
+  LEGACY_DISPOSITION_KEY_REMAP,
+  OVERLOADED_LEGACY_KEYS,
   TAG_DISMISS_CHIPS,
   dismissChipsFor,
+  remapFromNote,
 } from "./dispositionChips";
 
 /**
@@ -183,5 +189,113 @@ describe("dismissChipsFor — factor-target fallback (unchanged)", () => {
         }),
       ),
     ).toBe(DISMISS_CHIPS);
+  });
+});
+
+const keys = (cs: { key: string }[]) => cs.map((c) => c.key);
+
+describe("dispositionChips — the 2026-08-13 vocabulary", () => {
+  // Each of these was a situation curators hand-typed into `other`
+  // or expressed by picking a chip that contradicted their own note.
+  it("offers the situations the stored dispositions show were missing", () => {
+    const k = keys(CAL_EXTRA_TAG_DISMISS_CHIPS);
+    expect(k).toContain("invalid_annotation");   // "garbage" x11
+    expect(k).toContain("aboutism");             // "about" x14
+    expect(k).toContain("wrong_category");       // recategorise, not drop
+    expect(k).toContain("out_of_scope_correct"); // true but not ours
+    expect(k).toContain("out_of_scope_wrong");   // neither
+  });
+
+  // `borderline` ran 19 times with notes like "covered" and "close" —
+  // it was the path of least resistance. Kept, but last, so the
+  // specific reasons are what the eye reaches first.
+  it("keeps borderline available but below the specific reasons", () => {
+    const k = keys(CAL_EXTRA_TAG_DISMISS_CHIPS);
+    expect(k).toContain("borderline");
+    expect(k.indexOf("borderline")).toBeGreaterThan(k.indexOf("invalid_annotation"));
+    expect(k.indexOf("borderline")).toBeGreaterThan(k.indexOf("aboutism"));
+  });
+
+  it("has no duplicate keys in a set", () => {
+    const k = keys(CAL_EXTRA_TAG_DISMISS_CHIPS);
+    expect(new Set(k).size).toBe(k.length);
+  });
+});
+
+describe("legacy remap", () => {
+  it("merges the two keys that split one idea", () => {
+    expect(LEGACY_DISPOSITION_KEY_REMAP.already_covered).toBe(
+      "redundant_with_bm_source",
+    );
+    expect(LEGACY_DISPOSITION_KEY_REMAP.agent_real_miss).toBe("agent_missed_it");
+  });
+
+  // The rows where the key is known to lie — `not_sample_applicable |
+  // "garbage"` — can only be recovered from the note.
+  it("recovers invalid_annotation from the notes curators typed", () => {
+    expect(remapFromNote("garbage")).toBe("invalid_annotation");
+    expect(remapFromNote("garbate")).toBe("invalid_annotation");   // sic
+    expect(remapFromNote("garbaheg")).toBe("invalid_annotation");  // sic
+    expect(remapFromNote("comletely malformed")).toBe("invalid_annotation");
+  });
+
+  it("recovers aboutism", () => {
+    expect(remapFromNote("about")).toBe("aboutism");
+    expect(remapFromNote("we don't curate \"about\"")).toBe("aboutism");
+  });
+
+  it("recovers a category complaint", () => {
+    expect(remapFromNote("must be strain category")).toBe("wrong_category");
+    expect(remapFromNote("developmental stage is better category i fix")).toBe(
+      "wrong_category",
+    );
+  });
+
+  // An honest null beats a guess: these rows stay ambiguous and any
+  // analysis has to treat them as such.
+  it("returns null rather than guessing on an uninformative note", () => {
+    expect(remapFromNote("close")).toBeNull();
+    expect(remapFromNote("ok")).toBeNull();
+    expect(remapFromNote("")).toBeNull();
+    expect(remapFromNote(null)).toBeNull();
+  });
+
+  it("names the keys whose stored rows cannot be trusted alone", () => {
+    expect(OVERLOADED_LEGACY_KEYS.has("not_sample_applicable")).toBe(true);
+    expect(OVERLOADED_LEGACY_KEYS.has("out_of_scope")).toBe(true);
+    expect(OVERLOADED_LEGACY_KEYS.has("other")).toBe(true);
+    // A curator who picked a specific chip meant it.
+    expect(OVERLOADED_LEGACY_KEYS.has("invalid_annotation")).toBe(false);
+  });
+});
+
+describe("chip ordering", () => {
+  // Measured curator use (local-curator rows only): redundant 21 leads.
+  it("leads the extra-tag set with the most-used curator reason", () => {
+    expect(CAL_EXTRA_TAG_DISMISS_CHIPS[0].key).toBe("redundant_with_bm_source");
+  });
+
+  // Deliberate exception to frequency order. `other` (16) and
+  // `borderline` (13) were the 2nd and 4th most-used chips — and that
+  // is the symptom this revision fixes, not a preference to encode.
+  // Ranking a dumping ground by its own frequency keeps it the path of
+  // least resistance.
+  it("pins the catch-alls last despite their high measured use", () => {
+    const k = keys(CAL_EXTRA_TAG_DISMISS_CHIPS);
+    expect(k[k.length - 1]).toBe("other");
+    expect(k[k.length - 2]).toBe("borderline");
+  });
+
+  it("leads gold-miss accepts with current_wrong (23) over current_redundant (21)", () => {
+    expect(CAL_MISS_ACCEPT_CHIPS[0].key).toBe("current_wrong");
+  });
+
+  // 70 of 78 measured accepts.
+  it("leads extra accepts with well_evidenced", () => {
+    expect(CAL_EXTRA_ACCEPT_CHIPS[0].key).toBe("well_evidenced");
+  });
+
+  it("leads factor removal with the swap case", () => {
+    expect(CAL_MISS_FACTOR_ACCEPT_CHIPS[0].key).toBe("swapped_for_other_proposal");
   });
 });

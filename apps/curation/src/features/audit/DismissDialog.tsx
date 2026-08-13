@@ -17,7 +17,11 @@ import { cn } from "@/lib/cn";
  * Positioning logic mirrors the previous version.
  */
 
-const DIALOG_W = 260;
+// 300 rather than 260 since the disposition options became a single
+// column of full-sentence labels ("Agent's is better — more specific").
+// Wide enough that none of them wrap to a second line, which is the
+// whole point of the column.
+const DIALOG_W = 300;
 const DIALOG_H_ESTIMATE = 200;
 const ANCHOR_OFFSET = 4;
 const VIEWPORT_GUTTER = 8;
@@ -273,8 +277,16 @@ export function DismissDialog({
           ? "Pick a reason — note rides to the curation agent at close-review."
           : "Optional note rides to the curation agent at close-review."}
       </div>
+      {/* One button per row rather than a wrapped chip strip. The
+          2026-08-13 vocabulary carries labels like "Right value, wrong
+          category" and "Agent's is better — grounding"; wrapped inline
+          they reflow into an unscannable block, and a curator picking a
+          disposition is reading the options, not recognising a familiar
+          chip. Column keeps every label on one line and gives the eye a
+          single axis to travel. The help text stays a tooltip — it is
+          instruction, not label. */}
       {chips.length > 0 ? (
-        <div className="flex gap-1 flex-wrap mb-2">
+        <div className="flex flex-col gap-0.5 mb-2">
           {chips.map((t) => (
             <button
               key={t.key}
@@ -282,7 +294,7 @@ export function DismissDialog({
               title={t.help}
               onClick={() => setTag(tag === t.key ? null : t.key)}
               className={cn(
-                "text-[10px] px-1.5 py-0.5 rounded border transition-colors",
+                "text-[10px] text-left px-1.5 py-1 rounded border transition-colors",
                 tag === t.key
                   ? "bg-slate-700 text-white border-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200"
                   : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700",
