@@ -243,6 +243,21 @@ export interface TermSynonym {
   type: string;
 }
 
+/** Cellosaurus-backed metadata Gemma ships on ``/annotations/term`` for
+ *  CVCL rows (live on gemma2 + frink since 2026-08-11). Every field here
+ *  is a catalogue assertion, not a curation — ``lib/derivedFacts.ts``
+ *  turns them into rows and owns the rule that they must never render
+ *  like curated content. */
+export interface TermSourceMetadata {
+  species?: { ncbiTaxonId?: number | null; label?: string | null }[] | null;
+  cellLineType?: string | null;
+  sex?: string | null;
+  strainType?: string | null;
+  /** Cellosaurus' problem flag — "Contaminated" on a misidentified line
+   *  (KB / CVCL_0372 is a HeLa derivative). Null on a clean line. */
+  problematic?: string | null;
+}
+
 /** Minimal term-detail shape consumed by the CuriePopover. Source-
  *  agnostic — Gemma and OLS map to it via the two adapters below. */
 export interface AnnotationTermDetail {
@@ -290,6 +305,12 @@ export interface AnnotationTermDetail {
   taxonScientificName?: string | null;
   taxonCommonName?: string | null;
   taxonId?: number | null;
+  /** Catalogue-asserted facts about the term — species / cell-line type
+   *  / sex / strain type / Cellosaurus' ``problematic`` flag. Populated
+   *  on Cellosaurus (CVCL) rows; null elsewhere. These are DERIVED, not
+   *  curated: see ``lib/derivedFacts.ts`` for the class distinction and
+   *  the rendering rule. */
+  sourceMetadata?: TermSourceMetadata | null;
 }
 
 const GEMMA_TERM_KEY = (uri: string | null) =>
@@ -439,6 +460,9 @@ export function parseGemmaTerm(
       : typeof r.ontology_short === "string"
         ? (r.ontology_short as string)
         : "";
+  const sourceMetadata = parseSourceMetadata(
+    r.source_metadata ?? r.sourceMetadata,
+  );
   if (!label && !definition && parents.length === 0) return null;
   return {
     uri,
@@ -452,7 +476,57 @@ export function parseGemmaTerm(
     ontology,
     source: "gemma",
     canonicalUrl: curieToUrl(uri),
+    sourceMetadata,
   };
+}
+
+/** Read the Cellosaurus ``sourceMetadata`` block off a term payload.
+ *  Every field is optional and absent on non-CVCL rows, so an unknown
+ *  or empty block collapses to null rather than an object of nulls the
+ *  renderer would have to re-check. */
+function parseSourceMetadata(raw: unknown): TermSourceMetadata | null {
+  if (!raw || typeof raw !== "object") return null;
+  const m = raw as Record<string, unknown>;
+  const str = (...keys: string[]): string | null => {
+    for (const k of keys) {
+      const v = m[k];
+      if (typeof v === "string" && v.trim()) return v;
+    }
+    return null;
+  };
+  const speciesRaw = (m.species ?? []) as unknown[];
+  const species = Array.isArray(speciesRaw)
+    ? speciesRaw
+        .map((s) => {
+          const o = (s ?? {}) as Record<string, unknown>;
+          const label =
+            typeof o.label === "string"
+              ? o.label
+              : typeof o.name === "string"
+                ? o.name
+                : null;
+          const id = o.ncbiTaxonId ?? o.ncbi_taxon_id;
+          return {
+            label,
+            ncbiTaxonId: typeof id === "number" ? id : null,
+          };
+        })
+        .filter((s) => !!s.label)
+    : [];
+  const out: TermSourceMetadata = {
+    species: species.length > 0 ? species : null,
+    cellLineType: str("cellLineType", "cell_line_type"),
+    sex: str("sex"),
+    strainType: str("strainType", "strain_type"),
+    problematic: str("problematic"),
+  };
+  const anything =
+    !!out.species ||
+    !!out.cellLineType ||
+    !!out.sex ||
+    !!out.strainType ||
+    !!out.problematic;
+  return anything ? out : null;
 }
 
 // ---------------------------------------------------------------------------

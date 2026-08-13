@@ -245,3 +245,92 @@ describe("parseOlsSynonyms", () => {
     expect(parseOlsSynonyms({ label: "x" }, "x")).toEqual([]);
   });
 });
+
+describe("parseGemmaTerm — Cellosaurus sourceMetadata", () => {
+  const URI = "https://www.cellosaurus.org/CVCL_0372";
+  // Verbatim gemma2 /annotations/term response for KB (2026-08-12),
+  // put through the client's snakeify the way a live call would be:
+  // ``sourceMetadata`` → ``source_metadata``, ``cellLineType`` →
+  // ``cell_line_type``, ``ncbiTaxonId`` → ``ncbi_taxon_id``.
+  const wire = {
+    data: {
+      uri: URI,
+      label: "KB",
+      definition: "Part of: Cancer Dependency Map project.",
+      obsolete: false,
+      usage_count: 0,
+      parents: [],
+      synonyms: [],
+      alternative_ids: [],
+      db_xrefs: [],
+      ontology_version: "56.0",
+      source_metadata: {
+        species: [{ ncbi_taxon_id: 9606, label: "Homo sapiens (Human)" }],
+        cell_line_type: "Cancer cell line",
+        sex: "Female",
+        strain_type: null,
+        problematic: "Contaminated",
+      },
+    },
+  };
+
+  it("reads the snakeified block the client actually delivers", () => {
+    const d = parseGemmaTerm(wire, URI)!;
+    expect(d.sourceMetadata).toEqual({
+      species: [{ ncbiTaxonId: 9606, label: "Homo sapiens (Human)" }],
+      cellLineType: "Cancer cell line",
+      sex: "Female",
+      strainType: null,
+      problematic: "Contaminated",
+    });
+  });
+
+  it("also tolerates the raw camelCase shape", () => {
+    const d = parseGemmaTerm(
+      {
+        data: {
+          uri: URI,
+          label: "KB",
+          sourceMetadata: {
+            species: [{ ncbiTaxonId: 9606, label: "Homo sapiens (Human)" }],
+            cellLineType: "Cancer cell line",
+          },
+        },
+      },
+      URI,
+    )!;
+    expect(d.sourceMetadata?.cellLineType).toBe("Cancer cell line");
+    expect(d.sourceMetadata?.species?.[0].ncbiTaxonId).toBe(9606);
+  });
+
+  it("collapses an all-null block to null rather than an object of nulls", () => {
+    const d = parseGemmaTerm(
+      {
+        data: {
+          uri: "http://purl.obolibrary.org/obo/MONDO_0009693",
+          label: "plasma cell myeloma",
+          definition: "A neoplasm.",
+          source_metadata: {
+            species: null,
+            cell_line_type: null,
+            sex: null,
+            strain_type: null,
+            problematic: null,
+          },
+        },
+      },
+      "http://purl.obolibrary.org/obo/MONDO_0009693",
+    )!;
+    expect(d.sourceMetadata).toBeNull();
+  });
+
+  it("is null on an ordinary term that ships no block", () => {
+    const d = parseGemmaTerm(wire, URI)!;
+    expect(d.sourceMetadata).not.toBeNull();
+    const plain = parseGemmaTerm(
+      { data: { uri: URI, label: "x", definition: "y" } },
+      URI,
+    )!;
+    expect(plain.sourceMetadata).toBeNull();
+  });
+});

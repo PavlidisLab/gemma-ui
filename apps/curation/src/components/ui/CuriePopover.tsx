@@ -40,6 +40,11 @@ import {
   shortenUri,
   termRegistry,
 } from "@/lib/curie";
+import {
+  alertFact,
+  deriveFromTerm,
+  type DerivedFact,
+} from "@/lib/derivedFacts";
 
 export interface CuriePopoverProps {
   uri: string;
@@ -262,6 +267,59 @@ function Loading({ source }: { source?: "ols" | "ncbi" }) {
  *  narrower term exists without turning the card into a subclass dump. */
 const MAX_SHOWN_CHILDREN = 4;
 
+/**
+ * Facts a catalogue asserts about the term, rendered so they can never
+ * be mistaken for the term's own definition or for a curator's claim.
+ *
+ * Three cues carry the "derived" class, matching the axis
+ * ``features/audit/evidenceSource.ts`` already establishes for evidence
+ * provenance (colour = kind of source, badge = which source, and green
+ * stays reserved for ontology-backed): an indigo rule down the left, a
+ * "derived" caption naming the class, and a per-row source badge. A row
+ * is deliberately NOT a term chip — no catalogue ships a grounded URI
+ * for these yet, and a chip opening a card Gemma can't resolve would
+ * dead-end the curator.
+ *
+ * Grouped by relation because one term carries several facts at once
+ * and two diseases from one CLO description are two rows, not one.
+ */
+function DerivedBlock({ facts }: { facts: DerivedFact[] }) {
+  const byRelation = new Map<string, DerivedFact[]>();
+  for (const f of facts) {
+    // The alert row is already hoisted above the definition; repeating
+    // it here would read as two separate findings.
+    if (f.tone === "warn") continue;
+    const list = byRelation.get(f.relation);
+    if (list) list.push(f);
+    else byRelation.set(f.relation, [f]);
+  }
+  if (byRelation.size === 0) return null;
+  return (
+    <div className="border-l-2 border-indigo-300 dark:border-indigo-600 pl-2 mt-0.5 space-y-0.5">
+      <div
+        className="text-[9px] uppercase tracking-wide text-indigo-700/90 dark:text-indigo-300/90"
+        title="Read from a catalogue, not curated by anyone. Derived facts can be wrong — verify before relying on one."
+      >
+        derived
+      </div>
+      {[...byRelation.entries()].map(([relation, rows]) => (
+        <div key={relation} className="text-[10px] leading-snug">
+          <span className="text-slate-500 dark:text-slate-400">{relation}: </span>
+          <span className="text-slate-700 dark:text-slate-200">
+            {rows.map((r) => r.value).join(" · ")}
+          </span>{" "}
+          <span
+            className="text-[9px] text-indigo-700/80 dark:text-indigo-300/80"
+            title={`Read from ${rows[0].source}'s ${rows[0].sourceDetail}`}
+          >
+            {rows[0].source}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Body({
   detail,
   childrenResult,
@@ -274,6 +332,13 @@ function Body({
   /** Walk the popover to another term (parent / alternate id / child). */
   onNavigate: (uri: string) => void;
 }) {
+  // Derived facts are lifted out of the term BEFORE the definition
+  // renders: a CLO cell line's ``definition`` may BE a derived fact
+  // ("disease: plasmacytoma;   myeloma"), and showing that in the
+  // definition slot would present a catalogue's inference as the term's
+  // meaning. See lib/derivedFacts.ts for the class distinction.
+  const { definition, facts } = deriveFromTerm(detail);
+  const alert = alertFact(facts);
   return (
     <>
       <div className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
@@ -313,7 +378,20 @@ function Body({
           ))}
         </div>
       ) : null}
-      {detail.definition ? (
+      {alert ? (
+        // Hoisted above the definition on purpose: a Cellosaurus
+        // contamination flag is the one derived fact that should stop a
+        // curator mid-annotation, and Cellosaurus definitions run to
+        // ~900 characters, so anywhere below here it is buried.
+        <div className="flex items-baseline gap-1.5 rounded border border-amber-300 bg-amber-50/70 px-1.5 py-1 text-[10px] text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-100">
+          <span aria-hidden="true">⚠</span>
+          <span>
+            <span className="font-semibold">{alert.value}</span> — this line is
+            flagged by {alert.source}. Check it is the line the study means.
+          </span>
+        </div>
+      ) : null}
+      {definition ? (
         <div
           className="text-slate-600 dark:text-slate-300 leading-snug"
           // CHEBI / ChEBI-derived definitions ship inline chemistry
@@ -324,13 +402,17 @@ function Body({
           // The whitelist below re-enables ONLY inline text-formatting
           // tags; everything else is escaped. No attributes survive →
           // no event handlers / scripts / links can ride in.
-          dangerouslySetInnerHTML={{ __html: sanitizeDefinitionHtml(detail.definition) }}
+          dangerouslySetInnerHTML={{ __html: sanitizeDefinitionHtml(definition) }}
         />
-      ) : (
+      ) : facts.length === 0 ? (
+        // Only claim "no definition" when there's nothing at all. A CLO
+        // cell line whose definition WAS the derived disease fact has
+        // one — it just isn't a definition, and it renders below.
         <div className="italic text-slate-400 dark:text-slate-500">
           No definition recorded
         </div>
-      )}
+      ) : null}
+      {facts.length > 0 ? <DerivedBlock facts={facts} /> : null}
       {detail.parents.length > 0 ? (
         <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
           <span className="font-semibold">parents: </span>
