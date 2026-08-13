@@ -36,7 +36,11 @@ import {
   tabForTargetId,
 } from "@/lib/scrollToAuditTarget";
 
-import { applyLabelFix, collectTerms } from "./collectTerms";
+import {
+  applyLabelFix,
+  collectTerms,
+  isBareAccessionLabel,
+} from "./collectTerms";
 import {
   buildRun,
   runIsStale,
@@ -119,7 +123,7 @@ export function TermValidationPanel({
           {validate.isPending
             ? "Checking…"
             : run
-              ? "Re-check terms"
+              ? `Re-check ${refs.length} terms`
               : `Validate ${refs.length} terms`}
         </button>
 
@@ -158,7 +162,7 @@ export function TermValidationPanel({
             return (
               <li
                 key={result.id}
-                className="text-[11px] flex items-start gap-2"
+                className="text-[11px] flex items-center gap-2 flex-wrap"
               >
                 <span
                   className={`shrink-0 rounded border px-1 py-px ${copy.cls}`}
@@ -178,21 +182,23 @@ export function TermValidationPanel({
                     // otherwise still SAY where it is, which is the
                     // minimum a curator needs to go find it.
                     ref.targetId && tabForTargetId(ref.targetId) ? (
-                      <button
-                        type="button"
-                        className="text-blue-600 dark:text-blue-400 hover:underline"
-                        onClick={() =>
-                          requestAuditFocus(experimentId, ref.targetId!)
-                        }
-                        title={locateTooltipFor(ref.targetId)}
-                      >
-                        {" "}
-                        · {ref.where}
-                      </button>
+                      <>
+                        {" · "}
+                        <button
+                          type="button"
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                          onClick={() =>
+                            requestAuditFocus(experimentId, ref.targetId!)
+                          }
+                          title={locateTooltipFor(ref.targetId)}
+                        >
+                          {ref.where}
+                        </button>
+                      </>
                     ) : (
                       <span className="text-slate-500 dark:text-slate-400">
-                        {" "}
-                        · {ref.where}
+                        {" · "}
+                        {ref.where}
                       </span>
                     )
                   ) : null}
@@ -207,6 +213,28 @@ export function TermValidationPanel({
                       <span className="font-medium">
                         {result.canonical_label}
                       </span>
+                      {/* A canonical label that is a bare catalogue
+                          accession is technically correct and useless
+                          to a reader: "PC-9 → term is RCB4455 cell"
+                          reads as a bug, not as advice. 11 RIKEN + 5
+                          Coriell targets are shaped like this. Show
+                          the human names beside it so a curator can
+                          see the equivalence they're being told
+                          about, rather than being asked to trust an
+                          accession. */}
+                      {isBareAccessionLabel(result.canonical_label)
+                        ? (() => {
+                            const named = (result.synonyms ?? []).filter(
+                              (s) => s && !isBareAccessionLabel(s),
+                            );
+                            return named.length ? (
+                              <span className="text-slate-500 dark:text-slate-400">
+                                {" "}
+                                (also: {named.slice(0, 3).join(", ")})
+                              </span>
+                            ) : null;
+                          })()
+                        : null}
                     </span>
                   ) : null}
                   {/* Relabel-in-place, only where the label is what's
@@ -219,7 +247,7 @@ export function TermValidationPanel({
                   ref?.locator ? (
                     <button
                       type="button"
-                      className="btn btn-xs ml-2"
+                      className="ml-1 px-1.5 py-px rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
                       disabled={readOnly}
                       title={
                         readOnly

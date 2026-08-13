@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { Design } from "@/features/experiment/types";
 
-import { applyLabelFix, collectTerms, termKey } from "./collectTerms";
+import {
+  applyLabelFix,
+  collectTerms,
+  isBareAccessionLabel,
+  termKey,
+} from "./collectTerms";
 
 function design(overrides: Partial<Design> = {}): Design {
   return {
@@ -275,5 +280,34 @@ describe("applyLabelFix", () => {
     expect(next.factors[0].factor_values[0].statements[0].subject.label).toBe(
       "milligram per kilogram",
     );
+  });
+});
+
+describe("isBareAccessionLabel", () => {
+  // The case Cab flagged: CLO holds the catalogue accession as the
+  // primary label while the name everyone says is a synonym. Telling a
+  // curator "PC-9 → term is RCB4455 cell" is technically true and
+  // unusable — they can't check it, and it reads as a bug.
+  it("recognises registry accessions used as labels", () => {
+    expect(isBareAccessionLabel("RCB4455 cell")).toBe(true);
+    expect(isBareAccessionLabel("RCB1154 cell")).toBe(true);
+    expect(isBareAccessionLabel("CVCL_0132")).toBe(true);
+    expect(isBareAccessionLabel("ACC 305 cell")).toBe(true);
+  });
+
+  // False negatives are the expensive direction: a real name wrongly
+  // flagged would put a pointless "(also: …)" on every row.
+  it("leaves real names alone", () => {
+    expect(isBareAccessionLabel("PC-9")).toBe(false);
+    expect(isBareAccessionLabel("melanoma")).toBe(false);
+    expect(isBareAccessionLabel("left occipital lobe")).toBe(false);
+    expect(isBareAccessionLabel("HEK-293F")).toBe(false);
+    expect(isBareAccessionLabel("CGR8 cell")).toBe(false);
+  });
+
+  it("handles empty and missing input", () => {
+    expect(isBareAccessionLabel("")).toBe(false);
+    expect(isBareAccessionLabel(null)).toBe(false);
+    expect(isBareAccessionLabel(undefined)).toBe(false);
   });
 });

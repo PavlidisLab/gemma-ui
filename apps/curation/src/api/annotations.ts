@@ -93,15 +93,43 @@ export function useAnnotationSearch(
       if (category) params.set("category", category);
       params.set("limit", String(limit));
       if (includeExampleUsage) params.set("includeExampleUsage", "true");
-      // Bias by how often each term has actually been used in
-      // Gemma curations rather than the default Lucene tf-idf
-      // ranking. Without this, common multi-word labels like
-      // "wild type genotype" get tokenised and the matching term
-      // sinks past the visible window — curators have to type
-      // quoted phrases to find them. ``rank=usage`` lands in
-      // Gemma 2.0 (phase2-acl-migrate); older servers ignore
-      // unknown params, so this degrades to lucene ordering.
-      params.set("rank", "usage");
+      // Coverage-dominant ranking with usage as a secondary signal:
+      //   0.5*tokenCoverage + 0.3*normalizedLog(usage) + 0.2*1/(1+rank)
+      //
+      // Was ``rank=usage`` until 2026-08-13. That parameter does NOT
+      // blend rank with usage despite its name — measured with geb:
+      // its usage score saturates at usage 10, so every term used ≥10
+      // times outscores the best conceivable usage-0 hit (an exact
+      // label match at position 0). It is a PARTITION — "used terms
+      // first, in URI order" — not a ranking. And because `limit`
+      // truncates AFTER ranking, that changes which terms are visible
+      // at all, not just their order.
+      //
+      // What that did to the picker: typing `malignant melanoma` under
+      // `category=disease` offered gastric cancer, urinary bladder
+      // cancer and brain cancer, with no melanoma term in the list.
+      // Those are ordinary lexical hits — their MONDO synonyms contain
+      // "malignant" — floated above the real match purely for being
+      // used.
+      //
+      // The original justification for `usage` no longer holds either:
+      // `wild type genotype` was the case it was added for, and it now
+      // leads under lucene, usage AND composite. Where `usage` was
+      // genuinely earning its keep — duplicate labels across
+      // ontologies, `liver` (u=0) vs `liver` (u=1124), `dmso` vs
+      // `dimethyl sulfoxide` — `composite` fixes those identically.
+      //
+      // Known cost, accepted: a one-token designation colliding with a
+      // gene symbol (`FTC` under treatment → emtricitabine vs the MGI
+      // gene) is the one shape `usage` won and `composite` does not,
+      // because coverage cannot separate two labels that both contain
+      // the whole query. The trade is asymmetric — a picker sees far
+      // more descriptive phrases than abbreviation collisions.
+      // Handoff: GEB_TO_UIB_2026_08_13_IT_IS_A_RERANK_AND_THE_BLEND_IS_A_PARTITION.
+      //
+      // Older servers ignore unknown params, so this degrades to
+      // lucene ordering.
+      params.set("rank", "composite");
       // Two response shapes live on the wire today (2026-05-23):
       //   - local_api returns the bare list ``[{label, uri,
       //     category_label, category_uri, usage_count}, …]``.

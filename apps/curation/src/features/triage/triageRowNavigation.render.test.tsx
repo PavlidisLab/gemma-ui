@@ -27,6 +27,9 @@ vi.mock("@/routes", async (orig) => ({
 vi.mock("@/api/tickets", () => ({
   useFinalizeTriage: () => ({ mutateAsync: vi.fn(), isPending: false, isError: false }),
   usePatchTicketTarget: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  // Used by the close flow to carry `unsure` rows into a follow-up
+  // screening ticket.
+  useCreateTicket: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 /** A legacy GEO-scrape ticket: no display_fields anywhere, which is the

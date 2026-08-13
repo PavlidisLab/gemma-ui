@@ -315,3 +315,30 @@ export function applyLabelFix(
       return null;
   }
 }
+
+/**
+ * Whether a term label is a bare catalogue accession rather than a name
+ * a person would use — `RCB4455 cell`, `CVCL_0132`, `ACC 305 cell`.
+ *
+ * Cell-line registries (RIKEN RCB, JCRB, Coriell GM/AG, DSMZ ACC,
+ * Cellosaurus CVCL) often hold the accession as the CLO primary label
+ * while the name everyone actually says — `PC-9`, `KGN` — is a
+ * synonym. Telling a curator their label is wrong and the real term is
+ * `RCB4455 cell` is technically true and unusable: they cannot check
+ * it, and it reads as a bug rather than as advice.
+ *
+ * Used to decide when to show the human synonyms alongside. Kept
+ * deliberately narrow — a false positive here only adds a helpful
+ * "(also: …)", but a false negative on a real name would clutter every
+ * row.
+ */
+export function isBareAccessionLabel(label: string | null | undefined): boolean {
+  const s = (label ?? "").trim();
+  if (!s) return false;
+  // Registry prefix + digits, optionally followed by " cell".
+  if (/^(RCB|JCRB|IFO|ACC|CVCL|GM|AG|HTB|CRL|CCL)[\s_-]?\d+/i.test(s)) return true;
+  // A label that is nothing but punctuation, digits and a trailing
+  // "cell" carries no name at all.
+  if (/^[\d\s_.-]+(cell)?$/i.test(s)) return true;
+  return false;
+}

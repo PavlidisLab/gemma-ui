@@ -30,6 +30,7 @@ import {
 } from "react";
 
 import {
+  useCreateTicket,
   useFinalizeTriage,
   usePatchTicketTarget,
 } from "@/api/tickets";
@@ -66,6 +67,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
     null,
   );
   const bulkPatch = usePatchTicketTarget(ticket.id);
+  const createTicket = useCreateTicket();
 
   const { confirmLabel, rejectLabel } = decisionLabels(parsed);
   const PAGE_SIZE = 25;
@@ -211,30 +213,25 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
 
   const finalize = useFinalizeTriage(ticket.id);
 
-  /** Undecided rows, named so the close dialog can show WHICH
-   *  candidates a blanket decision is about to land on. */
-  const undecidedRows = useMemo(
-    () =>
-      triageTargets
-        .filter((t) => {
-          const d = t.triage_disposition ?? null;
-          // Both buckets block the close, for different reasons:
-          // `null` was never looked at, `unsure` was looked at and
-          // couldn't be resolved. Neither is a decision the follow-up
-          // ticket can act on.
-          return d === null || d === "unsure";
-        })
-        .map((t) => ({
-          targetId: t.target_id,
-          label: metaOf(t)?.accession || String(t.target_id),
-          // Populated for `unsure` rows; null for never-reviewed ones.
-          // The dialog groups on it so a leftover CLASS is visible as
-          // one thing to decide rather than N rows to escalate.
-          reason: t.triage_disposition_reason ?? null,
-        })),
+  /** The two OPEN states, kept apart because they have different
+   *  destinations: never-reviewed can take a blanket decision,
+   *  `unsure` cannot (see TriageCloseDialog). */
+  const openRows = useMemo(() => {
+    const neverReviewed = [];
+    const unsure = [];
+    for (const t of triageTargets) {
+      const d = t.triage_disposition ?? null;
+      const row = {
+        targetId: t.target_id,
+        label: metaOf(t)?.accession || String(t.target_id),
+        reason: t.triage_disposition_reason ?? null,
+      };
+      if (d === null) neverReviewed.push(row);
+      else if (d === "unsure") unsure.push(row);
+    }
+    return { neverReviewed, unsure };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [triageTargets],
-  );
+  }, [triageTargets]);
 
   const closeTicket = async () => {
     try {
@@ -251,21 +248,21 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
     // `unsure` blocks the close too — it is reviewed-but-unresolved,
     // which the follow-up ticket can no more act on than an untouched
     // row. `undecidedRows` carries both.
-    if (undecidedRows.length > 0) {
+    if (openRows.neverReviewed.length > 0 || openRows.unsure.length > 0) {
       setCloseOpen(true);
       return;
     }
     await closeTicket();
   };
 
-  /** Apply one disposition to every undecided row, then close. The
-   *  patches go through the same mutation the bulk bar uses, so the
+  /** Apply one disposition to every never-reviewed row, then close.
+   *  Patches go through the same mutation the bulk bar uses, so the
    *  status/disposition coupling stays in one place. */
-  const resolvePendingThenClose = async (d: "include" | "exclude") => {
+  const resolveNeverReviewedThenClose = async (d: "include" | "exclude") => {
     setClosing(true);
     try {
       await Promise.all(
-        undecidedRows.map((r) => {
+        openRows.neverReviewed.map((r) => {
           const t = triageTargets.find((x) => x.target_id === r.targetId)!;
           return bulkPatch.mutateAsync({
             target_type: t.target_type,
@@ -274,6 +271,42 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
           });
         }),
       );
+      // Unsure rows may still be open — re-open the dialog rather than
+      // closing the ticket out from under them.
+      if (openRows.unsure.length === 0) {
+        setCloseOpen(false);
+        await closeTicket();
+      }
+    } finally {
+      setClosing(false);
+    }
+  };
+
+  /** Spawn a follow-up SCREENING ticket carrying ONLY the unsure rows,
+   *  then close this one. The subset is expressible because
+   *  ``TicketCreate.targets`` is a plain list — there is no
+   *  inherit-everything behaviour to work around. An assignee makes it
+   *  an escalation; blank keeps it with the same owner. */
+  const carryUnsureForward = async (assignee: string) => {
+    setClosing(true);
+    try {
+      await createTicket.mutateAsync({
+        type: "SCREENING",
+        title: `Unresolved from: ${ticket.title}`,
+        ...(assignee ? { assignee } : {}),
+        body:
+          `Carried forward from ticket #${ticket.id} — ${openRows.unsure.length} ` +
+          `candidate(s) the curator reviewed but could not resolve. ` +
+          `Reasons travel with each row.`,
+        targets: openRows.unsure.map((r) => {
+          const t = triageTargets.find((x) => x.target_id === r.targetId)!;
+          return {
+            target_type: t.target_type,
+            target_id: t.target_id,
+            status: "NOT_DONE" as const,
+          };
+        }),
+      });
       setCloseOpen(false);
       await closeTicket();
     } finally {
@@ -382,11 +415,13 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
 
       <TriageCloseDialog
         open={closeOpen}
-        undecided={undecidedRows}
+        neverReviewed={openRows.neverReviewed}
+        unsure={openRows.unsure}
         includedCount={counts.include}
         excludedCount={counts.exclude}
-        busy={closing || finalize.isPending}
-        onResolve={resolvePendingThenClose}
+        busy={closing || finalize.isPending || createTicket.isPending}
+        onResolveNeverReviewed={resolveNeverReviewedThenClose}
+        onCarryForward={carryUnsureForward}
         onCancel={() => {
           setCloseOpen(false);
           // Drop them on the "To review" tab rather than just closing
