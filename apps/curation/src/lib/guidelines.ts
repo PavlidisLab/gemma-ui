@@ -13,10 +13,14 @@
 export interface GuidelineSnippet {
   /** Title shown in the popover header. */
   title: string;
-  /** Confluence page label. */
+  /** Where the snippet was derived from. For newer rules this is the
+   *  `curation_rules` file in `gemma-curation-agents` — that repo is
+   *  canonical and runs ahead of the wiki. */
   source: string;
-  /** Confluence URL. */
-  sourceUrl: string;
+  /** Confluence URL. Still worth linking even when the wiki lags the
+   *  rules repo: the page carries the surrounding procedure. Omit only
+   *  when no related page exists at all. */
+  sourceUrl?: string;
   /** Body — kept short. Each line is rendered as a list item. */
   bullets: string[];
   /** Optional verbatim examples / format strings. */
@@ -65,6 +69,8 @@ const ONTO_URL =
   `${WIKI_HOST}/display/gemma/Using+ontologies`;
 const CHECKLIST_URL =
   `${WIKI_HOST}/display/gemma/Experiment+Checklist`;
+const TAXON_URL =
+  `${WIKI_HOST}/display/gemma/Changing+Experiment+Taxon`;
 
 /**
  * Per-organism developmental-stage age cutoffs — the canonical mapping
@@ -145,7 +151,9 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
     sourceUrl: WIKI_BASE,
     bullets: [
       "Use CL — be as specific as possible. NIF is deprecated, even for brain cells.",
-      "Use `located in` (RO_0001025) for organism-part qualifier and `has developmental stage` (TGEMO_00168) to specify the age of the sample the cell came from.",
+      "Tissue of origin: `derives from part of` (ENVO_01003004), preferred over the more generic `located in` (RO_0001025). Age of the source sample: `has developmental stage` (TGEMO_00168).",
+      "Tissue-tag test — could this cell type plausibly come from another tissue? Yes → emit the `derives from part of` statement, not a parallel organism-part tag. No → CL already covers it; drop the tissue tag.",
+      "Derived material (iPSC-/ESC-derived, organoid, directed differentiation): tag what the cells ARE NOW and carry the origin as statements. See the Derived material crib sheet.",
       "If a CLO cell line is already tagged for the same sample, do NOT also tag the cell type — the cell line implies it.",
       "Cell markers / FACS-sorting markers must NEVER be the only FV — determine the actual cell type first. Markers go on as: cell type (CL) + `positive for product of gene` (TGEMO_00169) / `negative for product of gene` (TGEMO_00170) + gene (NCBI_GENE).",
       "Cell Atlas experiments (broad-spectrum cell-type studies) often need `splitExperiment` to break into sensible sub-experiments — they're poor fits for DEA as-is.",
@@ -435,6 +443,7 @@ export const TAGS_GUIDELINE: GuidelineSnippet = {
     "Same ontology rules as FactorValues — see the Curating EFCs guide for which ontology each category prefers (UBERON for organism part, CL for cell type, MONDO for disease, etc).",
     "Search uses ontology inference — tagging `brain` is redundant if a specific brain region (Ammon's horn, dentate gyrus, …) is already in the design.",
     "TGEMO study-design tags are tag-only (use `study design` as the EFC): `[Sample Study]` (TGEMO_00020), `[Cell Line Sample Study]` (TGEMO_00033), `[Benchmark Study]` (TGEMO_00032), `[Time Consuming]` (TGEMO_00011).",
+    "The graft relationship is also a `study design` value — but unlike the tags above it can be a factor when it varies. See the Graft studies crib sheet.",
     "Assay-type tags (`Transcription Profiling by Array` / `…High-Throughput Sequencing` / `Single-Cell RNA Sequencing` / `Single Nucleus RNA Sequencing`) are auto-applied — if missing, run `gemma-cli updateGEOData --update-experiment-tags -e GSE…`.",
     "Most experiments need ≤3 manually-added tags. If you're routinely adding more, ask for review.",
   ],
@@ -520,6 +529,94 @@ export const DEV_STAGE_GUIDELINE: GuidelineSnippet = {
   ],
   donts: [PRENATAL_STAGING_DONT],
   examples: DEV_STAGE_AGE_RANGES.map((r) => `${r.organism}: ${r.ranges}`),
+};
+
+/**
+ * Derived material — organoids, stem-cell-derived cells, directed
+ * differentiation. Re-derived from `gemma-curation-agents`
+ * `docs/curation_rules/09_experiment_tags.md` ("Organoids and
+ * stem-cell-derived material"), `04_efc_catalog.md` (Cell Type,
+ * derived-material paragraph) and `10_ontologies_general.md`
+ * (derived material / developmental stage), plus the endpoint+origin
+ * rule in the tag proposer's prompt.
+ *
+ * The rules repo is canonical here and runs ahead of the wiki — the
+ * composed-statement template is an agreement recorded there, not a
+ * Confluence page. The tags page is still the useful click-through
+ * for the surrounding tag procedure.
+ */
+export const DERIVED_MATERIAL_GUIDELINE: GuidelineSnippet = {
+  title: "Organoids & stem-cell-derived material",
+  source: "curation_rules 09_experiment_tags (interim, agreed 2026-08-08)",
+  sourceUrl: TAGS_URL,
+  bullets: [
+    "The SUBJECT is the cell type — annotate what the cells ARE NOW. The origin rides as statements on that subject: an organoid is not an organism part, and the parent line is not the cell type.",
+    "Template: cell type + `derives from cell line` (CLO_0037210) → parent line, + `has modifier` (RO_0002573) → `organoid` (TGEMO_00205).",
+    "Several statements on ONE subject is the intended shape — there is no second-predicate slot. A richer annotation is more statements sharing a subject.",
+    "Always compose endpoint + origin, even when the BioMaterials say `cell type=iPSC`: `iPSC-derived cardiomyocytes` → `cardiac muscle cell` (CL_0000746); `rapid neuron differentiation` → `neuron` (CL_0000540). Endpoint alone drops the derivation; line alone drops the differentiated identity — both are half-annotations.",
+    "Pick the MOST SPECIFIC `derives from` predicate that fits: `derives from cell line` (CLO_0037210) for a named line, `derives from cell` (CLO_0037209) for a CL cell type, `derives from part of` (ENVO_01003004) for an organism part, `derives from patient having disease` (CLO_000015) for primary patient tissue. `derives from` (RO_0001000) is the catch-all when none of those fit — e.g. an origin term like `induced pluripotent stem cell` (EFO_0004905).",
+    "Generic derived-line parents when no line is named: iPSC-derived (EFO_0005740), stem cell-derived (EFO_0002886), ESC-derived (EFO_0005738), fibroblast-derived (EFO_0002009).",
+    "In-vitro time-courses (hESC neural differentiation day 0-22, organoid culture week 1-8) are a Timepoint EFC, not a developmental stage — what varies is the experiment's clock, not an organism's age.",
+    "A derived model MAY carry the stage it RECAPITULATES when the paper states one (`cortical organoids comparable to post-conception week 19` → that modelled stage).",
+  ],
+  examples: [
+    "cell type: retinal cell (CL_0009004) + derives from cell line -> H9 cell (CLO_0003612) + has modifier -> organoid (TGEMO_00205)",
+    "cell type: neuron (CL_0000540) + derives from -> induced pluripotent stem cell (EFO_0004905)",
+  ],
+  donts: [
+    "Don't tag the parent line instead of the endpoint — `cell line: H9` loses what the cells now are, and CLO already implies the line's own cell type.",
+    "Don't file the organoid as an organism part; that asserts a body part which does not exist. And skip the organism-part tag entirely when the cell type implies it (`retinal cell` implies retina).",
+    "Don't assign an organism developmental stage to organoid / iPSC- or ESC-derived / cell-line material.",
+    "`has modifier` here is the generic escape hatch, not a purpose-built predicate for culture format — the template is interim by agreement.",
+  ],
+};
+
+/**
+ * Graft studies. Re-derived from `gemma-curation-agents`
+ * `docs/curation_rules/09_experiment_tags.md` — the "Grafts" section
+ * (where the term hangs, the host, the four terms) and
+ * "Pre-experiment animal / host / source-tissue properties" — plus
+ * `01_workflow_and_checklist.md` (taxon is the sequenced RNA, not the
+ * host), `06_baseline_factor_values.md` (graft baselines, recorded
+ * open) and `04_efc_catalog.md` (the CD133+ worked example).
+ *
+ * Cite rules files by HEADING, never by line number — the rules repo
+ * is edited often enough that line refs rot silently.
+ *
+ * The taxon rule was authored into the rules repo and has no
+ * Confluence page stating it; the Changing Experiment Taxon page is
+ * still the right click-through because it carries the verification
+ * and correction procedure the rule sends you to.
+ */
+export const GRAFT_GUIDELINE: GuidelineSnippet = {
+  title: "Graft studies — xeno / allo / syngeneic / auto",
+  source: "curation_rules 09_experiment_tags §Grafts + 01_workflow_and_checklist",
+  sourceUrl: TAXON_URL,
+  bullets: [
+    "The graft relationship is a `study design` value: `xenograft` (OBI_0100058), `allograft` (TGEMO_00211), `syngeneic graft` (TGEMO_00212), `autograft` (TGEMO_00213). Same values whether it's constant across samples (→ experiment tag) or varies (→ factor) — the ordinary tag-vs-factor rule decides which.",
+    "We annotate that the source IS a graft, not the grafting procedure.",
+    "The host goes under `growth condition` — not on the grafted material.",
+    "The grafted material keeps its own `cell line` / `cell type` annotation, unchanged.",
+    "Anatomy is NOT displaced by the graft relationship. An orthotopic graft sits in a real body part, so `organism part` stays anatomical and stands alongside the study-design value — they are different facts in different categories.",
+    "Taxon is the species of the RNA that was sequenced, NOT the host. Human tumour cells in immunocompromised mice → taxon human, even when the GEO record lists both species. When GEO metadata and the actual RNA source disagree, the RNA source wins.",
+    "Allograft and xenograft curate identically apart from the term — but a xenograft announces itself through the taxon check and an allograft does not, so on same-species grafts the host-vs-graft rule has to be applied deliberately.",
+    "A tag must describe the PROFILED samples. Host and pre-experiment-animal properties — strain, developmental stage, disease model of the source or host animal — are not tags on the grafted cells. Ask: does every BioMaterial satisfy this, or does it apply to a host / source / culture processed away before profiling?",
+    "In-vivo graft arm plus an in-vitro arm in one accession is two experiments in one submission: a property true of one half is a factor value or a split, never an experiment-level tag.",
+    "A perturbation by a non-host entity is not host `genotype` — Gemma's genotype implies the HOST's genome varies. Make the non-host entity the statement subject.",
+    "BASELINE FOR A GRAFT FACTOR IS UNDEFINED — no canonical rule yet, and it is not a scoring target until one exists. What makes it hard rather than merely unwritten: the non-grafted host and the sham arm are usually a DIFFERENT PROFILED MATERIAL, not another level of the same factor. Decide per experiment and record why; no comparator in the design → `baseline n/a`, one you can't settle → `baseline?`. Either beats forcing one.",
+  ],
+  examples: [
+    "Orthotopic graft (GSE123637) — myeloma cells grafted into bone marrow: `study design: xenograft` AND `organism part: bone marrow`. Both stand.",
+    "Glioma xenograft sorted on CD133 (GSE24716) — EFC: cell line; FV1: neoplastic cell (CL) + positive for product of gene (TGEMO_00169) + PROM1 (NCBI_GENE); FV2: same with negative for product of gene (TGEMO_00170).",
+    "Human NSCs grafted into a stroke-induced rat host — the rat's disease model is NOT a tag on the profiled human NSC samples.",
+  ],
+  donts: [
+    "Don't take the taxon from the GEO organism field on a graft study without checking which species was actually sequenced.",
+    "Don't drop `organism part` just because the samples are grafted or from a cell line — on an orthotopic graft the site is real.",
+    "Don't hang the graft term on the cell type as a modifier, or curate it as a Treatment — it's `study design`.",
+    "Don't reach for a dedicated `host organism` term — it doesn't exist yet; the host goes under `growth condition`.",
+    "Don't bind a non-host gene symbol to a host-organism gene URI — drop the URI and keep free text rather than assert the wrong organism.",
+  ],
 };
 
 /**
