@@ -59,8 +59,12 @@ function finding(targetId: string, kind: "tag" | "factor"): AuditFinding {
     target_kind: kind,
     severity: "minor",
     issue_code: "x",
-    message: "m",
-  } as AuditFinding;
+    rationale: "",
+    citation: "",
+    citation_url: "",
+    suggested_fix: "",
+    proposer_suggestion: "",
+  };
 }
 
 describe("fvShapedTagTargets", () => {

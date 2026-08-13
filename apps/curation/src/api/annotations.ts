@@ -119,13 +119,28 @@ export function useAnnotationSearch(
       // ontologies, `liver` (u=0) vs `liver` (u=1124), `dmso` vs
       // `dimethyl sulfoxide` — `composite` fixes those identically.
       //
-      // Known cost, accepted: a one-token designation colliding with a
-      // gene symbol (`FTC` under treatment → emtricitabine vs the MGI
-      // gene) is the one shape `usage` won and `composite` does not,
-      // because coverage cannot separate two labels that both contain
-      // the whole query. The trade is asymmetric — a picker sees far
-      // more descriptive phrases than abbreviation collisions.
-      // Handoff: GEB_TO_UIB_2026_08_13_IT_IS_A_RERANK_AND_THE_BLEND_IS_A_PARTITION.
+      // There is no measured trade-off. The switch was recommended as
+      // accepting a known cost — that `usage` wins one-token
+      // designations colliding with a gene symbol (`FTC` under
+      // treatment → emtricitabine vs the MGI gene). Measured over 398
+      // decontaminated gold pairs, all five rankers score an identical
+      // 0.993 recall@5 on single-token queries: exact-match promotion
+      // has already put the answer on top before any ranker runs, so
+      // there is nothing to win there and the FTC case is too rare to
+      // move an aggregate. The whole difference is on multi-word
+      // queries, where composite is recall@5 0.828 vs lucene 0.672 and
+      // usage 0.708.
+      //
+      // Why composite rather than usage specifically: `usage`'s
+      // contribution is MEMBERSHIP, not ordering — on multi-word its
+      // recall goes 0.708@5 → 0.820@20 (the right term is present but
+      // below the fold) where lucene gains 1pp over the same span.
+      // composite keeps that membership gain without the ordering
+      // damage.
+      //
+      // Handoffs: GEB_TO_UIB_2026_08_13_IT_IS_A_RERANK_AND_THE_BLEND_IS_A_PARTITION
+      // (mechanism), UIB_TO_GEB_2026_08_13_RANKER_NUMBERS_THERE_IS_NO_TRADEOFF
+      // (numbers + harness).
       //
       // Older servers ignore unknown params, so this degrades to
       // lucene ordering.
