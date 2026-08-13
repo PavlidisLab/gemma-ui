@@ -11,10 +11,21 @@
  * `?group=<id>` query param threaded in by the workflow page.
  */
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { navigate, workflowRoute } from "@/routes";
+import { useTicket, usePatchTicketTarget } from "@/api/tickets";
+import type { TicketTargetTriageDisposition } from "@/api/tickets";
+import { DispositionPicker } from "@/components/ui/DispositionPicker";
+import {
+  decisionLabels,
+  findTargetForPreboarding,
+  parsePayload,
+  preboardingRowId,
+  preboardingSiblings,
+} from "@/features/triage/triagePayload";
+import { isEditableTarget } from "@/lib/isEditableTarget";
 
 interface PreboardingRow {
   id?: number | string;
@@ -128,6 +139,82 @@ function pickIm(
   };
 }
 
+/**
+ * Resolve the ticket decision this candidate page can record, if any.
+ *
+ * The page knows two things from the URL: its own preboarding row id
+ * and (when the curator drilled in from a screen) the ticket id. The
+ * mapping between them lives in the ticket's
+ * ``payload_json.candidates[<target_id>].preboarding_id`` — the same
+ * field the triage row builds its drill-in link from, read back the
+ * other way.
+ *
+ * ``target`` is null whenever there is nothing to decide: no ticket in
+ * the URL, a ticket that predates preboard-at-scrape (no ids to match),
+ * or a candidate that isn't on this ticket. The caller renders nothing
+ * in that case rather than a control that would have nowhere to write.
+ */
+function usePreboardingDecision(
+  experimentId: string | number,
+  ticketContext: string | undefined,
+) {
+  const ticketId = ticketContext ? Number(ticketContext) : null;
+  const { data: ticket } = useTicket(
+    Number.isFinite(ticketId) ? ticketId : null,
+  );
+  const patch = usePatchTicketTarget(ticketId ?? 0);
+  const rowId = preboardingRowId(experimentId);
+  const target = findTargetForPreboarding(ticket, rowId);
+  const labels = decisionLabels(parsePayload(ticket?.payload_json));
+  const siblings = preboardingSiblings(ticket, rowId);
+  const go = (id: number | null) => {
+    if (id == null) return;
+    navigate(`#/experiments/preboarding:${id}?ticket=${ticketId}`);
+  };
+
+  // Shift + ← / → walks the queue. Shift-modified so the plain arrows
+  // still scroll the page, and suppressed inside text fields.
+  useEffect(() => {
+    if (siblings.index < 0) return;
+    function onKey(e: KeyboardEvent) {
+      if (!e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      if (isEditableTarget(e.target)) return;
+      const to = e.key === "ArrowRight" ? siblings.next : siblings.prev;
+      if (to == null) return;
+      e.preventDefault();
+      go(to);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siblings.index, siblings.next, siblings.prev, ticketId]);
+
+  return {
+    target,
+    ...labels,
+    siblings,
+    go,
+    prompt: parsePayload(ticket?.payload_json).decision?.prompt,
+    disposition: target?.triage_disposition ?? null,
+    saving: patch.isPending,
+    error: patch.error as Error | null,
+    set: (next: TicketTargetTriageDisposition) => {
+      if (!target) return;
+      patch.mutate({
+        target_type: target.target_type,
+        target_id: target.target_id,
+        // Same write the triage row makes — a decision recorded here
+        // and one recorded in the table are the same row in the store.
+        patch: {
+          triage_disposition: next,
+          status: next === null ? "NOT_DONE" : "DONE",
+        },
+      });
+    },
+  };
+}
+
 export function PreboardingDetailPage({
   experimentId,
   groupContext,
@@ -170,6 +257,12 @@ export function PreboardingDetailPage({
   const data = preloaded ?? fetched;
   const effectiveLoading = !preloaded && isLoading;
   const effectiveError = !preloaded && error;
+
+  // The decision the ticket is asking for, if we arrived from one. The
+  // curator who drilled into a candidate to read it is the curator best
+  // placed to decide it — sending them back to the table to click the
+  // same two buttons is a round trip for nothing.
+  const decision = usePreboardingDecision(experimentId, ticketContext);
 
   const body = (
     <main className={embedded
@@ -390,6 +483,62 @@ export function PreboardingDetailPage({
         <span className="text-sm font-mono text-slate-500 dark:text-slate-400">
           {String(experimentId)}
         </span>
+        {decision.siblings.index >= 0 ? (
+          // Queue position + step controls. Visible arrows first (the
+          // shortcut is a bonus, not the only way in), with the keys
+          // named in the tooltip so they're discoverable.
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={decision.siblings.prev == null}
+              onClick={() => decision.go(decision.siblings.prev)}
+              title="Previous candidate (Shift + ←)"
+              className="px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:cursor-default hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              ←
+            </button>
+            <span className="text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+              {decision.siblings.index + 1} of {decision.siblings.ids.length}
+            </span>
+            <button
+              type="button"
+              disabled={decision.siblings.next == null}
+              onClick={() => decision.go(decision.siblings.next)}
+              title="Next candidate (Shift + →)"
+              className="px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:cursor-default hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              →
+            </button>
+          </div>
+        ) : null}
+        {decision.target ? (
+          // Right-aligned so the decision reads as the page's action,
+          // not as another piece of breadcrumb. Only rendered when the
+          // ticket gave us a target to write to.
+          <div className="ml-auto flex items-center gap-2">
+            {decision.prompt ? (
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {decision.prompt}
+              </span>
+            ) : null}
+            {decision.error ? (
+              <span
+                className="text-xs text-rose-700 dark:text-rose-300"
+                title={decision.error.message}
+              >
+                couldn't save
+              </span>
+            ) : null}
+            <DispositionPicker
+              size="md"
+              value={decision.disposition}
+              onChange={decision.set}
+              disabled={decision.saving}
+              confirmLabel={decision.confirmLabel}
+              rejectLabel={decision.rejectLabel}
+            />
+          </div>
+        ) : null}
       </header>
       {body}
     </div>

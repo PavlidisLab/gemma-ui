@@ -8,6 +8,7 @@ import { CuratorDashboard } from "@/features/landing/CuratorDashboard";
 import { TicketDetailPage } from "@/features/tickets/TicketDetailPage";
 import { ImportPrompt } from "@/features/landing/ImportPrompt";
 import { useStickyState } from "@/lib/useStickyState";
+import { isEditableTarget } from "@/lib/isEditableTarget";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
 import { AuditsInbox } from "@/features/inbox/AuditsInbox";
 import { AuditPreviewPage } from "@/features/audit/AuditPreviewPage";
@@ -359,27 +360,6 @@ function Shell({
   // inside textareas / inputs / contenteditable. Design review 2026-06-14:
   // "how about binding undo key to last action."
   useEffect(() => {
-    function isEditableTarget(el: EventTarget | null): boolean {
-      if (!(el instanceof HTMLElement)) return false;
-      if (el.isContentEditable) return true;
-      const tag = el.tagName;
-      if (tag === "TEXTAREA") return true;
-      if (tag === "INPUT") {
-        const t = (el as HTMLInputElement).type;
-        // Allow undo through for non-text inputs (checkbox, radio,
-        // button, etc.) — the browser doesn't own undo there.
-        return ![
-          "checkbox",
-          "radio",
-          "button",
-          "submit",
-          "reset",
-          "range",
-          "color",
-        ].includes(t);
-      }
-      return false;
-    }
     function onKey(e: KeyboardEvent) {
       const cmd = e.metaKey || e.ctrlKey;
       if (!cmd) return;

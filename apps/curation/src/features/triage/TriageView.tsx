@@ -21,7 +21,13 @@
  *   bucketed result; the follow-up runner (``run_triage_followup.py``)
  *   takes the included list and creates the curation ticket.
  */
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   useFinalizeTriage,
@@ -33,81 +39,14 @@ import type {
   TicketTargetTriageDisposition,
   TriageFinalizeResponse,
 } from "@/api/tickets";
-
-/** A self-describing display field the producing agent attaches to a
- *  candidate. The generic renderer (below) turns these into native
- *  chips / links / prose without knowing the domain, so one TriageView
- *  serves any screen (pub-finder, TF-perturbation, cell-line, …). The
- *  producer supplies both the data and its presentation hint. */
-interface DisplayField {
-  label: string;
-  value: string | number | boolean | null;
-  /** How to render. Defaults to plain text. */
-  type?: "text" | "link" | "badge" | "tier" | "longtext";
-  /** For ``link``: the href. */
-  href?: string;
-  /** Which panel the field belongs in (e.g. study / paper / decision).
-   *  Fields with the same group render together. */
-  group?: string;
-  /** Terms to paint in a contrasting, theme-aware ``<mark>`` inside this
-   *  field's value — the overlap the producer computed between two sides
-   *  (shared surnames, institution tokens, summary↔abstract content words)
-   *  so the match lights up on both without eye-diffing the blurbs. */
-  highlight?: string[];
-}
-
-interface CandidateMeta {
-  accession: string;
-  identifying_metadata?: Record<string, unknown> | null;
-  matched_criteria?: string[];
-  source?: string;
-  /** Local_api preboarding row id minted at scrape time. When
-   *  present, the triage row links to the read-only
-   *  PreboardingDetailPage at ``#/experiments/preboarding:<id>``
-   *  so the curator can drill into the full identifying metadata
-   *  without leaving the triage shell. Null on tickets created
-   *  before the preboard-at-scrape change landed. */
-  preboarding_id?: number | null;
-  /** Ad-hoc decision-support context the producing agent computed for
-   *  this screen. When present the row renders as a generic card
-   *  driven by these fields instead of the fixed GEO-scrape table. */
-  display_fields?: DisplayField[];
-}
-
-interface ParsedPayload {
-  candidates: Record<string, CandidateMeta>;
-  scrape_window?: {
-    since?: string;
-    until?: string;
-    criteria?: string[];
-  };
-  /** Agent-authored account of what this screen did — the
-   *  reproducible-explanation slot, rendered as a banner. */
-  screen_summary?: string;
-  /** Task-specific decision verbs. The disposition data stays
-   *  include/exclude; only the labels change (e.g. Confirm / Reject
-   *  for "is this the right paper?"). Falls back to Include / Exclude. */
-  decision?: {
-    confirm_label?: string;
-    reject_label?: string;
-    prompt?: string;
-  };
-}
-
-function parsePayload(payload_json: string | undefined): ParsedPayload {
-  if (!payload_json) return { candidates: {} };
-  try {
-    const obj = JSON.parse(payload_json);
-    return {
-      candidates: (obj?.candidates as ParsedPayload["candidates"]) ?? {},
-      scrape_window: obj?.scrape_window,
-      screen_summary: obj?.screen_summary,
-      decision: obj?.decision,
-    };
-  } catch {
-    return { candidates: {} };
-  }
-}
+import { DispositionPicker } from "@/components/ui/DispositionPicker";
+import { navigate } from "@/routes";
+import {
+  decisionLabels,
+  parsePayload,
+  type CandidateMeta,
+  type DisplayField,
+} from "@/features/triage/triagePayload";
 
 type Filter = "all" | "undecided" | "include" | "exclude";
 
@@ -125,8 +64,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
   );
   const bulkPatch = usePatchTicketTarget(ticket.id);
 
-  const confirmLabel = parsed.decision?.confirm_label ?? "Include";
-  const rejectLabel = parsed.decision?.reject_label ?? "Exclude";
+  const { confirmLabel, rejectLabel } = decisionLabels(parsed);
   const PAGE_SIZE = 25;
 
   // Every target on a screen ticket is a candidate — render them all,
@@ -370,7 +308,13 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
 
       {finalized ? <FinalizedSummary res={finalized} /> : null}
 
-      {generic && filtered.length > 0 ? (
+      {/* Bulk bar is about SELECTION, not about which renderer the
+          ticket opted into — it used to be gated on ``generic``, so a
+          legacy GEO-scrape ticket (no ``display_fields``) had no
+          select-all and no way to decide more than one row at a time.
+          Ticket 180 is exactly that shape: 19 candidates, zero
+          display_fields. */}
+      {filtered.length > 0 ? (
         <div
           className={
             "flex items-center gap-3 flex-wrap text-xs px-3 py-2 rounded " +
@@ -413,17 +357,29 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
               >
                 {rejectLabel} selected
               </button>
+              {/* Undecide in bulk. A decision is reversible one row at
+                  a time (click the lit side again); without this the
+                  only way to undo a mis-aimed bulk apply was to walk
+                  the rows back by hand. */}
+              <button
+                type="button"
+                className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => applyBulk(null)}
+                title="Set the selected rows back to undecided"
+              >
+                Undecide selected
+              </button>
               <button
                 type="button"
                 className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600"
                 onClick={clearSelection}
               >
-                Clear
+                Clear selection
               </button>
             </>
           ) : (
             <span className="text-slate-400 dark:text-slate-500">
-              — tip: filter (e.g. llm: LLM), then Select all to Confirm in bulk
+              — tip: filter first, then Select all to decide in bulk
             </span>
           )}
         </div>
@@ -461,6 +417,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
           <table className="w-full text-xs">
             <thead className="bg-slate-100 dark:bg-slate-800 text-left text-slate-700 dark:text-slate-200">
               <tr>
+                <th className="px-2 py-2 w-7" />
                 <th className="px-3 py-2 font-medium">GSE</th>
                 <th className="px-3 py-2 font-medium">Title</th>
                 <th className="px-3 py-2 font-medium">Taxon</th>
@@ -469,6 +426,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
                 <th className="px-3 py-2 font-medium">Samples</th>
                 <th className="px-3 py-2 font-medium">PMIDs</th>
                 <th className="px-3 py-2 font-medium">Decision</th>
+                <th className="px-2 py-2 w-6" />
               </tr>
             </thead>
             <tbody>
@@ -478,6 +436,10 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
                   ticketId={ticket.id}
                   target={t}
                   meta={metaOf(t)}
+                  confirmLabel={confirmLabel}
+                  rejectLabel={rejectLabel}
+                  selected={selected.has(t.target_id)}
+                  onToggleSelect={() => toggleSelect(t.target_id)}
                 />
               ))}
             </tbody>
@@ -616,10 +578,21 @@ function TriageRow({
   ticketId,
   target,
   meta,
+  confirmLabel,
+  rejectLabel,
+  selected,
+  onToggleSelect,
 }: {
   ticketId: number;
   target: TicketTarget;
   meta: CandidateMeta | undefined;
+  /** The ticket's own decision verbs. The GEO-scrape table used to
+   *  render the DispositionPicker's defaults, so a ticket that specced
+   *  "Confirm / Reject" still showed "Include / Exclude" here. */
+  confirmLabel: string;
+  rejectLabel: string;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const patch = usePatchTicketTarget(ticketId);
   const ident = (meta?.identifying_metadata ?? null) as
@@ -671,30 +644,78 @@ function TriageRow({
     });
   };
 
+  const detailHref =
+    meta?.preboarding_id != null
+      ? `#/experiments/preboarding:${meta.preboarding_id}?ticket=${ticketId}`
+      : null;
+
+  // The whole row opens the candidate. The accession link below is the
+  // real, keyboard-reachable control; this just widens the target to
+  // the full row for a mouse, because a 10px "view ↗" was the only way
+  // in and nobody should have to aim at that. Clicks that land on
+  // something interactive, or that finish a drag-select, are left
+  // alone — same trade-off the samples table makes with its row gutter.
+  const onRowClick = (e: ReactMouseEvent<HTMLTableRowElement>) => {
+    if (!detailHref) return;
+    if (
+      e.target instanceof HTMLElement &&
+      e.target.closest("a,button,input,label,select,textarea")
+    )
+      return;
+    if (window.getSelection()?.toString()) return;
+    navigate(detailHref);
+  };
+
   return (
-    <tr className="border-t border-slate-200 dark:border-slate-700 align-top">
+    <tr
+      className={
+        "border-t border-slate-200 dark:border-slate-700 align-top " +
+        (detailHref
+          ? "cursor-pointer hover:bg-blue-50/60 dark:hover:bg-blue-900/20"
+          : "")
+      }
+      onClick={onRowClick}
+    >
+      <td className="px-2 py-2 align-middle">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          aria-label={`Select ${accession}`}
+        />
+      </td>
       <td className="px-3 py-2 whitespace-nowrap">
+        {/* The accession opens OUR page. It used to link out to NCBI,
+            which meant the most prominent thing on the row navigated
+            away from the app and the way further in was a 10px link
+            underneath. GEO is still one click, just no longer the
+            default one. */}
         <div className="font-mono text-blue-700 dark:text-blue-300">
+          {detailHref ? (
+            <a
+              href={detailHref}
+              className="hover:underline"
+              title="Open this candidate — full identifying metadata, and the decision."
+            >
+              {accession}
+            </a>
+          ) : (
+            <span className="text-slate-700 dark:text-slate-200">
+              {accession}
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5">
           <a
             href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${accession}`}
             target="_blank"
             rel="noreferrer"
-            className="hover:underline"
+            className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+            title="Open the GEO record at NCBI in a new tab"
           >
-            {accession}
+            GEO ↗
           </a>
         </div>
-        {meta?.preboarding_id != null ? (
-          <div className="mt-0.5">
-            <a
-              href={`#/experiments/preboarding:${meta.preboarding_id}?ticket=${ticketId}`}
-              className="text-[10px] text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
-              title="Open the preboarding record (read-only) — full identifying metadata, no proposer."
-            >
-              view ↗
-            </a>
-          </div>
-        ) : null}
       </td>
       <td className="px-3 py-2 max-w-[420px]">
         {title ? (
@@ -752,6 +773,8 @@ function TriageRow({
           value={disposition}
           onChange={apply}
           disabled={patch.isPending}
+          confirmLabel={confirmLabel}
+          rejectLabel={rejectLabel}
         />
         {patch.isError ? (
           <div className="text-[10px] text-rose-700 mt-1">
@@ -759,52 +782,21 @@ function TriageRow({
           </div>
         ) : null}
       </td>
+      {/* Trailing chevron — says "this row goes somewhere" without
+          making the curator hunt for a link to prove it. */}
+      <td className="px-2 py-2 align-middle text-right">
+        {detailHref ? (
+          <a
+            href={detailHref}
+            className="inline-block px-1 text-slate-400 hover:text-blue-700 dark:hover:text-blue-300 text-base leading-none"
+            aria-label={`Open ${accession}`}
+            title="Open this candidate"
+          >
+            ›
+          </a>
+        ) : null}
+      </td>
     </tr>
-  );
-}
-
-function DispositionPicker({
-  value,
-  onChange,
-  disabled,
-  confirmLabel = "Include",
-  rejectLabel = "Exclude",
-}: {
-  value: TicketTargetTriageDisposition;
-  onChange: (next: TicketTargetTriageDisposition) => void;
-  disabled?: boolean;
-  confirmLabel?: string;
-  rejectLabel?: string;
-}) {
-  const baseBtn =
-    "px-2 py-0.5 rounded border text-[11px] font-medium transition-colors";
-  return (
-    <div className="inline-flex items-center gap-1.5">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onChange(value === "include" ? null : "include")}
-        className={
-          value === "include"
-            ? `${baseBtn} border-emerald-500 bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100 dark:border-emerald-400`
-            : `${baseBtn} border-slate-300 bg-slate-50 text-slate-700 hover:bg-emerald-50 hover:border-emerald-400 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600`
-        }
-      >
-        {confirmLabel}
-      </button>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onChange(value === "exclude" ? null : "exclude")}
-        className={
-          value === "exclude"
-            ? `${baseBtn} border-rose-500 bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-100 dark:border-rose-400`
-            : `${baseBtn} border-slate-300 bg-slate-50 text-slate-700 hover:bg-rose-50 hover:border-rose-400 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600`
-        }
-      >
-        {rejectLabel}
-      </button>
-    </div>
   );
 }
 
