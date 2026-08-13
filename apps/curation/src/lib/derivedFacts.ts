@@ -52,21 +52,38 @@ export interface DerivedFact {
 }
 
 /**
- * CLO records a line's disease as a description string rather than a
- * relation: ``"disease: plasmacytoma;   myeloma"``. Gemma started
+ * CLO records a line's notable property as a description string rather
+ * than a relation: ``"disease: plasmacytoma;   myeloma"``. Gemma started
  * serving it 2026-08-12 — in the SAME ``definition`` field that carries
  * genuine textual definitions (``CLO_0037272`` TMD8 has real prose), so
  * the two are indistinguishable by shape and rendering the string as-is
  * would put a derived fact in the "what this term means" slot.
  *
- * This is the ONE place that pattern-matches it, and the key list is an
- * allow-list of exactly one: across 500 CLO terms sampled from OLS,
- * 163 carried a description and **all 163** used ``disease:``. A general
- * ``^key:`` regex would swallow prose definitions that happen to open
- * with a word and a colon, which is why this isn't one.
+ * 🛑 **The values are NOT all diseases, so we don't claim they are.**
+ * geb surveyed all 5,826 CLO terms (handoff 2026-08-12): of 1,057
+ * ``disease:`` values, **430 are ``hybridoma``** — a construction method,
+ * not a diagnosis — alongside ``hybridoma fusion partner``, ``feeder
+ * layer``, ``HPV-16 E6/E7 transformed`` and ``abnormal``. 41% of the
+ * corpus is not a disease. ``CLO_0004312`` ("hybridoma 231 cell") really
+ * does ship ``"disease: hybridoma"``. Rendering that as *has disease*
+ * invents a clinical claim out of a lab technique, and a curator who
+ * sees one such row is right to distrust the whole surface — so the
+ * relation says what the slot IS ("cell line note"), not what its key is
+ * called. When the wire ships these grounded, the ones that resolve to a
+ * real MONDO/NCIt term can become a disease claim and the rest stay
+ * notes.
  *
- * Interim by construction — delete it when the wire ships the fact
- * structured (asked for in the 2026-08-12 handoff, §7.1).
+ * The allow-list is exactly one key, and geb's survey confirms it
+ * discriminates: of 1,999 CLO descriptions, 996 are ``key:``-prefixed
+ * and **every one is ``disease``**, while **0** of the 1,017 free-prose
+ * descriptions begin with ``disease:``. The split isn't CLO-vs-imported
+ * — cell-line individuals carry the prefix, CLO's own structural classes
+ * carry prose, and both are CLO-prefixed. A general ``^key:`` regex
+ * would swallow the prose half.
+ *
+ * Interim by construction — geb has agreed to parse it server-side, and
+ * ``definition`` keeps carrying the raw string meanwhile, so this can be
+ * deleted the day structured facts land.
  */
 const CLO_DESCRIPTION_KEY = /^disease:\s*(.+)$/is;
 
@@ -91,10 +108,13 @@ function splitCloDescription(
     .filter(Boolean)
     .map(
       (value): DerivedFact => ({
-        relation: "disease",
+        // Deliberately NOT "disease" — see the block comment above.
+        relation: "cell line note",
         value,
         source: "CLO",
-        sourceDetail: "description",
+        // Names the slot the value came out of, so the badge hover can
+        // say where to go argue with it.
+        sourceDetail: "disease: description field",
         tone: "info",
       }),
     );

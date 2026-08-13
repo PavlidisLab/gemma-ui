@@ -27,7 +27,7 @@ const mkTerm = (o: Partial<AnnotationTermDetail> = {}): AnnotationTermDetail => 
   ...o,
 });
 
-describe("CLO description → derived disease facts", () => {
+describe("CLO description → derived cell-line notes", () => {
   it("lifts a disease: description out of the definition slot", () => {
     const r = deriveFromTerm(
       mkTerm({ definition: "disease: plasmacytoma;   myeloma" }),
@@ -36,7 +36,9 @@ describe("CLO description → derived disease facts", () => {
     // there would present a catalogue inference as the term's meaning.
     expect(r.definition).toBe("");
     expect(r.facts.map((f) => f.value)).toEqual(["plasmacytoma", "myeloma"]);
-    expect(r.facts.every((f) => f.relation === "disease")).toBe(true);
+    // NOT "disease": 41% of CLO's disease: values are construction
+    // methods, not diagnoses (geb's survey, 2026-08-12).
+    expect(r.facts.every((f) => f.relation === "cell line note")).toBe(true);
     expect(r.facts.every((f) => f.source === "CLO")).toBe(true);
   });
 
@@ -45,7 +47,22 @@ describe("CLO description → derived disease facts", () => {
     expect(r.facts).toHaveLength(3);
   });
 
-  it("handles the single-disease form", () => {
+  it("never claims a disease for a value that is not one", () => {
+    // CLO_0004312 "hybridoma 231 cell" really ships this. Rendering it
+    // as a disease invents a clinical claim out of a lab technique.
+    const r = deriveFromTerm(
+      mkTerm({
+        uri: "http://purl.obolibrary.org/obo/CLO_0004312",
+        definition: "disease: hybridoma",
+      }),
+    );
+    expect(r.facts).toHaveLength(1);
+    expect(r.facts[0].relation).not.toBe("disease");
+    expect(r.facts[0].value).toBe("hybridoma");
+    expect(r.facts[0].sourceDetail).toContain("disease:");
+  });
+
+  it("handles the single-value form", () => {
     const r = deriveFromTerm(
       mkTerm({ definition: "disease: rhabdomyosarcoma" }),
     );
@@ -183,7 +200,7 @@ describe("both sources at once", () => {
     );
     expect(definition).toBe("");
     expect(facts.map((f) => [f.source, f.relation])).toEqual([
-      ["CLO", "disease"],
+      ["CLO", "cell line note"],
       ["Cellosaurus", "sex"],
     ]);
   });
