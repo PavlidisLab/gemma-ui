@@ -422,12 +422,24 @@ export async function getDatasetById(
 /**
  * Free-text search over the full ontology — used as a fallback when
  * the local AnnotationSelector tree is capped at 200 terms per
- * category and the user types something not in that window.
+ * category and the user types something not in that window. Results
+ * surface as "more matches"; the click-to-add path attaches the term
+ * to filters, after which counts update via the normal dataset query.
  *
- * The endpoint does not carry per-experiment counts in our corpus
- * (usageCount tends to be 0); we surface results as "more matches"
- * and the click-to-add path attaches the term to filters, after
- * which counts update via the normal dataset query.
+ * ``rank=usage`` orders by how often each term is actually used in the
+ * corpus rather than by Lucene tf-idf. Without it the default ranking
+ * buries a term under its own prefix matches: ``aspirin`` returns eight
+ * ``aspirin-triggered resolvin …`` rows (usageCount 0) ahead of
+ * ``acetylsalicylic acid`` (usageCount 9), which lands at position 26 of
+ * 31. With it, that term is position 1. It matters more here than
+ * anywhere: this list exists to add a term to a FILTER, and a term with
+ * no datasets behind it filters the result set to nothing.
+ *
+ * This replaces an earlier note claiming the endpoint "does not carry
+ * per-experiment counts in our corpus (usageCount tends to be 0)",
+ * which was the stated reason the parameter was never added. It does
+ * not hold — the counts are populated, and they are exactly what pulls
+ * the useful term to the top.
  */
 export async function searchAnnotations(
   query: string,
@@ -436,7 +448,7 @@ export async function searchAnnotations(
 ): Promise<AnnotationSearchResult[]> {
   const r = await apiGet<{ data?: AnnotationSearchResult[] }>(
     `${BASE}/annotations/search`,
-    { params: { query, limit }, signal },
+    { params: { query, limit, rank: "usage" }, signal },
   );
   return r.data ?? [];
 }
