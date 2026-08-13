@@ -65,6 +65,7 @@ import {
   slug,
   type ParsedTargetId,
 } from "./targetIds";
+import { findingProposedUris } from "./findingHelpers";
 
 export interface ApplyAction {
   /** Whether the action mutates the design draft (true) or just
@@ -544,10 +545,10 @@ function resolveProposalApply(
   const categoryLabel = (action.new_category || "").trim();
   const valueLabel = (action.new_value || "").trim();
   if (!categoryLabel || !valueLabel) return null;
-  // Prefer the agent's URI when present; fall back to the proposer
-  // term's URI (older agents emit only the ontology term).
-  const valueUri =
-    action.new_value_uri ?? finding.proposer_term?.uri ?? null;
+  // Shared resolver — the card renders from this same function, so
+  // what Agree writes is what the curator was shown. Do not inline the
+  // precedence here again.
+  const valueUri = findingProposedUris(finding).valueUri;
   // Statement-bearing add (e.g. ``genotype: Dmd`` carrying
   // ``Dmd · has_genotype · mdx``): thread the proposed statements onto
   // the new tag so they survive apply and become visible + editable in

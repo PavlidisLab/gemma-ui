@@ -8,6 +8,7 @@ import type {
   OntologyTerm,
 } from "@/features/experiment/types";
 import { resolveApplyAction } from "./applyHandlers";
+import { findingProposedUris } from "./findingHelpers";
 
 /**
  * Contract tests for the apply-action chain. These lock in the
@@ -1188,6 +1189,73 @@ describe("resolveApplyAction — FACTOR MISBINDING (rename_fv)", () => {
     });
     expect(resolveApplyAction(f, { design: d })?.appliedFix).toBe(
       "Rebind FV `Gjb6` to `Gja1`.",
+    );
+  });
+});
+
+describe("proposed-tag URI precedence — display and apply must agree", () => {
+  // A finding names ONE term. When the producer slips and ships a
+  // ``proposer_term.uri`` and an ``apply_action.new_value_uri`` naming
+  // different terms, display and apply used to read them in OPPOSITE
+  // order — the card rendered one and Agree wrote the other. Real
+  // case: a ``cell line`` proposal for CGR8 displayed CLO_0002405 and
+  // applied EFO_0006273, because CGR8 exists in both ontologies.
+  //
+  // The wire contract (ApplyActionPayload.new_value_uri: "Falls back
+  // to proposer_term.uri at apply time") makes new_value_uri primary.
+  // Both sides now route through findingProposedUris so they cannot
+  // diverge again.
+  const disagreeing = {
+    target_kind: "tag" as const,
+    issue_code: "missing_tag",
+    target_id: "tag:cell-line/cgr8",
+    proposer_term: {
+      label: "CGR8 cell",
+      uri: "http://purl.obolibrary.org/obo/CLO_0002405",
+      resolver: null,
+      score: null,
+    },
+    apply_action: {
+      kind: "add_tag",
+      new_category: "cell line",
+      new_value: "CGR8",
+      new_value_uri: "http://purl.obolibrary.org/obo/EFO_0006273",
+    },
+  };
+
+  it("resolver prefers new_value_uri over a disagreeing proposer_term", () => {
+    expect(findingProposedUris(finding(disagreeing)).valueUri).toBe(
+      "http://purl.obolibrary.org/obo/EFO_0006273",
+    );
+  });
+
+  it("apply writes the URI the resolver reports (not proposer_term)", () => {
+    const d = design({ tags: [] });
+    const action = resolveApplyAction(finding(disagreeing), { design: d });
+    const next = action!.mutate!(d);
+    // Asserted against the literal URI, not against
+    // ``findingProposedUris(...)`` — comparing the two would pass
+    // even if the shared precedence flipped, since both sides move
+    // together. This has to fail when the contract changes.
+    expect(next.tags[0].value.uri).toBe(
+      "http://purl.obolibrary.org/obo/EFO_0006273",
+    );
+    expect(next.tags[0].value.uri).toBe(
+      findingProposedUris(finding(disagreeing)).valueUri,
+    );
+  });
+
+  it("falls back to proposer_term.uri when the agent shipped no URI", () => {
+    const f = finding({
+      ...disagreeing,
+      apply_action: {
+        kind: "add_tag",
+        new_category: "cell line",
+        new_value: "CGR8",
+      },
+    });
+    expect(findingProposedUris(f).valueUri).toBe(
+      "http://purl.obolibrary.org/obo/CLO_0002405",
     );
   });
 });

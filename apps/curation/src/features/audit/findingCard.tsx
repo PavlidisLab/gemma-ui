@@ -80,6 +80,7 @@ import {
   findingActionLabel,
   findingDispositionButtonLabels,
   findingDisplayedGoldEmpty,
+  findingProposedUris,
   findingShortRationale,
   findingSubjectLabel,
   isMatchFinding,
@@ -469,7 +470,16 @@ export function CompactFindingCard({
                   // would read "fvb/n" instead of "FVB/N". Triggers a
                   // case-restore pass from a case-preserving source before
                   // the render. Design review 2026-07-19.
-                  let labelsFromSlug = false;
+                  // Non-null when the labels below came from the
+                  // lowercased slug fallback, and carries the slugs they
+                  // came from so the restore pass can re-slug a candidate
+                  // and compare in the lossless direction. One variable
+                  // rather than a flag beside the slugs: they are only
+                  // ever meaningful together.
+                  let labelsFromSlug: {
+                    categorySlug: string;
+                    valueSlug: string;
+                  } | null = null;
                   // The row this finding landed on is an INHERITED
                   // annotation, not a stored EE-tag — Gemma's display of
                   // a characteristic every sample carries. Nothing in
@@ -504,7 +514,10 @@ export function CompactFindingCard({
                       // pass below.
                       catLabel = parsed.categorySlug.replace(/-/g, " ");
                       valLabel = parsed.valueSlug.replace(/-/g, " ");
-                      labelsFromSlug = true;
+                      labelsFromSlug = {
+                        categorySlug: parsed.categorySlug,
+                        valueSlug: parsed.valueSlug,
+                      };
                     }
                   }
                   if (!catLabel || !valLabel) {
@@ -547,28 +560,23 @@ export function CompactFindingCard({
                       return null;
                     }
                   }
-                  // Last preference for valUri: proposer_term (when
-                  // the tag isn't in the current draft, the agent's
-                  // suggested term carries the ontology binding).
-                  valUri = valUri ?? finding.proposer_term?.uri ?? null;
-                  // Authoritative for a PROPOSED (not-yet-in-draft) tag:
-                  // the apply_action carries the agent's grounded URIs
-                  // directly (``new_category_uri`` / ``new_value_uri``).
-                  // Prefer these over the sibling-category recovery below
-                  // so a first-of-its-category tag — no sibling to borrow
-                  // a URI from — still renders its category as a grounded
-                  // ontology term rather than plain (unresolved-looking)
-                  // grey. ``new_category_uri`` landed on the add_tag wire
-                  // after the original recovery hack. Design review 2026-07-22.
-                  const aaUris = finding.apply_action as
-                    | {
-                        new_category_uri?: string | null;
-                        new_value_uri?: string | null;
-                      }
-                    | null
-                    | undefined;
-                  catUri = catUri ?? aaUris?.new_category_uri ?? null;
-                  valUri = valUri ?? aaUris?.new_value_uri ?? null;
+                  // Proposed-tag URIs come from ``findingProposedUris``
+                  // — the shared resolver that display and apply both
+                  // use. Reading ``proposer_term.uri`` directly here
+                  // inverted the wire contract's precedence, so a term
+                  // duplicated across ontologies rendered one URI and
+                  // applied another (CGR8: shown CLO_0002405, applied
+                  // EFO_0006273). Never re-derive this locally.
+                  const proposedUris = findingProposedUris(finding);
+                  valUri = valUri ?? proposedUris.valueUri;
+                  // Category URI for a PROPOSED (not-yet-in-draft) tag
+                  // comes from the same resolver. Preferred over the
+                  // sibling-category recovery below so a first-of-its-
+                  // category tag — no sibling to borrow a URI from —
+                  // still renders its category as a grounded ontology
+                  // term rather than plain (unresolved-looking) grey.
+                  // Design review 2026-07-22.
+                  catUri = catUri ?? proposedUris.categoryUri;
                   // Final fallback — label-based lookup against
                   // draft.tags. Fires when the target_id-slug path
                   // didn't parse (e.g. `calibration:miss:cat/val` for
@@ -628,44 +636,64 @@ export function CompactFindingCard({
                   // Prefer the ``apply_action`` the Add button writes
                   // (authoritative — keeps the displayed label identical
                   // to what Add lands on the experiment), then the matched
-                  // draft tag's own label. Guarded by case-insensitive
-                  // equality so this only ever fixes casing, never swaps
-                  // the term. Design review 2026-07-19.
+                  // draft tag's own label.
+                  //
+                  // Guarded by ``slug()`` equality against the target_id
+                  // segment, NOT by case-insensitive string equality. The
+                  // dash-to-space deslug above is lossy in a way casing
+                  // isn't: it can't tell a real hyphen from a slugged
+                  // space, so ``BV-2`` deslugs to ``bv 2`` and a
+                  // case-only guard rejected the very label it was meant
+                  // to restore, leaving the slug on screen. Comparing in
+                  // the lossless direction — re-slug the candidate and
+                  // match the identity we parsed — restores punctuation
+                  // as well as case while keeping the guarantee stronger
+                  // than before: ``HEK-293S`` still can't be substituted
+                  // for a ``hek-293f`` target. The label IS the ontology
+                  // term here, so a punctuation-mangled label is a
+                  // different cell line, not a cosmetic defect.
+                  // Design review 2026-07-19; slug guard 2026-08-13.
                   if (labelsFromSlug) {
                     const aa = finding.apply_action as
                       | { new_value?: unknown; new_category?: unknown }
                       | null
                       | undefined;
+                    // Match the draft tag by slug for the same reason the
+                    // restore below does — comparing against the
+                    // deslugged label would miss every punctuation-
+                    // bearing tag, which is exactly the population this
+                    // pass exists to repair.
                     const draftTag = draft?.tags?.find(
                       (t) =>
-                        (t.value?.label ?? "").trim().toLowerCase() ===
-                          (valLabel ?? "").trim().toLowerCase() &&
-                        (t.category?.label ?? "").trim().toLowerCase() ===
-                          (catLabel ?? "").trim().toLowerCase(),
+                        slug(t.value?.label) === labelsFromSlug!.valueSlug &&
+                        slug(t.category?.label) ===
+                          labelsFromSlug!.categorySlug,
                     );
-                    const restoreCase = (
-                      lower: string | null,
+                    const restoreFromSlug = (
+                      deslugged: string | null,
+                      targetSlug: string,
                       ...cands: Array<unknown>
                     ): string | null => {
-                      const lc = (lower ?? "").trim().toLowerCase();
                       for (const c of cands) {
                         if (
                           typeof c === "string" &&
                           c.trim() &&
-                          c.trim().toLowerCase() === lc
+                          slug(c) === targetSlug
                         ) {
                           return c.trim();
                         }
                       }
-                      return lower;
+                      return deslugged;
                     };
-                    valLabel = restoreCase(
+                    valLabel = restoreFromSlug(
                       valLabel,
+                      labelsFromSlug.valueSlug,
                       aa?.new_value,
                       draftTag?.value?.label,
                     );
-                    catLabel = restoreCase(
+                    catLabel = restoreFromSlug(
                       catLabel,
+                      labelsFromSlug.categorySlug,
                       aa?.new_category,
                       draftTag?.category?.label,
                     );
@@ -728,11 +756,10 @@ export function CompactFindingCard({
                       (typeof aa?.new_value === "string" ? aa.new_value : "");
                     if (proposedValLabel) {
                       valLabel = proposedValLabel;
-                      valUri =
-                        finding.proposer_term?.uri ??
-                        (typeof aa?.new_value_uri === "string"
-                          ? aa.new_value_uri
-                          : null);
+                      // Shared resolver, not a local re-derivation —
+                      // this branch had the same inverted precedence
+                      // the main path did.
+                      valUri = findingProposedUris(finding).valueUri;
                     }
                     // Swap the category too when the proposal moves it.
                     const proposedCatLabel =

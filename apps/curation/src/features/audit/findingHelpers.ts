@@ -29,6 +29,45 @@ import { isActionPrefixRationale } from "./auditorDetails";
 import { SEVERITY_RANK, TARGET_KIND_LABEL } from "./auditPresentation";
 import { parseTargetId, slug } from "./targetIds";
 
+/**
+ * The ontology URIs a finding's PROPOSED tag carries — one source of
+ * truth for every surface that displays them and for the apply path
+ * that writes them.
+ *
+ * Precedence is the wire contract stated on ``ApplyActionPayload``:
+ * ``new_value_uri`` is the agent's grounded bind for this proposal and
+ * wins; ``proposer_term.uri`` is the fallback older agents emit.
+ *
+ * This exists because display and apply used to read the two fields in
+ * OPPOSITE order. That is invisible while they agree, and they almost
+ * always do — but a duplicate term across ontologies makes them
+ * disagree, and then the card showed one term while Agree wrote the
+ * other. Seen on a ``cell line`` proposal for CGR8: displayed
+ * ``CLO_0002405``, applied ``EFO_0006273``. A curator accepting a
+ * proposal whose displayed term is not the applied term is accepting
+ * something they were not shown.
+ *
+ * The producing side now canonicalises before emitting, so the two
+ * fields should no longer disagree in practice. This stays as defence
+ * in depth — it is the only thing protecting the invariant for a
+ * payload we didn't produce.
+ */
+export function findingProposedUris(finding: AuditFinding): {
+  valueUri: string | null;
+  categoryUri: string | null;
+} {
+  const aa = finding.apply_action as
+    | { new_value_uri?: unknown; new_category_uri?: unknown }
+    | null
+    | undefined;
+  const str = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() ? v.trim() : null;
+  return {
+    valueUri: str(aa?.new_value_uri) ?? finding.proposer_term?.uri ?? null,
+    categoryUri: str(aa?.new_category_uri) ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Action label + glyph — what verb does the card header announce
 // ---------------------------------------------------------------------------
@@ -78,7 +117,7 @@ export function findingDisplayedGoldEmpty(
     // a real match downgrades to "Add tag" when the tag is already
     // there. When the URIs match the tag IS present regardless of
     // label drift.
-    const proposerValueUri = finding.proposer_term?.uri ?? null;
+    const proposerValueUri = findingProposedUris(finding).valueUri;
     if (proposerValueUri && draft.tags?.some((t) => t.value?.uri === proposerValueUri)) {
       return false;
     }

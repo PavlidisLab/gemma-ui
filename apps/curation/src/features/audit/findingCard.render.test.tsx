@@ -420,3 +420,94 @@ describe("CompactFindingCard — slug-fallback label casing", () => {
     expect(screen.queryByText("fvb/n")).toBeNull();
   });
 });
+
+describe("CompactFindingCard — slug-fallback label punctuation", () => {
+  // The casing test above uses "FVB/N", whose slug ("fvb/n") contains
+  // no dash, so deslugging is a no-op and a case-insensitive guard was
+  // enough. Every label whose slug DOES carry a dash took the opposite
+  // path: deslug turned the dash into a space, the candidate no longer
+  // matched case-insensitively, and the guard rejected the real label
+  // and left the slug on screen. Reported by cab 2026-08-13 against
+  // ticket 181 ("ADD TAG — cell line : bv 2").
+  it('restores "BV-2" from apply_action instead of showing "bv 2"', () => {
+    const finding = tagFinding({
+      issue_code: "calibration_agent_extra",
+      target_id: "tag:cell-line/bv-2",
+      rationale: "",
+      proposer_term: null,
+      apply_action: {
+        kind: "add_tag",
+        new_category: "cell line",
+        new_value: "BV-2",
+        new_value_uri: "http://www.ebi.ac.uk/efo/EFO_0022792",
+      },
+    } as unknown as AuditFinding);
+    renderWithProviders(<CompactFindingCard finding={finding} />, {
+      audit: makeAuditCtx({ findings: [finding] }),
+      draft: makeDraftCtx(emptyDraft()),
+    });
+    expect(screen.getByText("BV-2")).toBeInTheDocument();
+    expect(screen.queryByText("bv 2")).toBeNull();
+  });
+
+  // The guard has to stay a guard. HEK-293F and HEK-293S are different
+  // cell lines one character apart, so a candidate that doesn't re-slug
+  // to the target identity must NOT be substituted in — the curator is
+  // better served by an obviously-mangled label than by a confidently
+  // wrong one.
+  it("refuses a candidate whose slug doesn't match the target id", () => {
+    const finding = tagFinding({
+      issue_code: "calibration_agent_extra",
+      target_id: "tag:cell-line/hek-293f",
+      rationale: "",
+      proposer_term: null,
+      apply_action: {
+        kind: "add_tag",
+        new_category: "cell line",
+        new_value: "HEK-293S",
+        new_value_uri: "http://www.ebi.ac.uk/efo/EFO_0022515",
+      },
+    } as unknown as AuditFinding);
+    renderWithProviders(<CompactFindingCard finding={finding} />, {
+      audit: makeAuditCtx({ findings: [finding] }),
+      draft: makeDraftCtx(emptyDraft()),
+    });
+    expect(screen.queryByText("HEK-293S")).toBeNull();
+  });
+});
+
+describe("CompactFindingCard — displayed URI matches the applied URI", () => {
+  // The other half of the CGR8 bug. The card and the Agree button read
+  // the same two URI fields in opposite order, so on a term duplicated
+  // across ontologies the curator was shown CLO_0002405 and Agree
+  // wrote EFO_0006273. Both sides now route through
+  // findingProposedUris; this pins the display half, applyHandlers.test
+  // pins the apply half, and they assert the same literal URI.
+  it("renders the apply_action URI, not a disagreeing proposer_term URI", () => {
+    const finding = tagFinding({
+      issue_code: "missing_tag",
+      target_id: "tag:cell-line/cgr8",
+      rationale: "",
+      proposer_term: {
+        label: "CGR8 cell",
+        uri: "http://purl.obolibrary.org/obo/CLO_0002405",
+      },
+      apply_action: {
+        kind: "add_tag",
+        new_category: "cell line",
+        new_value: "CGR8",
+        new_value_uri: "http://purl.obolibrary.org/obo/EFO_0006273",
+      },
+    } as unknown as AuditFinding);
+    const { container } = renderWithProviders(
+      <CompactFindingCard finding={finding} />,
+      {
+        audit: makeAuditCtx({ findings: [finding] }),
+        draft: makeDraftCtx(emptyDraft()),
+      },
+    );
+    const html = container.innerHTML;
+    expect(html).toContain("EFO_0006273");
+    expect(html).not.toContain("CLO_0002405");
+  });
+});
