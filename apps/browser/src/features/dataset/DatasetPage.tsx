@@ -441,7 +441,7 @@ function OverviewTab({ dataset }: { dataset: Dataset }) {
     <>
       <DescriptionSection dataset={dataset} />
       <AnnotationsSection annotations={ann.data?.data ?? []} loading={ann.isLoading} />
-      <PublicationsSection publications={pubs.data ?? []} loading={pubs.isLoading} />
+      <PublicationsSection publications={pubs.data ?? []} loading={pubs.isLoading} failed={pubs.isError} />
     </>
   );
 }
@@ -506,11 +506,14 @@ function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnno
  *  publication is the common case, so the card-shaped wrapper + a
  *  "1" subtitle wasted vertical real estate. Multi-pub datasets are
  *  rare; when they happen each publication stacks as its own row. */
-function PublicationsSection({ publications, loading }: { publications: Publication[]; loading: boolean }) {
+function PublicationsSection({ publications, loading, failed }: { publications: Publication[]; loading: boolean; failed: boolean }) {
   if (loading) {
     return <div className="h-5 w-1/3 bg-slate-200 rounded animate-pulse" />;
   }
-  if (publications.length === 0) return null;
+  // A failed fetch is not the same as an unpublished dataset — stay
+  // silent rather than assert an absence we didn't establish.
+  if (failed) return null;
+  if (publications.length === 0) return <Empty msg="no publication available" />;
   return (
     <ul className="space-y-1.5">
       {publications.map((p, i) => (
