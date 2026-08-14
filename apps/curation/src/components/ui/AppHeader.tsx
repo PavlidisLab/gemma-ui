@@ -57,14 +57,17 @@ export function AppHeader({
   const me = useMe();
   const isAdmin = me.data?.authorities?.includes("GROUP_ADMIN") ?? false;
   return (
-    // ``min-h-12`` rather than a fixed ``h-12``: the chip strip in the
-    // children slot is the widest thing here, and on a crowded header
-    // (long ticket title + a two-word polished baseline + the
-    // ticket-baseline note) it needs a second line. A fixed height made
-    // it spill above and below the bar instead. Nothing inside breaks
-    // mid-label — the strip wraps BETWEEN chips — so the bar is one row
-    // in the ordinary case and grows by one only when it has to.
-    <header className="flex items-center gap-3 min-h-12 py-1 px-4 border-b border-stone-900 bg-stone-100 text-stone-900 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 shrink-0">
+    // ``min-h-12`` rather than a fixed ``h-12``, and ``flex-wrap`` on
+    // the bar itself: on a 1400px window the contents of this header
+    // (brand + ticket chip + chip strip + nav + session cluster) need
+    // more width than exists, and without the wrap the surplus ran off
+    // the right edge — "sign out" and half the mode chip were simply
+    // unreachable, while the chip strip crushed itself into three
+    // ragged lines trying to make room. Wrapping breaks it where it
+    // reads as a break: context (dashboard / ticket / strip) on the
+    // first line, nav + session on the second. A fixed height made the
+    // overflow spill above and below the bar instead of growing it.
+    <header className="flex flex-wrap items-center gap-x-3 gap-y-1 min-h-12 py-1 px-4 border-b border-stone-900 bg-stone-100 text-stone-900 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 shrink-0">
       {/* Brand + section title. Clicking returns to the curator
           dashboard. We render "Gemma Curation" as a single label
           (rather than a separate "Curation" nav tab) so the title
@@ -100,35 +103,45 @@ export function AppHeader({
 
       {children}
 
-      <div className="flex-1" />
+      {/* Nav + session travel together as ONE flex item, right-aligned
+          by ``ml-auto`` rather than by a ``flex-1`` spacer element. Two
+          reasons, both about the wrap: a spacer eats the leftover of
+          whichever line it happens to land on, so the clusters after it
+          start the next line hard against the left margin; and left to
+          themselves the two clusters wrap independently, putting
+          "Browse / Administration" on one line and "signed in as …" on
+          the next. One item, one line, always to the right — whether or
+          not it shares that line with the chip strip.
 
-      {/* Cross-app nav lives on the RIGHT so a curator's eye-line
-          (and click-line) is anchored to the left, where the
-          dashboard / breadcrumb / contextual chips live. Moves the
-          accidental "I clicked Browse and got dropped out of the
-          curation app" risk away from natural reading order. Per
-          Design review 2026-05-27. */}
-      <nav className="flex items-center gap-1 shrink-0 whitespace-nowrap">
-        <ExternalNavTab href={browserUrl("/browser")}>Browse</ExternalNavTab>
-        {isAdmin ? (
-          <ExternalNavTab href={adminUrl()}>Administration</ExternalNavTab>
-        ) : null}
-      </nav>
+          Cross-app nav lives on the RIGHT so a curator's eye-line (and
+          click-line) is anchored to the left, where the dashboard /
+          breadcrumb / contextual chips live. Moves the accidental "I
+          clicked Browse and got dropped out of the curation app" risk
+          away from natural reading order. Per Design review
+          2026-05-27. */}
+      <div className="flex items-center gap-3 shrink-0 ml-auto">
+        <nav className="flex items-center gap-1 whitespace-nowrap">
+          <ExternalNavTab href={browserUrl("/browser")}>Browse</ExternalNavTab>
+          {isAdmin ? (
+            <ExternalNavTab href={adminUrl()}>Administration</ExternalNavTab>
+          ) : null}
+        </nav>
 
-      <div className="flex items-center gap-3 text-xs text-stone-700 dark:text-slate-300 shrink-0">
-        <span>
-          signed in as <span className="font-medium">{reviewer}</span>
-        </span>
-        <ModeChip />
-        <HealthChip />
-        <SettingsMenu />
-        <button
-          type="button"
-          className="text-stone-500 hover:text-stone-900 underline dark:text-slate-400 dark:hover:text-slate-100 bg-transparent border-none cursor-pointer p-0"
-          onClick={() => logout.mutate()}
-        >
-          sign out
-        </button>
+        <div className="flex items-center gap-3 text-xs text-stone-700 dark:text-slate-300">
+          <span>
+            signed in as <span className="font-medium">{reviewer}</span>
+          </span>
+          <ModeChip />
+          <HealthChip />
+          <SettingsMenu />
+          <button
+            type="button"
+            className="text-stone-500 hover:text-stone-900 underline dark:text-slate-400 dark:hover:text-slate-100 bg-transparent border-none cursor-pointer p-0"
+            onClick={() => logout.mutate()}
+          >
+            sign out
+          </button>
+        </div>
       </div>
     </header>
   );

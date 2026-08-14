@@ -18,6 +18,8 @@ import {
   type CurationRow,
 } from "./useSourceAvailability";
 import { useChipDiffSummary } from "./useChipDiff";
+import { resolveCuration } from "./resolveCuration";
+import { seedStamp } from "./seedStamp";
 import type { SemanticDiffSummary } from "@/features/design/diff";
 
 /** Baseline / comparator chip-strip — the canonical "what am I
@@ -77,10 +79,17 @@ export function ChipStrip({
 
   return (
     <div
-      // ``flex-wrap``: when the header runs out of room the strip
-      // breaks between chips. Every chip below is
-      // ``whitespace-nowrap``, so "Local-Curator polished" can't come
-      // apart across three lines the way it used to.
+      // ``flex-wrap``: when the strip runs out of room it breaks
+      // between chips. Every chip below is ``whitespace-nowrap``, so
+      // "Local-Curator polished" can't come apart across three lines
+      // the way it used to.
+      //
+      // The strip is the header's widest tenant and it competes with
+      // the ticket chip for what's left of the row, so it stays SMALL —
+      // see the sizing note on ``ChipDropdown``. Buying a row by taking
+      // width off the ticket chip instead was tried and reverted: on a
+      // narrow window both gave at once and the header ended up with a
+      // crushed ticket title AND a wrapped strip.
       className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]"
       role="region"
       aria-label="Comparison source selection"
@@ -99,6 +108,11 @@ export function ChipStrip({
           curations={curations}
         />
       )}
+      {/* Sits with the BASELINE chip, not after the pair: it modifies
+          the baseline ("this is the seed"), and when the header runs
+          out of room the strip breaks between groups, so the note
+          wraps together with the chip it describes. */}
+      <CuratingOnTopNote baseline={baseline} curations={curations} />
       <ChipDropdown
         slot="comparator"
         slotLabel={comparatorSlotLabel(mode)}
@@ -109,7 +123,6 @@ export function ChipStrip({
         availability={universe.availability}
         curations={curations}
       />
-      <CuratingOnTopNote />
       <PinnedBaselineNote
         pinned={pinnedBaseline}
         current={baseline}
@@ -135,6 +148,12 @@ export function ChipStrip({
  *  seed, so without this note the chip would name one thing while the
  *  page rendered another — the disconnect ``9b5d1f5`` closed.
  *
+ *  The note does NOT repeat the seed's name: it renders beside the
+ *  baseline chip, which already names it, and the repetition was
+ *  costing a whole wrapped header row. What it adds instead is WHICH
+ *  seed — a version stamp, so two curators on the same ticket can
+ *  tell whether they started from the same gold.
+ *
  *  Neutral, not amber: nothing is wrong here. Amber is reserved for
  *  the pinned-baseline warning below, where a finding may not match
  *  what is on screen.
@@ -142,16 +161,39 @@ export function ChipStrip({
  *  Reads the context directly rather than through ``useDesignDraft``
  *  so the strip still renders if it is ever mounted outside the
  *  draft provider. */
-function CuratingOnTopNote() {
+function CuratingOnTopNote({
+  baseline,
+  curations,
+}: {
+  baseline: Source;
+  curations: readonly CurationRow[];
+}) {
   const draft = useContext(DesignDraftContext);
   const seed = draft?.curatingOnTopOf;
   if (!seed) return null;
+  const row = resolveCuration(baseline, curations);
+  const stamp = seedStamp(row);
   return (
     <span
-      className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded border whitespace-nowrap border-slate-300 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200"
-      title={`This curation was started from ${seed} and you have committed on top of it, so the page shows YOUR design — not ${seed} as it stands now. Select ${seed} in the comparator to see it.`}
+      className="inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded border whitespace-nowrap text-[10px] border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300"
+      title={
+        `This curation was started from ${seed}` +
+        (stamp ? ` (${stamp})` : "") +
+        ` and you have committed on top of it, so the page shows YOUR ` +
+        `design — not ${seed} as it stands now. Select ${seed} in the ` +
+        `comparator to see it.` +
+        (row?.created_at ? `\n\n${seed} version: ${row.created_at}` : "")
+      }
     >
-      curating on top of <span className="font-semibold">{seed}</span>
+      curating on top
+      {stamp ? (
+        <>
+          <span aria-hidden className="opacity-50">
+            ·
+          </span>
+          <span className="font-semibold">{stamp}</span>
+        </>
+      ) : null}
     </span>
   );
 }
@@ -219,7 +261,13 @@ function PinnedBaselineNote({
 /** Compact "Δ +2 tags, +1 factor" readout. Renders only when both
  *  slots resolve to a Design — i.e. an actual diff is computable.
  *  Empty diff (counts all zero) is the regression-test signal:
- *  matching sources show "no differences" in green. */
+ *  matching sources show "no differences" in green.
+ *
+ *  Flows inline after the chips rather than ``ml-auto``-ing to the far
+ *  right: the strip lives inside the header row, and an auto margin
+ *  there claims every remaining pixel of the line, which pushed the
+ *  readout onto a row of its own and stranded it under the nav. It
+ *  also belongs next to the pair it is diffing. */
 function DiffSummaryReadout({
   summary,
   isLoading,
@@ -228,15 +276,18 @@ function DiffSummaryReadout({
   isLoading: boolean;
 }) {
   if (summary === null) {
+    // Nothing to say and nothing loading → render nothing at all. An
+    // empty span is still a flex item and still takes a gap.
+    if (!isLoading) return null;
     return (
-      <span className="ml-auto text-[11px] uppercase tracking-wide text-slate-400 whitespace-nowrap">
-        {isLoading ? "diffing…" : ""}
+      <span className="ml-1 text-[10px] uppercase tracking-wide text-slate-400 whitespace-nowrap">
+        diffing…
       </span>
     );
   }
   if (summary.empty) {
     return (
-      <span className="ml-auto text-[11px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
+      <span className="ml-1 text-[10px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
         no differences
       </span>
     );
@@ -251,7 +302,7 @@ function DiffSummaryReadout({
   if (summary.modifiedFactors) factorParts.push(`~${summary.modifiedFactors}`);
 
   return (
-    <span className="ml-auto text-[11px] uppercase tracking-wide text-slate-600 dark:text-slate-300 flex items-baseline gap-3 whitespace-nowrap">
+    <span className="ml-1 text-[10px] uppercase tracking-wide text-slate-600 dark:text-slate-300 flex items-baseline gap-2 whitespace-nowrap">
       {tagParts.length ? (
         <span>
           tags <span className="font-mono font-semibold">{tagParts.join(" ")}</span>
@@ -290,7 +341,7 @@ function ChipLabel({
     >
       <span
         className={cn(
-          "text-[12px] uppercase tracking-wide font-semibold whitespace-nowrap",
+          "text-[10px] uppercase tracking-wide font-semibold whitespace-nowrap",
           palette.label,
         )}
       >
@@ -300,7 +351,7 @@ function ChipLabel({
         className={cn(
           // Matches ChipDropdown sizing so locked + selectable chips
           // line up visually in the strip.
-          "inline-flex items-center gap-1 px-3 py-1 rounded border border-dashed text-[14px] font-medium opacity-90 whitespace-nowrap",
+          "inline-flex items-center gap-1 px-2 py-0.5 rounded border border-dashed text-[12px] font-medium opacity-90 whitespace-nowrap",
           palette.chip,
         )}
         title={provTitle || undefined}
@@ -393,7 +444,7 @@ function ChipDropdown({
     <div ref={ref} className="relative inline-flex items-center gap-2">
       <span
         className={cn(
-          "text-[12px] uppercase tracking-wide font-semibold whitespace-nowrap",
+          "text-[10px] uppercase tracking-wide font-semibold whitespace-nowrap",
           palette.label,
         )}
       >
@@ -403,19 +454,31 @@ function ChipDropdown({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          // Larger trigger — Design review 2026-05-27 round 2: "the little
-          // triggers to change the baseline/audit are too small again".
-          // Bumped padding + font size so the clickable target reads
-          // as a button at a glance.
-          "inline-flex items-center gap-1.5 px-3 py-1 rounded border text-[14px] font-medium whitespace-nowrap",
+          // Sizing has been round-tripped twice. Design review
+          // 2026-05-27 round 2 asked for a bigger trigger ("the little
+          // triggers to change the baseline/audit are too small
+          // again"), and at 14px/px-3 the pair went back to costing the
+          // header two and three rows on a ticket-context page. This is
+          // the settlement: 12px on a filled, bordered chip with a
+          // caret still reads as a button, and the whole strip now sits
+          // on one row beside a ticket chip. Don't grow it back without
+          // re-checking the header at ~1900px with a ticket open.
+          "inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[12px] font-medium whitespace-nowrap",
           palette.chip,
         )}
         aria-haspopup="listbox"
         aria-expanded={open}
         title={sourceTooltip(value, curations) || undefined}
       >
-        <span>{sourceLabel(value, curations)}</span>
-        <span className="opacity-70 text-[11px]">▾</span>
+        {/* Capped + truncating: an agent label carries its git describe
+            ("agent v1.1-156-g30f57d9-dirty 8/13") and runs three times
+            the width of "Gold polished", which is enough on its own to
+            push the header past what it can seat. The dropdown lists
+            every label in full. */}
+        <span className="truncate max-w-[14rem]">
+          {sourceLabel(value, curations)}
+        </span>
+        <span className="opacity-70 text-[9px]">▾</span>
       </button>
 
       {open ? (
