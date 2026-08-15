@@ -11,21 +11,31 @@
  */
 
 /**
- * Genus-species → ``G.s.`` abbreviation.
+ * Species name → ``G.s.`` abbreviation.
  *
  *   ``Homo sapiens``     → ``H.s.``
  *   ``Mus musculus``     → ``M.m.``
  *   ``Rattus norvegicus``→ ``R.n.``
  *   ``Danio rerio``      → ``D.r.``
  *
- * Returns ``""`` when the scientific name is null / blank / a single
- * word, so callers can omit the suffix gracefully.
+ * A common name is accepted too and routed through the pairing table
+ * below (``human`` → ``H.s.``): gene labels state the species as
+ * ``[human]`` while ``/annotations/search`` ships the scientific name,
+ * and both end up in the same chip suffix.
+ *
+ * Returns ``""`` when the name is null / blank / a single word that
+ * isn't a common name we know, so callers can omit the suffix
+ * gracefully.
  */
 export function taxonAbbreviation(
   scientificName: string | null | undefined,
 ): string {
   if (!scientificName) return "";
-  const parts = scientificName.trim().split(/\s+/);
+  const raw = scientificName.trim();
+  const asCommon = TAXON_NAME_PAIRS.find(
+    ([common]) => common === raw.toLowerCase(),
+  );
+  const parts = (asCommon ? asCommon[1] : raw).split(/\s+/);
   if (parts.length < 2) return "";
   const genus = parts[0][0]?.toUpperCase() ?? "";
   const species = parts[1][0]?.toLowerCase() ?? "";

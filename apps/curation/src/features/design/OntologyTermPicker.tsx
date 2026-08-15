@@ -10,7 +10,10 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
+import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
+import { isGeneUri, parseGeneLabel } from "@/lib/gene";
 import { taxonAbbreviation } from "@/lib/taxon";
+import { useDatasetTaxon } from "./DesignDraftContext";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import type { OntologyTerm } from "@/features/experiment/types";
@@ -111,6 +114,11 @@ export function OntologyTermPicker({
   // parent doesn't need `inert` to keep the curator out of the
   // editor.
   const readOnly = useIsReadOnly();
+  // Dataset species, for the gene-species check on a bound value. The
+  // explicit ``taxon`` prop wins where a caller passes one; otherwise
+  // the draft on screen answers it.
+  const draftTaxon = useDatasetTaxon();
+  const datasetTaxon = taxon ?? draftTaxon;
   const [editing, setEditing] = useState(autoOpen && !readOnly);
   const [uriEditing, setUriEditing] = useState(false);
   const [draft, setDraft] = useState(value?.label ?? "");
@@ -687,6 +695,18 @@ export function OntologyTermPicker({
   const label = value?.label ?? "";
   const hasUri = !!value?.uri;
   const isUnknown = !!label && !hasUri && allowFreeText === false;
+  // A bound gene shows its SYMBOL here, with the species beside it and
+  // the full name on hover — the same treatment the read-only ``Term``
+  // chip gives it, so the statement a curator edits and the statement
+  // they review look like each other. This is also the row the 2026-07-21
+  // truncation was patching around ("ERBB2 [human] v-erb-b2 erythroblastic
+  // leukemia viral oncogene homolog 2, …" blowing out the row): the
+  // symbol is the part that identifies the gene, and the species is the
+  // part that decides whether the binding is right, so those are the two
+  // things that stay on screen.
+  const geneValue = isGeneUri(value?.uri) ? parseGeneLabel(label) : null;
+  const geneValueSpecies = geneValue?.species ?? null;
+  const shownLabel = geneValue?.symbol || label;
 
   if (uriEditing) {
     return (
@@ -756,7 +776,13 @@ export function OntologyTermPicker({
             : `click to pick a term`
       }
     >
-      {label || placeholder || "(term)"}
+      {shownLabel || placeholder || "(term)"}
+      {geneValue ? (
+        <GeneSpeciesMark
+          species={geneValueSpecies}
+          datasetTaxon={datasetTaxon}
+        />
+      ) : null}
     </span>
   );
 }
@@ -836,15 +862,23 @@ function CandidateRow({
 }) {
   const used = candidate.usage_count > 0;
   const ontology = !!candidate.uri;
+  const datasetTaxon = useDatasetTaxon();
   // Gene hits carry a taxon; show the compact ``H.s.`` form so a
   // curator can tell the human KRAS from the mouse Kras. Suffix
   // follows the row's emphasis (no independent bold/dim).
-  const taxonAbbr = taxonAbbreviation(candidate.taxon_scientific_name);
-  const taxonTitle = candidate.taxon_scientific_name
-    ? `${candidate.taxon_scientific_name}${
-        candidate.taxon_id ? ` · NCBI Taxon ${candidate.taxon_id}` : ""
-      }`
-    : undefined;
+  //
+  // Two kinds of gene row reach this list and they carry the species
+  // differently: a catalogue hit ships ``taxon_scientific_name``, while
+  // a prior-usage hit ships none and writes it into the label instead
+  // ("Esr1 [mouse] estrogen receptor 1 (alpha)"). Read the field first,
+  // fall back to the label, so both kinds show the same suffix — and
+  // the row shows the SYMBOL, with the full name in the tooltip, since
+  // the name is what pushed the species off the visible end of the row.
+  const isGene = isGeneUri(candidate.uri);
+  const geneParts = isGene ? parseGeneLabel(candidate.label) : null;
+  const geneSpecies = isGene
+    ? candidate.taxon_scientific_name || geneParts?.species || null
+    : null;
   return (
     <li
       onMouseEnter={onHover}
@@ -862,11 +896,22 @@ function CandidateRow({
           used ? "font-semibold" : "font-normal",
         )}
       >
-        {candidate.label}
+        {geneParts?.symbol || candidate.label}
       </span>
-      {taxonAbbr ? (
-        <span className="text-[10px] text-slate-500 shrink-0" title={taxonTitle}>
-          {taxonAbbr}
+      {isGene ? (
+        <GeneSpeciesMark
+          species={geneSpecies}
+          datasetTaxon={datasetTaxon}
+          taxonId={candidate.taxon_id}
+        />
+      ) : taxonAbbreviation(candidate.taxon_scientific_name) ? (
+        <span
+          className="text-[10px] text-slate-500 shrink-0"
+          title={`${candidate.taxon_scientific_name}${
+            candidate.taxon_id ? ` · NCBI Taxon ${candidate.taxon_id}` : ""
+          }`}
+        >
+          {taxonAbbreviation(candidate.taxon_scientific_name)}
         </span>
       ) : null}
       {/* Spacer pushes the URI / category / usage metadata to the

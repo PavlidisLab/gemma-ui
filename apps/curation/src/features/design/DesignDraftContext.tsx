@@ -777,3 +777,19 @@ export function useDesignDraft(): DesignDraftValue {
   }
   return v;
 }
+
+/** The species of the dataset on screen, or ``null`` off an
+ *  experiment page.
+ *
+ *  Null-tolerant on purpose, unlike ``useDesignDraft`` above: the
+ *  callers are shared chrome — a gene chip, a term picker row — that
+ *  render on experiment surfaces AND on the dashboard / ticket pages.
+ *  They use this to ask "does this gene belong to this dataset?", and
+ *  off an experiment the honest answer is "no dataset to compare
+ *  against", not a crash. Reads the draft, not ``saved``: the draft is
+ *  what the page is showing (see the design-panels rule in
+ *  CLAUDE.md). */
+export function useDatasetTaxon(): string | null {
+  const v = useContext(DesignDraftContext);
+  return v?.draft?.taxon ?? null;
+}

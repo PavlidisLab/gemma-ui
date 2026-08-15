@@ -1,7 +1,15 @@
 import { cn } from "@/lib/cn";
 import { curieToUrl } from "@/lib/curie";
-import type { ReactNode } from "react";
+import { type ReactNode } from "react";
 import { CurieLink } from "./CurieLink";
+import { useDatasetTaxon } from "@/features/design/DesignDraftContext";
+import { GeneSpeciesMark } from "./GeneSpeciesMark";
+import {
+  geneSpeciesNote,
+  geneSpeciesVerdict,
+  isGeneUri,
+  parseGeneLabel,
+} from "@/lib/gene";
 import type { FvTermProvenance, FvTermRenderer } from "@gemma/ontology";
 
 /**
@@ -101,6 +109,18 @@ export function Term({
   const effectiveVariant: TermVariant =
     variant === "default" && !uri ? "free" : variant;
 
+  // Genes render short: symbol + species, full name on hover. See
+  // ``geneDisplay``. Non-genes are untouched.
+  //
+  // The dataset's species comes from the design draft. Chips rendered
+  // outside an experiment — the dashboard, a ticket page — get no
+  // dataset to compare against and say so, rather than guessing a
+  // verdict. Reading the context the way ``InlineText`` reads
+  // ``FlowContext`` keeps this a null-tolerant lookup instead of a prop
+  // every one of the dozens of Term call sites would have to thread.
+  const datasetTaxon = useDatasetTaxon();
+  const gene = geneDisplay(uri, children, datasetTaxon);
+
   // Resolved (variant default with URI present, or explicit "baseline"
   // with a URI) → render the chip as a link so a click opens the
   // ontology term page, unless the caller opted out via ``asLink=false``.
@@ -128,8 +148,10 @@ export function Term({
   })();
   const tooltipUri = uri || provenanceTooltip || undefined;
   // Caller-supplied title wins for the chip body + label; the CURIE
-  // link keeps the URI tooltip below.
-  const outerTitle = title ?? tooltipUri;
+  // link keeps the URI tooltip below. A gene's tooltip carries what
+  // the chip stopped showing — the full name and the species question
+  // — so shortening the label doesn't lose anything.
+  const outerTitle = title ?? gene?.tooltip ?? tooltipUri;
 
   // CURIE inline → ALWAYS opens the modular CuriePopover (label /
   // definition / parents from Gemma; explicit "Fetch from OLS"
@@ -144,6 +166,7 @@ export function Term({
   // the OBO page in a new tab, but clicking the small CURIE opens
   // the inline popover instead. Two distinct click-targets, no
   // nested anchors.
+  const body = gene ? gene.symbol : children;
   const labelNode =
     isLink && uri ? (
       <a
@@ -154,10 +177,10 @@ export function Term({
         onClick={(e) => e.stopPropagation()}
         className="no-underline hover:underline"
       >
-        {children}
+        {body}
       </a>
     ) : (
-      children
+      body
     );
 
   return (
@@ -192,6 +215,9 @@ export function Term({
           shrink TO 6ch, not below), so the only behaviour change is the
           floor on over-truncation. Design review 2026-06-21. */}
       <span className="min-w-[6ch] truncate">{labelNode}</span>
+      {gene ? (
+        <GeneSpeciesMark species={gene.species} datasetTaxon={datasetTaxon} />
+      ) : null}
       {uri ? (
         <span className="ml-1 shrink-0">
           <CurieLink uri={uri} title={tooltipUri} />
@@ -199,6 +225,37 @@ export function Term({
       ) : null}
     </span>
   );
+}
+
+interface GeneDisplay {
+  /** What the chip shows in place of the label. */
+  symbol: string;
+  /** Species as the label stated it, or null. */
+  species: string | null;
+  /** Full chip tooltip: name + the species reading. */
+  tooltip: string;
+}
+
+/** Gene display for a term chip, or ``null`` when the term isn't a
+ *  gene — or when its label isn't a plain string, which is how callers
+ *  pass a pre-composed node. We don't take those apart. */
+function geneDisplay(
+  uri: string | null | undefined,
+  children: ReactNode,
+  datasetTaxon: string | null,
+): GeneDisplay | null {
+  if (!isGeneUri(uri) || typeof children !== "string") return null;
+  const parts = parseGeneLabel(children);
+  if (!parts.symbol) return null;
+  const verdict = geneSpeciesVerdict(parts.species, datasetTaxon);
+  const name = parts.fullName
+    ? `${parts.symbol} — ${parts.fullName}`
+    : parts.symbol;
+  return {
+    symbol: parts.symbol,
+    species: parts.species,
+    tooltip: `${name}\n\n${geneSpeciesNote(verdict, parts.species, datasetTaxon)}`,
+  };
 }
 
 /** Shared ``FvTermRenderer`` adapter — satisfies the
