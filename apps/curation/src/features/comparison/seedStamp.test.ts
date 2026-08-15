@@ -16,7 +16,7 @@ function row(patch: Partial<CurationRow>): CurationRow {
 }
 
 describe("seedStamp", () => {
-  it("is null when the row carries no version at all — the local store's polished rows today", () => {
+  it("is null when the row carries no version at all", () => {
     expect(seedStamp(row({ created_at: null, metadata: { curator: "gold" } }))).toBeNull();
   });
 
@@ -40,6 +40,24 @@ describe("seedStamp", () => {
         }),
       ),
     ).toBe("7f3a1c9");
+  });
+
+  it("shortens the FULL sha256 the store actually sends", () => {
+    // Measured off :8095 on 2026-08-15, experiment 9909, once bro's
+    // stamp landed: metadata.content_sha is the whole 64-char digest,
+    // not the 7-char form their handoff displayed.
+    expect(
+      seedStamp(
+        row({
+          created_at: "2026-08-15T19:12:18.315429+00:00",
+          metadata: {
+            curator: "gold",
+            content_sha:
+              "d8f735f6e2fc89e001e8787fcf84ad03d52b18483c080ef342caa38844122ee0",
+          },
+        }),
+      ),
+    ).toBe("d8f735f");
   });
 
   it("ignores a blank / non-string sha and falls through to the date", () => {

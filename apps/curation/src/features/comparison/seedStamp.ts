@@ -12,13 +12,14 @@ import type { CurationRow } from "./useSourceAvailability";
  *  re-ingest that didn't change the content, which a timestamp does
  *  not. Otherwise the row's ``created_at``.
  *
- *  Renders nothing when the row carries neither, which is the local
- *  store today: ``polished_designs.ingested_at`` exists in sqlite but
- *  neither ``/curations`` nor ``/curation-versions`` projects it onto
- *  a polished row, so ``created_at`` arrives null (handoff
- *  ``AGENTS_ASK_2026_08_14_POLISHED_ROWS_NEED_A_VERSION_STAMP.md``).
- *  Tolerate-null rather than gate on it: the stamp appears by itself
- *  the day the field lands. */
+ *  Both fields land on polished rows as of 2026-08-15 — ``created_at``
+ *  from ``polished_designs.ingested_at`` and ``metadata.content_sha``,
+ *  a sha256 over the stored payload, so an identical re-ingest keeps
+ *  its sha while the timestamp moves. The wire carries the full 64-char
+ *  digest; the 7 characters here are ours.
+ *
+ *  Still tolerates null: rows predating the stamp carry neither, and a
+ *  missing one has to read as unknown rather than recent. */
 export function seedStamp(row: CurationRow | null | undefined): string | null {
   const sha = row?.metadata?.["content_sha"];
   if (typeof sha === "string" && sha.trim()) return sha.trim().slice(0, 7);
