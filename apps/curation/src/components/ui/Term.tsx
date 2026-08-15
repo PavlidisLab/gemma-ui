@@ -216,7 +216,11 @@ export function Term({
           floor on over-truncation. Design review 2026-06-21. */}
       <span className="min-w-[6ch] truncate">{labelNode}</span>
       {gene ? (
-        <GeneSpeciesMark species={gene.species} datasetTaxon={datasetTaxon} />
+        <GeneSpeciesMark
+          uri={uri}
+          species={gene.species}
+          datasetTaxon={datasetTaxon}
+        />
       ) : null}
       {uri ? (
         <span className="ml-1 shrink-0">

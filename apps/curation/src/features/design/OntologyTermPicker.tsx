@@ -779,6 +779,7 @@ export function OntologyTermPicker({
       {shownLabel || placeholder || "(term)"}
       {geneValue ? (
         <GeneSpeciesMark
+          uri={value?.uri}
           species={geneValueSpecies}
           datasetTaxon={datasetTaxon}
         />
@@ -899,6 +900,11 @@ function CandidateRow({
         {geneParts?.symbol || candidate.label}
       </span>
       {isGene ? (
+        // No ``uri`` here on purpose: a search row's species comes from
+        // the hit itself (catalogue rows carry the taxon fields,
+        // prior-usage rows carry it in the label), and handing the mark
+        // a URI would fan a catalogue lookup out across every row of a
+        // list that redraws on each keystroke.
         <GeneSpeciesMark
           species={geneSpecies}
           datasetTaxon={datasetTaxon}

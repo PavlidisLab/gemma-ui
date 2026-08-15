@@ -60,6 +60,7 @@ export default defineConfig(({ mode }) => {
     env.GEMMA_RO_PROXY_URL || "http://host.docker.internal:8199";
   // Ontology-search routing exception. ``/rest/v2/annotations/search``
   // + ``/rest/v2/annotations/term`` + ``/rest/v2/annotations/children``
+  // + ``/rest/v2/genes``
   // hit Gemma's ontology indexes; a local_api stack may not carry the
   // full OBO / EFO / MONDO / UBERON / CL / CHEBI corpora in memory, so
   // the typeahead can come back near-empty against it. Route these
@@ -70,7 +71,7 @@ export default defineConfig(({ mode }) => {
   const ONTOLOGY_URL = env.GEMMA_ONTOLOGY_URL || "";
   if (!ONTOLOGY_URL) {
     console.warn(
-      "[curation] GEMMA_ONTOLOGY_URL not set — ontology term search (annotations/search, /term, /children) will not work until you set it to your own Gemma ontology host in .env.local",
+      "[curation] GEMMA_ONTOLOGY_URL not set — ontology term search (annotations/search, /term, /children) and gene lookup (/genes) will not work until you set it to your own Gemma ontology host in .env.local",
     );
   }
 
@@ -82,7 +83,7 @@ export default defineConfig(({ mode }) => {
 
   if (ONTOLOGY_URL) {
     console.log(
-      `[curation] /rest/v2/annotations/{search,term,children} → ${ONTOLOGY_URL} (ontology routing exception)`,
+      `[curation] /rest/v2/annotations/{search,term,children} + /rest/v2/genes → ${ONTOLOGY_URL} (ontology routing exception)`,
     );
   }
 
@@ -140,6 +141,23 @@ export default defineConfig(({ mode }) => {
                 },
               },
               "/rest/v2/annotations/term": {
+                target: ONTOLOGY_URL,
+                changeOrigin: true,
+                configure: (proxy) => {
+                  proxy.on("proxyReq", (proxyReq) => {
+                    proxyReq.removeHeader("origin");
+                    proxyReq.removeHeader("referer");
+                  });
+                },
+              },
+              // ``/genes`` rides the same exception, for the same
+              // reason: it is Gemma's gene catalogue, and a local_api
+              // stack doesn't carry one. A gene chip resolves its
+              // species through ``/rest/v2/genes/{ncbiId}`` — the id is
+              // in the term's URI, so the species is knowable for every
+              // gene binding, including the ones whose stored label
+              // never said.
+              "/rest/v2/genes": {
                 target: ONTOLOGY_URL,
                 changeOrigin: true,
                 configure: (proxy) => {

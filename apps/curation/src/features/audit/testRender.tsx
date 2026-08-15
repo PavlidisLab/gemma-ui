@@ -16,6 +16,7 @@
  */
 import type { ReactElement } from "react";
 import { render, type RenderOptions } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { vi } from "vitest";
 
 import type {
@@ -147,14 +148,23 @@ export function renderWithProviders(
   delete (rest as Record<string, unknown>).audit;
   delete (rest as Record<string, unknown>).draft;
   delete (rest as Record<string, unknown>).toast;
+  // A QueryClient, because leaf chrome inside these cards may fetch —
+  // a gene chip resolves its species from the gene catalogue. Retries
+  // off and no network in jsdom, so every such query resolves to the
+  // component's null-tolerant fallback path.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   const utils = render(
+    <QueryClientProvider client={queryClient}>
     <ToastContext.Provider value={toast}>
       <AuditContext.Provider value={audit}>
         <DesignDraftContext.Provider value={draft}>
           {ui}
         </DesignDraftContext.Provider>
       </AuditContext.Provider>
-    </ToastContext.Provider>,
+    </ToastContext.Provider>
+    </QueryClientProvider>,
     rest,
   );
   return { ...utils, audit, draft, toast };

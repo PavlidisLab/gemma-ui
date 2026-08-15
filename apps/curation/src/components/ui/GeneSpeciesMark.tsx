@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { useGeneInfo } from "@/api/genes";
 import {
   geneSpeciesNeedsCheck,
   geneSpeciesNote,
@@ -26,13 +27,19 @@ import { taxonAbbreviation } from "@/lib/taxon";
  * which surface a curator meets it on.
  */
 export function GeneSpeciesMark({
+  uri,
   species,
   datasetTaxon,
   taxonId,
   className,
 }: {
-  /** Species as stated by the label or the search hit; null when
-   *  neither says. */
+  /** The gene's term URI. Its NCBI id resolves the species through
+   *  Gemma's gene catalogue — which is how a gene stored as a bare
+   *  "ESR1" gets a species at all. Omit only where the caller already
+   *  has an authoritative species and no URI to look up. */
+  uri?: string | null;
+  /** Species as stated by the label or the search hit. Used until the
+   *  lookup answers, and as the fallback if it can't. */
   species: string | null | undefined;
   /** The dataset's species, or null off an experiment page. */
   datasetTaxon: string | null | undefined;
@@ -40,12 +47,27 @@ export function GeneSpeciesMark({
   taxonId?: number | null;
   className?: string;
 }) {
-  const verdict = geneSpeciesVerdict(species, datasetTaxon);
+  const gene = useGeneInfo(uri).data;
+  // Gemma's catalogue wins over the label: the label is whatever the
+  // producing tool wrote, the catalogue is what the id actually is.
+  const resolved =
+    gene?.taxonScientificName ?? gene?.taxonCommonName ?? species ?? null;
+  const verdict = geneSpeciesVerdict(resolved, datasetTaxon);
   const needsCheck = geneSpeciesNeedsCheck(verdict);
-  const text = taxonAbbreviation(species) || (needsCheck ? "sp?" : "");
+  const text = taxonAbbreviation(resolved) || (needsCheck ? "sp?" : "");
   if (!text) return null;
+  const identity =
+    gene?.symbol && gene?.name
+      ? `Gemma: ${gene.symbol} — ${gene.name}`
+      : gene?.symbol
+        ? `Gemma: ${gene.symbol}`
+        : "";
   const title = [
-    geneSpeciesNote(verdict, species, datasetTaxon),
+    geneSpeciesNote(verdict, resolved, datasetTaxon),
+    // The catalogue's own reading of this id. When the chip's label
+    // disagrees with it, that disagreement is right here on hover
+    // rather than hidden behind a substituted symbol.
+    identity,
     taxonId ? `NCBI Taxon ${taxonId}` : "",
   ]
     .filter(Boolean)
