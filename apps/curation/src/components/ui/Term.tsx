@@ -4,6 +4,7 @@ import { type ReactNode } from "react";
 import { CurieLink } from "./CurieLink";
 import { useDatasetTaxon } from "@/features/design/DesignDraftContext";
 import { GeneSpeciesMark } from "./GeneSpeciesMark";
+import { GeneLabel } from "./GeneLabel";
 import {
   geneSpeciesNote,
   geneSpeciesVerdict,
@@ -166,7 +167,21 @@ export function Term({
   // the OBO page in a new tab, but clicking the small CURIE opens
   // the inline popover instead. Two distinct click-targets, no
   // nested anchors.
-  const body = gene ? gene.symbol : children;
+  // Genes render through ``GeneLabel``, which owns the symbol's own
+  // hover: the chip is short by design, so the full name has to be one
+  // hover away, and for a bare "ESR1" the label never had a name to
+  // show — the catalogue does.
+  const body = gene ? (
+    <GeneLabel
+      uri={uri}
+      symbol={gene.symbol}
+      labelName={gene.fullName}
+      labelSpecies={gene.species}
+      datasetTaxon={datasetTaxon}
+    />
+  ) : (
+    children
+  );
   const labelNode =
     isLink && uri ? (
       <a
@@ -236,6 +251,8 @@ interface GeneDisplay {
   symbol: string;
   /** Species as the label stated it, or null. */
   species: string | null;
+  /** Full name as the label stated it, or null. */
+  fullName: string | null;
   /** Full chip tooltip: name + the species reading. */
   tooltip: string;
 }
@@ -258,6 +275,7 @@ function geneDisplay(
   return {
     symbol: parts.symbol,
     species: parts.species,
+    fullName: parts.fullName,
     tooltip: `${name}\n\n${geneSpeciesNote(verdict, parts.species, datasetTaxon)}`,
   };
 }

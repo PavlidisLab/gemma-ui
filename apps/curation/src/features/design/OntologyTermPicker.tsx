@@ -11,6 +11,7 @@ import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
 import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
+import { GeneLabel } from "@/components/ui/GeneLabel";
 import { isGeneUri, parseGeneLabel } from "@/lib/gene";
 import { taxonAbbreviation } from "@/lib/taxon";
 import { useDatasetTaxon } from "./DesignDraftContext";
@@ -776,7 +777,17 @@ export function OntologyTermPicker({
             : `click to pick a term`
       }
     >
-      {shownLabel || placeholder || "(term)"}
+      {geneValue ? (
+        <GeneLabel
+          uri={value?.uri}
+          symbol={geneValue.symbol}
+          labelName={geneValue.fullName}
+          labelSpecies={geneValue.species}
+          datasetTaxon={datasetTaxon}
+        />
+      ) : (
+        shownLabel || placeholder || "(term)"
+      )}
       {geneValue ? (
         <GeneSpeciesMark
           uri={value?.uri}
