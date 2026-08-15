@@ -10,6 +10,7 @@ import {
   usePolishedCuratorList,
   useSourceUniverse,
 } from "./useSourceAvailability";
+import { useMe } from "@/api/session";
 
 /** Read-only resolver for the active chip-strip baseline source —
  *  the same calculation `useChipState` does internally, exposed at
@@ -43,6 +44,9 @@ export function useActiveBaselineSource(args: {
 
   const universe = useSourceUniverse(experimentId);
   const polishedCurators = usePolishedCuratorList(experimentId);
+  // Same source of curator identity ``useChipState`` uses — see the
+  // note there on why this is read rather than passed in.
+  const me = useMe();
 
   if (urlBaseline) {
     const parsed = parseSource(urlBaseline);
@@ -58,6 +62,7 @@ export function useActiveBaselineSource(args: {
     // same baseline or the draft's ``saved`` source drifts from the
     // one the strip is displaying.
     pinnedBaseline: ticketBaselineSource(activeTicket.data),
+    ownPolishedCurator: me.data?.username ?? null,
   });
   return defaults.baseline;
 }

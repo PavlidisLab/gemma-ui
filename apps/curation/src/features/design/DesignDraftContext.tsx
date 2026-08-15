@@ -12,7 +12,7 @@ import { useDesign, useUpdateDesign, useUpdatePolished } from "@/api/design";
 import { diffDesign, type DesignDiff } from "./diff";
 import type { Design } from "@/features/experiment/types";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
-import type { Source } from "@/features/comparison/sources";
+import { bareCurator, type Source } from "@/features/comparison/sources";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
 import { clearAgentFeedback } from "@/features/audit/agentFeedback";
 import { clearAppliedBatches } from "@/features/audit/appliedBatches";
@@ -189,15 +189,6 @@ const EMPTY_DIFF: DesignDiff = {
     modifiedTags: 0,
   },
 };
-
-/** ``curator:gold`` → ``gold``. Producers arrive namespaced; the
- *  reviewer token carries the bare name. */
-function bareCurator(producer: string | null | undefined): string {
-  return (producer ?? "")
-    .replace(/^curator:/, "")
-    .trim()
-    .toLowerCase();
-}
 
 export function DesignDraftProvider({
   experimentId,

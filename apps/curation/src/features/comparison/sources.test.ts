@@ -184,6 +184,91 @@ describe("ticket-pinned baseline", () => {
   });
 });
 
+describe("the curator's own polished row as the review default", () => {
+  // Once the curator has committed, the page edits /design — their own
+  // work — while the chip went on naming whatever the store listed
+  // first, which for a gold-pinned ticket was "Gold polished". The chip
+  // now names what is being edited.
+  const GOLD: Source = "polished:gold";
+  const MINE: Source = "polished:local-curator";
+
+  it("wins over the row the store happens to list first", () => {
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["gold", "local-curator"],
+        ownPolishedCurator: "local-curator",
+      }),
+    ).toEqual({ baseline: MINE, comparator: "agent_proposal" });
+  });
+
+  it("wins over the ticket pin", () => {
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["gold", "local-curator"],
+        pinnedBaseline: GOLD,
+        ownPolishedCurator: "local-curator",
+      }),
+    ).toEqual({ baseline: MINE, comparator: "agent_proposal" });
+  });
+
+  it("yields to the pin on an experiment the curator hasn't curated", () => {
+    // No own row ⇒ nothing has been committed here, so the pin is still
+    // the seed and the strip must open on it.
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["gold"],
+        pinnedBaseline: GOLD,
+        ownPolishedCurator: "local-curator",
+      }),
+    ).toEqual({ baseline: GOLD, comparator: "agent_proposal" });
+  });
+
+  it("matches a namespaced producer against a bare username", () => {
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["gold", "curator:Local-Curator"],
+        pinnedBaseline: GOLD,
+        ownPolishedCurator: "local-curator",
+      }),
+    ).toEqual({
+      baseline: "polished:curator:Local-Curator",
+      comparator: "agent_proposal",
+    });
+  });
+
+  it("yields when the curator's own row isn't loaded here", () => {
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["gold", "local-curator"],
+        availability: { [MINE]: { available: false } },
+        pinnedBaseline: GOLD,
+        ownPolishedCurator: "local-curator",
+      }),
+    ).toEqual({ baseline: GOLD, comparator: "agent_proposal" });
+  });
+
+  it("leaves the edit flow alone", () => {
+    // Edit flow's baseline is a locked label framing "the agent's
+    // proposal against the bare Gemma state" — not a view to retarget.
+    expect(
+      defaultSlots("edit", {
+        polishedCurators: ["local-curator"],
+        availability: { preboard: { available: true } },
+        ownPolishedCurator: "local-curator",
+      }),
+    ).toEqual({ baseline: "preboard", comparator: "agent_proposal" });
+  });
+
+  it("changes nothing when the curator is unknown", () => {
+    expect(
+      defaultSlots("review", {
+        polishedCurators: ["gold", "local-curator"],
+        ownPolishedCurator: null,
+      }),
+    ).toEqual({ baseline: GOLD, comparator: "agent_proposal" });
+  });
+});
+
 describe("parseSource", () => {
   it("round-trips every system token", () => {
     for (const s of SYSTEM_SOURCES) {

@@ -105,7 +105,7 @@ async function flushGeneQueue(): Promise<void> {
   pending = new Map();
   const ids = Array.from(batch.keys());
   if (ids.length === 0) return;
-  let rows: unknown = null;
+  let rows: unknown;
   try {
     rows = await api.get<unknown>(
       `/rest/v2/genes/${ids.map(encodeURIComponent).join(",")}`,

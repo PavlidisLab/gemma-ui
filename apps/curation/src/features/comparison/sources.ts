@@ -70,6 +70,18 @@ export function polishedSourceFor(curator: string): PolishedSource {
   return `polished:${curator}` as PolishedSource;
 }
 
+/** ``curator:gold`` → ``gold``. Producers arrive namespaced or bare
+ *  depending on which endpoint served them — a ``/curations`` row says
+ *  ``curator:gold`` where ``/curation-versions`` says ``gold`` — and the
+ *  ``polished:<x>`` token carries the bare name. Fold both to the bare,
+ *  lowercase form before comparing a producer to a curator. */
+export function bareCurator(producer: string | null | undefined): string {
+  return (producer ?? "")
+    .replace(/^curator:/, "")
+    .trim()
+    .toLowerCase();
+}
+
 /** Title-Case a curator username for display. ``"curator-b"`` → ``"Curator-B"``;
  *  ``"jordan-doe"`` → ``"Jordan-Doe"``. Falls back to verbatim if the
  *  name is empty. */
@@ -309,10 +321,12 @@ export function modeOf(baseline: Source, comparator: Source): ComparisonMode {
 /** Default slot occupants by curation-flow context. Spec ``Defaults``
  *  section.
  *
- *  - ``review``: post-curation evaluation. Open into "where did the
- *    agent go wrong" → <first available polished curator> vs agent
- *    proposal. Falls back to ``preboard`` vs agent proposal when no
- *    polished pack is loaded yet.
+ *  - ``review``: post-curation evaluation. Open on the curator's OWN
+ *    polished row when they have one — that is what the page edits, so
+ *    it is what the chip should name. Otherwise "where did the agent go
+ *    wrong" → <first available polished curator> vs agent proposal,
+ *    falling back to ``preboard`` vs agent proposal when no polished
+ *    pack is loaded yet.
  *  - ``edit``: curator working their assigned calibration package.
  *    Open into "agent's proposal against the bare Gemma state".
  *
@@ -344,11 +358,45 @@ export function defaultSlots(
      *  default, and the chip strip says so rather than silently
      *  substituting. */
     pinnedBaseline?: Source | null;
+    /** The current curator's username. When they hold a polished row
+     *  for this experiment, that row becomes the review-flow baseline
+     *  — above the ticket pin. Omitted / unknown ⇒ no preference, and
+     *  every other rule below applies unchanged. */
+    ownPolishedCurator?: string | null;
   },
 ): { baseline: Source; comparator: Source } {
   const av = options?.availability;
   const isAvail = (s: Source): boolean =>
     av ? (av[s]?.available ?? true) : true;
+
+  // The curator's OWN polished row wins in review flow whenever it
+  // exists. ``commit()`` mirrors every commit into it and nothing else
+  // writes one — a pack import does not — so its presence means "I have
+  // already curated here", and from that point the page edits /design
+  // rather than the seed. Landing on the seed's name while editing your
+  // own design is the confusion this closes: an experiment curated on
+  // top of gold reopened with the chip reading "Gold polished" and only
+  // a small neutral note saying otherwise.
+  //
+  // Above the ticket pin deliberately. The pin names what a curation was
+  // STARTED from, not a view to return to (2026-08-10: "reopening a
+  // ticket lands on the committed work, never back on gold") — that has
+  // been true of the CONTENT since ``seededFromBaseline`` landed, and
+  // this makes it true of the chip. Where the two differ,
+  // ``PinnedBaselineNote`` names the baseline the findings used and
+  // restores it in one click.
+  const own = bareCurator(options?.ownPolishedCurator);
+  if (flow === "review" && own) {
+    const mine = options?.polishedCurators?.find(
+      (c) => bareCurator(c) === own,
+    );
+    if (mine) {
+      const source = polishedSourceFor(mine);
+      if (isAvail(source)) {
+        return { baseline: source, comparator: "agent_proposal" };
+      }
+    }
+  }
 
   const pinned = options?.pinnedBaseline;
   if (

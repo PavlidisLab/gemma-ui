@@ -9,6 +9,7 @@ import {
 import { useSourceUniverse, usePolishedCuratorList } from "./useSourceAvailability";
 import { experimentRoute, navigate, parseRoute } from "../../routes";
 import { ticketBaselineSource, useTicket } from "../../api/tickets";
+import { useMe } from "../../api/session";
 
 /** Comparison-view chip state. Mirrors the URL ``?base=`` /
  *  ``?cmp=`` query params; defaults from the ``flow`` argument when
@@ -58,6 +59,12 @@ export function useChipState(args: {
   // no preboard.
   const universe = useSourceUniverse(experimentId);
   const polishedCurators = usePolishedCuratorList(experimentId);
+  // Who is curating — so the default can open on this curator's own
+  // polished row rather than whichever one the store lists first.
+  // Read from ``useMe`` rather than an argument: the two resolvers
+  // MUST agree, and an argument only one of them receives is how they
+  // drift. The query is shared + cached, so both read one value.
+  const me = useMe();
 
   const [route, setRoute] = useState(() => parseRoute());
 
@@ -91,6 +98,7 @@ export function useChipState(args: {
     polishedCurators,
     availability: universe.availability,
     pinnedBaseline,
+    ownPolishedCurator: me.data?.username ?? null,
   });
 
   const fromUrl =
