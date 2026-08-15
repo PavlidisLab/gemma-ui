@@ -1,4 +1,9 @@
-import type { Design, DesignValidationState } from "@/features/experiment/types";
+import type { ReactNode } from "react";
+import {
+  MAX_STATEMENT_PAIRS,
+  type Design,
+  type DesignValidationState,
+} from "@/features/experiment/types";
 
 /**
  * Compact summary of the validator state. Green for ok; amber for any
@@ -24,6 +29,13 @@ export function ValidatorBanner({
   // than "fix this." Empty for designs without per-factor agent
   // hints (curator-built factors, pre-baseline-relevance proposals).
   const softFactors = state.factors.filter((s) => s.baseline_uncertain);
+  // Advisory, so deliberately NOT routed through ``warningsFor`` —
+  // that list only renders on the ``!ok`` path, and an over-full
+  // statement group on an otherwise-clean design has to still be
+  // visible.
+  const overfullFactors = state.factors.filter(
+    (s) => s.overfull_statement_groups.length > 0,
+  );
 
   if (state.ok) {
     return (
@@ -39,10 +51,22 @@ export function ValidatorBanner({
             ))}
           </div>
           {softFactors.length > 0 ? (
-            <SoftFactorNotes
-              softFactors={softFactors}
+            <FactorNotes
+              factors={softFactors}
               design={design}
               onSelectFactor={onSelectFactor}
+              heading="agent flagged"
+              noteFor={baselineUncertainNote}
+              titleFor={(s) => s.baseline_uncertain_reason}
+            />
+          ) : null}
+          {overfullFactors.length > 0 ? (
+            <FactorNotes
+              factors={overfullFactors}
+              design={design}
+              onSelectFactor={onSelectFactor}
+              heading="over Gemma's statement limit"
+              noteFor={overfullStatementNote}
             />
           ) : null}
         </div>
@@ -130,10 +154,22 @@ export function ValidatorBanner({
           </ul>
         </div>
         {softFactors.length > 0 ? (
-          <SoftFactorNotes
-            softFactors={softFactors}
+          <FactorNotes
+            factors={softFactors}
             design={design}
             onSelectFactor={onSelectFactor}
+            heading="agent flagged"
+            noteFor={baselineUncertainNote}
+            titleFor={(s) => s.baseline_uncertain_reason}
+          />
+        ) : null}
+        {overfullFactors.length > 0 ? (
+          <FactorNotes
+            factors={overfullFactors}
+            design={design}
+            onSelectFactor={onSelectFactor}
+            heading="over Gemma's statement limit"
+            noteFor={overfullStatementNote}
           />
         ) : null}
       </div>
@@ -141,28 +177,44 @@ export function ValidatorBanner({
   );
 }
 
-/** Slate-toned "agent flagged" subsection. Used for soft signals
- *  the proposer emitted (uncertain-baseline factors, today) that
- *  the curator should consider but that aren't blocking. Read as
- *  "consider this" rather than "fix this" — explicitly distinct
- *  from the amber warnings list. */
-function SoftFactorNotes({
-  softFactors,
+/** Slate-toned advisory subsection. Signals the curator should
+ *  consider but that aren't blocking — read as "consider this"
+ *  rather than "fix this", explicitly distinct from the amber
+ *  warnings list.
+ *
+ *  This is the only channel that survives a VALID design: the amber
+ *  list renders solely on the ``!ok`` path, so anything routed
+ *  through ``warningsFor`` is invisible the moment nothing else is
+ *  wrong. Advisories that must be seen regardless belong here.
+ *
+ *  Was hardwired to the proposer's uncertain-baseline note under an
+ *  "agent flagged" heading; parameterized 2026-08-15 when the
+ *  over-full statement groups needed the same treatment and were not
+ *  agent-flagged. */
+function FactorNotes({
+  factors,
   design,
   onSelectFactor,
+  heading,
+  noteFor,
+  titleFor,
 }: {
-  softFactors: DesignValidationState["factors"];
+  factors: DesignValidationState["factors"];
   design: Design;
   onSelectFactor?: (factorId: number) => void;
+  heading: string;
+  noteFor: (s: DesignValidationState["factors"][number]) => ReactNode;
+  titleFor?: (s: DesignValidationState["factors"][number]) => string;
 }) {
   return (
     <div className="pt-1 mt-1 border-t border-slate-200/70 text-slate-600">
       <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-        agent flagged
+        {heading}
       </div>
       <ul className="space-y-0.5 list-disc list-inside">
-        {softFactors.map((s) => {
+        {factors.map((s) => {
           const { label, missing } = displayNameOf(design, s.factor_id);
+          const title = titleFor?.(s) ?? "";
           const labelEl = (
             <span
               className={
@@ -179,27 +231,63 @@ function SoftFactorNotes({
               type="button"
               onClick={() => onSelectFactor(s.factor_id)}
               className="text-left hover:text-slate-900 hover:underline underline-offset-2"
-              title={s.baseline_uncertain_reason || "Jump to this factor"}
+              title={title || "Jump to this factor"}
             >
               {labelEl}
             </button>
           ) : (
-            <span title={s.baseline_uncertain_reason}>{labelEl}</span>
+            <span title={title}>{labelEl}</span>
           );
           return (
             <li key={s.factor_id}>
-              {node}: baseline uncertain
-              {s.baseline_uncertain_reason ? (
-                <span className="text-slate-500 italic">
-                  {" "}
-                  — {s.baseline_uncertain_reason}
-                </span>
-              ) : null}
+              {node}: {noteFor(s)}
             </li>
           );
         })}
       </ul>
     </div>
+  );
+}
+
+/** The proposer's uncertain-baseline note. */
+function baselineUncertainNote(
+  s: DesignValidationState["factors"][number],
+): ReactNode {
+  return (
+    <>
+      baseline uncertain
+      {s.baseline_uncertain_reason ? (
+        <span className="text-slate-500 italic">
+          {" "}
+          — {s.baseline_uncertain_reason}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** Subjects carrying more predicate/object pairs than Gemma's two
+ *  slots hold. The editor no longer lets one be built, so these came
+ *  in from an agent proposal or an older snapshot. */
+function overfullStatementNote(
+  s: DesignValidationState["factors"][number],
+): ReactNode {
+  const groups = s.overfull_statement_groups;
+  const listed = groups
+    .slice(0, 3)
+    .map((g) => `"${g.subject}" (${g.pairs})`)
+    .join(", ");
+  return (
+    <>
+      {groups.length === 1 ? "a subject carries" : `${groups.length} subjects carry`}{" "}
+      more than {MAX_STATEMENT_PAIRS} predicate/object pairs — {listed}
+      {groups.length > 3 ? ", …" : ""}
+      <span className="text-slate-500 italic">
+        {" "}
+        — Gemma holds two per subject; split the extras into their own
+        statements before this design is written back.
+      </span>
+    </>
   );
 }
 

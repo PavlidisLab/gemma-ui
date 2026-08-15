@@ -502,3 +502,145 @@ describe("validateDesign — a baseline Gemma detects needs no marking", () => {
     expect(validateDesign(d).factors[0].nonstandard_marked_baseline).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// overfull_statement_groups — more pairs than Gemma's two slots hold
+// ---------------------------------------------------------------------------
+
+describe("validateDesign — overfull_statement_groups", () => {
+  /** One FV whose single subject carries N (predicate, object) pairs,
+   *  spelled the way the UI stores them: flat rows sharing
+   *  (category, subject). */
+  const fvWithPairs = (
+    id: number,
+    subject: string,
+    pairs: [string, string][],
+  ): FactorValue => ({
+    id,
+    free_text_label: subject,
+    is_baseline: false,
+    biomaterial_short_names: ["s1"],
+    statements: pairs.map(([p, o]) => ({
+      category: { label: "treatment", uri: "http://x/EFO_1" },
+      subject: { label: subject, uri: "http://x/CHEBI_1" },
+      predicate: { label: p, uri: null },
+      object: { label: o, uri: null },
+    })),
+  });
+
+  const designWith = (fvs: FactorValue[]): Design =>
+    emptyDesign({
+      factors: [categoricalFactor(1, "treatment", fvs)],
+      biomaterials: [{ short_name: "s1", name: "s1", characteristics: {} }],
+    });
+
+  it("says nothing at one or two pairs", () => {
+    for (const n of [1, 2]) {
+      const pairs: [string, string][] = Array.from({ length: n }, (_, i) => [
+        `p${i}`,
+        `o${i}`,
+      ]);
+      const state = validateDesign(designWith([fvWithPairs(1, "vpa", pairs)]));
+      expect(state.factors[0].overfull_statement_groups).toEqual([]);
+    }
+  });
+
+  it("flags a third pair on the same subject", () => {
+    // Real shape, experiment 24995: valproic acid carrying delivered
+    // to / delivered at dose / delivered for duration.
+    const state = validateDesign(
+      designWith([
+        fvWithPairs(7, "valproic acid", [
+          ["delivered to", "mother"],
+          ["delivered at dose", "20 g/kg"],
+          ["delivered for duration", "2 week"],
+        ]),
+      ]),
+    );
+    expect(state.factors[0].overfull_statement_groups).toEqual([
+      { fv_id: 7, subject: "valproic acid", pairs: 3 },
+    ]);
+  });
+
+  it("counts per subject, not per factor value", () => {
+    // Two subjects with two pairs each is fine — the ceiling is on one
+    // subject's pairs, not on how many statements an FV carries.
+    const state = validateDesign(
+      designWith([
+        {
+          id: 3,
+          free_text_label: "combo",
+          is_baseline: false,
+          biomaterial_short_names: ["s1"],
+          statements: [
+            ...fvWithPairs(3, "drug a", [
+              ["delivered at dose", "1"],
+              ["delivered for duration", "2 d"],
+            ]).statements,
+            ...fvWithPairs(3, "drug b", [
+              ["delivered at dose", "3"],
+              ["delivered for duration", "4 d"],
+            ]).statements,
+          ],
+        },
+      ]),
+    );
+    expect(state.factors[0].overfull_statement_groups).toEqual([]);
+  });
+
+  it("ignores placeholder rows with no predicate and no object", () => {
+    // The row "+ pred/obj" adds before the curator fills it in must not
+    // trip the flag mid-edit.
+    const base = fvWithPairs(4, "vpa", [
+      ["delivered to", "mother"],
+      ["delivered at dose", "20 g/kg"],
+    ]);
+    const withBlank: FactorValue = {
+      ...base,
+      statements: [
+        ...base.statements,
+        {
+          category: { label: "treatment", uri: "http://x/EFO_1" },
+          subject: { label: "vpa", uri: "http://x/CHEBI_1" },
+          predicate: null,
+          object: null,
+        },
+      ],
+    };
+    const state = validateDesign(designWith([withBlank]));
+    expect(state.factors[0].overfull_statement_groups).toEqual([]);
+  });
+
+  it("is advisory — it does not fail ok on its own", () => {
+    // Nothing is lost while the design lives in the local store, which
+    // keeps statements flat. Blocking commit would strand a curator on
+    // data an agent authored.
+    const clean = designWith([
+      {
+        ...fvWithPairs(1, "vpa", [
+          ["delivered to", "mother"],
+          ["delivered at dose", "20 g/kg"],
+        ]),
+        is_baseline: true,
+      },
+    ]);
+    clean.factors[0].description = "treatment arm";
+    const okState = validateDesign(clean);
+
+    const over = designWith([
+      {
+        ...fvWithPairs(1, "vpa", [
+          ["delivered to", "mother"],
+          ["delivered at dose", "20 g/kg"],
+          ["delivered for duration", "2 week"],
+        ]),
+        is_baseline: true,
+      },
+    ]);
+    over.factors[0].description = "treatment arm";
+    const overState = validateDesign(over);
+
+    expect(overState.factors[0].overfull_statement_groups).toHaveLength(1);
+    expect(overState.ok).toBe(okState.ok);
+  });
+});

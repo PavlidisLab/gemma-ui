@@ -43,6 +43,44 @@ export interface Statement {
   object?: OntologyTerm | null;
 }
 
+/** How many (predicate, object) pairs one subject may carry.
+ *
+ *  Gemma's wire model holds exactly two slots — ``predicate`` /
+ *  ``object`` and ``secondPredicate`` / ``secondObject`` on
+ *  ``AnnotationValueObject``. There is no third. The UI keeps
+ *  statements FLAT (one row per pair, sharing category + subject) and
+ *  regroups them at render time, so nothing in the editor's own shape
+ *  stops a curator from stacking a third pair — the ceiling has to be
+ *  enforced, not inherited.
+ *
+ *  Enforced by ``StatementGroupEditor``'s "+ pred/obj" affordance and
+ *  reported by ``validateDesign`` for groups that arrived over the
+ *  limit from somewhere else (an agent proposal, an older snapshot). */
+export const MAX_STATEMENT_PAIRS = 2;
+
+/** Bucket key for "statements about the same thing" —
+ *  ``(category, subject)``, label + URI, case-folded.
+ *
+ *  One definition, two readers: ``groupStatementsBySubject`` collapses
+ *  the flat rows into a visual group with it, and ``validateDesign``
+ *  counts pairs per group with it. They have to agree, or the editor
+ *  caps a group the validator doesn't recognise. */
+export function statementGroupKey(s: Statement): string {
+  const cat = s.category ?? null;
+  return (
+    `${cat?.label ?? ""}|${cat?.uri ?? ""}|` +
+    `${s.subject?.label ?? ""}|${s.subject?.uri ?? ""}`
+  ).toLowerCase();
+}
+
+/** Does this statement carry an actual (predicate, object) pair? A
+ *  row with neither is the "subject named, pair not filled in yet"
+ *  placeholder the "+ pred/obj" affordance creates — it occupies a
+ *  slot but hasn't spent one. */
+export function statementHasPair(s: Statement): boolean {
+  return Boolean(s.predicate?.label?.trim() || s.object?.label?.trim());
+}
+
 export interface FactorValue {
   id: number;
   free_text_label: string;
@@ -484,6 +522,22 @@ export interface FactorValidationState {
   /** Factor has no description text. Curators are expected to describe
    *  every experimental factor; blocks commit. */
   factor_missing_description: boolean;
+  /** Subjects carrying more than ``MAX_STATEMENT_PAIRS`` (predicate,
+   *  object) pairs — more than Gemma's two slots can hold. The editor
+   *  no longer lets a curator build one, so these arrived from
+   *  elsewhere: an agent proposal, or a snapshot predating the cap.
+   *
+   *  ADVISORY, not part of ``ok``. Nothing is lost while the design
+   *  lives in the local store, which keeps statements flat and has no
+   *  two-slot ceiling; the squeeze happens at the eventual real-Gemma
+   *  write, which isn't wired yet. Blocking commit today would strand
+   *  curators on data they didn't author, for a write that hasn't
+   *  happened. Surfaced so they get cleaned up before it does. */
+  overfull_statement_groups: {
+    fv_id: number;
+    subject: string;
+    pairs: number;
+  }[];
   /** FVs Gemma's own detector would take as the baseline without the
    *  curator marking anything — a "reference substance role" control, a
    *  "wild type genotype" arm, "female" on a sex factor. Non-empty
@@ -610,6 +664,11 @@ export function validateDesign(design: Design): DesignValidationState {
       label: string;
       fv_id?: number;
     }[] = [];
+    const overfullStatementGroups: {
+      fv_id: number;
+      subject: string;
+      pairs: number;
+    }[] = [];
 
     // Factor category must be a grounded ontology term, not free text.
     // A label with no ``uri`` is free text; Gemma rejects it on commit.
@@ -649,6 +708,26 @@ export function validateDesign(design: Design): DesignValidationState {
       }
       for (const sn of fv.biomaterial_short_names) {
         seen.set(sn, (seen.get(sn) ?? 0) + 1);
+      }
+      // Pairs per subject, counted the way the editor groups them.
+      // Placeholder rows (subject named, pair not filled in) don't
+      // count — an in-progress "+ pred/obj" row would otherwise flag
+      // the moment it appeared.
+      const pairsBySubject = new Map<string, { subject: string; n: number }>();
+      for (const s of fv.statements) {
+        if (!statementHasPair(s)) continue;
+        const k = statementGroupKey(s);
+        const entry = pairsBySubject.get(k) ?? {
+          subject: s.subject?.label ?? "",
+          n: 0,
+        };
+        entry.n++;
+        pairsBySubject.set(k, entry);
+      }
+      for (const { subject, n } of pairsBySubject.values()) {
+        if (n > MAX_STATEMENT_PAIRS) {
+          overfullStatementGroups.push({ fv_id: fv.id, subject, pairs: n });
+        }
       }
       for (const s of fv.statements) {
         // Every predicate must be a grounded preset ontology term.
@@ -753,6 +832,7 @@ export function validateDesign(design: Design): DesignValidationState {
       forbidden_category: forbiddenCategory,
       ungrounded_categories: ungroundedCategories,
       factor_missing_description: !(f.description || "").trim(),
+      overfull_statement_groups: overfullStatementGroups,
     };
   });
   // A design with zero factors isn't "valid" — it's empty. The

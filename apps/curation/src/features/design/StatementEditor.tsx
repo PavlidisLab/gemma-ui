@@ -6,7 +6,13 @@ import { CurieLink } from "@/components/ui/CurieLink";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
 import { PREDICATE_GUIDELINE } from "@/lib/guidelines";
 import { shortenUri } from "@/lib/curie";
-import type { OntologyTerm, Statement } from "@/features/experiment/types";
+import {
+  MAX_STATEMENT_PAIRS,
+  statementGroupKey,
+  statementHasPair,
+  type OntologyTerm,
+  type Statement,
+} from "@/features/experiment/types";
 
 /**
  * Allow-list of predicates that can link a Statement subject to its
@@ -316,6 +322,12 @@ export function StatementGroupEditor({
   onAddSibling: () => void;
 }) {
   const head = statements[0];
+  // Full once the group holds the wire's two rows. Counted on ROWS,
+  // not on rows-with-a-pair: each row is a slot, and a freshly-added
+  // blank one is a slot already claimed. Counting only filled rows
+  // let a curator stack blanks past the ceiling and fill them in
+  // afterwards, which is the same third pair by a slower route.
+  const atPairLimit = statements.length >= MAX_STATEMENT_PAIRS;
   const cat = head.category ?? null;
   const catMismatch =
     cat != null &&
@@ -401,10 +413,27 @@ export function StatementGroupEditor({
             onDelete={() => onDelete(i)}
           />
         ))}
+        {/* Capped at ``MAX_STATEMENT_PAIRS``. Gemma holds two
+            predicate/object slots per subject and no third, so a
+            stacked pair beyond that has nowhere to land. Disabled
+            rather than hidden: a curator hunting for the affordance
+            should be told the ceiling exists, not left wondering
+            where the button went. */}
         <button
-          className="self-start text-[11px] text-slate-500 hover:text-slate-800 px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
-          onClick={onAddSibling}
-          title="Add another predicate/object pair under this subject"
+          className={
+            "self-start text-[11px] px-1 py-0.5 rounded " +
+            (atPairLimit
+              ? "text-slate-300 cursor-not-allowed dark:text-slate-600"
+              : "text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800")
+          }
+          disabled={atPairLimit}
+          aria-disabled={atPairLimit}
+          onClick={atPairLimit ? undefined : onAddSibling}
+          title={
+            atPairLimit
+              ? `A subject carries at most ${MAX_STATEMENT_PAIRS} predicate/object pairs — Gemma has no third slot. Use a separate statement for a further claim.`
+              : "Add another predicate/object pair under this subject"
+          }
         >
           + pred/obj
         </button>
@@ -539,9 +568,7 @@ export function groupStatementsBySubject(
     { statements: Statement[]; indices: number[] }
   >();
   statements.forEach((s, i) => {
-    const cat = s.category ?? null;
-    const key =
-      `${cat?.label ?? ""}|${cat?.uri ?? ""}|${s.subject.label}|${s.subject.uri ?? ""}`.toLowerCase();
+    const key = statementGroupKey(s);
     if (!buckets.has(key)) buckets.set(key, { statements: [], indices: [] });
     const b = buckets.get(key)!;
     b.statements.push(s);
@@ -558,8 +585,7 @@ export function groupStatementsBySubject(
   // stay aligned to the surviving statements so mutations map correctly.
   // Design review 2026-07-20. Gated on ``dropBareWithReal`` (2026-07-21) so the
   // editable view can keep its in-progress "+ pred/obj" rows.
-  const isBare = (s: Statement) =>
-    !s.predicate?.label?.trim() && !s.object?.label?.trim();
+  const isBare = (s: Statement) => !statementHasPair(s);
   return [...buckets.values()].map((g) => {
     if (!dropBareWithReal) return g;
     if (!g.statements.some((s) => !isBare(s))) return g;
