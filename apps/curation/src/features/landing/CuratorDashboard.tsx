@@ -236,7 +236,15 @@ export function CuratorDashboard({
   // else (0 or many hits) hands the query off to the browse page with
   // the filter pre-applied.
   const qc = useQueryClient();
-  const { data: datasets } = useDatasets();
+  // ``isLoading`` is the no-data-yet state, so it is exactly "there is
+  // nothing to match against". A background revalidation keeps the
+  // cached catalogue and leaves it false, which is right — those
+  // matches are real.
+  const {
+    data: datasets,
+    isLoading: catalogueLoading,
+    isError: catalogueFailed,
+  } = useDatasets();
   const [query, setQuery] = useState("");
   // While resolving a single hit's ticket context (async endpoint call),
   // disable the form so a double-submit can't fire two navigations.
@@ -264,6 +272,12 @@ export function CuratorDashboard({
       navigate("#/all-experiments");
       return;
     }
+    // Submitting before the catalogue lands would read the empty
+    // ``matches`` as "not one hit" and bounce to the browse page —
+    // losing the straight jump for what is actually a single hit. The
+    // readout says "searching…"; wait for it. Guarded here as well as
+    // on the button because Enter submits a form past a disabled one.
+    if (catalogueLoading) return;
     // Many (or zero) hits → hand off to the browse table with the filter
     // pre-applied; the curator disambiguates there.
     if (matches.length !== 1) {
@@ -465,18 +479,38 @@ export function CuratorDashboard({
             </div>
             <button
               type="submit"
-              disabled={resolving}
+              disabled={resolving || catalogueLoading}
               className="text-sm px-3 py-2 rounded bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50"
+              title={
+                catalogueLoading
+                  ? "Loading the experiment catalogue…"
+                  : undefined
+              }
             >
               {resolving ? "Opening…" : "Search"}
             </button>
             {query.trim() ? (
-              <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                {matches.length === 0
-                  ? "no matches"
-                  : matches.length === 1
-                    ? `1 match → opens ${matches[0].short_name}`
-                    : `${matches.length} matches → browse`}
+              <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums inline-flex items-center gap-1.5">
+                {/* "no matches" is only true once there IS a catalogue
+                    to have missed. ``useDatasets`` pages the whole
+                    thing, so on a cold cache the honest zero and the
+                    not-loaded-yet zero look identical — and the
+                    not-loaded one arrives first and reads as "your
+                    experiment isn't here". */}
+                {catalogueLoading ? (
+                  <>
+                    <Spinner size={11} />
+                    searching…
+                  </>
+                ) : catalogueFailed ? (
+                  "couldn't load the catalogue"
+                ) : matches.length === 0 ? (
+                  "no matches"
+                ) : matches.length === 1 ? (
+                  `1 match → opens ${matches[0].short_name}`
+                ) : (
+                  `${matches.length} matches → browse`
+                )}
               </span>
             ) : null}
           </form>
