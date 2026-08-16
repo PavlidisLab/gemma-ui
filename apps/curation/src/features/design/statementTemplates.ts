@@ -35,6 +35,10 @@ const HAS_ROLE = predicate("has role", "RO_0000087");
 const HAS_GENOTYPE = predicate("has_genotype", "GENO_0000222");
 const HAS_PHENOTYPE = predicate("has phenotype", "RO_0002200");
 const HAS_DISEASE = predicate("has disease", "RO_0016002");
+// CLO's own object property. Pairs with HAS_DISEASE: that one is the
+// engineered case, this one is the donor's.
+const DERIVES_FROM_PATIENT_HAVING_DISEASE = predicate(
+  "derives from patient having disease", "CLO_0000015");
 const ADJACENT_TO = predicate("adjacent to", "RO_0002220");
 const DELIVERED_AT_DOSE = predicate("delivered at dose", "TGEMO_00166");
 const DELIVERED_FOR_DURATION = predicate("delivered for duration", "TGEMO_00167");
@@ -276,13 +280,38 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "has-disease",
     category: "cell line",
     label: "cell/tissue + has disease + disease",
-    description: "Sample modified to carry a disease — has disease (RO_0016002).",
+    description:
+      "ENGINEERED only — the disease was put there by us, by modification or " +
+      "breeding. A line or tissue that came from a patient with the disease " +
+      "takes 'derives from patient having disease' instead. has disease " +
+      "(RO_0016002).",
     subjectHint: "cell line / type / part (CLO / CL / UBERON)",
     objectHint: "disease (MONDO)",
     build: (cat) =>
       withCategory(cat, {
         subject: { label: "" },
         predicate: { ...HAS_DISEASE },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "derives-from-patient-having-disease",
+    category: "cell line",
+    label: "cell line / cell type + derives from patient having disease + disease",
+    description:
+      "The donor had the disease; the sample was not modified to have it. " +
+      "Use when the disease is NOT recoverable from the line's own record — " +
+      "a free-text or otherwise ungrounded cell line, or a grounded cell " +
+      "type that only makes sense once you say whose it was. A line that " +
+      "resolves in CLO / Cellosaurus already carries its disease: leave it " +
+      "off. derives from patient having disease (CLO_0000015).",
+    subjectHint:
+      "the cell line or cell type — free text is fine when it does not ground",
+    objectHint: "the DONOR's disease (MONDO)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...DERIVES_FROM_PATIENT_HAVING_DISEASE },
         object: { label: "" },
       }),
   },
