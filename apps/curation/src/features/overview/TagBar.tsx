@@ -15,7 +15,9 @@ import {
   StatementEditModal,
   type StatementDraft,
 } from "@/components/ui/StatementEditModal";
-import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { useDatasetTaxon, useDesignDraft } from "@/features/design/DesignDraftContext";
+import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
+import { isGeneUri, parseGeneLabel } from "@/lib/gene";
 import { CurieLink } from "@/components/ui/CurieLink";
 import { Term } from "@/components/ui/Term";
 import { HelpPopup } from "@/components/ui/HelpPopup";
@@ -1633,6 +1635,15 @@ function TagStatementInline({ statements }: { statements: Statement[] }) {
  *  text gets italic slate. CURIE / popover affordances live on the
  *  full ``Term`` component; this stub stays text-only so it nests
  *  cleanly inside the chip frame. */
+/** A term inside a tag chip.
+ *
+ *  🛑 Deliberately NOT a ``Term``: the TagBar convention is one frame
+ *  per chip, so an inner term carries no border, no prefix and no
+ *  inline CURIE. That is a styling decision and it must not become a
+ *  behaviour decision — genes still show the SYMBOL and a species
+ *  mark here, exactly as they do in a full ``Term``, sourced from the
+ *  same helpers rather than re-derived.
+ */
 function TagInnerTerm({
   label,
   uri,
@@ -1640,16 +1651,35 @@ function TagInnerTerm({
   label: string;
   uri: string | null;
 }) {
-  return uri ? (
-    <span
-      className="font-medium text-emerald-800 dark:text-emerald-200"
-      title={shortenUri(uri)}
-    >
-      {label}
-    </span>
-  ) : (
-    <span className="italic text-slate-700 dark:text-slate-300">
-      {label}
+  const datasetTaxon = useDatasetTaxon();
+  const gene = isGeneUri(uri) ? parseGeneLabel(label) : null;
+  if (!uri) {
+    return (
+      <span className="italic text-slate-700 dark:text-slate-300">
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-baseline gap-0.5">
+      <span
+        className="font-medium text-emerald-800 dark:text-emerald-200"
+        title={
+          gene
+            ? [gene.fullName ? `${gene.symbol} — ${gene.fullName}` : gene.symbol,
+               shortenUri(uri)].join("\n")
+            : shortenUri(uri)
+        }
+      >
+        {gene?.symbol || label}
+      </span>
+      {gene ? (
+        <GeneSpeciesMark
+          uri={uri}
+          species={gene.species}
+          datasetTaxon={datasetTaxon}
+        />
+      ) : null}
     </span>
   );
 }
@@ -1994,7 +2024,10 @@ function EditableDirectGroupChip({
                   <TagStatementInline statements={tag.statements} />
                 ) : (
                   <>
-                    <span>{tag.value.label || "(blank)"}</span>
+                    <TagInnerTerm
+                      label={tag.value.label || "(blank)"}
+                      uri={tag.value.uri ?? null}
+                    />
                     {tag.value.uri ? (
                       <CurieLink
                         uri={tag.value.uri}

@@ -37,7 +37,6 @@
 
 import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
-import { shortenUri } from "@/lib/curie";
 import { sameOntologyTerm, capitalizeCategory } from "@/lib/ontologyTerm";
 import { useToast } from "@/components/ui/Toast";
 import { Term, termRenderer } from "@/components/ui/Term";
@@ -3895,7 +3894,8 @@ function MiniFvLine({
     <div className="text-[10px] leading-tight">
       <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
         {subjLabel ? (
-          <MiniTerm label={subjLabel} uri={subjUri} />
+          <Term uri={subjUri} asLink={false} size="sm"
+                className="!whitespace-normal break-words">{subjLabel}</Term>
         ) : (
           <span className="italic text-slate-400">(blank)</span>
         )}
@@ -3913,7 +3913,8 @@ function MiniFvLine({
         {objLabel ? (
           <>
             <span className="text-slate-400 dark:text-slate-500">·</span>
-            <MiniTerm label={objLabel} uri={objUri} />
+            <Term uri={objUri} asLink={false} size="sm"
+                  className="!whitespace-normal break-words">{objLabel}</Term>
           </>
         ) : null}
         {fv.is_baseline ? (
@@ -3939,10 +3940,10 @@ function MiniFvLine({
               className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5"
             >
               {s.subject?.label ? (
-                <MiniTerm
-                  label={s.subject.label}
-                  uri={s.subject.uri ?? null}
-                />
+                <Term uri={s.subject.uri ?? null} asLink={false} size="sm"
+                  className="!whitespace-normal break-words">
+                  {s.subject.label}
+                </Term>
               ) : null}
               {s.predicate?.label ? (
                 <>
@@ -3955,10 +3956,10 @@ function MiniFvLine({
               {s.object?.label ? (
                 <>
                   <span className="text-slate-400 dark:text-slate-500">·</span>
-                  <MiniTerm
-                    label={s.object.label}
-                    uri={s.object.uri ?? null}
-                  />
+                  <Term uri={s.object.uri ?? null} asLink={false} size="sm"
+                    className="!whitespace-normal break-words">
+                    {s.object.label}
+                  </Term>
                 </>
               ) : null}
             </div>
@@ -3969,36 +3970,6 @@ function MiniFvLine({
   );
 }
 
-/** Mini chip: same visual cues as the full Term chip (emerald wash
- *  + URI suffix when resolved; grey italic when free-text) at
- *  half the size. Not interactive — these rows aren't editable. */
-function MiniTerm({
-  label,
-  uri,
-}: {
-  label: string;
-  uri: string | null;
-}) {
-  const resolved = !!uri;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-baseline gap-1 px-1 rounded-sm border leading-tight",
-        resolved
-          ? "bg-emerald-50 text-emerald-800 border-emerald-200 border-l-[2px] border-l-emerald-500 dark:bg-emerald-900/30 dark:text-emerald-100 dark:border-emerald-700"
-          : "bg-stone-50 text-stone-600 border-stone-200 italic dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600",
-      )}
-      title={uri || undefined}
-    >
-      <span className="break-words">{label}</span>
-      {uri ? (
-        <span className="text-slate-400 dark:text-slate-500 font-mono text-[9px] whitespace-nowrap">
-          {shortenUri(uri)}
-        </span>
-      ) : null}
-    </span>
-  );
-}
 
 /** Per-FV confirmation chips, nested inside the parent factor
  *  card body. Renders only when the factor finding has OK-severity

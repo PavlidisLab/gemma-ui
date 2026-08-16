@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { geneDisplayLabel } from "@/lib/gene";
 import { cn } from "@/lib/cn";
 import { agentPalette } from "@/lib/agentPalette";
 import { agentBadge } from "./agentLabel";
@@ -1460,7 +1461,10 @@ export function ProposalCardV2({
                           }
                           aria-label={`include factor value ${
                             fv.free_text_label ||
-                            fv.statements[0]?.subject.label ||
+                            geneDisplayLabel(
+                              fv.statements[0]?.subject.label,
+                              fv.statements[0]?.subject.uri,
+                            ) ||
                             "?"
                           }`}
                         />
@@ -1470,13 +1474,19 @@ export function ProposalCardV2({
                           label={
                             getLabelEdit(fi, vi) ??
                             (fv.free_text_label ||
-                              fv.statements[0]?.subject.label ||
+                              geneDisplayLabel(
+                                fv.statements[0]?.subject.label,
+                                fv.statements[0]?.subject.uri,
+                              ) ||
                               "?")
                           }
                           edited={getLabelEdit(fi, vi) !== undefined}
                           originalLabel={
                             fv.free_text_label ||
-                            fv.statements[0]?.subject.label ||
+                            geneDisplayLabel(
+                              fv.statements[0]?.subject.label,
+                              fv.statements[0]?.subject.uri,
+                            ) ||
                             "?"
                           }
                           onCommit={(next) => setLabelEdit(fi, vi, next)}

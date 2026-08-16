@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { geneDisplayLabel } from "@/lib/gene";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import {
@@ -2463,11 +2464,13 @@ function FvStatementsTooltipBody({
       <div className="grid grid-cols-[max-content_max-content_max-content] gap-x-2 gap-y-0.5 items-baseline">
         {fv.statements.map((s, i) => {
           const subjectSame = sameSubject(fv.statements[i - 1], s);
-          const subj = s.subject?.label ?? "";
+          // Dark tooltip, so these are plain strings rather than
+          // ``Term`` chips — but a gene still shows its symbol only.
           const subjUri = s.subject?.uri ?? null;
-          const pred = s.predicate?.label ?? "";
-          const obj = s.object?.label ?? "";
           const objUri = s.object?.uri ?? null;
+          const subj = geneDisplayLabel(s.subject?.label, subjUri);
+          const pred = s.predicate?.label ?? "";
+          const obj = geneDisplayLabel(s.object?.label, objUri);
           return (
             <Fragment key={i}>
               <span
@@ -2950,7 +2953,10 @@ function ProposalFvCell({
         (fv: FactorValueProposal, vi: number) => (
           <option key={vi} value={vi}>
             {fv.free_text_label ||
-              fv.statements?.[0]?.subject?.label ||
+              geneDisplayLabel(
+                fv.statements?.[0]?.subject?.label,
+                fv.statements?.[0]?.subject?.uri,
+              ) ||
               `FV ${vi}`}
             {fv.is_baseline ? " · baseline" : ""}
           </option>

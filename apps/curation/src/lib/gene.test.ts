@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  geneDisplayLabel,
   geneSpeciesNeedsCheck,
   geneSpeciesVerdict,
   isGeneUri,
@@ -112,5 +113,49 @@ describe("geneSpeciesNeedsCheck", () => {
     expect(geneSpeciesNeedsCheck("unknown")).toBe(true);
     expect(geneSpeciesNeedsCheck("match")).toBe(false);
     expect(geneSpeciesNeedsCheck("unchecked")).toBe(false);
+  });
+});
+
+describe("geneDisplayLabel", () => {
+  // The case Paul caught 2026-08-16: Gemma's composite label rendered
+  // verbatim in a chip, wrapping over three lines where "Trp53" fits.
+  const MOUSE_TRP53 = "http://purl.org/commons/record/ncbi_gene/22059";
+
+  it("reduces Gemma's composite gene label to the symbol", () => {
+    expect(
+      geneDisplayLabel(
+        "Trp53 [mouse] transformation related protein 53",
+        MOUSE_TRP53,
+      ),
+    ).toBe("Trp53");
+  });
+
+  it("handles the other label shapes the wire carries", () => {
+    expect(geneDisplayLabel("Esr1 estrogen receptor 1", HUMAN_ESR1)).toBe("Esr1");
+    expect(geneDisplayLabel("ESR1 — estrogen receptor 1", HUMAN_ESR1)).toBe("ESR1");
+    // Already short: unchanged, not re-parsed into something else.
+    expect(geneDisplayLabel("ESR1", HUMAN_ESR1)).toBe("ESR1");
+  });
+
+  // Gene-ness comes from the URI, never the label — a bare "ESR1" as
+  // free text is a curator's unresolved string, and a non-gene term
+  // whose label happens to have several words must survive intact.
+  it("leaves anything that is not a gene URI alone", () => {
+    expect(geneDisplayLabel("ESR1", null)).toBe("ESR1");
+    expect(
+      geneDisplayLabel(
+        "left occipital lobe",
+        "http://purl.obolibrary.org/obo/UBERON_0002806",
+      ),
+    ).toBe("left occipital lobe");
+    expect(geneDisplayLabel("transcription profiling by array assay", null)).toBe(
+      "transcription profiling by array assay",
+    );
+  });
+
+  it("is safe on empty input", () => {
+    expect(geneDisplayLabel(null, MOUSE_TRP53)).toBe("");
+    expect(geneDisplayLabel("", null)).toBe("");
+    expect(geneDisplayLabel(undefined, undefined)).toBe("");
   });
 });

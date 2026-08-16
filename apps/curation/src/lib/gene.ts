@@ -85,6 +85,33 @@ function stripSeparator(rest: string): string {
   return rest.replace(/^[—–-]\s*/, "").trim();
 }
 
+/**
+ * The text form of the gene rule, for the places that can only render a
+ * STRING — a `<select>` option, a table cell, an `<input>` placeholder,
+ * a `title` attribute.
+ *
+ * A gene shows its symbol and nothing else. `Term` / `GeneLabel` do
+ * this for JSX and add the species mark; where a component can't go,
+ * this keeps the same promise so a curator meets the same short name on
+ * every surface. Paul, 2026-08-16: the short form "should be the same
+ * _everywhere_ in the ui".
+ *
+ * 🛑 Display only. Never key equality, dedup, slugs or search
+ * haystacks off this — `auditPresentation.ts::slug` and the audit
+ * target ids mirror the agents repo byte for byte, and searching for
+ * "transformation related protein 53" has to keep finding Trp53. It is
+ * also a no-op for anything that isn't a gene URI, so it is safe to
+ * wrap a label whose kind you don't know.
+ */
+export function geneDisplayLabel(
+  label: string | null | undefined,
+  uri: string | null | undefined,
+): string {
+  const text = (label ?? "").trim();
+  if (!isGeneUri(uri)) return text;
+  return parseGeneLabel(text).symbol || text;
+}
+
 /** What the species marker on a gene chip is saying.
  *
  *  - ``match``    — the gene's species is the dataset's. Quiet.

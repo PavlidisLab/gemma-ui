@@ -9,7 +9,9 @@
  */
 import { cn } from "@/lib/cn";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
 import { shortenUri } from "@/lib/curie";
+import { isGeneUri, parseGeneLabel } from "@/lib/gene";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import type { Factor, FactorValue, OntologyTerm } from "@/features/experiment/types";
 /** Compact factor chips for the overview header — one small sky-tinted
@@ -138,15 +140,30 @@ export function FactorChipTooltipBody({ factor }: { factor: Factor }) {
 /** Compact ontology-vs-free-text term span for the FV-cell hover.
  *  Grounded terms (with a URI) render emerald with their CURIE; free
  *  text renders italic slate — the same convention the tag chips use,
- *  so "annotated with an ontology term" reads identically everywhere. */
+ *  so "annotated with an ontology term" reads identically everywhere.
+ *
+ *  🛑 Not a `Term`, and the reason is only the palette: this renders
+ *  inside the dark ``Tooltip`` portal, where `Term`'s light chip is
+ *  unreadable. Everything ELSE must still match, so the gene rule is
+ *  taken from the same helpers `Term` uses rather than re-derived —
+ *  a gene shows its SYMBOL, never the full composite label. Getting
+ *  that wrong here is how "Trp53 [mouse] transformation related
+ *  protein 53" ends up in a hover that has room for "Trp53". */
 export function FvTermSpan({ term }: { term?: OntologyTerm | null }) {
   if (!term?.label) return null;
   const uri = term.uri || null;
+  const gene = isGeneUri(uri) ? parseGeneLabel(term.label) : null;
   return (
     <span className="inline-flex items-baseline gap-1">
-      <span className={uri ? "text-emerald-300 font-medium" : "italic text-slate-300"}>
-        {term.label}
+      <span
+        className={uri ? "text-emerald-300 font-medium" : "italic text-slate-300"}
+        title={gene?.fullName ? `${gene.symbol} — ${gene.fullName}` : undefined}
+      >
+        {gene?.symbol || term.label}
       </span>
+      {gene ? (
+        <GeneSpeciesMark uri={uri} species={gene.species} datasetTaxon={null} />
+      ) : null}
       {uri ? (
         <span className="font-mono text-[9px] text-emerald-400/70">
           {shortenUri(uri)}

@@ -17,6 +17,7 @@ import {
   type FactorValue,
   type OntologyTerm,
 } from "@/features/experiment/types";
+import { geneDisplayLabel } from "@/lib/gene";
 import { gemmaAutoDetectsBaseline } from "./gemmaBaseline";
 import type { FvChange } from "./diff";
 import { AuditDot } from "@/features/audit/AuditDot";
@@ -193,7 +194,14 @@ export function FactorValueCard({
             const explicit = (fv.free_text_label || "").trim();
             const onlyStmt =
               fv.statements.length === 1 ? fv.statements[0] : null;
-            const subjectLabel = (onlyStmt?.subject?.label || "").trim();
+            // A gene subject lends the FV its name, so it has to lend
+            // the SHORT one — otherwise the header reads "Trp53
+            // [mouse] transformation related protein 53" and wraps
+            // over three lines where "Trp53" would do.
+            const subjectLabel = geneDisplayLabel(
+              onlyStmt?.subject?.label,
+              onlyStmt?.subject?.uri,
+            );
             const derivedName = !explicit && !!subjectLabel ? subjectLabel : "";
             return (
               <span className={"font-medium text-sm " + tombstoneText}>
@@ -577,9 +585,11 @@ function ReadonlyStatement({
 }: {
   statement: FactorValue["statements"][number];
 }) {
-  const subj = statement.subject?.label || "(blank)";
+  const subj =
+    geneDisplayLabel(statement.subject?.label, statement.subject?.uri) ||
+    "(blank)";
   const pred = statement.predicate?.label;
-  const obj = statement.object?.label;
+  const obj = geneDisplayLabel(statement.object?.label, statement.object?.uri);
   return (
     <div className="text-sm text-slate-500 line-through">
       <span>{subj}</span>

@@ -9,6 +9,7 @@
  * exactly as before.
  */
 import { useMemo, useState } from "react";
+import { geneDisplayLabel } from "@/lib/gene";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { SummaryCard } from "./SummaryCard";
@@ -79,6 +80,26 @@ function DesignCardLegend() {
   );
 }
 
+
+/** The name a factor value goes by in this table.
+ *
+ *  An FV with no label of its own borrows its statement subject's, and
+ *  when that subject is a gene the stored label is Gemma's composite
+ *  ("Trp53 [mouse] transformation related protein 53"). Every column of
+ *  a crosstab wants the symbol.
+ *
+ *  🛑 One helper for all three uses — the crosstab cell, the row-bucket
+ *  key, and the header tooltip. They have to agree: the bucket map is
+ *  keyed by this string and then looked up by it, so shortening one
+ *  caller and not another silently stops matching.
+ */
+function fvName(fv: FactorValue): string {
+  const explicit = (fv.free_text_label || "").trim();
+  if (explicit) return explicit;
+  const subject = fv.statements?.[0]?.subject;
+  return geneDisplayLabel(subject?.label, subject?.uri) || "(unlabelled FV)";
+}
+
 export function DesignSummary({
   factors,
   biomaterials,
@@ -114,13 +135,7 @@ export function DesignSummary({
         const fv = f.factor_values.find((v) =>
           (v.biomaterial_short_names ?? []).includes(bm.short_name),
         );
-        tuple.push(
-          fv
-            ? fv.free_text_label ||
-                fv.statements?.[0]?.subject?.label ||
-                "(unlabelled FV)"
-            : "(unassigned)",
-        );
+        tuple.push(fv ? fvName(fv) : "(unassigned)");
       }
       const key = tuple.join("");
       const existing = buckets.get(key);
@@ -145,10 +160,7 @@ export function DesignSummary({
       standard.map((f) => {
         const m = new Map<string, FactorValue>();
         for (const fv of f.factor_values) {
-          const lab =
-            fv.free_text_label ||
-            fv.statements?.[0]?.subject?.label ||
-            "(unlabelled FV)";
+          const lab = fvName(fv);
           if (!m.has(lab)) m.set(lab, fv);
         }
         return m;
@@ -217,12 +229,7 @@ export function DesignSummary({
     f.name || f.category?.label || "(factor)";
 
   const factorHeaderTooltip = (f: Factor): string => {
-    const labels = (f.factor_values ?? []).map(
-      (fv) =>
-        fv.free_text_label ||
-        fv.statements?.[0]?.subject?.label ||
-        "(unlabelled)",
-    );
+    const labels = (f.factor_values ?? []).map((fv) => fvName(fv));
     const namePart = f.name || f.category?.label || "(factor)";
     const valuesPart =
       labels.length > 0 ? `\nlevels: ${labels.join(" · ")}` : "";
