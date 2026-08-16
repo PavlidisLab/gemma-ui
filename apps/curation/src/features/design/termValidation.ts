@@ -109,20 +109,29 @@ function normLabel(s: string | null | undefined): string {
  * sources agree on the 26 the index carries, so overriding those
  * would buy nothing and could only mask a real mismatch.
  *
- * 🛑 Widen the guard alongside any new "we couldn't judge this"
- * status. An `obsolete` verdict is asked for in
- * `handoffs/UIB_TO_CAB_2026_08_16_FLAG_OBSOLETE_TERMS.md`, and
- * `EFO_0000408` would earn one — obsolete in EFO while still being
- * Gemma's live disease category. It must land here, not on a row.
+ * 🛑 `obsolete` is overridden here too, not just `unknown`.
+ * `EFO_0000408` is deprecated in EFO AND Gemma's live disease
+ * category — both true at once — so a bare "deprecated" row on it
+ * would be the same false alarm in a new coat. The agents side
+ * excludes published categories itself as of 2026-08-16
+ * (`CAB_TO_UIB_2026_08_16_OBSOLETE_VERDICT_LANDED.md`); this stays as
+ * the client-side half, because that exclusion is keyed on a static
+ * table that can lag what `/rest/v2/categories` actually publishes.
+ * Any future "we couldn't judge this" status belongs in this guard too.
  *
  * Returns `null` when there is nothing to say.
  */
+const CATEGORY_OVERRIDABLE: ReadonlySet<string> = new Set([
+  "unknown",
+  "obsolete",
+]);
+
 function categoryVerdict(
   ref: TermRef,
   prior: TermValidationResult | undefined,
   names: Map<string, string>,
 ): TermValidationResult | null {
-  if (prior && prior.status !== "unknown") return null;
+  if (prior && !CATEGORY_OVERRIDABLE.has(prior.status)) return null;
   const canonical = names.get(ref.uri);
   if (!canonical) return null;
   if (normLabel(ref.label) === normLabel(canonical)) {
@@ -279,6 +288,9 @@ export function runIsStale(
  *    label test became membership rather than equality (`OCI-AML3`
  *    for `OCI-AML3 cell`), so inline it would be noise on correct
  *    data. It still appears in the summary, where it costs nothing.
+ *  - `obsolete` is advisory: the term still means what it meant and
+ *    the annotation was right when it was made, so it is a job for
+ *    the worklist, not a mark on a chip a curator is reading past.
  *
  * Single source of truth on purpose: the moment this predicate exists
  * in two places, one of them starts marking `unknown`.
@@ -310,9 +322,16 @@ export function statusEarnsInlineMark(status: TermValidationStatus): boolean {
  * The count still shows in the header tally, so nothing is hidden:
  * "checked 19 · 19 ok" now, and where a gap remains, "· 1 not checked"
  * says exactly what happened without dressing it as work.
+ *
+ * `obsolete` DOES earn one: a deprecated term is a real fact about the
+ * annotation, and the verdict carries the successor the ontology
+ * declares, so the row can offer the repair rather than just the
+ * complaint. It sits above `non_canonical` because "this term is dead"
+ * outranks "this term is spelled a non-preferred way".
  */
 export const SUMMARY_STATUS_ORDER: TermValidationStatus[] = [
   "label_mismatch",
+  "obsolete",
   "non_canonical",
 ];
 

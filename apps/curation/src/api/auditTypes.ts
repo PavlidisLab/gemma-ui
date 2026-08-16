@@ -1424,7 +1424,26 @@ export interface AuditFindingDispositionPatch {
    *  ``AuditFindingDisposition`` for the full semantics + convention. */
   structure_ok?: boolean | null;
   details_ok?: boolean | null;
+  /** WHICH VERSION WON on a matched finding — the explicit record
+   *  Paul asked for (2026-08-16: "it should be confirmed to the user
+   *  what exactly is being done"). The server has carried this field
+   *  since the 456-row note in the agents-side schema; the UI never
+   *  sent it, so keep-vs-adopt could only be inferred from
+   *  applied_fix presence — and the two card surfaces encoded the
+   *  same intent two opposite ways. Never fold this into ``status``
+   *  (status stays truthful: keep-on-match is still an accept of the
+   *  finding's premise on the editor path, a dismiss on the card
+   *  path). */
+  match_verdict?: MatchVerdict;
 }
+
+/** Which version wins on a matched finding. Mirrors the agents-side
+ *  ``MatchVerdict`` enum on ``AuditFindingDispositionPatch``. */
+export type MatchVerdict =
+  | "keep_current"
+  | "keep_agent"
+  | "equivalent"
+  | "neither";
 
 /** Discriminator for the shared CurationReview record. ``audit`` =
  *  agent reviewed existing curation (finding shape: "agent says X,

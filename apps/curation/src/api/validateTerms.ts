@@ -28,25 +28,36 @@ import { api } from "./client";
  * - `non_canonical` — same term, non-preferred form: a registered
  *   synonym (`OCI-AML3` for `OCI-AML3 cell`), a CURIE, or EFO where
  *   CLO exists. The term is arguably right, so this is advisory.
+ * - `obsolete` — the URI names a real term that upstream has
+ *   deprecated. Advisory, not red: the annotation was correct when it
+ *   was made and the term still means what it meant. What makes it
+ *   worth a row is `replaced_by`, the successor the ontology itself
+ *   declares. Landed agents-side 2026-08-16 on our ask
+ *   (`CAB_TO_UIB_2026_08_16_OBSOLETE_VERDICT_LANDED.md`) — before it,
+ *   every one of these was an `unknown` nobody could see.
  * - `unknown` — the ontology index cannot name this URI. **NOT an
  *   error, and not a finding.** It is silence: with no term name to
  *   compare against, the check simply didn't run on that pair. So it
  *   earns neither an inline mark nor a summary row, only a count in
  *   the tally; see `features/design/termValidation.ts`.
  *
- * 🛑 One population must be rescued from `unknown` before that rule
- * applies: Gemma's own annotation categories. The index carries live
- * ontology classes, so it cannot name `disease` / `EFO_0000408`
- * (`obsolete_disease` upstream) or `biological process` /
- * `GO_0008150`, and both are perfectly good annotations. Gemma
- * publishes its name for every category on `/rest/v2/categories`
- * (`useCategories()`), and `buildRun` consults it — keyed on URI,
- * never on label, since the EFO label is the obsolete one.
+ * 🛑 Gemma's own annotation categories must never surface as either
+ * `unknown` or `obsolete`. The index carries live ontology classes, so
+ * it cannot name `disease` / `EFO_0000408` (`obsolete_disease`
+ * upstream) or `biological process` / `GO_0008150` — both perfectly
+ * good annotations, and `EFO_0000408` is deprecated AND Gemma's live
+ * disease category at the same time. The agents side now excludes
+ * every published category URI itself, and `buildRun` holds the same
+ * exclusion client-side against `/rest/v2/categories`
+ * (`useCategories()`) for categories Gemma publishes that the static
+ * table may lag on. Keyed on URI, never on label — the EFO label is
+ * the obsolete one.
  */
 export type TermValidationStatus =
   | "ok"
   | "label_mismatch"
   | "non_canonical"
+  | "obsolete"
   | "unknown";
 
 export interface TermValidationResult {
@@ -57,6 +68,15 @@ export interface TermValidationResult {
   canonical_uri?: string | null;
   detail?: string | null;
   synonyms?: string[] | null;
+  /** The successor the ONTOLOGY declares for a deprecated term. Present
+   *  on every verdict and empty except on `obsolete` — and empty there
+   *  too when the source names no successor (the index-flag path can't
+   *  carry one; the parquet has no `replaced_by` column). Empty means
+   *  "deprecated, and choosing the replacement is a curation
+   *  judgement" — never guess one. Optional here because an older
+   *  agents build omits the fields entirely. */
+  replaced_by_uri?: string | null;
+  replaced_by_label?: string | null;
 }
 
 export interface ValidateTermsResponse {

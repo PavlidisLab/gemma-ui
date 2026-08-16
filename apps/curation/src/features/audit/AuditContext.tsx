@@ -203,6 +203,9 @@ interface AuditContextValue {
        *  three-button DispositionBar leaves both null. */
       structureOk?: boolean | null;
       detailsOk?: boolean | null;
+      /** Which version won on a matched finding — explicit, never
+       *  inferred from status/applied_fix. See auditTypes.MatchVerdict. */
+      matchVerdict?: import("@/api/auditTypes").MatchVerdict;
     },
   ) => Promise<void>;
   /** True while a PATCH is in flight (live path only — the override
@@ -384,6 +387,7 @@ export function AuditProvider({
         inheritedFrom?: string;
         structureOk?: boolean | null;
         detailsOk?: boolean | null;
+        matchVerdict?: import("@/api/auditTypes").MatchVerdict;
       } = {},
     ) => {
       if (!report) return;
@@ -465,6 +469,7 @@ export function AuditProvider({
       if (extras.inheritedFrom) patch.inherited_from = extras.inheritedFrom;
       if (extras.structureOk !== undefined) patch.structure_ok = extras.structureOk;
       if (extras.detailsOk !== undefined) patch.details_ok = extras.detailsOk;
+      if (extras.matchVerdict) patch.match_verdict = extras.matchVerdict;
       const refreshed = await patchDisposition.mutateAsync({
         auditId: report.audit_id,
         patch,

@@ -264,8 +264,51 @@ export function applyLabelFix(
   ref: TermRef,
   canonicalLabel: string,
 ): Design | null {
-  const loc = ref.locator;
   const next = canonicalLabel.trim();
+  if (!next) return null;
+  return applyTermPatch(design, ref, { label: next });
+}
+
+/**
+ * Re-point a term at the successor the ONTOLOGY declares for it, label
+ * and URI together.
+ *
+ * The one rebind this file permits, and only because the authority for
+ * it is the same authority `applyLabelFix` defers to. An `obsolete`
+ * verdict carries `replaced_by` straight from the source — the
+ * ontology saying "this term became that one" — so following it is
+ * obeying the binding, not overruling it. `disease` / `EFO_0000408`
+ * (deprecated) → `MONDO_0000001`.
+ *
+ * Still never a guess: a deprecated term with no declared successor
+ * gets no button, because picking a replacement is a curation
+ * judgement and the panel doesn't get to make it.
+ *
+ * Same staleness guard as a relabel — applies only while the slot
+ * still holds the pair that was validated.
+ */
+export function applyTermRebind(
+  design: Design,
+  ref: TermRef,
+  replacement: { label: string; uri: string },
+): Design | null {
+  const label = replacement.label.trim();
+  const uri = replacement.uri.trim();
+  if (!label || !uri) return null;
+  return applyTermPatch(design, ref, { label, uri });
+}
+
+/** Shared locator walk for both repairs. Kept private so every write
+ *  goes through one staleness check — two copies of this switch is how
+ *  one of them ends up writing on a stale verdict. */
+function applyTermPatch(
+  design: Design,
+  ref: TermRef,
+  patch: { label: string; uri?: string },
+): Design | null {
+  const loc = ref.locator;
+  const next = patch.label;
+  const rebind = patch.uri ? { uri: patch.uri } : {};
   if (!loc || !next) return null;
 
   switch (loc.kind) {
@@ -277,6 +320,7 @@ export function applyLabelFix(
       return setTagCategory(design, loc.tagId, {
         ...tag.category,
         label: next,
+        ...rebind,
       });
     }
     case "tag_value": {
@@ -284,7 +328,11 @@ export function applyLabelFix(
       if (!tag || termKey(tag.value?.label, tag.value?.uri) !== ref.id) {
         return null;
       }
-      return setTagValue(design, loc.tagId, { ...tag.value, label: next });
+      return setTagValue(design, loc.tagId, {
+        ...tag.value,
+        label: next,
+        ...rebind,
+      });
     }
     case "factor_category": {
       const factor = design.factors?.find((f) => f.id === loc.factorId);
@@ -295,7 +343,7 @@ export function applyLabelFix(
         return null;
       }
       return setFactorFields(design, loc.factorId, {
-        category: { ...factor.category, label: next },
+        category: { ...factor.category, label: next, ...rebind },
       });
     }
     case "statement": {
@@ -308,7 +356,7 @@ export function applyLabelFix(
       }
       return setStatement(design, loc.factorId, loc.fvId, loc.index, {
         ...stmt,
-        [loc.slot]: { ...slotTerm, label: next },
+        [loc.slot]: { ...slotTerm, label: next, ...rebind },
       });
     }
     default:

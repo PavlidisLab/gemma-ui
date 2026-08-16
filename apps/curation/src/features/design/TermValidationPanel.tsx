@@ -39,6 +39,7 @@ import {
 
 import {
   applyLabelFix,
+  applyTermRebind,
   collectTerms,
   isBareAccessionLabel,
 } from "./collectTerms";
@@ -63,6 +64,14 @@ const STATUS_COPY: Record<
   },
   non_canonical: {
     label: "non-canonical",
+    cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300",
+  },
+  // Advisory, so it shares the amber of `non_canonical` rather than
+  // taking a colour of its own — the axis here is severity, not
+  // category, and inventing a fourth tint would make the palette stop
+  // meaning anything.
+  obsolete: {
+    label: "obsolete term",
     cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300",
   },
   unknown: {
@@ -259,6 +268,57 @@ export function TermValidationPanel({
                           })()
                         : null}
                     </span>
+                  ) : null}
+                  {/* The successor, which is the entire reason an
+                      `obsolete` row is worth a curator's time. Without
+                      it the row says "this term is dead" and stops,
+                      which is the shape a finding surface must never
+                      take. A deprecated term whose source names no
+                      successor renders no replacement and no button —
+                      picking one is a curation judgement, not ours. */}
+                  {result.status === "obsolete" && result.replaced_by_label ? (
+                    <span className="text-slate-600 dark:text-slate-300">
+                      {" · "}
+                      replaced by{" "}
+                      <span className="font-medium">
+                        {result.replaced_by_label}
+                      </span>
+                      {result.replaced_by_uri ? (
+                        <span className="font-mono text-slate-500 dark:text-slate-400">
+                          {" "}
+                          {shortenUri(result.replaced_by_uri)}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : null}
+                  {result.status === "obsolete" &&
+                  result.replaced_by_label &&
+                  result.replaced_by_uri &&
+                  ref?.locator ? (
+                    <button
+                      type="button"
+                      className="ml-1 px-1.5 py-px rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                      disabled={readOnly}
+                      title={
+                        readOnly
+                          ? "Read-only view."
+                          : `Re-point at "${result.replaced_by_label}" (${shortenUri(result.replaced_by_uri)}), the successor the ontology declares for this deprecated term. Changes the label AND the URI.`
+                      }
+                      onClick={() => {
+                        let applied = false;
+                        apply((current) => {
+                          const next = applyTermRebind(current, ref, {
+                            label: result.replaced_by_label as string,
+                            uri: result.replaced_by_uri as string,
+                          });
+                          applied = next !== null;
+                          return next ?? current;
+                        });
+                        if (applied) setFixed((s) => new Set(s).add(result.id));
+                      }}
+                    >
+                      Re-bind
+                    </button>
                   ) : null}
                   {/* Relabel-in-place, only where the label is what's
                       wrong and the row is actually editable. Sample

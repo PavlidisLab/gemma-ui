@@ -4,6 +4,7 @@ import type { Design } from "@/features/experiment/types";
 
 import {
   applyLabelFix,
+  applyTermRebind,
   collectTerms,
   isBareAccessionLabel,
   termKey,
@@ -280,6 +281,101 @@ describe("applyLabelFix", () => {
     expect(next.factors[0].factor_values[0].statements[0].subject.label).toBe(
       "milligram per kilogram",
     );
+  });
+});
+
+// The one rebind the file permits, and only because `replaced_by` is
+// the ontology naming its own successor — following it obeys the
+// binding rather than overruling it.
+describe("applyTermRebind", () => {
+  const DEPRECATED = uriOf("EFO_0000410");
+  const SUCCESSOR = uriOf("MONDO_0000001");
+
+  function withTag(label: string, uri: string): Design {
+    return design({
+      tags: [
+        {
+          id: 7,
+          category: { label: "cell line", uri: uriOf("EFO_0000322") },
+          value: { label, uri },
+        },
+      ],
+    } as unknown as Partial<Design>);
+  }
+
+  it("moves BOTH the label and the URI", () => {
+    const d = withTag("old staging", DEPRECATED);
+    const ref = collectTerms(d).find((t) => t.label === "old staging")!;
+    const next = applyTermRebind(d, ref, {
+      label: "disease",
+      uri: SUCCESSOR,
+    })!;
+    expect(next.tags[0].value.label).toBe("disease");
+    expect(next.tags[0].value.uri).toBe(SUCCESSOR);
+  });
+
+  it("moves a statement slot's label and URI together", () => {
+    const d = design({
+      factors: [
+        {
+          id: 3,
+          name: "treatment",
+          category: { label: "treatment", uri: uriOf("EFO_0000727") },
+          factor_values: [
+            {
+              id: 11,
+              free_text_label: "dose",
+              statements: [
+                { subject: { label: "old staging", uri: DEPRECATED } },
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as Partial<Design>);
+    const ref = collectTerms(d).find((t) => t.label === "old staging")!;
+    const next = applyTermRebind(d, ref, { label: "disease", uri: SUCCESSOR })!;
+    const slot = next.factors[0].factor_values[0].statements[0].subject;
+    expect(slot.label).toBe("disease");
+    expect(slot.uri).toBe(SUCCESSOR);
+  });
+
+  // Shares the staleness guard, because a rebind on a stale verdict is
+  // the same silent corruption as a relabel on one — worse, since it
+  // moves the binding too.
+  it("refuses when the slot moved on since the run", () => {
+    const d = withTag("old staging", DEPRECATED);
+    const ref = collectTerms(d).find((t) => t.label === "old staging")!;
+    const edited = withTag("something else", DEPRECATED);
+    expect(
+      applyTermRebind(edited, ref, { label: "disease", uri: SUCCESSOR }),
+    ).toBeNull();
+  });
+
+  // A deprecated term with no declared successor must never be
+  // rewritten to a guess.
+  it("refuses without a replacement URI or label", () => {
+    const d = withTag("old staging", DEPRECATED);
+    const ref = collectTerms(d).find((t) => t.label === "old staging")!;
+    expect(applyTermRebind(d, ref, { label: "disease", uri: "" })).toBeNull();
+    expect(applyTermRebind(d, ref, { label: "", uri: SUCCESSOR })).toBeNull();
+  });
+
+  it("cannot touch a sample characteristic — no locator", () => {
+    const d = design({
+      biomaterials: [
+        {
+          short_name: "GSM1",
+          name: "",
+          characteristics: { BioSource: "BRM" },
+          characteristic_uris: { BioSource: { value_uri: DEPRECATED } },
+        },
+      ],
+    } as unknown as Partial<Design>);
+    const ref = collectTerms(d)[0];
+    expect(
+      applyTermRebind(d, ref, { label: "disease", uri: SUCCESSOR }),
+    ).toBeNull();
   });
 });
 

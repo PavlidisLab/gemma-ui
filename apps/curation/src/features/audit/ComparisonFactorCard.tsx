@@ -39,6 +39,7 @@ import { termRenderer } from "@/components/ui/Term";
 import type {
   AuditFinding,
   DismissReason,
+  MatchVerdict,
 } from "@/api/auditTypes";
 import { FindingRecommendation } from "./FindingRecommendation";
 import { FindingReasoningPanel } from "./findingReasoningPanel";
@@ -1009,7 +1010,15 @@ export function ComparisonFactorCard({
 
   async function dispatch(
     next: "accepted" | "dismissed" | "needs_more_info" | "pending",
-    extras?: { dismissReason?: DismissReason; notes?: string },
+    extras?: {
+      dismissReason?: DismissReason;
+      notes?: string;
+      matchVerdict?: MatchVerdict;
+    },
+    /** Success toast confirming to the curator EXACTLY what was done
+     *  (Paul, 2026-08-16). Shown only after the PATCH persists, so a
+     *  failed save never claims success. */
+    okMsg?: string,
   ) {
     setBusy(true);
     try {
@@ -1025,6 +1034,7 @@ export function ComparisonFactorCard({
           ? { ...extras, resolvedAt: new Date().toISOString() }
           : extras;
       await setDisposition(finding.target_id, next, resolvedExtras);
+      if (okMsg) toast.show(okMsg, "success", 2500);
     } catch (err) {
       // Was a bare try/finally with no catch — a server-side drop (or
       // any other setDisposition failure) was a fully silent unhandled
@@ -1149,6 +1159,7 @@ export function ComparisonFactorCard({
         appliedFix: `merge agent statements into factor ${
           agentFactor.category?.label ?? "?"
         }`,
+        matchVerdict: "keep_agent",
       });
       toast.show(
         "Merged the agent's statements into the existing factor.",
@@ -1214,6 +1225,7 @@ export function ComparisonFactorCard({
         appliedFix: matchedButMissingFromBaseline
           ? `add factor ${agentFactor.category?.label ?? "?"}`
           : `adopt agent factor ${agentFactor.category?.label ?? "?"}`,
+        matchVerdict: "keep_agent",
       });
       toast.show(
         matchedButMissingFromBaseline
@@ -1519,9 +1531,14 @@ export function ComparisonFactorCard({
                     type="button"
                     disabled={busy}
                     onClick={() =>
-                      dispatch("dismissed", {
-                        dismissReason: "keep_agent_equivalent",
-                      })
+                      dispatch(
+                        "dismissed",
+                        {
+                          dismissReason: "keep_agent_equivalent",
+                          matchVerdict: "equivalent",
+                        },
+                        "Kept the CURRENT curation — the agent's alternative is equivalent. Nothing was changed.",
+                      )
                     }
                     title="Keep the existing factor; the agent's alternative was functionally equivalent (eval credits this as a match)."
                     className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
@@ -1541,7 +1558,11 @@ export function ComparisonFactorCard({
                     type="button"
                     disabled={busy}
                     onClick={() =>
-                      dispatch("dismissed", { dismissReason: "wont_fix" })
+                      dispatch(
+                        "dismissed",
+                        { dismissReason: "wont_fix", matchVerdict: "neither" },
+                        "Kept the CURRENT curation — the agent's alternative was off. Nothing was changed.",
+                      )
                     }
                     title="Keep the existing factor; the agent's alternative was materially off."
                     className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
@@ -1592,10 +1613,15 @@ export function ComparisonFactorCard({
                     e.preventDefault();
                     const note = keepCloseNote.trim();
                     clearKeepCloseNote();
-                    void dispatch("dismissed", {
-                      dismissReason: "keep_agent_close",
-                      notes: note || undefined,
-                    });
+                    void dispatch(
+                      "dismissed",
+                      {
+                        dismissReason: "keep_agent_close",
+                        notes: note || undefined,
+                        matchVerdict: "keep_current",
+                      },
+                      "Kept the CURRENT curation — the agent was close but wrong; your note was recorded.",
+                    );
                   } else if (e.key === "Escape") {
                     e.preventDefault();
                     clearKeepCloseNote();
@@ -1610,10 +1636,15 @@ export function ComparisonFactorCard({
                 onClick={() => {
                   const note = keepCloseNote.trim();
                   clearKeepCloseNote();
-                  void dispatch("dismissed", {
-                    dismissReason: "keep_agent_close",
-                    notes: note || undefined,
-                  });
+                  void dispatch(
+                    "dismissed",
+                    {
+                      dismissReason: "keep_agent_close",
+                      notes: note || undefined,
+                      matchVerdict: "keep_current",
+                    },
+                    "Kept the CURRENT curation — the agent was close but wrong; your note was recorded.",
+                  );
                 }}
                 className="text-[11px] px-2 py-0.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >

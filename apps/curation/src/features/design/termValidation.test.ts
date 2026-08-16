@@ -119,6 +119,32 @@ describe("termValidation — summary", () => {
     expect(rows[1].ref?.where).toBe("cell line");
   });
 
+  // "This term is dead" outranks "this term is spelled a non-preferred
+  // way", and both sit under an outright wrong label.
+  it("ranks obsolete between label_mismatch and non_canonical", () => {
+    const a = ref("Hek293F", HEK_S, "cell line");
+    const b = ref("OCI-AML3", "CLO:0009853", "cell line");
+    const c = ref("old staging", "EFO:0000410", "tag");
+    const run = buildRun(
+      [a, b, c],
+      response([
+        { id: b.id, status: "non_canonical" },
+        { id: c.id, status: "obsolete" },
+        { id: a.id, status: "label_mismatch" },
+      ]),
+    );
+    expect(summaryRows(run).map((r) => r.result.status)).toEqual([
+      "label_mismatch",
+      "obsolete",
+      "non_canonical",
+    ]);
+  });
+
+  // Advisory, not red: the annotation was right when it was made.
+  it("does NOT mark obsolete inline", () => {
+    expect(statusEarnsInlineMark("obsolete")).toBe(false);
+  });
+
   // A term the index can't name is silence, not a finding. Listing it
   // asks a curator to adjudicate something the panel has no opinion
   // about. The count still shows in the header tally, so nothing is
@@ -244,6 +270,51 @@ describe("termValidation — Gemma's category list outranks the index", () => {
       expect(run.byKey.get(a.id)?.status).toBe("unknown");
       expect(run.counts).toEqual({ unknown: 1 });
     }
+  });
+
+  // 🛑 EFO_0000408 is deprecated in EFO AND Gemma's live disease
+  // category, both at once. The agents side excludes published
+  // categories from `obsolete` itself; this is the client-side half,
+  // for categories Gemma publishes that the static table may lag on.
+  // Without it the same false alarm returns wearing a new status.
+  it("overrides obsolete on a published category, not just unknown", () => {
+    const a = ref("disease", DISEASE, "disease (category)");
+    const run = buildRun(
+      [a],
+      response([
+        {
+          id: a.id,
+          status: "obsolete",
+          canonical_label: "obsolete_disease",
+          replaced_by_uri: "http://purl.obolibrary.org/obo/MONDO_0000001",
+          replaced_by_label: "disease",
+        },
+      ]),
+      CATEGORIES,
+    );
+    expect(run.byKey.get(a.id)?.status).toBe("ok");
+    expect(summaryRows(run)).toEqual([]);
+    expect(run.counts).toEqual({ ok: 1 });
+  });
+
+  // A deprecated term that ISN'T one of Gemma's categories has to come
+  // through untouched — that is the whole point of the new verdict.
+  it("leaves a non-category obsolete verdict alone", () => {
+    const a = ref("old staging", "http://www.ebi.ac.uk/efo/EFO_0000410", "tag");
+    const run = buildRun(
+      [a],
+      response([
+        {
+          id: a.id,
+          status: "obsolete",
+          replaced_by_label: "disease staging",
+          replaced_by_uri: "http://purl.obolibrary.org/obo/MONDO_0000002",
+        },
+      ]),
+      CATEGORIES,
+    );
+    expect(run.byKey.get(a.id)?.status).toBe("obsolete");
+    expect(summaryRows(run).map((r) => r.result.status)).toEqual(["obsolete"]);
   });
 
   // A header tally that disagrees with the rows is worse than either.

@@ -1232,6 +1232,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
       resolvedAt?: string;
       structureOk?: boolean | null;
       detailsOk?: boolean | null;
+      matchVerdict?: import("@/api/auditTypes").MatchVerdict;
     } = {},
   ) {
     const firstSeenAt = consumeFirstSeen(finding.target_id) ?? undefined;
@@ -1487,6 +1488,24 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             // derive the headline status + a default dismiss_reason
             // for the "keep gold" one-click path.
             const status = deriveStatus(structureOk, detailsOk);
+            // WHICH VERSION WON, stated explicitly. On match/rename
+            // codes keep-vs-adopt collapses to the same status by
+            // design, so the wire needs the verdict itself. Only sent
+            // when a match-family finding had an explicit verdict.
+            const isMatchishCode =
+              finding.issue_code === "calibration_match" ||
+              finding.issue_code === "calibration_tag_match_exact" ||
+              finding.issue_code === "calibration_tag_match_near" ||
+              finding.issue_code === "calibration_factor_match_exact" ||
+              finding.issue_code === "calibration_factor_match_near" ||
+              finding.issue_code === "calibration_factor_match_close" ||
+              finding.issue_code === "calibration_factor_match" ||
+              finding.issue_code === "calibration_factor_rename";
+            const matchVerdict = !isMatchishCode || !opts?.verdict
+              ? undefined
+              : opts.verdict === "currently"
+                ? ("keep_current" as const)
+                : ("keep_agent" as const);
             // "Agree, needs work": same apply, but record the accept
             // as parked (resolved_at null) so the finding stays in the
             // follow-up queue. Only meaningful on an accept — a
@@ -1589,6 +1608,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                   appliedFix: action.appliedFix,
                   dismissReason: action.dismissReason,
                   notes,
+                  matchVerdict,
                 });
               } else {
                 // Server gates accepts on agent-extra findings with
@@ -1605,6 +1625,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                   resolvedAt: needsWork ? undefined : new Date().toISOString(),
                   acceptReason,
                   notes,
+                  matchVerdict,
                 });
               }
               return;
@@ -1652,6 +1673,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               dismissReason: derivedDismissReason,
               acceptReason: derivedAcceptReason,
               notes,
+              matchVerdict,
             });
           }}
           onAgree={() => {
