@@ -335,6 +335,37 @@ export const SUMMARY_STATUS_ORDER: TermValidationStatus[] = [
   "non_canonical",
 ];
 
+/**
+ * The successor a deprecated term can actually be re-bound to here, or
+ * `null` when there isn't one.
+ *
+ * 🛑 One predicate, because the row shows a Re-bind button when it
+ * returns a target and "no successor recorded" when it doesn't. Those
+ * are the two halves of one statement; derived separately they will
+ * eventually both render, or neither, and the row will be lying either
+ * way.
+ *
+ * Three things have to hold, and all three fail in practice today:
+ *  - the verdict is `obsolete` — nothing else has a successor;
+ *  - the agent named one. Measured 2026-08-16 against :8090, **0 of 56**
+ *    obsolete verdicts carried `replaced_by`, because `obonet.read_obo`
+ *    defaults to `ignore_obsolete=True` and discards the 9,413
+ *    `replaced_by:` declarations sitting in efo.obo. Filed as
+ *    `UIB_TO_CAB_2026_08_16_REPLACED_BY_IS_ALWAYS_EMPTY.md`;
+ *  - the row is editable here. Sample characteristics come off the
+ *    Gemma import with no locator, so they report without a repair.
+ */
+export function rebindTargetFor(
+  result: TermValidationResult,
+  ref: TermRef | null | undefined,
+): { label: string; uri: string } | null {
+  if (result.status !== "obsolete") return null;
+  const label = (result.replaced_by_label ?? "").trim();
+  const uri = (result.replaced_by_uri ?? "").trim();
+  if (!label || !uri || !ref?.locator) return null;
+  return { label, uri };
+}
+
 /** Rows for the summary panel, worst first, each with the location the
  *  collector recorded so a curator can click through to the term
  *  rather than hunt for it. */

@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import type { ValidateTermsResponse } from "@/api/validateTerms";
+import type {
+  TermValidationResult,
+  ValidateTermsResponse,
+} from "@/api/validateTerms";
 
 import { termKey, type TermRef } from "./collectTerms";
 import {
   buildRun,
   markStateFor,
   runIsStale,
+  rebindTargetFor,
   statusEarnsInlineMark,
   summaryRows,
   verdictFor,
@@ -396,5 +400,78 @@ describe("termValidation — an edit must not read as a fix", () => {
 
   it("run is NOT stale when nothing term-shaped changed", () => {
     expect(runIsStale(run(), [original])).toBe(false);
+  });
+});
+
+// The Re-bind button and the "no successor recorded" cue are the two
+// halves of one statement, so they read the same predicate. If they
+// ever derived it separately, a row would eventually show both or
+// neither.
+describe("rebindTargetFor — one predicate behind the button and the cue", () => {
+  const DEPRECATED = "http://www.ebi.ac.uk/efo/EFO_0000410";
+  const SUCCESSOR = "http://purl.obolibrary.org/obo/MONDO_0000001";
+
+  function editableRef(): TermRef {
+    return {
+      ...ref("old staging", DEPRECATED, "tag"),
+      locator: { kind: "tag_value", tagId: 7 },
+    };
+  }
+
+  function obsolete(extra: Partial<TermValidationResult> = {}) {
+    return {
+      id: "x",
+      status: "obsolete" as const,
+      replaced_by_label: "disease",
+      replaced_by_uri: SUCCESSOR,
+      ...extra,
+    };
+  }
+
+  it("returns the successor when the agent named one and the row is editable", () => {
+    expect(rebindTargetFor(obsolete(), editableRef())).toEqual({
+      label: "disease",
+      uri: SUCCESSOR,
+    });
+  });
+
+  // This is EVERY obsolete row against the backend as of 2026-08-16:
+  // 0 of 56 verdicts carried replaced_by, because obonet drops obsolete
+  // terms — and their 9,413 replaced_by declarations — at parse time.
+  it("returns null when the verdict names no successor", () => {
+    expect(
+      rebindTargetFor(
+        obsolete({ replaced_by_label: "", replaced_by_uri: "" }),
+        editableRef(),
+      ),
+    ).toBeNull();
+    expect(
+      rebindTargetFor(
+        obsolete({ replaced_by_label: null, replaced_by_uri: null }),
+        editableRef(),
+      ),
+    ).toBeNull();
+    // An older agents build omits the fields entirely.
+    expect(
+      rebindTargetFor(
+        { id: "x", status: "obsolete" },
+        editableRef(),
+      ),
+    ).toBeNull();
+  });
+
+  // Sample characteristics come off the Gemma import with no locator,
+  // so there is nothing to rewrite even when a successor exists.
+  it("returns null for a row that can't be edited here", () => {
+    expect(rebindTargetFor(obsolete(), ref("old staging", DEPRECATED))).toBeNull();
+    expect(rebindTargetFor(obsolete(), null)).toBeNull();
+  });
+
+  // Only a deprecated term has a successor. A label_mismatch carrying
+  // stray fields must not grow a Re-bind button.
+  it("returns null for every other status", () => {
+    for (const status of ["ok", "label_mismatch", "non_canonical", "unknown"] as const) {
+      expect(rebindTargetFor(obsolete({ status }), editableRef())).toBeNull();
+    }
   });
 });

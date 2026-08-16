@@ -45,6 +45,7 @@ import {
 } from "./collectTerms";
 import {
   buildRun,
+  rebindTargetFor,
   runIsStale,
   summaryRows,
   type TermValidationRun,
@@ -191,6 +192,7 @@ export function TermValidationPanel({
         <ul className="space-y-1">
           {rows.map(({ result, ref }) => {
             const copy = STATUS_COPY[result.status];
+            const rebind = rebindTargetFor(result, ref);
             return (
               <li
                 key={result.id}
@@ -237,8 +239,19 @@ export function TermValidationPanel({
                   {/* The canonical label is the whole point for a
                       mismatch: "Back left brain" is unreadable as an
                       error until you can see it means left occipital
-                      lobe. */}
-                  {result.canonical_label ? (
+                      lobe.
+
+                      For an `obsolete` verdict it is usually the
+                      tombstone — the same string wearing an
+                      "obsolete_" prefix ("immortal cat cell line cell"
+                      -> "obsolete immortal cat cell line cell"). The
+                      chip already says obsolete, so printing that back
+                      is noise on a row that has real things to say.
+                      Suppressed only when it IS the prefixed original;
+                      a tombstone that renamed the term is still worth
+                      seeing. */}
+                  {result.canonical_label &&
+                  !isTombstoneOf(result.canonical_label, ref?.label) ? (
                     <span className="text-slate-600 dark:text-slate-300">
                       {" "}
                       → term is{" "}
@@ -276,25 +289,34 @@ export function TermValidationPanel({
                       take. A deprecated term whose source names no
                       successor renders no replacement and no button —
                       picking one is a curation judgement, not ours. */}
-                  {result.status === "obsolete" && result.replaced_by_label ? (
+                  {rebind ? (
                     <span className="text-slate-600 dark:text-slate-300">
                       {" · "}
                       replaced by{" "}
-                      <span className="font-medium">
-                        {result.replaced_by_label}
+                      <span className="font-medium">{rebind.label}</span>
+                      <span className="font-mono text-slate-500 dark:text-slate-400">
+                        {" "}
+                        {shortenUri(rebind.uri)}
                       </span>
-                      {result.replaced_by_uri ? (
-                        <span className="font-mono text-slate-500 dark:text-slate-400">
-                          {" "}
-                          {shortenUri(result.replaced_by_uri)}
-                        </span>
-                      ) : null}
                     </span>
                   ) : null}
-                  {result.status === "obsolete" &&
-                  result.replaced_by_label &&
-                  result.replaced_by_uri &&
-                  ref?.locator ? (
+                  {/* The other half of the same statement. A deprecated
+                      term with nowhere to go still has to tell the
+                      curator what to do about it, or the row is a
+                      complaint with no exit — and today that is EVERY
+                      obsolete row, since `replaced_by` never
+                      populates. Where the term isn't editable from
+                      here at all (a sample characteristic off the
+                      Gemma import) the cue stops at the fact rather
+                      than asking for something that can't be done. */}
+                  {result.status === "obsolete" && !rebind ? (
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {" · "}
+                      no successor recorded
+                      {ref?.locator ? " — re-pick a term" : ""}
+                    </span>
+                  ) : null}
+                  {rebind ? (
                     <button
                       type="button"
                       className="ml-1 px-1.5 py-px rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -302,15 +324,12 @@ export function TermValidationPanel({
                       title={
                         readOnly
                           ? "Read-only view."
-                          : `Re-point at "${result.replaced_by_label}" (${shortenUri(result.replaced_by_uri)}), the successor the ontology declares for this deprecated term. Changes the label AND the URI.`
+                          : `Re-point at "${rebind.label}" (${shortenUri(rebind.uri)}), the successor the ontology declares for this deprecated term. Changes the label AND the URI.`
                       }
                       onClick={() => {
                         let applied = false;
                         apply((current) => {
-                          const next = applyTermRebind(current, ref, {
-                            label: result.replaced_by_label as string,
-                            uri: result.replaced_by_uri as string,
-                          });
+                          const next = applyTermRebind(current, ref!, rebind);
                           applied = next !== null;
                           return next ?? current;
                         });
@@ -378,6 +397,22 @@ export function TermValidationPanel({
 
     </section>
   );
+}
+
+
+/** Whether a canonical label is just the stored one with the ontology's
+ *  deprecation prefix on it — `obsolete_disease` for `disease`,
+ *  `obsolete immortal cat cell line cell` for the same without the
+ *  word. Both spellings occur (EFO uses the underscore, CLO the
+ *  space). */
+function isTombstoneOf(
+  canonical: string | null | undefined,
+  stored: string | null | undefined,
+): boolean {
+  const c = (canonical ?? "").trim().toLowerCase();
+  const st = (stored ?? "").trim().toLowerCase();
+  if (!c || !st) return false;
+  return c === `obsolete_${st}` || c === `obsolete ${st}`;
 }
 
 /**
