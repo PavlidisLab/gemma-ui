@@ -76,9 +76,10 @@ describe("termValidation — which statuses earn an inline mark", () => {
     expect(statusEarnsInlineMark("label_mismatch")).toBe(true);
   });
 
-  // 17 of the 120 non-canonical gold rows are `unknown` — gene records
-  // and GO/NBO terms the index doesn't carry. Marking them would be 17
-  // false alarms, which is how a mark stops being believed.
+  // The index having no entry for a URI is silence, not a finding —
+  // `disease` / EFO_0000408 is a Gemma standard category obsoleted
+  // upstream, so it lands here while being entirely correct. Marking
+  // it is how a mark stops being believed.
   it("does NOT mark unknown — the index not carrying a term is not an error", () => {
     expect(statusEarnsInlineMark("unknown")).toBe(false);
   });
@@ -95,7 +96,7 @@ describe("termValidation — which statuses earn an inline mark", () => {
 });
 
 describe("termValidation — summary", () => {
-  it("lists non-ok rows worst first, carrying the location", () => {
+  it("lists reportable rows worst first, carrying the location", () => {
     const a = ref("Hek293F", HEK_S, "cell line");
     const b = ref("OCI-AML3", "CLO:0009853", "cell line");
     const c = ref("Trp53", "ncbi_gene/22059", "genotype · subject");
@@ -113,10 +114,23 @@ describe("termValidation — summary", () => {
     expect(rows.map((r) => r.result.status)).toEqual([
       "label_mismatch",
       "non_canonical",
-      "unknown",
     ]);
     expect(rows[0].ref?.where).toBe("cell line");
-    expect(rows[2].ref?.where).toBe("genotype · subject");
+    expect(rows[1].ref?.where).toBe("cell line");
+  });
+
+  // The complaint this came from: a run over GSE74438 reported the
+  // `disease` tag category as "not checked" because EFO_0000408 is
+  // obsolete upstream and absent from the index. The annotation is
+  // correct and visibly so, and being asked to adjudicate it is what
+  // teaches a curator to stop reading the panel. The count still
+  // shows in the header tally, so nothing is concealed.
+  it("does NOT list unknown — a term the index can't name is not a finding", () => {
+    const a = ref("disease", "http://www.ebi.ac.uk/efo/EFO_0000408", "disease (category)");
+    const run = buildRun([a], response([{ id: a.id, status: "unknown" }]));
+    expect(summaryRows(run)).toEqual([]);
+    expect(run.counts).toEqual({ unknown: 1 });
+    expect(run.total).toBe(1);
   });
 
   it("prefers the server's counts", () => {

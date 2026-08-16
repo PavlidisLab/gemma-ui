@@ -15,8 +15,8 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "./client";
 
 /**
- * 🛑 Four statuses, and the split is load-bearing — do not collapse
- * this to a boolean.
+ * 🛑 Four statuses, and the split is what makes the check useful — do
+ * not collapse this to a boolean.
  *
  * - `ok` — the stored label NAMES this term. Deliberately not
  *   byte-equality: case and punctuation are formatting, so `b cell`
@@ -29,9 +29,14 @@ import { api } from "./client";
  *   synonym (`OCI-AML3` for `OCI-AML3 cell`), a CURIE, or EFO where
  *   CLO exists. The term is arguably right, so this is advisory.
  * - `unknown` — the ontology index cannot name this URI. **NOT an
- *   error.** Gene records and GO/NBO terms the index doesn't carry;
- *   17 of the 120 non-canonical gold rows. Marking these red would be
- *   17 false alarms, which is how a curator learns to ignore the mark.
+ *   error, and not a finding.** It is silence: with no term name to
+ *   compare against, the check simply didn't run on that pair. The
+ *   commonest cause is a term Gemma uses as a standard category that
+ *   has been obsoleted upstream — `disease` / `EFO_0000408` and
+ *   `cell line` / `EFO_0000322` both land here, on annotations that
+ *   are entirely correct. So it earns neither an inline mark nor a
+ *   summary row, only a count in the tally; see
+ *   `features/design/termValidation.ts`.
  */
 export type TermValidationStatus =
   | "ok"

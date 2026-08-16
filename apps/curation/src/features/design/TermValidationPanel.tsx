@@ -128,10 +128,24 @@ export function TermValidationPanel({
         </button>
 
         {/* A clean run and a run that never happened look identical
-            without this, so say the count out loud. */}
+            without this, so say the count out loud. The `unknown`
+            tally rides here rather than as rows below — it is the one
+            place the number costs nothing and claims nothing. */}
         {run && !stale ? (
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
             checked {run.total} · {run.counts.ok ?? 0} ok
+            {(run.counts.unknown ?? 0) > 0 ? (
+              <>
+                {" · "}
+                <span
+                  className="cursor-help underline underline-offset-2 decoration-dotted"
+                  title={notCheckedTooltip(run)}
+                >
+                  {run.counts.unknown} not checked
+                </span>
+              </>
+
+            ) : null}
           </span>
         ) : null}
 
@@ -151,7 +165,10 @@ export function TermValidationPanel({
 
       {run && rows.length === 0 && !stale ? (
         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          Every grounded term names its ontology entry.
+          {/* "Every grounded term" would overclaim on a run where the
+              index couldn't name one — we don't know about that one.
+              Say what was actually established. */}
+          Every term the index could name carries the right label.
         </p>
       ) : null}
 
@@ -293,13 +310,32 @@ export function TermValidationPanel({
         </p>
       ) : null}
 
-      {(run?.counts.unknown ?? 0) > 0 ? (
-        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          {run!.counts.unknown} could not be checked — the ontology index
-          doesn&apos;t carry them (GO/NBO terms, non-human/mouse/rat gene
-          records). Not errors.
-        </p>
-      ) : null}
     </section>
+  );
+}
+
+/**
+ * Hover text behind the `N not checked` tally.
+ *
+ * The panel used to spend a paragraph guessing at CAUSES ("GO/NBO
+ * terms, non-human/mouse/rat gene records") — a population borrowed
+ * from an agents-side sample that no longer describes what a curator
+ * sees, and never described the case in front of them. So say the one
+ * thing that is always true (the index has no entry) and then name the
+ * terms, which is the only part anyone can check.
+ */
+function notCheckedTooltip(run: TermValidationRun): string {
+  const names = [...run.byKey.values()]
+    .filter((r) => r.status === "unknown")
+    .map((r) => run.refsByKey.get(r.id)?.label)
+    .filter((l): l is string => Boolean(l));
+  const shown = names.slice(0, 6).join(", ");
+  const more = names.length > 6 ? ` +${names.length - 6} more` : "";
+  return (
+    "The ontology index has no entry for these URIs, so there was no " +
+    "term name to compare the stored label against. Not errors — the " +
+    "commonest case is a term Gemma still uses as a standard category " +
+    "that has since been obsoleted upstream." +
+    (shown ? `\n\n${shown}${more}` : "")
   );
 }

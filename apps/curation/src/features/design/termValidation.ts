@@ -155,10 +155,13 @@ export function runIsStale(
  * Only `label_mismatch` does. The other three are all reasons NOT to
  * mark:
  *  - `ok` needs no chrome.
- *  - `unknown` is the index not carrying the term (gene records,
- *    GO/NBO), not an error — 17 of 120 gold rows. Marking it would be
- *    17 false alarms, and a mark that is wrong that often is a mark
- *    curators learn to ignore.
+ *  - `unknown` is the validator's index having no entry for the URI.
+ *    That is not an error and not even a suspicion: the commonest
+ *    case is a term obsoleted upstream while Gemma still uses it as a
+ *    standard category. Marking it puts a flag on annotations that
+ *    are plainly correct, and a mark that is wrong that often is a
+ *    mark curators learn to ignore. It earns no summary row either —
+ *    see {@link SUMMARY_STATUS_ORDER}.
  *  - `non_canonical` is mostly legitimate synonyms once the agent's
  *    label test became membership rather than equality (`OCI-AML3`
  *    for `OCI-AML3 cell`), so inline it would be noise on correct
@@ -171,12 +174,29 @@ export function statusEarnsInlineMark(status: TermValidationStatus): boolean {
   return status === "label_mismatch";
 }
 
-/** Statuses worth listing in the summary, worst first. */
+/**
+ * Statuses that earn a row in the summary, worst first.
+ *
+ * 🛑 `unknown` is NOT here, and `ok` never was. Both are the same
+ * judgement: a row is a claim that something needs looking at, and
+ * neither status makes one.
+ *
+ * `unknown` means only that the validator's index has no entry for the
+ * URI — it is silence, not a finding, and the panel cannot tell an
+ * innocent gap from a bad binding. Every case a curator meets is
+ * innocent: `disease` / `EFO_0000408` and `cell line` / `EFO_0000322`
+ * are Gemma's own standard tag categories, obsoleted upstream in EFO
+ * and so absent from the index. Listing them asks a curator to
+ * adjudicate a term that is sitting right there, plainly correct —
+ * which is how the whole panel stops being read.
+ *
+ * The count still shows in the header tally, so nothing is hidden:
+ * "checked 19 · 18 ok · 1 not checked" says exactly what happened
+ * without dressing it as work.
+ */
 export const SUMMARY_STATUS_ORDER: TermValidationStatus[] = [
   "label_mismatch",
   "non_canonical",
-  "unknown",
-  "ok",
 ];
 
 /** Rows for the summary panel, worst first, each with the location the
@@ -188,7 +208,7 @@ export function summaryRows(
   if (!run) return [];
   const rank = new Map(SUMMARY_STATUS_ORDER.map((s, i) => [s, i]));
   return [...run.byKey.values()]
-    .filter((r) => r.status !== "ok")
+    .filter((r) => rank.has(r.status))
     .sort(
       (a, b) => (rank.get(a.status) ?? 99) - (rank.get(b.status) ?? 99),
     )
