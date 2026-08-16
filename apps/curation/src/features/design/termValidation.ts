@@ -20,6 +20,7 @@ import type {
   TermValidationStatus,
   ValidateTermsResponse,
 } from "@/api/validateTerms";
+import type { OntologyTerm } from "@/features/experiment/types";
 
 import { termKey, type TermRef } from "./collectTerms";
 
@@ -62,9 +63,93 @@ export type TermMarkState =
   | { kind: "verdict"; result: TermValidationResult }
   | { kind: "stale" };
 
+/**
+ * Gemma's own category list, keyed by URI — the authority on what a
+ * category URI is CALLED here.
+ *
+ * 🛑 Key on URI, never on label. Gemma's disease category is
+ * `EFO_0000408`, whose label in current EFO is `obsolete_disease`; a
+ * label-keyed join misses the most-used category outright. Same rule
+ * the agents side writes down in
+ * `ontology/category_filter.py::_PUBLISHED_URI_TO_LOCAL`.
+ */
+function categoryNamesByUri(
+  categories: readonly OntologyTerm[] | null | undefined,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const c of categories ?? []) {
+    const uri = (c.uri ?? "").trim();
+    const label = (c.label ?? "").trim();
+    if (uri && label) out.set(uri, label);
+  }
+  return out;
+}
+
+/** Same normalisation the agents-side validator uses: case, spacing
+ *  and punctuation are formatting, not identity. */
+function normLabel(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * Re-decide a pair the ontology index couldn't name, when the URI is
+ * one of Gemma's own annotation categories.
+ *
+ * **Why this exists.** The validator's index carries live ontology
+ * classes, so it cannot name a category URI that upstream has
+ * obsoleted — `disease` / `EFO_0000408` — or one whose class is a
+ * root it doesn't ingest, `biological process` / `GO_0008150`. Both
+ * came back `unknown` while being exactly right, because Gemma keeps
+ * using those URIs as categories and publishes its own name for them
+ * on `/rest/v2/categories`. That list is the carve-out; consult it
+ * rather than describing the phenomenon in prose.
+ *
+ * Only fills GAPS. A pair the index DID name keeps the index's
+ * verdict — measured over all 28 published categories, the two
+ * sources agree on the 26 the index carries, so overriding those
+ * would buy nothing and could only mask a real mismatch.
+ *
+ * Returns `null` when there is nothing to say.
+ */
+function categoryVerdict(
+  ref: TermRef,
+  prior: TermValidationResult | undefined,
+  names: Map<string, string>,
+): TermValidationResult | null {
+  if (prior && prior.status !== "unknown") return null;
+  const canonical = names.get(ref.uri);
+  if (!canonical) return null;
+  if (normLabel(ref.label) === normLabel(canonical)) {
+    return {
+      id: ref.id,
+      status: "ok",
+      canonical_label: canonical,
+      canonical_uri: ref.uri,
+      detail: "Gemma's own name for this annotation category",
+    };
+  }
+  // The label doesn't name the category. This is a real finding the
+  // index could not have reported, and `canonical_label` makes the
+  // row's Fix-label button work.
+  return {
+    id: ref.id,
+    status: "label_mismatch",
+    canonical_label: canonical,
+    canonical_uri: ref.uri,
+    detail: `stored label "${ref.label}" is not Gemma's name for this annotation category ("${canonical}")`,
+  };
+}
+
+/**
+ * @param categories Gemma's published category list (`useCategories()`).
+ *   Optional: without it the run is exactly the server's verdicts, which
+ *   is the correct degradation — a few correct categories read as "not
+ *   checked" rather than anything being reported wrongly.
+ */
 export function buildRun(
   refs: TermRef[],
   response: ValidateTermsResponse,
+  categories?: readonly OntologyTerm[] | null,
 ): TermValidationRun {
   const byKey = new Map<string, TermValidationResult>();
   for (const r of response.results ?? []) byKey.set(r.id, r);
@@ -76,12 +161,35 @@ export function buildRun(
     set.add(ref.id);
     keysByUri.set(ref.uri, set);
   }
+
   // Prefer the server's tallies; fall back to counting locally so the
   // summary still works against an older build that omits them.
-  const counts =
-    response.counts && Object.keys(response.counts).length > 0
+  const counts = {
+    ...(response.counts && Object.keys(response.counts).length > 0
       ? response.counts
-      : tally(response.results ?? []);
+      : tally(response.results ?? [])),
+  };
+
+  // The carve-out, applied after the server's verdicts and before
+  // anything reads them, so the chips, the rows and the tally all see
+  // one answer. The tally moves with it — the server counted a status
+  // we've just replaced, and a header that disagrees with the rows is
+  // worse than either.
+  const names = categoryNamesByUri(categories);
+  if (names.size > 0) {
+    for (const ref of refs) {
+      const prior = byKey.get(ref.id);
+      const verdict = categoryVerdict(ref, prior, names);
+      if (!verdict) continue;
+      if (prior) counts[prior.status] = (counts[prior.status] ?? 1) - 1;
+      counts[verdict.status] = (counts[verdict.status] ?? 0) + 1;
+      byKey.set(ref.id, verdict);
+    }
+    for (const s of Object.keys(counts) as TermValidationStatus[]) {
+      if (!counts[s]) delete counts[s];
+    }
+  }
+
   return { byKey, refsByKey, keysByUri, counts, total: byKey.size };
 }
 
@@ -156,12 +264,11 @@ export function runIsStale(
  * mark:
  *  - `ok` needs no chrome.
  *  - `unknown` is the validator's index having no entry for the URI.
- *    That is not an error and not even a suspicion: the commonest
- *    case is a term obsoleted upstream while Gemma still uses it as a
- *    standard category. Marking it puts a flag on annotations that
- *    are plainly correct, and a mark that is wrong that often is a
- *    mark curators learn to ignore. It earns no summary row either —
- *    see {@link SUMMARY_STATUS_ORDER}.
+ *    That is not an error and not even a suspicion — the check simply
+ *    did not run on that pair. Marking it puts a flag on annotations
+ *    that may be plainly correct, and a mark that is wrong that often
+ *    is a mark curators learn to ignore. It earns no summary row
+ *    either — see {@link SUMMARY_STATUS_ORDER}.
  *  - `non_canonical` is mostly legitimate synonyms once the agent's
  *    label test became membership rather than equality (`OCI-AML3`
  *    for `OCI-AML3 cell`), so inline it would be noise on correct
@@ -183,16 +290,20 @@ export function statusEarnsInlineMark(status: TermValidationStatus): boolean {
  *
  * `unknown` means only that the validator's index has no entry for the
  * URI — it is silence, not a finding, and the panel cannot tell an
- * innocent gap from a bad binding. Every case a curator meets is
- * innocent: `disease` / `EFO_0000408` and `cell line` / `EFO_0000322`
- * are Gemma's own standard tag categories, obsoleted upstream in EFO
- * and so absent from the index. Listing them asks a curator to
- * adjudicate a term that is sitting right there, plainly correct —
+ * innocent gap from a bad binding. Listing it asks a curator to
+ * adjudicate a term that may be sitting right there, plainly correct,
  * which is how the whole panel stops being read.
  *
+ * Note the order this depends on: `buildRun` resolves Gemma's own
+ * category URIs through {@link categoryVerdict} FIRST, so the cases
+ * that were both unknown AND obviously correct — `disease` /
+ * `EFO_0000408` — get a real verdict rather than being swept under
+ * this rule. Suppressing a row is the right answer only once the
+ * answerable ones have been answered.
+ *
  * The count still shows in the header tally, so nothing is hidden:
- * "checked 19 · 18 ok · 1 not checked" says exactly what happened
- * without dressing it as work.
+ * "checked 19 · 19 ok" now, and where a gap remains, "· 1 not checked"
+ * says exactly what happened without dressing it as work.
  */
 export const SUMMARY_STATUS_ORDER: TermValidationStatus[] = [
   "label_mismatch",

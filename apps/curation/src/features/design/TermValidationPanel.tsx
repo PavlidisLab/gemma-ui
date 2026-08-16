@@ -25,6 +25,7 @@
 
 import { useMemo, useState } from "react";
 
+import { useCategories } from "@/api/categories";
 import { useValidateTerms } from "@/api/validateTerms";
 import type { TermValidationStatus } from "@/api/validateTerms";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -84,6 +85,11 @@ export function TermValidationPanel({
   // linger claiming a problem the curator just resolved.
   const [fixed, setFixed] = useState<Set<string>>(new Set());
   const validate = useValidateTerms();
+  // Gemma's own category names, which outrank the ontology index for
+  // any URI Gemma uses as a category — see `categoryVerdict`. Fetched
+  // on mount (cached, `staleTime: Infinity`) so it is in hand by the
+  // time anyone presses the button.
+  const categories = useCategories();
 
   const refs = useMemo(() => collectTerms(draft), [draft]);
   const stale = runIsStale(run, refs);
@@ -108,7 +114,7 @@ export function TermValidationPanel({
               refs.map((r) => ({ id: r.id, label: r.label, uri: r.uri })),
               {
                 onSuccess: (res) => {
-                  setRun(buildRun(refs, res));
+                  setRun(buildRun(refs, res, categories.data));
                   setFixed(new Set());
                 },
               },
@@ -317,12 +323,14 @@ export function TermValidationPanel({
 /**
  * Hover text behind the `N not checked` tally.
  *
- * The panel used to spend a paragraph guessing at CAUSES ("GO/NBO
- * terms, non-human/mouse/rat gene records") — a population borrowed
- * from an agents-side sample that no longer describes what a curator
- * sees, and never described the case in front of them. So say the one
- * thing that is always true (the index has no entry) and then name the
- * terms, which is the only part anyone can check.
+ * 🛑 Says WHAT happened, never WHY. The panel used to spend a
+ * paragraph guessing at causes ("GO/NBO terms, non-human/mouse/rat
+ * gene records") — a population borrowed from an agents-side sample
+ * that had already gone stale and never described the case in front of
+ * the curator anyway. Where a cause IS knowable it belongs in code, not
+ * in copy: Gemma's category list resolves the categories the index
+ * can't name before this line ever counts them. What is left is a
+ * genuine gap, so name the terms and stop.
  */
 function notCheckedTooltip(run: TermValidationRun): string {
   const names = [...run.byKey.values()]
@@ -333,9 +341,8 @@ function notCheckedTooltip(run: TermValidationRun): string {
   const more = names.length > 6 ? ` +${names.length - 6} more` : "";
   return (
     "The ontology index has no entry for these URIs, so there was no " +
-    "term name to compare the stored label against. Not errors — the " +
-    "commonest case is a term Gemma still uses as a standard category " +
-    "that has since been obsoleted upstream." +
+    "term name to compare the stored label against. They were skipped, " +
+    "not judged — nothing here is a reported problem." +
     (shown ? `\n\n${shown}${more}` : "")
   );
 }

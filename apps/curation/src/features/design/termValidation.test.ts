@@ -119,14 +119,12 @@ describe("termValidation — summary", () => {
     expect(rows[1].ref?.where).toBe("cell line");
   });
 
-  // The complaint this came from: a run over GSE74438 reported the
-  // `disease` tag category as "not checked" because EFO_0000408 is
-  // obsolete upstream and absent from the index. The annotation is
-  // correct and visibly so, and being asked to adjudicate it is what
-  // teaches a curator to stop reading the panel. The count still
-  // shows in the header tally, so nothing is concealed.
+  // A term the index can't name is silence, not a finding. Listing it
+  // asks a curator to adjudicate something the panel has no opinion
+  // about. The count still shows in the header tally, so nothing is
+  // concealed.
   it("does NOT list unknown — a term the index can't name is not a finding", () => {
-    const a = ref("disease", "http://www.ebi.ac.uk/efo/EFO_0000408", "disease (category)");
+    const a = ref("Cre recombinase", "http://example.org/not_in_index", "genotype");
     const run = buildRun([a], response([{ id: a.id, status: "unknown" }]));
     expect(summaryRows(run)).toEqual([]);
     expect(run.counts).toEqual({ unknown: 1 });
@@ -160,6 +158,110 @@ describe("termValidation — summary", () => {
     expect(run.counts).toEqual({ ok: 2 });
     expect(run.total).toBe(2);
     expect(summaryRows(run)).toEqual([]);
+  });
+});
+
+// The complaint this came from: a run over GSE74438 reported the
+// `disease` tag category as "not checked". EFO_0000408 is
+// `obsolete_disease` in current EFO, so the index cannot name it —
+// while Gemma goes on using it as the disease category and publishes
+// `disease` as its name on /rest/v2/categories. Suppressing the row
+// would only have hidden the symptom; consulting the category list
+// answers it.
+describe("termValidation — Gemma's category list outranks the index", () => {
+  const DISEASE = "http://www.ebi.ac.uk/efo/EFO_0000408";
+  const CATEGORIES = [
+    { label: "disease", uri: DISEASE },
+    { label: "cell type", uri: "http://www.ebi.ac.uk/efo/EFO_0000324" },
+  ];
+
+  it("resolves an unknown category URI to ok, using Gemma's name", () => {
+    const a = ref("disease", DISEASE, "disease (category)");
+    const run = buildRun(
+      [a],
+      response([{ id: a.id, status: "unknown" }]),
+      CATEGORIES,
+    );
+    expect(run.byKey.get(a.id)?.status).toBe("ok");
+    expect(run.byKey.get(a.id)?.canonical_label).toBe("disease");
+    expect(run.counts).toEqual({ ok: 1 });
+    expect(summaryRows(run)).toEqual([]);
+  });
+
+  // Case and punctuation are formatting, not identity — the same test
+  // the agents-side validator applies.
+  it("treats a formatting difference as ok, not a mismatch", () => {
+    const a = ref("Disease", DISEASE, "disease (category)");
+    const run = buildRun(
+      [a],
+      response([{ id: a.id, status: "unknown" }]),
+      CATEGORIES,
+    );
+    expect(run.byKey.get(a.id)?.status).toBe("ok");
+  });
+
+  // The carve-out RESTORES checking to these URIs rather than
+  // exempting them: a category URI wearing the wrong name is a real
+  // finding, and one the index could not have reported.
+  it("reports a label that is not Gemma's name for the category", () => {
+    const a = ref("cell line", DISEASE, "cell line (category)");
+    const run = buildRun(
+      [a],
+      response([{ id: a.id, status: "unknown" }]),
+      CATEGORIES,
+    );
+    const rows = summaryRows(run);
+    expect(rows.map((r) => r.result.status)).toEqual(["label_mismatch"]);
+    // Drives the row's Fix-label button.
+    expect(rows[0].result.canonical_label).toBe("disease");
+    expect(run.counts).toEqual({ label_mismatch: 1 });
+  });
+
+  // Only fills gaps. Over all 28 published categories the index agrees
+  // with the list on the 26 it carries, so overriding a verdict the
+  // index DID reach buys nothing and could only mask a real mismatch.
+  it("never overrides a verdict the index actually reached", () => {
+    const a = ref("Hek293F", HEK_S, "cell line");
+    const withCat = [...CATEGORIES, { label: "HEK-293S", uri: HEK_S }];
+    const run = buildRun(
+      [a],
+      response([{ id: a.id, status: "label_mismatch" }]),
+      withCat,
+    );
+    expect(run.byKey.get(a.id)?.status).toBe("label_mismatch");
+  });
+
+  // Categories not loaded yet (or an offline list) must degrade to the
+  // server's verdict, never to a wrong one.
+  it("falls back to the server's verdicts with no category list", () => {
+    const a = ref("disease", DISEASE, "disease (category)");
+    for (const cats of [undefined, null, []]) {
+      const run = buildRun(
+        [a],
+        response([{ id: a.id, status: "unknown" }]),
+        cats,
+      );
+      expect(run.byKey.get(a.id)?.status).toBe("unknown");
+      expect(run.counts).toEqual({ unknown: 1 });
+    }
+  });
+
+  // A header tally that disagrees with the rows is worse than either.
+  it("moves the tally with the override", () => {
+    const a = ref("disease", DISEASE, "disease (category)");
+    const b = ref("B cell", "CL:0000236", "cell type");
+    const run = buildRun(
+      [a, b],
+      response(
+        [
+          { id: a.id, status: "unknown" },
+          { id: b.id, status: "ok" },
+        ],
+        { unknown: 1, ok: 1 },
+      ),
+      CATEGORIES,
+    );
+    expect(run.counts).toEqual({ ok: 2 });
   });
 });
 

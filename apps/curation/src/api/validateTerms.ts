@@ -30,13 +30,18 @@ import { api } from "./client";
  *   CLO exists. The term is arguably right, so this is advisory.
  * - `unknown` — the ontology index cannot name this URI. **NOT an
  *   error, and not a finding.** It is silence: with no term name to
- *   compare against, the check simply didn't run on that pair. The
- *   commonest cause is a term Gemma uses as a standard category that
- *   has been obsoleted upstream — `disease` / `EFO_0000408` and
- *   `cell line` / `EFO_0000322` both land here, on annotations that
- *   are entirely correct. So it earns neither an inline mark nor a
- *   summary row, only a count in the tally; see
- *   `features/design/termValidation.ts`.
+ *   compare against, the check simply didn't run on that pair. So it
+ *   earns neither an inline mark nor a summary row, only a count in
+ *   the tally; see `features/design/termValidation.ts`.
+ *
+ * 🛑 One population must be rescued from `unknown` before that rule
+ * applies: Gemma's own annotation categories. The index carries live
+ * ontology classes, so it cannot name `disease` / `EFO_0000408`
+ * (`obsolete_disease` upstream) or `biological process` /
+ * `GO_0008150`, and both are perfectly good annotations. Gemma
+ * publishes its name for every category on `/rest/v2/categories`
+ * (`useCategories()`), and `buildRun` consults it — keyed on URI,
+ * never on label, since the EFO label is the obsolete one.
  */
 export type TermValidationStatus =
   | "ok"
