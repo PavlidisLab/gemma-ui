@@ -12,6 +12,7 @@ import {
   runIsStale,
   rebindTargetFor,
   statusEarnsInlineMark,
+  successorFor,
   summaryRows,
   verdictFor,
 } from "./termValidation";
@@ -435,9 +436,9 @@ describe("rebindTargetFor — one predicate behind the button and the cue", () =
     });
   });
 
-  // This is EVERY obsolete row against the backend as of 2026-08-16:
-  // 0 of 56 verdicts carried replaced_by, because obonet drops obsolete
-  // terms — and their 9,413 replaced_by declarations — at parse time.
+  // Not a hypothetical: TGEMO's 5 deprecated terms declare no successor
+  // and neither do 10 of CLO's 64, so this branch renders against a
+  // backend that carries replaced_by everywhere it exists.
   it("returns null when the verdict names no successor", () => {
     expect(
       rebindTargetFor(
@@ -473,5 +474,48 @@ describe("rebindTargetFor — one predicate behind the button and the cue", () =
     for (const status of ["ok", "label_mismatch", "non_canonical", "unknown"] as const) {
       expect(rebindTargetFor(obsolete({ status }), editableRef())).toBeNull();
     }
+  });
+
+  // The index path stores successors as CURIEs — `CLO:0000457`,
+  // `MONDO:0004947` — in a field named `_uri`. Writing one into a
+  // binding stores a URI that resolves nowhere, so the button is off;
+  // the row still names the term, because "we can't click it for you"
+  // and "the ontology named nobody" are different answers.
+  it("shows a CURIE successor but will not write it", () => {
+    const curie = obsolete({ replaced_by_uri: "CLO:0000457", replaced_by_label: "immortal cat cell line cell" });
+    expect(rebindTargetFor(curie, editableRef())).toBeNull();
+    const view = successorFor(curie, editableRef());
+    expect(view?.uri).toBe("CLO:0000457");
+    expect(view?.writable).toBe(false);
+    expect(view?.blocked).toMatch(/CURIE/);
+  });
+
+  // A URI with no label would write a term whose stored name says
+  // nothing — the exact disagreement this panel reports on.
+  it("shows an unlabelled successor but will not write it", () => {
+    const unlabelled = obsolete({ replaced_by_label: "" });
+    expect(rebindTargetFor(unlabelled, editableRef())).toBeNull();
+    const view = successorFor(unlabelled, editableRef());
+    expect(view?.uri).toBe(SUCCESSOR);
+    expect(view?.writable).toBe(false);
+    expect(view?.blocked).toMatch(/name/);
+  });
+
+  // No locator: nothing to rewrite from here, so there is no repair to
+  // explain either. The row reports the successor and stops.
+  it("names the successor on a row it can't edit, without a repair cue", () => {
+    const view = successorFor(obsolete(), ref("old staging", DEPRECATED));
+    expect(view?.uri).toBe(SUCCESSOR);
+    expect(view?.writable).toBe(false);
+    expect(view?.blocked).toBeNull();
+  });
+
+  // No successor at all stays null, so the panel's "no successor
+  // recorded" cue keys off absence and nothing else.
+  it("returns null when the ontology declares nobody", () => {
+    expect(
+      successorFor(obsolete({ replaced_by_uri: "", replaced_by_label: "" }), editableRef()),
+    ).toBeNull();
+    expect(successorFor({ id: "x", status: "obsolete" }, editableRef())).toBeNull();
   });
 });

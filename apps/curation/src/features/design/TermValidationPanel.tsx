@@ -47,6 +47,7 @@ import {
   buildRun,
   rebindTargetFor,
   runIsStale,
+  successorFor,
   summaryRows,
   type TermValidationRun,
 } from "./termValidation";
@@ -192,6 +193,7 @@ export function TermValidationPanel({
         <ul className="space-y-1">
           {rows.map(({ result, ref }) => {
             const copy = STATUS_COPY[result.status];
+            const successor = successorFor(result, ref);
             const rebind = rebindTargetFor(result, ref);
             return (
               <li
@@ -200,6 +202,12 @@ export function TermValidationPanel({
               >
                 <span
                   className={`shrink-0 rounded border px-1 py-px ${copy.cls}`}
+                  // The agent's own sentence for the verdict. It carries
+                  // things the row has no line for — which ontology
+                  // release deprecated the term ("obsoleted in 3.90"),
+                  // which is the difference between a curation error and
+                  // the ontology moving underneath one.
+                  title={result.detail ?? undefined}
                 >
                   {copy.label}
                   {/* Name the URI the label failed to match, so the
@@ -288,28 +296,49 @@ export function TermValidationPanel({
                       which is the shape a finding surface must never
                       take. A deprecated term whose source names no
                       successor renders no replacement and no button —
-                      picking one is a curation judgement, not ours. */}
-                  {rebind ? (
+                      picking one is a curation judgement, not ours.
+
+                      Shown whenever the verdict names one, including
+                      where we can't write it: knowing WHICH term
+                      replaced this is most of the answer even when the
+                      one-click isn't on offer. */}
+                  {successor ? (
                     <span className="text-slate-600 dark:text-slate-300">
                       {" · "}
                       replaced by{" "}
-                      <span className="font-medium">{rebind.label}</span>
+                      {successor.label ? (
+                        <span className="font-medium">{successor.label}</span>
+                      ) : null}
                       <span className="font-mono text-slate-500 dark:text-slate-400">
-                        {" "}
-                        {shortenUri(rebind.uri)}
+                        {successor.label ? " " : ""}
+                        {shortenUri(successor.uri)}
                       </span>
+                    </span>
+                  ) : null}
+                  {/* Named but not bindable — say which way it fell
+                      short, so "why is there no button" is answered on
+                      the row rather than guessed at. */}
+                  {successor && !successor.writable && successor.blocked ? (
+                    <span
+                      className="text-slate-500 dark:text-slate-400 cursor-help underline underline-offset-2 decoration-dotted"
+                      title={successor.blocked}
+                    >
+                      {" — re-pick a term"}
                     </span>
                   ) : null}
                   {/* The other half of the same statement. A deprecated
                       term with nowhere to go still has to tell the
                       curator what to do about it, or the row is a
-                      complaint with no exit — and today that is EVERY
-                      obsolete row, since `replaced_by` never
-                      populates. Where the term isn't editable from
-                      here at all (a sample characteristic off the
-                      Gemma import) the cue stops at the fact rather
-                      than asking for something that can't be done. */}
-                  {result.status === "obsolete" && !rebind ? (
+                      complaint with no exit. Since 2026-08-16 this is
+                      the minority case rather than every obsolete row —
+                      it now means the ontology itself named no
+                      successor (TGEMO declares none at all; 10 of CLO's
+                      64 tombstones don't either). Where the term isn't
+                      editable from here at all (a sample characteristic
+                      off the Gemma import) the cue stops at the fact
+                      rather than asking for something that can't be
+                      done. */}
+                  {result.status === "obsolete" && !successor ? (
                     <span className="text-slate-500 dark:text-slate-400">
                       {" · "}
                       no successor recorded

@@ -68,13 +68,23 @@ export interface TermValidationResult {
   canonical_uri?: string | null;
   detail?: string | null;
   synonyms?: string[] | null;
-  /** The successor the ONTOLOGY declares for a deprecated term. Present
-   *  on every verdict and empty except on `obsolete` — and empty there
-   *  too when the source names no successor (the index-flag path can't
-   *  carry one; the parquet has no `replaced_by` column). Empty means
-   *  "deprecated, and choosing the replacement is a curation
-   *  judgement" — never guess one. Optional here because an older
-   *  agents build omits the fields entirely. */
+  /** The successor the ONTOLOGY declares for a deprecated term
+   *  (`IAO:0100001`). Present on every verdict and empty except on
+   *  `obsolete`.
+   *
+   *  Both signal paths carry it as of agents `a978033` (2026-08-16,
+   *  `CAB_TO_UIB_2026_08_16_REPLACED_BY_NOW_POPULATES.md`): the index
+   *  path from a `replaced_by` column now in all 13 parquets, the
+   *  Gemma-fallback path from `/annotations/term`, which grew
+   *  `termReplacedBy` the same afternoon. Before that it was empty on
+   *  every obsolete verdict, so a build older than either still sends
+   *  nothing — hence optional.
+   *
+   *  Empty is still a real answer: the ontology names no successor.
+   *  Measured against gemma2 the day the fields landed, deprecated
+   *  terms declaring one — EFO 36/36, CLO 54/64, TGEMO 0/5. Empty
+   *  means "deprecated, and choosing the replacement is a curation
+   *  judgement" — never guess one. */
   replaced_by_uri?: string | null;
   replaced_by_label?: string | null;
 }

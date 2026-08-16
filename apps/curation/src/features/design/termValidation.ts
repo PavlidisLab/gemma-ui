@@ -335,35 +335,101 @@ export const SUMMARY_STATUS_ORDER: TermValidationStatus[] = [
   "non_canonical",
 ];
 
+/** What the verdict says the deprecated term became, and whether this
+ *  panel may write it. */
+export interface SuccessorView {
+  /** As the verdict named it — a full IRI, or a CURIE from the index
+   *  path. Always safe to SHOW; only safe to WRITE when `writable`. */
+  uri: string;
+  /** The ontology's name for the successor. Empty when the verdict
+   *  carried a URI but no label. */
+  label: string;
+  /** Whether Re-bind may put this pair into the design. */
+  writable: boolean;
+  /** Why it can't be written, as hover text for the cue. Null when it
+   *  can be, and null when there is nothing here to rewrite anyway. */
+  blocked: string | null;
+}
+
 /**
- * The successor a deprecated term can actually be re-bound to here, or
- * `null` when there isn't one.
+ * What a deprecated term's row can say about its successor.
  *
- * 🛑 One predicate, because the row shows a Re-bind button when it
- * returns a target and "no successor recorded" when it doesn't. Those
- * are the two halves of one statement; derived separately they will
- * eventually both render, or neither, and the row will be lying either
- * way.
+ * 🛑 One decision, because the row shows a Re-bind button, a
+ * replacement, and a "no successor recorded" cue off it. Those are
+ * halves of one statement; derived separately they will eventually
+ * both render, or neither, and the row will be lying either way.
  *
- * Three things have to hold, and all three fail in practice today:
- *  - the verdict is `obsolete` — nothing else has a successor;
- *  - the agent named one. Measured 2026-08-16 against :8090, **0 of 56**
- *    obsolete verdicts carried `replaced_by`, because `obonet.read_obo`
- *    defaults to `ignore_obsolete=True` and discards the 9,413
- *    `replaced_by:` declarations sitting in efo.obo. Filed as
- *    `UIB_TO_CAB_2026_08_16_REPLACED_BY_IS_ALWAYS_EMPTY.md`;
- *  - the row is editable here. Sample characteristics come off the
- *    Gemma import with no locator, so they report without a repair.
+ * The distinction that earns the extra state: a successor we can't
+ * WRITE is not the same as no successor. Saying "no successor
+ * recorded" over a verdict that named one sends the curator hunting
+ * for something the ontology already answered — the same dead end
+ * this feature exists to remove, just one layer in.
+ *
+ * A successor is named where the ontology declares one. The ingest
+ * lifts `replaced_by` into every parquet (agents `a978033`) and the
+ * Gemma-fallback path reads `termReplacedBy` off `/annotations/term`,
+ * both landed 2026-08-16 on
+ * `UIB_TO_CAB_2026_08_16_REPLACED_BY_IS_ALWAYS_EMPTY.md` /
+ * `UIB_TO_GEMBRO_2026_08_16_EXPOSE_TERM_REPLACED_BY.md`. Empty means
+ * the ontology declares nobody — 10 of CLO's 64 tombstones, all 5 of
+ * TGEMO's.
+ *
+ * It is writable only when all of these hold:
+ *  - the row is editable here at all. Sample characteristics come off
+ *    the Gemma import with no locator, so they report without a repair;
+ *  - the successor is a full IRI. The parquet stores it as a CURIE
+ *    (`CLO:0000457`, `MONDO:0004947`) and the agent expands it through
+ *    `canonical_bind_uri` before answering, so a CURIE arriving here
+ *    means that expansion didn't happen. Writing one into a binding
+ *    stores a URI that resolves nowhere; expanding it ourselves would
+ *    mean this panel inventing a namespace base for a term it can't
+ *    verify, which is the failure the whole feature reports on;
+ *  - the verdict carried the successor's label. Writing a URI with no
+ *    name beside it produces exactly the label-URI disagreement the
+ *    panel reports on.
  */
+export function successorFor(
+  result: TermValidationResult,
+  ref: TermRef | null | undefined,
+): SuccessorView | null {
+  if (result.status !== "obsolete") return null;
+  const uri = (result.replaced_by_uri ?? "").trim();
+  if (!uri) return null;
+  const label = (result.replaced_by_label ?? "").trim();
+  const show = (blocked: string | null): SuccessorView => ({
+    uri,
+    label,
+    writable: false,
+    blocked,
+  });
+  // Nothing to rewrite from here, so there is no repair to explain —
+  // the row reports the fact and stops.
+  if (!ref?.locator) return show(null);
+  if (!/^https?:\/\/\S+$/i.test(uri)) {
+    return show(
+      `The successor is recorded as "${uri}", a CURIE rather than a full ` +
+        "URI, so it can't be bound directly — re-pick the term.",
+    );
+  }
+  if (!label) {
+    return show(
+      "The successor's URI is recorded but not its name, so a re-bind " +
+        "would store a term with no label — re-pick the term.",
+    );
+  }
+  return { uri, label, writable: true, blocked: null };
+}
+
+/** The pair Re-bind writes, or `null` when there is nothing safe to
+ *  write. The single write gate — {@link successorFor} decides, this
+ *  narrows it to what {@link applyTermRebind} needs. */
 export function rebindTargetFor(
   result: TermValidationResult,
   ref: TermRef | null | undefined,
 ): { label: string; uri: string } | null {
-  if (result.status !== "obsolete") return null;
-  const label = (result.replaced_by_label ?? "").trim();
-  const uri = (result.replaced_by_uri ?? "").trim();
-  if (!label || !uri || !ref?.locator) return null;
-  return { label, uri };
+  const successor = successorFor(result, ref);
+  if (!successor?.writable) return null;
+  return { label: successor.label, uri: successor.uri };
 }
 
 /** Rows for the summary panel, worst first, each with the location the
