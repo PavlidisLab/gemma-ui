@@ -109,6 +109,12 @@ function normLabel(s: string | null | undefined): string {
  * sources agree on the 26 the index carries, so overriding those
  * would buy nothing and could only mask a real mismatch.
  *
+ * 🛑 Widen the guard alongside any new "we couldn't judge this"
+ * status. An `obsolete` verdict is asked for in
+ * `handoffs/UIB_TO_CAB_2026_08_16_FLAG_OBSOLETE_TERMS.md`, and
+ * `EFO_0000408` would earn one — obsolete in EFO while still being
+ * Gemma's live disease category. It must land here, not on a row.
+ *
  * Returns `null` when there is nothing to say.
  */
 function categoryVerdict(

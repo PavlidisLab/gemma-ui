@@ -109,6 +109,7 @@ import {
   deriveDismissReason,
   deriveStatus,
   friendlyDispositionError,
+  structuralApplyMutationAllowed,
 } from "./dispositionSave";
 import { DismissDialog } from "./DismissDialog";
 import {
@@ -1550,6 +1551,17 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             if (
               isStructuralOnly &&
               status === "accepted" &&
+              // 🛑 "Keep current" on match/rename codes ALSO lands
+              // status=accepted (sanctioned wire shape — the curator is
+              // confirming gold, not dismissing the finding), and for a
+              // drifted near-match the resolver's action still mutates.
+              // Without this gate a keep click ran the adopt mutator and
+              // stamped its applied_fix: curator said keep, the draft
+              // adopted the agent's version, and the record could not
+              // tell the two apart. Only an explicit adopt-intent
+              // verdict may mutate; per-row saves (no verdict) keep
+              // their own details_edit path below.
+              structuralApplyMutationAllowed(opts?.verdict) &&
               action?.mutates &&
               action.mutate &&
               draft

@@ -3,6 +3,7 @@ import {
   deriveAcceptReason,
   deriveDismissReason,
   deriveStatus,
+  structuralApplyMutationAllowed,
   verdictToStructureDetails,
 } from "./dispositionSave";
 
@@ -429,4 +430,19 @@ describe("end-to-end button → wire derivation", () => {
       expect(acceptReason).toBe(c.expectAcceptReason);
     });
   }
+});
+
+describe("structuralApplyMutationAllowed — keep must never run the adopt mutator", () => {
+  it("blocks the explicit keep verdict", () => {
+    // Keep-on-match lands status=accepted by design (regression #2),
+    // so the status cannot gate the mutator — the verdict must. A keep
+    // click on a drifted near-match used to adopt the agent's version.
+    expect(structuralApplyMutationAllowed("currently")).toBe(false);
+  });
+
+  it("allows adopt-intent verdicts and legacy no-verdict callers", () => {
+    expect(structuralApplyMutationAllowed("proposal")).toBe(true);
+    expect(structuralApplyMutationAllowed("reference")).toBe(true);
+    expect(structuralApplyMutationAllowed(undefined)).toBe(true);
+  });
 });

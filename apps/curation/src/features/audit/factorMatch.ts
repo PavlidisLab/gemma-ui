@@ -103,6 +103,28 @@ export function isCloseFactorMatch(f: AuditFinding): boolean {
   return false;
 }
 
+/** Whether "accept" on this finding must route through the
+ *  draft-mutating match-family adopt (``adoptNearMatchAgentFactor`` /
+ *  ``addFactorFromProposal``) rather than a PATCH-only disposition:
+ *  exact / close / near / legacy-ok match codes AND
+ *  ``calibration_factor_rename``.
+ *
+ *  🛑 Rename is here because ``findingList`` routes every rename
+ *  finding to ``ComparisonFactorCard`` — a rename excluded from this
+ *  family has NO structural apply anywhere, so "Adopt rename" recorded
+ *  accepted+resolved while the factor was never renamed (the GSE11630
+ *  failure class; open for renames until 2026-08-16). ``adoptTarget``
+ *  resolves the current side via ``finding.rename.gold.gemma_factor_id``,
+ *  a field only rename findings carry — the landing pad predates the
+ *  routing. */
+export function isMatchFamilyAdoptCode(f: AuditFinding): boolean {
+  return (
+    isExactFactorMatch(f) ||
+    isCloseFactorMatch(f) ||
+    f.issue_code === "calibration_factor_rename"
+  );
+}
+
 /** Broader "near-match" predicate that drives the two-header-chip card
  *  treatment (design review 2026-05-21 redesign — GSE93824 genotype reference
  *  case). True when:

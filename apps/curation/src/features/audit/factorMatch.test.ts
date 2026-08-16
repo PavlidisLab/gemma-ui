@@ -9,6 +9,7 @@ import {
   isExactFactorMatch,
   isFactorMatchCode,
   isEvidencelessCrossCut,
+  isMatchFamilyAdoptCode,
   isNearMatchFinding,
   isSamePartitionTermDiff,
   resolveAgentFactor,
@@ -741,5 +742,40 @@ describe("isSamePartitionTermDiff", () => {
       );
       expect(isEvidencelessCrossCut(finding({}))).toBe(false);
     });
+  });
+});
+
+describe("isMatchFamilyAdoptCode — accept must route through the draft-mutating adopt", () => {
+  it("covers exact / near / close / legacy-ok match codes", () => {
+    for (const issue_code of [
+      "calibration_factor_match_exact",
+      "calibration_factor_match_near",
+      "calibration_factor_match_close",
+    ]) {
+      expect(isMatchFamilyAdoptCode(finding({ issue_code }))).toBe(true);
+    }
+    expect(
+      isMatchFamilyAdoptCode(
+        finding({ issue_code: "calibration_factor_match", severity: "ok" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("covers calibration_factor_rename — 'Adopt rename' was a PATCH-only no-op while rename sat outside the family (GSE11630 class)", () => {
+    expect(
+      isMatchFamilyAdoptCode(
+        finding({ issue_code: "calibration_factor_rename", severity: "minor" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("excludes extras / misses — their applies live on dedicated handlers", () => {
+    for (const issue_code of [
+      "calibration_factor_extra",
+      "calibration_factor_gold_only_miss",
+      "calibration_agent_extra",
+    ]) {
+      expect(isMatchFamilyAdoptCode(finding({ issue_code }))).toBe(false);
+    }
   });
 });

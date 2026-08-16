@@ -77,6 +77,23 @@ export function deriveStatus(
   return "accepted";
 }
 
+/** May an accepted save run a structural adopt mutator on the draft?
+ *
+ *  The wire deliberately records keep-on-match as ``accepted`` with the
+ *  same structure_ok/details_ok as an adopt (regression #2 in the module
+ *  docstring — the curator is confirming gold, not dismissing), so
+ *  ``status`` alone CANNOT answer this question; only the curator's raw
+ *  verdict can. ``"currently"`` = keep: never mutate — before this gate
+ *  a keep click on a drifted near-match ran the adopt mutator and the
+ *  draft adopted the agent's version against the curator's stated
+ *  intent. An absent verdict (legacy / per-row callers) is not a keep,
+ *  so it does not block. */
+export function structuralApplyMutationAllowed(
+  verdict: Verdict | undefined,
+): boolean {
+  return verdict !== "currently";
+}
+
 /** Server requires a structured ``dismiss_reason`` whenever
  *  ``status === "dismissed"`` (model-validator on
  *  ``AuditFindingDispositionPatch``). The chip-dialog flow fills

@@ -1031,7 +1031,7 @@ function resolveFactorCalibrationApply(
     //
     // NUL joins the two halves of the key because it can't occur in a
     // label or a biomaterial name, so the signature is unambiguous.
-    // Keep it spelled as the `` `` ESCAPE: a raw NUL byte in the
+    // Keep it spelled as the ``\u0000`` ESCAPE: a raw NUL byte in the
     // source makes grep classify this entire file as binary and skip it
     // without saying so, which hides every symbol in here from a repo
     // search (and from any dead-code sweep that relies on one).

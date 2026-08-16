@@ -88,6 +88,7 @@ import { DispositionDot, MatchBadge, SeverityBadge } from "./findingBadges";
 import {
   isCloseFactorMatch,
   isExactFactorMatch,
+  isMatchFamilyAdoptCode,
   synthesizeGoldFactorFromRename,
 } from "./factorMatch";
 import { displaySeverity, SHOW_PARK_AFFORDANCE } from "./auditPresentation";
@@ -1050,28 +1051,33 @@ export function ComparisonFactorCard({
   // agent's version while preserving the partition (biomaterial
   // assignments) and factor id. Design review 2026-06-12 ("as it stands,
   // accept doesn't do anything") — the disposition PATCH on its
-  // own was a no-op for the curator's visible state. Other issue
-  // codes (rename / extra / miss) keep the existing PATCH-only
-  // path; their structural applies live elsewhere.
+  // own was a no-op for the curator's visible state. Extra / miss
+  // keep the existing PATCH-only path; rename adopts through the
+  // same match-family route below (its "elsewhere" never existed —
+  // see the isMatchFamilyAdopt comment).
   const isNearMatch =
     finding.issue_code === "calibration_factor_match_near";
   // "Proposal is better" routes through the draft-mutating
   // ``dispatchNearMatchAccept`` for the WHOLE match family — exact,
-  // close, near, and the legacy ``calibration_factor_match`` code —
-  // not only ``_match_near``. Design review 2026-06-14: on a factor-MATCH card
+  // close, near, the legacy ``calibration_factor_match`` code, AND
+  // ``calibration_factor_rename``. Design review 2026-06-14: on a factor-MATCH card
   // where categories agree but the agent's FV is enriched with extra
   // statements (e.g. ``treatment`` matched but agent adds ``delivered
   // to mother`` / ``dose 10% v/v``), clicking "Proposal is better"
   // was a no-op — disposition PATCHed, draft unchanged, design tab
   // didn't focus. Treat any match-family finding with a resolvable
-  // agent factor as "adopt + focus". Rename / extra / miss stay on
-  // their existing dedicated handlers. */
-  const isMatchFamilyAdopt =
-    !!rightFactor && (
-      isNearMatch ||
-      isExactFactorMatch(finding) ||
-      isCloseFactorMatch(finding)
-    );
+  // agent factor as "adopt + focus". Extra / miss stay on their
+  // existing dedicated handlers.
+  //
+  // 🛑 RENAME BELONGS HERE. `findingList` routes every rename finding
+  // to THIS card, so the "structural applies live elsewhere" this
+  // comment used to claim was unreachable: "Adopt rename" was a plain
+  // accepted PATCH — disposition recorded, factor never renamed, no
+  // applied_fix for the materialize net to replay. `adoptTarget`
+  // below already resolves the CURRENT side via
+  // ``finding.rename?.gold?.gemma_factor_id`` — a field only rename
+  // findings carry — so the landing pad was built and never routed to. */
+  const isMatchFamilyAdopt = !!rightFactor && isMatchFamilyAdoptCode(finding);
 
   // Which draft factor an adopt / merge lands on. The CURRENT side —
   // the finding's own gold factor id, and the category this card is
@@ -1136,6 +1142,13 @@ export function ComparisonFactorCard({
       );
       await setDisposition(finding.target_id, "accepted", {
         resolvedAt: new Date().toISOString(),
+        // Without an applied_fix the disposition row says accepted+
+        // resolved and nothing says WHAT was applied — if the tab
+        // reloads before commit, the draft merge is gone and the
+        // record is indistinguishable from a no-op accept.
+        appliedFix: `merge agent statements into factor ${
+          agentFactor.category?.label ?? "?"
+        }`,
       });
       toast.show(
         "Merged the agent's statements into the existing factor.",
@@ -1195,6 +1208,12 @@ export function ComparisonFactorCard({
       );
       await setDisposition(finding.target_id, "accepted", {
         resolvedAt: new Date().toISOString(),
+        // Same reason as the merge path: an accepted row with no
+        // applied_fix cannot be told from a no-op accept once the
+        // uncommitted draft is gone.
+        appliedFix: matchedButMissingFromBaseline
+          ? `add factor ${agentFactor.category?.label ?? "?"}`
+          : `adopt agent factor ${agentFactor.category?.label ?? "?"}`,
       });
       toast.show(
         matchedButMissingFromBaseline

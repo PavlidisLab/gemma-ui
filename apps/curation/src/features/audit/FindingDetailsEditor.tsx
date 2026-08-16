@@ -1089,7 +1089,20 @@ export function FindingDetailsEditor({
      *  is withheld so the finding stays in the curator's follow-up
      *  queue (a "Resolve →" affordance closes it later). Drives the
      *  "Agree, needs work" button. Design review 2026-06-21. */
-    opts?: { needsWork?: boolean },
+    opts?: {
+      needsWork?: boolean;
+      /** Which button the curator pressed. The wire shape deliberately
+       *  records "keep current" on match/rename codes as
+       *  ``accepted`` with the same structure_ok/details_ok as an
+       *  adopt (dispositionSave regression #2), so ``status`` alone
+       *  CANNOT distinguish keep from adopt — and findingCard's
+       *  structural-apply branch was running the adopt mutator on a
+       *  keep click whenever the near-match action had drift
+       *  (curator said keep, draft adopted the agent's version).
+       *  The verdict is the only signal that survives the mapping;
+       *  consumers gate draft mutation on it. */
+      verdict?: "proposal" | "currently" | "reference";
+    },
   ) => Promise<void>;
   /** Plain "agree" — patch the disposition to accepted without any
    *  draft mutation. Used by the no-actionable-delta + actionable-
@@ -1305,8 +1318,11 @@ export function FindingDetailsEditor({
       );
       // The sidebar's onSave handler derives ``status`` from
       // structure_ok / details_ok per the conventional mapping
-      // (see AuditSidebarPanel.onSave); editor stays pure.
-      await onSave(fix, structureOk, detailsOk, notes, { needsWork });
+      // (see AuditSidebarPanel.onSave); editor stays pure. The raw
+      // verdict rides along because the mapping is deliberately
+      // many-to-one (keep-on-match and adopt both land "accepted")
+      // and the consumer must not mutate the draft on a keep.
+      await onSave(fix, structureOk, detailsOk, notes, { needsWork, verdict });
     } catch (err) {
       toast.show(
         `Save failed: ${(err as Error).message}`,
