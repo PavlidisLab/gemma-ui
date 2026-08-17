@@ -50,6 +50,7 @@ import { FindingList } from "./findingList";
 import type {
   AuditFinding,
   AuditReport,
+  AuditSummary,
   CurationReviewKind,
   Severity,
 } from "@/api/auditTypes";
@@ -272,6 +273,11 @@ export function AuditSidebarPanel({
           <EmptyState kind={kind} />
         ) : (
           <>
+            {/* Review focus — what the owner wants looked at on THIS
+                experiment, above the findings rather than in the ticket
+                body. Renders only when a producer filled it, so nothing
+                changes for reports that carry no guidance. */}
+            <ReviewFocus summary={report.summary} />
             {/* Findings collapse to a one-line summary once the
                 audit is closed. The active triage list stops being
                 actionable, and curators have explicitly said the
@@ -1845,6 +1851,52 @@ function SeverityCount({
  *  Counts are derived from the report; "actionable" excludes ok
  *  findings to match the same definition the SidebarHeader uses
  *  for the pre-close pending warning. */
+/**
+ * "What am I meant to look at here" — the owner's review focus, pinned above
+ * the findings.
+ *
+ * The alternative it replaces is a ticket body carrying every experiment's
+ * commentary at once: the curator opens an experiment and has to scroll back
+ * to a different screen to find out why it was flagged, for each of a hundred
+ * targets. The information was already computed; the wall made them re-locate
+ * it. Paul 2026-08-17, on a 31k-character ticket body: *"your additional
+ * comments should be inside the proposal at the top."*
+ *
+ * Deliberately dumb: it renders whatever the producer put there and does not
+ * rank, cap or reformat. Ranking and the 3-item cap belong to the producer
+ * (`annotate_review_summaries.py`), which has the severity registry; a second
+ * ordering here would be a second definition of "serious".
+ *
+ * Absent guidance renders nothing at all — most reports have none, and an
+ * empty box that says "no focus" is noise on every one of them.
+ */
+function ReviewFocus({ summary }: { summary?: AuditSummary | null }) {
+  const headline = summary?.headline?.trim();
+  const bullets = (summary?.key_findings ?? []).filter((b) => b?.trim());
+  if (!headline && bullets.length === 0) return null;
+  return (
+    <div className="card border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20 p-2 text-[11px]">
+      <div className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-500 mb-1">
+        review focus
+      </div>
+      {headline ? (
+        <div className="font-medium text-slate-800 dark:text-slate-200">
+          {headline}
+        </div>
+      ) : null}
+      {bullets.length > 0 ? (
+        <ul className="mt-1 space-y-0.5 text-slate-600 dark:text-slate-400">
+          {bullets.map((b, i) => (
+            <li key={i} className="whitespace-pre-wrap">
+              {b}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function ClosedFindingsSummary({
   findings,
 }: {

@@ -1137,6 +1137,22 @@ export interface AuditSummary {
   n_minor: number;
   n_ok: number;
   overall_verdict: OverallVerdict;
+  /** Review focus — "what am I meant to look at on THIS experiment".
+   *
+   *  Both have shipped on the wire since the calibration package was
+   *  introduced and were never typed or rendered, so an owner-side review
+   *  had nowhere to land except the ticket body. Paul 2026-08-17: *"there's
+   *  many pages of text at the top of the ticket … your additional comments
+   *  should be inside the proposal at the top."* A ticket-level wall makes
+   *  the curator re-locate every item inside the experiment; a headline on
+   *  the proposal is where they are already looking.
+   *
+   *  ``headline`` states what to DECIDE, not what differs. ``key_findings``
+   *  is the ranked short list under it — severity-ordered and capped at 3
+   *  by the producer, because an uncapped list is the same wall one level
+   *  down. Producer: eval repo ``scripts/annotate_review_summaries.py``. */
+  headline?: string | null;
+  key_findings?: string[] | null;
 }
 
 /** Structured `applied_fix` payload — per-element curator verdicts +
