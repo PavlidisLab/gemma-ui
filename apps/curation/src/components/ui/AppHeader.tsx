@@ -34,6 +34,7 @@ export function AppHeader({
   children,
   ticketContext,
   experimentId,
+  experimentShortName,
 }: {
   reviewer: string;
   /** Optional slot for sub-route breadcrumb crumbs / context chips.
@@ -52,6 +53,14 @@ export function AppHeader({
    *  "current member" highlight + prev/next anchor. When omitted
    *  (non-experiment routes) the ticket chip suppresses. */
   experimentId?: number | string | null;
+  /** Accession / short name of the experiment being curated, e.g.
+   *  ``GSE33744``. Renders as "Curating <name>" in this header, which
+   *  is the ONLY row that stays pinned — the experiment banner that
+   *  otherwise carries the accession scrolls away, and several tabs
+   *  are long enough that a curator ends up deep in a factor list with
+   *  nothing on screen saying which dataset they're editing. Omit on
+   *  non-experiment routes (dashboard, inboxes, ticket pages). */
+  experimentShortName?: string | null;
 }) {
   const logout = useLogout();
   const me = useMe();
@@ -92,6 +101,26 @@ export function AppHeader({
           one-click escape that's labelled by intent. Hidden on the
           dashboard itself so it doesn't loop back on itself. */}
       <BackToDashboardLink />
+      {/* "Curating GSE33744" — which dataset this is, on the one row
+          that doesn't scroll. The accession also lives in the
+          experiment banner below, but that banner scrolls off, and the
+          Design and Samples tabs are both long enough to leave a
+          curator editing factor values with no dataset name in
+          view. Deliberately plain text, not a link: the banner's
+          accession already links out to the source, and a second
+          differently-behaving copy of the same string is worse than a
+          quiet label. */}
+      {experimentShortName ? (
+        <span
+          className="text-sm text-stone-700 dark:text-slate-300 shrink-0 whitespace-nowrap"
+          title={`Curating ${experimentShortName}`}
+        >
+          Curating{" "}
+          <span className="font-semibold text-stone-900 dark:text-slate-100">
+            {experimentShortName}
+          </span>
+        </span>
+      ) : null}
       {ticketContext != null && experimentId != null ? (
         <span className="ml-1">
           <TicketContextChip

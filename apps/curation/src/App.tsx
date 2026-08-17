@@ -560,7 +560,11 @@ function Shell({
   if (draftLoading && !draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
+        {/* The draft (and with it the accession) hasn't arrived yet, so
+            the header names the experiment by id — same fallback the
+            rest of this branch already uses. ``shortName`` is declared
+            below, after this early return. */}
+        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentShortName={`experiment ${experimentId}`}>
           <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
             /
           </span>
@@ -613,7 +617,7 @@ function Shell({
   if (isThin && draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
+        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentShortName={shortName}>
           <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
             /
           </span>
@@ -667,7 +671,7 @@ function Shell({
           header's own background. z-40 keeps it above content while
           body-portaled popovers (CuriePopover @ z-50) stay on top. */}
       <div className="sticky top-0 z-40 bg-slate-50 dark:bg-slate-950">
-      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId}>
+      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentShortName={shortName}>
         {/* Chip strip folded into the header row 2026-06-14 per design review:
             "this could be fit on one row, saving screen space." Was a
             separate row below with its own bg + border. The mode pill
