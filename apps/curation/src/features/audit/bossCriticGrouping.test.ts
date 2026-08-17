@@ -231,6 +231,32 @@ describe("bossMatchesFinding", () => {
     ).toBe(false);
   });
 
+  it("routes a factor verdict to a partition-mismatch card named on the AGENT side", () => {
+    // GSE96826: the card is `factor:1` (gold `disease`) and the boss says
+    // `factor:genotype`, because it reasons over the agent's PROPOSAL. Both
+    // namings sit on the card in `partition_mismatch`; without the agent side
+    // the verdict rendered as "no matching card — the boss named an element
+    // no finding targets" about the very factor the card presents.
+    const [g] = groupBossReviews([rev({ target_id: "factor:genotype" })]);
+    const card = finding({
+      target_kind: "factor",
+      target_id: "factor:1",
+      partition_mismatch: {
+        agent: { category: { label: "genotype" } },
+        gold: { category: { label: "disease" } },
+        direction: "agent_coarser",
+      },
+    } as never);
+    expect(bossMatchesFinding(g, card)).toBe(true);
+    // …and the gold naming still routes, so an id-keyed index is not required.
+    const [g2] = groupBossReviews([rev({ target_id: "factor:disease" })]);
+    expect(bossMatchesFinding(g2, card)).toBe(true);
+    // An unrelated factor must still NOT match — the fix widens routing, it
+    // does not make everything match everything.
+    const [g3] = groupBossReviews([rev({ target_id: "factor:organism part" })]);
+    expect(bossMatchesFinding(g3, card)).toBe(false);
+  });
+
   it("matches an fv verdict to its fv finding, ignoring the id discriminator", () => {
     const [g] = groupBossReviews([rev({ target_id: "fv:treatment/oxymatrine" })]);
     expect(

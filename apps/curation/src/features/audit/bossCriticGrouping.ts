@@ -371,6 +371,20 @@ function findingFactorCategorySlugs(
   }
   add(finding.rename?.agent?.category?.label);
   add(finding.rename?.gold?.category?.label);
+  // A PARTITION-MISMATCH card is the same shape of problem as a rename: it
+  // pairs one agent factor to one gold factor, and the two can be named
+  // differently. The target_id carries the GOLD id, so the index resolves the
+  // GOLD category — but the boss reasons over the agent's PROPOSAL and names
+  // the agent's category. GSE96826: the card is `factor:1` (gold `disease`)
+  // while the boss says `factor:genotype`, so a verdict about the very factor
+  // the card presents rendered as "no matching card — the boss named an
+  // element no finding targets", twice, alongside a third verdict about an
+  // element the agent had already dropped in response to it.
+  //
+  // The naming is already on the card (`partition_mismatch.agent.category`),
+  // so this is a routing gap, not missing data.
+  add(finding.partition_mismatch?.agent?.category?.label);
+  add(finding.partition_mismatch?.gold?.category?.label);
   return [...out];
 }
 
