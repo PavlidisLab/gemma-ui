@@ -31,26 +31,26 @@ import type { AuditFinding } from "@/api/auditTypes";
 // of dismisses curators were routing through `other` — leading with
 // it cuts the `other` rate.
 export const DISMISS_CHIPS: DialogChip[] = [
-  { key: "weak_evidence",       label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
-  { key: "redundant",           label: "Redundant",          help: "finding duplicates an issue already noted elsewhere" },
-  { key: "out_of_scope",        label: "Out of scope",       help: "valid finding but outside this curation pass" },
-  { key: "accepted_elsewhere",  label: "Accepted elsewhere", help: "the change was already made via a different finding" },
-  { key: "wont_fix",            label: "Won't fix",          help: "acknowledged but intentionally not acted on" },
-  { key: "other",               label: "Other",              help: "doesn't fit the above — add a note" },
+  { key: "weak_evidence",      added: "2026-06-10", label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
+  { key: "redundant",          added: "2026-06-10", label: "Redundant",          help: "finding duplicates an issue already noted elsewhere" },
+  { key: "out_of_scope",       added: "2026-06-10", label: "Out of scope",       help: "valid finding but outside this curation pass" },
+  { key: "accepted_elsewhere", added: "2026-06-10", label: "Accepted elsewhere", help: "the change was already made via a different finding" },
+  { key: "wont_fix",           added: "2026-06-10", label: "Won't fix",          help: "acknowledged but intentionally not acted on" },
+  { key: "other",              added: "2026-06-10", label: "Other",              help: "doesn't fit the above — add a note" },
 ];
 
 export const ACCEPT_CHIPS: DialogChip[] = [
-  { key: "well_evidenced", label: "Well evidenced", help: "strong evidence in the paper or data" },
-  { key: "fills_gap",      label: "Fills gap",      help: "adds information absent from current curation" },
-  { key: "more_specific",  label: "More specific",  help: "more precise than the existing entry" },
-  { key: "other",          label: "Other",          help: "doesn't fit the above — add a note" },
+  { key: "well_evidenced", added: "2026-06-10", label: "Well evidenced", help: "strong evidence in the paper or data" },
+  { key: "fills_gap",      added: "2026-06-10", label: "Fills gap",      help: "adds information absent from current curation" },
+  { key: "more_specific",  added: "2026-06-10", label: "More specific",  help: "more precise than the existing entry" },
+  { key: "other",          added: "2026-06-10", label: "Other",          help: "doesn't fit the above — add a note" },
 ];
 
 export const NOT_SURE_CHIPS: DialogChip[] = [
-  { key: "need_more_data",    label: "Need more data",    help: "not enough information to decide" },
-  { key: "need_expert",       label: "Need expert",       help: "requires domain expertise to evaluate" },
-  { key: "pending_update",    label: "Pending update",    help: "waiting on an upstream change before acting" },
-  { key: "other",             label: "Other",             help: "doesn't fit the above — add a note" },
+  { key: "need_more_data", added: "2026-06-10", label: "Need more data", help: "not enough information to decide" },
+  { key: "need_expert",    added: "2026-06-10", label: "Need expert",    help: "requires domain expertise to evaluate" },
+  { key: "pending_update", added: "2026-06-10", label: "Pending update", help: "waiting on an upstream change before acting" },
+  { key: "other",          added: "2026-06-10", label: "Other",          help: "doesn't fit the above — add a note" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -124,11 +124,11 @@ export const NOT_SURE_CHIPS: DialogChip[] = [
  *    unopened dialog was the actual error here.
  */
 export const CAL_MISS_FACTOR_DISMISS_CHIPS: DialogChip[] = [
-  { key: "agent_real_miss",             label: "Factor is correct — keep it",          help: "the factor and its FVs are right as they stand; nothing needs fixing, the agent simply didn't propose it" },
-  { key: "structure_correct_fvs_wrong", label: "Keep it, but the FV labels need work", help: "the factor's category is right — the FV labels / values are what need fixing" },
-  { key: "wrong_partition",             label: "Keep it, but the samples are grouped wrong", help: "the factor's category is right — which samples sit in which FV is what needs fixing" },
-  { key: "borderline",                  label: "Keep it, but I'm not certain",         help: "keeping it on balance — the evidence doesn't quite settle the call. Say what's unresolved in the note." },
-  { key: "other",                       label: "Other",                                help: "add a note" },
+  { key: "agent_real_miss",             added: "2026-06-16", label: "Factor is correct — keep it",                help: "the factor and its FVs are right as they stand; nothing needs fixing, the agent simply didn't propose it" },
+  { key: "structure_correct_fvs_wrong", added: "2026-06-16", label: "Keep it, but the FV labels need work",       help: "the factor's category is right — the FV labels / values are what need fixing" },
+  { key: "wrong_partition",             added: "2026-06-16", label: "Keep it, but the samples are grouped wrong", help: "the factor's category is right — which samples sit in which FV is what needs fixing" },
+  { key: "borderline",                  added: "2026-06-16", label: "Keep it, but I'm not certain",               help: "keeping it on balance — the evidence doesn't quite settle the call. Say what's unresolved in the note." },
+  { key: "other",                       added: "2026-06-16", label: "Other",                                      help: "add a note" },
 ];
 
 /**
@@ -163,10 +163,10 @@ export const CAL_MISS_FACTOR_DISMISS_CHIPS: DialogChip[] = [
  *    a curator. Don't "restore" it here.
  */
 export const CAL_MISS_TAG_DISMISS_CHIPS: DialogChip[] = [
-  { key: "agent_missed_it",     label: "Tag is correct — keep it",               help: "the tag is right and applies as it stands; the agent simply proposed dropping it" },
-  { key: "tag_applies_broadly", label: "Keep it — it covers all the samples",    help: "the tag holds for every profiled sample — answers a 'subset only' rationale for removing it" },
-  { key: "borderline",          label: "Keep it, but I'm not certain",           help: "keeping it on balance — the evidence doesn't quite settle whether it covers every sample. Say what's unresolved in the note." },
-  { key: "other",               label: "Other",                                  help: "add a note" },
+  { key: "agent_missed_it",     added: "2026-06-16", label: "Tag is correct — keep it",            help: "the tag is right and applies as it stands; the agent simply proposed dropping it" },
+  { key: "tag_applies_broadly", added: "2026-06-16", label: "Keep it — it covers all the samples", help: "the tag holds for every profiled sample — answers a 'subset only' rationale for removing it" },
+  { key: "borderline",          added: "2026-06-16", label: "Keep it, but I'm not certain",        help: "keeping it on balance — the evidence doesn't quite settle whether it covers every sample. Say what's unresolved in the note." },
+  { key: "other",               added: "2026-06-16", label: "Other",                               help: "add a note" },
 ];
 
 /** @deprecated Use ``CAL_MISS_FACTOR_DISMISS_CHIPS`` (factor-side)
@@ -197,12 +197,12 @@ export const CAL_MISS_DISMISS_CHIPS = CAL_MISS_FACTOR_DISMISS_CHIPS;
 // already carries a note about: a fix landed on the dismiss side in
 // 2026-06-15 and the accept side was missed.
 export const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
-  { key: "current_wrong",          label: "Current wrong",          help: "the current tag is incorrect or outdated — agent's removal is right" },
-  { key: "current_redundant",      label: "Current redundant",      help: "the current tag is already captured elsewhere — by a biomaterial characteristic, a factor value, or another tag" },
-  { key: "aboutism",               label: "Aboutism",               help: "a claim about what the study is ABOUT, not a feature of the profiled samples — the tags guideline's \"don't tag claims from the abstract\". Removing it is right." },
-  { key: "more_specific_available", label: "More specific available", help: "agent's removal is right because a finer-grained tag better captures this (often paired with an add proposal elsewhere)" },
-  { key: "borderline",             label: "Borderline",             help: "close call — acceptable to remove" },
-  { key: "other",                  label: "Other",                  help: "add a note" },
+  { key: "current_wrong",           added: "2026-06-16", label: "Current wrong",           help: "the current tag is incorrect or outdated — agent's removal is right" },
+  { key: "current_redundant",       added: "2026-06-16", label: "Current redundant",       help: "the current tag is already captured elsewhere — by a biomaterial characteristic, a factor value, or another tag" },
+  { key: "aboutism",                added: "2026-08-17", label: "Aboutism",                help: "a claim about what the study is ABOUT, not a feature of the profiled samples — the tags guideline's \"don't tag claims from the abstract\". Removing it is right." },
+  { key: "more_specific_available", added: "2026-06-16", label: "More specific available", help: "agent's removal is right because a finer-grained tag better captures this (often paired with an add proposal elsewhere)" },
+  { key: "borderline",              added: "2026-06-10", label: "Borderline",              help: "close call — acceptable to remove" },
+  { key: "other",                   added: "2026-06-10", label: "Other",                   help: "add a note" },
 ];
 
 /**
@@ -230,13 +230,13 @@ export const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
  * not be scored as one.
  */
 export const CAL_MISS_FACTOR_ACCEPT_CHIPS: DialogChip[] = [
-  { key: "swapped_for_other_proposal", label: "Swapping with another proposal", help: "the same axis is being added by a different proposal — this removal is bookkeeping, not a judgement that the factor was wrong. NOT evidence the curated factor was incorrect." },
-  { key: "partition_wrong",        label: "Partition wrong",        help: "the factor's sample groupings are wrong — the axis may be real but this partition of the samples isn't" },
-  { key: "current_redundant",      label: "Already covered",        help: "another factor / tag / characteristic already captures this axis" },
-  { key: "more_specific_available", label: "More specific available", help: "a finer-grained factor better captures this (usually paired with an add proposal elsewhere)" },
-  { key: "not_a_real_axis",        label: "Not a real axis",        help: "the factor doesn't describe an experimental variable at all — the genuinely-remove-it case, and the rare one" },
-  { key: "borderline",             label: "Borderline",             help: "close call — acceptable to remove" },
-  { key: "other",                  label: "Other",                  help: "add a note" },
+  { key: "swapped_for_other_proposal", added: "2026-08-13", label: "Swapping with another proposal", help: "the same axis is being added by a different proposal — this removal is bookkeeping, not a judgement that the factor was wrong. NOT evidence the curated factor was incorrect." },
+  { key: "partition_wrong",            added: "2026-08-13", label: "Partition wrong",                help: "the factor's sample groupings are wrong — the axis may be real but this partition of the samples isn't" },
+  { key: "current_redundant",          added: "2026-08-13", label: "Already covered",                help: "another factor / tag / characteristic already captures this axis" },
+  { key: "more_specific_available",    added: "2026-08-13", label: "More specific available",        help: "a finer-grained factor better captures this (usually paired with an add proposal elsewhere)" },
+  { key: "not_a_real_axis",            added: "2026-08-13", label: "Not a real axis",                help: "the factor doesn't describe an experimental variable at all — the genuinely-remove-it case, and the rare one" },
+  { key: "borderline",                 added: "2026-08-13", label: "Borderline",                     help: "close call — acceptable to remove" },
+  { key: "other",                      added: "2026-08-13", label: "Other",                          help: "add a note" },
 ];
 // For calibration_agent_extra (tag-side): "Disagree" means curator
 // thinks the agent over-proposed (agent FP). Chips explain WHY.
@@ -277,15 +277,15 @@ export const CAL_MISS_FACTOR_ACCEPT_CHIPS: DialogChip[] = [
 // ranking a dumping ground by its frequency keeps it the path of
 // least resistance. They stay available, last.
 export const CAL_EXTRA_TAG_DISMISS_CHIPS: DialogChip[] = [
-  { key: "redundant_with_bm_source", label: "Redundant / already covered", help: "the term is already captured elsewhere — by a biomaterial characteristic, a fully-covering factor value, or another tag" },
-  { key: "invalid_annotation",     label: "Badly wrong",                help: "not a valid annotation — the category isn't a Gemma EFC (region / condition / passage / karyotype …), or the value belongs to a different category entirely (a chemical under genotype)" },
-  { key: "aboutism",               label: "Aboutism",                   help: "a claim about what the study is ABOUT, not a feature of the profiled samples — the tags guideline's \"don't tag claims from the abstract\"" },
-  { key: "out_of_scope_correct",   label: "Correct but out of scope",   help: "true of the samples, but not something we curate here — the agent's modelling is fine, the scope rule is what it missed" },
-  { key: "no_evidence",            label: "No evidence",                help: "no supporting evidence in the paper/data" },
-  { key: "not_sample_applicable",  label: "Subset only",                help: "applies to only a subset of profiled samples (e.g., case half of a case/control study)" },
-  { key: "wrong",                  label: "Wrong",                      help: "well-formed, but not true of these samples — the agent picked an incorrect term or value" },
-  { key: "wrong_category",         label: "Right value, wrong category", help: "the value is correct but filed under the wrong EFC — recategorise rather than drop" },
-  { key: "out_of_scope_wrong",     label: "Wrong and out of scope",     help: "neither true nor in scope — no credit either way" },
+  { key: "redundant_with_bm_source", added: "2026-06-10", label: "Redundant / already covered", help: "the term is already captured elsewhere — by a biomaterial characteristic, a fully-covering factor value, or another tag" },
+  { key: "invalid_annotation",       added: "2026-08-13", label: "Badly wrong",                 help: "not a valid annotation — the category isn't a Gemma EFC (region / condition / passage / karyotype …), or the value belongs to a different category entirely (a chemical under genotype)" },
+  { key: "aboutism",                 added: "2026-08-13", label: "Aboutism",                    help: "a claim about what the study is ABOUT, not a feature of the profiled samples — the tags guideline's \"don't tag claims from the abstract\"" },
+  { key: "out_of_scope_correct",     added: "2026-08-13", label: "Correct but out of scope",    help: "true of the samples, but not something we curate here — the agent's modelling is fine, the scope rule is what it missed" },
+  { key: "no_evidence",              added: "2026-06-10", label: "No evidence",                 help: "no supporting evidence in the paper/data" },
+  { key: "not_sample_applicable",    added: "2026-06-10", label: "Subset only",                 help: "applies to only a subset of profiled samples (e.g., case half of a case/control study)" },
+  { key: "wrong",                    added: "2026-08-13", label: "Wrong",                       help: "well-formed, but not true of these samples — the agent picked an incorrect term or value" },
+  { key: "wrong_category",           added: "2026-08-13", label: "Right value, wrong category", help: "the value is correct but filed under the wrong EFC — recategorise rather than drop" },
+  { key: "out_of_scope_wrong",       added: "2026-08-13", label: "Wrong and out of scope",      help: "neither true nor in scope — no credit either way" },
   // Kept last, deliberately. It ran 13 times here and its notes show it was
   // the path of least resistance rather than a verdict — `borderline |
   // covered`, `borderline | close`. With the specific options above it
@@ -295,8 +295,8 @@ export const CAL_EXTRA_TAG_DISMISS_CHIPS: DialogChip[] = [
   // per the validator contract, though its label is category-neutral:
   // it fires for a BM characteristic, a fully-covering factor value,
   // or any other surface that already captures the proposed term.
-  { key: "borderline",             label: "Borderline",                 help: "genuinely a close call — prefer one of the specific reasons above where one fits" },
-  { key: "other",                  label: "Other",                      help: "add a note" },
+  { key: "borderline",               added: "2026-06-10", label: "Borderline",                  help: "genuinely a close call — prefer one of the specific reasons above where one fits" },
+  { key: "other",                    added: "2026-06-10", label: "Other",                       help: "add a note" },
 ];
 // For calibration_factor_extra: subset of the tag-side chips. The
 // new `not_sample_applicable` / `redundant_with_bm_source` chips
@@ -308,28 +308,28 @@ export const CAL_EXTRA_TAG_DISMISS_CHIPS: DialogChip[] = [
 // scope" which both undershoot the real reasoning. Open-enum on the
 // wire means new slugs ship without an agent-side PR.
 export const CAL_EXTRA_FACTOR_DISMISS_CHIPS: DialogChip[] = [
-  { key: "already_covered", label: "Already covered",  help: "an existing factor / tag / characteristic already captures this" },
-  { key: "wrong_shape",     label: "Wrong shape",      help: "the axis is real but the agent's partition / FV breakdown doesn't match the experiment" },
-  { key: "fvs_wrong",       label: "FVs need work",        help: "would add but the FV labels need work — want a redo, not as-is" },
-  { key: "no_evidence",     label: "No evidence",      help: "no supporting evidence in the paper/data" },
-  { key: "out_of_scope",    label: "Out of scope",     help: "outside the scope of this factor category" },
-  { key: "borderline",      label: "Borderline",       help: "close call — could reasonably go either way" },
-  { key: "other",           label: "Other",            help: "add a note" },
+  { key: "already_covered", added: "2026-06-14", label: "Already covered", help: "an existing factor / tag / characteristic already captures this" },
+  { key: "wrong_shape",     added: "2026-06-14", label: "Wrong shape",     help: "the axis is real but the agent's partition / FV breakdown doesn't match the experiment" },
+  { key: "fvs_wrong",       added: "2026-06-14", label: "FVs need work",   help: "would add but the FV labels need work — want a redo, not as-is" },
+  { key: "no_evidence",     added: "2026-06-10", label: "No evidence",     help: "no supporting evidence in the paper/data" },
+  { key: "out_of_scope",    added: "2026-06-10", label: "Out of scope",    help: "outside the scope of this factor category" },
+  { key: "borderline",      added: "2026-06-10", label: "Borderline",      help: "close call — could reasonably go either way" },
+  { key: "other",           added: "2026-06-10", label: "Other",           help: "add a note" },
 ];
 
 // Factor match disagree — "the agent says match, I say not." These
 // cards already say "Confirm" / "Not a match" (per the 2026-06-14
 // button-label refactor); the chips name the WHY for the not-a-match.
 export const FACTOR_MATCH_DISMISS_CHIPS: DialogChip[] = [
-  { key: "category_mismatch",  label: "Different category", help: "agent and the gold factor name different things" },
-  { key: "partition_mismatch", label: "Different partition", help: "same category, different sample groupings" },
-  { key: "synonym_only",       label: "Synonym, not same",  help: "labels are close but not semantically equivalent" },
+  { key: "category_mismatch",           added: "2026-06-14", label: "Different category",                help: "agent and the gold factor name different things" },
+  { key: "partition_mismatch",          added: "2026-06-14", label: "Different partition",               help: "same category, different sample groupings" },
+  { key: "synonym_only",                added: "2026-06-14", label: "Synonym, not same",                 help: "labels are close but not semantically equivalent" },
   // Design review 2026-06-14: the "keep" decision has more than one shape —
   // agent could be flat-out wrong OR agent could be close enough that
   // the disagreement isn't load-bearing. Recording the distinction
   // helps the calibration analytics tell "real curator-vs-agent
   // disagreement" from "we landed somewhere different but it's fine."
-  { key: "agent_close_enough", label: "TMTOWTDI", help: "There's More Than One Way To Do It — agent's call was reasonable, but I'm keeping the current curation. Not a real disagreement; signals to calibration analytics that this was a legitimate-either-way call." },
+  { key: "agent_close_enough",          added: "2026-06-14", label: "TMTOWTDI",                          help: "There's More Than One Way To Do It — agent's call was reasonable, but I'm keeping the current curation. Not a real disagreement; signals to calibration analytics that this was a legitimate-either-way call." },
   // 🛑 The four below say the AGENT WINS, on a dialog whose verb is
   // "dismiss". That inversion is not cosmetic: stored rows read
   // `dismissed | keep_agent_close | "cell type is better category,
@@ -345,13 +345,13 @@ export const FACTOR_MATCH_DISMISS_CHIPS: DialogChip[] = [
   // status isn't, and these split the "agent is better" case by the
   // fix it implies, since the observed reasons differ: better
   // category, better grounding, more specific, better shape.
-  { key: "keep_agent_better_category", label: "Agent's is better — category", help: "adopting the agent's version: it files this under the right EFC (\"cell type is better category\")" },
-  { key: "keep_agent_better_grounding", label: "Agent's is better — grounding", help: "adopting the agent's version: better ontology binding for the same idea" },
-  { key: "keep_agent_more_specific",   label: "Agent's is better — more specific", help: "adopting the agent's version: finer-grained and still correct" },
-  { key: "keep_agent_equivalent",      label: "Equivalent",         help: "same thing in a different surface form — NOT a disagreement. Distinct from keeping the current one, because for calibration this means the agent was right and was scored as a miss." },
-  { key: "neither_correct",            label: "Neither is right",   help: "both the agent's and the current version are wrong — the fix is a third thing" },
-  { key: "borderline",         label: "Borderline",         help: "close call" },
-  { key: "other",              label: "Other",              help: "add a note" },
+  { key: "keep_agent_better_category",  added: "2026-08-13", label: "Agent's is better — category",      help: "adopting the agent's version: it files this under the right EFC (\"cell type is better category\")" },
+  { key: "keep_agent_better_grounding", added: "2026-08-13", label: "Agent's is better — grounding",     help: "adopting the agent's version: better ontology binding for the same idea" },
+  { key: "keep_agent_more_specific",    added: "2026-08-13", label: "Agent's is better — more specific", help: "adopting the agent's version: finer-grained and still correct" },
+  { key: "keep_agent_equivalent",       added: "2026-08-13", label: "Equivalent",                        help: "same thing in a different surface form — NOT a disagreement. Distinct from keeping the current one, because for calibration this means the agent was right and was scored as a miss." },
+  { key: "neither_correct",             added: "2026-08-13", label: "Neither is right",                  help: "both the agent's and the current version are wrong — the fix is a third thing" },
+  { key: "borderline",                  added: "2026-06-14", label: "Borderline",                        help: "close call" },
+  { key: "other",                       added: "2026-06-14", label: "Other",                             help: "add a note" },
 ];
 
 // Tag match disagree — same "Not a match" framing but with a
@@ -361,30 +361,30 @@ export const FACTOR_MATCH_DISMISS_CHIPS: DialogChip[] = [
 // causes like 'doesn't apply to all samples' — 'different partitions'
 // doesn't make sense for tag."
 export const TAG_MATCH_DISMISS_CHIPS: DialogChip[] = [
-  { key: "category_mismatch",     label: "Different category",      help: "agent and the gold tag name different things" },
-  { key: "not_sample_applicable", label: "Doesn't apply to all samples", help: "tag is partial — applies only to a subset of profiled samples" },
-  { key: "synonym_only",          label: "Synonym, not same",       help: "labels are close but not semantically equivalent" },
+  { key: "category_mismatch",           added: "2026-06-14", label: "Different category",                help: "agent and the gold tag name different things" },
+  { key: "not_sample_applicable",       added: "2026-06-14", label: "Doesn't apply to all samples",      help: "tag is partial — applies only to a subset of profiled samples" },
+  { key: "synonym_only",                added: "2026-06-14", label: "Synonym, not same",                 help: "labels are close but not semantically equivalent" },
   // Same agent-wins family as the factor set above — see the note
   // there on why these live on a "dismiss" dialog and why that is the
   // thing being fixed rather than the vocabulary.
-  { key: "keep_agent_better_category", label: "Agent's is better — category", help: "adopting the agent's version: it files this under the right EFC" },
-  { key: "keep_agent_better_grounding", label: "Agent's is better — grounding", help: "adopting the agent's version: better ontology binding for the same idea" },
-  { key: "keep_agent_more_specific",   label: "Agent's is better — more specific", help: "adopting the agent's version: finer-grained and still correct" },
-  { key: "keep_agent_equivalent",      label: "Equivalent",         help: "same thing in a different surface form — NOT a disagreement, and distinct from keeping the current one: for calibration this means the agent was right and was scored as a miss." },
-  { key: "neither_correct",            label: "Neither is right",   help: "both versions are wrong — the fix is a third thing" },
-  { key: "borderline",            label: "Borderline",              help: "close call" },
-  { key: "other",                 label: "Other",                   help: "add a note" },
+  { key: "keep_agent_better_category",  added: "2026-08-13", label: "Agent's is better — category",      help: "adopting the agent's version: it files this under the right EFC" },
+  { key: "keep_agent_better_grounding", added: "2026-08-13", label: "Agent's is better — grounding",     help: "adopting the agent's version: better ontology binding for the same idea" },
+  { key: "keep_agent_more_specific",    added: "2026-08-13", label: "Agent's is better — more specific", help: "adopting the agent's version: finer-grained and still correct" },
+  { key: "keep_agent_equivalent",       added: "2026-08-13", label: "Equivalent",                        help: "same thing in a different surface form — NOT a disagreement, and distinct from keeping the current one: for calibration this means the agent was right and was scored as a miss." },
+  { key: "neither_correct",             added: "2026-08-13", label: "Neither is right",                  help: "both versions are wrong — the fix is a third thing" },
+  { key: "borderline",                  added: "2026-06-14", label: "Borderline",                        help: "close call" },
+  { key: "other",                       added: "2026-06-14", label: "Other",                             help: "add a note" },
 ];
 
 // Factor partition-mismatch ("Modify FVs") disagree — curator
 // thinks the existing partition is correct OR wants a merge instead
 // of a structural rewrite.
 export const FACTOR_PARTITION_DISMISS_CHIPS: DialogChip[] = [
-  { key: "current_partition_correct", label: "Current partition correct", help: "agent's proposed partition is wrong" },
-  { key: "merge_instead",             label: "Want merge instead",       help: "adopt the agent's FVs into the existing factor without overwriting structure" },
-  { key: "agent_close_enough",        label: "TMTOWTDI",                 help: "There's More Than One Way To Do It — agent's partition is reasonable, but I'm keeping the current one. Not a real disagreement; signals to calibration analytics that this was a legitimate-either-way call." },
-  { key: "borderline",                label: "Borderline",               help: "close call" },
-  { key: "other",                     label: "Other",                    help: "add a note" },
+  { key: "current_partition_correct", added: "2026-06-14", label: "Current partition correct", help: "agent's proposed partition is wrong" },
+  { key: "merge_instead",             added: "2026-06-14", label: "Want merge instead",        help: "adopt the agent's FVs into the existing factor without overwriting structure" },
+  { key: "agent_close_enough",        added: "2026-06-14", label: "TMTOWTDI",                  help: "There's More Than One Way To Do It — agent's partition is reasonable, but I'm keeping the current one. Not a real disagreement; signals to calibration analytics that this was a legitimate-either-way call." },
+  { key: "borderline",                added: "2026-06-14", label: "Borderline",                help: "close call" },
+  { key: "other",                     added: "2026-06-14", label: "Other",                     help: "add a note" },
 ];
 // For calibration_agent_extra: "Accept (add)" means curator agrees
 // with agent (agent TP). Chips explain WHY.
@@ -404,11 +404,11 @@ export const FACTOR_PARTITION_DISMISS_CHIPS: DialogChip[] = [
 // caveats) but were spread across keys and notes, so there is no single
 // figure to rank it by.
 export const CAL_EXTRA_ACCEPT_CHIPS: DialogChip[] = [
-  { key: "well_evidenced",  label: "Well evidenced",   help: "strong evidence in the paper or data" },
-  { key: "accepted_with_reservation", label: "Accepted with reservation", help: "keeping it, but it isn't the ideal form — partial credit, or it would be better as an S-P-O statement, or a more specific term exists. Say which in the note." },
-  { key: "fills_gap",       label: "Fills gap",        help: "adds information absent from current gold" },
-  { key: "borderline",      label: "Borderline",       help: "close call — acceptable to add" },
-  { key: "other",           label: "Other",            help: "add a note" },
+  { key: "well_evidenced",            added: "2026-06-10", label: "Well evidenced",            help: "strong evidence in the paper or data" },
+  { key: "accepted_with_reservation", added: "2026-08-13", label: "Accepted with reservation", help: "keeping it, but it isn't the ideal form — partial credit, or it would be better as an S-P-O statement, or a more specific term exists. Say which in the note." },
+  { key: "fills_gap",                 added: "2026-06-10", label: "Fills gap",                 help: "adds information absent from current gold" },
+  { key: "borderline",                added: "2026-06-10", label: "Borderline",                help: "close call — acceptable to add" },
+  { key: "other",                     added: "2026-06-10", label: "Other",                     help: "add a note" },
 ];
 
 // Tag-target dismiss vocab — generic dismissals PLUS the two
@@ -422,14 +422,14 @@ export const CAL_EXTRA_ACCEPT_CHIPS: DialogChip[] = [
 // any tag-target finding per the agents-side 2026-06-12 schema update; safe to
 // surface here without 422 risk.
 export const TAG_DISMISS_CHIPS: DialogChip[] = [
-  { key: "not_sample_applicable",  label: "Subset only",        help: "applies to only a subset of profiled samples (e.g., case half of a case/control study)" },
-  { key: "redundant_with_bm_source", label: "Redundant",        help: "the term is already captured elsewhere — by a biomaterial characteristic, a fully-covering factor value, or another tag" },
-  { key: "weak_evidence",       label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
-  { key: "redundant",           label: "Redundant (other)",  help: "finding duplicates an issue already noted elsewhere" },
-  { key: "out_of_scope",        label: "Out of scope",       help: "valid finding but outside this curation pass" },
-  { key: "accepted_elsewhere",  label: "Accepted elsewhere", help: "the change was already made via a different finding" },
-  { key: "wont_fix",            label: "Won't fix",          help: "acknowledged but intentionally not acted on" },
-  { key: "other",               label: "Other",              help: "doesn't fit the above — add a note" },
+  { key: "not_sample_applicable",    added: "2026-06-13", label: "Subset only",        help: "applies to only a subset of profiled samples (e.g., case half of a case/control study)" },
+  { key: "redundant_with_bm_source", added: "2026-06-13", label: "Redundant",          help: "the term is already captured elsewhere — by a biomaterial characteristic, a fully-covering factor value, or another tag" },
+  { key: "weak_evidence",            added: "2026-06-13", label: "Weak evidence",      help: "agent's evidence doesn't support the finding" },
+  { key: "redundant",                added: "2026-06-13", label: "Redundant (other)",  help: "finding duplicates an issue already noted elsewhere" },
+  { key: "out_of_scope",             added: "2026-06-13", label: "Out of scope",       help: "valid finding but outside this curation pass" },
+  { key: "accepted_elsewhere",       added: "2026-06-13", label: "Accepted elsewhere", help: "the change was already made via a different finding" },
+  { key: "wont_fix",                 added: "2026-06-13", label: "Won't fix",          help: "acknowledged but intentionally not acted on" },
+  { key: "other",                    added: "2026-06-13", label: "Other",              help: "doesn't fit the above — add a note" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -573,71 +573,29 @@ export function acceptChipsFor(
 }
 
 // ---------------------------------------------------------------------------
-// Legacy key remap
+// Legacy key remap — MOVED to the agents repo, 2026-08-17
 // ---------------------------------------------------------------------------
 
-/**
- * Old disposition key → the 2026-08-13 key that replaces it.
- *
- * 456 stored dispositions predate the revision. Most just need
- * renaming, but a subset are **wrong rather than coarse** — a curator
- * picked the nearest chip and then contradicted it in the note:
- *
- *     not_sample_applicable | "garbage"
- *     not_sample_applicable | "comletely malformed"
- *     out_of_scope          | "garbage"
- *     out_of_scope          | "wrong"
- *     out_of_scope          | "about"
- *
- * Those cannot be remapped from the key alone — the key says
- * "subset only" and the truth is "invalid annotation". Anything
- * recovering them has to read the NOTE, which is why
- * {@link remapFromNote} exists beside this and why neither is applied
- * automatically. A key-only remap would silently launder the bad rows
- * into confident new keys.
- *
- * Deliberately NOT a rename of `borderline`: it was a dumping ground
- * (19 uses, notes like "covered" and "close"), so its stored rows mean
- * different things and only the note can separate them.
- */
-export const LEGACY_DISPOSITION_KEY_REMAP: Record<string, string> = {
-  // Split for no reason a curator could see — same idea, two keys.
-  already_covered: "redundant_with_bm_source",
-  // Factor/tag split of one concept.
-  agent_real_miss: "agent_missed_it",
-  // `out_of_scope` never distinguished whether the claim was true.
-  // Mapped to the correct-but-out-of-scope side because that is what
-  // its help text described; rows whose note says otherwise are
-  // caught by `remapFromNote`.
-  out_of_scope: "out_of_scope_correct",
-  malformed: "invalid_annotation",
-};
-
-/**
- * Recover the true reason from a note where the stored key is known
- * to be unreliable. Returns `null` when the note says nothing useful —
- * an honest "still ambiguous" rather than a guess.
- *
- * Only consulted for rows whose key is one of the overloaded ones;
- * a curator who picked a specific chip meant it.
- */
-export function remapFromNote(note: string | null | undefined): string | null {
-  const n = (note ?? "").trim().toLowerCase();
-  if (!n) return null;
-  // "garbage" x9 plus two typos, and "malformed" x3 — all turned out
-  // to be invented categories rather than merely wrong values.
-  if (/garba|garbate|malformed/.test(n)) return "invalid_annotation";
-  if (n === "about" || /don'?t curate ['"]?about/.test(n)) return "aboutism";
-  if (/\bcategor/.test(n)) return "wrong_category";
-  return null;
-}
-
-/** Keys whose stored rows are known to be unreliable — see the remap
- *  notes above. Consult {@link remapFromNote} for these before
- *  trusting the key in any analysis. */
-export const OVERLOADED_LEGACY_KEYS: ReadonlySet<string> = new Set([
-  "other",
-  "out_of_scope",
-  "not_sample_applicable",
-  "borderline",
-]);
+// `LEGACY_DISPOSITION_KEY_REMAP`, `remapFromNote` and
+// `OVERLOADED_LEGACY_KEYS` used to live here. They are gone, not
+// forgotten: they now live at
+// `gemma-curation-agents/gemma_curation_agents/agents/audit/disposition_reasons.py`
+// with every case from this file's tests ported.
+//
+// They moved because they were never UI code. Nothing here rendered
+// them or called them — they had zero runtime consumers, only their
+// own unit tests — and the only real consumer is the agents-side
+// chip-usage report. They were sitting in TypeScript because that is
+// where the 2026-08-13 revision happened to be written.
+//
+// 🛑 Do NOT re-add a copy here. Two definitions of "how to read a
+// stored disposition row honestly" is exactly the drift this file's
+// history is a record of. If the UI ever genuinely needs to interpret
+// legacy reason keys at runtime, generate from the Python rather than
+// re-authoring — and note that the derive table there is DATED
+// (`as_of`), because the rule for what a bypass writes changed on
+// 2026-08-17 and applying today's rule to older rows misreads picks
+// as defaults.
+//
+// The chip VOCABULARY stays here; that ownership is deliberate
+// (2026-06-14). Only the historical-interpretation helpers left.

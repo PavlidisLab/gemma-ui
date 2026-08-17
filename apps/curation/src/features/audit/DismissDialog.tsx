@@ -56,7 +56,24 @@ const MODE_CONFIG: Record<
   },
 };
 
-export type DialogChip = { key: string; label: string; help: string };
+export type DialogChip = {
+  key: string;
+  label: string;
+  help: string;
+  /** ISO date this chip was first OFFERED in this set. Not decoration
+   *  and not optional: without it, "offered but never picked" is
+   *  unreadable for any chip younger than the dispositions being
+   *  tallied — a chip added yesterday looks exactly like one curators
+   *  have refused for months. Analysis on the agents side filters on
+   *  it (`scripts/chip_usage_report.py`), and it ships in the
+   *  generated `chipSets.json`.
+   *
+   *  Existing values were derived mechanically from git history (the
+   *  blob at each of the file's commits), not hand-assigned. When you
+   *  add a chip, date it the day you add it. When you move a chip to
+   *  a different set, that's a new offering — use the move date. */
+  added: string;
+};
 
 /** Draft store — survives DismissDialog mount/unmount cycles so the
  *  curator can press Escape (or anything that closes the dialog

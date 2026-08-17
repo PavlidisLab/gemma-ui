@@ -9,11 +9,8 @@ import {
   CAL_MISS_ACCEPT_CHIPS,
   CAL_MISS_FACTOR_ACCEPT_CHIPS,
   DISMISS_CHIPS,
-  LEGACY_DISPOSITION_KEY_REMAP,
-  OVERLOADED_LEGACY_KEYS,
   TAG_DISMISS_CHIPS,
   dismissChipsFor,
-  remapFromNote,
 } from "./dispositionChips";
 
 /**
@@ -223,52 +220,13 @@ describe("dispositionChips — the 2026-08-13 vocabulary", () => {
   });
 });
 
-describe("legacy remap", () => {
-  it("merges the two keys that split one idea", () => {
-    expect(LEGACY_DISPOSITION_KEY_REMAP.already_covered).toBe(
-      "redundant_with_bm_source",
-    );
-    expect(LEGACY_DISPOSITION_KEY_REMAP.agent_real_miss).toBe("agent_missed_it");
-  });
-
-  // The rows where the key is known to lie — `not_sample_applicable |
-  // "garbage"` — can only be recovered from the note.
-  it("recovers invalid_annotation from the notes curators typed", () => {
-    expect(remapFromNote("garbage")).toBe("invalid_annotation");
-    expect(remapFromNote("garbate")).toBe("invalid_annotation");   // sic
-    expect(remapFromNote("garbaheg")).toBe("invalid_annotation");  // sic
-    expect(remapFromNote("comletely malformed")).toBe("invalid_annotation");
-  });
-
-  it("recovers aboutism", () => {
-    expect(remapFromNote("about")).toBe("aboutism");
-    expect(remapFromNote("we don't curate \"about\"")).toBe("aboutism");
-  });
-
-  it("recovers a category complaint", () => {
-    expect(remapFromNote("must be strain category")).toBe("wrong_category");
-    expect(remapFromNote("developmental stage is better category i fix")).toBe(
-      "wrong_category",
-    );
-  });
-
-  // An honest null beats a guess: these rows stay ambiguous and any
-  // analysis has to treat them as such.
-  it("returns null rather than guessing on an uninformative note", () => {
-    expect(remapFromNote("close")).toBeNull();
-    expect(remapFromNote("ok")).toBeNull();
-    expect(remapFromNote("")).toBeNull();
-    expect(remapFromNote(null)).toBeNull();
-  });
-
-  it("names the keys whose stored rows cannot be trusted alone", () => {
-    expect(OVERLOADED_LEGACY_KEYS.has("not_sample_applicable")).toBe(true);
-    expect(OVERLOADED_LEGACY_KEYS.has("out_of_scope")).toBe(true);
-    expect(OVERLOADED_LEGACY_KEYS.has("other")).toBe(true);
-    // A curator who picked a specific chip meant it.
-    expect(OVERLOADED_LEGACY_KEYS.has("invalid_annotation")).toBe(false);
-  });
-});
+// The "legacy remap" suite that lived here moved with its subject to
+// `gemma-curation-agents/tests/unit/test_disposition_reasons.py`
+// (2026-08-17) — every case ported, including the `garbate` /
+// `garbaheg` / `comletely malformed` typos and the deliberate
+// non-remap of `borderline`. Those helpers were never UI code: nothing
+// rendered or called them. Don't restore them here; see the note at
+// the foot of `dispositionChips.ts`.
 
 describe("chip ordering", () => {
   // Measured curator use (local-curator rows only): redundant 21 leads.
