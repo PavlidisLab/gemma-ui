@@ -62,6 +62,16 @@ import {
   type AdoptTargetHint,
 } from "@/features/design/mutations";
 import { addFactorFromProposal } from "./applyHandlers";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { AdoptFactorPicker } from "./factorComparison/AdoptFactorPicker";
+import {
+  applyFactorAdoptPlan,
+  buildFactorAdoptPlan,
+  canApplyFactorAdoptPlan,
+  planHasPicks,
+  summarizeFactorAdoptPlan,
+  type FactorAdoptPlan,
+} from "./factorComparison/adoptFactorPlan";
 import { friendlyDispositionError } from "./dispositionSave";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -458,6 +468,11 @@ export function ComparisonFactorCard({
   const curationsQuery = useCurations(experimentId);
   const curations = curationsQuery.data ?? [];
   const [busy, setBusy] = useState(false);
+  // "Choose what to adopt" — the live plan while the dialog is open,
+  // null when closed. Sits between the card's two whole-factor verbs
+  // (Accept = take everything, + Merge = union the statements) for the
+  // cases where the curator wants some of it and not the rest.
+  const [adoptPlan, setAdoptPlan] = useState<FactorAdoptPlan | null>(null);
   // Per design review 2026-06-16: on match-family cards "Keep" is too coarse.
   // The curator may have rejected the agent's alternative because (a)
   // it was equivalent and they're keeping the existing for style, (b)
@@ -1124,6 +1139,75 @@ export function ComparisonFactorCard({
     return true;
   }
 
+  /** Build the per-part plan against the WRITABLE draft factor.
+   *
+   *  ``leftFactor`` is whatever the chip strip is displaying, which
+   *  may be a non-writable baseline (Gemma, preboard) whose ids don't
+   *  line up with the local draft — the same reason the adopt / merge
+   *  handlers resolve through ``resolveAdoptTargetFactor`` rather than
+   *  trusting ``leftFactor.id``. The dialog has to show, and mutate,
+   *  the draft's own state. */
+  function planFromDraft(): FactorAdoptPlan | null {
+    const agentFactor = rightFactor as FactorProposal | null;
+    if (!agentFactor || !draftDesign) return null;
+    const target = resolveAdoptTargetFactor(
+      draftDesign,
+      agentFactor,
+      adoptTarget,
+    );
+    if (!target) return null;
+    return buildFactorAdoptPlan(target, agentFactor);
+  }
+
+  async function dispatchAdoptPlan(plan: FactorAdoptPlan): Promise<void> {
+    if (!draftDesign) return;
+    // Same refusal as ``adoptTargetMissing``: never record an accept
+    // the draft didn't take.
+    if (!canApplyFactorAdoptPlan(draftDesign, plan)) {
+      toast.show(
+        `Couldn't apply — no factor "${
+          plan.factorCategory.label || "?"
+        }" in the current draft. The disposition was NOT recorded.`,
+        "danger",
+        6000,
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      applyDraft((d) => applyFactorAdoptPlan(d, plan));
+      // Focus the factor under the name it wears AFTER the apply —
+      // the agent's category only when the curator took the category.
+      requestAuditFocus(
+        experimentId,
+        factorTarget(
+          (plan.picks.category
+            ? plan.categoryTo.label
+            : plan.factorCategory.label) || "",
+        ),
+      );
+      await setDisposition(finding.target_id, "accepted", {
+        resolvedAt: new Date().toISOString(),
+        appliedFix: summarizeFactorAdoptPlan(plan),
+        matchVerdict: "keep_agent",
+      });
+      toast.show("Applied the parts you selected.", "success", 3000);
+    } catch (err) {
+      const apiErr = err as { status?: number };
+      if (apiErr.status === 409) {
+        toast.show(
+          "Audit is closed — reopen it to keep editing dispositions.",
+          "danger",
+          6000,
+        );
+      } else {
+        toast.show(friendlyDispositionError(err), "danger", 6000);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function dispatchNearMatchMerge(): Promise<void> {
     // Curator's "+ Merge" — take the union of both sides' per-FV
     // statements (dedupe by full S-P-O signature). Motivating case
@@ -1518,6 +1602,25 @@ export function ComparisonFactorCard({
                   + Merge
                 </button>
               ) : null}
+              {/* Choose… — the middle ground between Accept (take the
+                  agent's whole factor) and + Merge (take all of its
+                  statements). Opens the per-part picker so the curator
+                  can take the category, the sample grouping, or one
+                  value's label / statement, and leave the rest.
+                  Hidden when there is no writable draft factor to land
+                  on — the same precondition ``adoptTargetMissing``
+                  enforces on the other two verbs. */}
+              {isMatchFamilyAdopt && planFromDraft() ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setAdoptPlan(planFromDraft())}
+                  title="Pick which parts of the proposal to take — category, sample grouping, or one value's label or statement."
+                  className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 disabled:opacity-50"
+                >
+                  Choose…
+                </button>
+              ) : null}
               {isMatchFamilyAdopt ? (
                 // Match-family cards: split Keep into three sub-
                 // verdicts the curator picks before dismiss resolves.
@@ -1673,6 +1776,32 @@ export function ComparisonFactorCard({
           reviews={bossReviews}
           variant="nested"
           autoOpen={bossReviews.some((g) => g.severity === "blocker")}
+        />
+      ) : null}
+      {adoptPlan ? (
+        <ConfirmModal
+          open
+          width="lg"
+          destructive={false}
+          title={`Choose what to adopt — factor "${
+            adoptPlan.factorCategory.label || finding.target_id
+          }"`}
+          confirmLabel="Apply selected"
+          cancelLabel="Cancel"
+          confirmDisabled={busy || !planHasPicks(adoptPlan)}
+          body={
+            <AdoptFactorPicker
+              plan={adoptPlan}
+              onChange={setAdoptPlan}
+              proposerLabel="The proposal"
+            />
+          }
+          onCancel={() => setAdoptPlan(null)}
+          onConfirm={() => {
+            const plan = adoptPlan;
+            setAdoptPlan(null);
+            void dispatchAdoptPlan(plan);
+          }}
         />
       ) : null}
     </div>

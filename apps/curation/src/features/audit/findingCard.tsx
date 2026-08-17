@@ -99,7 +99,12 @@ import {
   findingHasStructuredContent,
 } from "./FindingDetailsEditor";
 import { firstBacktick } from "./rationaleText";
-import { parseTargetId, slug } from "./targetIds";
+import { factorTarget, parseTargetId, slug } from "./targetIds";
+import {
+  applyFactorAdoptPlan,
+  canApplyFactorAdoptPlan,
+  summarizeFactorAdoptPlan,
+} from "./factorComparison/adoptFactorPlan";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import { resolveApplyAction } from "./applyHandlers";
 import { undoBatched } from "./appliedBatches";
@@ -1512,6 +1517,60 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             // follow-up queue. Only meaningful on an accept — a
             // dismiss/keep ignores resolved_at. Design review 2026-06-21.
             const needsWork = !!opts?.needsWork && status === "accepted";
+            // Partial-adopt route: the curator went through "Choose
+            // what to adopt" and ticked specific parts. Runs INSTEAD
+            // of the canned whole-factor mutator below — that one
+            // takes the agent's category, partition, labels and
+            // statements together, which is precisely what the curator
+            // just declined to do. Placed ahead of the structural
+            // branch, and not gated on ``action.mutates``, because a
+            // plan can be worth applying even where the whole-factor
+            // resolver reported "already applied" (identical partition,
+            // different category).
+            if (opts?.adoptPlan && draft && status === "accepted") {
+              const plan = opts.adoptPlan;
+              // Refuse to record an accept the draft didn't take —
+              // the exact failure this handoff is about. Better a
+              // loud toast and a still-pending finding than a
+              // disposition that says accepted over an unchanged
+              // design.
+              if (!canApplyFactorAdoptPlan(draft, plan)) {
+                toast.show(
+                  `Couldn't apply — no factor "${
+                    plan.factorCategory.label || "?"
+                  }" in the current draft. The disposition was NOT recorded.`,
+                  "danger",
+                  6000,
+                );
+                return;
+              }
+              setPreApplyDraftSnapshot(draft);
+              applyDraft((d) => applyFactorAdoptPlan(d, plan));
+              // Focus the factor under the name it will WEAR after the
+              // apply — which is the agent's category only when the
+              // curator took the category.
+              requestAuditFocus(
+                experimentId,
+                factorTarget(
+                  (plan.picks.category
+                    ? plan.categoryTo.label
+                    : plan.factorCategory.label) || "",
+                ),
+              );
+              const appliedFix = summarizeFactorAdoptPlan(plan);
+              toast.show("Applied the parts you selected.", "success", 3000);
+              const acceptReason = isAgentExtraIssue(finding.issue_code)
+                ? ("well_evidenced" as const)
+                : undefined;
+              await patch("accepted", {
+                appliedFix,
+                resolvedAt: needsWork ? undefined : new Date().toISOString(),
+                acceptReason,
+                notes: acceptReason ? withDerivedReasonNote(notes) : notes,
+                matchVerdict,
+              });
+              return;
+            }
             // Structural-apply route: findings whose canonical fix is
             // adding or removing a factor (`calibration_factor_extra` =
             // add agent's factor; `calibration_factor_gold_only_miss` =

@@ -23,6 +23,7 @@ import { isNonCanonicalBaselineLabel } from "@/features/experiment/types";
 import type {
   FactorProposal,
   FactorValueProposal,
+  StatementProposal,
 } from "@/api/types";
 import { baselineFor, HAS_ROLE_PREDICATE } from "./baselineForCategory";
 import { isGemmaBaselineTerm } from "./gemmaBaseline";
@@ -1782,37 +1783,50 @@ function bmKey(names: readonly string[]): string {
   return [...names].sort().join("");
 }
 
+/** Convert an agent proposal's statements into design-side
+ *  ``Statement``s.
+ *
+ *  ``categoryFallback`` fills the per-statement category when the
+ *  proposal didn't carry one — pass the owning factor's category and
+ *  ``groupStatementsBySubject`` buckets the results with the FV's
+ *  existing rows instead of splitting them into a second group. Pass
+ *  ``null`` to keep the older behaviour (empty category), which is
+ *  what the whole-factor adopt has always done. */
+export function statementsFromProposal(
+  statements: readonly StatementProposal[] | null | undefined,
+  categoryFallback: OntologyTerm | null = null,
+): Statement[] {
+  return (statements ?? []).map((st) => {
+    const cat =
+      st.category && (st.category.label || st.category.uri)
+        ? { label: st.category.label, uri: st.category.uri ?? null }
+        : categoryFallback
+          ? {
+              label: categoryFallback.label ?? "",
+              uri: categoryFallback.uri ?? null,
+            }
+          : { label: "", uri: null };
+    return {
+      category: cat,
+      subject: st.subject
+        ? { label: st.subject.label, uri: st.subject.uri ?? null }
+        : { label: "", uri: null },
+      predicate: st.predicate
+        ? { label: st.predicate.label, uri: st.predicate.uri ?? null }
+        : null,
+      object: st.object
+        ? { label: st.object.label, uri: st.object.uri ?? null }
+        : null,
+    };
+  });
+}
+
 function mergeAgentFvIntoGold(
   agent: FactorValueProposal,
   _gold: FactorValue | null,
   id: number,
 ): FactorValue {
-  const statements: Statement[] = (agent.statements ?? []).map((st) => ({
-    category: st.category
-      ? {
-          label: st.category.label,
-          uri: st.category.uri ?? null,
-        }
-      : { label: "", uri: null },
-    subject: st.subject
-      ? {
-          label: st.subject.label,
-          uri: st.subject.uri ?? null,
-        }
-      : { label: "", uri: null },
-    predicate: st.predicate
-      ? {
-          label: st.predicate.label,
-          uri: st.predicate.uri ?? null,
-        }
-      : null,
-    object: st.object
-      ? {
-          label: st.object.label,
-          uri: st.object.uri ?? null,
-        }
-      : null,
-  }));
+  const statements = statementsFromProposal(agent.statements, null);
 
   return {
     id,

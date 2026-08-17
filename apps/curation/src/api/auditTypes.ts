@@ -492,6 +492,28 @@ export type ApplyActionPayload =
        *  present when the near-match's statements moved (e.g. a bare
        *  ``genotype: Utrn`` gains ``Utrn · has_genotype · Heterozygous``). */
       statements?: StatementProposal[] | null;
+      /** Target-ids of tags this composed tag SUBSUMES — removed from
+       *  the draft in the same click that lands the modify.
+       *
+       *  Ticket 189 (GSE245515, 2026-08-17): the right annotation is a
+       *  single ``glutamatergic neuron —derives from cell→ induced
+       *  pluripotent stem cell line cell``, which covers the two bare
+       *  tags it was built from. Those shipped as a separate card with
+       *  no apply action, so the curator made one decision and then had
+       *  to clean up after it by hand.
+       *
+       *  ⚠️ Honoured ONLY as part of applying the composed tag. Folding
+       *  two tags into one tag-plus-statement is a win; dropping a
+       *  statement to reach "one tag" is a loss, so the removals never
+       *  run as a standalone tidy-up.
+       *
+       *  Entries are the same target_id shapes tag findings use
+       *  (``tag:<id>`` / ``tag:<cat-slug>/<val-slug>``). NOT EMITTED
+       *  YET — the agents-side ``ApplyAction`` is ``_Strict`` and needs
+       *  the field added there first (asked for in
+       *  UI_PARTITION_SWAP_HAS_NO_APPLY_PATH_2026_08_17 §1b). The
+       *  reader tolerates its absence: no field, no behaviour change. */
+      supersedes?: string[] | null;
     }
   | {
       /** Rebind a single factor value to the correct entity — the apply

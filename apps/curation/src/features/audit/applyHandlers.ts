@@ -411,6 +411,17 @@ function resolveProposalApply(
         ? toDesignStatements(proposedStatements)
         : undefined;
       const tagLabel = `${targetTag.category?.label}: ${targetTag.value?.label}`;
+      // Tags the composed tag subsumes — removed in the SAME mutation,
+      // never on their own. Empty until the producer ships the field.
+      const superseded = supersededTags(aa, design, targetTag.id);
+      const supersedeNote =
+        superseded.length > 0
+          ? ` Also removes ${superseded.length} tag${
+              superseded.length === 1 ? "" : "s"
+            } it covers (${superseded.map(tagLabelOf).join(", ")}).`
+          : "";
+      const dropSuperseded = (d: Design): Design =>
+        superseded.reduce((acc, t) => removeTagById(acc, t.id), d);
       // Idempotency: nothing proposed actually differs from the tag.
       const statementsSame =
         !statements ||
@@ -422,28 +433,60 @@ function resolveProposalApply(
         (labelEq(modValue.label, targetTag.value?.label) &&
           (modValue.uri ?? null) === (targetTag.value?.uri ?? null));
       if (statementsSame && categorySame && valueSame) {
+        // The composed tag is already in place — but its subsumed tags
+        // may not have come off yet (a reload between the two halves of
+        // an earlier apply). Finishing the job is still the right
+        // action; only when there is nothing left to remove is this a
+        // true no-op.
+        if (superseded.length === 0) {
+          return {
+            mutates: false,
+            label: "✓ Already applied",
+            tooltip: `Tag "${tagLabel}" already matches the proposal.`,
+            successMessage: "",
+          };
+        }
         return {
-          mutates: false,
-          label: "✓ Already applied",
-          tooltip: `Tag "${tagLabel}" already matches the proposal.`,
-          successMessage: "",
+          mutates: true,
+          label: "Agree (adopt) →",
+          tooltip:
+            `Tag "${tagLabel}" already matches the proposal.` + supersedeNote,
+          successMessage: `Removed ${superseded.length} tag${
+            superseded.length === 1 ? "" : "s"
+          } covered by "${tagLabel}". Commit the draft to save.`,
+          mutate: dropSuperseded,
+          appliedFix: `remove tags covered by ${tagLabel}: ${superseded
+            .map(tagLabelOf)
+            .join("; ")}`,
         };
       }
       const fixParts: string[] = [];
       if (modValue) fixParts.push(`value → ${modValue.label}`);
       if (modCategory) fixParts.push(`category → ${modCategory.label}`);
       if (statements) fixParts.push(statements.map(statementLabel).join("; "));
+      if (superseded.length > 0) {
+        fixParts.push(`supersedes ${superseded.map(tagLabelOf).join("; ")}`);
+      }
       return {
         mutates: true,
         label: "Agree (adopt) →",
-        tooltip: `Agree → update tag "${tagLabel}" to the proposal.`,
-        successMessage: `Updated tag "${tagLabel}". Commit the draft to save.`,
+        tooltip: `Agree → update tag "${tagLabel}" to the proposal.` + supersedeNote,
+        successMessage:
+          `Updated tag "${tagLabel}"${
+            superseded.length > 0
+              ? ` and removed ${superseded.length} tag${
+                  superseded.length === 1 ? "" : "s"
+                } it covers`
+              : ""
+          }. Commit the draft to save.`,
         mutate: (draft) =>
-          modifyTag(draft, targetTag.id, {
-            category: modCategory,
-            value: modValue,
-            statements,
-          }),
+          dropSuperseded(
+            modifyTag(draft, targetTag.id, {
+              category: modCategory,
+              value: modValue,
+              statements,
+            }),
+          ),
         appliedFix: `modify ${tagLabel}: ${fixParts.join("; ")}`,
       };
     }
@@ -1240,7 +1283,28 @@ function resolveFactorCalibrationApply(
       successMessage:
         `Adopted agent's ${directionPhrase} on factor ` +
         `"${proposal.category.label}". Commit to save.`,
-      mutate: (draft) => adoptNearMatchAgentFactor(draft, proposal),
+      // 🛑 The target hint is not optional here. Without it
+      // ``adoptNearMatchAgentFactor`` re-resolves the landing factor
+      // from the AGENT's category — which only matches when both
+      // sides already agree on it, and a partition mismatch routinely
+      // comes with a recategorization (16 of the 100 partition_mismatch
+      // findings in the local store). GSE96826 (eid 15112) is the
+      // reported case: the agent proposes `genotype` over Gemma's
+      // `disease`, the lookup found nothing, the mutator returned the
+      // design untouched, and the disposition PATCHed as accepted —
+      // "I tried to adopt the agent's 3-level proposal and it didn't
+      // change it" (2026-08-17). Same failure class as the
+      // ComparisonFactorCard fix of 2026-08-09, which is where this
+      // hint shape comes from. ``goldFactor`` is resolved out of the
+      // draft above, so its id is the authoritative landing pad;
+      // label + URI ride along as fallbacks for a draft that was
+      // rebuilt between resolve and apply.
+      mutate: (draft) =>
+        adoptNearMatchAgentFactor(draft, proposal, {
+          factorId: goldFactor.id,
+          categoryLabel: goldFactor.category.label,
+          categoryUri: goldFactor.category.uri ?? null,
+        }),
       appliedFix:
         `adopt agent partition on factor ${proposal.category.label} ` +
         `(${goldFactor.factor_values.length} → ${proposal.factor_values.length} values)`,
@@ -1926,12 +1990,20 @@ function toDesignStatements(
  *  (parsed by ``parseTargetId``). Returns null when neither resolves —
  *  the caller then treats the modify as already-applied. */
 function resolveTagByTarget(finding: AuditFinding, design: Design): Tag | null {
-  const idMatch = finding.target_id.match(/^tag:(\d+)$/);
+  return resolveTagByTargetId(finding.target_id, design);
+}
+
+/** The same resolution keyed by a bare target_id string rather than a
+ *  finding. Split out for ``replace_tag``'s supersede set, whose
+ *  entries are target_ids of OTHER tags — the composed tag's own
+ *  finding can't resolve them. */
+function resolveTagByTargetId(targetId: string, design: Design): Tag | null {
+  const idMatch = targetId.match(/^tag:(\d+)$/);
   if (idMatch) {
     const id = Number(idMatch[1]);
     return (design.tags ?? []).find((t) => t.id === id) ?? null;
   }
-  const parsed = parseTargetId(finding.target_id);
+  const parsed = parseTargetId(targetId);
   if (parsed?.kind === "tag") {
     return (
       (design.tags ?? []).find(
@@ -1942,6 +2014,66 @@ function resolveTagByTarget(finding: AuditFinding, design: Design): Tag | null {
     );
   }
   return null;
+}
+
+/**
+ * Tags a ``replace_tag`` declares it SUBSUMES — the ones that should
+ * come off the draft in the same click that lands the composed tag.
+ *
+ * Motivating case (ticket 189, GSE245515, 2026-08-17): the correct
+ * annotation is one composed tag, ``glutamatergic neuron —derives from
+ * cell (CLO_0037209)→ induced pluripotent stem cell line cell``, which
+ * subsumes the two bare tags ``cell type: glutamatergic neuron`` and
+ * ``cell line: induced pluripotent stem cell line cell``. It shipped as
+ * a `replace_tag` plus a companion remove-tag card carrying no apply
+ * action, so the curator made one decision and then had to chase the
+ * leftovers by hand.
+ *
+ * ⚠️ The two directions are NOT symmetric. Collapsing two tags into one
+ * tag-plus-statement is a win; dropping a statement to reach "one tag"
+ * is a loss. So a supersede set is only ever honoured as part of
+ * applying the composed tag that carries the detail — never as a
+ * standalone tidy-up. That is enforced structurally here: the removals
+ * are folded into the SAME mutator as the modify, and the caller has no
+ * way to run them alone.
+ *
+ * Wire shape: ``apply_action.supersedes`` — a list of target_ids
+ * (``tag:<id>`` or ``tag:<cat-slug>/<val-slug>``). Not emitted by any
+ * producer yet (the agents-side ``ApplyAction`` is ``_Strict``, so it
+ * needs the field added there first — asked for in
+ * UI_PARTITION_SWAP_HAS_NO_APPLY_PATH_2026_08_17 §1b). Until then this
+ * resolves to an empty list on every finding and nothing changes.
+ *
+ * Entries that don't resolve, name the target tag itself, or point at a
+ * protected category are dropped rather than guessed at.
+ */
+function supersededTags(
+  aa: unknown,
+  design: Design,
+  targetTagId: number | null,
+): Tag[] {
+  const declared =
+    aa && typeof aa === "object"
+      ? (aa as { supersedes?: unknown }).supersedes
+      : undefined;
+  const raw = Array.isArray(declared) ? declared : [];
+  const out: Tag[] = [];
+  const seen = new Set<number>();
+  for (const entry of raw) {
+    if (typeof entry !== "string" || !entry.trim()) continue;
+    const tag = resolveTagByTargetId(entry.trim(), design);
+    if (!tag) continue;
+    if (targetTagId != null && tag.id === targetTagId) continue;
+    if (isProtectedTagCategory(tag.category?.label)) continue;
+    if (seen.has(tag.id)) continue;
+    seen.add(tag.id);
+    out.push(tag);
+  }
+  return out;
+}
+
+function tagLabelOf(t: Tag): string {
+  return `${t.category?.label ?? "?"}: ${t.value?.label ?? "?"}`;
 }
 
 /** One statement's identity signature — ``subject|predicate|object``,

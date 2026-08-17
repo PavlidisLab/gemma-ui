@@ -148,20 +148,27 @@ function expectFocusOnly(action: ReturnType<typeof resolveApplyAction>): void {
   expect(action?.mutate).toBeUndefined();
 }
 
-/** partition_mismatch finding with the agent/gold category pair set. */
+/** partition_mismatch finding with the agent/gold category pair set.
+ *  ``goldCategory`` defaults to ``category`` — the two sides agreeing
+ *  on the category is the common case, but NOT the universal one: a
+ *  repartition often arrives with a recategorization (16 of the 100
+ *  partition_mismatch findings in the local store), and that is the
+ *  variant that used to silently no-op. Pass it explicitly to cover
+ *  the divergent shape. */
 function pmFinding(opts: {
   category: string;
+  goldCategory?: string;
   direction: "agent_finer" | "agent_coarser" | "cross_cutting";
   crossCuttingGolds?: number;
   agentIndex?: number | null;
 }): AuditFinding {
   return finding({
-    target_id: `factor:${opts.category}`,
+    target_id: `factor:${opts.goldCategory ?? opts.category}`,
     issue_code: "calibration_factor_partition_mismatch",
     agent_target_index: opts.agentIndex ?? 0,
     partition_mismatch: {
       agent: { category: wireTerm(opts.category) },
-      gold: { category: wireTerm(opts.category) },
+      gold: { category: wireTerm(opts.goldCategory ?? opts.category) },
       direction: opts.direction,
       fv_pairs: [],
       ...(opts.crossCuttingGolds !== undefined
@@ -356,6 +363,89 @@ describe("resolveApplyAction — FACTOR PARTITION MISMATCH", () => {
     expect(resolveApplyAction(f, { design: d, report: r })?.tooltip).toContain(
       "partition",
     );
+  });
+
+  it("adopts onto the GOLD factor when the agent also recategorizes it", () => {
+    // GSE96826 (eid 15112), reported 2026-08-17: Gemma has a 4-value
+    // `disease` factor; the agent proposes a 3-value `genotype` over
+    // the same 11 samples. The mutator used to re-resolve its landing
+    // factor from the AGENT's category, found no `genotype` in the
+    // draft, and returned the design untouched while the disposition
+    // recorded as accepted. Adopt must land on the factor the finding
+    // paired against, whatever the agent renames it to.
+    const d = design([
+      factor(1, "disease", [
+        fv(10, "SCA2 fibroblast", ["S1", "S2"]),
+        fv(11, "Machado-Joseph disease", ["S3", "S4", "S5", "S6"]),
+        fv(12, "reference subject role", ["S7", "S8", "S9"]),
+        fv(13, "SCA2 PBMC", ["S10", "S11"]),
+      ]),
+    ]);
+    const f = pmFinding({
+      category: "genotype",
+      goldCategory: "disease",
+      direction: "agent_coarser",
+    });
+    const r = report([
+      proposalFactor("genotype", [
+        pfv("control", ["S7", "S8", "S9"]),
+        pfv("SCA2", ["S1", "S2", "S10", "S11"]),
+        pfv("SCA3", ["S3", "S4", "S5", "S6"]),
+      ]),
+    ]);
+
+    const action = resolveApplyAction(f, { design: d, report: r });
+    expect(action?.mutates).toBe(true);
+
+    const next = action!.mutate!(d);
+    // One factor in, one factor out — the adopt is an in-place
+    // rewrite, never a drop plus an add.
+    expect(next.factors).toHaveLength(1);
+    const adopted = next.factors[0];
+    expect(adopted.id).toBe(1);
+    expect(adopted.category.label).toBe("genotype");
+    expect(
+      adopted.factor_values.map((v) => v.free_text_label).sort(),
+    ).toEqual(["SCA2", "SCA3", "control"]);
+    // The samples moved with the levels — that is the half of the
+    // operation no existing verb (rename_fv) performs.
+    expect(
+      adopted.factor_values.find((v) => v.free_text_label === "SCA2")!
+        .biomaterial_short_names.sort(),
+    ).toEqual(["S1", "S10", "S11", "S2"]);
+  });
+
+  it("is idempotent — re-adopting a recategorized swap keeps the factor", () => {
+    // The trap cab hit on the ledger side (2026-08-17): an adopt built
+    // as drop-then-add lands correctly ONCE, then on replay the add
+    // no-ops (already present) while the drop still matches by key and
+    // DELETES the result. In-place rewrite has no second pass to get
+    // wrong; assert the second apply is a no-op, not a deletion.
+    const d = design([
+      factor(1, "disease", [
+        fv(10, "SCA2", ["S1", "S2"]),
+        fv(11, "control", ["S3"]),
+      ]),
+    ]);
+    const f = pmFinding({
+      category: "genotype",
+      goldCategory: "disease",
+      direction: "agent_coarser",
+    });
+    const r = report([
+      proposalFactor("genotype", [pfv("affected", ["S1", "S2", "S3"])]),
+    ]);
+
+    const once = resolveApplyAction(f, { design: d, report: r })!.mutate!(d);
+    // Resolve again against the ALREADY-ADOPTED design, as a reload
+    // would. The gold factor now wears the agent's category.
+    const again = resolveApplyAction(f, { design: once, report: r });
+    const twice = again?.mutate ? again.mutate(once) : once;
+
+    expect(twice.factors).toHaveLength(1);
+    expect(twice.factors[0].id).toBe(1);
+    expect(twice.factors[0].factor_values).toHaveLength(1);
+    expect(twice.factors[0].factor_values[0].free_text_label).toBe("affected");
   });
 
   it("does not mutate the design passed to the resolver", () => {

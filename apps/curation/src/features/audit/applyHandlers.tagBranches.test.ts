@@ -576,6 +576,149 @@ describe("resolveApplyAction — replace_tag", () => {
     expect(next.tags[0].value.label).toBe("mdx");
   });
 
+  // -------------------------------------------------------------------
+  // supersede set — ticket 189 / GSE245515 shape. The producer doesn't
+  // emit ``supersedes`` yet; these pin the reader so the behaviour is
+  // right the day it does, and pin the no-field case so nothing moves
+  // until then.
+  // -------------------------------------------------------------------
+
+  const CLO_IPSC = "http://purl.obolibrary.org/obo/CLO_0037209";
+
+  /** The composed tag plus the two bare tags it subsumes. */
+  function composedTagDesign(): Design {
+    return design({
+      tags: [
+        tag(1, "cell type", "glutamatergic neuron"),
+        tag(2, "cell line", "induced pluripotent stem cell line cell"),
+      ],
+    });
+  }
+
+  function composedTagFinding(supersedes?: string[]): AuditFinding {
+    return finding({
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:1",
+      apply_action: {
+        kind: "replace_tag",
+        statements: [
+          {
+            category: null,
+            subject: wireTerm("glutamatergic neuron"),
+            predicate: wireTerm("derives from cell", CLO_IPSC),
+            object: wireTerm("induced pluripotent stem cell line cell"),
+          },
+        ],
+        ...(supersedes ? { supersedes } : {}),
+      },
+    } as Partial<AuditFinding>);
+  }
+
+  it("removes the tags a composed tag supersedes, in the same mutation", () => {
+    const d = composedTagDesign();
+    const action = resolveApplyAction(composedTagFinding(["tag:2"]), {
+      design: d,
+    });
+    expect(action?.mutates).toBe(true);
+    expect(action?.tooltip).toContain("Also removes 1 tag it covers");
+
+    const next = action!.mutate!(d);
+    // One click: the composed tag gains its statement AND the covered
+    // tag is gone. Never one without the other.
+    expect(next.tags.map((t) => t.id)).toEqual([1]);
+    expect(next.tags[0].statements?.[0]?.predicate?.uri).toBe(CLO_IPSC);
+    expect(action?.appliedFix).toContain(
+      "supersedes cell line: induced pluripotent stem cell line cell",
+    );
+  });
+
+  it("changes nothing when the producer ships no supersede set", () => {
+    const d = composedTagDesign();
+    const action = resolveApplyAction(composedTagFinding(), { design: d });
+    const next = action!.mutate!(d);
+    expect(next.tags.map((t) => t.id)).toEqual([1, 2]);
+    expect(action?.tooltip).not.toContain("covers");
+  });
+
+  it("resolves a supersede entry by slug as well as by id", () => {
+    const d = composedTagDesign();
+    const action = resolveApplyAction(
+      composedTagFinding([
+        "tag:cell-line/induced-pluripotent-stem-cell-line-cell",
+      ]),
+      { design: d },
+    );
+    expect(action!.mutate!(d).tags.map((t) => t.id)).toEqual([1]);
+  });
+
+  it("ignores a supersede entry naming the target tag itself", () => {
+    // Otherwise the modify lands and is immediately deleted by its own
+    // supersede set — the tag disappears and the record says accepted.
+    const d = composedTagDesign();
+    const action = resolveApplyAction(composedTagFinding(["tag:1"]), {
+      design: d,
+    });
+    const next = action!.mutate!(d);
+    expect(next.tags.map((t) => t.id)).toEqual([1, 2]);
+  });
+
+  it("ignores supersede entries that don't resolve", () => {
+    const d = composedTagDesign();
+    const action = resolveApplyAction(
+      composedTagFinding(["tag:404", "tag:nope/gone", ""]),
+      { design: d },
+    );
+    expect(action!.mutate!(d).tags.map((t) => t.id)).toEqual([1, 2]);
+  });
+
+  it("still offers the removal when the composed tag already landed", () => {
+    // A reload between the two halves of an earlier apply leaves the
+    // statement in place and the covered tag behind. "Already applied"
+    // would strand it.
+    const d = design({
+      tags: [
+        {
+          ...tag(1, "cell type", "glutamatergic neuron"),
+          statements: [
+            {
+              subject: term("glutamatergic neuron"),
+              predicate: term("derives from cell", CLO_IPSC),
+              object: term("induced pluripotent stem cell line cell"),
+            },
+          ],
+        },
+        tag(2, "cell line", "induced pluripotent stem cell line cell"),
+      ],
+    });
+    const action = resolveApplyAction(composedTagFinding(["tag:2"]), {
+      design: d,
+    });
+    expect(action?.mutates).toBe(true);
+    expect(action!.mutate!(d).tags.map((t) => t.id)).toEqual([1]);
+  });
+
+  it("reports already-applied once the covered tags are gone too", () => {
+    const d = design({
+      tags: [
+        {
+          ...tag(1, "cell type", "glutamatergic neuron"),
+          statements: [
+            {
+              subject: term("glutamatergic neuron"),
+              predicate: term("derives from cell", CLO_IPSC),
+              object: term("induced pluripotent stem cell line cell"),
+            },
+          ],
+        },
+      ],
+    });
+    const action = resolveApplyAction(composedTagFinding(["tag:2"]), {
+      design: d,
+    });
+    expect(action?.mutates).toBe(false);
+    expect(action?.label).toContain("Already applied");
+  });
+
   it("removes the baseline WITHOUT adding an ungrounded replacement", () => {
     // Adding a free-text replacement is how "removing a hallucinated tag
     // added a random tag instead" happened. Degrade to a pure removal.

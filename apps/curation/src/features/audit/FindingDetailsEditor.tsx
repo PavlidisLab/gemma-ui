@@ -47,6 +47,13 @@ import {
   type FactorComparisonPair,
 } from "./factorComparison/FactorComparisonGrid";
 import { buildPartitionMismatchPairs } from "./factorComparison/partitionRowBuilder";
+import { AdoptFactorPicker } from "./factorComparison/AdoptFactorPicker";
+import {
+  buildFactorAdoptPlan,
+  planHasPicks,
+  type FactorAdoptPlan,
+} from "./factorComparison/adoptFactorPlan";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { FvDisplayRow } from "@gemma/ontology";
 import {
   ContinuousStrip,
@@ -1101,6 +1108,13 @@ export function FindingDetailsEditor({
        *  The verdict is the only signal that survives the mapping;
        *  consumers gate draft mutation on it. */
       verdict?: "proposal" | "currently" | "reference";
+      /** Partial adoption from the "Choose what to adopt" dialog.
+       *  When present the consumer applies THIS instead of the
+       *  canned whole-factor mutator ``resolveApplyAction`` built —
+       *  the curator picked parts, so taking everything would
+       *  silently overrule them. Carries its own ``applied_fix``
+       *  summary naming which parts were taken. */
+      adoptPlan?: FactorAdoptPlan;
     },
   ) => Promise<void>;
   /** Plain "agree" — patch the disposition to accepted without any
@@ -1137,6 +1151,11 @@ export function FindingDetailsEditor({
   );
   const [rowState, setRowState] = useState<Map<string, RowState>>(new Map());
   const [saving, setSaving] = useState(false);
+  // "Choose what to adopt" — a live, editable plan while the dialog is
+  // open, null when it's closed. Held here rather than inside the
+  // dialog so the picks survive a re-render of the card body and so
+  // the save path can read them.
+  const [adoptPlan, setAdoptPlan] = useState<FactorAdoptPlan | null>(null);
   // Inline Reject-with-reason prompt — Reject requires a reason
   // (design review 2026-05-25: "reject and park should have a reason"),
   // Agree is fire-and-forget without a notes prompt; Reject routes
@@ -1296,6 +1315,10 @@ export function FindingDetailsEditor({
     /** Record the accept as "agreed, needs work" (resolved_at null)
      *  rather than resolved. Threaded straight through to onSave. */
     needsWork?: boolean,
+    /** Partial adoption picked in the "Choose what to adopt" dialog.
+     *  Threaded straight through to onSave, which applies it in place
+     *  of the canned whole-factor mutator. */
+    adoptPlan?: FactorAdoptPlan,
   ) {
     setSaving(true);
     try {
@@ -1321,7 +1344,11 @@ export function FindingDetailsEditor({
       // verdict rides along because the mapping is deliberately
       // many-to-one (keep-on-match and adopt both land "accepted")
       // and the consumer must not mutate the draft on a keep.
-      await onSave(fix, structureOk, detailsOk, notes, { needsWork, verdict });
+      await onSave(fix, structureOk, detailsOk, notes, {
+        needsWork,
+        verdict,
+        adoptPlan,
+      });
     } catch (err) {
       toast.show(
         `Save failed: ${(err as Error).message}`,
@@ -1431,6 +1458,75 @@ export function FindingDetailsEditor({
   const auditorSaysExactlyRight =
     auditorSaysExactlyRightRaw &&
     findingDisplayedGoldEmpty(finding, design) !== true;
+
+  /** Both sides of a partial adopt, when both resolve: the draft
+   *  factor the finding paired against and the agent's proposal.
+   *
+   *  The current side comes from the finding's own gold index / slug —
+   *  never from the agent's category, which on a recategorizing swap
+   *  names a factor the draft does not have (GSE96826: the agent
+   *  proposes `genotype` for Gemma's `disease`, and resolving by the
+   *  agent's side is what silently found nothing). Resolved to the
+   *  LIVE draft factor rather than the finding's self-carried
+   *  snapshot, because the picks are applied to the draft, so the
+   *  dialog's "Currently" column has to be the draft's own state.
+   *
+   *  ``null`` when either side is missing — the caller leaves the
+   *  button disabled rather than opening an empty dialog. */
+  const adoptSides: { current: Factor; agent: FactorProposal } | null =
+    (() => {
+      if (!design || finding.target_kind !== "factor") return null;
+      const goldHint =
+        finding.partition_mismatch?.gold?.category?.label ??
+        finding.rename?.gold?.category?.label ??
+        firstBacktick(finding.rationale);
+      const paired = resolveGoldFactor(finding, design.factors, goldHint);
+      if (!paired) return null;
+      const live =
+        design.factors.find((f) => f.id === paired.id) ?? null;
+      if (!live) return null;
+      const agentHint =
+        finding.partition_mismatch?.agent?.category?.label ??
+        firstBacktick(finding.rationale);
+      const agent =
+        factorProposalFromApplyAction(finding) ??
+        resolveAgentFactor(
+          finding,
+          report?.evidence?.comparison_proposal ?? null,
+          agentHint,
+        );
+      if (!agent) return null;
+      return { current: live, agent };
+    })();
+  const canOpenAdoptPicker = adoptSides !== null;
+
+  /** The dialog, rendered by whichever card body offers it. Null when
+   *  closed. Lives here so the several factor-card branches share one
+   *  instance instead of each growing their own. */
+  const adoptDialog = adoptPlan ? (
+    <ConfirmModal
+      open
+      width="lg"
+      destructive={false}
+      title={`Choose what to adopt — factor "${adoptPlan.factorCategory.label || finding.target_id}"`}
+      confirmLabel="Apply selected"
+      cancelLabel="Cancel"
+      confirmDisabled={saving || !planHasPicks(adoptPlan)}
+      body={
+        <AdoptFactorPicker
+          plan={adoptPlan}
+          onChange={setAdoptPlan}
+          proposerLabel={identities.proposer}
+        />
+      }
+      onCancel={() => setAdoptPlan(null)}
+      onConfirm={() => {
+        const plan = adoptPlan;
+        setAdoptPlan(null);
+        void dispatchSave("proposal", undefined, false, plan);
+      }}
+    />
+  ) : null;
 
   // Partition-mismatch findings — agent and gold disagree on the
   // partition shape of a same-label factor along a clean
@@ -1774,6 +1870,25 @@ export function FindingDetailsEditor({
                   ? `Replace the existing factor's FV breakdown with ${identities.proposer}'s.`
                   : "Adopt affordance pending — merging the spanned same-category factors into one isn't a safe one-click action yet. Use Keep, or Reject.",
               },
+              // Partial adopt. Offered wherever the whole-factor adopt
+              // is — a repartition is rarely wholly right or wholly
+              // wrong, and until this the curator's only options were
+              // both extremes.
+              {
+                key: "choose",
+                kind: "secondary",
+                label: "Choose…",
+                onClick: () =>
+                  setAdoptPlan(
+                    adoptSides
+                      ? buildFactorAdoptPlan(adoptSides.current, adoptSides.agent)
+                      : null,
+                  ),
+                disabled: !isDegenerate || !canOpenAdoptPicker,
+                title: isDegenerate
+                  ? `Pick which parts of ${identities.proposer}'s factor to take — the category, the sample grouping, or one value's label or statement.`
+                  : "Nothing to pick apart — the cross-cutting shape spans several factors.",
+              },
             ]}
             onDismiss={onDismiss}
             onPark={onPark}
@@ -1783,6 +1898,7 @@ export function FindingDetailsEditor({
               currentDisposition !== "pending" ? onUndo : undefined
             }
           />
+          {adoptDialog}
         </div>
       );
     }
@@ -1997,6 +2113,24 @@ export function FindingDetailsEditor({
               onClick: () => dispatchSave("proposal"),
               title: acceptTitle,
             },
+            // Partial adopt — the middle ground between the two
+            // primaries. A repartition is rarely wholly right or
+            // wholly wrong: on GSE96826 the agent's 3-level collapse
+            // AND its better-grounded SCA3 term were both adoptable,
+            // but so was either one alone.
+            {
+              key: "choose",
+              kind: "secondary",
+              label: "Choose…",
+              onClick: () =>
+                setAdoptPlan(
+                  adoptSides
+                    ? buildFactorAdoptPlan(adoptSides.current, adoptSides.agent)
+                    : null,
+                ),
+              disabled: !canOpenAdoptPicker,
+              title: `Pick which parts of ${identities.proposer}'s factor to take — the category, the sample grouping, or one value's label or statement.`,
+            },
           ]}
           onDismiss={onDismiss}
           onPark={onPark}
@@ -2006,6 +2140,7 @@ export function FindingDetailsEditor({
             currentDisposition !== "pending" ? onUndo : undefined
           }
         />
+        {adoptDialog}
       </div>
     );
   }
