@@ -192,7 +192,7 @@ describe("removeAppliedProposalFromDesign — factors", () => {
   });
 });
 
-describe("setStatement — free_text_label sync", () => {
+describe("setStatement — the label is the curator's", () => {
   function stmt(label: string, uri: string | null = null): Statement {
     return { subject: { label, uri } };
   }
@@ -227,20 +227,30 @@ describe("setStatement — free_text_label sync", () => {
     };
   }
 
-  it("syncs free_text_label when it matched the previous subject (auto-derived case)", () => {
+  // 🛑 The label is the curator's to write. Editing a statement used
+  // to rewrite it whenever it "looked auto-derived" — blank, or equal
+  // to the old subject — which is a guess about intent: a label that
+  // happens to match its subject may have been typed deliberately.
+  // The staleness it was hiding is now surfaced on the FV card
+  // instead, with the subject offered as a one-click.
+  it("leaves a label that matched the previous subject alone", () => {
     const d = designWithFactor([fv(1, "MDD", [stmt("MDD")])]);
     const next = setStatement(d, 10, 1, 0, stmt("major depressive disorder"));
-    expect(next.factors[0].factor_values[0].free_text_label).toBe(
-      "major depressive disorder",
-    );
+    expect(next.factors[0].factor_values[0].free_text_label).toBe("MDD");
   });
 
-  it("syncs free_text_label when it was blank", () => {
+  it("does not fill a blank label from the subject either", () => {
     const d = designWithFactor([fv(1, "", [stmt("control")])]);
     const next = setStatement(d, 10, 1, 0, stmt("reference subject role"));
-    expect(next.factors[0].factor_values[0].free_text_label).toBe(
-      "reference subject role",
-    );
+    expect(next.factors[0].factor_values[0].free_text_label).toBe("");
+  });
+
+  it("still writes the statement it was asked to write", () => {
+    const d = designWithFactor([fv(1, "MDD", [stmt("MDD")])]);
+    const next = setStatement(d, 10, 1, 0, stmt("major depressive disorder"));
+    expect(
+      next.factors[0].factor_values[0].statements[0].subject?.label,
+    ).toBe("major depressive disorder");
   });
 
   it("does NOT touch free_text_label when curator customised it", () => {

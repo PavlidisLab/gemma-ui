@@ -342,6 +342,12 @@ export function FactorValueCard({
             originals={originalValues}
           />
 
+          <LabelNotFollowed
+            fv={fv}
+            change={change}
+            onAdopt={compact ? undefined : onLabelChange}
+          />
+
           <ChangeBadge change={change} />
           {/* Atomic per-FV revert. Visible whenever the FV has a
               change relative to saved — modified, added, or removed
@@ -596,6 +602,65 @@ export function FactorValueCard({
         onCancel={() => setConfirming(false)}
       />
     </article>
+  );
+}
+
+/**
+ * "You changed the statement; the label still says the old thing."
+ *
+ * Editing a statement used to rewrite `free_text_label` silently
+ * whenever it looked auto-derived. That solved a real staleness — an
+ * FV relabelled only in its statement stays wrong in every surface
+ * that reads the label first, the Sample-details factor cells and the
+ * FV dropdowns among them — but it did it by writing a field the
+ * curator owns, off an edit to a different field, on a guess about
+ * whether they had meant the old label.
+ *
+ * So the staleness is stated instead. It appears only on an FV whose
+ * statements changed in THIS draft while its label didn't: a label
+ * that has always differed from its subject is a summary, not a
+ * mistake, and marking every one of those would be noise the curator
+ * learns to ignore.
+ *
+ * The subject is offered as a one-click, which is the point — the
+ * curator still decides, they just don't have to retype it.
+ */
+function LabelNotFollowed({
+  fv,
+  change,
+  onAdopt,
+}: {
+  fv: FactorValue;
+  change: FvChange | null;
+  onAdopt?: (label: string) => void;
+}) {
+  if (change?.kind !== "modified") return null;
+  if (!change.fields?.statements || change.fields.label) return null;
+  const subject = (fv.statements[0]?.subject?.label ?? "").trim();
+  const label = (fv.free_text_label ?? "").trim();
+  // Nothing to offer, or the label already says it — the diff can flag
+  // a statement edit that never touched the subject (a predicate, an
+  // object), and that is not a stale label.
+  if (!subject || subject.toLowerCase() === label.toLowerCase()) return null;
+  return (
+    <span className="text-[11px] text-amber-700 dark:text-amber-400">
+      <span title="The statement changed in this draft; the value's own label did not. Nothing is wrong with it — the label is yours to write.">
+        label not updated
+      </span>
+      {onAdopt ? (
+        <>
+          {" · "}
+          <button
+            type="button"
+            className="underline hover:text-amber-900 dark:hover:text-amber-200"
+            title={`Set this value’s label to "${subject}"`}
+            onClick={() => onAdopt(subject)}
+          >
+            use “{subject}”
+          </button>
+        </>
+      ) : null}
+    </span>
   );
 }
 
