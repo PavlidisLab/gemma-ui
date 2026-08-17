@@ -17,7 +17,7 @@ import { abstractForPublication, AddPublicationForm, anyPublicationGetsAbstract,
 import { addPublication, deletePublication, setDesignDescription } from "@/features/design/mutations";
 import { TermValidationPanel } from "@/features/design/TermValidationPanel";
 import { ProvenancePanel } from "@/features/provenance/ProvenancePanel";
-import { ONTOLOGY_GUIDELINE, FREE_TEXT_GUIDELINE, PREDICATE_GUIDELINE, BASELINE_GUIDELINE, TAGS_GUIDELINE, DEV_STAGE_GUIDELINE, DERIVED_MATERIAL_GUIDELINE, GRAFT_GUIDELINE, CHECKLIST_GUIDELINE } from "@/lib/guidelines";
+import { ONTOLOGY_GUIDELINE, FREE_TEXT_GUIDELINE, PREDICATE_GUIDELINE, STATEMENT_TEMPLATE_GUIDELINE, BASELINE_GUIDELINE, TAGS_GUIDELINE, DEV_STAGE_GUIDELINE, DERIVED_MATERIAL_GUIDELINE, GRAFT_GUIDELINE, CHECKLIST_GUIDELINE } from "@/lib/guidelines";
 import { focusByAuditTarget, onAuditFocusTarget } from "@/lib/scrollToAuditTarget";
 
 
@@ -207,6 +207,10 @@ export function OverviewPanel() {
         </span>
         <span className="inline-flex items-center gap-1">
           predicates <GuidelinePopup snippet={PREDICATE_GUIDELINE} size="md" />
+        </span>
+        <span className="inline-flex items-center gap-1">
+          statement shapes{" "}
+          <GuidelinePopup snippet={STATEMENT_TEMPLATE_GUIDELINE} size="md" />
         </span>
         <span className="inline-flex items-center gap-1">
           baselines <GuidelinePopup snippet={BASELINE_GUIDELINE} size="md" />

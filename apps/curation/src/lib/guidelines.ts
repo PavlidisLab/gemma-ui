@@ -142,6 +142,11 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
       "Cells derived from a line: tag the appropriate EFO term + `derives from cell line` (CLO_0037210) + parent line.",
       "Common derived terms: iPSC-derived (EFO_0005740), stem cell-derived (EFO_0002886), ESC-derived (EFO_0005738), fibroblast-derived (EFO_0002009).",
       "Markers / FACS markers must NEVER be the only FV. Use cell line/type + `positive for product of gene` (TGEMO_00169) / `negative for product of gene` (TGEMO_00170) + gene (NCBI_GENE).",
+      "Diseased line — ask who put the disease there, not whether the material is diseased: engineered / bred by us → `has disease` (RO_0016002); drug or surgery → `induced by` (TGEMO_00171); came with the donor → `derives from patient having disease` (CLO_0000015).",
+      "Only state the donor's disease when the line doesn't already carry it. A line resolving in CLO / Cellosaurus documents its own disease; an ungrounded line is the case where the statement is the only place the fact can live.",
+    ],
+    donts: [
+      "Don't ground an opaque identifier just because it LOOKS like a catalogue ID. `H510` as a donor code is not `NCI-H510A`, an unrelated carcinoma line — \"primary cultures from donor tissue\" is the tell. Ungrounded-and-honest beats grounded-and-wrong.",
     ],
   },
 
@@ -177,11 +182,14 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
       "Used to exclude problem samples from DEA: tag with DE_Exclude (TGEMO_00014); rest with DE_Include (TGEMO_00013). Subset by collection_of_material when running DEA.",
       "Cell-sorting methods: FACS = `flow cytometer sorting` (OBI_400099); LCM = `Laser Capture Microdissection (LCM)` (free text); manual = `manual sorting`; TRAP = `translating ribosome affinity purification (TRAP)`; MACS = `magnetic affinity cell sorting`.",
       "RNA fractions / ribosome profiling: `total RNA` (EFO_0004964), `Ribosomal profiling` (TGEMO_00103), `polysome` (GO_0005844).",
-      "Mixed experiments (multiple studies in one file): label with `Experiment 1`, `Experiment 2`, … so DEA can be subset on collection_of_material.",
+      "Mixed experiments (multiple studies in one file): label with `Experiment 1`, `Experiment 2`, … so DEA can be subset on collection_of_material — but only when NO existing factor already makes that split.",
+      "When a real factor already imposes exactly the split you want subset, put the signal on THAT factor instead: `prime adult stage + has role + Experiment 1`, `juvenile stage + has role + Experiment 2`, and drop the duplicate factor. A collection-of-material arm that merely duplicates an existing partition exists only to talk to the DEA machinery, and the statement says the same thing without a second factor.",
       "Splits with < 4 samples need to be deleted — DEA can't run on them.",
     ],
     donts: [
       "DEA should never be run between RNA-sequencing methods (that's an enrichment analysis, not differential expression).",
+      "Don't invent a `collection of material` factor purely to carry a subsetting hint when an existing factor already makes the split.",
+      "There is no `study design: SUBSET` tag — never emit one. The recommendation rides as a single consolidated \"recommend subset DEA on factor X\".",
     ],
   },
 
@@ -237,7 +245,12 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
     bullets: [
       "Used when a disease is induced or modelled (mouse/animal model, induced cells, etc.). Same MONDO term as the disease itself.",
       "Format: control = `reference subject role` (OBI_0000220); model = MONDO term + `induced by` (TGEMO_00171) + agent (drug/surgery/CHEBI), or + `has_genotype` + gene for genetic models.",
+      "One statement per inducer — two inducing agents means two `induced by` statements on the one value.",
       "Default rule: animal taxon + abstract mentions `model` / `induced` / `transgenic` / `KO` → Disease model.",
+    ],
+    donts: [
+      "Don't hang a dose on a disease model — `delivered at dose` statements here were dropped by ruling. A dose belongs to a treatment, and a disease model is not a treatment.",
+      "Don't reach for `has modifier` when you mean causation — `induced by` is the causal predicate; `has modifier` is state.",
     ],
   },
 
@@ -359,7 +372,8 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
     source: "Curating EFCs",
     sourceUrl: WIKI_BASE,
     bullets: [
-      "Chemicals: ChEBI. Polypeptides without ChEBI: EFO. Externally-added proteins (e.g. IFNa added to a dish): NCBI_GENE for the gene that codes the protein. Protein complexes: GO term, or EFO if absent.",
+      "Chemicals: ChEBI. Polypeptides without ChEBI: EFO. Protein complexes: GO term, or EFO if absent.",
+      "Externally-added proteins (cytokine / growth factor / recombinant ligand, e.g. IFNa added to a dish) take the CATALOG TRIPLET: the FV's subject is `protein` (CHEBI_36080), with `derives from` (RO_0001000) + the source gene (NCBI_GENE), and `delivered at dose` (TGEMO_00166) hanging off that same `protein` subject — not off the gene. Migrates 1:1 to a single PR-term statement once Protein Ontology coverage lands.",
       "Tetracycline / doxycycline / tamoxifen: Treatment when used for their drug purpose; Genotype when used to induce gene expression / knockouts (Cre-Lox).",
       "Inhibitors that act on a protein product: annotate the chemical in the FV (with predicate / dose if applicable). If the targeted gene is central, put it in experiment tags — don't bake it into the FV.",
       "Immunodepletion (antibody removing a protein): Treatment, free-text antibody name (e.g. `mAb aD11`), with `delivered at dose` predicate as needed.",
@@ -374,6 +388,7 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
     donts: [
       "Don't annotate `[gene] + agonist/antagonist + [drug]` — capture the gene effect in the drug's ontology, not as a free-text bag.",
       "Don't tag `antibody` for immunodepletion — annotate the gene being depleted.",
+      "Don't bind a bare gene symbol as the treatment VALUE — a gene is not a treatment; the applied protein is. Use the catalog triplet above. (This is also why the genotype gene-symbol binder is scoped to `genotype` only.)",
     ],
   },
 };
@@ -397,7 +412,8 @@ export const PREDICATE_GUIDELINE: GuidelineSnippet = {
     "`has modifier` (RO_0002573) — object differs from original form; organism-part location qualifier (e.g. dorsal); or fallback when no other predicate fits.",
     "`positive for product of gene` (TGEMO_00169) / `negative for product of gene` (TGEMO_00170) — marker-positive / -negative cell types. cell type + (predicate) + gene (NCBI).",
     "`derives from cell line` (CLO_0037210) — sample derived from a CLO cell line. `derives from cell` (CLO_0037209) — from a CL cell type. `derives from part of` (ENVO_01003004) — part of an organism part. `derives from` (RO_0001000) — generic catch-all.",
-    "`has disease` (RO_0016002) — cell line / type / organism part modified to have a disease (NOT a patient sample).",
+    "`has disease` (RO_0016002) — the ENGINEERED case only. The test is PROVENANCE, not pathology: did we put the disease there, or did it come with the donor? \"Is this material diseased?\" separates nothing — for a germline disease every cell carries the defect, so it reads true for patient fibroblasts and tumour lines alike. Put there by us (engineering / breeding) → `has disease`; put there by a drug or surgery → `induced by` (TGEMO_00171); came with the donor → `derives from patient having disease` (CLO_0000015).",
+    "`derives from patient having disease` (CLO_0000015) — the donor had it; the sample was not modified or induced to have it. Use ONLY when the disease isn't recoverable from the entity's own record: a line that resolves in CLO / Cellosaurus already carries its disease, so restating it annotates a property documented elsewhere. An UNGROUNDED line has no such record, so the statement is the only place the fact can live.",
     "`has child with disease` (TGEMO_00201) — sample from a parent whose child has a specific disease.",
     "`has developmental stage` (TGEMO_00168) — UBERON developmental stage + has developmental stage + free-text exact age.",
     "`located in` (RO_0001025) — disease or genotype localised to an organism part. Used inside genotype EFCs too.",
@@ -554,7 +570,8 @@ export const DERIVED_MATERIAL_GUIDELINE: GuidelineSnippet = {
     "Template: cell type + `derives from cell line` (CLO_0037210) → parent line, + `has modifier` (RO_0002573) → `organoid` (TGEMO_00205).",
     "Several statements on ONE subject is the intended shape — there is no second-predicate slot. A richer annotation is more statements sharing a subject.",
     "Always compose endpoint + origin, even when the BioMaterials say `cell type=iPSC`: `iPSC-derived cardiomyocytes` → `cardiac muscle cell` (CL_0000746); `rapid neuron differentiation` → `neuron` (CL_0000540). Endpoint alone drops the derivation; line alone drops the differentiated identity — both are half-annotations.",
-    "Pick the MOST SPECIFIC `derives from` predicate that fits: `derives from cell line` (CLO_0037210) for a named line, `derives from cell` (CLO_0037209) for a CL cell type, `derives from part of` (ENVO_01003004) for an organism part, `derives from patient having disease` (CLO_000015) for primary patient tissue. `derives from` (RO_0001000) is the catch-all when none of those fit — e.g. an origin term like `induced pluripotent stem cell` (EFO_0004905).",
+    "Pick the MOST SPECIFIC `derives from` predicate that fits: `derives from cell line` (CLO_0037210) for a named line, `derives from cell` (CLO_0037209) for a CL cell type, `derives from part of` (ENVO_01003004) for an organism part, `derives from patient having disease` (CLO_0000015) for primary patient tissue. `derives from` (RO_0001000) is the catch-all when none of those fit — e.g. an origin term like `induced pluripotent stem cell` (EFO_0004905).",
+    "An organoid / spheroid / explant is a culture MODALITY, not an anatomical part: the anatomy or cell type is the value, `organoid` (TGEMO_00205) rides as `has modifier` on it. `organism part: organoid` asserts a body part that does not exist.",
     "Generic derived-line parents when no line is named: iPSC-derived (EFO_0005740), stem cell-derived (EFO_0002886), ESC-derived (EFO_0005738), fibroblast-derived (EFO_0002009).",
     "In-vitro time-courses (hESC neural differentiation day 0-22, organoid culture week 1-8) are a Timepoint EFC, not a developmental stage — what varies is the experiment's clock, not an organism's age.",
     "A derived model MAY carry the stage it RECAPITULATES when the paper states one (`cortical organoids comparable to post-conception week 19` → that modelled stage).",
@@ -616,6 +633,63 @@ export const GRAFT_GUIDELINE: GuidelineSnippet = {
     "Don't hang the graft term on the cell type as a modifier, or curate it as a Treatment — it's `study design`.",
     "Don't reach for a dedicated `host organism` term — it doesn't exist yet; the host goes under `growth condition`.",
     "Don't bind a non-host gene symbol to a host-organism gene URI — drop the URI and keep free text rather than assert the wrong organism.",
+  ],
+};
+
+/**
+ * Statement templates — the composed annotation shapes.
+ *
+ * Re-derived from `gemma-curation-agents`
+ * `docs/curation_rules/13_statement_templates.md`, which is the layer
+ * ABOVE the predicate allow-list: `07_predicates.md` says what each
+ * predicate means and when it's legal; that file says which whole
+ * composed annotations we've settled on. The point is that a curator
+ * finds the situation and copies the shape rather than re-deriving it
+ * from the predicate list and landing on something plausible-but-wrong.
+ *
+ * Rendered beside the annotation editor (the StatementEditor's
+ * predicate row) as well as in the Overview guidelines bar, per the
+ * open ask recorded in that file's "Where these are enforced" table.
+ *
+ * The executable half of this lives in
+ * `features/design/statementTemplates.ts` — the same shapes as pickable
+ * `+ tpl…` entries. Keep the two in step: a shape added there wants a
+ * line here, and vice versa.
+ */
+export const STATEMENT_TEMPLATE_GUIDELINE: GuidelineSnippet = {
+  title: "Statement templates — the composed shapes",
+  source: "curation_rules 13_statement_templates",
+  sourceUrl: PREDICATE_URL,
+  bullets: [
+    "Two principles, and they conflict in only one direction: prefer FEWER annotations, and prefer the arrangement that RETAINS more. Collapsing two annotations into one-annotation-plus-a-statement is a win; dropping a statement to reach \"one annotation\" is a loss. When they disagree, DETAIL WINS.",
+    "A template is a SHAPE, not a licence. Every one still has to be true of the samples — the composed form doesn't make a claim safer, it makes a true claim more completely.",
+    "Cell type from a tissue: `cell type (CL) + derives from part of (ENVO_01003004) + organism part (UBERON)`. Not redundant with a constant cell-type characteristic — the tissue relationship exists nowhere in that characteristic. Compare the STATEMENT SET, never the value alone.",
+    "Cell type from a line: `cell type (CL) + derives from cell line (CLO_0037210) + line (CLO)`. The line isn't what was measured; the profiled cell is the annotation and the line is provenance. Use `derives from cell` (CLO_0037209) when the origin is a primary cell.",
+    "Culture modality: `organism part | cell type + has modifier (RO_0002573) + organoid (TGEMO_00205)`. An organoid is not an anatomical part.",
+    "Disease model: `disease (MONDO) + induced by (TGEMO_00171) + chemical (CHEBI) | procedure`. One statement per inducer.",
+    "Protein treatment (the catalog triplet): `protein (CHEBI_36080) + derives from (RO_0001000) + gene (NCBI_GENE)`, with `delivered at dose` on the same `protein` subject.",
+    "Genotype: `gene (NCBI_GENE) + has_genotype (GENO_0000222) + zygosity / allele state`. Two FVs can be the same gene distinguished ONLY by the statement — identical labels, the statement is the whole difference.",
+    "Baseline / reference role: `<the FV's own value> + has role (RO_0000087) + role term`. Keep the named value and add the role to it.",
+    "DEA subsetting axis: `<FV value> + has role + \"Experiment 1\" | \"Experiment 2\"` on the factor that ALREADY makes the split — instead of a duplicate `collection of material` factor that exists only to tell the DEA machinery what to subset on.",
+    "Ungroundable identifiers (donor / subject codes, hybrid strain backgrounds, lab-internal line names) stay FREE TEXT with no URI. That is the honest annotation, not a gap.",
+    "Confounded cause axis and conditional knockouts have their own encodings — see the batch-confound rules and the genotype EFC guide; the Cre driver and the floxed allele are separate assertions, not one merged label.",
+  ],
+  examples: [
+    "cell type: astrocyte (CL_0000127) + derives from part of -> spinal cord (UBERON_0002240)",
+    "cell type: retinal cell (CL_0009004) + derives from cell line -> H9 cell (CLO_0003612)",
+    "organism part: brain (UBERON_0000955) + has modifier -> organoid (TGEMO_00205)",
+    "treatment: protein (CHEBI_36080) + derives from -> CCL19 (NCBI_GENE) + delivered at dose -> 10 ng/ml",
+    "genotype: Hoxa5 (NCBI_GENE) + has_genotype -> Overexpression (TGEMO_00004)",
+    "developmental stage: prime adult stage + has role -> Experiment 1",
+  ],
+  donts: [
+    "`organism part: organoid` is wrong — the anatomy is the value, `organoid` is the modifier on it. Getting this inverted was a real gold defect.",
+    "Don't hang a dose on a disease model — dose belongs to a treatment, and a disease model is not a treatment.",
+    "Don't bind a bare gene symbol as a treatment value — a gene is not a treatment; the applied protein is.",
+    "RNA-level knockdown (shRNA / siRNA / sgRNA-i / ASO / morpholino) is NOT `homozygous negative` — use `gene knockdown` (OBI_0002625) plus `has modifier + <reagent>`.",
+    "A bare-gene EE tag — a gene URI as the value with no `has_genotype` statement — fails the gold build outright. Zygosity isn't optional decoration; without it the annotation says only \"this gene is involved\", which is not a genotype.",
+    "Never substitute a ROLE term for an identifier. `donor role` (OBI_1110087) says what the subject is FOR and erases WHICH subject it is — which is the entire content of the factor.",
+    "Never ground a code because it LOOKS like a catalogue ID. Confirm the source calls it a line before binding one; ungrounded-and-honest beats grounded-and-wrong.",
   ],
 };
 

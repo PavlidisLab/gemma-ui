@@ -1,12 +1,21 @@
 import type { OntologyTerm, Statement } from "@/features/experiment/types";
-import { GENOTYPE_OBJECT_TERMS } from "@/generated/predicates";
+import { GENOTYPE_OBJECT_TERMS, PREDICATES } from "@/generated/predicates";
 
 /**
- * Pre-baked Statement patterns from the Confluence guidelines —
- * the curator picks one and the StatementEditor renders a partly-
- * filled triple they can finish. URIs are taken from
- * Use-of-predicates-in-factor-values; labels match the canonical
- * spelling.
+ * Pre-baked Statement patterns — the curator picks one and the
+ * StatementEditor renders a partly-filled triple they can finish.
+ *
+ * The shapes come from the agents repo's
+ * `docs/curation_rules/13_statement_templates.md` (the composed
+ * annotations) on top of `07_predicates.md` (the predicate
+ * allow-list). That repo is canonical and runs ahead of the wiki —
+ * re-derive from those files, not from memory or from Confluence.
+ *
+ * Two principles govern every template, and they only conflict in one
+ * direction: collapsing two annotations into one-annotation-plus-a-
+ * statement is a WIN; dropping a statement to reach "one annotation"
+ * is a LOSS. When "fewer annotations" and "retain more detail"
+ * disagree, detail wins.
  *
  * Each template has a `subject_kind` / `object_kind` string the UI
  * surfaces as placeholder text inside the corresponding picker so
@@ -31,26 +40,30 @@ export interface StatementTemplate {
   objectHint?: string;
 }
 
-const HAS_ROLE = predicate("has role", "RO_0000087");
-const HAS_GENOTYPE = predicate("has_genotype", "GENO_0000222");
-const HAS_PHENOTYPE = predicate("has phenotype", "RO_0002200");
-const HAS_DISEASE = predicate("has disease", "RO_0016002");
+const HAS_ROLE = predicate("has role");
+const HAS_GENOTYPE = predicate("has_genotype");
+const HAS_PHENOTYPE = predicate("has phenotype");
+const HAS_DISEASE = predicate("has disease");
 // CLO's own object property. Pairs with HAS_DISEASE: that one is the
 // engineered case, this one is the donor's.
 const DERIVES_FROM_PATIENT_HAVING_DISEASE = predicate(
-  "derives from patient having disease", "CLO_0000015");
-const ADJACENT_TO = predicate("adjacent to", "RO_0002220");
-const DELIVERED_AT_DOSE = predicate("delivered at dose", "TGEMO_00166");
-const DELIVERED_FOR_DURATION = predicate("delivered for duration", "TGEMO_00167");
-const DELIVERED_TO = predicate("delivered to", "TGEMO_00183");
-const INDUCED_BY = predicate("induced by", "TGEMO_00171");
-const HAS_MODIFIER = predicate("has modifier", "RO_0002573");
-const POS_FOR_PRODUCT = predicate("positive for product of gene", "TGEMO_00169");
-const NEG_FOR_PRODUCT = predicate("negative for product of gene", "TGEMO_00170");
-const TOWARD = predicate("toward", "RO_0002503");
-const LOCATED_IN = predicate("located in", "RO_0001025");
-const SAMPLED_AFTER = predicate("sampled after", "TGEMO_00202");
-const HAS_DEV_STAGE = predicate("has developmental stage", "TGEMO_00168");
+  "derives from patient having disease");
+const DERIVES_FROM_PART_OF = predicate("derives from part of");
+const DERIVES_FROM_CELL_LINE = predicate("derives from cell line");
+const DERIVES_FROM_CELL = predicate("derives from cell");
+const DERIVES_FROM = predicate("derives from");
+const ADJACENT_TO = predicate("adjacent to");
+const DELIVERED_AT_DOSE = predicate("delivered at dose");
+const DELIVERED_FOR_DURATION = predicate("delivered for duration");
+const DELIVERED_TO = predicate("delivered to");
+const INDUCED_BY = predicate("induced by");
+const HAS_MODIFIER = predicate("has modifier");
+const POS_FOR_PRODUCT = predicate("positive for product of gene");
+const NEG_FOR_PRODUCT = predicate("negative for product of gene");
+const TOWARD = predicate("toward");
+const LOCATED_IN = predicate("located in");
+const SAMPLED_AFTER = predicate("sampled after");
+const HAS_DEV_STAGE = predicate("has developmental stage");
 
 // Allele-STATE genotype objects (Homozygous negative, Overexpression,
 // Constitutive active mutation, ...) are GENERATED from the agents SoT
@@ -58,27 +71,50 @@ const HAS_DEV_STAGE = predicate("has developmental stage", "TGEMO_00168");
 // below, so the picker can't drift from what the agent grounds. Bare
 // `Heterozygous` is intentionally NOT offered: the object needs allele
 // identity (`mHTT/+`) or an allele-state term (STATEMENT_GRAMMAR §5).
+// Every OBO term takes the `/obo/` path — including OBI. An `/obi/`
+// variant was hand-built here once and resolves to nothing in Gemma,
+// which hard-rejects an ungrounded URI on commit, so the prefix is no
+// longer a parameter.
 const OBI = {
-  gene_knockdown: term("gene knockdown", "OBI_0002625", "obi"),
+  gene_knockdown: term("gene knockdown", "OBI_0002625"),
 };
 const SO = {
   increased_gpl: term("increased_gene_product_level", "SO_0002315"),
   decreased_gpl: term("decreased_gene_product_level", "SO_0002316"),
+};
+const CHEBI = {
+  // The subject of the protein-treatment triplet (13_statement_templates
+  // §5) — the applied protein, never the gene that encodes it.
+  protein: term("protein", "CHEBI_36080"),
 };
 const PATO = {
   resistant_to: { label: "resistant to", uri: "http://purl.obolibrary.org/obo/PATO_0001178" },
   sensitive_toward: { label: "sensitive toward", uri: "http://purl.obolibrary.org/obo/PATO_0000516" },
   response_to: { label: "response to", uri: "http://purl.obolibrary.org/obo/PATO_0000077" },
 };
+// TGEMO lives on Gemma's own namespace, not the OBO purl base.
+const TGEMO = {
+  organoid: { label: "organoid", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00205" },
+};
 
-function predicate(label: string, lid: string): OntologyTerm {
-  return { label, uri: `http://purl.obolibrary.org/obo/${lid}` };
+/**
+ * Resolve a predicate from the generated agents-SoT allow-list by label.
+ *
+ * Only the label is spelled here; the URI always comes from
+ * `generated/predicates.ts`. Hand-built URIs drifted from the SoT once
+ * already — TGEMO predicates live under `gemma.msl.ubc.ca/ont`, not the
+ * OBO purl base, so every TGEMO template shipped a legacy-namespace URI
+ * that the editor had to canonicalize on the way back in. Throws on an
+ * unknown label so a typo fails at module load rather than emitting an
+ * ungrounded predicate into a curator's design.
+ */
+function predicate(label: string): OntologyTerm {
+  const p = PREDICATES.find((x) => x.label === label);
+  if (!p) throw new Error(`unknown predicate: ${label}`);
+  return { label: p.label, uri: p.uri };
 }
-function term(label: string, lid: string, prefix: "obo" | "obi" = "obo"): OntologyTerm {
-  return {
-    label,
-    uri: `http://purl.obolibrary.org/${prefix}/${lid}`,
-  };
+function term(label: string, lid: string): OntologyTerm {
+  return { label, uri: `http://purl.obolibrary.org/obo/${lid}` };
 }
 
 /** Look up a sanctioned allele-state genotype object by label from the
@@ -135,7 +171,11 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "genotype-kd",
     category: "genotype",
     label: "gene + has_genotype + gene knockdown",
-    description: "shRNA / siRNA: gene + has_genotype + gene knockdown (OBI_0002625).",
+    description:
+      "RNA-level knockdown — shRNA / siRNA / sgRNA-i / ASO / morpholino: " +
+      "gene + has_genotype + gene knockdown (OBI_0002625). This is NOT " +
+      "`Homozygous negative`, which is a DNA-level null. Add `has modifier + " +
+      "<reagent>` alongside to name the reagent.",
     subjectHint: "gene (NCBI_GENE)",
     build: (cat) =>
       withCategory(cat, {
@@ -218,13 +258,54 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         object: { label: "" },
       }),
   },
+  {
+    id: "treatment-protein-gene",
+    category: "treatment",
+    label: "protein + derives from + gene",
+    description:
+      "Applied protein (cytokine, growth factor, recombinant ligand) — the " +
+      "catalog triplet. Subject is `protein` (CHEBI_36080); the source gene " +
+      "rides as the object. A gene is NOT a treatment: don't bind a bare gene " +
+      "symbol as the factor value. Add `protein + delivered at dose` alongside " +
+      "for the dose — same subject, second statement.",
+    subjectHint: "(filled) protein (CHEBI_36080)",
+    objectHint: "source gene (NCBI_GENE) — e.g. CCL19",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { ...CHEBI.protein },
+        predicate: { ...DERIVES_FROM },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "treatment-protein-dose",
+    category: "treatment",
+    label: "protein + delivered at dose + (free-text)",
+    description:
+      "Second half of the protein triplet — the dose hangs off `protein` " +
+      "(CHEBI_36080), the same subject as the `derives from` statement, not " +
+      "off the gene.",
+    subjectHint: "(filled) protein (CHEBI_36080)",
+    objectHint: "dose (free text, e.g. 10 ng/ml)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { ...CHEBI.protein },
+        predicate: { ...DELIVERED_AT_DOSE },
+        object: { label: "" },
+      }),
+  },
 
   // -- Disease / Disease model -----------------------------------------
   {
     id: "disease-induced-by",
     category: "disease model",
     label: "disease + induced by + (drug / surgery)",
-    description: "Disease-model FV: MONDO disease + induced by (TGEMO_00171) + agent.",
+    description:
+      "Disease-model FV: MONDO disease + induced by (TGEMO_00171) + agent. " +
+      "One statement per inducer — two inducers means two statements on the " +
+      "one value. `induced by` is causation, distinct from `has modifier` " +
+      "(state). Dose does NOT ride here: a dose belongs to a treatment, and a " +
+      "disease model is not a treatment.",
     subjectHint: "disease (MONDO)",
     objectHint: "drug / surgery (CHEBI / free text)",
     build: (cat) =>
@@ -313,6 +394,84 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         subject: { label: "" },
         predicate: { ...DERIVES_FROM_PATIENT_HAVING_DISEASE },
         object: { label: "" },
+      }),
+  },
+
+  // -- Origin: what the material IS, and where it came FROM -------------
+  // 13_statement_templates §1-§3. Each of these collapses a pair of flat
+  // annotations into one annotation that carries the relationship — the
+  // arrangement that retains more, which is the one to prefer.
+  {
+    id: "cell-type-from-tissue",
+    category: "cell type",
+    label: "cell type + derives from part of + organism part",
+    description:
+      "The profiled cells are a named cell type out of a named anatomical " +
+      "site, constant across samples. One annotation instead of a cell-type " +
+      "tag beside a flat `organism part` tag — and NOT redundant with a " +
+      "constant cell-type characteristic, because the tissue relationship " +
+      "exists nowhere in that characteristic. derives from part of " +
+      "(ENVO_01003004).",
+    subjectHint: "cell type (CL) — e.g. astrocyte",
+    objectHint: "organism part (UBERON) — e.g. spinal cord",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...DERIVES_FROM_PART_OF },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "cell-type-from-line",
+    category: "cell type",
+    label: "cell type + derives from cell line + cell line",
+    description:
+      "The profiled cells were differentiated or otherwise derived FROM a " +
+      "named line. The line is not what was measured — annotate the profiled " +
+      "cell and carry the line as provenance. derives from cell line " +
+      "(CLO_0037210).",
+    subjectHint: "cell type (CL) — what was profiled",
+    objectHint: "parent cell line (CLO) — e.g. H9 cell",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...DERIVES_FROM_CELL_LINE },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "cell-type-from-cell",
+    category: "cell type",
+    label: "cell type + derives from cell + cell type",
+    description:
+      "Same shape as `derives from cell line`, for when the origin is a " +
+      "primary cell rather than a named line. derives from cell " +
+      "(CLO_0037209).",
+    subjectHint: "cell type (CL) — what was profiled",
+    objectHint: "origin cell type (CL)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...DERIVES_FROM_CELL },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "culture-modality-organoid",
+    category: "organism part",
+    label: "organism part / cell type + has modifier + organoid",
+    description:
+      "Organoid / spheroid / explant is a culture MODALITY, not an " +
+      "anatomical part. The anatomy (or cell type) is the value and " +
+      "`organoid` is the modifier on it — `organism part: organoid` asserts " +
+      "a body part that does not exist. organoid (TGEMO_00205).",
+    subjectHint: "organism part (UBERON) or cell type (CL) — e.g. brain",
+    objectHint: "(filled) organoid (TGEMO_00205)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...HAS_MODIFIER },
+        object: { ...TGEMO.organoid },
       }),
   },
 
@@ -453,9 +612,33 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "baseline-has-role",
     category: "*",
     label: "object + has role + baseline term",
-    description: "Generic baseline pattern — object + has role + control / wild type / reference.",
-    subjectHint: "object",
-    objectHint: "control / wild type genotype / reference role",
+    description:
+      "Generic baseline pattern — object + has role + control / wild type / " +
+      "reference / initial time point. KEEP the named value and add the role " +
+      "to it: `C57BL/6 + has role + control`, never a bare `control` token, " +
+      "which loses the strain the curator recorded.",
+    subjectHint: "the FV's own value — keep it, don't replace it",
+    objectHint: "control / wild type genotype / reference role / initial time point",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...HAS_ROLE },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "dea-subset-axis",
+    category: "*",
+    label: "object + has role + (Experiment 1 / 2 / …)",
+    description:
+      "Names a sub-experiment so the DEA machinery knows what to subset on. " +
+      "Put the signal on the factor that ALREADY makes the split — e.g. " +
+      "`prime adult stage + has role + Experiment 1` — rather than inventing " +
+      "a `collection of material` factor that duplicates an existing " +
+      "partition. There is no `study design: SUBSET` tag; the recommendation " +
+      "rides as one consolidated “recommend subset DEA on factor X”.",
+    subjectHint: "the FV's own value on the real splitting factor",
+    objectHint: "sub-experiment name (free text) — e.g. Experiment 1",
     build: (cat) =>
       withCategory(cat, {
         subject: { label: "" },

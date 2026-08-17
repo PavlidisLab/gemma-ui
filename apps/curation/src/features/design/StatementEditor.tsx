@@ -4,7 +4,10 @@ import { OntologyTermPicker } from "./OntologyTermPicker";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { CurieLink } from "@/components/ui/CurieLink";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
-import { PREDICATE_GUIDELINE } from "@/lib/guidelines";
+import {
+  PREDICATE_GUIDELINE,
+  STATEMENT_TEMPLATE_GUIDELINE,
+} from "@/lib/guidelines";
 import { shortenUri } from "@/lib/curie";
 import {
   MAX_STATEMENT_PAIRS,
@@ -200,6 +203,16 @@ export function StatementEditor({
           ))}
         </select>
         <GuidelinePopup snippet={PREDICATE_GUIDELINE} size="sm" />
+        {/* The predicate popup answers "is this predicate legal here";
+            the templates popup answers "what is the whole composed
+            shape". Both belong on the predicate row — that's where a
+            curator is standing when either question comes up — but two
+            bare `?` marks side by side say nothing about which is
+            which, so the second one carries a word. */}
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
+          shapes
+          <GuidelinePopup snippet={STATEMENT_TEMPLATE_GUIDELINE} size="sm" />
+        </span>
       </span>
 
       {statement.predicate ? (
