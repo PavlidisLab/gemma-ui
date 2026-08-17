@@ -73,27 +73,44 @@ export const NOT_SURE_CHIPS: DialogChip[] = [
 // gold is right (agent made a FN). Chips explain WHY — the verdict is
 // already implied.
 //
-// `agent_real_miss` leads the list because it's the largest single
-// chip-gap by case-count across curators (~50 cases pre-landing).
-// Used for both tag and factor gold-miss findings (server gate
-// accepts both).
-// 2026-06-14 vocab expansion per design review + the agents-side open-enum wire:
-// "Structure correct, FVs need work" and "Wrong partition, factor right"
-// reflect what curators actually say when they disagree with a
-// remove-factor proposal. These join the existing
-// `agent_real_miss` / `missed_evidence` chips; agent-side gates are
-// now permissive (`DismissReason: str`), so new slugs ship without
-// coordination.
-// FACTOR-side removal dismiss — curator says "don't remove the
-// factor"; the factor / its FVs / its partition need to stay
-// (possibly with fixes). Factor concepts: FVs, partition, structure.
+// `agent_real_miss` leads both this set and the tag one below: it's
+// the largest single chip-gap by case-count across curators (~50
+// cases pre-landing) and the server gate accepts it for either
+// target_kind.
+/**
+ * FACTOR-side removal dismiss — the curator says "don't remove this
+ * factor". Every chip therefore ends in the factor staying; what they
+ * distinguish is whether anything about it still needs fixing.
+ *
+ * 2026-08-17 rewrite. All 19 human dispositions on this code family
+ * went to `agent_real_miss`; the other four chips had never been
+ * picked once, and two of them read against the decision the dialog
+ * had just made:
+ *
+ *  - "Wrong partition" here meant KEEP the factor (fix its sample
+ *    assignment), while `partition_wrong` / "Partition wrong" on the
+ *    ACCEPT side below means REMOVE it. Same two words, opposite
+ *    outcome, one dialog apart.
+ *  - "Factor needed" never said needed for what, and its help
+ *    ("agent should have proposed it") scored the agent on a card
+ *    whose question is only whether the factor stays.
+ *
+ * So the labels now lead with the outcome — keep — and name the fix
+ * after it. "Missed evidence" is gone because it answered a different
+ * question (what the agent did wrong, not what happens to the
+ * factor), and with no competing proposal on the card it was
+ * indistinguishable from the first chip anyway. "Borderline" is gone
+ * for the reason the 2026-08-13 tag revision demoted it: a dumping
+ * ground ranked among real answers stays the path of least
+ * resistance. Both keys remain valid on the wire (`DismissReason:
+ * str` is open-enum) and no stored row used either, so nothing is
+ * orphaned by dropping them from what's offered.
+ */
 export const CAL_MISS_FACTOR_DISMISS_CHIPS: DialogChip[] = [
-  { key: "agent_real_miss",            label: "Factor needed",         help: "the factor + its FVs are correct; agent should have proposed it" },
-  { key: "structure_correct_fvs_wrong", label: "Structure correct, FVs need work", help: "the factor category is right but the FV labels / values need fixing — don't remove" },
-  { key: "wrong_partition",            label: "Wrong partition",       help: "the factor exists but the sample assignment to FVs is wrong — don't remove" },
-  { key: "missed_evidence",            label: "Missed evidence",       help: "agent overlooked supporting evidence in the paper/data" },
-  { key: "borderline",                 label: "Borderline",            help: "close call — could reasonably go either way" },
-  { key: "other",                      label: "Other",                 help: "add a note" },
+  { key: "agent_real_miss",             label: "Factor is correct — keep it",          help: "the factor and its FVs are right as they stand; nothing needs fixing, the agent simply didn't propose it" },
+  { key: "structure_correct_fvs_wrong", label: "Keep it, but the FV labels need work", help: "the factor's category is right — the FV labels / values are what need fixing" },
+  { key: "wrong_partition",             label: "Keep it, but the samples are grouped wrong", help: "the factor's category is right — which samples sit in which FV is what needs fixing" },
+  { key: "other",                       label: "Other",                                help: "add a note" },
 ];
 
 // TAG-side removal dismiss — curator says "don't remove the tag";

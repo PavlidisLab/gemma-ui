@@ -2401,12 +2401,13 @@ export function FindingDetailsEditor({
               label: keepLabel,
               // Reject-the-removal opens the shared DismissDialog chip
               // picker via onDismiss — chips come from
-              // ``dispositionChips.dismissChipsFor`` (CAL_MISS_DISMISS_CHIPS
-              // for removal findings: "Factor needed" / "Structure
-              // correct, FVs wrong" / "Wrong partition" / "Missed
-              // evidence" / …). Design review 2026-06-15: REMOVE TAG cards had
-              // no disposition prompt at all — fire-and-forget on Keep
-              // dropped the curator's reason on the floor.
+              // ``dispositionChips.dismissChipsFor``, split by
+              // target_kind (factor: "Factor is correct — keep it" /
+              // "Keep it, but the FV labels need work" / …; tag:
+              // "Agent missed it" / "Applies broadly" / …). Design
+              // review 2026-06-15: REMOVE TAG cards had no disposition
+              // prompt at all — fire-and-forget on Keep dropped the
+              // curator's reason on the floor.
               onClick: onDismiss,
               title: `Reject ${identities.proposer}'s removal with a reason chip.`,
             },

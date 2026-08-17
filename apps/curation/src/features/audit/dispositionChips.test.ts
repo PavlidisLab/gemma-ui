@@ -58,8 +58,9 @@ function mkFinding(
 describe("dismissChipsFor — calibration routing (unchanged)", () => {
   it("routes calibration_gold_only_miss (tag) to CAL_MISS_TAG — tags have no FVs/partition/structure", () => {
     // Design review 2026-06-15: tag-side removal dismiss must NOT show
-    // factor-flavoured chips like "Wrong partition" / "Structure
-    // correct, FVs wrong" — tags don't have those concepts.
+    // factor-flavoured chips like "Keep it, but the samples are
+    // grouped wrong" / "…the FV labels need work" — tags have no
+    // partition and no FVs.
     expect(
       dismissChipsFor(
         mkFinding({ issue_code: "calibration_gold_only_miss", target_kind: "tag" }),
@@ -136,7 +137,7 @@ describe("dismissChipsFor — tag-target widening (2026-06-12)", () => {
   it("routes entity-frame tag_design_missing_from_agent to CAL_MISS_TAG — 'don't remove tag' framing", () => {
     // Design review 2026-06-15 split: tag-side removal-dismiss now uses tag
     // vocab ("Agent missed it" / "Applies broadly" / …) — factor
-    // vocab ("Factor needed" / "Wrong partition") no longer leaks
+    // vocab (the FV-label and sample-grouping chips) no longer leaks
     // into tag cards.
     const chips = dismissChipsFor(
       mkFinding({
