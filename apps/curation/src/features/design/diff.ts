@@ -15,6 +15,7 @@ import type {
   Factor,
   FactorValue,
   Statement,
+  SubsetRecommendation,
   Tag,
 } from "@/features/experiment/types";
 
@@ -76,6 +77,19 @@ export interface DesignDiff {
     shortNameChanged: boolean;
     titleChanged: boolean;
     descriptionChanged: boolean;
+    /** The experiment-wide decisions — split axis + its rationale,
+     *  and the subset recommendations. They live on the design and
+     *  serialize with it, but until 2026-08-16 the diff ignored them
+     *  entirely, so a curator accepting a subset or recording "do NOT
+     *  split" left the draft reading clean: the commit bar stayed
+     *  dark, the localStorage cache was cleared rather than written,
+     *  and the decision died on the next refresh. Same class of gap
+     *  as the 2026-06-13 continuity sweep above, one section over. */
+    splitDecisionChanged: boolean;
+    /** Entries added, removed, or edited (status / rationale / factor
+     *  / levels). A count rather than a boolean so a summary can say
+     *  how many decisions are pending commit. */
+    subsetRecommendationsChanged: number;
   };
   totals: {
     addedFvs: number;
@@ -103,6 +117,8 @@ const EMPTY_DIFF: DesignDiff = {
     shortNameChanged: false,
     titleChanged: false,
     descriptionChanged: false,
+    splitDecisionChanged: false,
+    subsetRecommendationsChanged: 0,
   },
   totals: {
     addedFvs: 0,
@@ -204,7 +220,9 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
     metadata.publicationsRemoved > 0 ||
     metadata.shortNameChanged ||
     metadata.titleChanged ||
-    metadata.descriptionChanged;
+    metadata.descriptionChanged ||
+    metadata.splitDecisionChanged ||
+    metadata.subsetRecommendationsChanged > 0;
 
   return {
     isDirty,
@@ -332,6 +350,20 @@ function diffMetadata(saved: Design, draft: Design): DesignDiff["metadata"] {
   const titleChanged = (saved.title ?? "") !== (draft.title ?? "");
   const descriptionChanged = (saved.description ?? "") !== (draft.description ?? "");
 
+  // -- Experiment-wide decisions ----------------------------------
+  // ``-1`` (asserted "do NOT split") and ``null`` (no decision) are
+  // different answers, so normalize only undefined.
+  const splitDecisionChanged =
+    (saved.should_split_on_factor_id ?? null) !==
+      (draft.should_split_on_factor_id ?? null) ||
+    (saved.should_split_rationale ?? "") !==
+      (draft.should_split_rationale ?? "");
+
+  const subsetRecommendationsChanged = countSubsetChanges(
+    saved.subset_recommendations ?? [],
+    draft.subset_recommendations ?? [],
+  );
+
   return {
     biomaterialsModified,
     publicationsAdded,
@@ -339,7 +371,38 @@ function diffMetadata(saved: Design, draft: Design): DesignDiff["metadata"] {
     shortNameChanged,
     titleChanged,
     descriptionChanged,
+    splitDecisionChanged,
+    subsetRecommendationsChanged,
   };
+}
+
+/** Added + removed + edited subset recommendations, keyed by ``id``.
+ *  Every field a curator can touch counts: status is the disposition,
+ *  rationale is why, and factor / levels are what the subset IS. */
+function countSubsetChanges(
+  saved: SubsetRecommendation[],
+  draft: SubsetRecommendation[],
+): number {
+  const savedById = new Map(saved.map((r) => [r.id, r]));
+  const draftById = new Map(draft.map((r) => [r.id, r]));
+  let changed = 0;
+  for (const r of draft) {
+    const before = savedById.get(r.id);
+    if (!before) {
+      changed++;
+      continue;
+    }
+    if (
+      before.status !== r.status ||
+      (before.rationale ?? "") !== (r.rationale ?? "") ||
+      (before.by_factor_id ?? null) !== (r.by_factor_id ?? null) ||
+      before.level_labels.join(" ") !== r.level_labels.join(" ")
+    ) {
+      changed++;
+    }
+  }
+  for (const r of saved) if (!draftById.has(r.id)) changed++;
+  return changed;
 }
 
 function sameStringMap(

@@ -176,6 +176,8 @@ const EMPTY_DIFF: DesignDiff = {
     shortNameChanged: false,
     titleChanged: false,
     descriptionChanged: false,
+    splitDecisionChanged: false,
+    subsetRecommendationsChanged: 0,
   },
   totals: {
     addedFvs: 0,

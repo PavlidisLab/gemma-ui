@@ -4,6 +4,7 @@ import type {
   Biomaterial,
   Design,
   Publication,
+  SubsetRecommendation,
 } from "@/features/experiment/types";
 
 /**
@@ -343,5 +344,128 @@ describe("summariseSemanticDiff — inherited rows are not tags (2026-08-09)", (
     const s = summariseSemanticDiff(a, b);
     expect(s.addedTags).toBe(1);
     expect(s.removedTags).toBe(1);
+  });
+});
+
+/**
+ * The same blind spot the 2026-06-13 sweep closed, one section over:
+ * the experiment-wide decisions.
+ *
+ * ``should_split_on_factor_id`` / ``should_split_rationale`` and
+ * ``subset_recommendations`` live on the Design and serialize with
+ * it, but the diff never looked at them. A curator who accepted a
+ * subset recommendation, or recorded "do NOT split", left the draft
+ * reading clean — commit bar dark, cached draft CLEARED rather than
+ * written, decision gone on the next refresh. The decision surface
+ * that produces them is the only place they can be made, so nothing
+ * else would have caught it.
+ */
+describe("diffDesign — experiment-wide decisions dirty the draft", () => {
+  const rec = (
+    over: Partial<SubsetRecommendation> = {},
+  ): SubsetRecommendation => ({
+    id: "agent:run-1:subset:rec",
+    by_factor_id: 7,
+    level_labels: [],
+    rationale: "possible subset on axis: cell type",
+    status: "agent_recommended",
+    source: "agent",
+    ...over,
+  });
+
+  it("recording a split axis flips isDirty", () => {
+    const saved = baseDesign();
+    const draft = baseDesign({ should_split_on_factor_id: 4 });
+    const r = diffDesign(saved, draft);
+    expect(r.metadata.splitDecisionChanged).toBe(true);
+    expect(r.isDirty).toBe(true);
+  });
+
+  // ``-1`` is an assertion ("do NOT split"), not the absence of one.
+  // Folding it into ``null`` would make the strongest decision on this
+  // panel the one edit that can't be saved.
+  it("asserting do-NOT-split flips isDirty", () => {
+    const r = diffDesign(
+      baseDesign(),
+      baseDesign({ should_split_on_factor_id: -1 }),
+    );
+    expect(r.metadata.splitDecisionChanged).toBe(true);
+    expect(r.isDirty).toBe(true);
+  });
+
+  it("editing only the split rationale flips isDirty", () => {
+    const saved = baseDesign({ should_split_on_factor_id: 4 });
+    const draft = baseDesign({
+      should_split_on_factor_id: 4,
+      should_split_rationale: "two arms shipped as one series",
+    });
+    const r = diffDesign(saved, draft);
+    expect(r.metadata.splitDecisionChanged).toBe(true);
+    expect(r.isDirty).toBe(true);
+  });
+
+  it("accepting an agent subset recommendation flips isDirty", () => {
+    const saved = baseDesign({ subset_recommendations: [rec()] });
+    const draft = baseDesign({
+      subset_recommendations: [rec({ status: "accepted" })],
+    });
+    const r = diffDesign(saved, draft);
+    expect(r.metadata.subsetRecommendationsChanged).toBe(1);
+    expect(r.isDirty).toBe(true);
+  });
+
+  it("a curator-added subset counts as one change", () => {
+    const saved = baseDesign({ subset_recommendations: [] });
+    const draft = baseDesign({
+      subset_recommendations: [
+        rec({
+          id: "curator:subset:7:1",
+          source: "curator",
+          status: "accepted",
+          rationale: "",
+        }),
+      ],
+    });
+    const r = diffDesign(saved, draft);
+    expect(r.metadata.subsetRecommendationsChanged).toBe(1);
+    expect(r.isDirty).toBe(true);
+  });
+
+  it("removing one counts too — an undo is an edit", () => {
+    const saved = baseDesign({ subset_recommendations: [rec()] });
+    const draft = baseDesign({ subset_recommendations: [] });
+    const r = diffDesign(saved, draft);
+    expect(r.metadata.subsetRecommendationsChanged).toBe(1);
+    expect(r.isDirty).toBe(true);
+  });
+
+  it("rationale and levels are edits, not decoration", () => {
+    const saved = baseDesign({ subset_recommendations: [rec()] });
+    expect(
+      diffDesign(
+        saved,
+        baseDesign({ subset_recommendations: [rec({ rationale: "why" })] }),
+      ).isDirty,
+    ).toBe(true);
+    expect(
+      diffDesign(
+        saved,
+        baseDesign({
+          subset_recommendations: [rec({ level_labels: ["tumour"] })],
+        }),
+      ).isDirty,
+    ).toBe(true);
+  });
+
+  it("an untouched decision set stays clean", () => {
+    const d = baseDesign({
+      should_split_on_factor_id: -1,
+      should_split_rationale: "one arm",
+      subset_recommendations: [rec({ status: "accepted" })],
+    });
+    const r = diffDesign(d, structuredClone(d));
+    expect(r.metadata.splitDecisionChanged).toBe(false);
+    expect(r.metadata.subsetRecommendationsChanged).toBe(0);
+    expect(r.isDirty).toBe(false);
   });
 });

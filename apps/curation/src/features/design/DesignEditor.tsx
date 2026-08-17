@@ -39,7 +39,7 @@ import {
 import { validateDesign } from "@/features/experiment/types";
 import { capitalizeCategory } from "@/lib/ontologyTerm";
 import type {
-  Design, Statement, SubsetRecommendation,
+  Design, Factor, Statement, SubsetRecommendation,
 } from "@/features/experiment/types";
 
 /**
@@ -657,6 +657,7 @@ function ExperimentDecisionsSection({
 
         <SubsetRecommendationsBlock
           draft={draft}
+          readOnly={readOnly}
           onApply={onApply}
         />
       </fieldset>
@@ -674,13 +675,26 @@ function ExperimentDecisionsSection({
  *  Today this is read/write through ``Design.subset_recommendations``
  *  (a list of ``SubsetRecommendation`` objects); the agent-side
  *  importer seeds the list from gestalt ``split_recommendations`` of
- *  kind ``dea_subset`` / ``factor_partial_coverage``.
+ *  kind ``dea_subset`` / ``factor_partial_coverage``. It rides the
+ *  design PUT and lands in the store's design row (server model
+ *  ``local_api/design_schemas.py``), so a decision recorded here
+ *  survives the commit.
+ *
+ *  🛑 The curator can ORIGINATE one, not just disposition the agent's.
+ *  The type carried ``source: "curator"`` from the start and nothing
+ *  could produce it: with an empty list this block said "the agent
+ *  will seed any recommendations here on next import", which tells a
+ *  curator who has already decided to subset by a factor to go wait
+ *  for a machine. Subset-DEA is a curation decision; the agent's
+ *  version of it is a suggestion.
  */
 function SubsetRecommendationsBlock({
   draft,
+  readOnly,
   onApply,
 }: {
   draft: Design;
+  readOnly: boolean;
   onApply: (next: Design | ((d: Design) => Design)) => void;
 }) {
   const recs = draft.subset_recommendations ?? [];
@@ -715,16 +729,82 @@ function SubsetRecommendationsBlock({
     return f?.name || f?.category?.label || `factor ${id}`;
   };
 
+  /** Record "subset the DEA by this factor" as the curator's own
+   *  decision. Accepted on arrival — the curator asserting it IS the
+   *  disposition, and a pending entry would be the panel asking them
+   *  to agree with themselves.
+   *
+   *  ``level_labels`` stays empty, which the cards read as every level
+   *  of the factor: that IS subset-DEA (one analysis per level), and
+   *  it's the same shape the agent seeds. Narrowing to specific levels
+   *  is the restriction case and has no editor yet. */
+  const addCuratorSubset = (factorId: number) => {
+    onApply((d) => {
+      const existing = d.subset_recommendations ?? [];
+      // ``id`` is the identity everything else keys on — status
+      // changes, the diff, the agent's own entries. Derive it from
+      // the factor plus a counter so re-adding after a delete can't
+      // collide with a row already in the list.
+      let n = 1;
+      const idFor = () => `curator:subset:${factorId}:${n}`;
+      while (existing.some((r) => r.id === idFor())) n++;
+      return {
+        ...d,
+        subset_recommendations: [
+          ...existing,
+          {
+            id: idFor(),
+            by_factor_id: factorId,
+            level_labels: [],
+            rationale: "",
+            status: "accepted" as const,
+            source: "curator" as const,
+          },
+        ],
+      };
+    });
+  };
+
+  /** Drop a curator-authored entry outright. An agent's entry gets
+   *  rejected instead — the no-vote is the record that the suggestion
+   *  was seen and declined. There is nothing to record about a
+   *  decision the curator made and then unmade. */
+  const removeRec = (id: string) => {
+    onApply((d) => ({
+      ...d,
+      subset_recommendations: (d.subset_recommendations ?? []).filter(
+        (r) => r.id !== id,
+      ),
+    }));
+  };
+
+  const addControl = (
+    <AddSubsetControl
+      factors={draft.factors ?? []}
+      taken={
+        new Set(
+          recs
+            .filter((r) => r.status !== "rejected" && r.by_factor_id != null)
+            .map((r) => r.by_factor_id as number),
+        )
+      }
+      readOnly={readOnly}
+      onAdd={addCuratorSubset}
+    />
+  );
+
   if (recs.length === 0) {
     return (
-      <div className="border-t border-slate-200 dark:border-slate-700 pt-2 mt-2">
+      <div className="border-t border-slate-200 dark:border-slate-700 pt-2 mt-2 space-y-2">
         <div className="text-[11px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
           Subset recommendations
         </div>
-        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-1">
-          None recorded. The agent will seed any DEA-subset or
-          partial-coverage recommendations here on next import.
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic">
+          None recorded. The agent seeds DEA-subset and
+          partial-coverage recommendations here on import — or record
+          your own.
         </div>
+        {addControl}
       </div>
     );
   }
@@ -749,19 +829,28 @@ function SubsetRecommendationsBlock({
           <span className="font-medium text-slate-700 dark:text-slate-200">
             Subset by <em>{factorLabel}</em>
           </span>
+          {/* No levels means the whole factor is the subset axis —
+              DEA runs once per level. Say that, rather than leaving
+              the card looking like a subset whose levels went
+              missing. */}
           {levelLabels ? (
             <span className="text-slate-600 dark:text-slate-300">
               → {levelLabels}
             </span>
-          ) : null}
+          ) : (
+            <span className="text-slate-500 dark:text-slate-400">
+              → every level (DEA per level)
+            </span>
+          )}
           <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-500">
             {r.source} · {r.status}
           </span>
         </div>
         <textarea
-          className="w-full text-[11px] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 min-h-[2.5rem]"
-          placeholder="Rationale"
+          className="w-full text-[11px] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 min-h-[2.5rem] disabled:opacity-60"
+          placeholder={readOnly ? "" : "Rationale"}
           value={r.rationale}
+          disabled={readOnly}
           onChange={(e) => setRationale(r.id, e.target.value)}
         />
         <div className="flex items-center gap-2">
@@ -769,24 +858,40 @@ function SubsetRecommendationsBlock({
             <>
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() => setStatus(r.id, "accepted")}
-                className="text-[11px] px-2 py-0.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50"
+                className="text-[11px] px-2 py-0.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50"
               >
                 Accept
               </button>
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() => setStatus(r.id, "rejected")}
-                className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 Reject
               </button>
             </>
+          ) : r.source === "curator" ? (
+            // The curator's own entry has no suggestion behind it to
+            // revert TO — "pending" would mean waiting on an agent
+            // that never proposed this. Removing it is the undo.
+            <button
+              type="button"
+              disabled={readOnly}
+              onClick={() => removeRec(r.id)}
+              className="text-[11px] px-2 py-0.5 rounded border border-rose-300 bg-white text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-700 dark:bg-slate-800 dark:text-rose-300 dark:hover:bg-rose-900/30"
+              title="Remove this subset decision — it was yours, not a suggestion to decline."
+            >
+              Remove
+            </button>
           ) : (
             <button
               type="button"
+              disabled={readOnly}
               onClick={() => setStatus(r.id, "agent_recommended")}
-              className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
               title="Revert to pending."
             >
               Undo ({r.status})
@@ -831,6 +936,76 @@ function SubsetRecommendationsBlock({
           {rejected.map(renderCard)}
         </div>
       ) : null}
+      {addControl}
+    </div>
+  );
+}
+
+/** "Subset DEA by …" — pick a factor, record the decision.
+ *
+ *  A ``<select>`` over the design's own factors rather than free
+ *  text: the entry is keyed by ``by_factor_id``, so a name typed by
+ *  hand would produce a decision that points at nothing downstream.
+ *  Factors already carrying a non-rejected entry drop out of the
+ *  list — a second identical decision says nothing the first didn't,
+ *  and two cards for one factor is how a disposition surface starts
+ *  disagreeing with itself.
+ */
+function AddSubsetControl({
+  factors,
+  taken,
+  readOnly,
+  onAdd,
+}: {
+  factors: Factor[];
+  /** Factor ids already carrying a live (non-rejected) entry. */
+  taken: Set<number>;
+  readOnly: boolean;
+  onAdd: (factorId: number) => void;
+}) {
+  const [choice, setChoice] = useState<string>("");
+  if (readOnly) return null;
+  const available = factors.filter((f) => !taken.has(f.id));
+  if (factors.length === 0) {
+    return (
+      <div className="text-[11px] text-slate-500 dark:text-slate-400 italic">
+        No factors yet — a subset decision names the factor it subsets
+        by.
+      </div>
+    );
+  }
+  if (available.length === 0) return null;
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <label className="text-[11px] text-slate-600 dark:text-slate-300">
+        Subset DEA by
+      </label>
+      <select
+        className="text-[11px] border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5 bg-white dark:bg-slate-900"
+        value={choice}
+        onChange={(e) => setChoice(e.target.value)}
+      >
+        <option value="">select a factor…</option>
+        {available.map((f) => (
+          <option key={f.id} value={String(f.id)}>
+            {f.name || f.category?.label || `factor ${f.id}`}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        disabled={!choice}
+        className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+        title="Record that the DEA should be run subset by this factor. Saves with the design."
+        onClick={() => {
+          const id = Number(choice);
+          if (!Number.isFinite(id)) return;
+          onAdd(id);
+          setChoice("");
+        }}
+      >
+        + Record
+      </button>
     </div>
   );
 }
