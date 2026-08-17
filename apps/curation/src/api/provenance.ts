@@ -79,6 +79,16 @@ export interface ProvenanceEvent {
   run_id?: string | null;
   summary?: string | null;
   confidence?: number | null;
+  /** How sure the producer was, as the word it actually used.
+   *
+   *  Findings carry a bucket, not a number, and coercing `high` to
+   *  `0.9` would invent a precision nobody measured — worse, it would
+   *  then be compared against real confidences from producers that do
+   *  measure one. So the numeric field stays null until something
+   *  genuinely emits a number, and this carries the word. Asked for in
+   *  `UIB_TO_CAB_2026_08_16_ROUTE_VERIFIED_LIVE_…`; renders whenever
+   *  present, absent until then. */
+  confidence_bucket?: "high" | "medium" | "low" | null;
   /** Curator's accept / dismiss reason, where one was given. */
   reason?: string | null;
   /** Verbatim quotes that grounded the pick. Same shape the audit and

@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  *
  * The disc is the whole feature at a glance: it must appear only when
- * there is something to say, and what it says must be "was a human
- * involved", not "an annotation exists".
+ * there is something to say, and what it says must be **where this
+ * came from** — when, by whom, agent or not — never a verdict on it.
  */
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -74,35 +74,95 @@ describe("ProvenanceDot", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("shows a disc once there is a trace, and says who blessed it", () => {
+  it("says when it arrived and that an agent is where it came from", () => {
     render(withRun([traced()], <ProvenanceDot refId="factor:3" />));
+    expect(screen.getByTitle("From an agent · 2026-08-15")).toBeTruthy();
+  });
+
+  it("names the curator when a human put it there", () => {
+    render(
+      withRun(
+        [
+          traced({
+            ref_id: "tag:7",
+            review_state: "curator_authored",
+            events: [
+              {
+                kind: "curator_added",
+                at: "2026-08-15T10:00:00Z",
+                actor: { kind: "curator", name: "local-curator" },
+              },
+            ],
+          }),
+        ],
+        <ProvenanceDot refId="tag:7" />,
+      ),
+    );
     expect(
-      screen.getByTitle("proposed, not reviewed by a human"),
+      screen.getByTitle("Added by local-curator · 2026-08-15"),
     ).toBeTruthy();
   });
 
-  it("distinguishes a human-owned annotation from a proposed one", () => {
-    render(
+  // 🛑 The surface answers "where did this come from", and a proposal
+  // a curator turned down answers it with nothing — the agent didn't
+  // put the annotation there. Showing a disc would be reporting that
+  // somebody argued about it, which is the judgement this is not for.
+  it("renders nothing when all that happened is a declined proposal", () => {
+    const { container } = render(
       withRun(
-        [traced({ ref_id: "tag:7", review_state: "curator_authored" })],
-        <ProvenanceDot refId="tag:7" />,
+        [
+          {
+            ref_id: "factor:1",
+            review_state: "rejected",
+            events: [
+              {
+                kind: "curator_rejected",
+                at: "2026-07-21T04:06:49Z",
+                actor: { kind: "curator", name: "local-curator" },
+                reason: "agent_real_miss",
+              },
+              {
+                kind: "agent_proposed",
+                at: "2026-07-21T03:07:17Z",
+                actor: { kind: "agent", model: "adhoc-decision-ticket" },
+              },
+            ],
+          },
+        ],
+        <ProvenanceDot refId="factor:1" />,
       ),
     );
-    expect(screen.getByTitle("a curator wrote this")).toBeTruthy();
+    expect(container).toBeEmptyDOMElement();
   });
 
-  // Events with no server-computed review_state must not be dressed as
-  // "unreviewed" — that is a claim about a human we have no evidence
-  // for.
-  it("says the review state is unknown rather than guessing", () => {
+  // …but a decline that came AFTER the annotation was really put there
+  // doesn't erase the origin.
+  it("keeps the origin when something survived the decline", () => {
     render(
       withRun(
-        [traced({ ref_id: "tag:7", review_state: null })],
-        <ProvenanceDot refId="tag:7" />,
+        [
+          {
+            ref_id: "tag:4",
+            review_state: "rejected",
+            events: [
+              {
+                kind: "curator_rejected",
+                at: "2026-08-10T00:00:00Z",
+                actor: { kind: "curator", name: "local-curator" },
+              },
+              {
+                kind: "agent_applied",
+                at: "2026-07-01T00:00:00Z",
+                actor: { kind: "curator", name: "local-curator" },
+              },
+            ],
+          },
+        ],
+        <ProvenanceDot refId="tag:4" />,
       ),
     );
     expect(
-      screen.getByTitle("source recorded; review state unknown"),
+      screen.getByTitle("Added by local-curator · 2026-07-01"),
     ).toBeTruthy();
   });
 });

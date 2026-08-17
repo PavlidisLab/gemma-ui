@@ -2,18 +2,20 @@
  * "Populate provenance" — the curator-triggered run that fills in the
  * discs.
  *
- * Sits beside the term-validation panel on Overview and behaves the
- * same way on purpose: one button, one batch request covering every
- * annotation on the experiment, a tally that says what happened, and
- * nothing fetched until someone asks. Curators already know that
- * shape; a second interaction model for a second batch check would be
- * a new thing to learn for no gain.
+ * Sits beside the term-validation row on Overview and behaves the same
+ * way on purpose: one button, one batch request covering every
+ * annotation on the experiment, and nothing fetched until someone
+ * asks. Curators already know that shape.
  *
- * The tally matters more here than it does for term validation,
- * because the expected outcome is EMPTY. "Asked about 12 · 0 carry a
- * source" is the difference between "we looked and nothing is
- * recorded" and "the button did nothing", and without it every clean
- * experiment looks like a broken feature.
+ * 🛑 **One row, like the row above it** (Paul, 2026-08-16 — the panel
+ * was taking too much space). Overview is a dense page a curator scans
+ * on the way to the work; a batch check that costs four lines to say
+ * "there's a button here" outranks itself. The tally is the only prose
+ * that earns its place, because the expected outcome is EMPTY —
+ * "9 asked · 2 with a source" is the difference between "we looked and
+ * nothing is recorded" and "the button did nothing", and without it
+ * every clean experiment looks like a broken feature. The rest moved
+ * into the button's own tooltip.
  */
 
 import { useMemo } from "react";
@@ -34,7 +36,7 @@ export function ProvenancePanel({
   const nothingToTrace = refs.length === 0;
 
   return (
-    <section className="card p-3 space-y-2">
+    <section className="card p-3">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
           Provenance
@@ -47,7 +49,7 @@ export function ProvenancePanel({
           title={
             nothingToTrace
               ? "Nothing to trace — this experiment has no factors or tags yet."
-              : `Ask where each of the ${refs.length} annotations on this experiment came from.`
+              : "Ask where each annotation on this experiment came from. Hover a disc for the evidence behind it."
           }
         >
           {run.status === "loading"
@@ -57,44 +59,30 @@ export function ProvenancePanel({
               : `Populate provenance (${refs.length})`}
         </button>
 
+        {/* 🛑 Three different silences, three different sentences — but
+            all on one line. An undeployed endpoint is not a fact about
+            this experiment's curation, and an empty result is not a
+            failure. */}
         {run.status === "ready" ? (
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            asked about {run.asked} ·{" "}
+            {run.asked} asked ·{" "}
             {run.traced > 0
-              ? `${run.traced} carry a source`
+              ? `${run.traced} with a source`
               : "none carry a recorded source"}
           </span>
         ) : null}
+        {run.status === "unavailable" ? (
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            not available on this backend yet
+          </span>
+        ) : null}
+        {run.status === "error" ? (
+          <span className="text-[11px] text-red-700 dark:text-red-300">
+            couldn&apos;t reach the service — nothing changed, this lookup is
+            read-only
+          </span>
+        ) : null}
       </div>
-
-      {/* 🛑 Three different silences, three different sentences. An
-          undeployed endpoint is not a fact about this experiment's
-          curation, and an empty result is not a failure. */}
-      {run.status === "unavailable" ? (
-        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          The provenance service isn&apos;t available on this backend yet —
-          nothing was asked about the annotations.
-        </p>
-      ) : null}
-      {run.status === "error" ? (
-        <p className="text-[11px] text-red-700 dark:text-red-300">
-          Couldn&apos;t reach the provenance service. Nothing changed — this
-          lookup is read-only.
-        </p>
-      ) : null}
-      {run.status === "ready" && run.traced === 0 ? (
-        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          No source is recorded for these annotations. Expected for anything
-          curated before provenance was captured — it isn&apos;t a problem with
-          the annotations.
-        </p>
-      ) : null}
-      {run.status === "ready" && run.traced > 0 ? (
-        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-          Hover a disc beside a tag or factor for what produced it, and whether
-          a human signed off.
-        </p>
-      ) : null}
     </section>
   );
 }

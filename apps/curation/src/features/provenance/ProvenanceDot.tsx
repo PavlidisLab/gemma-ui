@@ -2,26 +2,31 @@
  * The disc beside an annotation that says where it came from.
  *
  * Renders NOTHING until a curator runs "populate provenance", and
- * nothing after it for an annotation with no recorded trace — which
+ * nothing after it for an annotation with no recorded source — which
  * will be most of them for a long time. Same rule as `AuditDot`: a
  * marker that appears on everything says nothing, and a ring on every
- * chip to mean "we asked and nobody knew" is chrome charging rent. The
- * panel's tally carries the "we asked" half.
+ * chip to mean "we asked and nobody knew" is chrome charging rent.
  *
- * Reuses `StatusDisc` rather than drawing a fifth dot glyph — the
- * codebase already has one 4-tone disc and a second would drift. The
- * tone axis here is **who blessed this**, which is the question Paul
- * asks first ("which agent, when, and was it reviewed by a human?"):
+ * 🛑 **Provenance, not judgement** (Paul, 2026-08-16). This surface
+ * answers three questions and no others: **when was it added, by whom,
+ * and did it come from an agent** — and then, the part that actually
+ * earns the hover, **what evidence grounded it**. A paper quote or a
+ * sample-characteristic quote is the useful payload; everything else
+ * is packaging.
  *
- *   ◐ sky      unreviewed        — an agent proposed it, nobody signed off
- *   ● emerald  a human owns it   — accepted, authored, or edited by a curator
- *   ● amber    rejected          — recorded objection; rare on a live annotation
- *   ○ slate    traced, no verdict — events exist, review state unknown
+ * Three things were here and are deliberately gone:
  *
- * Hover gives the detail. Reading like the proposal card was the ask,
- * with one addition it doesn't have: a human half. Curator events are
- * not footnotes on the agent's reasoning — for an annotation somebody
- * typed by hand, they are the whole trace.
+ *  - **"not reviewed by a human."** The absence of a review is not a
+ *    fact about the annotation, and stating it invites a curator to
+ *    go fix something that isn't broken. We render events that
+ *    happened, never the ones that didn't.
+ *  - **The proposal's own headline** ("Add tag `developmental stage:
+ *    prime adult stage`?"). It was added. Asking the question back at
+ *    the curator, in the trace of the thing that exists, reads as a
+ *    pending decision.
+ *  - **The review-state tone axis** (emerald accepted / amber
+ *    rejected). That was a verdict; the tone axis is now origin —
+ *    agent or human — which is what the curator asked to see.
  */
 
 import { StatusDisc, type StatusDiscTone } from "@/components/ui/StatusDisc";
@@ -30,7 +35,6 @@ import { evidenceSourceMeta } from "@/features/audit/evidenceSource";
 import type {
   ProvenanceActor,
   ProvenanceEvent,
-  ProvenanceReviewState,
   ProvenanceTrace,
 } from "@/api/provenance";
 
@@ -44,90 +48,176 @@ export function ProvenanceDot({
   className?: string;
 }) {
   const trace = useTrace(refId);
-  if (!trace) return null;
+  const origin = trace ? originOf(trace) : null;
+  if (!trace || !origin) return null;
   return (
-    <Tooltip label={<TraceCard trace={trace} />} interactive wide side="bottom">
+    <Tooltip
+      label={<ProvenanceTraceCard origin={origin} />}
+      interactive
+      wide
+      side="bottom"
+    >
       <span className={className}>
-        <StatusDisc
-          tone={toneFor(trace.review_state)}
-          title={reviewStateCopy(trace.review_state)}
-        />
+        <StatusDisc tone={toneFor(origin)} title={originLine(origin)} />
       </span>
     </Tooltip>
   );
 }
 
-function toneFor(state: ProvenanceReviewState | null | undefined): StatusDiscTone {
-  switch (state) {
-    case "accepted":
-    case "curator_authored":
-    case "curator_edited":
-      return "done";
-    case "rejected":
-      return "uncommitted";
-    case "unreviewed":
+/** Where the annotation came from: agent, human, or the import. */
+type OriginKind = "agent" | "curator" | "import" | "unknown";
+
+interface Origin {
+  kind: OriginKind;
+  event: ProvenanceEvent;
+  /** Later events that are also part of the story — a curator
+   *  accepting the agent's proposal, a subsequent edit. Facts only. */
+  rest: ProvenanceEvent[];
+}
+
+/**
+ * The event that explains where this annotation came from, or null
+ * when nothing recorded does.
+ *
+ * 🛑 A declined proposal is not an origin. If all we hold is an agent
+ * proposing something and a curator saying no, the annotation is
+ * exactly as unexplained as it was before — the agent didn't put it
+ * there. Rendering a disc would be answering "where did this come
+ * from" with "somebody argued about it", which is the judgement this
+ * surface is not for.
+ */
+export function originOf(trace: ProvenanceTrace): Origin | null {
+  const events = (trace.events ?? []).filter(
+    (e) => e.kind !== "curator_rejected",
+  );
+  if (events.length === 0) return null;
+  // The server sends newest-first, so the origin is the last one.
+  const event = events[events.length - 1];
+  if (event.kind === "agent_proposed" && trace.review_state === "rejected") {
+    // The only substantive thing on file is a proposal that lost.
+    const survivedAnyway = events.some((e) => e.kind !== "agent_proposed");
+    if (!survivedAnyway) return null;
+  }
+  return {
+    kind: originKind(event),
+    event,
+    rest: events.slice(0, -1),
+  };
+}
+
+/** The actor outranks the event name, because they can disagree and
+ *  the actor is the one that answers "by whom". `agent_applied` is the
+ *  case: it names the agent's proposal but its actor is the curator
+ *  who accepted it, and on a trace where that is the ONLY event, a
+ *  human is genuinely who put the annotation there. Where both events
+ *  survive, the older `agent_proposed` wins the origin slot anyway and
+ *  this never fires. */
+function originKind(event: ProvenanceEvent): OriginKind {
+  const actorKind = typeof event.actor === "object" ? event.actor?.kind : null;
+  if (actorKind === "agent") return "agent";
+  if (actorKind === "curator") return "curator";
+  if (actorKind === "import" || event.kind === "imported") return "import";
+  if (event.kind.startsWith("agent_")) return "agent";
+  if (event.kind.startsWith("curator_")) return "curator";
+  if (event.kind === "promoted") return "import";
+  return "unknown";
+}
+
+/** Colour carries origin, not approval. Sky reads "machine", emerald
+ *  "a person", slate "recorded, source unclear". Amber is gone with
+ *  the verdict it used to mean. */
+function toneFor(origin: Origin): StatusDiscTone {
+  switch (origin.kind) {
+    case "agent":
       return "draft";
+    case "curator":
+      return "done";
+    case "import":
+      return "untouched";
     default:
-      // Events exist but the server didn't compute a state — say
-      // nothing about review rather than guessing "unreviewed", which
-      // would be a claim about a human we have no evidence for.
       return "untouched";
   }
 }
 
-export function reviewStateCopy(
-  state: ProvenanceReviewState | null | undefined,
-): string {
-  switch (state) {
-    case "accepted":
-      return "a curator accepted this";
-    case "curator_authored":
-      return "a curator wrote this";
-    case "curator_edited":
-      return "a curator changed this";
-    case "rejected":
-      // 🛑 NOT "this annotation is rejected". The disposition is about
-      // the agent's PROPOSAL; the annotation itself survived it, and a
-      // curator looked at it to say so. Live rows made the difference
-      // matter — GSE17646's `factor:1` is a sound factor whose disc
-      // read as a defect under the old wording.
-      return "a curator declined the change proposed here";
-    case "unreviewed":
-      return "proposed, not reviewed by a human";
-    default:
-      return "source recorded; review state unknown";
-  }
+/** The one-line answer to "when, by whom, from an agent?" */
+export function originLine(origin: Origin): string {
+  const when = formatWhen(origin.event.at);
+  const who = actorLine(origin.event.actor);
+  const lead =
+    origin.kind === "agent"
+      ? "From an agent"
+      : origin.kind === "curator"
+        ? who
+          ? `Added by ${who}`
+          : "Added by a curator"
+        : origin.event.kind === "promoted"
+          ? "Promoted from a sample characteristic"
+          : origin.event.kind === "imported"
+            ? "Imported with the dataset"
+            : "Recorded source";
+  return when ? `${lead} · ${when}` : lead;
 }
 
-/** The hover body. Newest first — "what happened to this" is usually
- *  the question, and the origin is one scroll away at the bottom. */
-function TraceCard({ trace }: { trace: ProvenanceTrace }) {
-  const events = trace.events ?? [];
+/** The hover body: the origin line, who exactly, then the evidence —
+ *  which is the reason to open this at all.
+ *
+ *  Exported for render tests. The tooltip portals its content only
+ *  while open, so asserting on what a curator actually reads means
+ *  rendering this directly — same affordance, same reason, as
+ *  `ProvenanceRunContext`. Production only ever mounts it through
+ *  {@link ProvenanceDot}. */
+export function ProvenanceTraceCard({ origin }: { origin: Origin }) {
+  const agentDetail =
+    origin.kind === "agent" ? actorLine(origin.event.actor) : "";
   return (
     <div className="space-y-2 text-left">
-      <div className="font-semibold">{reviewStateCopy(trace.review_state)}</div>
-      {events.map((e, i) => (
-        <EventRow key={i} event={e} />
+      <div className="font-semibold">{originLine(origin)}</div>
+      {agentDetail || confidenceText(origin.event) ? (
+        <div className="opacity-80 text-[11px]">
+          {[agentDetail, confidenceText(origin.event)]
+            .filter(Boolean)
+            .join(" · ")}
+        </div>
+      ) : null}
+
+      <Evidence event={origin.event} />
+      <Change event={origin.event} />
+
+      {/* Later facts about the same annotation — who accepted it, who
+          edited it. Stated as what happened, never as a verdict, and
+          never as an absence. */}
+      {origin.rest.map((e, i) => (
+        <div key={i} className="opacity-90">
+          <div>
+            <span className="font-medium">{FACT_COPY[e.kind] ?? e.kind}</span>
+            {actorLine(e.actor) ? (
+              <span className="opacity-80"> · {actorLine(e.actor)}</span>
+            ) : null}
+            {formatWhen(e.at) ? (
+              <span className="opacity-60"> · {formatWhen(e.at)}</span>
+            ) : null}
+          </div>
+          {/* The curator's own words, where they gave any. */}
+          {e.reason ? <div className="italic opacity-90">“{e.reason}”</div> : null}
+          <Evidence event={e} />
+        </div>
       ))}
-      {/* What a trace can and can't answer today. Everything here is
-          reconstructed from curation reviews, so an annotation a
-          curator typed straight into the editor leaves nothing behind
-          — "unreviewed" means no review decided it, NOT that no human
-          ever touched it. Until the append-only event table exists,
-          saying so is the difference between a trace a curator can
-          rely on and one they have to second-guess. */}
-      <div className="opacity-70 text-[10px]">
-        From the audit and proposal reviews on file — a change made outside a
-        review leaves no trace yet.
-      </div>
+
+      {origin.event.run_id ? (
+        <div className="font-mono text-[9px] opacity-60">
+          {origin.event.run_id}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-const KIND_COPY: Record<ProvenanceEvent["kind"], string> = {
+/** What actually happened, in the past tense. No question marks: the
+ *  annotation exists, so "was this added?" is not the sentence. */
+const FACT_COPY: Partial<Record<ProvenanceEvent["kind"], string>> = {
   imported: "imported with the dataset",
-  agent_proposed: "proposed",
-  agent_applied: "agent proposal applied",
+  agent_proposed: "proposed by an agent",
+  agent_applied: "applied",
   curator_added: "added by a curator",
   curator_edited: "edited",
   promoted: "promoted from a sample characteristic",
@@ -135,25 +225,18 @@ const KIND_COPY: Record<ProvenanceEvent["kind"], string> = {
   curator_rejected: "declined by a curator",
 };
 
-function EventRow({ event }: { event: ProvenanceEvent }) {
-  const actor = actorLine(event.actor);
-  const when = formatWhen(event.at);
-  const change = changeLine(event);
+/** The verbatim quotes that grounded it — a paper sentence, a sample
+ *  characteristic. This is the payload; the rest of the card is
+ *  context for it. Rendered through the same per-source presentation
+ *  the audit surfaces use so one source never gets described two
+ *  ways. */
+function Evidence({ event }: { event: ProvenanceEvent }) {
+  const evidence = event.evidence ?? [];
+  if (evidence.length === 0) return null;
   return (
-    <div className="border-l-2 border-slate-300 dark:border-slate-600 pl-2 space-y-0.5">
-      <div>
-        <span className="font-medium">{KIND_COPY[event.kind] ?? event.kind}</span>
-        {actor ? <span className="opacity-80"> · {actor}</span> : null}
-        {when ? <span className="opacity-60"> · {when}</span> : null}
-      </div>
-      {event.summary ? <div className="opacity-90">{event.summary}</div> : null}
-      {change ? <div className="font-mono text-[10px] opacity-90">{change}</div> : null}
-      {/* The curator's own words, where they gave any. On a dismissed
-          or accepted annotation this is the answer to "why", and it
-          outranks anything the agent said. */}
-      {event.reason ? <div className="italic opacity-90">“{event.reason}”</div> : null}
-      {(event.evidence ?? []).map((ev, i) => {
-        const meta = evidenceSourceMeta(ev.source);
+    <div className="space-y-1">
+      {evidence.map((ev, i) => {
+        const meta = evidenceSourceMeta(ev.source, ev.location);
         return (
           <div key={i} className="opacity-90">
             <span className="uppercase tracking-wide text-[9px] opacity-70">
@@ -166,16 +249,33 @@ function EventRow({ event }: { event: ProvenanceEvent }) {
           </div>
         );
       })}
-      {event.run_id ? (
-        <div className="font-mono text-[9px] opacity-60">{event.run_id}</div>
-      ) : null}
     </div>
   );
 }
 
+/** How sure the producer was, when it said. Prefers the word it used
+ *  over a number it didn't — a bucket rendered as "0.9" is a precision
+ *  nobody measured. Absent on everything today; shows up the moment a
+ *  producer populates either field. */
+function confidenceText(event: ProvenanceEvent): string {
+  if (event.confidence_bucket) return `${event.confidence_bucket} confidence`;
+  if (typeof event.confidence === "number") {
+    return `confidence ${event.confidence.toFixed(2)}`;
+  }
+  return "";
+}
+
+function Change({ event }: { event: ProvenanceEvent }) {
+  const before = (event.before?.label ?? "").trim();
+  const after = (event.after?.label ?? "").trim();
+  const text = before && after ? `${before} → ${after}` : "";
+  if (!text) return null;
+  return <div className="font-mono text-[10px] opacity-90">{text}</div>;
+}
+
 /** "which agent" is a fleet question — name the subagent when we have
- *  one, and keep the model beside it, because a run is a (model, build)
- *  pair and either alone has misidentified a run before. */
+ *  one, and keep the model beside it, because a run is a (model,
+ *  build) pair and either alone has misidentified a run before. */
 function actorLine(actor: ProvenanceEvent["actor"]): string {
   if (!actor) return "";
   if (typeof actor === "string") return actor;
@@ -184,14 +284,6 @@ function actorLine(actor: ProvenanceEvent["actor"]): string {
   const sha = (a.head_sha ?? "").trim();
   if (sha) bits.push(sha.slice(0, 7));
   return bits.join(" · ");
-}
-
-function changeLine(event: ProvenanceEvent): string {
-  const before = (event.before?.label ?? "").trim();
-  const after = (event.after?.label ?? "").trim();
-  if (before && after) return `${before} → ${after}`;
-  if (after) return after;
-  return "";
 }
 
 /** Date only. A trace spans months; the minute it happened has never
