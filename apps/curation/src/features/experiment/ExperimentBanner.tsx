@@ -175,7 +175,13 @@ export function ExperimentBanner({
             <ModalityIndicator />
             <TitleEditor title={title} />
           </div>
-          <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+          {/* ``items-center`` matters here now that the row mixes plain
+              text with bordered chips. Flex defaults to `stretch`, so
+              each child grew to the tallest item's height and the text
+              sat at the TOP of its stretched box while the chips
+              centred inside theirs — the two ran on visibly different
+              baselines. */}
+          <div className="mt-1 text-xs text-slate-600 flex flex-wrap items-center gap-x-4 gap-y-1">
             <span>{taxon}</span>
             <span>{nSamples} samples</span>
             <CellTypeCountChip />
