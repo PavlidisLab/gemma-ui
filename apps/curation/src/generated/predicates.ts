@@ -32,6 +32,7 @@ export const PREDICATES: readonly PredicateDef[] = [
   { label: "derives from cell", uri: "http://purl.obolibrary.org/obo/CLO_0037209", description: "Sample is derived from a CL cell type." },
   { label: "derives from part of", uri: "http://purl.obolibrary.org/obo/ENVO_01003004", description: "Sample is derived from part of an organism part (UBERON)." },
   { label: "derives from", uri: "http://purl.obolibrary.org/obo/RO_0001000", description: "Catch-all when none of the `derives from x` cases fit." },
+  { label: "derives from patient having disease", uri: "http://purl.obolibrary.org/obo/CLO_0000015", description: "Sample, primary cell or cell line obtained from an individual who has the disease. The disease belongs to that individual; the sample was not modified or induced to have it (contrast `has disease`). Use when the disease is not recoverable from the cell line's own record \u2014 an ungrounded line." },
   { label: "has child with disease", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00201", description: "Sample from a parent whose child has a specific disease." },
   { label: "has developmental stage", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00168", description: "Linking exact age to a UBERON developmental stage." },
   { label: "has disease", uri: "http://purl.obolibrary.org/obo/RO_0016002", description: "Sample modified to have a disease (not from a patient with it). Confluence: Use-of-predicates-in-factor-values." },
