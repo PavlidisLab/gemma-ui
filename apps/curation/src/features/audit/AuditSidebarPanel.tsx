@@ -382,7 +382,28 @@ function SidebarHeader({
     auditList,
     activeAuditIndex,
     setActiveAuditIndex,
+    setOverrideReport,
   } = useAudit();
+  /**
+   * Select a {@link auditList} entry BY DROPPING THE OVERRIDE.
+   *
+   * The context resolves the rendered report as ``override ?? liveList[i]``,
+   * so while an override is mounted the arrows moved ``i`` and nothing on
+   * screen followed — "switching proposal doesn't change anything, not
+   * even the date" (Paul, 2026-08-16). The override is not a dev-only
+   * thing either: ``ChipOverrideMount`` installs one for the ordinary
+   * gold-vs-agent chip pair, which is the default review state, so the
+   * navigator was inert exactly when a curator would reach for it.
+   *
+   * Asking for proposal 2 of 3 is a request to see proposal 2, so the
+   * override goes. It does not come back on its own — the effect that
+   * installs it is keyed on the chip pair, which this doesn't touch —
+   * and changing a chip re-establishes it as before.
+   */
+  const selectAudit = (index: number) => {
+    setOverrideReport(null);
+    setActiveAuditIndex(index);
+  };
   // Review-mode lock — suppresses Apply All (per-finding row actions
   // are gated inside ``ActionRow`` itself; same FlowContext source).
   const readOnly = useIsReadOnly();
@@ -1029,17 +1050,22 @@ function SidebarHeader({
         {auditList.length > 1 ? (
           <span
             className="inline-flex items-baseline gap-0.5 text-[10px]"
-            title={`${copy.Noun} ${activeAuditIndex + 1} of ${auditList.length} on this experiment — ◂ / ▸ to switch between them`}
+            title={
+              `${copy.Noun} ${activeAuditIndex + 1} of ${auditList.length} on this experiment — ◂ / ▸ to switch between them.` +
+              (hasOverride
+                ? `\n\nThe panel is currently showing the chip comparison, not one of these; switching drops it and shows the ${copy.noun} you pick.`
+                : "")
+            }
           >
             <button
               type="button"
               onClick={() =>
-                setActiveAuditIndex(
+                selectAudit(
                   (activeAuditIndex - 1 + auditList.length) % auditList.length,
                 )
               }
               className="px-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
-              aria-label="previous audit"
+              aria-label={`previous ${copy.noun}`}
             >
               ◂
             </button>
@@ -1049,16 +1075,28 @@ function SidebarHeader({
                 is the whole answer: these are the proposals / audits
                 loaded for this experiment, not pages of the one on
                 screen, and only the word distinguishes those. */}
-            <span className="tabular-nums text-slate-500 dark:text-slate-400 px-0.5">
-              {copy.noun} {activeAuditIndex + 1}/{auditList.length}
+            {/* While an override is mounted the curator is NOT on any of
+                these, so the index would be claiming a position it
+                doesn't hold. Say the total and drop the position. */}
+            <span
+              className={cn(
+                "tabular-nums px-0.5",
+                hasOverride
+                  ? "text-slate-400 dark:text-slate-500 italic"
+                  : "text-slate-500 dark:text-slate-400",
+              )}
+            >
+              {hasOverride
+                ? `${auditList.length} ${copy.nounPlural}`
+                : `${copy.noun} ${activeAuditIndex + 1}/${auditList.length}`}
             </span>
             <button
               type="button"
               onClick={() =>
-                setActiveAuditIndex((activeAuditIndex + 1) % auditList.length)
+                selectAudit((activeAuditIndex + 1) % auditList.length)
               }
               className="px-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
-              aria-label="next audit"
+              aria-label={`next ${copy.noun}`}
             >
               ▸
             </button>
