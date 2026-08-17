@@ -6,6 +6,7 @@ import {
   structuralApplyMutationAllowed,
   verdictToStructureDetails,
 } from "./dispositionSave";
+import type { AuditTargetKind } from "@/api/auditTypes";
 
 /** These tests pin down the wire-shape derivation that surfaces in
  *  the editor's per-button-click PATCH. Three regressions have hit
@@ -175,13 +176,27 @@ describe("deriveDismissReason", () => {
 
   it("dismissed + gold_only_miss (factor) → agent_real_miss", () => {
     expect(
-      deriveDismissReason("dismissed", "calibration_factor_gold_only_miss"),
+      deriveDismissReason(
+        "dismissed",
+        "calibration_factor_gold_only_miss",
+        "factor",
+      ),
     ).toBe("agent_real_miss");
   });
 
-  it("dismissed + gold_only_miss (tag) → agent_real_miss", () => {
+  // Was pinned to `agent_real_miss` — the FACTOR key on the TAG code.
+  // The 2026-06-15 tag/factor chip split never reached this helper, so
+  // the tag bypass would have written a slug its own dialog doesn't
+  // offer (cab, 2026-08-17). Zero stored rows carry it, so nothing
+  // needs remapping; the test now pins the tag key.
+  it("dismissed + gold_only_miss (tag) → agent_missed_it, NOT the factor key", () => {
+    expect(
+      deriveDismissReason("dismissed", "calibration_gold_only_miss", "tag"),
+    ).toBe("agent_missed_it");
+    // The code alone is enough — a caller that can't supply the kind
+    // still gets the tag key, because this issue_code IS the tag one.
     expect(deriveDismissReason("dismissed", "calibration_gold_only_miss")).toBe(
-      "agent_real_miss",
+      "agent_missed_it",
     );
   });
 
@@ -284,6 +299,9 @@ describe("end-to-end button → wire derivation", () => {
     name: string;
     verdict: "proposal" | "currently" | "reference";
     issueCode: string;
+    /** Mirrors the real call site, which passes the finding's kind —
+     *  the tag/factor remove-dismiss vocabularies differ. */
+    targetKind?: AuditTargetKind;
     expectStatus: string;
     expectStructure: boolean | null;
     expectDetails: boolean | null;
@@ -386,10 +404,13 @@ describe("end-to-end button → wire derivation", () => {
       name: "keep Curator A's on tag gold_only_miss",
       verdict: "currently",
       issueCode: "calibration_gold_only_miss",
+      targetKind: "tag" as const,
       expectStatus: "dismissed",
       expectStructure: false,
       expectDetails: null,
-      expectDismissReason: "agent_real_miss",
+      // Tag code → tag key. See the targeted test above for why this
+      // used to read `agent_real_miss`.
+      expectDismissReason: "agent_missed_it",
       expectAcceptReason: undefined,
     },
     {
@@ -421,7 +442,11 @@ describe("end-to-end button → wire derivation", () => {
         c.issueCode,
       );
       const status = deriveStatus(structureOk, detailsOk);
-      const dismissReason = deriveDismissReason(status, c.issueCode);
+      const dismissReason = deriveDismissReason(
+        status,
+        c.issueCode,
+        c.targetKind,
+      );
       const acceptReason = deriveAcceptReason(status, c.issueCode);
       expect(structureOk).toBe(c.expectStructure);
       expect(detailsOk).toBe(c.expectDetails);

@@ -23,6 +23,7 @@
 
 import type {
   AcceptReason,
+  AuditFinding,
   DismissReason,
   DispositionStatus,
 } from "@/api/auditTypes";
@@ -100,10 +101,25 @@ export function structuralApplyMutationAllowed(
  *  this from a curator pick; the editor's one-click "keep gold"
  *  bypass needs a sensible default. Derives from issue_code:
  *
- *    * gold_only_miss codes → ``agent_real_miss`` (the curator is
- *      saying the agent missed gold's existing curation).
+ *    * gold_only_miss codes → the target's "it's correct, keep it"
+ *      key: ``agent_missed_it`` for a tag, ``agent_real_miss`` for a
+ *      factor.
  *    * extras / anything else → ``wont_fix`` (catch-all;
  *      semantically "structural call is wrong, no further action").
+ *
+ *  🛑 ``targetKind`` is not optional decoration. The 2026-06-15 split
+ *  gave tags and factors separate remove-dismiss vocabularies
+ *  (`CAL_MISS_TAG_DISMISS_CHIPS` vs `CAL_MISS_FACTOR_DISMISS_CHIPS`)
+ *  and never reached this helper, so the TAG code
+ *  ``calibration_gold_only_miss`` derived the FACTOR key
+ *  ``agent_real_miss`` — a slug its own dialog doesn't offer (cab,
+ *  2026-08-17). Zero stored rows carry it, so the tag bypass has
+ *  evidently never fired; fixed before it does.
+ *
+ *  🛑 Every caller must mark the result with
+ *  ``withDerivedReasonNote`` — a derived slug that looks like a pick
+ *  is what made the store's reason tallies unreadable. See
+ *  ``DERIVED_REASON_NOTE``.
  *
  *  Returns ``undefined`` when status isn't dismissed — the wire
  *  shape only carries dismiss_reason on dismiss PATCHes.
@@ -111,13 +127,17 @@ export function structuralApplyMutationAllowed(
 export function deriveDismissReason(
   status: DispositionStatus,
   issueCode: string,
+  targetKind?: AuditFinding["target_kind"],
 ): DismissReason | undefined {
   if (status !== "dismissed") return undefined;
-  if (
-    issueCode === "calibration_gold_only_miss" ||
-    issueCode === "calibration_factor_gold_only_miss"
-  ) {
-    return "agent_real_miss";
+  if (issueCode === "calibration_gold_only_miss") {
+    // Tag code. Guard on the code first rather than on targetKind
+    // alone: a caller that can't supply the kind still gets the tag
+    // key here, because this code IS the tag one.
+    return targetKind === "factor" ? "agent_real_miss" : "agent_missed_it";
+  }
+  if (issueCode === "calibration_factor_gold_only_miss") {
+    return targetKind === "tag" ? "agent_missed_it" : "agent_real_miss";
   }
   return "wont_fix";
 }

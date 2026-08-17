@@ -90,6 +90,7 @@ import {
   displaySeverity,
   severityBorderCls,
   verdictStrength,
+  withDerivedReasonNote,
   SHOW_PARK_AFFORDANCE,
 } from "./auditPresentation";
 import { isNearMatchFinding } from "./factorMatch";
@@ -1617,6 +1618,11 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 // `well_evidenced` ("agent's evidence holds up").
                 // Curators who want a different reason can Park +
                 // re-Agree through the chip dialog.
+                //
+                // 🛑 This is the single biggest default-as-verdict site
+                // in the store: 72 rows, 23% of all curator rows, every
+                // one of them this line rather than a curator's answer
+                // (cab, 2026-08-17). Mark it — see DERIVED_REASON_NOTE.
                 const acceptReason = isAgentExtraIssue(finding.issue_code)
                   ? ("well_evidenced" as const)
                   : undefined;
@@ -1624,7 +1630,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                   appliedFix: action.appliedFix,
                   resolvedAt: needsWork ? undefined : new Date().toISOString(),
                   acceptReason,
-                  notes,
+                  notes: acceptReason ? withDerivedReasonNote(notes) : notes,
                   matchVerdict,
                 });
               }
@@ -1637,11 +1643,21 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             const derivedDismissReason = deriveDismissReason(
               status,
               finding.issue_code,
+              finding.target_kind,
             );
             const derivedAcceptReason = deriveAcceptReason(
               status,
               finding.issue_code,
             );
+            // Neither slug was picked by the curator — this save
+            // skipped the chip dialog entirely. Say so in the note, or
+            // the row is indistinguishable from a verdict downstream
+            // (see DERIVED_REASON_NOTE). Curator's own note wins the
+            // top of the field.
+            const notesWithProvenance =
+              derivedDismissReason || derivedAcceptReason
+                ? withDerivedReasonNote(notes)
+                : notes;
             // Dual-write: apply the curator's per-row edits to the
             // design draft BEFORE patching the disposition. The draft
             // mutation shows up immediately in the Design tab and rides
@@ -1672,7 +1688,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
               resolvedAt,
               dismissReason: derivedDismissReason,
               acceptReason: derivedAcceptReason,
-              notes,
+              notes: notesWithProvenance,
               matchVerdict,
             });
           }}

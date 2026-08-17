@@ -133,6 +133,36 @@ export const IMPLICIT_REJECT_NOTE =
   "Implicit reject — curator closed the review without acting on this " +
   "proposal.";
 
+/** Marker appended when the reason slug was DERIVED from the issue
+ *  code rather than picked by the curator — the one-click paths that
+ *  skip the chip dialog (`deriveDismissReason` / `deriveAcceptReason`,
+ *  and the structural-only Agree's `well_evidenced`).
+ *
+ *  🛑 Without this the two are indistinguishable in the store, and a
+ *  reason tally reads a default as a verdict. That cost something
+ *  real: `well_evidenced` is the single most common value in the store
+ *  (72 rows, 23% of curator rows) and every one is a fallback; a
+ *  factor-side chip prune was argued from "zero uses" on a dialog the
+ *  data can't show was ever opened (cab, 2026-08-17).
+ *
+ *  The control that proves the shape: on `calibration_gold_only_miss`
+ *  accepts — where curators DO reach the dialog — the derived default
+ *  `gold_was_wrong` has zero uses and 58 rows spread across five chips
+ *  with 21 notes. Reached ⇒ spread. Bypassed ⇒ 100% default, no notes.
+ *
+ *  Appended, never substituted: the curator may have typed their own
+ *  note on the same save, and theirs comes first. */
+export const DERIVED_REASON_NOTE =
+  "Reason not picked by the curator — derived from the issue code on a " +
+  "one-click save that skipped the reason dialog.";
+
+/** Compose {@link DERIVED_REASON_NOTE} onto whatever the curator
+ *  typed. Use at every site that sends a derived reason slug. */
+export function withDerivedReasonNote(notes?: string | null): string {
+  const typed = (notes ?? "").trim();
+  return typed ? `${typed}\n\n${DERIVED_REASON_NOTE}` : DERIVED_REASON_NOTE;
+}
+
 // ---------------------------------------------------------------------------
 // Target kinds — ordering and human-facing labels
 // ---------------------------------------------------------------------------

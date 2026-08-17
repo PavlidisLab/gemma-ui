@@ -96,20 +96,38 @@ export const NOT_SURE_CHIPS: DialogChip[] = [
  *    whose question is only whether the factor stays.
  *
  * So the labels now lead with the outcome — keep — and name the fix
- * after it. "Missed evidence" is gone because it answered a different
- * question (what the agent did wrong, not what happens to the
- * factor), and with no competing proposal on the card it was
- * indistinguishable from the first chip anyway. "Borderline" is gone
- * for the reason the 2026-08-13 tag revision demoted it: a dumping
- * ground ranked among real answers stays the path of least
- * resistance. Both keys remain valid on the wire (`DismissReason:
- * str` is open-enum) and no stored row used either, so nothing is
- * orphaned by dropping them from what's offered.
+ * after it.
+ *
+ * 🛑 **The zero-use counts above are not evidence and must not be
+ * reused as such** (cab, 2026-08-17). All 19 rows are
+ * `deriveDismissReason`'s default with no note attached, which is the
+ * signature of a dialog that was never opened, not of chips that were
+ * offered and refused. The control: on `calibration_gold_only_miss`
+ * ACCEPTS, where curators demonstrably do reach the dialog, the
+ * derived default `gold_was_wrong` has zero uses while 58 rows spread
+ * across five chips with 21 notes. Reached ⇒ spread; bypassed ⇒ 100%
+ * default, no notes. `DERIVED_REASON_NOTE` now marks the derived rows
+ * so this stops being unreadable.
+ *
+ * What survives that correction, on non-count grounds:
+ *  - The relabel — "Wrong partition" meaning keep here while
+ *    "Partition wrong" one dialog over means remove was backwards
+ *    whatever the counts.
+ *  - Dropping "Missed evidence", now argued from the TAG dialog
+ *    instead — the one remove-dismiss dialog that was genuinely used.
+ *    There, 7 curators answered "it's right, and here's where it says
+ *    so" as top-chip + evidence note against 1 who took the chip.
+ *  - NOT dropping "Borderline", which this set had removed for being a
+ *    dumping ground. Same tag evidence says otherwise: 4 real uses
+ *    with substantive notes, all of them one specific doubt. Restored
+ *    with the tag set's label. Deleting a chip on the strength of an
+ *    unopened dialog was the actual error here.
  */
 export const CAL_MISS_FACTOR_DISMISS_CHIPS: DialogChip[] = [
   { key: "agent_real_miss",             label: "Factor is correct — keep it",          help: "the factor and its FVs are right as they stand; nothing needs fixing, the agent simply didn't propose it" },
   { key: "structure_correct_fvs_wrong", label: "Keep it, but the FV labels need work", help: "the factor's category is right — the FV labels / values are what need fixing" },
   { key: "wrong_partition",             label: "Keep it, but the samples are grouped wrong", help: "the factor's category is right — which samples sit in which FV is what needs fixing" },
+  { key: "borderline",                  label: "Keep it, but I'm not certain",         help: "keeping it on balance — the evidence doesn't quite settle the call. Say what's unresolved in the note." },
   { key: "other",                       label: "Other",                                help: "add a note" },
 ];
 
@@ -168,9 +186,20 @@ export const CAL_MISS_DISMISS_CHIPS = CAL_MISS_FACTOR_DISMISS_CHIPS;
 // current_redundant 21, more_specific_available 4. Leading with
 // `current_wrong` rather than `current_redundant`, which is how this
 // list had it.
+// `aboutism` added 2026-08-17 (cab). The 08-13 revision put that chip on
+// `CAL_EXTRA_TAG_DISMISS_CHIPS` only — but 10 of the 12 "about" notes in
+// the store are on THIS dialog: a curator agreeing to remove a curated
+// tag *because* it's a claim about what the study is about rather than a
+// feature of the samples. With nowhere to land they split three ways
+// (`current_wrong` 6, `other` 3, `current_redundant` 1), so the single
+// most recognisable removal rationale in the corpus was being recorded
+// as three different judgements. Same shape as the split this file
+// already carries a note about: a fix landed on the dismiss side in
+// 2026-06-15 and the accept side was missed.
 export const CAL_MISS_ACCEPT_CHIPS: DialogChip[] = [
   { key: "current_wrong",          label: "Current wrong",          help: "the current tag is incorrect or outdated — agent's removal is right" },
   { key: "current_redundant",      label: "Current redundant",      help: "the current tag is already captured elsewhere — by a biomaterial characteristic, a factor value, or another tag" },
+  { key: "aboutism",               label: "Aboutism",               help: "a claim about what the study is ABOUT, not a feature of the profiled samples — the tags guideline's \"don't tag claims from the abstract\". Removing it is right." },
   { key: "more_specific_available", label: "More specific available", help: "agent's removal is right because a finer-grained tag better captures this (often paired with an add proposal elsewhere)" },
   { key: "borderline",             label: "Borderline",             help: "close call — acceptable to remove" },
   { key: "other",                  label: "Other",                  help: "add a note" },
