@@ -716,14 +716,23 @@ function TicketPickerModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel]);
 
-  // Highest-priority, most-recently-updated first — same ordering idea
-  // as the dashboard ticket grid, so the curator sees the likeliest
-  // target at the top.
+  // Most recent first, full stop (Paul, 2026-08-16). This used to rank
+  // by priority and only break ties by date, which put a stale HIGH
+  // ticket above the one the curator filed this morning — and since the
+  // rows carried no date, the order looked arbitrary rather than
+  // deliberate. When the same experiment sits on several tickets, the
+  // question being asked is "which of these am I working on now", and
+  // recency answers it; priority is still on every row as a pill.
+  //
+  // `updated_at` over `created_at`: a ticket someone just added targets
+  // to is live work, whatever day it was opened. Falls back to
+  // `created_at`, then to id, so rows with a missing stamp still order
+  // stably instead of shuffling.
   const sorted = tickets.slice().sort((a, b) => {
-    const pa = ticketPriorityRank(a.priority);
-    const pb = ticketPriorityRank(b.priority);
-    if (pa !== pb) return pa - pb;
-    return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+    const at = a.updated_at || a.created_at || "";
+    const bt = b.updated_at || b.created_at || "";
+    if (at !== bt) return bt.localeCompare(at);
+    return b.id - a.id;
   });
 
   return (
@@ -768,6 +777,21 @@ function TicketPickerModal({
                     {ticketTypeLabel(t.type)}
                   </span>
                   <StatePill state={t.state} />
+                  {/* The list is ordered by this, so show it. Sorting
+                      by a field the rows don't carry reads as no order
+                      at all. */}
+                  {t.updated_at || t.created_at ? (
+                    <span
+                      className="ml-auto text-[11px] text-slate-400 dark:text-slate-500 tabular-nums"
+                      title={
+                        t.updated_at
+                          ? `last updated ${t.updated_at}`
+                          : `opened ${t.created_at}`
+                      }
+                    >
+                      {formatFiledDate(t.updated_at || t.created_at)}
+                    </span>
+                  ) : null}
                 </div>
                 {t.title ? (
                   <span className="text-sm text-slate-700 dark:text-slate-200 line-clamp-1">

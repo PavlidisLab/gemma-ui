@@ -52,7 +52,7 @@ import {
   type TabId,
 } from "@/features/experiment/ExperimentBanner";
 import { AppHeader } from "@/components/ui/AppHeader";
-import { PageMask } from "@gemma/ui";
+import { PageMask, useDocumentTitle, pageTitle } from "@gemma/ui";
 import { useProposeStream } from "@/api/proposeStream";
 import { useAuditStream } from "@/api/auditStream";
 import { useServicesHealth } from "@/api/health";
@@ -542,6 +542,19 @@ function Shell({
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, [diff.isDirty, experimentId]);
+
+  // Name the tab after the experiment. Every tab read "Gemma curation",
+  // so a curator with several experiments open had identical tabs.
+  //
+  // Reads the DRAFT's accession rather than the ``experiment {id}``
+  // fallback used below: a tab saying "experiment 9699" is no more use
+  // than the app name, and ``pageTitle`` leaves the plain app name in
+  // place until the accession arrives. Sits up here with the other
+  // hooks, ABOVE the early returns — the first version went next to
+  // ``shortName`` further down, which is after two of them, so the
+  // loading render skipped it and the loaded render crashed with
+  // "Rendered more hooks than during the previous render".
+  useDocumentTitle(pageTitle(draft?.experiment_short_name, "Gemma curation"));
 
   // ALL hooks must run on every render in the same order. Run the
   // proposals query unconditionally, then branch — putting the

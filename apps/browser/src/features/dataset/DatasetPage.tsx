@@ -6,6 +6,7 @@ import { useQuery, useQueryClient, type QueryFunctionContext } from "@tanstack/r
 import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { marked } from "marked";
 import { ExternalLink, Pencil, ChevronRight } from "lucide-react";
+import { useDocumentTitle, pageTitle } from "@gemma/ui";
 import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
 import {
@@ -105,6 +106,13 @@ export function DatasetPage() {
     queryKey: ["dataset", id],
     queryFn: ({ signal }) => getDatasetById(id, signal),
   });
+
+  // Name the tab after the dataset. Every tab used to read "Gemma
+  // Browser", so several open datasets were several identical tabs.
+  // The accession leads because tabs truncate from the right, and it is
+  // the part worth keeping. Called before the early returns below —
+  // it's a hook.
+  useDocumentTitle(pageTitle(ds.data?.shortName, "Gemma Browser"));
 
   if (ds.isLoading) return <PageShell><SkeletonBanner /></PageShell>;
   if (ds.isError || !ds.data) return <NotFoundCard id={id} />;
