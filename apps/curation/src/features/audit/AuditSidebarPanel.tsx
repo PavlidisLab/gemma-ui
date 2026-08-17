@@ -4,7 +4,7 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/cn";
-import { agentPalette, isProseModel } from "@/lib/agentPalette";
+import { agentPalette, isLlmModelId, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
 import { JsonViewer } from "@/components/ui/JsonViewer";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
@@ -971,13 +971,15 @@ function SidebarHeader({
     <div className="text-[11px]">
       {/* Single compact row */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {/* Dev / closed badges */}
-        {hasOverride ? (
-          <span
-            className="text-[9px] uppercase font-bold px-1 py-0 rounded bg-violet-200 text-violet-900"
-            title="dev override — not the live audit"
-          >dev</span>
-        ) : null}
+        {/* The "DEV" pill that used to lead this row is GONE. It read
+            "dev override — not the live audit", but ``ChipOverrideMount``
+            is the only thing that ever sets an override and it does so
+            for the ordinary gold-polished-vs-agent chip pair — the
+            DEFAULT review state. So the pill fired in normal use and
+            called it a dev artifact, every time it appeared. It is also
+            what disguised the inert navigator: a control that looks
+            like a debug flag gets read past. The "drop" affordance
+            below still says the same thing, truthfully. */}
         {isFinalized ? (
           <span
             className="text-[9px] uppercase font-bold px-1 py-0 rounded bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
@@ -1015,7 +1017,22 @@ function SidebarHeader({
           // fall back to the model, labelled "model" so it doesn't
           // masquerade as the agent.
           const buildId = report.run_provenance?.agent_identity?.trim() || "";
-          const prefix = isProse ? "review" : buildId ? "agent" : "model";
+          // 🛑 Most rows in this slot are NOT models. Measured over the
+          // store: of 573 proposal rows, 389 read `adhoc-decision-ticket`,
+          // 130 `evaluations`, and others name a batch
+          // (`category-policy-rebuild-2026-08-09`) — exactly TWO carry a
+          // real LLM id. The field is "whatever produced this", and
+          // stamping MODEL on a decision-ticket batch is what made the
+          // pill read as noise ("confused", Paul, 2026-08-16). Say
+          // "batch" unless it actually looks like a model.
+          const isLlm = isLlmModelId(report.model);
+          const prefix = isProse
+            ? "review"
+            : buildId
+              ? "agent"
+              : isLlm
+                ? "model"
+                : "batch";
           const value = isProse ? report.model : buildId || report.model;
           const when = report.audited_at
             ? ` · ${formatShort(report.audited_at)}`
@@ -1024,7 +1041,9 @@ function SidebarHeader({
             ? `${copy.noun} context: ${report.model}${when}`
             : buildId
               ? `Agent build ${buildId} · ran on ${report.model}${when}`
-              : `AI model: ${report.model}${when}`;
+              : isLlm
+                ? `AI model: ${report.model}${when}`
+                : `Produced by the "${report.model}" batch${when} — a named run (decision ticket, evaluation, policy rebuild), not an AI model. This is why one experiment can carry several ${copy.nounPlural}.`;
           return (
             <span
               className={cn(
@@ -1168,7 +1187,7 @@ function SidebarHeader({
             type="button"
             onClick={onClearOverride}
             className="text-[10px] text-slate-400 hover:text-rose-700 hover:underline underline-offset-2 ml-1"
-            title="drop dev override, fall back to live audit"
+            title={`stop showing the chip comparison and go back to the stored ${copy.noun}`}
           >drop</button>
         ) : null}
         {/* Triage status + lifecycle button — right-aligned. The

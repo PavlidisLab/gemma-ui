@@ -54,3 +54,29 @@ export function isProseModel(model: string | null | undefined): boolean {
   if (!model) return false;
   return /\s/.test(model) || model.includes("·");
 }
+
+/**
+ * Does this `model` string actually name an LLM?
+ *
+ * The field is really "whatever produced this row", and most of what
+ * lands there is a named RUN, not a model: measured over the curation
+ * store, 389 of 573 proposal rows read `adhoc-decision-ticket`, 130
+ * `evaluations`, and others name a batch like
+ * `category-policy-rebuild-2026-08-09`. Exactly two carried a real
+ * model id. Labelling all of that "MODEL" is what made the identity
+ * pill read as noise.
+ *
+ * Prefix-matching the known vendor families is deliberate over trying
+ * to spot batch names: model ids are a small, slow-moving, known set,
+ * whereas a batch can be called anything a curator types. An unknown
+ * string is therefore treated as a batch — the safe direction, since
+ * calling a run a run is never wrong, while calling it a model is.
+ */
+export function isLlmModelId(model: string | null | undefined): boolean {
+  if (!model) return false;
+  const m = model.trim().toLowerCase();
+  if (!m || isProseModel(m)) return false;
+  return /^(claude|gpt|o[1-9]|gemini|llama|mistral|mixtral|qwen|deepseek|grok|command|sonar)\b/.test(
+    m,
+  );
+}
