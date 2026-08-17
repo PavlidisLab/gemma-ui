@@ -54,12 +54,11 @@ export function AppHeader({
    *  (non-experiment routes) the ticket chip suppresses. */
   experimentId?: number | string | null;
   /** Accession / short name of the experiment being curated, e.g.
-   *  ``GSE33744``. Renders as "Curating <name>" in this header, which
-   *  is the ONLY row that stays pinned — the experiment banner that
-   *  otherwise carries the accession scrolls away, and several tabs
-   *  are long enough that a curator ends up deep in a factor list with
-   *  nothing on screen saying which dataset they're editing. Omit on
-   *  non-experiment routes (dashboard, inboxes, ticket pages). */
+   *  ``GSE33744``. TAKES OVER the brand label, which reads "Curating
+   *  <name>" instead of "Gemma Curation" — this is the only row that
+   *  stays pinned, and the banner that otherwise carries the accession
+   *  scrolls away. Omit on non-experiment routes (dashboard, inboxes,
+   *  ticket pages) to get the brand words back. */
   experimentShortName?: string | null;
 }) {
   const logout = useLogout();
@@ -82,7 +81,22 @@ export function AppHeader({
           (rather than a separate "Curation" nav tab) so the title
           itself communicates which app the curator is in — no
           redundant tab, no double-click target on top of the brand
-          mark. Per design review 2026-05-27. */}
+          mark. Per design review 2026-05-27.
+
+          Inside an experiment the label becomes "Curating GSE33744"
+          (Paul, 2026-08-16). This is the ONLY row that stays pinned, and
+          the accession otherwise lives only in the experiment banner,
+          which scrolls away — Design and Samples are both long enough to
+          leave a curator editing factor values with nothing on screen
+          naming the dataset.
+
+          It REPLACES the brand words rather than sitting beside them.
+          This header is already tight enough to wrap at 1400px, so the
+          slot has to pay for itself: "which app am I in" is answered by
+          the orange mark, by the ← Dashboard chip and by the whole
+          surrounding chrome, and it is answered on every page. Which
+          dataset am I editing is answered nowhere else once the banner
+          scrolls. */}
       <button
         type="button"
         onClick={() => navigate("#/")}
@@ -90,7 +104,11 @@ export function AppHeader({
         title="Curator dashboard"
       >
         <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
-        <span>Gemma Curation</span>
+        <span>
+          {experimentShortName
+            ? `Curating ${experimentShortName}`
+            : "Gemma Curation"}
+        </span>
       </button>
 
       {/* Always-visible "back to dashboard" affordance. The brand
@@ -101,26 +119,6 @@ export function AppHeader({
           one-click escape that's labelled by intent. Hidden on the
           dashboard itself so it doesn't loop back on itself. */}
       <BackToDashboardLink />
-      {/* "Curating GSE33744" — which dataset this is, on the one row
-          that doesn't scroll. The accession also lives in the
-          experiment banner below, but that banner scrolls off, and the
-          Design and Samples tabs are both long enough to leave a
-          curator editing factor values with no dataset name in
-          view. Deliberately plain text, not a link: the banner's
-          accession already links out to the source, and a second
-          differently-behaving copy of the same string is worse than a
-          quiet label. */}
-      {experimentShortName ? (
-        <span
-          className="text-sm text-stone-700 dark:text-slate-300 shrink-0 whitespace-nowrap"
-          title={`Curating ${experimentShortName}`}
-        >
-          Curating{" "}
-          <span className="font-semibold text-stone-900 dark:text-slate-100">
-            {experimentShortName}
-          </span>
-        </span>
-      ) : null}
       {ticketContext != null && experimentId != null ? (
         <span className="ml-1">
           <TicketContextChip
