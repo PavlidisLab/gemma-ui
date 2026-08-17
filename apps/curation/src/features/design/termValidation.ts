@@ -387,6 +387,15 @@ export interface SuccessorView {
  *  - the verdict carried the successor's label. Writing a URI with no
  *    name beside it produces exactly the label-URI disagreement the
  *    panel reports on.
+ *
+ * A missing label is usually permanent — the successor lives in an
+ * ontology Gemma doesn't load (23 of 119 successors sampled 2026-08-16:
+ * PO, OBA, DDANAT, NCBITaxon, HANCESTRO, GSSO). One case is not: Gemma's
+ * cross-ontology label lookup skips ontologies still loading, so for
+ * minutes after a Gemma restart a successor it does know reads
+ * unlabelled, and the agent caches that row for the life of its process.
+ * Re-check won't clear it; the agent restarting will. Rare enough to
+ * leave alone, recorded so it isn't diagnosed as bad data.
  */
 export function successorFor(
   result: TermValidationResult,
