@@ -1022,34 +1022,6 @@ function SidebarHeader({
             </span>
           );
         })() : null}
-        {/* View raw JSON — opens an inline tree viewer for the
-            current report (findings + evidence + dispositions +
-            audit_dict mapping/scoring + everything else on the
-            wire). Pinned next to the agent identity since that's
-            where the eye looks first for "what produced this". */}
-        <button
-          type="button"
-          onClick={() => setRawViewerOpen(true)}
-          className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-mono"
-          title="View the raw JSON for this proposal / audit — searchable, collapsible tree."
-        >
-          {"{ }"} raw
-        </button>
-        {/* Proposer details — opens a scannable popup of the run
-            provenance baked into the proposal (models, switches, git
-            sha/branch, the full invocation). Only shown when the
-            proposal carries a provenance block; degrades to nothing on
-            older rows that predate the capture. */}
-        {hasProposerDetails(report.run_provenance) ? (
-          <button
-            type="button"
-            onClick={() => setProposerDetailsOpen(true)}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-            title="Proposer details — the models, switches, git sha, and full invocation that produced this proposal."
-          >
-            proposer details
-          </button>
-        ) : null}
         {/* Audit switcher — appears only when the experiment has more
          *  than one audit (dual-agent review path). Lets the curator
          *  flip between e.g. hybrid and oneshot calibration packages
@@ -1057,7 +1029,7 @@ function SidebarHeader({
         {auditList.length > 1 ? (
           <span
             className="inline-flex items-baseline gap-0.5 text-[10px]"
-            title={`audit ${activeAuditIndex + 1} of ${auditList.length} — ◂ / ▸ to switch`}
+            title={`${copy.Noun} ${activeAuditIndex + 1} of ${auditList.length} on this experiment — ◂ / ▸ to switch between them`}
           >
             <button
               type="button"
@@ -1071,8 +1043,14 @@ function SidebarHeader({
             >
               ◂
             </button>
+            {/* NAME what is being paged. A bare "2/3" between two
+                arrows says a count and nothing else — "it's not clear
+                what the navigation does" (Paul, 2026-08-16). The noun
+                is the whole answer: these are the proposals / audits
+                loaded for this experiment, not pages of the one on
+                screen, and only the word distinguishes those. */}
             <span className="tabular-nums text-slate-500 dark:text-slate-400 px-0.5">
-              {activeAuditIndex + 1}/{auditList.length}
+              {copy.noun} {activeAuditIndex + 1}/{auditList.length}
             </span>
             <button
               type="button"
@@ -1094,10 +1072,39 @@ function SidebarHeader({
         >
           {report.audited_at ? formatShort(report.audited_at) : "—"}
         </span>
+        {/* Groups are separated by a rule rather than by the "·" that
+            used to be glued onto the front of some labels. Everything
+            in this row was one flat, evenly-gapped run of ten chips —
+            identity, tools, navigation, scope and severity all reading
+            as equal siblings, which is why the bare arrows had nothing
+            to anchor to. Now: WHO made it and when · WHAT it covers ·
+            the provenance tools · the actions. */}
+        <GroupRule />
+
         {/* Scope */}
         <span className="text-slate-400 dark:text-slate-500">
-          · scope: <span className="font-mono text-slate-500 dark:text-slate-400">{scopeText}</span>
+          scope: <span className="font-mono text-slate-500 dark:text-slate-400">{scopeText}</span>
         </span>
+
+        {/* ── Provenance tools ────────────────────────────────────────
+            The two "where did this come from" affordances, kept
+            together and kept QUIET. They used to sit immediately after
+            the agent pill, which put two bordered debug buttons in the
+            middle of the identity run — so the row read as an
+            undifferentiated string of chips and the eye had nothing to
+            group on ("it's not clear what the navigation does", Paul,
+            2026-08-16). Identity and coverage read first; the tools
+            follow. */}
+        <ProvenanceTools
+          onRaw={() => setRawViewerOpen(true)}
+          onDetails={
+            hasProposerDetails(report.run_provenance)
+              ? () => setProposerDetailsOpen(true)
+              : null
+          }
+          noun={copy.noun}
+        />
+        <GroupRule />
         {/* Non-zero severity counts inline */}
         {nonZeroCounts.length > 0 ? (
           <span className="text-slate-400">·</span>
@@ -1669,6 +1676,72 @@ function VerdictPill({
       }
     >
       {label}
+    </span>
+  );
+}
+
+/** Hairline between groups in the header strip. Carries the grouping
+ *  that ten evenly-spaced chips could not. */
+function GroupRule() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block w-px h-3 bg-slate-200 dark:bg-slate-700 mx-0.5"
+    />
+  );
+}
+
+/**
+ * The "where did this come from" pair: raw JSON, and the run details.
+ *
+ * 🛑 **The absence is stated, not hidden.** `proposer details` used to
+ * render only when a provenance block existed and otherwise vanish
+ * without trace, which reads as a feature that broke ("what happened to
+ * the agent details?", Paul, 2026-08-16). It hadn't — the rows on
+ * screen were `adhoc-decision-ticket` proposals, which are hand-filed
+ * decision tickets rather than agent runs and never carried provenance
+ * to begin with. A control that disappears cannot say that; a disabled
+ * one can, so the slot stays and explains itself.
+ */
+function ProvenanceTools({
+  onRaw,
+  onDetails,
+  noun,
+}: {
+  onRaw: () => void;
+  /** ``null`` when this row carries no run provenance. */
+  onDetails: (() => void) | null;
+  noun: string;
+}) {
+  const base =
+    "text-[10px] px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600";
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onRaw}
+        className={`${base} font-mono text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`}
+        title={`View the raw JSON for this ${noun} — searchable, collapsible tree.`}
+      >
+        {"{ }"} raw
+      </button>
+      {onDetails ? (
+        <button
+          type="button"
+          onClick={onDetails}
+          className={`${base} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`}
+          title={`Run details — the models, switches, git sha, and full invocation that produced this ${noun}.`}
+        >
+          run details
+        </button>
+      ) : (
+        <span
+          className={`${base} text-slate-400 dark:text-slate-500 italic cursor-help`}
+          title={`This ${noun} carries no run provenance — no models, switches or git sha were recorded against it. Hand-filed decision tickets and rows created before the agent stamped its identity look like this; it is not a missing feature.`}
+        >
+          no run details
+        </span>
+      )}
     </span>
   );
 }
