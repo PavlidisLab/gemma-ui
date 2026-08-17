@@ -138,6 +138,14 @@ const SECTION_HELP: Partial<Record<AuditTargetKind, { title: string; body: React
           This section compares the proposed factors against the current
           curation.
         </p>
+        <p className="text-slate-500 dark:text-slate-400">
+          Adopting is not all-or-nothing: <strong>Choose…</strong> opens a
+          per-part picker where you can take the category, the sample
+          grouping, or one value's label or statement, and leave the rest.
+          A regrouping moves samples between values, so the picker says
+          which ones move — and which would be left with no value at all —
+          before you apply it.
+        </p>
       </div>
     ),
   },
