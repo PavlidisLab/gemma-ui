@@ -424,7 +424,31 @@ export function FactorValueCard({
                   <ReadonlyStatement statement={s} />
                 </li>
               ))
-            : compact
+            : fv.statements.length === 0
+              ? // A value with no statement is not an empty value — it
+                // is a FREE-TEXT one, and the label in the header is
+                // the whole of it. Promotion from the sample-details
+                // table produces these by the dozen: a characteristic
+                // whose value carries no URI becomes an FV with a
+                // label and nothing else, and the card rendered the
+                // body blank, so beside its grounded siblings the row
+                // read as a value that had lost its term rather than
+                // one that never had one. Render it the way a grounded
+                // value renders — category chip, then the value — with
+                // the free-text chip variant carrying the difference.
+                // Same row in compact and open, because "what is this
+                // value" is not a question the open editor should
+                // answer differently. Grounding it in place is the
+                // existing "+ statement" below: that button already
+                // seeds its subject from this label.
+                (ungroundedValue(fv, factorCategory) ? (
+                  <li>
+                    <CompactStatementRow
+                      statement={ungroundedValue(fv, factorCategory)!}
+                    />
+                  </li>
+                ) : null)
+              : compact
               ? (() => {
                   const grouped = groupStatementsBySubject(fv.statements);
                   return grouped.map((group, gi) => (
@@ -577,6 +601,30 @@ function ChangeBadge({ change }: { change: FvChange | null }) {
       {m.label}
     </span>
   );
+}
+
+/** The statement-shaped view of a free-text factor value — the value
+ *  as its own subject, under the factor's category, with no URI.
+ *
+ *  🛑 Built for RENDERING only, never applied to the draft. The FV
+ *  genuinely has no statement, and writing one to make the card look
+ *  uniform would invent curation: the whole point of the free-text
+ *  chip is that nobody has grounded this yet. `addStatement` is the
+ *  path that turns it into real data, and it already seeds the
+ *  subject from this same label.
+ *
+ *  Returns null for a value with no label at all — a blank FV has
+ *  nothing to show and the header already says `(blank)`. */
+function ungroundedValue(
+  fv: FactorValue,
+  factorCategory?: OntologyTerm | null,
+): FactorValue["statements"][number] | null {
+  const label = (fv.free_text_label || "").trim();
+  if (!label) return null;
+  return {
+    category: factorCategory ? { ...factorCategory } : null,
+    subject: { label, uri: null },
+  };
 }
 
 /** Read-only rendering of a Statement, used for tombstone tiles. */

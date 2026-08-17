@@ -9,6 +9,7 @@ import type {
   FactorValue,
 } from "@/features/experiment/types";
 import type { FvChange } from "./diff";
+import { resolveValueCategory } from "./factorCategory";
 
 export function FactorValueList({
   factor,
@@ -82,6 +83,14 @@ export function FactorValueList({
     fv.biomaterial_short_names.forEach((sn) => assigned.add(sn)),
   );
   const unassignedCount = Math.max(0, totalBiomaterials - assigned.size);
+
+  // The category the cards render values under. Usually the factor's
+  // own; falls back to what the grounded values unanimously say when
+  // the factor carries none — see `resolveValueCategory`. One value
+  // for the whole card so the chip on an ungrounded value, the
+  // statement templates and the picker's search scope can't disagree
+  // about what kind of thing this factor annotates.
+  const valueCategory = resolveValueCategory(factor);
 
   // Tombstone FVs to render below the live ones — these are FVs that
   // existed in the saved design but the user has removed from the draft.
@@ -200,7 +209,7 @@ export function FactorValueList({
           <FactorValueCard
             key={fv.id}
             fv={fv}
-            factorCategory={factor.category}
+            factorCategory={valueCategory}
             change={change}
             onLabelChange={(label) => onFvLabelChange(fv.id, label)}
             onToggleBaseline={() => onToggleBaseline(fv.id)}
@@ -236,7 +245,7 @@ export function FactorValueList({
           <FactorValueCard
             key={`tomb-${fv.id}`}
             fv={fv}
-            factorCategory={factor.category}
+            factorCategory={valueCategory}
             change={change}
             onLabelChange={() => {}}
             onToggleBaseline={() => {}}
