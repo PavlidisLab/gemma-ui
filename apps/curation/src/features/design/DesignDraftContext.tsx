@@ -9,7 +9,9 @@ import {
   type ReactNode,
 } from "react";
 import { useDesign, useUpdateDesign, useUpdatePolished } from "@/api/design";
+import { sendCurationEditLog } from "@/api/designEdits";
 import { diffDesign, type DesignDiff } from "./diff";
+import { buildEditLog, goldDataVersionOf, type EditBase } from "./editLog";
 import type { Design } from "@/features/experiment/types";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
 import { bareCurator, type Source } from "@/features/comparison/sources";
@@ -375,6 +377,35 @@ export function DesignDraftProvider({
   //   curator must land on when they reopen the ticket. The chip still
   //   names the seed; ``curatingOnTopOf`` lets the UI say so.
   const saved = seededFromBaseline ? savedFromBaseline : localDesign.data;
+
+  // Which document the curator's edits are being made against.
+  //
+  // This is the question the store's reconcile currently cannot
+  // answer, so it guesses down a fallback chain — ``ui-base →
+  // store-gold → pinned-commit`` — and on the 2026-08-17 tally landed
+  // on a *git commit* for 62 of 63 experiments. The client is the only
+  // side that knows, and it costs one object to say. Travels on the
+  // edit log; see features/design/editLog.ts.
+  //
+  // ``content_hash`` is the field that always works: it names the
+  // exact bytes edited, so a base that is a view rather than a row
+  // (live / preboard / agent_proposal) is still identified.
+  const editBase = useMemo<EditBase>(() => {
+    const content_hash = saved ? hashDesign(saved) : "";
+    const gold_data_version = goldDataVersionOf(saved);
+    if (seededFromBaseline && baselineCuration) {
+      return {
+        source_kind: "curation",
+        curation_source_kind: baselineCuration.source_kind ?? null,
+        curation_id: baselineCuration.curation_id ?? null,
+        label: baselineCuration.label ?? baselineSource ?? null,
+        gold_data_version,
+        content_hash,
+      };
+    }
+    return { source_kind: "design", gold_data_version, content_hash };
+  }, [saved, seededFromBaseline, baselineCuration, baselineSource]);
+
   const isLoading = seededFromBaseline
     ? curationsQuery.isLoading
     : localDesign.isLoading;
@@ -615,8 +646,30 @@ export function DesignDraftProvider({
       clearAppliedBatches(experimentId);
       onSettled?.({ ok: true });
     };
+    // What this commit CHANGED, captured before anything moves —
+    // ``finalizeCheckpoint`` rewrites ``draft`` and flips ``saved``
+    // onto the design we are about to write, so a log built after it
+    // would describe an empty edit every time.
+    //
+    // The whole point (UI_WRITE_THE_EDIT_NOT_THE_DESIGN_2026_08_17):
+    // the UI knows the curator's intent at the moment of the click and
+    // has always thrown it away, leaving the store to reconstruct it
+    // by subtracting two snapshots. It sends the log ALONGSIDE the
+    // snapshot for now — nothing reads it yet, and it must not be able
+    // to cost anyone a commit. See api/designEdits.ts.
+    const editLog = buildEditLog({
+      experimentId,
+      saved: saved ?? null,
+      draft,
+      base: editBase,
+      reviewer,
+      diff,
+    });
     updater.mutate(normalizeForCommit(draft), {
       onSuccess: (server) => {
+        // Fired on the /design PUT, not on the full checkpoint: the
+        // edits have landed at that point whatever the mirror does.
+        void sendCurationEditLog(experimentId, editLog);
         // Durability: mirror the committed design into the per-curator
         // polished store so it survives a calibration-batch reload. This
         // is NOT fire-and-forget — the ticket exporter reads /polished
@@ -650,7 +703,7 @@ export function DesignDraftProvider({
         onSettled?.({ ok: false, error: (err as Error).message });
       },
     });
-  }, [draft, updater, polisher, reviewer, experimentId]);
+  }, [draft, saved, diff, editBase, updater, polisher, reviewer, experimentId]);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
     setUndoStack([]);

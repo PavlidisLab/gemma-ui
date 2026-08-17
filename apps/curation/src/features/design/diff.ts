@@ -14,12 +14,35 @@ import type {
   Design,
   Factor,
   FactorValue,
+  OntologyTerm,
   Statement,
   SubsetRecommendation,
   Tag,
 } from "@/features/experiment/types";
 
 export type FvChangeKind = "added" | "removed" | "modified";
+
+/** The factor-level fields a curator can edit. */
+export type FactorField = "name" | "type" | "description" | "category";
+
+/**
+ * One factor-level field that differs, with both readings.
+ *
+ * 🛑 ``null`` and ``""`` are DIFFERENT answers and must never be
+ * collapsed. A field that was never set reads ``null``; one the
+ * curator deliberately emptied reads ``""``. The reconcile refuses a
+ * factor that differs from gold only by a blank description precisely
+ * because it cannot tell those apart from a snapshot — *"a blank is
+ * missing data, not an erase"* (38 refusals across 24 experiments,
+ * `UI_WRITE_THE_EDIT_NOT_THE_DESIGN_2026_08_17`). Recording both
+ * readings makes it a fact instead of a guess, so normalize only
+ * ``undefined`` → ``null`` here.
+ */
+export interface FactorFieldChange {
+  field: FactorField;
+  before: string | OntologyTerm | null;
+  after: string | OntologyTerm | null;
+}
 
 export interface FvModification {
   label: boolean;
@@ -43,6 +66,11 @@ export interface FactorDiff {
   factorName: string;
   /** factor-level: name / category / type changes. */
   factorFieldsChanged: boolean;
+  /** Which of them, and both readings. ``factorFieldsChanged`` is
+   *  ``fieldChanges.length > 0`` — the boolean stays because the
+   *  commit bar and editor badges only ever needed "did anything
+   *  move"; the edit log needs to say what and from what. */
+  fieldChanges: FactorFieldChange[];
   added: FvChange[];
   removed: FvChange[];
   modified: FvChange[];
@@ -164,7 +192,8 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
     const df = draftFactors.get(sf.id);
     if (!df) continue;
     const fd = diffFactorValues(sf, df);
-    const factorFieldsChanged = !sameFactorFields(sf, df);
+    const fieldChanges = factorFieldChanges(sf, df);
+    const factorFieldsChanged = fieldChanges.length > 0;
     if (factorFieldsChanged) factorFieldsChangedCount++;
     if (
       fd.added.length === 0 &&
@@ -191,6 +220,7 @@ export function diffDesign(saved: Design | null, draft: Design | null): DesignDi
       factorId: sf.id,
       factorName: sf.name,
       factorFieldsChanged,
+      fieldChanges,
       ...fd,
     });
   }
@@ -330,15 +360,8 @@ function diffMetadata(saved: Design, draft: Design): DesignDiff["metadata"] {
   }
 
   // -- Publications -----------------------------------------------
-  const pubKey = (p: { pubmed_id?: string; doi?: string; title?: string; citation?: string }): string => {
-    const pmid = (p.pubmed_id ?? "").trim();
-    if (pmid) return `pmid:${pmid.toLowerCase()}`;
-    const doi = (p.doi ?? "").trim();
-    if (doi) return `doi:${doi.toLowerCase()}`;
-    return `tc:${(p.title ?? "").trim()}|${(p.citation ?? "").trim()}`;
-  };
-  const savedPubs = new Set((saved.publications ?? []).map(pubKey));
-  const draftPubs = new Set((draft.publications ?? []).map(pubKey));
+  const savedPubs = new Set((saved.publications ?? []).map(publicationKey));
+  const draftPubs = new Set((draft.publications ?? []).map(publicationKey));
   let publicationsAdded = 0;
   let publicationsRemoved = 0;
   for (const k of draftPubs) if (!savedPubs.has(k)) publicationsAdded++;
@@ -374,6 +397,24 @@ function diffMetadata(saved: Design, draft: Design): DesignDiff["metadata"] {
     splitDecisionChanged,
     subsetRecommendationsChanged,
   };
+}
+
+/** Identity for a publication: PMID, else DOI, else title|citation.
+ *
+ *  Exported so the edit log names the same publication this diff
+ *  counted — two key functions would disagree the first time one grew
+ *  a fallback the other didn't. */
+export function publicationKey(p: {
+  pubmed_id?: string;
+  doi?: string;
+  title?: string;
+  citation?: string;
+}): string {
+  const pmid = (p.pubmed_id ?? "").trim();
+  if (pmid) return `pmid:${pmid.toLowerCase()}`;
+  const doi = (p.doi ?? "").trim();
+  if (doi) return `doi:${doi.toLowerCase()}`;
+  return `tc:${(p.title ?? "").trim()}|${(p.citation ?? "").trim()}`;
 }
 
 /** Added + removed + edited subset recommendations, keyed by ``id``.
@@ -499,13 +540,34 @@ function anyFieldChanged(f: FvModification): boolean {
   return f.label || f.baseline || f.statements || f.biomaterials;
 }
 
-function sameFactorFields(a: Factor, b: Factor): boolean {
-  return (
-    a.name === b.name &&
-    a.type === b.type &&
-    a.description === b.description &&
-    sameTerm(a.category, b.category)
-  );
+/** Which factor-level fields differ, with both readings.
+ *
+ *  ``undefined`` normalizes to ``null`` (the field is absent); ``""``
+ *  is left alone (the curator emptied it). See {@link FactorFieldChange}
+ *  for why that distinction is the whole point. */
+export function factorFieldChanges(a: Factor, b: Factor): FactorFieldChange[] {
+  const changes: FactorFieldChange[] = [];
+  if (a.name !== b.name) {
+    changes.push({ field: "name", before: a.name ?? null, after: b.name ?? null });
+  }
+  if (a.type !== b.type) {
+    changes.push({ field: "type", before: a.type ?? null, after: b.type ?? null });
+  }
+  if (a.description !== b.description) {
+    changes.push({
+      field: "description",
+      before: a.description ?? null,
+      after: b.description ?? null,
+    });
+  }
+  if (!sameTerm(a.category, b.category)) {
+    changes.push({
+      field: "category",
+      before: a.category ?? null,
+      after: b.category ?? null,
+    });
+  }
+  return changes;
 }
 
 function sameStatements(a: Statement[], b: Statement[]): boolean {
@@ -664,7 +726,7 @@ export function summariseSemanticDiff(
       addedFactors++;
       continue;
     }
-    if (!sameFactorFields(base, cmp)) modifiedFactors++;
+    if (factorFieldChanges(base, cmp).length > 0) modifiedFactors++;
   }
   for (const k of baseByFactor.keys()) {
     if (!cmpByFactor.has(k)) removedFactors++;
