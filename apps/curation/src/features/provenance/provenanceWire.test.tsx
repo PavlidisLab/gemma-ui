@@ -231,9 +231,12 @@ describe("provenance lookup wire", () => {
       expect(card()).toContain("claude-sonnet-5 · 4d8fdbc");
     });
 
-    it("keeps the grounding quote and says what kind of source it is", () => {
+    it("keeps the grounding quote and names the source it came from", () => {
       const text = card();
-      expect(text).toContain("sample characteristic");
+      // Labelled, and labelled with WHERE it came from — a bare
+      // "sample characteristic" leaves the curator guessing whether
+      // the submitter wrote it or we derived it.
+      expect(text).toContain("Evidence: GEO sample characteristic");
       expect(text).toContain(
         "BM age='11-15 weeks' → prime adult stage per data/dev_stage_cutoffs.tsv",
       );

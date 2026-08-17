@@ -37,7 +37,13 @@ export interface EvidenceSourceMeta {
 const BASE: Record<EvidenceSourceKey, EvidenceSourceMeta> = {
   // BM characteristic — the most direct, trustworthy provenance.
   characteristic: {
-    label: "sample characteristic",
+    // Named for where it came from, not just what it is — the sibling
+    // is already "GEO metadata", and a bare "sample characteristic"
+    // leaves a curator to guess whether it means the submitter's row
+    // or something we derived. Changed here rather than in one
+    // surface's renderer so every evidence block keeps saying the same
+    // words (Paul, 2026-08-16).
+    label: "GEO sample characteristic",
     description:
       "From a GEO sample characteristic row — every sample's " +
       "BioMaterial.characteristics dict carries (key, value) pairs the " +

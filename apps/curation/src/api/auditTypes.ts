@@ -1379,6 +1379,26 @@ export interface AuditFindingDispositionPatch {
   status: DispositionStatus;
   reviewer: string;
   notes?: string;
+  /** Which annotation this disposition was actually about — the
+   *  provenance stamp.
+   *
+   *  Everything else in the provenance chain reconstructs that pairing
+   *  after the fact from category / label / URI. At PATCH time the UI
+   *  knows it, so it says so, and the store's matcher lets the stamp
+   *  override its derived key on the same tier. Chiefly this rescues
+   *  same-category siblings: two `treatment` factors share one slug,
+   *  so a reconstructed key identifies two and therefore neither.
+   *
+   *  All four optional, all nullable server-side and NOT defaulted, so
+   *  an unstamped row stays distinguishable from one stamped blank and
+   *  historical rows keep falling through to the matcher. Built by
+   *  ``features/provenance/stamp.ts``, which returns null rather than
+   *  guess — a stamp outranks the matcher, so a wrong one silently
+   *  attaches an annotation's history to its sibling. */
+  gemma_factor_id?: number;
+  local_factor_id?: string;
+  category_uri?: string;
+  value_uri?: string;
   /** The finding's ``issue_code``, looked up from the report by
    *  ``target_id`` and echoed in the patch body so the server-side
    *  validator can gate reason chips by code (e.g. ``agent_real_miss``

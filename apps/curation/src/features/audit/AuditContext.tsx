@@ -23,6 +23,8 @@ import type {
   DismissReason,
   DispositionStatus,
 } from "@/api/auditTypes";
+import { DesignDraftContext } from "@/features/design/DesignDraftContext";
+import { stampForFinding } from "@/features/provenance/stamp";
 import { SEVERITY_RANK } from "./auditPresentation";
 
 /**
@@ -291,6 +293,12 @@ export function AuditProvider({
     error: liveError,
   } = kind === "audit" ? audits : proposals;
   const patchDisposition = usePatchDisposition(experimentId);
+  // Read through the context rather than ``useDesignDraft()`` — that
+  // hook throws outside a provider, and the stamp is an enrichment
+  // that must never be the reason a disposition fails to save. Both
+  // production mounts sit inside DesignDraftProvider; test harnesses
+  // that boot this provider alone simply send no stamp.
+  const designDraft = useContext(DesignDraftContext);
   const finalizeAudit = useFinalizeAudit(experimentId);
   const reopenAudit = useReopenAudit(experimentId);
   const resetDispositions = useResetAuditDispositions(experimentId);
@@ -470,6 +478,21 @@ export function AuditProvider({
       if (extras.structureOk !== undefined) patch.structure_ok = extras.structureOk;
       if (extras.detailsOk !== undefined) patch.details_ok = extras.detailsOk;
       if (extras.matchVerdict) patch.match_verdict = extras.matchVerdict;
+      // 🛑 Provenance stamp — WHICH annotation this was about. This is
+      // the only moment anything knows: the curator is looking at one
+      // finding and one annotation, and every later reader has to
+      // reconstruct that pairing from labels and URIs. Reading the
+      // draft rather than the saved design on purpose — an accept that
+      // just added the tag is in the draft and won't reach the server
+      // until commit. Silently absent when the design can't say which
+      // annotation is meant; see ``stampForFinding``.
+      const stamp = stampForFinding(finding, designDraft?.draft);
+      if (stamp?.gemma_factor_id != null) {
+        patch.gemma_factor_id = stamp.gemma_factor_id;
+      }
+      if (stamp?.local_factor_id) patch.local_factor_id = stamp.local_factor_id;
+      if (stamp?.category_uri) patch.category_uri = stamp.category_uri;
+      if (stamp?.value_uri) patch.value_uri = stamp.value_uri;
       const refreshed = await patchDisposition.mutateAsync({
         auditId: report.audit_id,
         patch,
@@ -490,7 +513,7 @@ export function AuditProvider({
         );
       }
     },
-    [report, reviewer, patchDisposition],
+    [report, reviewer, patchDisposition, designDraft],
   );
 
   // Lifecycle (finalize / reopen). Both no-op on the override

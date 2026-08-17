@@ -8,8 +8,12 @@ import { evidenceSourceMeta } from "./evidenceSource";
  */
 describe("evidenceSourceMeta", () => {
   it("maps each source to its curator-facing label (GEO vocabulary)", () => {
+    // Names where it came from, not just what it is — the sibling is
+    // already "GEO metadata", and a bare "sample characteristic" left
+    // curators to guess whether the submitter wrote it or we derived
+    // it (2026-08-16).
     expect(evidenceSourceMeta("characteristic").label).toBe(
-      "sample characteristic",
+      "GEO sample characteristic",
     );
     expect(evidenceSourceMeta("paper").label).toBe("paper");
     expect(evidenceSourceMeta("geo_metadata").label).toBe("GEO metadata");

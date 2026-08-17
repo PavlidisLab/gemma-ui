@@ -238,14 +238,22 @@ function Evidence({ event }: { event: ProvenanceEvent }) {
       {evidence.map((ev, i) => {
         const meta = evidenceSourceMeta(ev.source, ev.location);
         return (
-          <div key={i} className="opacity-90">
-            <span className="uppercase tracking-wide text-[9px] opacity-70">
-              {meta.label}
-            </span>{" "}
-            <span>“{ev.quote}”</span>
-            {ev.location ? (
-              <span className="opacity-60"> — {ev.location}</span>
-            ) : null}
+          <div key={i} className="space-y-0.5">
+            <div className="text-[10px] opacity-70">
+              Evidence: {meta.label}
+              {ev.location ? (
+                <span className="opacity-80"> — {ev.location}</span>
+              ) : null}
+            </div>
+            {/* Monospace so the quote reads as something SOMEONE ELSE
+                wrote, not as our prose about it. These are verbatim
+                submitter strings — `BM age='11-15 weeks'` — where the
+                exact characters carry the meaning, and a proportional
+                face beside our own sentences invites skimming past a
+                stray quote or bracket that matters. */}
+            <div className="font-mono text-[11px] leading-snug">
+              “{ev.quote}”
+            </div>
           </div>
         );
       })}
