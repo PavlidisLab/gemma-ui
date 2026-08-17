@@ -50,7 +50,14 @@ export type ProvenanceEventKind =
   | "curator_added"
   | "curator_edited"
   | "promoted"
-  | "removed";
+  | "removed"
+  /** A curator was offered this and said no. Distinct from `removed`
+   *  (something WAS there and isn't now) and from silence (nobody has
+   *  looked). On an annotation that survived a proposed change, the
+   *  declining is the most useful thing in the trace: it is why the
+   *  annotation still reads the way it does. Added UI-side against
+   *  cab's enum — filed, not invented in a corner. */
+  | "curator_rejected";
 
 /** Who did it. "The agent" is a fleet, so `name` carries the subagent
  *  (cell_type / disease / strain / …) — that is the useful answer to

@@ -86,7 +86,12 @@ export function reviewStateCopy(
     case "curator_edited":
       return "a curator changed this";
     case "rejected":
-      return "recorded as rejected";
+      // 🛑 NOT "this annotation is rejected". The disposition is about
+      // the agent's PROPOSAL; the annotation itself survived it, and a
+      // curator looked at it to say so. Live rows made the difference
+      // matter — GSE17646's `factor:1` is a sound factor whose disc
+      // read as a defect under the old wording.
+      return "a curator declined the change proposed here";
     case "unreviewed":
       return "proposed, not reviewed by a human";
     default:
@@ -104,6 +109,17 @@ function TraceCard({ trace }: { trace: ProvenanceTrace }) {
       {events.map((e, i) => (
         <EventRow key={i} event={e} />
       ))}
+      {/* What a trace can and can't answer today. Everything here is
+          reconstructed from curation reviews, so an annotation a
+          curator typed straight into the editor leaves nothing behind
+          — "unreviewed" means no review decided it, NOT that no human
+          ever touched it. Until the append-only event table exists,
+          saying so is the difference between a trace a curator can
+          rely on and one they have to second-guess. */}
+      <div className="opacity-70 text-[10px]">
+        From the audit and proposal reviews on file — a change made outside a
+        review leaves no trace yet.
+      </div>
     </div>
   );
 }
@@ -116,6 +132,7 @@ const KIND_COPY: Record<ProvenanceEvent["kind"], string> = {
   curator_edited: "edited",
   promoted: "promoted from a sample characteristic",
   removed: "removed",
+  curator_rejected: "declined by a curator",
 };
 
 function EventRow({ event }: { event: ProvenanceEvent }) {
