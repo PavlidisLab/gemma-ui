@@ -113,19 +113,42 @@ export const CAL_MISS_FACTOR_DISMISS_CHIPS: DialogChip[] = [
   { key: "other",                       label: "Other",                                help: "add a note" },
 ];
 
-// TAG-side removal dismiss — curator says "don't remove the tag";
-// the tag is correct and should stay. Tags have NO factor values,
-// NO partition, NO structure — chips that talk about FVs/partition
-// don't apply. Per design review 2026-06-15: "tags don't have factor values
-// or levels or structure GET IT RIGHT" and earlier: "When prompted
-// to _remove_ a tag, the _reject_ would be by ('keep') 'Agent
-// missed it' pretty much."
+/**
+ * TAG-side removal dismiss — curator says "don't remove the tag".
+ * Tags have NO factor values, NO partition, NO structure, so the
+ * factor set's fix-chips don't apply. Per design review 2026-06-15:
+ * "tags don't have factor values or levels or structure GET IT
+ * RIGHT" and earlier: "When prompted to _remove_ a tag, the _reject_
+ * would be by ('keep') 'Agent missed it' pretty much."
+ *
+ * 2026-08-17: same outcome-first relabel as the factor set above, but
+ * NOT the same pruning — the stored rows say the tag vocabulary is
+ * being used, and used differently:
+ *
+ *  - `borderline` is alive here (4 uses vs 0 on the factor side) and
+ *    its notes are all one specific thing — uncertainty about whether
+ *    the tag really covers every sample ("not completely clear this
+ *    covers all these mice"). That is the inverse of
+ *    `tag_applies_broadly`, so it earns its place; the label now says
+ *    what it meant instead of grading the call.
+ *  - `missed_evidence` goes, for the factor set's reason plus a
+ *    sharper one: 7 curators answered "the tag is right, and here is
+ *    where it says so" as `agent_missed_it` + an evidence note ("GEO
+ *    record says E15-16", "methods section says male PMC6826131")
+ *    against 1 who reached for the chip. The note channel already
+ *    carries the citation; a chip that only re-labels it splits the
+ *    same answer two ways. Key stays valid on the wire and the one
+ *    stored row still displays.
+ *  - `wont_fix` shows up on 6 stored rows but is NOT missing from
+ *    this list — it is written by the close-review sweep
+ *    (`AuditSidebarPanel.tsx`, IMPLICIT_REJECT_NOTE), never picked by
+ *    a curator. Don't "restore" it here.
+ */
 export const CAL_MISS_TAG_DISMISS_CHIPS: DialogChip[] = [
-  { key: "agent_missed_it",     label: "Agent missed it",     help: "the tag is correct and applies; agent should have kept it" },
-  { key: "tag_applies_broadly", label: "Applies broadly",     help: "the tag covers the profiled samples — countering a 'subset only' rationale" },
-  { key: "missed_evidence",     label: "Missed evidence",     help: "agent overlooked supporting evidence in the paper/data" },
-  { key: "borderline",          label: "Borderline",          help: "close call — could reasonably go either way" },
-  { key: "other",               label: "Other",               help: "add a note" },
+  { key: "agent_missed_it",     label: "Tag is correct — keep it",               help: "the tag is right and applies as it stands; the agent simply proposed dropping it" },
+  { key: "tag_applies_broadly", label: "Keep it — it covers all the samples",    help: "the tag holds for every profiled sample — answers a 'subset only' rationale for removing it" },
+  { key: "borderline",          label: "Keep it, but I'm not certain",           help: "keeping it on balance — the evidence doesn't quite settle whether it covers every sample. Say what's unresolved in the note." },
+  { key: "other",               label: "Other",                                  help: "add a note" },
 ];
 
 /** @deprecated Use ``CAL_MISS_FACTOR_DISMISS_CHIPS`` (factor-side)
