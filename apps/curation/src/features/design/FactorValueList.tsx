@@ -30,8 +30,14 @@ export function FactorValueList({
   onRevertFv,
   compact = false,
   onToggleCompact,
+  originalValues,
 }: {
   factor: Factor;
+  /** fvId → what the submitter wrote for those samples, from the
+   *  factor's own characteristic column. Threaded from the editor
+   *  rather than read here so this list and the card stay renderable
+   *  without a draft provider. */
+  originalValues?: Map<number, string[]>;
   /** LLM-emitted ≤80-char summary surfaced as an italic subtitle
    *  under the panel header. Optional; the header row drops the
    *  subtitle when absent or empty. */
@@ -231,6 +237,7 @@ export function FactorValueList({
             onRevert={change ? () => onRevertFv(fv.id, change) : undefined}
             compact={compact}
             onExpand={onToggleCompact}
+            originalValues={originalValues?.get(fv.id)}
           />
         );
       })}

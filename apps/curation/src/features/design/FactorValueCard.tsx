@@ -12,6 +12,8 @@ import {
   templatesFor,
   type StatementTemplate,
 } from "./statementTemplates";
+import { matchesOriginal } from "./originalValue";
+import { cn } from "@/lib/cn";
 import {
   factorRequiresBaseline,
   type FactorValue,
@@ -41,9 +43,18 @@ export function FactorValueCard({
   onRevert,
   compact = false,
   onExpand,
+  originalValues,
 }: {
   fv: FactorValue;
   factorCategory: OntologyTerm | null;
+  /** What the submitter wrote for these samples, in the factor's own
+   *  characteristic column. Rendered on every FV that has one, not
+   *  only where it disagrees: a curator who can't tell "same as the
+   *  source" from "no source recorded" is back to guessing, which is
+   *  the thing this answers. Absent for a factor a curator built by
+   *  hand — there is no original, and inventing one would be worse
+   *  than the silence. */
+  originalValues?: string[];
   /** Compact view — hide per-FV editing chrome and render the
    *  statements as read-only S - P - O rows. Header (title +
    *  sample count + MODIFIED badge + revert) stays visible. */
@@ -326,6 +337,11 @@ export function FactorValueCard({
             ) : null}
           </span>
 
+          <OriginalValue
+            label={fv.free_text_label}
+            originals={originalValues}
+          />
+
           <ChangeBadge change={change} />
           {/* Atomic per-FV revert. Visible whenever the FV has a
               change relative to saved — modified, added, or removed
@@ -580,6 +596,56 @@ export function FactorValueCard({
         onCancel={() => setConfirming(false)}
       />
     </article>
+  );
+}
+
+/**
+ * What the submitter wrote, beside what we made of it.
+ *
+ * Shown on every value that has a source characteristic, including
+ * the ones where nothing changed. That is the point: a curated FV and
+ * its raw characteristic drift apart on purpose — grounding `stroma`
+ * as `placental villous stroma` is the job — but once they differ,
+ * the design tab shows only our end and the sample table only theirs,
+ * and nothing says they are the same thing. A marker that appeared
+ * only on disagreement would leave "same as the source" and "no
+ * source recorded" looking identical, which is the confusion this
+ * exists to end.
+ *
+ * The two cases carry different weight, so they read differently: an
+ * untouched value states its source quietly, a re-grounded one says
+ * so. Several originals under one FV is a merge — real curation, and
+ * this is the only surface that shows it happened.
+ */
+function OriginalValue({
+  label,
+  originals,
+}: {
+  label: string | null | undefined;
+  originals: string[] | undefined;
+}) {
+  if (!originals || originals.length === 0) return null;
+  const unchanged = matchesOriginal(label, originals);
+  const text = originals.join(" · ");
+  return (
+    <span
+      className={cn(
+        "text-[11px] font-mono",
+        unchanged
+          ? "text-slate-400 dark:text-slate-500"
+          : "text-slate-600 dark:text-slate-300",
+      )}
+      title={
+        unchanged
+          ? "The value as the submitter wrote it — unchanged."
+          : originals.length > 1
+            ? `Merged from ${originals.length} submitted values: ${text}`
+            : `The value as the submitter wrote it. This factor value re-grounds it.`
+      }
+    >
+      {unchanged ? null : <span className="mr-1 not-italic">←</span>}
+      {text}
+    </span>
   );
 }
 

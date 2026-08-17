@@ -4,6 +4,7 @@ import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { ContinuousFactorView } from "./ContinuousFactorView";
 import { FactorList } from "./FactorList";
 import { FactorValueList } from "./FactorValueList";
+import { originalValuesByFv } from "./originalValue";
 import { SampleAssignmentPreview } from "./SampleAssignmentPreview";
 import { ValidatorBanner } from "./ValidatorBanner";
 import { useDesignDraft } from "./DesignDraftContext";
@@ -210,6 +211,15 @@ export function DesignEditor({
     return desc ? desc : undefined;
   }, [report, selectedFactor?.name]);
 
+  // What the submitter wrote for each value, from the characteristic
+  // column this factor answers to. Computed here rather than in the
+  // list or the card so both stay renderable without a draft — and
+  // memoised on the factor, because it walks every biomaterial.
+  const originalValues = useMemo(() => {
+    if (!selectedFactor || !draft) return undefined;
+    return originalValuesByFv(selectedFactor, draft.biomaterials);
+  }, [selectedFactor, draft]);
+
   // ---- Render-time early returns. Hook order is fixed above so
   // these guards are safe.
   // Order matters: ``draft === null`` is a transient state during
@@ -408,6 +418,7 @@ export function DesignEditor({
               factor={selectedFactor}
               factorDescription={factorDescription}
               totalBiomaterials={draft.biomaterials.length}
+              originalValues={originalValues}
               changesByFvId={changes.byFv.get(selectedFactor.id) ?? null}
               onFvLabelChange={(fvId, label) =>
                 apply(setFvLabel(draft, selectedFactor.id, fvId, label))
