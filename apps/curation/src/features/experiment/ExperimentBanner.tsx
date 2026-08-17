@@ -79,7 +79,6 @@ export const EXPERIMENT_TABS: { id: TabId; label: string }[] = [
  */
 export function ExperimentBanner({
   experimentId,
-  shortName,
   title,
   taxon,
   nSamples,
@@ -104,7 +103,9 @@ export function ExperimentBanner({
   comparisonStrip,
 }: {
   experimentId: number | string;
-  shortName: string;
+  /* No ``shortName`` — the accession is the pinned header's now, and
+     the banner rendering it too was the duplication. ``ShortNameEditor``
+     is exported from this file and mounted up there. */
   title: string;
   taxon: string;
   nSamples: number;
@@ -165,14 +166,12 @@ export function ExperimentBanner({
           back as a side effect. */}
       <div className="mx-auto w-full px-4 pt-3 pb-1.5">
         <div className="min-w-0">
-          {/* Title rides the first row (after accession + modality
-              badge) to save a row of vertical space (design review 2026-06-21);
-              it wraps under the accession on a narrow viewport. */}
+          {/* Modality badge, then the title. The accession led this row
+              until 2026-08-16 and now appears once, in the pinned header
+              ("the short name doesn't need to be listed twice" — Paul).
+              The editor itself moved there rather than being deleted, so
+              rename and select-copy survive the de-duplication. */}
           <div className="flex items-baseline gap-3 flex-wrap">
-            <ShortNameEditor
-              experimentId={experimentId}
-              shortName={shortName}
-            />
             <ModalityIndicator />
             <TitleEditor title={title} />
           </div>
@@ -437,12 +436,20 @@ function CellTypeCountChip() {
  * On success, the design + datasets caches invalidate so the rest of
  * the UI repaints with the new name without a reload.
  */
-function ShortNameEditor({
+export function ShortNameEditor({
   experimentId,
   shortName,
+  compact = false,
 }: {
   experimentId: number | string;
   shortName: string;
+  /** Header sizing. The accession used to head the banner AND sit in
+   *  the pinned app header ("the short name doesn't need to be listed
+   *  twice" — Paul, 2026-08-16). The banner copy is the one that went,
+   *  so this editor moved UP: dropping it outright would have taken
+   *  rename and select-copy-the-accession with it, and the pinned row
+   *  is the better home for both — it is on screen the whole time. */
+  compact?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(shortName);
@@ -485,7 +492,14 @@ function ShortNameEditor({
     // the description editor's pattern. Hover reveals the pencil
     // and a subtle dashed underline as the discoverability cue.
     return (
-      <h1 className="text-lg font-semibold text-slate-900 inline-flex items-baseline gap-1 group">
+      <h1
+        className={
+          "inline-flex items-baseline gap-1 group font-semibold " +
+          (compact
+            ? "text-sm text-stone-900 dark:text-slate-100"
+            : "text-lg text-slate-900")
+        }
+      >
         <span
           className="border-b border-dashed border-transparent group-hover:border-slate-400"
           title={shortName}
@@ -543,7 +557,10 @@ function ShortNameEditor({
           }}
           disabled={rename.isPending}
           spellCheck={false}
-          className="text-lg font-semibold text-slate-900 border border-blue-300 rounded px-1 py-0 min-w-[14ch] outline-none focus:border-blue-500 disabled:opacity-60"
+          className={
+            "font-semibold text-slate-900 border border-blue-300 rounded px-1 py-0 min-w-[14ch] outline-none focus:border-blue-500 disabled:opacity-60 " +
+            (compact ? "text-sm" : "text-lg")
+          }
           aria-label="short_name"
         />
         {rename.isPending ? (

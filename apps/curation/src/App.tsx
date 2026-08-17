@@ -47,6 +47,7 @@ import {
 import { parseTargetId } from "@/features/audit/targetIds";
 import {
   ExperimentBanner,
+  ShortNameEditor,
   TopBar,
   type TabId,
 } from "@/features/experiment/ExperimentBanner";
@@ -564,7 +565,7 @@ function Shell({
             the header names the experiment by id — same fallback the
             rest of this branch already uses. ``shortName`` is declared
             below, after this early return. */}
-        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentShortName={`experiment ${experimentId}`}>
+        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentLabel={`experiment ${experimentId}`}>
           <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
             /
           </span>
@@ -617,7 +618,7 @@ function Shell({
   if (isThin && draft) {
     return (
       <div className="min-h-screen flex flex-col">
-        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentShortName={shortName}>
+        <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentLabel={<ShortNameEditor compact experimentId={experimentId} shortName={shortName} />}>
           <span className="text-xs text-slate-400 dark:text-slate-500" aria-hidden>
             /
           </span>
@@ -679,7 +680,7 @@ function Shell({
           with brand + nav + session for a line that already wrapped at
           1400px. The banner is where the rest of the experiment's
           context lives. */}
-      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentShortName={shortName} />
+      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentLabel={<ShortNameEditor compact experimentId={experimentId} shortName={shortName} />} />
       </div>
       <TopBar
         experimentId={experimentId}
@@ -697,7 +698,6 @@ function Shell({
           />
         }
         experimentId={experimentId}
-        shortName={shortName}
         title={draft?.title ?? ""}
         taxon={draft?.taxon ?? ""}
         nSamples={draft?.biomaterials.length ?? 0}

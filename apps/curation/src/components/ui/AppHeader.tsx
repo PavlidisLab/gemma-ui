@@ -34,7 +34,7 @@ export function AppHeader({
   children,
   ticketContext,
   experimentId,
-  experimentShortName,
+  experimentLabel,
 }: {
   reviewer: string;
   /** Optional slot for sub-route breadcrumb crumbs / context chips.
@@ -53,13 +53,20 @@ export function AppHeader({
    *  "current member" highlight + prev/next anchor. When omitted
    *  (non-experiment routes) the ticket chip suppresses. */
   experimentId?: number | string | null;
-  /** Accession / short name of the experiment being curated, e.g.
-   *  ``GSE33744``. TAKES OVER the brand label, which reads "Curating
-   *  <name>" instead of "Gemma Curation" — this is the only row that
-   *  stays pinned, and the banner that otherwise carries the accession
-   *  scrolls away. Omit on non-experiment routes (dashboard, inboxes,
-   *  ticket pages) to get the brand words back. */
-  experimentShortName?: string | null;
+  /** The experiment being curated, rendered as "Curating <label>".
+   *  TAKES OVER the brand label rather than sitting beside it — this is
+   *  the only row that stays pinned, and the banner that otherwise
+   *  carries the accession scrolls away. Omit on non-experiment routes
+   *  (dashboard, inboxes, ticket pages) to get the brand words back.
+   *
+   *  A node, not a string, because the accession is EDITABLE: App
+   *  passes the same ``ShortNameEditor`` the banner used to own, so
+   *  de-duplicating the accession didn't cost the rename affordance.
+   *  That is also why the label sits OUTSIDE the brand button when
+   *  it's present — the editor has its own buttons, and a button
+   *  inside a button is invalid. Going home is the ← Dashboard chip
+   *  next to it, which is always there off the dashboard. */
+  experimentLabel?: ReactNode;
 }) {
   const logout = useLogout();
   const me = useMe();
@@ -97,19 +104,25 @@ export function AppHeader({
           surrounding chrome, and it is answered on every page. Which
           dataset am I editing is answered nowhere else once the banner
           scrolls. */}
-      <button
-        type="button"
-        onClick={() => navigate("#/")}
-        className="flex items-center gap-2 font-semibold text-stone-900 dark:text-slate-100 bg-transparent border-none cursor-pointer p-0 shrink-0 whitespace-nowrap"
-        title="Curator dashboard"
-      >
-        <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
-        <span>
-          {experimentShortName
-            ? `Curating ${experimentShortName}`
-            : "Gemma Curation"}
+      {experimentLabel ? (
+        <span className="flex items-center gap-2 font-semibold text-stone-900 dark:text-slate-100 shrink-0 whitespace-nowrap">
+          <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
+          <span className="font-normal text-stone-600 dark:text-slate-400">
+            Curating
+          </span>
+          {experimentLabel}
         </span>
-      </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => navigate("#/")}
+          className="flex items-center gap-2 font-semibold text-stone-900 dark:text-slate-100 bg-transparent border-none cursor-pointer p-0 shrink-0 whitespace-nowrap"
+          title="Curator dashboard"
+        >
+          <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
+          <span>Gemma Curation</span>
+        </button>
+      )}
 
       {/* Always-visible "back to dashboard" affordance. The brand
           title above also routes home, but it reads as a section
