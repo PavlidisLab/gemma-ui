@@ -76,16 +76,45 @@ describe("generated/chipSets.json", () => {
     expect(Object.keys(emitted)).not.toContain("CAL_MISS_DISMISS_CHIPS");
   });
 
-  it("every chip carries an `added` date", () => {
-    // The reason the field exists: a chip younger than the
-    // dispositions being tallied cannot have been refused, so
-    // "offered but never picked" is unreadable without it.
+  it("every chip carries an `added` timestamp at SECONDS granularity", () => {
+    // 🛑 Not merely a format check. Date-only granularity is what made
+    // six chips unreadable: the 2026-08-13 additions to
+    // CAL_EXTRA_TAG_DISMISS_CHIPS were committed at 20:46Z, four hours
+    // AFTER that dialog's last disposition at 16:53Z — same date, so a
+    // date compare reported six never-exposed chips as "offered but
+    // never picked". A regression to `YYYY-MM-DD` reintroduces exactly
+    // that, silently, so it fails here.
     for (const { names, chips } of liveGroups()) {
       for (const c of chips) {
-        expect(c.added, `${names[0]}.${c.key} has no 'added' date`).toMatch(
-          /^\d{4}-\d{2}-\d{2}$/,
-        );
+        expect(
+          c.added,
+          `${names[0]}.${c.key} — 'added' must be YYYY-MM-DDTHH:MM:SSZ`,
+        ).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
       }
+    }
+  });
+
+  it("keeps the six same-day chips separable from their dialog's last row", () => {
+    // The concrete case, pinned so the granularity has a reason
+    // attached rather than a rule. Last calibration_agent_extra
+    // disposition: 2026-08-13T16:53Z.
+    const sixAdded2026_08_13 = [
+      "invalid_annotation",
+      "aboutism",
+      "out_of_scope_correct",
+      "wrong",
+      "wrong_category",
+      "out_of_scope_wrong",
+    ];
+    const set = emitted.CAL_EXTRA_TAG_DISMISS_CHIPS;
+    for (const key of sixAdded2026_08_13) {
+      const chip = set.find((c) => c.key === key);
+      expect(chip, `${key} missing from CAL_EXTRA_TAG_DISMISS_CHIPS`).toBeTruthy();
+      expect(
+        chip!.added > "2026-08-13T16:53:00Z",
+        `${key} added ${chip!.added} — must sort after the dialog's last ` +
+          `disposition, or it reads as offered-and-refused`,
+      ).toBe(true);
     }
   });
 });

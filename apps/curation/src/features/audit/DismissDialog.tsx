@@ -60,18 +60,33 @@ export type DialogChip = {
   key: string;
   label: string;
   help: string;
-  /** ISO date this chip was first OFFERED in this set. Not decoration
-   *  and not optional: without it, "offered but never picked" is
-   *  unreadable for any chip younger than the dispositions being
-   *  tallied — a chip added yesterday looks exactly like one curators
-   *  have refused for months. Analysis on the agents side filters on
-   *  it (`scripts/chip_usage_report.py`), and it ships in the
-   *  generated `chipSets.json`.
+  /** UTC ISO timestamp (`YYYY-MM-DDTHH:MM:SSZ`) this chip was first
+   *  OFFERED in this set. Not decoration and not optional: without it,
+   *  "offered but never picked" is unreadable for any chip younger
+   *  than the dispositions being tallied — a chip added yesterday
+   *  looks exactly like one curators have refused for months. Analysis
+   *  on the agents side filters on it (`scripts/chip_usage_report.py`)
+   *  and it ships in the generated `chipSets.json`.
    *
-   *  Existing values were derived mechanically from git history (the
-   *  blob at each of the file's commits), not hand-assigned. When you
-   *  add a chip, date it the day you add it. When you move a chip to
-   *  a different set, that's a new offering — use the move date. */
+   *  🛑 **Seconds, not days.** This was date-only for about an hour on
+   *  2026-08-17 and that was one granularity short of the case it
+   *  exists for: the 2026-08-13 additions to
+   *  `CAL_EXTRA_TAG_DISMISS_CHIPS` were committed at 20:46Z, four
+   *  hours AFTER that dialog's last disposition at 16:53Z. Same date,
+   *  so a date compare called six never-exposed chips "offered but
+   *  never picked" — the exact error the field was added to prevent.
+   *
+   *  Existing values were derived mechanically from git history (`%cI`
+   *  of the first commit whose blob contains the chip in this set),
+   *  not hand-assigned. When you add a chip, stamp the current UTC
+   *  time. Moving a chip to a different set is a new offering — stamp
+   *  the move.
+   *
+   *  What it actually means: the earliest moment the chip could have
+   *  reached a curator. Commit time is not deploy time, so treat
+   *  "committed before the disposition" as *possible* exposure rather
+   *  than proven — it's only the "committed after" direction that is
+   *  conclusive. That's the direction the filter needs. */
   added: string;
 };
 
