@@ -210,11 +210,68 @@ export function useAnnotationSearch(
           example_usage: asLocal.example_usage ?? asGemma.example_usage ?? null,
         };
       });
-      return orderCandidatesByTaxon(candidates);
+      return orderCandidatesByTaxon(dedupeCandidates(candidates));
     },
     staleTime: 1000 * 60 * 5,
     enabled,
   });
+}
+
+/**
+ * Collapse rows a curator cannot tell apart, because picking either
+ * one commits the identical (label, URI) pair.
+ *
+ * Gemma's search returns the same free-text value twice for at least
+ * some terms — `129/Ola` under `strain` comes back as
+ * `{usageCount: 24, valueUri: ""}` and `{usageCount: null,
+ * valueUri: null}`, identical in every other field. Rendered, that is
+ * one row reading `×24` and another reading `new`, which asks the
+ * curator to choose between a term and itself; the two also collide
+ * on the list's React key. Reported 2026-08-16 in
+ * `UIB_TO_GEB_2026_08_16_THE_SEARCH_RETURNS_THE_SAME_FREE_TEXT_TWICE.md`.
+ *
+ * 🛑 Keyed on what a pick WRITES — trimmed label plus URI, with an
+ * empty URI and a null URI treated as the same "ungrounded". Two rows
+ * with different URIs are two different terms and both must survive,
+ * however similar their labels look.
+ *
+ * The survivor is the richest row, not the first: usage count and the
+ * example-usage enrichment are the whole reason the catalog section
+ * exists, and dropping the `×24` row for an identical bare one would
+ * hide the signal the curator is choosing on.
+ */
+export function dedupeCandidates(
+  candidates: AnnotationCandidate[],
+): AnnotationCandidate[] {
+  const byKey = new Map<string, number>();
+  const out: AnnotationCandidate[] = [];
+  for (const c of candidates) {
+    const key = `${c.label.trim().toLowerCase()}|${(c.uri ?? "").trim()}`;
+    const at = byKey.get(key);
+    if (at == null) {
+      byKey.set(key, out.length);
+      out.push(c);
+      continue;
+    }
+    const kept = out[at];
+    if (richerCandidate(c, kept)) out[at] = c;
+  }
+  return out;
+}
+
+/** Which of two identical-identity rows to show. Usage count first
+ *  (it is the ranking signal on the row), then the presence of the
+ *  example-usage / taxon enrichment. */
+function richerCandidate(
+  a: AnnotationCandidate,
+  b: AnnotationCandidate,
+): boolean {
+  if ((a.usage_count ?? 0) !== (b.usage_count ?? 0)) {
+    return (a.usage_count ?? 0) > (b.usage_count ?? 0);
+  }
+  const score = (c: AnnotationCandidate) =>
+    (c.example_usage ? 2 : 0) + (c.taxon_id != null ? 1 : 0);
+  return score(a) > score(b);
 }
 
 /**

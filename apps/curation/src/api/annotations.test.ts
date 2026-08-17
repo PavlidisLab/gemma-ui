@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dedupeCandidates,
   orderCandidatesByTaxon,
   parseGemmaChildren,
   parseGemmaTerm,
@@ -332,5 +333,67 @@ describe("parseGemmaTerm — Cellosaurus sourceMetadata", () => {
       URI,
     )!;
     expect(plain.sourceMetadata).toBeNull();
+  });
+});
+
+/**
+ * Gemma returns the same free-text value twice for some terms — seen
+ * live 2026-08-16 on `129/Ola` under `strain`: one row
+ * `{usageCount: 24, valueUri: ""}`, one `{usageCount: null,
+ * valueUri: null}`, every other field identical. The picker rendered
+ * both, so the dropdown offered a choice between a term and itself,
+ * one labelled `×24` and one labelled `new`.
+ */
+describe("dedupeCandidates", () => {
+  const row = (over: Partial<AnnotationCandidate> = {}): AnnotationCandidate => ({
+    label: "129/Ola",
+    uri: null,
+    category_label: "strain",
+    category_uri: "http://www.ebi.ac.uk/efo/EFO_0005135",
+    usage_count: 0,
+    taxon_id: null,
+    taxon_common_name: null,
+    taxon_scientific_name: null,
+    example_usage: null,
+    ...over,
+  });
+
+  it("collapses the empty-string and null URI spellings of one free-text value", () => {
+    const out = dedupeCandidates([
+      row({ uri: "", usage_count: 24 }),
+      row({ uri: null }),
+    ]);
+    expect(out).toHaveLength(1);
+    // The used row survives — its count is the signal the curator picks on.
+    expect(out[0].usage_count).toBe(24);
+  });
+
+  it("keeps the richer row whichever order it arrives in", () => {
+    const out = dedupeCandidates([row({ uri: null }), row({ uri: "", usage_count: 24 })]);
+    expect(out).toHaveLength(1);
+    expect(out[0].usage_count).toBe(24);
+  });
+
+  // 🛑 Two URIs is two terms, however alike the labels read.
+  it("never merges rows that resolve to different URIs", () => {
+    const out = dedupeCandidates([
+      row({ uri: "http://www.ebi.ac.uk/efo/EFO_0000599" }),
+      row({ uri: "http://purl.obolibrary.org/obo/CLO_0000021" }),
+    ]);
+    expect(out).toHaveLength(2);
+  });
+
+  it("preserves order and leaves a clean list alone", () => {
+    const list = [row({ label: "a" }), row({ label: "b" }), row({ label: "c" })];
+    expect(dedupeCandidates(list).map((c) => c.label)).toEqual(["a", "b", "c"]);
+  });
+
+  it("prefers the enriched row when usage counts tie", () => {
+    const bare = row({ uri: null });
+    const enriched = row({
+      uri: null,
+      example_usage: { experiment_short_name: "GSE1", kind: "factor_value" } as never,
+    });
+    expect(dedupeCandidates([bare, enriched])[0].example_usage).not.toBeNull();
   });
 });
