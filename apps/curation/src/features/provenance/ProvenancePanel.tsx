@@ -27,16 +27,25 @@ import { provenanceRefs } from "./refs";
 
 export function ProvenancePanel({
   experimentId,
+  bare = false,
 }: {
   experimentId: number | string;
+  /** Drop this panel's own card chrome and render just the control, so
+   *  a caller can seat it in a shared row beside its siblings. Three
+   *  stacked bordered cards were spending a third of the viewport
+   *  above the first annotation (Paul, 2026-08-16). The COUNT still
+   *  rides on the surface either way — it is the whole reason the
+   *  button is worth a glance. */
+  bare?: boolean;
 }) {
   const { draft } = useDesignDraft();
   const run = useProvenanceRun();
   const refs = useMemo(() => provenanceRefs(draft), [draft]);
   const nothingToTrace = refs.length === 0;
 
+  const Wrapper = bare ? "div" : "section";
   return (
-    <section className="card p-3">
+    <Wrapper className={bare ? "contents" : "card p-3"}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
           Provenance
@@ -83,6 +92,6 @@ export function ProvenancePanel({
           </span>
         ) : null}
       </div>
-    </section>
+    </Wrapper>
   );
 }

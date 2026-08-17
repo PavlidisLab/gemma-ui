@@ -85,8 +85,17 @@ const STATUS_COPY: Record<
 
 export function TermValidationPanel({
   experimentId,
+  bare = false,
 }: {
   experimentId: number | string;
+  /** Drop this panel's own card chrome and render just the control, so
+   *  a caller can seat it in a shared row beside its siblings. Three
+   *  stacked bordered cards were spending a third of the viewport
+   *  above the first annotation (Paul, 2026-08-16). The COUNT stays on
+   *  the surface either way, and the RESULTS still get their own
+   *  full-width line — a findings list squeezed into a flex column
+   *  beside two buttons would be unreadable. */
+  bare?: boolean;
 }) {
   const { draft, apply } = useDesignDraft();
   const readOnly = useIsReadOnly();
@@ -110,8 +119,9 @@ export function TermValidationPanel({
   // about; free text isn't wrong, it's just ungrounded.
   const nothingToCheck = refs.length === 0;
 
+  const Wrapper = bare ? "div" : "section";
   return (
-    <section className="card p-3 space-y-2">
+    <Wrapper className={bare ? "contents" : "card p-3 space-y-2"}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
           Ontology terms
@@ -173,6 +183,21 @@ export function TermValidationPanel({
         ) : null}
       </div>
 
+      {/* Everything the run PRODUCES, kept together. In bare mode this
+          is a flex item of the caller's row, so `basis-full` drops it
+          onto its own line under the controls rather than letting a
+          findings list compete for width with two buttons.
+          Rendered only when there IS output: a full-width flex item is
+          a line break even when it's empty, and an empty one pushed the
+          sibling panel's button off the shared row — the exact row the
+          bare mode exists to keep together. Every child below needs
+          either a run or an error, so those two cover all of them.
+          `order-last` for the same reason once a run HAS produced
+          something: in DOM order this block sits between our own
+          control and the next panel's, so without it a finished run
+          shoves that panel onto a third line. */}
+      {validate.isError || run ? (
+      <div className={bare ? "order-last basis-full w-full space-y-2" : "contents"}>
       {validate.isError ? (
         <p className="text-[11px] text-red-700 dark:text-red-300">
           Couldn&apos;t reach the validator. The terms are unchanged — this
@@ -423,8 +448,9 @@ export function TermValidationPanel({
           CURIE where a full IRI is preferred) — the term itself is right.
         </p>
       ) : null}
-
-    </section>
+      </div>
+      ) : null}
+    </Wrapper>
   );
 }
 

@@ -3,6 +3,8 @@ import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
+import { HelpPopup } from "@/components/ui/HelpPopup";
+import type { GuidelineSnippet } from "@/lib/guidelines";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { extractPaperMeta, pmidFromPaperSource } from "@/features/proposal/paperEvidence";
@@ -197,56 +199,38 @@ export function OverviewPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="card px-3 py-1.5 flex items-center gap-3 flex-wrap text-xs text-slate-600">
-        <span className="font-semibold text-slate-700">Curation guidelines:</span>
-        <span className="inline-flex items-center gap-1">
-          ontologies <GuidelinePopup snippet={ONTOLOGY_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          free-text <GuidelinePopup snippet={FREE_TEXT_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          predicates <GuidelinePopup snippet={PREDICATE_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          statement shapes{" "}
-          <GuidelinePopup snippet={STATEMENT_TEMPLATE_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          baselines <GuidelinePopup snippet={BASELINE_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          tags <GuidelinePopup snippet={TAGS_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          developmental stages{" "}
-          <GuidelinePopup snippet={DEV_STAGE_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          derived material{" "}
-          <GuidelinePopup snippet={DERIVED_MATERIAL_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          grafts <GuidelinePopup snippet={GRAFT_GUIDELINE} size="md" />
-        </span>
-        <span className="inline-flex items-center gap-1">
-          pre-publish checklist{" "}
-          <GuidelinePopup snippet={CHECKLIST_GUIDELINE} size="md" align="right" />
-        </span>
-      </div>
+      {/* ONE row, three controls (Paul, 2026-08-16: "this takes up far
+          too much space; make it a popup or something"). This was three
+          stacked full-width cards — a wrapping list of eleven guideline
+          chips, plus a card each for two buttons — and together they
+          pushed the TAGS header to the fold on a laptop, so the first
+          annotation was below it.
 
-      {/* Experiment-wide ontology check. Lives here rather than in the
-          Design tab's ValidatorBanner because it spans tags, factor
-          values, statement slots and sample characteristics; and rather
-          than in the audit sidebar because that toggle is hidden until
-          an audit exists, which is precisely when this is most useful. */}
-      {meta ? <TermValidationPanel experimentId={meta.experiment_id} /> : null}
+          What collapses and what doesn't is the whole point. The
+          guideline links are reference material a curator opens
+          deliberately, so they fold behind one control. The two
+          ACTIONS keep their counts on the surface: "23 terms" and "(8)"
+          are live signals that say there is work here, and behind a
+          menu they'd become two items nobody opens.
 
-      {/* Same shape, same place, one question over: term validation
+          The panels render `bare` — no card of their own — so all three
+          share this one border.
+
+          Term validation lives here rather than in the Design tab's
+          ValidatorBanner because it spans tags, factor values,
+          statement slots and sample characteristics; and rather than in
+          the audit sidebar because that toggle is hidden until an audit
+          exists, which is precisely when it's most useful. Provenance
+          sits beside it as the same shape one question over: validation
           asks whether an annotation is RIGHT, provenance asks where it
-          came from. Both are curator-triggered batch checks over every
-          annotation on the experiment, so they read as a pair. */}
-      {meta ? <ProvenancePanel experimentId={meta.experiment_id} /> : null}
+          came FROM. */}
+      <div className="card px-3 py-1.5 flex items-center gap-x-4 gap-y-1 flex-wrap text-xs text-slate-600">
+        <GuidelinesMenu />
+        {meta ? (
+          <TermValidationPanel bare experimentId={meta.experiment_id} />
+        ) : null}
+        {meta ? <ProvenancePanel bare experimentId={meta.experiment_id} /> : null}
+      </div>
 
       <article className="card p-3 space-y-2">
         {/* Title + "re-import from Gemma" both moved to the
@@ -653,4 +637,54 @@ function formatTimestamp(iso: string | undefined): string {
   } catch {
     return iso;
   }
+}
+
+/**
+ * The curation-guideline links, folded behind one control.
+ *
+ * They were eleven chips laid out across the page, wrapping onto a
+ * second line and taking a full-width card to do it. They're reference
+ * material a curator opens on purpose, not a status line to scan on
+ * every page load, so one control is the right footprint.
+ *
+ * Reuses `HelpPopup`'s own `trigger` slot rather than introducing a
+ * menu primitive — it already does portalled positioning, click-outside
+ * and Escape. The per-topic `?` badges keep working INSIDE it: each
+ * `GuidelinePopup` portals its own popover to the body and stops
+ * mousedown propagation there, so opening one doesn't dismiss this one.
+ */
+function GuidelinesMenu() {
+  const topics: { label: string; snippet: GuidelineSnippet }[] = [
+    { label: "ontologies", snippet: ONTOLOGY_GUIDELINE },
+    { label: "free-text", snippet: FREE_TEXT_GUIDELINE },
+    { label: "predicates", snippet: PREDICATE_GUIDELINE },
+    { label: "statement shapes", snippet: STATEMENT_TEMPLATE_GUIDELINE },
+    { label: "baselines", snippet: BASELINE_GUIDELINE },
+    { label: "tags", snippet: TAGS_GUIDELINE },
+    { label: "developmental stages", snippet: DEV_STAGE_GUIDELINE },
+    { label: "derived material", snippet: DERIVED_MATERIAL_GUIDELINE },
+    { label: "grafts", snippet: GRAFT_GUIDELINE },
+    { label: "pre-publish checklist", snippet: CHECKLIST_GUIDELINE },
+  ];
+  return (
+    <HelpPopup
+      title="Curation guidelines"
+      size="md"
+      trigger={
+        <>
+          Guidelines <span aria-hidden>▾</span>
+        </>
+      }
+      triggerClassName="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 text-xs cursor-pointer dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+    >
+      <ul className="space-y-1">
+        {topics.map((t) => (
+          <li key={t.label} className="flex items-center gap-1.5">
+            <GuidelinePopup snippet={t.snippet} size="md" />
+            <span>{t.label}</span>
+          </li>
+        ))}
+      </ul>
+    </HelpPopup>
+  );
 }
