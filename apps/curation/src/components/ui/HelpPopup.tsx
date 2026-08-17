@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -33,6 +34,7 @@ export function HelpPopup({
   align = "left",
   trigger,
   triggerClassName,
+  onOpenChange,
 }: {
   /** Heading shown at the top of the popover. */
   title: string;
@@ -57,8 +59,23 @@ export function HelpPopup({
    *  ``triggerClassName`` replaces the default button styles. */
   trigger?: ReactNode;
   triggerClassName?: string;
+  /** Fires whenever the popover opens or closes. Lets a caller that
+   *  keeps its own state inside the panel (the guidelines menu drills
+   *  down into a topic) reset it on close, so reopening starts at the
+   *  top instead of wherever the last visit ended. */
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = useCallback(
+    (next: boolean | ((v: boolean) => boolean)) => {
+      setOpenState((prev) => {
+        const value = typeof next === "function" ? next(prev) : next;
+        if (value !== prev) onOpenChange?.(value);
+        return value;
+      });
+    },
+    [onOpenChange],
+  );
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   // ``HTMLSpanElement`` rather than ``HTMLButtonElement`` because the
   // trigger renders as ``<span role="button">`` — a real ``<button>``

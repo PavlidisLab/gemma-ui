@@ -95,11 +95,11 @@ export function ChipStrip({
       aria-label="Comparison source selection"
     >
       {baselineLocked ? (
-        <ChipLabel slotLabel="Baseline" value={baseline} curations={curations} />
+        <ChipLabel slotLabel="Viewing" value={baseline} curations={curations} />
       ) : (
         <ChipDropdown
           slot="baseline"
-          slotLabel="Baseline"
+          slotLabel="Viewing"
           value={baseline}
           otherSlotValue={comparator}
           onChange={setBaseline}
@@ -115,7 +115,7 @@ export function ChipStrip({
       <CuratingOnTopNote baseline={baseline} curations={curations} />
       <ChipDropdown
         slot="comparator"
-        slotLabel={comparatorSlotLabel(mode)}
+        slotLabel={comparatorSlotLabel(mode, comparator)}
         value={comparator}
         otherSlotValue={baseline}
         onChange={setComparator}
@@ -339,13 +339,16 @@ function ChipLabel({
       className="relative inline-flex items-center gap-2"
       title="Baseline is fixed in curation mode — switch to a review context to change it"
     >
+      {/* Sentence case with a colon, not the old uppercase tracking:
+          "Viewing: Gold polished" reads as a sentence about the chip
+          beside it, where "BASELINE" read as a field name in a form. */}
       <span
         className={cn(
-          "text-[10px] uppercase tracking-wide font-semibold whitespace-nowrap",
+          "text-[11px] font-semibold whitespace-nowrap",
           palette.label,
         )}
       >
-        {slotLabel}
+        {slotLabel}:
       </span>
       <span
         className={cn(
@@ -362,23 +365,45 @@ function ChipLabel({
   );
 }
 
-/** The comparator slot's leading label mirrors the spec's
- *  panel-header table: a "proposes" comparator reads as "Proposal",
- *  a "differs from baseline" comparator reads as "Audit". Identity
- *  pair is the regression check. Empty / bare modes fall back to
- *  the generic "Comparator" since no specific framing applies yet. */
-function comparatorSlotLabel(mode: ReturnType<typeof modeOf>): string {
-  switch (mode) {
-    case "proposal":
-      return "Proposal";
-    case "audit":
-      return "Audit";
-    case "identity":
-      return "Regression check";
-    case "bare":
-    case "degenerate":
-      return "Comparator";
-  }
+/** The comparator slot's leading label.
+ *
+ *  It used to read off the MODE alone, which meant the ordinary review
+ *  pair (a polished baseline against the agent's proposal) came out as
+ *  "Audit" — jargon for the thing the chip beside it already names in
+ *  plain words (Paul, 2026-08-16). So the label now follows what is
+ *  actually IN the slot: the agent's proposal reads "Proposal"
+ *  whichever mode it produces.
+ *
+ *  Everything else stays "Comparing", deliberately: the comparator also
+ *  takes another curator's polished row (the Cy-vs-Am tiebreak
+ *  workflow), and calling that a "Proposal" would be a plain lie about
+ *  whose work it is. Identity keeps its own name — comparing a source
+ *  with itself is the regression check, not a comparison anyone means
+ *  to be reading. */
+/** Drop the slot's own word off the end of a chip's value, so the pair
+ *  doesn't read "Proposal: agent proposal" (Paul, 2026-08-16 — "reduce
+ *  the repetition").
+ *
+ *  It bites in exactly one place: ``sourceLabel``'s bare fallback for an
+ *  agent run IS the string "agent proposal", used when the run carries
+ *  neither a sha nor a date to identify it by. A run that HAS one reads
+ *  "agent v1.1-87-g5344f2e 8/13" and is left alone, as is every
+ *  polished / preboard label. Display only — the dropdown, the
+ *  tooltips and the diff all keep the full name. */
+function withoutSlotWord(label: string, slotLabel: string): string {
+  const trimmed = label
+    .replace(new RegExp(`\\s*\\b${slotLabel}\\b\\s*$`, "i"), "")
+    .trim();
+  return trimmed || label;
+}
+
+function comparatorSlotLabel(
+  mode: ReturnType<typeof modeOf>,
+  comparator: Source,
+): string {
+  if (mode === "identity") return "Regression check";
+  if (mode === "proposal" || comparator === "agent_proposal") return "Proposal";
+  return "Comparing";
 }
 
 /** Tailwind palette per slot — emerald = canonical baseline state;
@@ -442,13 +467,16 @@ function ChipDropdown({
 
   return (
     <div ref={ref} className="relative inline-flex items-center gap-2">
+      {/* Sentence case with a colon, not the old uppercase tracking:
+          "Viewing: Gold polished" reads as a sentence about the chip
+          beside it, where "BASELINE" read as a field name in a form. */}
       <span
         className={cn(
-          "text-[10px] uppercase tracking-wide font-semibold whitespace-nowrap",
+          "text-[11px] font-semibold whitespace-nowrap",
           palette.label,
         )}
       >
-        {slotLabel}
+        {slotLabel}:
       </span>
       <button
         type="button"
@@ -476,7 +504,7 @@ function ChipDropdown({
             push the header past what it can seat. The dropdown lists
             every label in full. */}
         <span className="truncate max-w-[14rem]">
-          {sourceLabel(value, curations)}
+          {withoutSlotWord(sourceLabel(value, curations), slotLabel)}
         </span>
         <span className="opacity-70 text-[9px]">▾</span>
       </button>

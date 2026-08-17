@@ -24,6 +24,27 @@ export function GuidelinePopup({
       size={size}
       align={align}
     >
+      <GuidelineSnippetBody snippet={snippet} />
+    </HelpPopup>
+  );
+}
+
+/**
+ * Just the BODY of a snippet — bullets, examples, "don't" rules — with
+ * no popover around it.
+ *
+ * Split out so a surface that already owns a panel can render a
+ * snippet inside it instead of opening a second one on top. The
+ * guidelines menu does exactly that: it drills down in place rather
+ * than stacking a popover over its own list.
+ */
+export function GuidelineSnippetBody({
+  snippet,
+}: {
+  snippet: GuidelineSnippet;
+}) {
+  return (
+    <>
       {snippet.bullets.length ? (
         <ul className="list-disc list-inside space-y-1">
           {snippet.bullets.map((b, i) => (
@@ -53,6 +74,6 @@ export function GuidelinePopup({
           </ul>
         </div>
       ) : null}
-    </HelpPopup>
+    </>
   );
 }

@@ -150,24 +150,29 @@ export function AppHeader({
         <nav className="flex items-center gap-1 whitespace-nowrap">
           <ExternalNavTab href={browserUrl("/browser")}>Browse</ExternalNavTab>
           {isAdmin ? (
-            <ExternalNavTab href={adminUrl()}>Administration</ExternalNavTab>
+            <ExternalNavTab href={adminUrl()}>Admin</ExternalNavTab>
           ) : null}
         </nav>
 
         <div className="flex items-center gap-3 text-xs text-stone-700 dark:text-slate-300">
-          <span>
-            signed in as <span className="font-medium">{reviewer}</span>
-          </span>
+          {/* The identity IS the sign-out control (Paul, 2026-08-16).
+              This was "signed in as <name>" as static text plus a
+              separate "sign out" link — two items and a four-word
+              preamble for one piece of information and one action, on a
+              row that wraps at 1400px. Who you are and how to stop being
+              them are the same control everywhere else on the web, and
+              the tooltip carries the sentence the preamble used to. */}
+          <button
+            type="button"
+            className="font-medium text-stone-700 hover:text-stone-900 underline decoration-dotted underline-offset-2 dark:text-slate-300 dark:hover:text-slate-100 bg-transparent border-none cursor-pointer p-0 whitespace-nowrap"
+            title={`Signed in as ${reviewer} — click to sign out`}
+            onClick={() => logout.mutate()}
+          >
+            {reviewer}
+          </button>
           <ModeChip />
           <HealthChip />
           <SettingsMenu />
-          <button
-            type="button"
-            className="text-stone-500 hover:text-stone-900 underline dark:text-slate-400 dark:hover:text-slate-100 bg-transparent border-none cursor-pointer p-0"
-            onClick={() => logout.mutate()}
-          >
-            sign out
-          </button>
         </div>
       </div>
     </header>

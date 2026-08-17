@@ -101,6 +101,7 @@ export function ExperimentBanner({
   groupContext,
   ticketContext: _ticketContext,
   commitBar,
+  comparisonStrip,
 }: {
   experimentId: number | string;
   shortName: string;
@@ -143,6 +144,11 @@ export function ExperimentBanner({
    *  composition pulls in the design draft + validation. Renders
    *  null when the draft is clean, so passing it always is fine. */
   commitBar?: ReactNode;
+  /** The baseline / comparator chip strip + its diff readout, on its
+   *  own row above the tabs. Passed in rather than mounted here
+   *  because the strip needs route + flow context that App owns —
+   *  same composition the ``commitBar`` slot uses. */
+  comparisonStrip?: ReactNode;
 }) {
   const sourceLink = externalSourceLink(externalSource);
   // ``experimentPageUrl`` reads ``VITE_GEMMA_WEB_URL`` so a staging
@@ -152,8 +158,13 @@ export function ExperimentBanner({
 
   return (
     <section className="bg-white border-b border-slate-200">
-      <div className="mx-auto w-full px-4 py-3 flex gap-4 flex-wrap items-start">
-        <div className="flex-1 min-w-0">
+      {/* Identity only — title + the one-line meta. The action cluster
+          used to sit here as a second column, which is what left the
+          right-hand side of the rows below it empty; it now rides the
+          comparison row further down. A long title gets the full width
+          back as a side effect. */}
+      <div className="mx-auto w-full px-4 pt-3 pb-1.5">
+        <div className="min-w-0">
           {/* Title rides the first row (after accession + modality
               badge) to save a row of vertical space (design review 2026-06-21);
               it wraps under the accession on a narrow viewport. */}
@@ -188,7 +199,14 @@ export function ExperimentBanner({
                   className="text-blue-700 hover:underline"
                   title={`source: ${externalSource.database} ${externalSource.accession}`}
                 >
-                  {externalSource.database}: {externalSource.accession} ↗
+                  {/* Just the database name. The accession was printed
+                      here too, which made it the THIRD copy on screen —
+                      the pinned header says "Curating GSE33744", the
+                      title row repeats it, and this link said it again
+                      (Paul, 2026-08-16: "reduce the repetition"). What
+                      the link adds is WHERE it goes, not which record;
+                      the tooltip still spells the accession out. */}
+                  {externalSource.database} ↗
                 </a>
               ) : (
                 <span title="external source recorded but no canonical URL available">
@@ -236,10 +254,35 @@ export function ExperimentBanner({
                 ) : null}
               </span>
             ) : null}
-          </div>
-        </div>
-        <div className="flex items-center justify-end gap-2 shrink-0">
-          {commitBar}
+
+            {/* The comparison strip and the action cluster ride the
+                META line rather than claiming rows of their own.
+
+                Comparison state — "what am I looking at, and against
+                what" — lived in the app-global AppHeader until
+                2026-08-16, where it was the widest tenant of a row it
+                had no business being on: that header carries app-global
+                chrome (brand, nav, session) and this is
+                experiment-scoped. Moving it down here bought the header
+                its line back but spent a line to do it, and the strip
+                plus the buttons then sat on two full-width rows that
+                each used well under half their width, with a tall empty
+                band between (Paul, 2026-08-16: "make better use of the
+                width — instead of adding rows").
+
+                So all three share this line: identity facts, then what
+                is being compared, then what you can do about it, with
+                the actions pushed right by ``ml-auto``. The banner is
+                back to the three rows it had before the strip arrived,
+                and the header keeps its line. Everything is
+                ``flex-wrap``, so a narrow window breaks between groups
+                instead of clipping. */}
+            <span aria-hidden className="text-slate-300 select-none">
+              |
+            </span>
+            {comparisonStrip}
+            <div className="flex items-center justify-end gap-2 shrink-0 ml-auto">
+              {commitBar}
           {/* Set picker + navigator collapsed into a single control:
              ExperimentGroupChips is now the only set surface. Each chip
              shows the set name + member count, and the chip's popover
@@ -287,7 +330,9 @@ export function ExperimentBanner({
               the local-mode dev escape hatch; if needed it returns
               via a CLI / admin path. ``useImportFromGemma`` kept on
               the data-layer for ImportPrompt's 404 fallback. */}
-          <PublishButton experimentId={experimentId} />
+              <PublishButton experimentId={experimentId} />
+            </div>
+          </div>
         </div>
       </div>
 

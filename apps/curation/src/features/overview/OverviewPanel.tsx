@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { useProposalsForExperiment } from "@/api/proposals";
-import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
+import { GuidelineSnippetBody } from "@/components/ui/GuidelinePopup";
 import { HelpPopup } from "@/components/ui/HelpPopup";
 import type { GuidelineSnippet } from "@/lib/guidelines";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -639,37 +639,53 @@ function formatTimestamp(iso: string | undefined): string {
   }
 }
 
+const GUIDELINE_TOPICS: { label: string; snippet: GuidelineSnippet }[] = [
+  { label: "ontologies", snippet: ONTOLOGY_GUIDELINE },
+  { label: "free-text", snippet: FREE_TEXT_GUIDELINE },
+  { label: "predicates", snippet: PREDICATE_GUIDELINE },
+  { label: "statement shapes", snippet: STATEMENT_TEMPLATE_GUIDELINE },
+  { label: "baselines", snippet: BASELINE_GUIDELINE },
+  { label: "tags", snippet: TAGS_GUIDELINE },
+  { label: "developmental stages", snippet: DEV_STAGE_GUIDELINE },
+  { label: "derived material", snippet: DERIVED_MATERIAL_GUIDELINE },
+  { label: "grafts", snippet: GRAFT_GUIDELINE },
+  { label: "pre-publish checklist", snippet: CHECKLIST_GUIDELINE },
+];
+
 /**
- * The curation-guideline links, folded behind one control.
+ * The curation guidelines, behind one control.
  *
- * They were eleven chips laid out across the page, wrapping onto a
- * second line and taking a full-width card to do it. They're reference
- * material a curator opens on purpose, not a status line to scan on
- * every page load, so one control is the right footprint.
+ * They were ten chips laid across a full-width card, wrapping onto a
+ * second line. They're reference material a curator opens on purpose,
+ * not a status line to scan on every page load, so one control is the
+ * right footprint.
  *
- * Reuses `HelpPopup`'s own `trigger` slot rather than introducing a
- * menu primitive — it already does portalled positioning, click-outside
- * and Escape. The per-topic `?` badges keep working INSIDE it: each
- * `GuidelinePopup` portals its own popover to the body and stops
- * mousedown propagation there, so opening one doesn't dismiss this one.
+ * ONE PANEL, TWO LEVELS. The first pass put a `?` badge on each row
+ * that opened its own popover — which portalled over the list it came
+ * from, so choosing a second topic meant navigating around a panel
+ * covering the menu, with a tooltip over that ("this is difficult to
+ * navigate — it appears on top of the section header", Paul,
+ * 2026-08-16). Stacked popovers are the wrong shape for a list whose
+ * whole job is choosing between siblings.
+ *
+ * So the panel drills down in place: the list swaps to the topic, and a
+ * back row swaps it home. One surface, one position, nothing occluded,
+ * and the topic gets the panel's full width instead of a second box
+ * elbowing in beside it. Selection resets on close so reopening always
+ * starts at the list.
  */
 function GuidelinesMenu() {
-  const topics: { label: string; snippet: GuidelineSnippet }[] = [
-    { label: "ontologies", snippet: ONTOLOGY_GUIDELINE },
-    { label: "free-text", snippet: FREE_TEXT_GUIDELINE },
-    { label: "predicates", snippet: PREDICATE_GUIDELINE },
-    { label: "statement shapes", snippet: STATEMENT_TEMPLATE_GUIDELINE },
-    { label: "baselines", snippet: BASELINE_GUIDELINE },
-    { label: "tags", snippet: TAGS_GUIDELINE },
-    { label: "developmental stages", snippet: DEV_STAGE_GUIDELINE },
-    { label: "derived material", snippet: DERIVED_MATERIAL_GUIDELINE },
-    { label: "grafts", snippet: GRAFT_GUIDELINE },
-    { label: "pre-publish checklist", snippet: CHECKLIST_GUIDELINE },
-  ];
+  const [openTopic, setOpenTopic] = useState<string | null>(null);
+  const active = GUIDELINE_TOPICS.find((t) => t.label === openTopic) ?? null;
   return (
     <HelpPopup
-      title="Curation guidelines"
-      size="md"
+      title={active ? active.snippet.title : "Curation guidelines"}
+      size="lg"
+      source={active?.snippet.source}
+      sourceUrl={active?.snippet.sourceUrl}
+      onOpenChange={(open) => {
+        if (!open) setOpenTopic(null);
+      }}
       trigger={
         <>
           Guidelines <span aria-hidden>▾</span>
@@ -677,14 +693,37 @@ function GuidelinesMenu() {
       }
       triggerClassName="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 text-xs cursor-pointer dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
     >
-      <ul className="space-y-1">
-        {topics.map((t) => (
-          <li key={t.label} className="flex items-center gap-1.5">
-            <GuidelinePopup snippet={t.snippet} size="md" />
-            <span>{t.label}</span>
-          </li>
-        ))}
-      </ul>
+      {active ? (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setOpenTopic(null)}
+            className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 bg-transparent border-none cursor-pointer p-0"
+          >
+            <span aria-hidden>‹</span> All guidelines
+          </button>
+          <GuidelineSnippetBody snippet={active.snippet} />
+        </div>
+      ) : (
+        // Whole row is the target, not a 16px badge beside it — the
+        // label is what a curator is aiming at.
+        <ul className="-mx-1">
+          {GUIDELINE_TOPICS.map((t) => (
+            <li key={t.label}>
+              <button
+                type="button"
+                onClick={() => setOpenTopic(t.label)}
+                className="w-full flex items-baseline justify-between gap-3 px-1 py-1 rounded text-left bg-transparent border-none cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700"
+              >
+                <span>{t.label}</span>
+                <span aria-hidden className="text-slate-400">
+                  ›
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </HelpPopup>
   );
 }

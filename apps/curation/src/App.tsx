@@ -671,21 +671,15 @@ function Shell({
           header's own background. z-40 keeps it above content while
           body-portaled popovers (CuriePopover @ z-50) stay on top. */}
       <div className="sticky top-0 z-40 bg-slate-50 dark:bg-slate-950">
-      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentShortName={shortName}>
-        {/* Chip strip folded into the header row 2026-06-14 per design review:
-            "this could be fit on one row, saving screen space." Was a
-            separate row below with its own bg + border. The mode pill
-            ("REVIEWING PROPOSAL" / "Editing local design") was dropped
-            in the same pass — the chip pair itself communicates
-            "what am I comparing." */}
-        <ChipStrip
-          experimentId={experimentId}
-          flow={flow}
-          tab={tabIdToRouteTab(activeTab)}
-          groupContext={groupContext}
-          ticketContext={ticketContext}
-        />
-      </AppHeader>
+      {/* The chip strip was folded into this header row 2026-06-14 to
+          save a row, and moved back OUT 2026-08-16 — into the
+          experiment banner, where it now rides above the tabs. Folding
+          it up here saved a row by making this one the widest thing on
+          the page: the strip is experiment-scoped and was competing
+          with brand + nav + session for a line that already wrapped at
+          1400px. The banner is where the rest of the experiment's
+          context lives. */}
+      <AppHeader reviewer={fullName || reviewer} ticketContext={ticketContext} experimentId={experimentId} experimentShortName={shortName} />
       </div>
       <TopBar
         experimentId={experimentId}
@@ -693,6 +687,15 @@ function Shell({
         reviewer={fullName || reviewer}
       />
       <ExperimentBanner
+        comparisonStrip={
+          <ChipStrip
+            experimentId={experimentId}
+            flow={flow}
+            tab={tabIdToRouteTab(activeTab)}
+            groupContext={groupContext}
+            ticketContext={ticketContext}
+          />
+        }
         experimentId={experimentId}
         shortName={shortName}
         title={draft?.title ?? ""}
