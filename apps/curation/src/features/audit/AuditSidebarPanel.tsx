@@ -1129,29 +1129,34 @@ function SidebarHeader({
         >
           {report.audited_at ? formatShort(report.audited_at) : "—"}
         </span>
-        {/* Groups are separated by a rule rather than by the "·" that
-            used to be glued onto the front of some labels. Everything
-            in this row was one flat, evenly-gapped run of ten chips —
-            identity, tools, navigation, scope and severity all reading
-            as equal siblings, which is why the bare arrows had nothing
-            to anchor to. Now: WHO made it and when · WHAT it covers ·
-            the provenance tools · the actions. */}
         <GroupRule />
 
-        {/* Scope */}
-        <span className="text-slate-400 dark:text-slate-500">
-          scope: <span className="font-mono text-slate-500 dark:text-slate-400">{scopeText}</span>
+        {/* Scope. The word "scope:" is gone — the values are already
+            the vocabulary of the page (factors / tags / fvs), the
+            tooltip says it in full, and the label was ~40px of a row
+            that had none to spare. */}
+        <span
+          className="font-mono text-slate-500 dark:text-slate-400"
+          title={`scope: ${scopeText}`}
+        >
+          {scopeText}
         </span>
+      </div>
 
-        {/* ── Provenance tools ────────────────────────────────────────
-            The two "where did this come from" affordances, kept
-            together and kept QUIET. They used to sit immediately after
-            the agent pill, which put two bordered debug buttons in the
-            middle of the identity run — so the row read as an
-            undifferentiated string of chips and the eye had nothing to
-            group on ("it's not clear what the navigation does", Paul,
-            2026-08-16). Identity and coverage read first; the tools
-            follow. */}
+      {/* ── Row two: what you can DO ─────────────────────────────────
+          Everything above is what this proposal / audit IS; everything
+          here acts on it. One flex-wrap row could not seat both in a 640px
+          sidebar, so it wrapped anyway — but wrapped mid-group, leaving
+          a dangling separator and the whole left half of the second
+          line empty while the top line stayed jammed ("this is very
+          crowded — wrapping", "just looks weird and takes up space",
+          Paul, 2026-08-16).
+
+          Two rows on purpose costs the same height and reads as a
+          decision: the tools move down into that dead left space, which
+          takes two bordered buttons off the crowded line without
+          hiding them. */}
+      <div className="flex items-center gap-1.5 flex-wrap mt-1">
         <ProvenanceTools
           onRaw={() => setRawViewerOpen(true)}
           onDetails={
@@ -1161,7 +1166,6 @@ function SidebarHeader({
           }
           noun={copy.noun}
         />
-        <GroupRule />
         {/* Non-zero severity counts inline */}
         {nonZeroCounts.length > 0 ? (
           <span className="text-slate-400">·</span>
