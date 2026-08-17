@@ -22,6 +22,7 @@ import { useAuditsForExperiment } from "@/api/audits";
 import { useProposalReviewsForExperiment } from "@/api/reviewProposals";
 import { AuditSidebarPanel } from "@/features/audit/AuditSidebarPanel";
 import { AuditProvider } from "@/features/audit/AuditContext";
+import { ProvenanceProvider } from "@/features/provenance/ProvenanceContext";
 import { ChipStrip } from "@/features/comparison/ChipStrip";
 import { useChipState } from "@/features/comparison/useChipState";
 import { FlowProvider, useIsReadOnly } from "@/features/comparison/FlowContext";
@@ -1043,6 +1044,12 @@ function MainGrid({
     window.addEventListener("mouseup", onUp);
   }
   return (
+    // Provenance wraps the whole experiment shell for the same reason
+    // the audit provider does: the "populate" button lives on
+    // Overview and the discs it fills in render in the design editor,
+    // the tag bar and the sample table. One run, read from wherever.
+    // Empty and inert until a curator presses the button.
+    <ProvenanceProvider>
     <AuditProvider
       experimentId={experimentId}
       reviewer={reviewer}
@@ -1299,6 +1306,7 @@ function MainGrid({
       />
       </main>
     </AuditProvider>
+    </ProvenanceProvider>
   );
 }
 

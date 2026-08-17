@@ -29,6 +29,8 @@ import { shortenUri } from "@/lib/curie";
 import { cn } from "@/lib/cn";
 import { ONTOLOGY_ANCHOR_CLS } from "@/lib/ontologyAnchor";
 import { AuditDot } from "@/features/audit/AuditDot";
+import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
+import { tagRefId } from "@/features/provenance/refs";
 import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import { augmentInferredFromFactors } from "./augmentFactorTags";
@@ -1898,6 +1900,10 @@ function EditableDirectGroupChip({
         <AuditDot
           targetId={tagTarget(tag.category.label, tag.value.label)}
         />
+        {/* Where this tag came from — inert until a curator runs
+            "populate provenance", and absent for a tag with no
+            recorded trace, which is most of them today. */}
+        <ProvenanceDot refId={tagRefId(tag.id)} />
         {/* Verbatim provenance for an agent-emitted tag — ❝ glyph,
             click → popover. Renders nothing until the tag carries
             supporting_evidence (pending the Gemma wire field). */}
@@ -2039,6 +2045,7 @@ function EditableDirectGroupChip({
                 <AuditDot
                   targetId={tagTarget(tag.category.label, tag.value.label)}
                 />
+                <ProvenanceDot refId={tagRefId(tag.id)} />
                 {/* Delete affordance — same shape as the single-tag
                     chip above. Hover-reveal via ``group/chip``. The reviewer
                     2026-06-15: edit exposes delete, nothing else. */}

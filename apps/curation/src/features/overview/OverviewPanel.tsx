@@ -16,6 +16,7 @@ import { TagBar } from "./TagBar";
 import { abstractForPublication, AddPublicationForm, anyPublicationGetsAbstract, ProposedAbstract, PublicationRow } from "./publications";
 import { addPublication, deletePublication, setDesignDescription } from "@/features/design/mutations";
 import { TermValidationPanel } from "@/features/design/TermValidationPanel";
+import { ProvenancePanel } from "@/features/provenance/ProvenancePanel";
 import { ONTOLOGY_GUIDELINE, FREE_TEXT_GUIDELINE, PREDICATE_GUIDELINE, BASELINE_GUIDELINE, TAGS_GUIDELINE, DEV_STAGE_GUIDELINE, DERIVED_MATERIAL_GUIDELINE, GRAFT_GUIDELINE, CHECKLIST_GUIDELINE } from "@/lib/guidelines";
 import { focusByAuditTarget, onAuditFocusTarget } from "@/lib/scrollToAuditTarget";
 
@@ -236,6 +237,12 @@ export function OverviewPanel() {
           than in the audit sidebar because that toggle is hidden until
           an audit exists, which is precisely when this is most useful. */}
       {meta ? <TermValidationPanel experimentId={meta.experiment_id} /> : null}
+
+      {/* Same shape, same place, one question over: term validation
+          asks whether an annotation is RIGHT, provenance asks where it
+          came from. Both are curator-triggered batch checks over every
+          annotation on the experiment, so they read as a pair. */}
+      {meta ? <ProvenancePanel experimentId={meta.experiment_id} /> : null}
 
       <article className="card p-3 space-y-2">
         {/* Title + "re-import from Gemma" both moved to the

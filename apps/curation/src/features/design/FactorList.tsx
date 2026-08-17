@@ -8,6 +8,8 @@ import { CategoryPicker } from "./CategoryPicker";
 import { guidelineForCategory } from "@/lib/guidelines";
 import { FACTOR_TEMPLATES, type FactorTemplate } from "./factorTemplates";
 import { AuditDot, GemmaMatchDot } from "@/features/audit/AuditDot";
+import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
+import { factorRefId } from "@/features/provenance/refs";
 import { factorTarget } from "@/features/audit/targetIds";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import type {
@@ -265,6 +267,10 @@ export function FactorList({
                     <AuditDot
                       targetId={factorTarget(f.category?.label || "", f.id)}
                     />
+                    {/* Where this factor came from. Nothing until a
+                        curator runs "populate provenance", and nothing
+                        after it for a factor with no recorded trace. */}
+                    <ProvenanceDot refId={factorRefId(f.id)} />
                     <GemmaMatchDot factorLabel={f.category?.label || ""} />
                     {isAdded ? <NewBadge /> : null}
                     {modified ? <ModifiedBadge /> : null}

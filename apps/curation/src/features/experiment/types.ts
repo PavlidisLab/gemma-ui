@@ -115,6 +115,17 @@ export interface Factor {
    *  relevance proposals still work. */
   baseline_relevance?: BaselineRelevance;
   baseline_relevance_reason?: string;
+  /** Gemma's own `ExperimentalFactor` id, where Gemma knows this
+   *  factor. On the design wire already (`gemmaFactorId`) and
+   *  populated for imported experiments; null on anything Gemma
+   *  hasn't seen. Matched category + sample PARTITION, never name —
+   *  20 of 500 experiments carry two factors sharing category AND
+   *  name, so a name-derived key locates the wrong one. */
+  gemma_factor_id?: number | null;
+  /** Content-derived factor id, stable across index rebuilds, for
+   *  factors Gemma doesn't know. Lands on gold today; not yet on the
+   *  design wire, so expect null here until it is. */
+  local_factor_id?: string | null;
   factor_values: FactorValue[];
 }
 

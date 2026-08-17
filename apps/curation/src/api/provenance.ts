@@ -1,0 +1,185 @@
+/**
+ * "Where did this annotation come from" — the trace behind a tag or a
+ * factor.
+ *
+ * Curator-triggered and batched, exactly like `POST /validate-terms`:
+ * one request covers every annotation on the experiment, because a
+ * per-chip fetch on a page with forty of them is forty round trips for
+ * an answer that is usually empty.
+ *
+ * 🛑 **Sparse is the design, not a gap.** Most annotations will have no
+ * trace for a long time — nothing recorded them. An empty list is the
+ * expected answer and must read as "we don't know", never as an error.
+ * The endpoint answers 200 with an empty `events` list for a known-but-
+ * untraced annotation; a 404 on the ROUTE means the service isn't
+ * deployed yet, which is a different sentence and gets a different one
+ * on screen.
+ *
+ * Contract proposed in
+ * `UIB_TO_CAB_2026_08_16_TRACE_WHERE_THIS_ANNOTATION_CAME_FROM.md` and
+ * agreed in `CAB_TO_UIB_2026_08_16_PROVENANCE_KEY_ON_IDENTITY_NOT_SLUG.md`,
+ * with one correction we adopt here: identity, not the `target_id`
+ * slug. The slug is derived from category + label, so it collides
+ * (20 of 500 experiments carry two factors sharing category AND name)
+ * and — fatally for provenance — it MOVES when a curator relabels,
+ * orphaning the history the trace exists to keep.
+ */
+
+import { useMutation } from "@tanstack/react-query";
+
+import { api, ApiError } from "./client";
+import type { FindingEvidence } from "./justification";
+
+/** Was a human ever involved, in one word.
+ *
+ *  Server-computed from the event chain rather than derived here:
+ *  every consumer would re-implement the derivation and they would
+ *  disagree. It is also the thing the dot renders, so it has to mean
+ *  the same on every surface. */
+export type ProvenanceReviewState =
+  | "unreviewed"
+  | "accepted"
+  | "rejected"
+  | "curator_authored"
+  | "curator_edited";
+
+export type ProvenanceEventKind =
+  | "imported"
+  | "agent_proposed"
+  | "agent_applied"
+  | "curator_added"
+  | "curator_edited"
+  | "promoted"
+  | "removed";
+
+/** Who did it. "The agent" is a fleet, so `name` carries the subagent
+ *  (cell_type / disease / strain / …) — that is the useful answer to
+ *  "which agent" — and `head_sha` identifies the build, because
+ *  behaviour has measurably differed between shas at one model. */
+export interface ProvenanceActor {
+  kind?: "agent" | "curator" | "import" | null;
+  name?: string | null;
+  model?: string | null;
+  head_sha?: string | null;
+}
+
+export interface ProvenanceEvent {
+  kind: ProvenanceEventKind;
+  at?: string | null;
+  /** Object form preferred; a bare string is tolerated so an early
+   *  writer that only knows a name still renders. */
+  actor?: ProvenanceActor | string | null;
+  run_id?: string | null;
+  summary?: string | null;
+  confidence?: number | null;
+  /** Curator's accept / dismiss reason, where one was given. */
+  reason?: string | null;
+  /** Verbatim quotes that grounded the pick. Same shape the audit and
+   *  proposal surfaces already render, so a trace popover and a
+   *  finding never describe one source two ways. */
+  evidence?: FindingEvidence[] | null;
+  before?: { label?: string | null; uri?: string | null } | null;
+  after?: { label?: string | null; uri?: string | null } | null;
+}
+
+export interface ProvenanceTrace {
+  /** Echoed verbatim from the request — our handle for the annotation. */
+  ref_id: string;
+  review_state?: ProvenanceReviewState | null;
+  events: ProvenanceEvent[];
+}
+
+/**
+ * One annotation to look up.
+ *
+ * Carries every identity we hold and lets the server match on the
+ * strongest it recognises. Deliberate: `gemmaFactorId` is on the
+ * design wire only for experiments Gemma knows, `localFactorId` isn't
+ * on that wire at all yet, and factor VALUES have no stable id (32 of
+ * 3,735 gold FVs carry one). Sending all of them means the client
+ * doesn't have to track which half of the identity rollout has landed.
+ */
+export interface ProvenanceRef {
+  /** Our handle, echoed back as `ProvenanceTrace.ref_id`. Stable
+   *  within one page render; never sent as an identity claim. */
+  ref_id: string;
+  kind: "factor" | "factor_value" | "tag";
+  /** Gemma's own `ExperimentalFactor` id, when Gemma knows it. */
+  gemma_factor_id?: number | null;
+  /** Content-derived factor id, stable across rebuilds. */
+  local_factor_id?: string | null;
+  /** Category + value URIs — a tag's identity is this pair. */
+  category_uri?: string | null;
+  value_uri?: string | null;
+  category_label?: string | null;
+  label?: string | null;
+  /** Display convenience and last-resort match. NOT the key. */
+  target_id?: string | null;
+}
+
+export interface ProvenanceLookupResponse {
+  by_ref_id: Record<string, ProvenanceTrace>;
+}
+
+/** Thrown when the route itself is missing — the service isn't
+ *  deployed. Distinct from "nothing recorded", which is a 200. */
+export class ProvenanceUnavailable extends Error {
+  constructor() {
+    super("provenance service not available");
+    this.name = "ProvenanceUnavailable";
+  }
+}
+
+/**
+ * 🛑 Served by the CURATION STORE, not the agent service.
+ *
+ * `/rest/v2/datasets/{id}/…` is the local store's own shape and the
+ * `/rest` proxy already points there (`:8095` in local mode), so this
+ * works on a local-store experiment — which is the mode curators
+ * actually work in — rather than only where a remote Gemma is
+ * configured. It is also the honest home for the data: the human half
+ * of a trace is already in the store's `curation_review_disposition`
+ * rows, and the agent writes its events there too.
+ *
+ * Against a backend that doesn't serve it (a remote Gemma, or a store
+ * predating the endpoint) this 404s, which surfaces as
+ * {@link ProvenanceUnavailable} — "not deployed", not "nothing
+ * recorded". The two must never render as the same sentence.
+ */
+export function provenanceLookupPath(experimentId: number | string): string {
+  return `/rest/v2/datasets/${experimentId}/provenance/lookup`;
+}
+
+export async function lookupProvenance(
+  experimentId: number | string,
+  refs: ProvenanceRef[],
+): Promise<ProvenanceLookupResponse> {
+  if (refs.length === 0) return { by_ref_id: {} };
+  try {
+    return await api.post<ProvenanceLookupResponse>(
+      provenanceLookupPath(experimentId),
+      { refs },
+    );
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 501)) {
+      throw new ProvenanceUnavailable();
+    }
+    throw e;
+  }
+}
+
+/** Curator-triggered, never on render — same rule as term validation.
+ *  Nothing here is needed to read the design, and a trace nobody asked
+ *  for is a request per page load for an answer that is usually
+ *  empty. */
+export function useProvenanceLookup() {
+  return useMutation({
+    mutationFn: ({
+      experimentId,
+      refs,
+    }: {
+      experimentId: number | string;
+      refs: ProvenanceRef[];
+    }) => lookupProvenance(experimentId, refs),
+  });
+}
