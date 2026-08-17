@@ -219,7 +219,7 @@ function BossReviewPanelBody({
                     </span>
                     {g.unresolvedBlocker ? (
                       <span className="text-[10px] italic text-amber-700 dark:text-amber-300">
-                        proposer didn't address
+                        raised once, not revisited
                       </span>
                     ) : null}
                   </div>

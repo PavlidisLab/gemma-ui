@@ -281,6 +281,19 @@ export function groupBossReviews(
       final,
       history,
       maxRound,
+      // 🛑 THIS IS "NOT REVISITED", NOT "NOT ADDRESSED". A blocker absent from
+      // later rounds means the boss did not raise it again — which happens
+      // BOTH when the proposer ignored it AND when the proposer fixed it by
+      // REMOVING the element, since a deleted factor cannot be re-critiqued.
+      // The two are indistinguishable from round count alone.
+      //
+      // Paul 2026-08-17, on GSE96826 `factor:individual` — the round-1 blocker
+      // said "Drop the `individual` factor" and the agent dropped it, and the
+      // card said "proposer didn't address": *"that's just wrong."*
+      //
+      // The label this drives is worded accordingly. A real resolved/ignored
+      // split needs the FINAL proposal to check whether the named element
+      // still exists; that data is not in this module.
       unresolvedBlocker: severity === "blocker" && maxRound <= 1,
     });
   }
