@@ -81,7 +81,6 @@ function renderRelations(relations: MergedRelation[]) {
       }
       childrenResult={null}
       relations={relations}
-      activeUri={ALZ}
       onNavigate={() => {}}
     />,
   );
@@ -103,12 +102,13 @@ describe("related terms on a term card", () => {
     }
   });
 
-  it("points the arrow by which end this term sits on", () => {
+  it("reads as written, with the predicate never reworded", () => {
+    // Every row here is outbound — the card's term is the subject — so
+    // there is no direction to state and no arrow to get backwards.
     renderRelations([curated, asserted]);
-    // This term is the subject → the relation reads outward.
-    expect(screen.getByText(/→ has_genotype/)).toBeTruthy();
-    // …and the object → it reads inward, with the predicate unchanged.
-    expect(screen.getByText(/← is disease model for/)).toBeTruthy();
+    expect(screen.getByText(/has_genotype/)).toBeTruthy();
+    expect(screen.getByText(/is disease model for/)).toBeTruthy();
+    expect(screen.queryByText(/←/)).toBeNull();
   });
 
   it("names the basis on every row", () => {

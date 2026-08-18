@@ -173,40 +173,84 @@ describe("an object that identifies nothing is not a topic", () => {
 });
 
 describe("only relations that say what a term is or came from", () => {
-  // 🛑 The card for `female` rendered six rows, none of them useful:
+  // 🛑 Two cards drove every rule here. `female` rendered six rows —
   // `has_genotype XX`, `has developmental stage 10 month`,
-  // `has characteristic estrus`, `has modifier estrus`,
-  // `derives from BR24`. Taller than the definition, and nothing a
-  // curator would act on.
+  // `has characteristic estrus`, `derives from BR24` — taller than its
+  // definition. `breast cancer` rendered `← has disease LM1`,
+  // `← has disease LM9`, `← has disease FVB-Tg(C3-1-TAg)cJeg/JegJ` and
+  // twelve more: every model ever curated against it, which is a search
+  // result rather than knowledge about the term.
+  const CELL_LINE = "http://purl.obolibrary.org/obo/CLO_0009464";
+  const GENE = "http://purl.org/commons/record/ncbi_gene/672";
+  const DISEASE = "http://purl.obolibrary.org/obo/MONDO_0007254";
+
   const rel = (over: Partial<RelationRow>): RelationRow => ({
     ...APP_PS1_GROUNDED,
     ...over,
   });
 
-  it("keeps a cell line's disease and its source tissue", () => {
+  it("tells a cell line where it came from", () => {
+    const rows = [
+      rel({
+        subject_uri: CELL_LINE,
+        subject_category: "cell line",
+        predicate: "derived from cell",
+        predicate_uri: "http://purl.obolibrary.org/obo/CLO_0037209",
+        object: "astrocyte",
+      }),
+      rel({
+        subject_uri: CELL_LINE,
+        subject_category: "cell line",
+        predicate: "is disease model for",
+        predicate_uri: "http://purl.obolibrary.org/obo/CLO_0000179",
+        object: "glioblastoma",
+      }),
+    ];
+    expect(rows.every((r) => isTopicRelation(r, CELL_LINE))).toBe(true);
+  });
+
+  it("tells a gene which disease it is associated with", () => {
     expect(
       isTopicRelation(
         rel({
-          predicate: "is disease model for",
-          predicate_uri: "http://purl.obolibrary.org/obo/CLO_0000179",
-          subject_category: "cell line",
+          subject_uri: GENE,
+          subject_category: "genotype",
+          predicate: "has disease",
+          predicate_uri: "http://purl.obolibrary.org/obo/RO_0016002",
+          object: "breast cancer",
         }),
-      ),
-    ).toBe(true);
-    expect(
-      isTopicRelation(
-        rel({
-          predicate: "derives from part of",
-          predicate_uri: "http://purl.obolibrary.org/obo/ENVO_01003004",
-          subject_category: "cell line",
-        }),
+        GENE,
       ),
     ).toBe(true);
   });
 
+  it("renders nothing on a disease card, in either direction", () => {
+    // 🛑 A disease is the DESTINATION of everything this surface shows,
+    // so its own card has nothing to add. Live: breast cancer 30 rows →
+    // 0, Alzheimer 58 → 0.
+    const outgoing = rel({
+      subject_uri: DISEASE,
+      subject_category: "disease",
+      predicate: "has_genotype",
+      object: "BRCA1 [human]",
+    });
+    const incoming = rel({
+      subject_uri: GENE,
+      subject_category: "genotype",
+      predicate: "has disease",
+      predicate_uri: "http://purl.obolibrary.org/obo/RO_0016002",
+      object: "breast cancer",
+      object_uri: DISEASE,
+    });
+    expect(isTopicRelation(outgoing, DISEASE)).toBe(false);
+    // …and the inbound one is knowledge on the GENE's card, not here.
+    expect(isTopicRelation(incoming, DISEASE)).toBe(false);
+    expect(isTopicRelation(incoming, GENE)).toBe(true);
+  });
+
   it("drops the experimental bookkeeping, however well curated", () => {
-    // These are good statements. They are facts about an experiment,
-    // not about the term the card is showing.
+    // Good statements, all of them. Facts about an experiment, not
+    // about the term the card is showing.
     for (const p of [
       "delivered for duration",
       "delivered at dose",
@@ -215,28 +259,42 @@ describe("only relations that say what a term is or came from", () => {
       "sampled after",
       "located in",
     ]) {
-      expect(isTopicRelation(rel({ predicate: p, predicate_uri: null }))).toBe(
-        false,
-      );
+      expect(
+        isTopicRelation(
+          rel({ subject_uri: CELL_LINE, subject_category: "cell line", predicate: p, predicate_uri: null }),
+          CELL_LINE,
+        ),
+      ).toBe(false);
     }
   });
 
-  it("keeps a disease model's genotype and drops a sex's", () => {
-    // 🛑 The same predicate, and the difference is what the subject IS.
-    const genotype = { predicate: "has_genotype", predicate_uri: null };
-    expect(
-      isTopicRelation(rel({ ...genotype, subject_category: "Disease model" })),
-    ).toBe(true);
-    expect(
-      isTopicRelation(rel({ ...genotype, subject_category: "biological sex" })),
-    ).toBe(false);
+  it("drops has_genotype wherever it lands", () => {
+    // 🛑 The predicate that started this. `female → has_genotype → XX`
+    // is a sample's sex; `BRCA1 → has_genotype → Knockdown` says nothing
+    // about BRCA1. The useful direction — a model's genotype — is the
+    // disease card's, which shows nothing at all.
+    for (const kind of ["biological sex", "genotype", "disease model"]) {
+      expect(
+        isTopicRelation(
+          rel({
+            subject_uri: GENE,
+            subject_category: kind,
+            predicate: "has_genotype",
+            predicate_uri: "http://purl.obolibrary.org/obo/GENO_0000222",
+          }),
+          GENE,
+        ),
+      ).toBe(false);
+    }
   });
 
-  it("does not guess when there is no category to judge by", () => {
-    expect(
-      isTopicRelation(
-        rel({ predicate: "has_genotype", predicate_uri: null, subject_category: null }),
-      ),
-    ).toBe(false);
+  it("needs to be told which card it is filtering for", () => {
+    const r = rel({
+      subject_uri: CELL_LINE,
+      subject_category: "cell line",
+      predicate: "derived from cell",
+      predicate_uri: "http://purl.obolibrary.org/obo/CLO_0037209",
+    });
+    expect(isTopicRelation(r, "")).toBe(false);
   });
 });

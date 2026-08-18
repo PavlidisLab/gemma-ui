@@ -242,91 +242,86 @@ export function withinBreadth(
 }
 
 /**
- * The relations worth putting on a term card, by predicate.
+ * The relations worth putting on a term card.
  *
- * 🛑 **The harvest is predicate-agnostic and most of it is
- * bookkeeping.** Measured over ten datasets' relations: `delivered for
- * duration` 375 rows, `has developmental stage` 297, `located in` 115,
- * `derives from` (RO_0001000, `amplified total RNA → total RNA`) 64 —
- * against `is disease model for` 61, `has disease` 31, `induced by` 14,
- * `has_genotype` 10. All of them are perfectly good curated statements
- * and most of them answer a question nobody asked of a TERM: how long a
- * drug was delivered is a fact about an experiment, not about the drug.
+ * Three conditions, and each one came from a curator looking at a card
+ * that had too much on it.
  *
- * Unfiltered, the card for `female` offered `has_genotype XX`,
- * `has developmental stage 10 month`, `has characteristic estrus` and
- * `derives from BR24` — six rows taller than the definition, none of
- * them something a curator would act on.
+ * **1. The predicate has to say what a term IS or WHERE IT CAME FROM.**
+ * The harvest is predicate-agnostic and most of it, by volume, is
+ * experimental bookkeeping: over ten datasets' relations, `delivered
+ * for duration` 375 rows, `has developmental stage` 297, `located in`
+ * 115, `derives from` (RO_0001000, `amplified total RNA → total RNA`)
+ * 64, against `is disease model for` 61, `has disease` 31, `induced by`
+ * 14. All good curated statements; how long a drug was delivered is a
+ * fact about an experiment, not about the drug.
  *
- * So this is an allow-list, not a deny-list: a predicate earns its way
- * on by saying what a term IS or WHERE IT CAME FROM. Keyed on the
- * predicate URI, which is stable, with the label as the fallback for
- * rows that carry no URI.
+ * **2. The term on screen has to be the SUBJECT.** A relation reads in
+ * one direction and the inbound view of it is a corpus listing, not
+ * knowledge: `breast cancer` was showing `← has disease LM1`,
+ * `← has disease LM9`, `← has disease FVB-Tg(C3-1-TAg)cJeg/JegJ` and
+ * twelve more — every model anyone has ever curated against it. That is
+ * a search result wearing a term card's clothes.
  *
- * Also asked of the backend — a table this broad is arguably too broad
- * at the source, and every consumer will otherwise write its own
- * version of this list.
+ * **3. The subject has to be an ENTITY whose origin is knowledge** — a
+ * cell line, a genotype, a strain. Diseases and disease models are the
+ * DESTINATION of everything here (`gene → has disease → disease`,
+ * `cell line → is disease model for → disease`), so a disease term's
+ * own card has nothing to add and renders none (Paul, 2026-08-18:
+ * *"disease terms needn't list anything either — they would be the
+ * object of relations we want to show"*). It also drops the class of
+ * row that started this: `female → has_genotype → XX` is a sample's sex
+ * read back at you, and `BRCA1 → has_genotype → Knockdown` says nothing
+ * about BRCA1.
+ *
+ * What survives is the question a curator actually has. On `BRCA1`:
+ * `has disease → breast cancer`. On a cell line: `derived from cell →
+ * astrocyte`, `is disease model for → glioblastoma`. One or two lines,
+ * measured against live data, and nothing on the terms that should be
+ * quiet.
+ *
+ * 🛑 The cost is real and deliberate: `MPTP` loses `← induced by ←
+ * Parkinson disease`, which is interesting on a treatment card. Inbound
+ * comes back the day there is a reason to distinguish "one useful
+ * inbound relation" from "seventeen models of this disease", and the
+ * backend's row classification is where that would come from — asked in
+ * `UIB_TO_GEMMA_BACKEND_2026_08_18_THE_HARVEST_IS_BROADER_THAN_ANY_READER`.
  */
 const TOPIC_PREDICATES: Record<string, string> = {
-  // disease ↔ genotype / model
+  // What a thing turned out to be / to model
   "http://purl.obolibrary.org/obo/RO_0016002": "has disease",
   "http://gemma.msl.ubc.ca/ont/TGEMO_00171": "induced by",
   "http://purl.obolibrary.org/obo/CLO_0000179": "is disease model for",
   "http://purl.obolibrary.org/obo/CLO_0000015": "derives from patient having disease",
-  // cell-line provenance — what a line came FROM
+  // Where a line came from
   "http://purl.obolibrary.org/obo/ENVO_01003004": "derives from part of",
   "http://purl.obolibrary.org/obo/CLO_0037210": "derived from cell line",
   "http://purl.obolibrary.org/obo/CLO_0037209": "derived from cell",
 };
 
-/**
- * `has_genotype` — the one predicate that is knowledge on some terms and
- * noise on others.
- *
- * `disease model: Alzheimer disease → has_genotype → APP/PS1` is exactly
- * what this surface is for. `female → has_genotype → XX` is the same
- * predicate reading off a sample's sex, and says nothing about `female`.
- * The difference is not in the predicate but in what the subject IS, so
- * it rides on the category gate below rather than on this list.
- */
-const GENOTYPE_PREDICATE = "http://purl.obolibrary.org/obo/GENO_0000222";
-
-/** Subject kinds whose relations are about the ENTITY rather than about
- *  an experimental parameter. A disease model's genotype is knowledge; a
- *  sex's, a timepoint's or a dose's is an artefact of where the
- *  statement was written. Compared lowercased — the corpus carries both
+/** Subject kinds whose origins and associations are knowledge about the
+ *  term itself. 🛑 `disease` and `disease model` are deliberately absent
+ *  — see condition 3. Compared lowercased: the corpus carries both
  *  `Disease model` and `disease model`. */
-const TOPIC_SUBJECT_KINDS = new Set([
-  "disease",
-  "disease model",
-  "cell line",
-  "genotype",
-  "strain",
-]);
+const TOPIC_SUBJECT_KINDS = new Set(["cell line", "genotype", "strain"]);
 
 /**
- * Is this a relation worth showing beside a term?
+ * Is this a relation worth showing on the card for `activeUri`?
  *
- * Two tiers, because one of the predicates is ambiguous and the rest
- * are not. A `is disease model for` row is knowledge whatever it hangs
- * off; a `has_genotype` row is knowledge only when its subject is the
- * kind of thing that HAS a genotype in the sense a curator means.
+ * `activeUri` is required rather than optional on purpose: the same row
+ * is knowledge on one term's card and a listing on another's, so a
+ * caller that does not say which card it is filtering for cannot be
+ * given a correct answer.
  */
-export function isTopicRelation(r: RelationRow): boolean {
+export function isTopicRelation(r: RelationRow, activeUri: string): boolean {
+  const active = (activeUri ?? "").trim().toLowerCase();
+  if (!active) return false;
+  if ((r.subject_uri ?? "").trim().toLowerCase() !== active) return false;
+  const kind = (r.subject_category ?? "").trim().toLowerCase();
+  if (!TOPIC_SUBJECT_KINDS.has(kind)) return false;
   const uri = (r.predicate_uri ?? "").trim();
   const label = (r.predicate ?? "").trim().toLowerCase();
-  const named =
-    (uri && uri in TOPIC_PREDICATES) ||
-    Object.values(TOPIC_PREDICATES).includes(label);
-  if (named) return true;
-  const isGenotype =
-    uri === GENOTYPE_PREDICATE || label === "has_genotype" || label === "has genotype";
-  if (!isGenotype) return false;
-  const kind = (r.subject_category ?? "").trim().toLowerCase();
-  // No category to judge by ⇒ don't guess. A `has_genotype` row we
-  // cannot place is exactly the `female` case, and showing it costs the
-  // curator more than hiding it costs us.
-  return kind ? TOPIC_SUBJECT_KINDS.has(kind) : false;
+  return uri in TOPIC_PREDICATES || Object.values(TOPIC_PREDICATES).includes(label);
 }
 
 /** Matches Gemma's own search-widening default. Below it, dose and

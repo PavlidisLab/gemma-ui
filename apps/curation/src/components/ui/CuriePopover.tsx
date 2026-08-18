@@ -130,11 +130,11 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
     if (!rows) return null;
     return rankRelations(
       withinBreadth(
-        mergeRelations(rows.filter(isTopicRelation)),
+        mergeRelations(rows.filter((r) => isTopicRelation(r, activeUri))),
         DEFAULT_MAX_OBJECT_BREADTH,
       ),
     );
-  }, [relationsQ.data]);
+  }, [relationsQ.data, activeUri]);
 
   const gemmaDone = !gemma.isLoading;
   const gemmaHit = !!gemma.data;
@@ -267,7 +267,6 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
             detail={detail}
             childrenResult={childrenQ.data ?? null}
             relations={relations}
-            activeUri={activeUri}
             onNavigate={navigateTo}
           />
         ) : showOlsCta ? (
@@ -387,11 +386,9 @@ function DerivedBlock({ facts }: { facts: DerivedFact[] }) {
  */
 function RelatedBlock({
   relations,
-  activeUri,
   onNavigate,
 }: {
   relations: readonly MergedRelation[];
-  activeUri: string;
   onNavigate: (uri: string) => void;
 }) {
   const shown = relations.slice(0, MAX_SHOWN_RELATIONS);
@@ -410,7 +407,6 @@ function RelatedBlock({
         <RelatedRow
           key={`${r.basis}-${r.predicate}-${r.object}-${i}`}
           relation={r}
-          activeUri={activeUri}
           onNavigate={onNavigate}
         />
       ))}
@@ -426,25 +422,17 @@ function RelatedBlock({
 /** One relation, from the point of view of the term on screen. */
 function RelatedRow({
   relation,
-  activeUri,
   onNavigate,
 }: {
   relation: MergedRelation;
-  activeUri: string;
   onNavigate: (uri: string) => void;
 }) {
-  // Which end is the OTHER one. Compared on the resolved IRI so a CURIE
-  // on either side still matches.
-  const active = (curieToUrl(activeUri) ?? activeUri).toLowerCase();
-  const subjectIri = (
-    curieToUrl(relation.subject_uri ?? "") ??
-    relation.subject_uri ??
-    ""
-  ).toLowerCase();
-  const activeIsSubject = !!subjectIri && subjectIri === active;
-  const other = activeIsSubject
-    ? { label: relation.object, uri: relation.object_uri ?? null }
-    : { label: relation.subject, uri: relation.subject_uri ?? null };
+  // The card's term is always the SUBJECT — inbound relations are
+  // filtered out upstream, because the inbound view of a term is a
+  // listing of everything curated against it rather than knowledge
+  // about it. So the row reads left to right as written, `predicate →
+  // object`, with no arrow glyph to state a direction that cannot vary.
+  const other = { label: relation.object, uri: relation.object_uri ?? null };
   const basis = BASIS_COPY[relation.basis] ?? {
     label: relation.basis,
     title: "",
@@ -453,9 +441,8 @@ function RelatedRow({
   return (
     <div className="text-[10px] leading-snug text-slate-600 dark:text-slate-300">
       <span className="text-slate-500 dark:text-slate-400">
-        {/* The arrow carries the direction so the predicate never has to
-            be reworded to fit the reading order. */}
-        {activeIsSubject ? "→ " : "← "}
+        {/* The predicate as the curator or the ontology wrote it —
+            never reworded to fit the reading order. */}
         {relation.predicate}
       </span>{" "}
       <OtherEnd term={other} taxon={relation.taxon_name} onNavigate={onNavigate} />
@@ -562,20 +549,17 @@ export function CuriePopoverBody({
   detail,
   childrenResult,
   relations,
-  activeUri,
   onNavigate,
 }: {
   detail: NonNullable<ReturnType<typeof useGemmaTerm>["data"]>;
   /** Immediate children (direct subclasses) of the term, or null while
    *  the lazy fetch is pending / when the term has none. */
   childrenResult: TermChildren | null;
-  /** Relations this term takes part in, either end. Null while the
-   *  side-fetch is pending; empty for the many terms nothing is
-   *  recorded about, which renders as nothing at all. */
+  /** Relations where this term is the subject, already filtered and
+   *  ranked. Null while the side-fetch is pending; empty for the many
+   *  terms nothing is recorded about — and for every disease term,
+   *  deliberately — which renders as nothing at all. */
   relations: readonly MergedRelation[] | null;
-  /** The term the card is currently showing — decides which end of each
-   *  relation is "the other one". */
-  activeUri: string;
   /** Walk the popover to another term (parent / alternate id / child). */
   onNavigate: (uri: string) => void;
 }) {
@@ -661,11 +645,7 @@ export function CuriePopoverBody({
       ) : null}
       {facts.length > 0 ? <DerivedBlock facts={facts} /> : null}
       {relations && relations.length > 0 ? (
-        <RelatedBlock
-          relations={relations}
-          activeUri={activeUri}
-          onNavigate={onNavigate}
-        />
+        <RelatedBlock relations={relations} onNavigate={onNavigate} />
       ) : null}
       {detail.parents.length > 0 ? (
         <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
