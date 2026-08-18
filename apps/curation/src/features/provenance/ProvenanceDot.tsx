@@ -31,6 +31,7 @@
 
 import { StatusDisc, type StatusDiscTone } from "@/components/ui/StatusDisc";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { evidenceCodeName } from "@/lib/evidenceCode";
 import { evidenceSourceMeta } from "@/features/audit/evidenceSource";
 import type {
   ProvenanceActor,
@@ -169,15 +170,25 @@ export function originLine(origin: Origin): string {
 export function ProvenanceTraceCard({ origin }: { origin: Origin }) {
   const agentDetail =
     origin.kind === "agent" ? actorLine(origin.event.actor) : "";
+  const detail = [
+    agentDetail,
+    confidenceText(origin.event),
+    evidenceCodeText(origin.event),
+  ].filter(Boolean);
   return (
     <div className="space-y-2 text-left">
       <div className="font-semibold">{originLine(origin)}</div>
-      {agentDetail || confidenceText(origin.event) ? (
-        <div className="opacity-80 text-[11px]">
-          {[agentDetail, confidenceText(origin.event)]
-            .filter(Boolean)
-            .join(" · ")}
-        </div>
+      {detail.length ? (
+        <div className="opacity-80 text-[11px]">{detail.join(" · ")}</div>
+      ) : null}
+
+      {/* The words whoever decided this gave for it. Rendered on the
+          origin as well as on the later facts below — a trace whose
+          only event IS the decision (a curator's accept, a publication
+          link's stated basis) was dropping the one sentence that
+          answers "on what grounds". */}
+      {origin.event.reason ? (
+        <div className="italic opacity-90">“{origin.event.reason}”</div>
       ) : null}
 
       <Evidence event={origin.event} />
@@ -271,6 +282,17 @@ function confidenceText(event: ProvenanceEvent): string {
     return `confidence ${event.confidence.toFixed(2)}`;
   }
   return "";
+}
+
+/** How much anybody checked, in the code's own words. `IIA` on a
+ *  publication link is the difference between "GEO said so" and "a
+ *  human read both papers" — the distinction whose absence let a wrong
+ *  link stand for four days (GSE227854). */
+function evidenceCodeText(event: ProvenanceEvent): string {
+  const code = (event.evidence_code ?? "").trim().toUpperCase();
+  if (!code) return "";
+  const name = evidenceCodeName(code);
+  return name && name !== code ? `${code} — ${name}` : code;
 }
 
 function Change({ event }: { event: ProvenanceEvent }) {

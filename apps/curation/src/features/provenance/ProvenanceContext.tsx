@@ -12,6 +12,13 @@
  * factor row in the design editor — and they must all read one run.
  * Same shape as `AuditContext`: an index keyed by a handle, consumers
  * look themselves up and render nothing when absent.
+ *
+ * One run, two sources. Factors and tags are answered by the store,
+ * which joins findings to dispositions. A publication link is not in
+ * those tables at all — the assertion lives on the link itself, and it
+ * is already on the page — so the caller resolves those and passes them
+ * in. Downstream nothing can tell the difference, which is the point:
+ * a curator asked one question and gets one answer per annotation.
  */
 
 import {
@@ -50,7 +57,16 @@ export interface ProvenanceRunValue {
   asked: number;
   /** How many came back carrying at least one event. */
   traced: number;
-  populate: (experimentId: number | string, refs: ProvenanceRef[]) => void;
+  populate: (
+    experimentId: number | string,
+    refs: ProvenanceRef[],
+    /** Traces the caller resolved itself, keyed by `ref_id` — today the
+     *  publication links, whose provenance rides on the publication
+     *  wire rather than in the store's tables. Merged UNDER the
+     *  server's answer: the store can see rows a browser cannot, so
+     *  where both speak, it wins. */
+    derived?: ReadonlyMap<string, ProvenanceTrace>,
+  ) => void;
   clear: () => void;
 }
 
@@ -77,14 +93,18 @@ export function ProvenanceProvider({ children }: { children: ReactNode }) {
   const lookup = useProvenanceLookup();
 
   const populate = useCallback(
-    (experimentId: number | string, refs: ProvenanceRef[]) => {
+    (
+      experimentId: number | string,
+      refs: ProvenanceRef[],
+      derived?: ReadonlyMap<string, ProvenanceTrace>,
+    ) => {
       setStatus("loading");
       setAsked(refs.length);
       lookup.mutate(
         { experimentId, refs },
         {
           onSuccess: (res) => {
-            const next = new Map<string, ProvenanceTrace>();
+            const next = new Map<string, ProvenanceTrace>(derived ?? []);
             for (const [refId, trace] of Object.entries(res.by_ref_id ?? {})) {
               next.set(refId, trace);
             }
@@ -92,7 +112,12 @@ export function ProvenanceProvider({ children }: { children: ReactNode }) {
             setStatus("ready");
           },
           onError: (e) => {
-            setByRef(new Map());
+            // 🛑 A backend with no provenance route still cannot
+            // un-know what the publication wire already said. Keeping
+            // the derived traces here is why the panel reports
+            // "unavailable" and the paper still shows its source —
+            // two different silences, and only one of them applies.
+            setByRef(new Map(derived ?? []));
             setStatus(e instanceof ProvenanceUnavailable ? "unavailable" : "error");
           },
         },

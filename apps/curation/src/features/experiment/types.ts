@@ -236,11 +236,68 @@ export interface ExternalSource {
   uri: string | null;
 }
 
+/**
+ * Why this paper is linked to this experiment — Gemma's
+ * `PUBLICATION_ASSOCIATION` row, one per (experiment, publication).
+ *
+ * The publication link was the one assertion in Gemma's model with no
+ * evidence slot at all: Gemma could say *"the publication for this
+ * experiment is X"* but not *"Y was considered and rejected, on this
+ * evidence, by this authority"*, so every rejection had to live in a
+ * hand-maintained file the system could not read. Landed Gemma-side
+ * 2026-08-17 (`PUBLICATION_LINK_EVIDENCE_LANDED_2026_08_17`, migration
+ * V25, live on gemma2 — verified against eid 1658).
+ *
+ * 🛑 `source` is a RANK, not a label: `curator` (40) > `geo_submitter_link`
+ * == `external_import` (30) > `agent` (20) > `legacy` (10), evaluated at
+ * write time, so an unattended refetch cannot displace a human ruling.
+ * Read-only here — the UI states what the record says and asserts
+ * nothing.
+ *
+ * Optional throughout, and absent on any backend that predates the
+ * field: the local store does not carry it yet, and Gemma itself has
+ * links with no row (experiment splitting, the CELLxGENE loader).
+ * A missing association means "nothing recorded", never "no provenance
+ * exists".
+ */
+export interface PublicationAssociation {
+  status?: "accepted" | "rejected" | null;
+  role?: "primary" | "other_relevant" | null;
+  source?:
+    | "curator"
+    | "geo_submitter_link"
+    | "external_import"
+    | "agent"
+    | "legacy"
+    | null;
+  /** The quotable one-liner: why this is the right paper. Gemma's own
+   *  prose, not a verbatim quote from a source document. */
+  evidence?: string | null;
+  /** The same `FindingEvidence` shape the audit + proposal surfaces
+   *  render, stored verbatim by Gemma and never parsed there. Null on
+   *  every backfilled row. */
+  supporting_evidence?: FindingEvidence[] | null;
+  /** `GOEvidenceCode` — `IC` / `TAS` / `IEA` / `IIA`. 🛑 `IIA` is
+   *  exactly the backfilled set whose provenance is assumed rather
+   *  than known: the 23,066 seeded GEO links say so in their own
+   *  evidence text. Every GEO link written from 2026-08-17 on carries
+   *  `TAS`. */
+  evidence_code?: string | null;
+  /** Machine claims only, `[0,1]`. Null everywhere today. */
+  confidence?: number | null;
+  asserted_by?: string | null;
+  asserted_at?: string | null;
+}
+
 export interface Publication {
   pubmed_id: string;
   doi: string;
   citation: string;
   title: string;
+  /** Where the link came from — see {@link PublicationAssociation}.
+   *  Rendered through the shared provenance disc, not a second
+   *  surface of its own. */
+  association?: PublicationAssociation | null;
 }
 
 /** Subset recommendations are advisory curator-asserted facts about

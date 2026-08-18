@@ -89,8 +89,16 @@ export interface ProvenanceEvent {
    *  `UIB_TO_CAB_2026_08_16_ROUTE_VERIFIED_LIVE_…`; renders whenever
    *  present, absent until then. */
   confidence_bucket?: "high" | "medium" | "low" | null;
-  /** Curator's accept / dismiss reason, where one was given. */
+  /** The words whoever decided this gave for it — a curator's accept /
+   *  dismiss reason, or the asserter's stated basis on a publication
+   *  link. Distinct from `summary`, which is an agent's rationale for a
+   *  proposal and is deliberately not rendered. */
   reason?: string | null;
+  /** GO evidence code (`IC` / `TAS` / `IEA` / `IIA`) — how much anybody
+   *  checked. Gemma stamps it on tags and on publication links; carried
+   *  here so one code reads the same words wherever it appears. Absent
+   *  on everything the store answers today. */
+  evidence_code?: string | null;
   /** Verbatim quotes that grounded the pick. Same shape the audit and
    *  proposal surfaces already render, so a trace popover and a
    *  finding never describe one source two ways. */
@@ -120,7 +128,7 @@ export interface ProvenanceRef {
   /** Our handle, echoed back as `ProvenanceTrace.ref_id`. Stable
    *  within one page render; never sent as an identity claim. */
   ref_id: string;
-  kind: "factor" | "factor_value" | "tag";
+  kind: "factor" | "factor_value" | "tag" | "publication";
   /** Gemma's own `ExperimentalFactor` id, when Gemma knows it. */
   gemma_factor_id?: number | null;
   /** Content-derived factor id, stable across rebuilds. */
@@ -130,9 +138,33 @@ export interface ProvenanceRef {
   value_uri?: string | null;
   category_label?: string | null;
   label?: string | null;
+  /** A publication's identity: the PMID, or the DOI where there is no
+   *  PMID. Gemma keys its association row on (experiment, publication),
+   *  so either one resolves it. */
+  pubmed_id?: string | null;
+  doi?: string | null;
   /** Display convenience and last-resort match. NOT the key. */
   target_id?: string | null;
 }
+
+/**
+ * The kinds the store's lookup route accepts today.
+ *
+ * 🛑 A filter, not a formality. `ProvenanceRefIn.kind` is a Pydantic
+ * `Literal["factor", "factor_value", "tag"]`, so one ref of an unknown
+ * kind 422s the WHOLE request — every factor and tag on the experiment
+ * loses its trace to buy nothing. Measured against the live store on
+ * 2026-08-17, not inferred from the model: a lone `publication` ref
+ * came back 422 where the same body with a `factor` ref came back 200.
+ * Publications are answered client-side
+ * from the association the publication wire already carries (see
+ * `features/provenance/publicationTrace.ts`); add `publication` here
+ * the day the store learns to match one, and the server's answer takes
+ * over with no other change.
+ */
+export const SERVER_MATCHED_KINDS: ReadonlySet<ProvenanceRef["kind"]> = new Set(
+  ["factor", "factor_value", "tag"] as const,
+);
 
 export interface ProvenanceLookupResponse {
   by_ref_id: Record<string, ProvenanceTrace>;
@@ -171,11 +203,12 @@ export async function lookupProvenance(
   experimentId: number | string,
   refs: ProvenanceRef[],
 ): Promise<ProvenanceLookupResponse> {
-  if (refs.length === 0) return { by_ref_id: {} };
+  const asked = refs.filter((r) => SERVER_MATCHED_KINDS.has(r.kind));
+  if (asked.length === 0) return { by_ref_id: {} };
   try {
     return await api.post<ProvenanceLookupResponse>(
       provenanceLookupPath(experimentId),
-      { refs },
+      { refs: asked },
     );
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 501)) {

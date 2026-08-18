@@ -23,6 +23,7 @@ import { useMemo } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 
 import { useProvenanceRun } from "./ProvenanceContext";
+import { publicationTraces } from "./publicationTrace";
 import { provenanceRefs } from "./refs";
 
 export function ProvenancePanel({
@@ -41,6 +42,14 @@ export function ProvenancePanel({
   const { draft } = useDesignDraft();
   const run = useProvenanceRun();
   const refs = useMemo(() => provenanceRefs(draft), [draft]);
+  // A publication's provenance is the association Gemma keeps on the
+  // link itself, and it is already on the page — there is nothing to
+  // look up. Resolved here so the run answers every kind it asked
+  // about, from whichever side of the wire holds the answer.
+  const derived = useMemo(
+    () => publicationTraces(draft?.publications),
+    [draft?.publications],
+  );
   const nothingToTrace = refs.length === 0;
 
   const Wrapper = bare ? "div" : "section";
@@ -54,11 +63,11 @@ export function ProvenancePanel({
           type="button"
           className="btn btn-sm"
           disabled={run.status === "loading" || nothingToTrace}
-          onClick={() => run.populate(experimentId, refs)}
+          onClick={() => run.populate(experimentId, refs, derived)}
           title={
             nothingToTrace
-              ? "Nothing to trace — this experiment has no factors or tags yet."
-              : "Ask where each annotation on this experiment came from. Hover a disc for the evidence behind it."
+              ? "Nothing to trace — this experiment has no factors, tags or publications yet."
+              : "Ask where each annotation on this experiment came from — factors, tags, and the linked papers. Hover a disc for the evidence behind it."
           }
         >
           {run.status === "loading"

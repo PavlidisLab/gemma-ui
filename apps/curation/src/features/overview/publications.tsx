@@ -12,6 +12,8 @@
 import { useEffect, useState } from "react";
 import { usePubmedMetadata } from "@/api/pubmed";
 import { shortenUri } from "@/lib/curie";
+import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
+import { publicationRefId } from "@/features/provenance/refs";
 import type { Publication } from "@/features/experiment/types";
 
 /** Parse the actual abstract out of the agent's ``paper_excerpt``.
@@ -294,6 +296,13 @@ export function PublicationRow({
           <div className="text-slate-500 italic">{displayCitation}</div>
         ) : null}
         <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+          {/* Why this paper is linked to this experiment — inert until
+              a curator runs "populate provenance", and absent for a
+              link with nothing recorded, which is every link on a
+              backend that doesn't carry the association yet. Sits with
+              the identifiers, not the title: it speaks to the LINK,
+              not to the paper. */}
+          <ProvenanceDot refId={publicationRefId(publication)} />
           {pmidUrl ? (
             <a
               href={pmidUrl}

@@ -28,6 +28,7 @@ import { useStickyState } from "@/lib/useStickyState";
 import { shortenUri } from "@/lib/curie";
 import { cn } from "@/lib/cn";
 import { ONTOLOGY_ANCHOR_CLS } from "@/lib/ontologyAnchor";
+import { evidenceCodeName } from "@/lib/evidenceCode";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
 import { tagRefId } from "@/features/provenance/refs";
@@ -2082,16 +2083,6 @@ function inferredSourceTag(source: string | undefined): string {
   if (source === "BioMaterial") return "BM";
   if (source === "FactorValue") return "FV";
   return source;
-}
-
-/** Long-form name for an evidence code, for the chip's hover title.
- *  Limited to the two Gemma actually uses; others render verbatim. */
-function evidenceCodeName(code: string | undefined): string {
-  const c = (code || "").trim().toUpperCase();
-  if (!c) return "";
-  if (c === "IC") return "Inferred by Curator";
-  if (c === "IIA") return "Inferred from Imported Annotation (GEO)";
-  return c;
 }
 
 /** Three-way palette for the two-tone tag chip. The provenance signal
