@@ -49,6 +49,7 @@ import {
 import {
   BASIS_COPY,
   mergeRelations,
+  specificFirstWithinTies,
   topicRelations,
   useTermRelations,
   type MergedRelation,
@@ -127,7 +128,9 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
     if (!rows) return null;
     // Server order is the order — it ranks properly as of 2026-08-18,
     // and a second definition of "strongest" here would drift from it.
-    return mergeRelations(topicRelations(rows, activeUri));
+    return specificFirstWithinTies(
+      mergeRelations(topicRelations(rows, activeUri)),
+    );
   }, [relationsQ.data, activeUri]);
 
   const gemmaDone = !gemma.isLoading;
@@ -300,6 +303,32 @@ const MAX_SHOWN_RELATIONS = 5;
  *  rest into a "(+N more)" tail — a couple is enough to hint that a
  *  narrower term exists without turning the card into a subclass dump. */
 const MAX_SHOWN_CHILDREN = 4;
+
+/** How many characters of synonyms to show before collapsing the rest.
+ *
+ *  🛑 A budget, not a count, because the two shapes differ wildly. A
+ *  disease carries a dozen short aliases and all of them read at a
+ *  glance; `imatinib` carries six IUPAC names of ninety characters each
+ *  and NONE of them does — they filled nine lines above the definition
+ *  and buried `STI 571`, which is the one a human would recognise.
+ *  Budgeting characters caps the second case after one entry and leaves
+ *  the first nearly intact, in the order the source gave them. */
+const SYNONYM_CHAR_BUDGET = 110;
+
+/** Parents, before the tail collapses. A CHEBI compound has fifteen —
+ *  every role it bears, restated as a superclass — which is five wrapped
+ *  lines of chrome above the part of the card a curator came for. */
+const MAX_SHOWN_PARENTS = 6;
+
+/** Cross-references, before the tail collapses. */
+const MAX_SHOWN_XREFS = 8;
+
+/** 🛑 `pubmed:` xrefs are the flood: `imatinib` carries about fifty of
+ *  them, and they are literature citations for the term's assertions,
+ *  not identifiers a curator navigates by. They collapse to a count so
+ *  the identifiers that ARE useful — drugbank, kegg, cas, wikipedia —
+ *  are not pushed off the card by them. */
+const isCitationXref = (x: string) => /^pubmed:/i.test(x.trim());
 
 /**
  * Facts a catalogue asserts about the term, rendered so they can never
@@ -602,15 +631,32 @@ export function CuriePopoverBody({
           <span className="font-semibold">
             {detail.source === "ncbi" ? "aliases: " : "synonyms: "}
           </span>
-          {detail.synonyms.map((s, i) => (
-            <span
-              key={`${s.value}-${i}`}
-              title={s.type ? s.type.replace(/_/g, " ") : undefined}
-            >
-              {i > 0 ? ", " : ""}
-              {s.value}
-            </span>
-          ))}
+          {(() => {
+            // Order preserved; the budget decides where to stop.
+            let spent = 0;
+            const shown = detail.synonyms.filter((s) => {
+              if (spent > SYNONYM_CHAR_BUDGET) return false;
+              spent += (s.value ?? "").length + 2;
+              return true;
+            });
+            const more = detail.synonyms.length - shown.length;
+            return (
+              <>
+                {shown.map((s, i) => (
+                  <span
+                    key={`${s.value}-${i}`}
+                    title={s.type ? s.type.replace(/_/g, " ") : undefined}
+                  >
+                    {i > 0 ? ", " : ""}
+                    {s.value}
+                  </span>
+                ))}
+                {more > 0 ? (
+                  <span className="opacity-70"> (+{more} more)</span>
+                ) : null}
+              </>
+            );
+          })()}
         </div>
       ) : null}
       {alert ? (
@@ -654,7 +700,7 @@ export function CuriePopoverBody({
       {detail.parents.length > 0 ? (
         <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
           <span className="font-semibold">parents: </span>
-          {detail.parents.map((p, i) => (
+          {detail.parents.slice(0, MAX_SHOWN_PARENTS).map((p, i) => (
             <span key={`${p.uri ?? p.label}-${i}`}>
               {i > 0 ? ", " : ""}
               {p.uri ? (
@@ -674,6 +720,12 @@ export function CuriePopoverBody({
               )}
             </span>
           ))}
+          {detail.parents.length > MAX_SHOWN_PARENTS ? (
+            <span className="opacity-70">
+              {" "}
+              (+{detail.parents.length - MAX_SHOWN_PARENTS} more)
+            </span>
+          ) : null}
         </div>
       ) : null}
       {childrenResult ? (
@@ -752,7 +804,30 @@ export function CuriePopoverBody({
           title="Cross-references to other vocabularies"
         >
           <span className="font-semibold">xrefs: </span>
-          <span className="font-mono">{detail.xrefs.join(", ")}</span>
+          {(() => {
+            const cites = detail.xrefs.filter(isCitationXref);
+            const ids = detail.xrefs.filter((x) => !isCitationXref(x));
+            const shown = ids.slice(0, MAX_SHOWN_XREFS);
+            const more = ids.length - shown.length;
+            return (
+              <>
+                <span className="font-mono">{shown.join(", ")}</span>
+                {more > 0 ? (
+                  <span className="opacity-70"> (+{more} more)</span>
+                ) : null}
+                {cites.length > 0 ? (
+                  <span
+                    className="opacity-70"
+                    title="Literature citations for this term's assertions, not identifiers to navigate by."
+                  >
+                    {shown.length || more ? " · " : ""}
+                    {cites.length} PubMed citation
+                    {cites.length === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+              </>
+            );
+          })()}
         </div>
       ) : null}
       <div className="flex items-baseline gap-2 pt-1 border-t border-slate-200 dark:border-slate-700 mt-1">

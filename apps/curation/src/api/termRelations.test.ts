@@ -13,9 +13,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   impliesFrom,
+  specificFirstWithinTies,
   isDiseaseTerm,
   mergeRelations,
   topicRelations,
+  type MergedRelation,
   type RelationRow,
 } from "./termRelations";
 
@@ -298,54 +300,118 @@ describe("one claim, however many stored relations derive it", () => {
   });
 });
 
-describe("a class lists its members, and that is not a fact about it", () => {
-  // 🛑 Live: `induced pluripotent stem cell line cell` (CLO_0037307)
-  // implies seventeen rows — `derived from cell line → 201B7`, `585A1`,
-  // `Detroit 551 cell`, `WT33` — the corpus's iPSC lines. Same shape as
-  // the disease card listing its models, one level up.
+describe("in a crowded group, a property stays and an instance goes", () => {
+  // 🛑 Two cards, one rule. `induced pluripotent stem cell line cell`
+  // implied fifteen rows — `derived from cell line → 201B7 · 585A1 ·
+  // Detroit 551 cell`, the corpus's iPSC lines. `imatinib` implies ten
+  // CHEBI roles. Both are one predicate with a dozen objects; neither is
+  // a dozen facts. The separator is the OBJECT's breadth, not the
+  // subject's: a member appears nowhere else (breadth 1), a property is
+  // borne by many (12, 44, 5326).
   const CLASS = "http://purl.obolibrary.org/obo/CLO_0037307";
-  const member = (object: string): RelationRow => ({
+  const row = (
+    object: string,
+    object_breadth: number,
+    predicate = "derived from cell line",
+  ): RelationRow => ({
     subject: "induced pluripotent stem cell line cell",
     subject_uri: CLASS,
     subject_category: "cell line",
-    predicate: "derived from cell line",
-    predicate_uri: "http://purl.obolibrary.org/obo/CLO_0037210",
+    predicate,
     object,
+    object_breadth,
     basis: "CURATED",
     number_of_experiments: 1,
     topicality: "TERM_LEVEL",
     inference_direction: "SUBJECT_IMPLIES_OBJECT",
     implied_subject: "induced pluripotent stem cell line cell",
-    implied_predicate: "derived from cell line",
+    implied_predicate: predicate,
     implied_object: object,
   });
 
-  it("drops a predicate that is enumerating rather than describing", () => {
-    const rows = ["201B7", "585A1", "Detroit 551 cell", "WT33"].map(member);
-    expect(topicRelations(rows, CLASS)).toHaveLength(0);
+  it("drops the members and keeps the shared facts", () => {
+    const rows = [
+      row("201B7", 1),
+      row("585A1", 1),
+      row("Detroit 551 cell", 1),
+      row("WT33", 1),
+      row("fibroblast", 14),
+      row("embryonic fibroblast", 12),
+    ];
+    const kept = topicRelations(rows, CLASS).map((r) => r.implied_object);
+    expect(kept).toEqual(["fibroblast", "embryonic fibroblast"]);
   });
 
-  it("keeps a term that simply has a couple of origins", () => {
-    const rows = ["astrocyte", "fibroblast"].map(member);
+  it("keeps the most specific three when everything is shared", () => {
+    // `imatinib`: ten roles, all borne by dozens to thousands of other
+    // chemicals. Dropping the group would take `tyrosine kinase
+    // inhibitor` with it — the one role that identifies the compound.
+    const roles = [
+      row("antineoplastic agent", 5326, "has role"),
+      row("antiviral agent", 636, "has role"),
+      row("apoptosis inducer", 411, "has role"),
+      row("antitubercular agent", 138, "has role"),
+      row("tyrosine kinase inhibitor", 44, "has role"),
+    ];
+    const kept = topicRelations(roles, CLASS).map((r) => r.implied_object);
+    expect(kept).toContain("tyrosine kinase inhibitor");
+    expect(kept).toHaveLength(3);
+    expect(kept).not.toContain("antineoplastic agent");
+  });
+
+  it("leaves a small group alone, breadth or no breadth", () => {
+    const rows = [row("astrocyte", 23), row("fibroblast", 1)];
     expect(topicRelations(rows, CLASS)).toHaveLength(2);
   });
 
-  it("drops only the enumerating predicate, never the card", () => {
-    // 🛑 Per predicate. A line with one disease and five listed members
-    // keeps the disease.
-    const disease: RelationRow = {
-      ...member("carcinoma"),
-      predicate: "has disease",
-      predicate_uri: "http://purl.obolibrary.org/obo/RO_0016002",
-      implied_predicate: "has disease",
-      implied_object: "carcinoma",
-    };
+  it("keeps a row whose breadth the wire did not report", () => {
+    // 🛑 Unknown is not a singleton. `0` is impossible by construction
+    // and an absent field is an older backend.
     const rows = [
-      ...["201B7", "585A1", "Detroit 551 cell", "WT33"].map(member),
-      disease,
+      row("a", 0),
+      row("b", 0),
+      row("c", 0),
+      row("d", 0),
     ];
-    const kept = topicRelations(rows, CLASS);
-    expect(kept).toHaveLength(1);
-    expect(kept[0].implied_object).toBe("carcinoma");
+    expect(topicRelations(rows, CLASS)).toHaveLength(3);
+  });
+});
+
+describe("ties the server left alphabetical are broken by specificity", () => {
+  // 🛑 Not a re-ranking. Every asserted row carries support 0, so ten
+  // CHEBI roles arrive tied and a tie falls to alphabetical: on
+  // `imatinib` that put `antihypertensive agent` (487 chemicals bear it)
+  // first and `tyrosine kinase inhibitor` (44) last, behind a "+5 more".
+  const r = (object: string, object_breadth: number, sup = 0): MergedRelation => ({
+    subject: "imatinib",
+    predicate: "has role",
+    object,
+    object_breadth,
+    basis: "ONTOLOGY",
+    number_of_experiments: sup,
+    implied_object: object,
+    copies: 1,
+  });
+
+  it("puts the role that identifies the compound first", () => {
+    const ranked = specificFirstWithinTies([
+      r("antihypertensive agent", 487),
+      r("antineoplastic agent", 5326),
+      r("tyrosine kinase inhibitor", 44),
+    ]);
+    expect(ranked[0].object).toBe("tyrosine kinase inhibitor");
+  });
+
+  it("never moves a row past one the server ordered above it", () => {
+    // Different support ⇒ the server meant that order, and specificity
+    // does not get to overturn it.
+    const ranked = specificFirstWithinTies([
+      r("well supported but broad", 5326, 10),
+      r("specific but unsupported", 2, 1),
+    ]);
+    expect(ranked.map((x) => x.object)).toEqual([
+      "well supported but broad",
+      "specific but unsupported",
+    ]);
   });
 });

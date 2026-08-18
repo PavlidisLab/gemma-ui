@@ -133,6 +133,21 @@ export interface RelationRow {
   implied_predicate_uri?: string | null;
   implied_object?: string | null;
   implied_object_uri?: string | null;
+  /** Distinct objects this SUBJECT relates to, corpus-wide — the mirror
+   *  of `object_breadth`, added 2026-08-18 at our ask. Typed because it
+   *  is on the wire and a consumer will want it; the card does NOT key
+   *  on it, and that is worth stating: `imatinib` and a generic iPSC
+   *  class both relate to ~a dozen objects, so the number does not
+   *  separate "a compound with many roles" from "a class listing its
+   *  members". What separates them is the OBJECT's breadth — see
+   *  {@link topicRelations}. */
+  subject_breadth?: number | null;
+  /** Identifies the DERIVED CLAIM, null where a row licenses none.
+   *  Folds `BRCA1 --has disease--> breast cancer` together with
+   *  `breast cancer --has_genotype--> BRCA1`, which `triple_key`
+   *  cannot, and correctly keeps `is model of` and `has disease` apart
+   *  because those are two claims rather than one rendered twice. */
+  implied_triple_key?: string | null;
   /** Groups the side-by-side rows one relation produces across bases.
    *  🛑 It does NOT group two stored relations that derive the same
    *  claim — `BRCA1 has disease breast cancer` and `breast cancer
@@ -186,12 +201,18 @@ export function mergeRelations(rows: readonly RelationRow[]): MergedRelation[] {
   // syndrome are both correct and neither subsumes the other.
   const groups = new Map<string, MergedRelation[]>();
   const claim = (r: RelationRow) =>
-    [
-      r.basis,
-      (r.implied_subject ?? r.subject ?? "").trim().toLowerCase(),
-      (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase(),
-      (r.implied_object ?? r.object ?? "").trim().toLowerCase(),
-    ].join("|");
+    // `implied_triple_key` when the server mints one — it identifies the
+    // DERIVED CLAIM, which is what a reader sees. The label fallback is
+    // for rows that license nothing (no key) and for any backend that
+    // predates the field.
+    r.implied_triple_key?.trim()
+      ? `${r.basis}|${r.implied_triple_key.trim()}`
+      : [
+          r.basis,
+          (r.implied_subject ?? r.subject ?? "").trim().toLowerCase(),
+          (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase(),
+          (r.implied_object ?? r.object ?? "").trim().toLowerCase(),
+        ].join("|");
 
   for (const r of rows) {
     const bucket = groups.get(claim(r)) ?? [];
@@ -343,32 +364,82 @@ export function impliesFrom(r: RelationRow, activeUri: string): boolean {
  * term makes, not the ones made about it.
  */
 /**
- * How many objects one predicate may name before the card is listing
- * members rather than stating a property.
+ * How many objects one predicate may name before the card is enumerating.
  *
- * 🛑 A generic CLASS relates to everything filed under it. Live:
- * `induced pluripotent stem cell line cell` (CLO_0037307) implies
- * seventeen rows — `derived from cell line → 201B7`, `→ 585A1`,
- * `→ Detroit 551 cell`, `→ WT33` — which is the corpus's iPSC lines,
- * not a fact about the term. The same complaint as the disease card,
- * one level up: `breast cancer` listed its models, this lists its
- * members.
- *
- * A specific entity has one or two origins. `U-87 MG` has one
- * (`derived from cell → astrocyte`); `BRCA1` has one (`has disease →
- * breast cancer`). Three is generous for a fact and far below any
- * listing we have seen, so a predicate that names more than three is
- * enumerating rather than describing, and the whole group goes.
- *
- * 🛑 Per predicate, not per card: a term with one origin and one
- * disease should keep both, and only the enumerating group should
- * disappear. Client-side because the wire has no measure of it —
- * `objectBreadth` counts subjects per object, and this is the mirror,
- * objects per subject. Asked for as `subjectBreadth`, which would let
- * the server answer it once for every consumer instead of each of us
- * inferring it from a page of results.
+ * A generic CLASS relates to everything filed under it, and a compound
+ * carries every role anyone has reported for it. Both arrive as one
+ * predicate with a dozen objects, and neither is a dozen facts.
  */
 const MAX_OBJECTS_PER_PREDICATE = 3;
+
+/**
+ * In a crowded predicate group, which objects are PROPERTIES rather than
+ * instances.
+ *
+ * 🛑 The signal is the object's breadth, not the subject's. Measured:
+ * `imatinib` relates to 11 objects and the generic `induced pluripotent
+ * stem cell line cell` to ~15, so `subjectBreadth` — which we asked for
+ * and which is now on the wire — does not separate them. What does:
+ *
+ *  - a **member** appears nowhere else. `201B7`, `585A1`, `Detroit 551
+ *    cell` each have `objectBreadth: 1`: the only thing they relate to
+ *    is the class listing them. An instance, not a fact about the term.
+ *  - a **property** is shared. Every CHEBI role on imatinib is borne by
+ *    44 to 5,326 other chemicals, and `iPSC line derived from cell →
+ *    fibroblast` (12) is a real statement about iPSC lines.
+ *
+ * So in a group too big to be facts, keep what is shared and drop what
+ * is singular. On the iPSC class that deletes the line names and leaves
+ * `derived from cell → fibroblast · embryonic fibroblast · neural stem
+ * cell`, which is the useful half of the same rows.
+ */
+function isSharedObject(r: RelationRow): boolean {
+  const b = r.object_breadth;
+  // 🛑 Unknown breadth keeps the row. `0` is impossible by construction,
+  // so it means the lookup missed, and an omitted field is an older
+  // backend — neither is evidence of a singleton.
+  if (b === null || b === undefined || b === 0) return true;
+  return b > 1;
+}
+
+/**
+ * Most specific first, WITHIN what the server already ordered.
+ *
+ * 🛑 Not a re-ranking. The server sorts by basis then support, and for
+ * an asserted basis every row carries support 0 — so ten CHEBI roles
+ * arrive tied, and a tie falls to alphabetical order. On `imatinib` that
+ * put `antihypertensive agent` (borne by 487 chemicals) first and
+ * `tyrosine kinase inhibitor` (44, the one that identifies the compound)
+ * last, behind a "+5 more".
+ *
+ * This sorts only inside runs the server left tied — same basis, same
+ * support — so no row can cross another the server deliberately placed.
+ * The tiebreak is specificity, on the backend's own advice: *"rank or
+ * cap roles by objectBreadth; do not treat the ten as a set."*
+ */
+export function specificFirstWithinTies(rows: readonly MergedRelation[]): MergedRelation[] {
+  const out: MergedRelation[] = [];
+  let run: MergedRelation[] = [];
+  const flush = () => {
+    out.push(
+      ...[...run].sort(
+        (a, b) => (a.object_breadth ?? 0) - (b.object_breadth ?? 0),
+      ),
+    );
+    run = [];
+  };
+  for (const r of rows) {
+    const prev = run[run.length - 1];
+    const tied =
+      prev &&
+      prev.basis === r.basis &&
+      (prev.number_of_experiments ?? 0) === (r.number_of_experiments ?? 0);
+    if (!tied) flush();
+    run.push(r);
+  }
+  flush();
+  return out;
+}
 
 export function topicRelations(
   rows: readonly RelationRow[],
@@ -376,15 +447,32 @@ export function topicRelations(
 ): RelationRow[] {
   if (isDiseaseTerm(rows, activeUri)) return [];
   const mine = rows.filter((r) => impliesFrom(r, activeUri));
-  const perPredicate = new Map<string, number>();
+  const groups = new Map<string, RelationRow[]>();
   for (const r of mine) {
     const k = (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase();
-    perPredicate.set(k, (perPredicate.get(k) ?? 0) + 1);
+    groups.set(k, [...(groups.get(k) ?? []), r]);
   }
-  return mine.filter((r) => {
-    const k = (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase();
-    return (perPredicate.get(k) ?? 0) <= MAX_OBJECTS_PER_PREDICATE;
-  });
+  const out: RelationRow[] = [];
+  for (const rows_ of groups.values()) {
+    if (rows_.length <= MAX_OBJECTS_PER_PREDICATE) {
+      out.push(...rows_);
+      continue;
+    }
+    // Too many to be facts: keep the shared objects, then the most
+    // specific of those. Dropping the whole group was the earlier rule
+    // and it was wrong on `imatinib`, where the one role that
+    // identifies the compound would have gone with the nine that do not.
+    out.push(
+      ...rows_
+        .filter(isSharedObject)
+        .sort((a, b) => (a.object_breadth ?? 0) - (b.object_breadth ?? 0))
+        .slice(0, MAX_OBJECTS_PER_PREDICATE),
+    );
+  }
+  // Preserve the order the rows arrived in — the server's — with the
+  // group members re-inserted where they were.
+  const keep = new Set(out);
+  return mine.filter((r) => keep.has(r));
 }
 
 /**
