@@ -57,6 +57,7 @@ export function ChipStrip({
     ticketContext,
   });
   const universe = useSourceUniverse(experimentId);
+  const base = useBaseVersion();
   const mode = modeOf(baseline, comparator);
   const diff = useChipDiffSummary(experimentId, baseline, comparator);
   // Full curation payloads — used only to derive the self-documenting
@@ -107,8 +108,21 @@ export function ChipStrip({
       role="region"
       aria-label="Comparison source selection"
     >
-      <ChipLabel slotLabel="Viewing" value={baseline} curations={curations} />
-      <BaseVersionNote />
+      {/* 🛑 Don't spend a chip on a constant. Since the baseline stopped
+          being a picker it is ``current`` on every review — "Viewing:
+          current curation" said the same words on every experiment, next
+          to the version that is the part which actually varies (Paul,
+          2026-08-17: "viewing curation is a bit redundant if it's always
+          the same thing"). The name comes back the moment it denotes
+          something — a ticket pin, the edit flow's preboard — and when
+          there is no version to state, so the label always has content. */}
+      <ChipLabel
+        slotLabel="Viewing"
+        value={baseline}
+        curations={curations}
+        showValue={baseline !== "current" || !base.version}
+      />
+      <BaseVersionNote version={base.version} dirty={base.dirty} />
       {/* Sits with the BASELINE chip, not after the pair: it modifies
           the baseline ("this is the seed"), and when the header runs
           out of room the strip breaks between groups, so the note
@@ -318,15 +332,37 @@ function DiffSummaryReadout({
   );
 }
 
+/** What the page is actually showing: the version the saved design was
+ *  synced from, and whether the curator has edited on top of it.
+ *
+ *  Read off the context directly rather than through `useDesignDraft()`
+ *  so the strip still renders if it is ever mounted outside the draft
+ *  provider — same reason `CuratingOnTopNote` does. */
+function useBaseVersion(): { version: string | null; dirty: boolean } {
+  const draft = useContext(DesignDraftContext);
+  return {
+    version: goldDataVersionOf(draft?.saved ?? null),
+    dirty: draft?.diff?.isDirty ?? false,
+  };
+}
+
 /**
- * Which gold version the curation on screen carries.
+ * Which version the curation on screen carries — and whether you have
+ * edited on top of it.
  *
  * This is what replaced the baseline dropdown. The reason there were
- * several things to view is that gold lives in five places and each
- * can be ahead of the others; a picker did not resolve that, it handed
- * it to the curator. A version statement serves the actual need —
- * *"I want to look at the current curation"* — and turns divergence
- * into a bug someone can fix rather than a menu.
+ * several things to view is that the curated corpus lives in several
+ * places and each can be ahead of the others; a picker did not resolve
+ * that, it handed it to the curator. A version statement serves the
+ * actual need — *"I want to look at the current curation"* — and turns
+ * divergence into a bug someone can fix rather than a menu.
+ *
+ * 🛑 Not "gold" (Paul, 2026-08-17: *"it might not be gold"*). The stamp
+ * travels on the base design and names the snapshot it was last synced
+ * from; whether that snapshot is anybody's gold is a separate claim,
+ * and one this chip is in no position to make. The wire field is still
+ * `gold_data_version` — renaming it is the store's to do — but nothing
+ * a curator reads says gold.
  *
  * 🛑 Says nothing about currency unless the store knows what current
  * IS. `gold_staleness.current_version` is null on the store today, so
@@ -336,18 +372,36 @@ function DiffSummaryReadout({
  * acted on as though it were checked. When the field arrives, the
  * amber branch below starts firing on its own.
  *
+ * 🛑 A dirty draft has to show here, not only on the commit chip. The
+ * version answers "what am I looking at", and the moment a curator
+ * edits, the answer is "that version PLUS changes that are in no
+ * version yet" — a bare stamp beside an edited design states something
+ * that stopped being true (Paul, 2026-08-17: *"if I edit the dataset …
+ * it should show dirty"*). Neutral, not amber: uncommitted edits are
+ * the curator's own doing, and amber is reserved for the staleness
+ * warning above. The `uncommitted` chip beside it still itemises them.
+ *
  * Renders nothing when the design carries no stamp (34 of 534 base
  * rows are unstamped). An absent version is not a stale one, and a
  * chip reading "unknown" beside every other chip would be noise on
- * the header's tightest row.
+ * the header's tightest row — the baseline label takes the slot back
+ * in that case.
  */
-function BaseVersionNote() {
-  const draft = useContext(DesignDraftContext);
-  const version = goldDataVersionOf(draft?.saved ?? null);
+function BaseVersionNote({
+  version,
+  dirty,
+}: {
+  version: string | null;
+  dirty: boolean;
+}) {
   const { data } = useGoldCurrency();
   const current = data?.currentVersion ?? null;
   if (!version) return null;
   const stale = current !== null && current !== version;
+  const editedNote = dirty
+    ? ` You have uncommitted edits on top of it, so what is on screen is ` +
+      `that version PLUS your changes — the "uncommitted" chip lists them.`
+    : "";
   return (
     <span
       className={cn(
@@ -357,19 +411,23 @@ function BaseVersionNote() {
           : "border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
       )}
       title={
-        stale
-          ? `This page is showing gold ${version}, but the store's current ` +
-            `version is ${current}. You are NOT looking at the current ` +
-            `curation — the base design has not been re-synced.`
-          : `The curation on screen carries gold version ${version}.` +
+        (stale
+          ? `This page is showing version ${version}, but the store's ` +
+            `current version is ${current}. You are NOT looking at the ` +
+            `current curation — the base design has not been re-synced.`
+          : `The curation on screen was last synced from version ` +
+            `${version}.` +
             (current === null
               ? " The store does not report which version is current, so" +
                 " whether this is the latest is unknown."
-              : " That is the store's current version.")
+              : " That is the store's current version.")) + editedNote
       }
     >
       {stale ? "⚠ " : ""}
       {version}
+      {dirty ? (
+        <span className="font-sans font-semibold">+ your edits</span>
+      ) : null}
     </span>
   );
 }
@@ -383,10 +441,14 @@ function ChipLabel({
   slotLabel,
   value,
   curations,
+  showValue = true,
 }: {
   slotLabel: string;
   value: Source;
   curations?: readonly CurationRow[];
+  /** Drop the value chip and keep the label, for a value that never
+   *  varies. The caller decides — see the note at the call site. */
+  showValue?: boolean;
 }) {
   const palette = SLOT_PALETTE.baseline;
   // Prefer the self-documenting run-provenance tooltip when the value
@@ -408,17 +470,19 @@ function ChipLabel({
       >
         {slotLabel}:
       </span>
-      <span
-        className={cn(
-          // Matches ChipDropdown sizing so locked + selectable chips
-          // line up visually in the strip.
-          "inline-flex items-center gap-1 px-2 py-0.5 rounded border border-dashed text-[12px] font-medium opacity-90 whitespace-nowrap",
-          palette.chip,
-        )}
-        title={provTitle || undefined}
-      >
-        {sourceLabel(value, curations)}
-      </span>
+      {showValue ? (
+        <span
+          className={cn(
+            // Matches ChipDropdown sizing so locked + selectable chips
+            // line up visually in the strip.
+            "inline-flex items-center gap-1 px-2 py-0.5 rounded border border-dashed text-[12px] font-medium opacity-90 whitespace-nowrap",
+            palette.chip,
+          )}
+          title={provTitle || undefined}
+        >
+          {sourceLabel(value, curations)}
+        </span>
+      ) : null}
     </div>
   );
 }

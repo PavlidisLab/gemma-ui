@@ -54,10 +54,12 @@ function renderStrip({
   baseline = "current",
   version = "pg500-2873cc08b06b" as string | null,
   currentVersion = null as string | null,
+  dirty = false,
 }: {
   baseline?: string;
   version?: string | null;
   currentVersion?: string | null;
+  dirty?: boolean;
 } = {}) {
   useChipStateMock.mockReturnValue({
     baseline,
@@ -82,7 +84,11 @@ function renderStrip({
   useChipDiffSummaryMock.mockReturnValue({ summary: null, isLoading: false });
   useGoldCurrencyMock.mockReturnValue({ data: { currentVersion } });
 
-  const draftValue = { saved: savedWith(version), curatingOnTopOf: null };
+  const draftValue = {
+    saved: savedWith(version),
+    curatingOnTopOf: null,
+    diff: { isDirty: dirty },
+  };
   return render(
     <DesignDraftContext.Provider
       value={draftValue as unknown as never}
@@ -106,8 +112,18 @@ describe("the baseline is a statement, not a question", () => {
     expect(screen.getByText("Viewing:")).toBeTruthy();
   });
 
-  it("says 'current curation' rather than naming a row to choose between", () => {
+  it("does not spend a chip repeating a constant", () => {
+    // ``current`` is the baseline on every review, so "current curation"
+    // was the same words on every experiment — beside the version, which
+    // is the part that varies. The label stays; the constant goes.
     renderStrip();
+    expect(screen.getByText("Viewing:")).toBeTruthy();
+    expect(screen.queryByText("current curation")).toBeNull();
+  });
+
+  it("names the source again when there is no version to state", () => {
+    // The label must never be left with nothing after it.
+    renderStrip({ version: null });
     expect(screen.getByText("current curation")).toBeTruthy();
   });
 
@@ -120,9 +136,18 @@ describe("the baseline is a statement, not a question", () => {
 });
 
 describe("the version statement that replaced the picker", () => {
-  it("states the gold version the curation on screen carries", () => {
+  it("states the version the curation on screen carries", () => {
     renderStrip({ version: "pg500-2873cc08b06b" });
     expect(screen.getByText("pg500-2873cc08b06b")).toBeTruthy();
+  });
+
+  it("never calls the version gold", () => {
+    // 🛑 The stamp names the snapshot the base design was synced from.
+    // Whether that snapshot is anybody's gold is a separate claim, and
+    // not one this chip can make (Paul, 2026-08-17).
+    renderStrip({ version: "pg500-2873cc08b06b" });
+    const chip = screen.getByText("pg500-2873cc08b06b");
+    expect(chip.getAttribute("title")?.toLowerCase()).not.toContain("gold");
   });
 
   it("claims nothing about currency when the store does not know", () => {
@@ -151,5 +176,20 @@ describe("the version statement that replaced the picker", () => {
     // stale one, and "unknown" beside every other chip is noise.
     renderStrip({ version: null });
     expect(screen.queryByText(/pg500-/)).toBeNull();
+  });
+});
+
+describe("an edited design is not the version it was synced from", () => {
+  it("says so the moment the draft is dirty", () => {
+    renderStrip({ version: "pg500-2873cc08b06b", dirty: true });
+    const chip = screen.getByText(/pg500-2873cc08b06b/);
+    expect(chip.textContent).toContain("your edits");
+    expect(chip.getAttribute("title")).toContain("uncommitted edits");
+  });
+
+  it("states the version plainly while the draft is clean", () => {
+    renderStrip({ version: "pg500-2873cc08b06b", dirty: false });
+    const chip = screen.getByText("pg500-2873cc08b06b");
+    expect(chip.textContent).not.toContain("your edits");
   });
 });
