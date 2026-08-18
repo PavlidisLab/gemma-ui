@@ -18,6 +18,27 @@ export default defineConfig({
   // e2e/global-setup.ts + e2e/_backend.ts). Mocked specs are unaffected.
   globalSetup: "./e2e/global-setup.ts",
   fullyParallel: true,
+  /**
+   * 🛑 Capped, because every worker shares ONE dev server.
+   *
+   * Playwright's local default is `ncpu / 2` — eight browsers on this
+   * machine — and they all load modules through the single Vite server
+   * at :5175, which transforms them one at a time. Eight cold page
+   * loads queue behind each other and the slowest few blow the 30 s
+   * timeout, so the pre-commit gate fails a DIFFERENT handful of specs
+   * on every run and each of them passes when run alone. That reads as
+   * "the change broke something", which is the expensive kind of
+   * flake.
+   *
+   * Measured 2026-08-18 on the same @critical set: 8 workers failed 7
+   * then 8 of 36 in 2.2–2.4 min; 4 workers passed 36/36 in 1.9 min.
+   * The cap is not a trade — it is faster as well as green, because
+   * the contention was never doing work.
+   *
+   * CI keeps the default: a runner has its own machine and its own
+   * `retries: 2`.
+   */
+  workers: process.env.CI ? undefined : 4,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
