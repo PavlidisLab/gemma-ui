@@ -375,6 +375,44 @@ describe("in a crowded group, a property stays and an instance goes", () => {
   });
 });
 
+describe("a refutation is not rendered as a claim", () => {
+  // MGI reports genotypes that do NOT model a disease. Those arrive as
+  // `status: "REFUTED"` carrying the same assertive implied triple as
+  // any other row, so a card that renders them as written states MGI's
+  // finding backwards — under a header saying these are known facts.
+  const GENO = "http://www.informatics.jax.org/allele/MGI:5432",
+    GLAUCOMA = "http://purl.obolibrary.org/obo/MONDO_0005041";
+  const mgi = (status: string | undefined): RelationRow => ({
+    subject: "Pitx2<egl1>",
+    subject_uri: GENO,
+    subject_category: "genotype",
+    predicate: "is model of",
+    object: "glaucoma",
+    object_uri: GLAUCOMA,
+    basis: "EXTERNAL",
+    source: "MGI",
+    status,
+    inference_direction: "SUBJECT_IMPLIES_OBJECT",
+    implied_subject: "Pitx2<egl1>",
+    implied_predicate: "is model of",
+    implied_object: "glaucoma",
+  });
+
+  it("drops the refuted row", () => {
+    expect(topicRelations([mgi("REFUTED")], GENO)).toEqual([]);
+  });
+
+  it("keeps the asserted one", () => {
+    expect(topicRelations([mgi("ASSERTED")], GENO)).toHaveLength(1);
+  });
+
+  it("treats a missing status as asserted", () => {
+    // An older deployment omits the field, and dropping on absence
+    // would delete the whole surface rather than one row.
+    expect(topicRelations([mgi(undefined)], GENO)).toHaveLength(1);
+  });
+});
+
 const IMATINIB = "http://purl.obolibrary.org/obo/CHEBI_45783";
 
 describe("the server's order is the order", () => {

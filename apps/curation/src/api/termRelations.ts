@@ -94,12 +94,14 @@ export interface RelationRow {
    *  🛑 Where it merely REPEATS the object, the producer has not
    *  resolved that object's label — see the note on `object`. */
   evidence?: string | null;
-  /** `ASSERTED` on every row in the corpus as of 2026-08-18. Typed
-   *  because it is on the wire and because a retraction would arrive
-   *  here rather than as a row quietly disappearing; nothing keys on it
-   *  yet, and when a second value turns up, a row that is not asserted
-   *  must not render as one. */
-  status?: string | null;
+  /** 🛑 `ASSERTED` or `REFUTED`. A retraction arrives HERE, not as a row
+   *  quietly disappearing (gemma backend, 2026-08-18) — MGI's
+   *  not-disease report is the only producer writing `REFUTED` today,
+   *  and it says a genotype does NOT model the disease it names. The
+   *  row still carries an assertive implied triple, so anything
+   *  rendering it as written states the opposite of what MGI reported.
+   *  {@link topicRelations} drops them; see the note there. */
+  status?: "ASSERTED" | "REFUTED" | (string & {}) | null;
   /** 🛑 Datasets supporting this, **as seen by the caller** — ACL-exact
    *  and counted at read. Anonymous and authenticated see different
    *  numbers for the same relation, so this is never presented as a
@@ -439,7 +441,19 @@ export function topicRelations(
   activeUri: string,
 ): RelationRow[] {
   if (isDiseaseTerm(rows, activeUri)) return [];
-  const mine = rows.filter((r) => impliesFrom(r, activeUri));
+  // 🛑 A refutation is not a quiet row — it is a row that says the
+  // opposite. MGI reports genotypes that do NOT model a disease, and
+  // those arrive as `status: "REFUTED"` carrying the same assertive
+  // implied triple as any other row (`X is model of Y`). Rendered under
+  // a header that says these are known facts about the term, that
+  // states MGI's finding backwards. The wire hands us no negated
+  // reading to render instead, so the card stays silent rather than
+  // confident and wrong; asked the backend how a refutation should
+  // read. Unknown/absent status is treated as asserted — an older
+  // deployment omits the field, and dropping every row on a missing
+  // one would delete the whole surface.
+  const stated = rows.filter((r) => (r.status ?? "ASSERTED") !== "REFUTED");
+  const mine = stated.filter((r) => impliesFrom(r, activeUri));
   const groups = new Map<string, RelationRow[]>();
   for (const r of mine) {
     const k = (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase();
