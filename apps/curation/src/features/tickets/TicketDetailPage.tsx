@@ -12,6 +12,7 @@
 import { useState } from "react";
 
 import { AppHeader } from "@/components/ui/AppHeader";
+import { MarkdownText } from "@/components/ui/MarkdownText";
 import { navigate } from "@/routes";
 import {
   useCreateTicket,
@@ -150,9 +151,16 @@ function TicketDetailBody({
           <TicketActionsBar ticket={ticket} ticketId={ticketId} />
         </div>
         {ticket.body ? (
-          <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-line max-w-3xl">
-            {ticket.body}
-          </p>
+          // The agents side writes these in Markdown — bold, code spans
+          // and pipe tables — and they rendered as raw syntax here.
+          // Curators write the same field by hand in plain text, so the
+          // renderer supports Markdown without requiring it: text with
+          // no markers comes out exactly as it did under
+          // ``whitespace-pre-line``, single newlines included.
+          <MarkdownText
+            text={ticket.body}
+            className="text-sm text-slate-700 dark:text-slate-300 max-w-3xl"
+          />
         ) : null}
         <div
           className="h-2 w-full max-w-md rounded bg-slate-200 dark:bg-slate-700 overflow-hidden flex"

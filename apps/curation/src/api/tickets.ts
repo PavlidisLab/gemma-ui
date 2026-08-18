@@ -130,9 +130,15 @@ export interface Ticket {
   external_issue_url: string | null;
   /** Curator-facing instructions for the ticket — the "what does
    *  the curator need to do" text the reporter writes when filing.
-   *  Plain text today; rendered as multi-line on the detail page
-   *  and clamped to 2 lines on dashboard cards. Empty for tickets
-   *  filed by scripts that didn't set body. */
+   *
+   *  **Markdown is supported, never required.** The agents side writes
+   *  these with bold, code spans and pipe tables; curators write the
+   *  same field by hand in plain text. The detail page renders it via
+   *  `MarkdownText`, which leaves unmarked text looking exactly as it
+   *  did when this was rendered `whitespace-pre-line` — single newlines
+   *  included. Dashboard cards strip the markers instead
+   *  (`markdownToPlainText`), because a four-line clamp cannot hold a
+   *  table. Empty for tickets filed by scripts that didn't set body. */
   body: string;
   /** How the ticket advances between actions. ``MANUAL`` — the
    *  curator clicks the next-action button after each completed

@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { markdownToPlainText } from "@/lib/markdown";
 import { useDatasets, datasetMatchesQuery } from "@/api/datasets";
 import {
   useMyTickets,
@@ -952,6 +953,10 @@ function TicketCard({
   const n = rollup.total;
   const pctDone = n === 0 ? 0 : Math.round((rollup.done / n) * 100);
   const pctUnderway = n === 0 ? 0 : Math.round((rollup.underway / n) * 100);
+  const bodyPreview = useMemo(
+    () => markdownToPlainText(ticket.body ?? ""),
+    [ticket.body],
+  );
   return (
     <div
       className={cn(
@@ -999,6 +1004,13 @@ function TicketCard({
         {ticket.title}
       </div>
       {ticket.body ? (
+        // Markers STRIPPED here rather than rendered, unlike the detail
+        // page. A four-line clamp needs one inline run — headings,
+        // lists and a pipe table cannot live inside it — and in a
+        // preview this narrow, `**bold**` and a row of pipes cost more
+        // room than they buy. The words survive; the syntax doesn't.
+        // Same text into the `title`, since the tooltip that upgrades
+        // it can only carry a string.
         <p
           className="text-xs text-slate-600 dark:text-slate-300 flex-1 whitespace-pre-line overflow-hidden"
           style={{
@@ -1006,9 +1018,9 @@ function TicketCard({
             WebkitLineClamp: 4,
             WebkitBoxOrient: "vertical",
           }}
-          title={ticket.body}
+          title={bodyPreview}
         >
-          {ticket.body}
+          {bodyPreview}
         </p>
       ) : (
         <div className="flex-1" />
