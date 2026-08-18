@@ -159,6 +159,7 @@ function TicketDetailBody({
           // ``whitespace-pre-line``, single newlines included.
           <MarkdownText
             text={ticket.body}
+            surface="ticket-body"
             className="text-sm text-slate-700 dark:text-slate-300 max-w-3xl"
           />
         ) : null}

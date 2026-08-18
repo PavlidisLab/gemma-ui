@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MARKDOWN_SURFACES,
   markdownToPlainText,
   parseInline,
   parseMarkdown,
@@ -7,6 +8,17 @@ import {
   type Block,
   type InlineNode,
 } from "./markdown";
+
+describe("the allow-list is closed", () => {
+  it("sanctions exactly two surfaces", () => {
+    // *"be careful. I don't want markdown all over the place."*
+    // ~40 surfaces in this app render agent- or curator-authored prose;
+    // two of them render it as Markdown. Widening this is a decision,
+    // not a default — if you are here because a test failed, read the
+    // contract at the top of MarkdownText.tsx and say why in it.
+    expect([...MARKDOWN_SURFACES]).toEqual(["ticket-body", "review-focus"]);
+  });
+});
 
 /** Flatten to the text a reader would see, markers gone. */
 function textOf(nodes: InlineNode[]): string {

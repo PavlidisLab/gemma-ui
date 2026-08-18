@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { MarkdownText } from "@/components/ui/MarkdownText";
 import { cn } from "@/lib/cn";
 import { agentPalette, isLlmModelId, isProseModel } from "@/lib/agentPalette";
 import { useToast } from "@/components/ui/Toast";
@@ -1879,16 +1880,25 @@ function ReviewFocus({ summary }: { summary?: AuditSummary | null }) {
       <div className="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-500 mb-1">
         review focus
       </div>
+      {/* Markdown, on one of the two surfaces cleared for it — the
+          producer writes `**bold**`, `` `factor names` `` and `* `
+          sub-bullets carrying the gold-vs-agent correspondence, and
+          they were rendering as raw syntax. Plain guidance is
+          unaffected: unmarked text reads exactly as it did under
+          ``whitespace-pre-wrap``, single newlines included. See the
+          contract in MarkdownText.tsx. */}
       {headline ? (
-        <div className="font-medium text-slate-800 dark:text-slate-200">
-          {headline}
-        </div>
+        <MarkdownText
+          text={headline}
+          surface="review-focus"
+          className="font-medium text-slate-800 dark:text-slate-200"
+        />
       ) : null}
       {bullets.length > 0 ? (
         <ul className="mt-1 space-y-0.5 text-slate-600 dark:text-slate-400">
           {bullets.map((b, i) => (
-            <li key={i} className="whitespace-pre-wrap">
-              {b}
+            <li key={i}>
+              <MarkdownText text={b} surface="review-focus" />
             </li>
           ))}
         </ul>

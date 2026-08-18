@@ -518,3 +518,27 @@ export function markdownToPlainText(src: string): string {
   }
   return parts.join("\n\n").trim();
 }
+
+/* ------------------------------------------------------------------ */
+/* the allow-list                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The surfaces cleared to render Markdown.
+ *
+ * *"this contract of where markdown is allowed … be careful. I don't
+ * want markdown all over the place."* — the reviewer, 2026-08-17.
+ *
+ * ~40 surfaces in this app render agent- or curator-authored prose. Two
+ * of them render it as Markdown, and `MarkdownText` takes the surface
+ * as a REQUIRED prop, so switching a third one on cannot happen by
+ * copying a JSX line — it has to widen this union, which shows up in a
+ * diff and fails `markdown.test.ts`.
+ *
+ * The reasoning for each, and for the exclusions, lives in the header
+ * of `components/ui/MarkdownText.tsx`. Adding a third is a decision;
+ * take it deliberately and record why there.
+ */
+export const MARKDOWN_SURFACES = ["ticket-body", "review-focus"] as const;
+
+export type MarkdownSurface = (typeof MARKDOWN_SURFACES)[number];

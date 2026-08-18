@@ -5,6 +5,40 @@
  * for the two places this deliberately departs from CommonMark (single
  * newlines are breaks; `_underscores_` are never emphasis).
  *
+ * ## Where Markdown is allowed — a closed list, on purpose
+ *
+ * *"this contract of where markdown is allowed … be careful. I don't
+ * want markdown all over the place."* — the reviewer, 2026-08-17.
+ *
+ * The app has ~40 surfaces rendering agent- or curator-authored prose.
+ * Markdown is sanctioned on **two** of them. `MARKDOWN_SURFACES` in
+ * `lib/markdown.ts` is that list, and it arrives here as a REQUIRED
+ * prop — so a new surface cannot be added by copying a JSX line. It has
+ * to edit the union, which shows up in a diff and in
+ * `markdown.test.ts`.
+ *
+ * The two, and why each earned it:
+ *
+ * - **`ticket-body`** — the agents side authors these as documents:
+ *   headings, severity tables, cited paths. The syntax was rendering
+ *   raw on the detail page.
+ * - **`review-focus`** — the per-experiment guidance panel
+ *   (`summary.headline` + `summary.key_findings`, produced by the
+ *   agents side's `annotate_review_summaries.py`). Same author, same
+ *   habits: `**bold**`, `` `factor names` ``, and `* ` sub-bullets
+ *   carrying the gold-vs-agent correspondence.
+ *
+ * Everything else stays plain: finding rationale, boss-critic verdicts,
+ * proposal reasoning, dismiss reasons, GEO description. Two reasons,
+ * and the first is the one that matters — **short agent prose is read
+ * as a claim, not as a document**, and formatting it invites the author
+ * to decorate an assertion the curator has to weigh. The second is
+ * mechanical: `rationaleText.ts::firstBacktick()` already treats the
+ * first `` `token` `` in a rationale as that finding's LABEL, so a
+ * Markdown pass over rationale would have to run after it, not before.
+ *
+ * Adding a third is a decision. Take it deliberately, and say why here.
+ *
  * ## Why this exists rather than a library
  *
  * There is no Markdown dependency in either app, and `node_modules` is
@@ -30,6 +64,7 @@ import {
   type Align,
   type Block,
   type InlineNode,
+  type MarkdownSurface,
 } from "@/lib/markdown";
 
 function renderInline(nodes: InlineNode[], keyPrefix: string): JSX.Element[] {
@@ -210,6 +245,9 @@ export function MarkdownText({
 }: {
   text: string | null | undefined;
   className?: string;
+  /** Which sanctioned surface this is. Required so that turning on
+   *  Markdown somewhere new is a typed change, not a copied line. */
+  surface: MarkdownSurface;
 }): JSX.Element | null {
   const src = (text ?? "").trim();
   if (!src) return null;
