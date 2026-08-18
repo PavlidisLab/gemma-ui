@@ -55,52 +55,30 @@ async function probe(path: string, signal: AbortSignal): Promise<boolean> {
 }
 
 /**
- * The gold version the store considers current.
+ * 🛑 **`useGoldCurrency` was here and is deleted, `2026-08-17`.** It read
+ * `gold_staleness.current_version` off the store so the header chip
+ * could warn when the design on screen was not the current curation.
+ * That scalar is a hash over the WHOLE curated set, and cab measured
+ * what it does: edit ONE dataset's curation and the corpus version
+ * moves, so all 500 stored rows differ from "current" while exactly one
+ * dataset changed — 499 false warnings per real edit, in the window
+ * between a rebuild and the store push, which is when a curator is most
+ * likely to be reading.
  *
- * Gold lives in five places — store curator rows, eval gold, the
- * benchmark's own copy, the store's polished `gold` chip, and the
- * store's BASE design — and they can each be ahead of the others. The
- * UI used to hand that divergence to the curator as a menu of
- * baselines to choose between. It is not a decision a curator should
- * be asked to make; the honest surface is a statement of which version
- * is on screen and whether it is the current one
- * (`UI_BASELINE_MUST_DEFAULT_TO_GOLD_2026_08_17`).
+ * Deleted rather than left unused: a hook that reads the wrong scalar
+ * is one import away from arming the warning again, and the field is
+ * about to start returning a non-null value.
  *
- * 🛑 `current_version` is null on the store today — it knows the
- * version tallies per row but not which version is *the* current one.
- * Until it does, "is this current?" is UNANSWERABLE and the UI says
- * nothing rather than guessing from the modal version. A version chip
- * that claims "current" on an inference is worse than one that only
- * states the version, because the claim is the part a curator would
- * act on. The banner lights up on its own the moment the store fills
- * the field in.
+ * **Staleness is a per-DATASET fact and needs a per-dataset
+ * comparison** — this row's annotation version against what the
+ * baseline holds for THIS dataset, both carried on `/design` so one
+ * page makes one comparison and nothing has to fetch a map of 23,549
+ * entries. Asked for in
+ * `UIB_TO_CAB_2026_08_17_A_PER_DATASET_FACT_NEEDS_A_PER_DATASET_FIELD`.
+ * What stays useful at the corpus level is a ROLLUP — n current /
+ * n stale / n unstamped — which is a count, not a verdict about the
+ * page you are on, and belongs on a dashboard rather than in a chip.
  */
-export interface GoldCurrency {
-  /** The version the store calls current, or null when it does not
-   *  know. Null is a real answer here, not a loading state. */
-  currentVersion: string | null;
-}
-
-/** Served at the store's root, not under `/rest` — hence the explicit
- *  `/local-api` passthrough prefix (vite.config.ts). */
-export function useGoldCurrency() {
-  return useQuery<GoldCurrency>({
-    queryKey: ["gold-currency"],
-    queryFn: async ({ signal }) => {
-      const r = await fetch("/local-api/health", { signal, cache: "no-store" });
-      if (!r.ok) return { currentVersion: null };
-      const body = (await r.json()) as {
-        gold_staleness?: { current_version?: string | null };
-      };
-      return { currentVersion: body.gold_staleness?.current_version ?? null };
-    },
-    // Changes only when a landing runs. Nothing here is worth a poll.
-    staleTime: 5 * 60_000,
-    retry: false,
-    // A store that can't answer is the same as one that doesn't know.
-    placeholderData: { currentVersion: null },
-  });
-}
 
 /** Poll both backends on a 15s cadence. The interval is short enough
  *  that a curator who just brought a service up sees the green dot

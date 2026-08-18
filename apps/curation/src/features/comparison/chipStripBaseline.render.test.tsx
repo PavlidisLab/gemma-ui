@@ -4,14 +4,18 @@
  * The baseline states what you are looking at; it does not ask.
  *
  * Offering a choice of baselines never resolved the divergence between
- * the five places gold lives — it handed that divergence to the curator
- * to adjudicate, per experiment, with no indication of which copy was
- * current. What replaces it is a statement: the curation on screen, and
- * the gold version it carries
+ * the five places the curated set lives — it handed that divergence to
+ * the curator to adjudicate, per experiment, with no indication of
+ * which copy was current. What replaces it is a statement: the curation
+ * on screen, and the version it was synced from
  * (`UI_BASELINE_MUST_DEFAULT_TO_GOLD_2026_08_17`).
  *
  * The comparator stays a dropdown on purpose. Picking what to compare
  * against is real work; being asked which copy to trust is not.
+ *
+ * 🛑 That statement makes no claim about staleness, and these tests
+ * hold it to that. The version names a build of the whole set, so a
+ * page keyed on it warns 499 times for one real edit.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -23,20 +27,17 @@ vi.mock("./useSourceAvailability", () => ({
   useSourceUniverse: vi.fn(),
 }));
 vi.mock("./useChipDiff", () => ({ useChipDiffSummary: vi.fn() }));
-vi.mock("@/api/health", () => ({ useGoldCurrency: vi.fn() }));
 
 import { ChipStrip } from "./ChipStrip";
 import { useChipState } from "./useChipState";
 import { useCurations, useSourceUniverse } from "./useSourceAvailability";
 import { useChipDiffSummary } from "./useChipDiff";
-import { useGoldCurrency } from "@/api/health";
 import { DesignDraftContext } from "@/features/design/DesignDraftContext";
 
 const useChipStateMock = useChipState as ReturnType<typeof vi.fn>;
 const useCurationsMock = useCurations as ReturnType<typeof vi.fn>;
 const useSourceUniverseMock = useSourceUniverse as ReturnType<typeof vi.fn>;
 const useChipDiffSummaryMock = useChipDiffSummary as ReturnType<typeof vi.fn>;
-const useGoldCurrencyMock = useGoldCurrency as ReturnType<typeof vi.fn>;
 
 function savedWith(version: string | null): Design {
   const d: Design = {
@@ -53,12 +54,10 @@ function savedWith(version: string | null): Design {
 function renderStrip({
   baseline = "current",
   version = "pg500-2873cc08b06b" as string | null,
-  currentVersion = null as string | null,
   dirty = false,
 }: {
   baseline?: string;
   version?: string | null;
-  currentVersion?: string | null;
   dirty?: boolean;
 } = {}) {
   useChipStateMock.mockReturnValue({
@@ -82,7 +81,6 @@ function renderStrip({
     isLoading: false,
   });
   useChipDiffSummaryMock.mockReturnValue({ summary: null, isLoading: false });
-  useGoldCurrencyMock.mockReturnValue({ data: { currentVersion } });
 
   const draftValue = {
     saved: savedWith(version),
@@ -150,25 +148,25 @@ describe("the version statement that replaced the picker", () => {
     expect(chip.getAttribute("title")?.toLowerCase()).not.toContain("gold");
   });
 
-  it("claims nothing about currency when the store does not know", () => {
-    // 🛑 `gold_staleness.current_version` is null on the store today.
-    // A chip that said "current" on an inference would be acted on as
-    // though it had been checked.
-    renderStrip({ version: "pg500-2873cc08b06b", currentVersion: null });
+  it("claims nothing about whether this dataset is current", () => {
+    // 🛑 The stamp names a build of the whole curated set. One dataset
+    // being edited moves it for all 500, so comparing a page against it
+    // warns 499 times for one real change — measured, cab 2026-08-17.
+    // The chip states what it knows and stops.
+    renderStrip({ version: "pg500-2873cc08b06b" });
     const chip = screen.getByText("pg500-2873cc08b06b");
-    expect(chip.getAttribute("title")).toContain("unknown");
     expect(chip.textContent).not.toContain("⚠");
+    expect(chip.getAttribute("title")).toContain("not this dataset alone");
   });
 
-  it("warns, with both versions, once the store can say what is current", () => {
-    renderStrip({
-      version: "pg500-3e60bef6ef77",
-      currentVersion: "pg500-2873cc08b06b",
-    });
-    const chip = screen.getByText(/pg500-3e60bef6ef77/);
-    expect(chip.textContent).toContain("⚠");
-    expect(chip.getAttribute("title")).toContain("pg500-2873cc08b06b");
-    expect(chip.getAttribute("title")).toContain("NOT looking at the current");
+  it("never warns off a corpus-level version, whatever the store reports", () => {
+    // The regression this is here for: the store is about to start
+    // returning a non-null corpus `current_version`. Nothing on this
+    // page may key on it. A per-dataset comparison needs a per-dataset
+    // field, and the chip stays neutral until one exists.
+    const { container } = renderStrip({ version: "pg500-3e60bef6ef77" });
+    expect(container.textContent).not.toContain("⚠");
+    expect(container.querySelector(".border-amber-400")).toBeNull();
   });
 
   it("says nothing at all when the design carries no stamp", () => {

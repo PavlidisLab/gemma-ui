@@ -21,7 +21,6 @@ import { useChipDiffSummary } from "./useChipDiff";
 import { resolveCuration } from "./resolveCuration";
 import { seedStamp } from "./seedStamp";
 import { goldDataVersionOf } from "@/features/design/editLog";
-import { useGoldCurrency } from "@/api/health";
 import type { SemanticDiffSummary } from "@/features/design/diff";
 
 /** Baseline / comparator chip-strip — the canonical "what am I
@@ -364,13 +363,25 @@ function useBaseVersion(): { version: string | null; dirty: boolean } {
  * `gold_data_version` — renaming it is the store's to do — but nothing
  * a curator reads says gold.
  *
- * 🛑 Says nothing about currency unless the store knows what current
- * IS. `gold_staleness.current_version` is null on the store today, so
- * the chip states the version and stops. The modal version across the
- * corpus is visible in the same payload and it is tempting to infer
- * from it — don't: a chip that says "current" on an inference is
- * acted on as though it were checked. When the field arrives, the
- * amber branch below starts firing on its own.
+ * 🛑 **Says nothing about currency, and the amber branch is GONE** —
+ * removed `2026-08-17` before it ever fired, not deferred. It compared
+ * this row's stamp against `gold_staleness.current_version`, and that
+ * scalar is a hash over the WHOLE corpus: cab measured one edit to
+ * GSE96826's curation and found the corpus version moved, so all 500
+ * stored rows differed from "current" while exactly ONE dataset had
+ * changed. **499 false warnings per real edit**, and the window they
+ * fire in is the gap between a rebuild and the store push — precisely
+ * when a curator is most likely to be reading. A banner that cries
+ * stale on 499 correct pages trains the reader to dismiss the true
+ * one, which is the same failure as a chip claiming "current" on an
+ * inference, wearing the other colour.
+ *
+ * 🛑 Do NOT re-key this on any corpus-level scalar. Staleness is a
+ * per-DATASET fact and needs a per-dataset comparison: the row's own
+ * annotation version against what the baseline holds for THIS dataset,
+ * both delivered on `/design` so one page makes one comparison. Asked
+ * for in `UIB_TO_CAB_2026_08_17_A_PER_DATASET_FACT_NEEDS_A_PER_DATASET_FIELD`;
+ * until both fields land, the chip states the version and stops.
  *
  * 🛑 A dirty draft has to show here, not only on the commit chip. The
  * version answers "what am I looking at", and the moment a curator
@@ -394,36 +405,25 @@ function BaseVersionNote({
   version: string | null;
   dirty: boolean;
 }) {
-  const { data } = useGoldCurrency();
-  const current = data?.currentVersion ?? null;
   if (!version) return null;
-  const stale = current !== null && current !== version;
-  const editedNote = dirty
-    ? ` You have uncommitted edits on top of it, so what is on screen is ` +
-      `that version PLUS your changes — the "uncommitted" chip lists them.`
-    : "";
   return (
     <span
       className={cn(
         "inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded border whitespace-nowrap text-[10px] font-mono",
-        stale
-          ? "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:border-amber-600 dark:text-amber-200"
-          : "border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
+        "border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
       )}
       title={
-        (stale
-          ? `This page is showing version ${version}, but the store's ` +
-            `current version is ${current}. You are NOT looking at the ` +
-            `current curation — the base design has not been re-synced.`
-          : `The curation on screen was last synced from version ` +
-            `${version}.` +
-            (current === null
-              ? " The store does not report which version is current, so" +
-                " whether this is the latest is unknown."
-              : " That is the store's current version.")) + editedNote
+        `The curation on screen was last synced from version ${version}. ` +
+        `That names a build of the curated set, not this dataset alone, so ` +
+        `whether THIS dataset's curation is the latest is a different ` +
+        `question and one nothing on screen can answer yet.` +
+        (dirty
+          ? ` You also have uncommitted edits on top of it, so what is on ` +
+            `screen is that version PLUS your changes — the "uncommitted" ` +
+            `chip lists them.`
+          : "")
       }
     >
-      {stale ? "⚠ " : ""}
       {version}
       {dirty ? (
         <span className="font-sans font-semibold">+ your edits</span>
