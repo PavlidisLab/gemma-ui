@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_MAX_OBJECT_BREADTH,
+  isTopicRelation,
   mergeRelations,
   rankRelations,
   withinBreadth,
@@ -168,5 +169,74 @@ describe("an object that identifies nothing is not a topic", () => {
   it("keeps a row whose breadth the wire omitted", () => {
     const older: RelationRow = { ...APP_PS1_GROUNDED, object_breadth: null };
     expect(withinBreadth(mergeRelations([older]), 5)).toHaveLength(1);
+  });
+});
+
+describe("only relations that say what a term is or came from", () => {
+  // 🛑 The card for `female` rendered six rows, none of them useful:
+  // `has_genotype XX`, `has developmental stage 10 month`,
+  // `has characteristic estrus`, `has modifier estrus`,
+  // `derives from BR24`. Taller than the definition, and nothing a
+  // curator would act on.
+  const rel = (over: Partial<RelationRow>): RelationRow => ({
+    ...APP_PS1_GROUNDED,
+    ...over,
+  });
+
+  it("keeps a cell line's disease and its source tissue", () => {
+    expect(
+      isTopicRelation(
+        rel({
+          predicate: "is disease model for",
+          predicate_uri: "http://purl.obolibrary.org/obo/CLO_0000179",
+          subject_category: "cell line",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isTopicRelation(
+        rel({
+          predicate: "derives from part of",
+          predicate_uri: "http://purl.obolibrary.org/obo/ENVO_01003004",
+          subject_category: "cell line",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("drops the experimental bookkeeping, however well curated", () => {
+    // These are good statements. They are facts about an experiment,
+    // not about the term the card is showing.
+    for (const p of [
+      "delivered for duration",
+      "delivered at dose",
+      "has developmental stage",
+      "has characteristic",
+      "sampled after",
+      "located in",
+    ]) {
+      expect(isTopicRelation(rel({ predicate: p, predicate_uri: null }))).toBe(
+        false,
+      );
+    }
+  });
+
+  it("keeps a disease model's genotype and drops a sex's", () => {
+    // 🛑 The same predicate, and the difference is what the subject IS.
+    const genotype = { predicate: "has_genotype", predicate_uri: null };
+    expect(
+      isTopicRelation(rel({ ...genotype, subject_category: "Disease model" })),
+    ).toBe(true);
+    expect(
+      isTopicRelation(rel({ ...genotype, subject_category: "biological sex" })),
+    ).toBe(false);
+  });
+
+  it("does not guess when there is no category to judge by", () => {
+    expect(
+      isTopicRelation(
+        rel({ predicate: "has_genotype", predicate_uri: null, subject_category: null }),
+      ),
+    ).toBe(false);
   });
 });

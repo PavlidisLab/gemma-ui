@@ -49,6 +49,7 @@ import {
 import {
   BASIS_COPY,
   DEFAULT_MAX_OBJECT_BREADTH,
+  isTopicRelation,
   mergeRelations,
   rankRelations,
   useTermRelations,
@@ -128,7 +129,10 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
     const rows = relationsQ.data ?? null;
     if (!rows) return null;
     return rankRelations(
-      withinBreadth(mergeRelations(rows), DEFAULT_MAX_OBJECT_BREADTH),
+      withinBreadth(
+        mergeRelations(rows.filter(isTopicRelation)),
+        DEFAULT_MAX_OBJECT_BREADTH,
+      ),
     );
   }, [relationsQ.data]);
 
@@ -297,7 +301,7 @@ function Loading({ source }: { source?: "ols" | "ncbi" }) {
 /** How many relations to list before collapsing the tail. The card is
  *  small and the panel is reference material, not a worklist — a term
  *  with fifty relations should not push the source pills off screen. */
-const MAX_SHOWN_RELATIONS = 6;
+const MAX_SHOWN_RELATIONS = 5;
 
 /** How many immediate children to list inline before collapsing the
  *  rest into a "(+N more)" tail — a couple is enough to hint that a
@@ -455,18 +459,27 @@ function RelatedRow({
         {relation.predicate}
       </span>{" "}
       <OtherEnd term={other} taxon={relation.taxon_name} onNavigate={onNavigate} />
-      <div className="text-[9px] text-slate-400 dark:text-slate-500">
+      {/* Basis and support ride on the SAME line, dim. They have to be
+          visible — "a curator asserted this" and "this co-occurs in our
+          corpus" are different claims and a row that does not say which
+          invites the weaker to be read as the stronger — but a second
+          line per row made the section taller than the definition it
+          sits under. Everything that is detail rather than claim (the
+          ontology version, what "folded" means, how support is counted)
+          is in the hover. */}
+      <span className="text-[9px] text-slate-400 dark:text-slate-500">
+        {" · "}
         <span title={basis.title}>{basis.label}</span>
         {relation.source ? (
           <span title={relation.source_version ?? undefined}>
             {" "}
-            · {relation.source}
+            {relation.source}
           </span>
         ) : null}
-        {/* 🛑 Support is what THIS caller can see — it is ACL-exact and
-            counted at read — so it is phrased as datasets we can show,
-            never as a property of the relation. Absent on an asserted
-            basis, where 0 means "not counted", not "no evidence". */}
+        {/* 🛑 Support is what THIS caller can see — ACL-exact, counted
+            at read — so it is phrased as datasets we can show, never as
+            a property of the relation. Absent on an asserted basis,
+            where 0 means "not counted", not "no evidence". */}
         {support > 0 ? (
           <span title="Datasets you can see that carry this relation. Counted behind your permissions, so another curator may see a different number.">
             {" "}
@@ -479,7 +492,7 @@ function RelatedRow({
             · folded {relation.copies}
           </span>
         ) : null}
-      </div>
+      </span>
     </div>
   );
 }

@@ -241,6 +241,94 @@ export function withinBreadth(
   });
 }
 
+/**
+ * The relations worth putting on a term card, by predicate.
+ *
+ * 🛑 **The harvest is predicate-agnostic and most of it is
+ * bookkeeping.** Measured over ten datasets' relations: `delivered for
+ * duration` 375 rows, `has developmental stage` 297, `located in` 115,
+ * `derives from` (RO_0001000, `amplified total RNA → total RNA`) 64 —
+ * against `is disease model for` 61, `has disease` 31, `induced by` 14,
+ * `has_genotype` 10. All of them are perfectly good curated statements
+ * and most of them answer a question nobody asked of a TERM: how long a
+ * drug was delivered is a fact about an experiment, not about the drug.
+ *
+ * Unfiltered, the card for `female` offered `has_genotype XX`,
+ * `has developmental stage 10 month`, `has characteristic estrus` and
+ * `derives from BR24` — six rows taller than the definition, none of
+ * them something a curator would act on.
+ *
+ * So this is an allow-list, not a deny-list: a predicate earns its way
+ * on by saying what a term IS or WHERE IT CAME FROM. Keyed on the
+ * predicate URI, which is stable, with the label as the fallback for
+ * rows that carry no URI.
+ *
+ * Also asked of the backend — a table this broad is arguably too broad
+ * at the source, and every consumer will otherwise write its own
+ * version of this list.
+ */
+const TOPIC_PREDICATES: Record<string, string> = {
+  // disease ↔ genotype / model
+  "http://purl.obolibrary.org/obo/RO_0016002": "has disease",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00171": "induced by",
+  "http://purl.obolibrary.org/obo/CLO_0000179": "is disease model for",
+  "http://purl.obolibrary.org/obo/CLO_0000015": "derives from patient having disease",
+  // cell-line provenance — what a line came FROM
+  "http://purl.obolibrary.org/obo/ENVO_01003004": "derives from part of",
+  "http://purl.obolibrary.org/obo/CLO_0037210": "derived from cell line",
+  "http://purl.obolibrary.org/obo/CLO_0037209": "derived from cell",
+};
+
+/**
+ * `has_genotype` — the one predicate that is knowledge on some terms and
+ * noise on others.
+ *
+ * `disease model: Alzheimer disease → has_genotype → APP/PS1` is exactly
+ * what this surface is for. `female → has_genotype → XX` is the same
+ * predicate reading off a sample's sex, and says nothing about `female`.
+ * The difference is not in the predicate but in what the subject IS, so
+ * it rides on the category gate below rather than on this list.
+ */
+const GENOTYPE_PREDICATE = "http://purl.obolibrary.org/obo/GENO_0000222";
+
+/** Subject kinds whose relations are about the ENTITY rather than about
+ *  an experimental parameter. A disease model's genotype is knowledge; a
+ *  sex's, a timepoint's or a dose's is an artefact of where the
+ *  statement was written. Compared lowercased — the corpus carries both
+ *  `Disease model` and `disease model`. */
+const TOPIC_SUBJECT_KINDS = new Set([
+  "disease",
+  "disease model",
+  "cell line",
+  "genotype",
+  "strain",
+]);
+
+/**
+ * Is this a relation worth showing beside a term?
+ *
+ * Two tiers, because one of the predicates is ambiguous and the rest
+ * are not. A `is disease model for` row is knowledge whatever it hangs
+ * off; a `has_genotype` row is knowledge only when its subject is the
+ * kind of thing that HAS a genotype in the sense a curator means.
+ */
+export function isTopicRelation(r: RelationRow): boolean {
+  const uri = (r.predicate_uri ?? "").trim();
+  const label = (r.predicate ?? "").trim().toLowerCase();
+  const named =
+    (uri && uri in TOPIC_PREDICATES) ||
+    Object.values(TOPIC_PREDICATES).includes(label);
+  if (named) return true;
+  const isGenotype =
+    uri === GENOTYPE_PREDICATE || label === "has_genotype" || label === "has genotype";
+  if (!isGenotype) return false;
+  const kind = (r.subject_category ?? "").trim().toLowerCase();
+  // No category to judge by ⇒ don't guess. A `has_genotype` row we
+  // cannot place is exactly the `female` case, and showing it costs the
+  // curator more than hiding it costs us.
+  return kind ? TOPIC_SUBJECT_KINDS.has(kind) : false;
+}
+
 /** Matches Gemma's own search-widening default. Below it, dose and
  *  duration values drop out and topics stay. */
 export const DEFAULT_MAX_OBJECT_BREADTH = 25;
