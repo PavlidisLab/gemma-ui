@@ -55,10 +55,14 @@ function renderStrip({
   baseline = "current",
   version = "pg500-2873cc08b06b" as string | null,
   dirty = false,
+  annotationVersion = null as string | null,
+  baselineBlock = undefined as Record<string, unknown> | undefined,
 }: {
   baseline?: string;
   version?: string | null;
   dirty?: boolean;
+  annotationVersion?: string | null;
+  baselineBlock?: Record<string, unknown>;
 } = {}) {
   useChipStateMock.mockReturnValue({
     baseline,
@@ -82,8 +86,11 @@ function renderStrip({
   });
   useChipDiffSummaryMock.mockReturnValue({ summary: null, isLoading: false });
 
+  const saved = savedWith(version) as unknown as Record<string, unknown>;
+  if (annotationVersion) saved.annotation_version = annotationVersion;
+  if (baselineBlock) saved.baseline = baselineBlock;
   const draftValue = {
-    saved: savedWith(version),
+    saved,
     curatingOnTopOf: null,
     diff: { isDirty: dirty },
   };
@@ -148,23 +155,33 @@ describe("the version statement that replaced the picker", () => {
     expect(chip.getAttribute("title")?.toLowerCase()).not.toContain("gold");
   });
 
-  it("claims nothing about whether this dataset is current", () => {
-    // 🛑 The stamp names a build of the whole curated set. One dataset
-    // being edited moves it for all 500, so comparing a page against it
-    // warns 499 times for one real change — measured, cab 2026-08-17.
-    // The chip states what it knows and stops.
+  it("claims nothing about currency on a payload that carries no baseline", () => {
+    // 🛑 The set name alone can never answer "is this dataset current" —
+    // it moves when any of the 500 changes. With no baseline block on
+    // the payload (every backend until the store ships one) the chip
+    // states the set it came from and says why it is not claiming more.
     renderStrip({ version: "pg500-2873cc08b06b" });
     const chip = screen.getByText("pg500-2873cc08b06b");
     expect(chip.textContent).not.toContain("⚠");
-    expect(chip.getAttribute("title")).toContain("not this dataset alone");
+    expect(chip.getAttribute("title")).toContain(
+      "No curation baseline is configured",
+    );
   });
 
-  it("never warns off a corpus-level version, whatever the store reports", () => {
-    // The regression this is here for: the store is about to start
-    // returning a non-null corpus `current_version`. Nothing on this
-    // page may key on it. A per-dataset comparison needs a per-dataset
-    // field, and the chip stays neutral until one exists.
-    const { container } = renderStrip({ version: "pg500-3e60bef6ef77" });
+  it("never warns off a corpus-level version, however far it has drifted", () => {
+    // 🛑 The regression. A set hash moves when ANY member changes, so a
+    // page keyed on it warns 499 times per real edit. Here the set name
+    // is stale-looking and this dataset's own curation is current — and
+    // the chip stays quiet, which is the whole point.
+    const { container } = renderStrip({
+      version: "pg500-OLD",
+      annotationVersion: "76a6c5b55d9c",
+      baselineBlock: {
+        annotation_version: "76a6c5b55d9c",
+        source: "sidecar",
+        set_name: "pg500-ceed814d51df",
+      },
+    });
     expect(container.textContent).not.toContain("⚠");
     expect(container.querySelector(".border-amber-400")).toBeNull();
   });
@@ -189,5 +206,82 @@ describe("an edited design is not the version it was synced from", () => {
     renderStrip({ version: "pg500-2873cc08b06b", dirty: false });
     const chip = screen.getByText("pg500-2873cc08b06b");
     expect(chip.textContent).not.toContain("your edits");
+  });
+});
+
+
+describe("the warning, once a per-dataset comparison exists", () => {
+  const CURRENT = {
+    annotation_version: "76a6c5b55d9c",
+    source: "sidecar",
+    set_name: "pg500-ceed814d51df",
+  };
+
+  it("warns in words, not in a second hash", () => {
+    // 🛑 Both versions are bare content hashes. Putting one on the face
+    // asks a curator to compare `76a6c5b55d9c` against `2d8ee6b87835`
+    // by eye, which is how a warning gets dismissed by reflex.
+    renderStrip({
+      annotationVersion: "2d8ee6b87835",
+      baselineBlock: CURRENT,
+    });
+    const chip = screen.getByText(/re-curated since/);
+    expect(chip.textContent).not.toContain("76a6c5b55d9c");
+    // The hashes are diagnostic, and live where someone is already reading.
+    expect(chip.getAttribute("title")).toContain("2d8ee6b87835");
+    expect(chip.getAttribute("title")).toContain("76a6c5b55d9c");
+  });
+
+  it("says the curator's own edits are a separate matter", () => {
+    renderStrip({
+      annotationVersion: "2d8ee6b87835",
+      baselineBlock: CURRENT,
+      dirty: true,
+    });
+    const chip = screen.getByText(/re-curated since/);
+    expect(chip.textContent).toContain("your edits");
+    expect(chip.getAttribute("title")).toContain("not affected by this");
+  });
+
+  it("stays neutral when this dataset's curation is the current one", () => {
+    renderStrip({ annotationVersion: "76a6c5b55d9c", baselineBlock: CURRENT });
+    expect(screen.queryByText(/re-curated since/)).toBeNull();
+    expect(
+      screen.getByText("pg500-2873cc08b06b").getAttribute("title"),
+    ).toContain("is the current one");
+  });
+
+  it("does not warn about a dataset the baseline does not contain", () => {
+    // 534 stored rows against a 500-member set. An answer, not a warning.
+    renderStrip({
+      annotationVersion: "76a6c5b55d9c",
+      baselineBlock: { annotation_version: null, source: "sidecar", set_name: "pg500-x" },
+    });
+    expect(screen.queryByText(/re-curated since/)).toBeNull();
+    expect(
+      screen.getByText("pg500-2873cc08b06b").getAttribute("title"),
+    ).toContain("not part of the current baseline set");
+  });
+
+  it("makes no claim at all where no baseline is configured", () => {
+    // Production. And the tooltip says WHY, because a silently dark
+    // banner and a correctly quiet one look identical otherwise.
+    renderStrip({
+      annotationVersion: "76a6c5b55d9c",
+      baselineBlock: { annotation_version: null, source: "unconfigured", set_name: "" },
+    });
+    expect(screen.queryByText(/re-curated since/)).toBeNull();
+    expect(
+      screen.getByText("pg500-2873cc08b06b").getAttribute("title"),
+    ).toContain("No curation baseline is configured");
+  });
+
+  it("stays quiet on an unstamped row, and says that is why", () => {
+    // Every stored row until the next landing stamps them.
+    renderStrip({ baselineBlock: CURRENT });
+    expect(screen.queryByText(/re-curated since/)).toBeNull();
+    expect(
+      screen.getByText("pg500-2873cc08b06b").getAttribute("title"),
+    ).toContain("no annotation version yet");
   });
 });

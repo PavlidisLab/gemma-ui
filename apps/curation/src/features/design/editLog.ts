@@ -77,6 +77,10 @@ import type {
 import type { DesignDiff, FvChange } from "./diff";
 import { diffDesign, publicationKey } from "./diff";
 import { factorTarget, tagTarget } from "@/features/audit/targetIds";
+// Version facts are read defensively off the payload, never declared on
+// `Design` — see `designVersion.ts`. Re-exported so the many call sites
+// that reach for it through the edit log keep working.
+export { goldDataVersionOf } from "./designVersion";
 
 /** add = it wasn't there and now is · remove = it was and isn't ·
  *  modify = it is there and one field reads differently. */
@@ -188,23 +192,6 @@ export interface CurationEditLog {
   actor: EditActor;
   base: EditBase;
   edits: CurationEdit[];
-}
-
-/**
- * The gold version stamped on a design, where it carries one.
- *
- * The store's `Design` model has `goldDataVersion` and the snakeified
- * response therefore has `gold_data_version`, but the UI's `Design`
- * type does not model it: nothing renders it and nothing edits it. It
- * matters here and only here, as base identity, so it is read
- * defensively rather than declared — declaring it would invite
- * `normaliseDesignForSave` to start round-tripping a field the UI has
- * no business authoring.
- */
-export function goldDataVersionOf(design: Design | null | undefined): string | null {
-  const v = (design as unknown as { gold_data_version?: unknown } | null | undefined)
-    ?.gold_data_version;
-  return typeof v === "string" && v.length > 0 ? v : null;
 }
 
 /* ------------------------------------------------------------------ */

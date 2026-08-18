@@ -154,6 +154,23 @@ export interface G2Design {
    *  through /design, which is the base identity the store's reconcile
    *  has to guess without. */
   gold_data_version?: string;
+  /** This dataset's OWN curation version (`76a6c5b55d9c`) — distinct
+   *  from the set name above, and the only thing a staleness comparison
+   *  may look at. Read-only here, and it must survive the trip for the
+   *  same reason `gold_data_version` must: this function builds a new
+   *  Design field-by-field, `normaliseDesignForSave` spreads whatever it
+   *  is handed, and a whole-design replace that omits a stored field can
+   *  unstamp the row. That is not hypothetical — it is the leading
+   *  candidate for the store's 34 unstamped base rows, from the eight
+   *  weeks this path dropped `gold_data_version`. Landed store-side
+   *  2026-08-17; absent until a landing stamps the rows. */
+  annotation_version?: string;
+  /** What the baseline holds for THIS dataset, computed by the store at
+   *  request time. Carried so the header can compare without a second
+   *  request. 🛑 Never written back — `normaliseDesignForSave` strips
+   *  it, because a stored copy of a request-time projection would report
+   *  freshly-landed rows as stale. */
+  baseline?: unknown;
 }
 
 // ─── Curation-proposal overlay shape ─────────────────────────────
@@ -340,10 +357,18 @@ export function composeCurationDesign(
     original_platform: meta?.original_platform ?? "",
     original_platform_short_name: meta?.original_platform_short_name ?? "",
     original_platform_id: meta?.original_platform_id ?? null,
-    // Carried, never authored — see the field note on G2Design.
+    // Carried, never authored — see the field notes on G2Design. All
+    // three ride together: this function is the read path for the whole
+    // app (useDesign → fetchDesignSnapshot → here), so a field missed
+    // here is a field the page never sees AND a field the next commit
+    // silently drops from a whole-design replace.
     ...(g2.gold_data_version
       ? { gold_data_version: g2.gold_data_version }
       : {}),
+    ...(g2.annotation_version
+      ? { annotation_version: g2.annotation_version }
+      : {}),
+    ...(g2.baseline ? { baseline: g2.baseline } : {}),
   };
 }
 

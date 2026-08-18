@@ -290,6 +290,21 @@ function extractOverlayFromProposalsResponse(
  *  than inferring them from an end-to-end save.
  */
 export function normaliseDesignForSave(design: Design): Design {
+  // 🛑 `baseline` is the store's request-time answer to "is this dataset
+  // current", not part of the design. It is computed per request and
+  // never stored precisely so a landing that moves the baseline mid-session
+  // cannot make a freshly-landed row look stale — and writing our copy of
+  // it back would store exactly that stale answer.
+  //
+  // Stripping is safe HERE and only here: this field is server-computed,
+  // so its absence from a whole-design replace loses nothing. The two
+  // version stamps beside it are stored fields and are deliberately NOT
+  // stripped — on a whole-design replace, omitting one may unstamp the
+  // row (see `design.gaps.test.ts`), which is a different bug from
+  // echoing a value we did not author.
+  const { baseline: _serverComputed, ...rest } =
+    design as Design & { baseline?: unknown };
+  design = rest as Design;
   const existingIds = new Set<number>();
   for (const t of design.tags ?? []) {
     const tId = (t as { id?: unknown }).id;

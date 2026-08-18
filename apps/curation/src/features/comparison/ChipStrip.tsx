@@ -20,7 +20,13 @@ import {
 import { useChipDiffSummary } from "./useChipDiff";
 import { resolveCuration } from "./resolveCuration";
 import { seedStamp } from "./seedStamp";
-import { goldDataVersionOf } from "@/features/design/editLog";
+import {
+  annotationVersionOf,
+  baselineOf,
+  currencyOf,
+  goldDataVersionOf,
+  type DesignCurrency,
+} from "@/features/design/designVersion";
 import type { SemanticDiffSummary } from "@/features/design/diff";
 
 /** Baseline / comparator chip-strip — the canonical "what am I
@@ -121,7 +127,14 @@ export function ChipStrip({
         curations={curations}
         showValue={baseline !== "current" || !base.version}
       />
-      <BaseVersionNote version={base.version} dirty={base.dirty} />
+      <BaseVersionNote
+        version={base.version}
+        dirty={base.dirty}
+        currency={base.currency}
+        mine={base.mine}
+        theirs={base.theirs}
+        source={base.source}
+      />
       {/* Sits with the BASELINE chip, not after the pair: it modifies
           the baseline ("this is the seed"), and when the header runs
           out of room the strip breaks between groups, so the note
@@ -337,11 +350,29 @@ function DiffSummaryReadout({
  *  Read off the context directly rather than through `useDesignDraft()`
  *  so the strip still renders if it is ever mounted outside the draft
  *  provider — same reason `CuratingOnTopNote` does. */
-function useBaseVersion(): { version: string | null; dirty: boolean } {
+function useBaseVersion(): {
+  version: string | null;
+  dirty: boolean;
+  currency: DesignCurrency;
+  /** Both sides of the comparison, for the hover. Never for the face:
+   *  nobody can compare two hashes by eye. */
+  mine: string | null;
+  theirs: string | null;
+  source: string | null;
+} {
   const draft = useContext(DesignDraftContext);
+  // 🛑 The SAVED design, not the draft. Staleness is a claim about what
+  // the server holds; the curator's uncommitted edits are reported
+  // separately and must not silence or trigger it.
+  const saved = draft?.saved ?? null;
+  const baseline = baselineOf(saved);
   return {
-    version: goldDataVersionOf(draft?.saved ?? null),
+    version: goldDataVersionOf(saved),
     dirty: draft?.diff?.isDirty ?? false,
+    currency: currencyOf(saved),
+    mine: annotationVersionOf(saved),
+    theirs: (baseline?.annotation_version ?? "").trim() || null,
+    source: (baseline?.source ?? "").trim() || null,
   };
 }
 
@@ -363,25 +394,35 @@ function useBaseVersion(): { version: string | null; dirty: boolean } {
  * `gold_data_version` — renaming it is the store's to do — but nothing
  * a curator reads says gold.
  *
- * 🛑 **Says nothing about currency, and the amber branch is GONE** —
- * removed `2026-08-17` before it ever fired, not deferred. It compared
- * this row's stamp against `gold_staleness.current_version`, and that
- * scalar is a hash over the WHOLE corpus: cab measured one edit to
- * GSE96826's curation and found the corpus version moved, so all 500
- * stored rows differed from "current" while exactly ONE dataset had
- * changed. **499 false warnings per real edit**, and the window they
- * fire in is the gap between a rebuild and the store push — precisely
- * when a curator is most likely to be reading. A banner that cries
- * stale on 499 correct pages trains the reader to dismiss the true
- * one, which is the same failure as a chip claiming "current" on an
- * inference, wearing the other colour.
+ * 🛑 **The warning compares two ANNOTATION versions and nothing else.**
+ * It briefly compared this row's stamp against the corpus scalar
+ * `gold_staleness.current_version`, and that was removed `6ae3472`
+ * before it ever fired: cab measured one edit to GSE96826's curation
+ * moving the corpus version, so all 500 stored rows differed from
+ * "current" while exactly ONE dataset had changed — 499 false warnings
+ * per real edit, in the window between a rebuild and the store push,
+ * which is when a curator is most likely to be reading. A banner that
+ * cries stale on 499 correct pages trains the reader to dismiss the
+ * true one.
  *
- * 🛑 Do NOT re-key this on any corpus-level scalar. Staleness is a
- * per-DATASET fact and needs a per-dataset comparison: the row's own
- * annotation version against what the baseline holds for THIS dataset,
- * both delivered on `/design` so one page makes one comparison. Asked
- * for in `UIB_TO_CAB_2026_08_17_A_PER_DATASET_FACT_NEEDS_A_PER_DATASET_FIELD`;
- * until both fields land, the chip states the version and stops.
+ * What it keys on now is per-DATASET, landed store-side 2026-08-17:
+ * `annotation_version` on the row against `baseline.annotation_version`
+ * for THIS dataset. `currencyOf` is the whole rule and it lives in
+ * `designVersion.ts`, deliberately away from any rendering, because the
+ * one thing this must never do is grow a second definition of stale.
+ *
+ * 🛑 The stale FACE is a sentence, not the other hash. Both versions are
+ * bare content hashes; putting one on the face would ask a curator to
+ * compare `76a6c5b55d9c` against `2d8ee6b87835` by eye, which is how a
+ * warning gets dismissed by reflex. The hashes are diagnostic and live
+ * in the hover, where the person who needs them is already reading.
+ *
+ * 🛑 Four states, three silences. Stale is the only one that earns a
+ * colour: a configured baseline that does not list this dataset is an
+ * answer but not a warning; an unconfigured baseline (production, where
+ * there is no curated set at all) is no claim; an unstamped row is
+ * unknown, never stale. All three render exactly as they did before the
+ * baseline existed.
  *
  * 🛑 A dirty draft has to show here, not only on the commit chip. The
  * version answers "what am I looking at", and the moment a curator
@@ -401,34 +442,87 @@ function useBaseVersion(): { version: string | null; dirty: boolean } {
 function BaseVersionNote({
   version,
   dirty,
+  currency,
+  mine,
+  theirs,
+  source,
 }: {
   version: string | null;
   dirty: boolean;
+  currency: DesignCurrency;
+  mine: string | null;
+  theirs: string | null;
+  source: string | null;
 }) {
   if (!version) return null;
+  const stale = currency === "stale";
+  const editedNote = dirty
+    ? ` You also have uncommitted edits on top of it, so what is on screen ` +
+      `is that PLUS your changes — the "uncommitted" chip lists them.`
+    : "";
   return (
     <span
       className={cn(
-        "inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded border whitespace-nowrap text-[10px] font-mono",
-        "border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
+        "inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded border whitespace-nowrap text-[10px]",
+        stale
+          ? "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:border-amber-600 dark:text-amber-200"
+          : "font-mono border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
       )}
       title={
-        `The curation on screen was last synced from version ${version}. ` +
-        `That names a build of the curated set, not this dataset alone, so ` +
-        `whether THIS dataset's curation is the latest is a different ` +
-        `question and one nothing on screen can answer yet.` +
-        (dirty
-          ? ` You also have uncommitted edits on top of it, so what is on ` +
-            `screen is that version PLUS your changes — the "uncommitted" ` +
-            `chip lists them.`
-          : "")
+        (stale
+          ? `This dataset has been re-curated since the design on screen ` +
+            `was synced. What you are looking at is version ${mine}; the ` +
+            `current curation is ${theirs}. Re-sync the base design to ` +
+            `catch up — your own uncommitted edits, if any, are separate ` +
+            `and are not affected by this.`
+          : `The curation on screen was last synced from set ` +
+            `${version}.` + currencyLine(currency, mine, source)) + editedNote
       }
     >
-      {version}
+      {stale ? "⚠ re-curated since" : version}
       {dirty ? (
         <span className="font-sans font-semibold">+ your edits</span>
       ) : null}
     </span>
+  );
+}
+
+/** The second sentence of the non-stale hover: what we do and do not
+ *  know about this dataset being current, and WHY when we do not.
+ *
+ *  A silently dark banner and a correctly quiet one look identical, so
+ *  the reason travels — the store publishes `baseline.source` for
+ *  exactly this. A curator never has to act on it; someone debugging
+ *  "why is nothing warning me" does. */
+function currencyLine(
+  currency: DesignCurrency,
+  mine: string | null,
+  source: string | null,
+): string {
+  if (currency === "current") {
+    return ` This dataset's curation is the current one (${mine}).`;
+  }
+  if (currency === "not-in-set") {
+    return (
+      ` This dataset is not part of the current baseline set, so nothing ` +
+      `claims it should match one — that is not a warning.`
+    );
+  }
+  if (!source || source === "unconfigured") {
+    return (
+      ` No curation baseline is configured on this backend, so whether ` +
+      `this dataset is current is not something anything here can answer.`
+    );
+  }
+  if (!mine) {
+    return (
+      ` This row carries no annotation version yet, so it cannot be ` +
+      `compared — an unstamped row is unknown, not stale.`
+    );
+  }
+  return (
+    ` The baseline is configured but unreadable (${source}), so no ` +
+    `currency claim is being made.`
   );
 }
 
