@@ -13,7 +13,27 @@
  *  Stable across sessions; renaming a system-level token requires a
  *  migration step. Curator-specific tokens (``polished:foo``) don't
  *  need migrations — the curator name comes from the data. */
-export type SystemSource = "empty" | "preboard" | "live" | "agent_proposal";
+export type SystemSource =
+  | "empty"
+  | "preboard"
+  | "live"
+  | "agent_proposal"
+  /** The curation as it stands — the store's BASE design, the row
+   *  `/design` serves and `commit()` writes.
+   *
+   *  🛑 The base and the polished chips are different rows. `polished:gold`
+   *  is a frozen per-curator snapshot; the base is the live curation, and
+   *  it is the one re-synced from gold. Conflating them is how the base
+   *  rotted to 131/500 stale while a five-way content check reported zero
+   *  differences — it compared the chip five ways and never once compared
+   *  the base (`UI_BASELINE_MUST_DEFAULT_TO_GOLD_2026_08_17`).
+   *
+   *  Resolves to no curation row on purpose: `resolveCuration` returns
+   *  null, `DesignDraftContext` falls through to `/design`, and the page
+   *  renders the curation the curator is actually editing. That is the
+   *  answer to *"I want to look at the current curation"* — a thing to
+   *  name, not a row to pick. */
+  | "current";
 export type PolishedSource = `polished:${string}`;
 
 /** A comparison source is identified by an OPAQUE curation_id
@@ -47,6 +67,7 @@ export type Source = SystemSource | PolishedSource | (string & {});
  *  the dropdown as the anchor selection. With ``live`` available
  *  the default falls through to it when polished isn't loaded. */
 export const SYSTEM_SOURCES: readonly SystemSource[] = [
+  "current",
   "empty",
   "preboard",
   "live",
@@ -190,6 +211,7 @@ export function sourceLabel(
       if (kind) return kind;
     }
   }
+  if (s === "current") return "current curation";
   if (s === "empty") return "(empty)";
   // Was "Gemma" — misleading: preboard is the GEO-only pre-curation
   // snapshot, not the live Gemma curation state. Per design review 2026-06-08
@@ -391,10 +413,13 @@ export function defaultSlots(
       (c) => bareCurator(c) === own,
     );
     if (mine) {
-      const source = polishedSourceFor(mine);
-      if (isAvail(source)) {
-        return { baseline: source, comparator: "agent_proposal" };
-      }
+      // ``current``, not ``polished:<me>``. The two render the SAME
+      // content — a curator's own polished row is editable, so
+      // ``DesignDraftContext`` sources ``saved`` from /design either
+      // way — but only one of them says so. Naming the row invited the
+      // question "is this my polish or the design?", which is the
+      // confusion this rule existed to close and only half closed.
+      return { baseline: "current", comparator: "agent_proposal" };
     }
   }
 
@@ -409,30 +434,26 @@ export function defaultSlots(
     return { baseline: pinned, comparator: "agent_proposal" };
   }
 
+  // 🛑 Nothing below may fall back to "whatever row the store listed
+  // first". That rule — ``polishedCurators[0]``, with no availability
+  // check — is how a curator opened a design and read
+  // "Viewing: strict consensus": /curation-versions returns eid 1658's
+  // three consensus rows ahead of any curator polish, so index 0 was a
+  // closed lane's vocabulary. Nobody chose it and nothing named it.
+  // A default has to denote something; when there is no better answer
+  // than "the curation as it stands", say that.
   if (flow === "edit") {
-    // Edit flow: prefer preboard → live → first polished.
+    // Edit flow opens into "the agent's proposal against the bare Gemma
+    // state" — the calibration-package workflow, and the one case where
+    // a pre-curation snapshot IS the right baseline. Preserved, minus
+    // the first-row fallback.
     let baseline: Source = "preboard";
-    if (!isAvail(baseline)) {
-      if (isAvail("live")) {
-        baseline = "live";
-      } else {
-        const first = options?.polishedCurators?.[0];
-        if (first) baseline = polishedSourceFor(first);
-      }
-    }
+    if (!isAvail(baseline)) baseline = isAvail("live") ? "live" : "current";
     return { baseline, comparator: "agent_proposal" };
   }
-  // Review flow: prefer first polished → live → preboard.
-  const first = options?.polishedCurators?.[0];
-  let baseline: Source;
-  if (first) {
-    baseline = polishedSourceFor(first);
-  } else if (isAvail("live")) {
-    baseline = "live";
-  } else {
-    baseline = "preboard";
-  }
-  return { baseline, comparator: "agent_proposal" };
+  // Review flow: the curation as it stands. Was first-polished → live
+  // → preboard, an order in which the curator's actual work came last.
+  return { baseline: "current", comparator: "agent_proposal" };
 }
 
 /** Token → Source parser. Accepts any ``polished:<curator>`` token

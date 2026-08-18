@@ -11,7 +11,7 @@ import {
   summariseSemanticDiff,
   type SemanticDiffSummary,
 } from "@/features/design/diff";
-import { fetchPreboardSnapshot } from "../../api/design";
+import { fetchDesignSnapshot, fetchPreboardSnapshot } from "../../api/design";
 import { isPolishedSource, polishedCuratorOf, type Source } from "./sources";
 
 // Wire shape served by ``GET /datasets/{id}/proposals``. The endpoint
@@ -202,6 +202,15 @@ async function fetchSourceDesign(
   source: Source,
 ): Promise<Design | null> {
   if (source === "empty") return null;
+  if (source === "current") {
+    // The BASE design — the row /design serves and commit() writes, not
+    // a polished chip. Keeping these distinct is the point of the token.
+    try {
+      return await fetchDesignSnapshot(experimentId);
+    } catch {
+      return null;
+    }
+  }
   if (source === "preboard") {
     try {
       return await fetchPreboardSnapshot(experimentId);

@@ -20,6 +20,8 @@ import {
 import { useChipDiffSummary } from "./useChipDiff";
 import { resolveCuration } from "./resolveCuration";
 import { seedStamp } from "./seedStamp";
+import { goldDataVersionOf } from "@/features/design/editLog";
+import { useGoldCurrency } from "@/api/health";
 import type { SemanticDiffSummary } from "@/features/design/diff";
 
 /** Baseline / comparator chip-strip — the canonical "what am I
@@ -62,12 +64,23 @@ export function ChipStrip({
   // cached; shares the query with the finding panel.
   const curations = useCurations(experimentId).data ?? [];
 
-  // In edit mode the curator is working a calibration package; the
-  // baseline they're editing IS the package's anchored state. Spec
-  // section "Edit vs review mode" — baseline becomes informational
-  // (display-only), comparator stays selectable. In review mode both
-  // chips stay selectable so the curator can audit / compare freely.
-  const baselineLocked = flow === "edit";
+  // The baseline is DISPLAY-ONLY, in every flow. It was a dropdown in
+  // review mode until 2026-08-17.
+  //
+  // Offering a choice of baselines did not resolve the divergence
+  // between the places gold lives — it asked the curator to adjudicate
+  // it, per experiment, with no indication of which one was current.
+  // Choosing between inconsistent copies is not a decision a curator
+  // should be asked to make, and the reviewer's reading of it was
+  // blunt: *"I want to look at the 'current' curation. I don't even
+  // know why I have a choice."*
+  //
+  // What replaces the choice is a STATEMENT — `BaseVersionNote` below
+  // says which version is on screen, so divergence surfaces as
+  // something someone can fix rather than as a menu. The comparator
+  // stays selectable: comparing the curation against the agent's
+  // proposal is real work, and picking what to compare against is not
+  // the same as being asked which copy to trust.
 
   // Mode pill ("Reviewing proposal" / "Editing local design") dropped
   // 2026-06-14 per design review: "Perhaps because the 'reviewing proposal'
@@ -94,20 +107,8 @@ export function ChipStrip({
       role="region"
       aria-label="Comparison source selection"
     >
-      {baselineLocked ? (
-        <ChipLabel slotLabel="Viewing" value={baseline} curations={curations} />
-      ) : (
-        <ChipDropdown
-          slot="baseline"
-          slotLabel="Viewing"
-          value={baseline}
-          otherSlotValue={comparator}
-          onChange={setBaseline}
-          sources={universe.sources}
-          availability={universe.availability}
-          curations={curations}
-        />
-      )}
+      <ChipLabel slotLabel="Viewing" value={baseline} curations={curations} />
+      <BaseVersionNote />
       {/* Sits with the BASELINE chip, not after the pair: it modifies
           the baseline ("this is the seed"), and when the header runs
           out of room the strip breaks between groups, so the note
@@ -317,10 +318,67 @@ function DiffSummaryReadout({
   );
 }
 
+/**
+ * Which gold version the curation on screen carries.
+ *
+ * This is what replaced the baseline dropdown. The reason there were
+ * several things to view is that gold lives in five places and each
+ * can be ahead of the others; a picker did not resolve that, it handed
+ * it to the curator. A version statement serves the actual need —
+ * *"I want to look at the current curation"* — and turns divergence
+ * into a bug someone can fix rather than a menu.
+ *
+ * 🛑 Says nothing about currency unless the store knows what current
+ * IS. `gold_staleness.current_version` is null on the store today, so
+ * the chip states the version and stops. The modal version across the
+ * corpus is visible in the same payload and it is tempting to infer
+ * from it — don't: a chip that says "current" on an inference is
+ * acted on as though it were checked. When the field arrives, the
+ * amber branch below starts firing on its own.
+ *
+ * Renders nothing when the design carries no stamp (34 of 534 base
+ * rows are unstamped). An absent version is not a stale one, and a
+ * chip reading "unknown" beside every other chip would be noise on
+ * the header's tightest row.
+ */
+function BaseVersionNote() {
+  const draft = useContext(DesignDraftContext);
+  const version = goldDataVersionOf(draft?.saved ?? null);
+  const { data } = useGoldCurrency();
+  const current = data?.currentVersion ?? null;
+  if (!version) return null;
+  const stale = current !== null && current !== version;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded border whitespace-nowrap text-[10px] font-mono",
+        stale
+          ? "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:border-amber-600 dark:text-amber-200"
+          : "border-slate-300 bg-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
+      )}
+      title={
+        stale
+          ? `This page is showing gold ${version}, but the store's current ` +
+            `version is ${current}. You are NOT looking at the current ` +
+            `curation — the base design has not been re-synced.`
+          : `The curation on screen carries gold version ${version}.` +
+            (current === null
+              ? " The store does not report which version is current, so" +
+                " whether this is the latest is unknown."
+              : " That is the store's current version.")
+      }
+    >
+      {stale ? "⚠ " : ""}
+      {version}
+    </span>
+  );
+}
+
 /** Read-only chip — same visual frame as a ChipDropdown but no
- *  dropdown affordance. Used for the baseline slot in edit mode
- *  per the spec. Keeps the slot's palette so the strip stays
- *  visually coherent; dashed border signals "not interactive". */
+ *  dropdown affordance. The baseline slot in every flow since
+ *  2026-08-17; see the note on `baselineLocked`'s removal above.
+ *  Keeps the slot's palette so the strip stays visually coherent;
+ *  dashed border signals "not interactive". */
 function ChipLabel({
   slotLabel,
   value,
@@ -337,7 +395,7 @@ function ChipLabel({
   return (
     <div
       className="relative inline-flex items-center gap-2"
-      title="Baseline is fixed in curation mode — switch to a review context to change it"
+      title="The curation this page is showing. Not selectable — the comparator is what you choose."
     >
       {/* Sentence case with a colon, not the old uppercase tracking:
           "Viewing: Gold polished" reads as a sentence about the chip

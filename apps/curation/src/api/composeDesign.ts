@@ -143,6 +143,17 @@ export interface G2Design {
    *  empty even when the upstream had a PMID. Fixed by adding the
    *  copy-through. */
   publications?: Publication[];
+  /** The gold version this design was last synced from
+   *  (`pg500-2873cc08b06b`). Read-only here: the UI never authors it,
+   *  it just has to survive the trip. Dropped on the return path until
+   *  2026-08-17 — the same copy-through gap `publications` hit above —
+   *  which cost two things at once. The header's version chip rendered
+   *  nothing, so "am I looking at the current curation?" stayed
+   *  unanswerable in the one place it was being asked; and the commit
+   *  edit log's `base.gold_data_version` went out null on every write
+   *  through /design, which is the base identity the store's reconcile
+   *  has to guess without. */
+  gold_data_version?: string;
 }
 
 // ─── Curation-proposal overlay shape ─────────────────────────────
@@ -329,6 +340,10 @@ export function composeCurationDesign(
     original_platform: meta?.original_platform ?? "",
     original_platform_short_name: meta?.original_platform_short_name ?? "",
     original_platform_id: meta?.original_platform_id ?? null,
+    // Carried, never authored — see the field note on G2Design.
+    ...(g2.gold_data_version
+      ? { gold_data_version: g2.gold_data_version }
+      : {}),
   };
 }
 

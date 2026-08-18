@@ -1150,8 +1150,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
           </span>
           viewing{" "}
           <span className="font-mono">{baselineLabel ?? "this baseline"}</span>
-          {" "}— switch the chip-strip baseline to consensus or your polished
-          row to act on findings.
+          {" "}— findings can only be acted on against the current curation.
         </div>
         {editorRenders ? (
           <FindingDetailsEditor

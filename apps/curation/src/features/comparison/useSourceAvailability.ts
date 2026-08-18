@@ -271,38 +271,34 @@ export function useSourceUniverse(
   const unified = versions.data;
   const usingUnified = unified != null;
 
-  // Polished-curator enumeration: prefer the unified endpoint's
-  // curator_polish AND consensus rows when available. Falls back
-  // to the dedicated /polished probe otherwise.
+  // Polished-curator enumeration from the unified endpoint's
+  // curator_polish rows. Falls back to the dedicated /polished probe
+  // otherwise.
   //
-  // Per memory project-curation-overlay-model (2026-06-08): polished
-  // gold isn't architecturally special — consensus and curator_polish
-  // are both "a named curation overlay". The chip-strip's
-  // `polished:<name>` token is the existing carrier for this slot;
-  // until the larger Source-enum elimination (step 3b, deferred) is
-  // done, we route consensus rows through it too so they surface as
-  // selectable baselines. The token is a slug of the producer
-  // (`consensus:strict_cy_am` → `consensus_strict_cy_am`) so the
-  // existing URL/state machinery doesn't choke on the embedded `:`.
-  function _producerSlug(producer: string): string {
-    return producer.replace(/[^a-zA-Z0-9_-]+/g, "_");
-  }
-  // Dedupe by slug — the unified list can carry multiple rows per
-  // producer (one per curation snapshot / audit pass), but the chip
-  // dropdown's Source token is producer-scoped, so collapsing N
-  // identical tokens into one is the correct behaviour. Without this
-  // the dropdown rendered the same `consensus:strict_consensus` row
-  // ~15 times.
+  // 🛑 ``consensus`` rows are NOT offered. They were, routed through
+  // the `polished:consensus_<slug>` token so the chip strip could show
+  // them as selectable baselines — and eid 1658 still carries three,
+  // labelled "consensus (Am + Cy merged polish)". That vocabulary is
+  // Cy∩Am-era and the lane is closed: the escrow-100 is burned and
+  // merged, so there is ONE gold now, not a consensus of two curators
+  // (`UI_BASELINE_MUST_DEFAULT_TO_GOLD_2026_08_17`). An option that no
+  // longer denotes anything is worse than a missing one — it asks the
+  // curator to choose between copies whose difference has no meaning.
+  //
+  // Only the OFFER is withdrawn. `resolveCuration` still unslugs
+  // `polished:consensus_x` → producer `consensus:x`, so a hand-edited
+  // URL, a ticket pinned before today, and the e2e fixtures that pin
+  // one all still resolve and render.
+  //
+  // Dedupe survives the change: the unified list carries multiple rows
+  // per producer (one per curation snapshot / audit pass) and the chip
+  // token is producer-scoped, so N identical tokens collapse to one.
   const polishedCurators: string[] = usingUnified
     ? Array.from(
         new Set(
           unified.items
-            .filter(
-              (v) => v.kind === "curator_polish" || v.kind === "consensus",
-            )
-            .map((v) =>
-              v.kind === "consensus" ? _producerSlug(v.producer) : v.producer,
-            ),
+            .filter((v) => v.kind === "curator_polish")
+            .map((v) => v.producer),
         ),
       )
     : (polished.data ?? []);
@@ -330,7 +326,10 @@ export function useSourceUniverse(
 
   const availability = {} as AvailabilityMap;
   for (const s of sources) {
-    if (s === "empty") {
+    if (s === "current" || s === "empty") {
+      // ``current`` is the design the page edits. It is not a stored
+      // row that can be missing — every experiment the curator can open
+      // has one, which is exactly why it is a safe last default.
       availability[s] = { available: true, reason: "", comingSoon: false };
     } else if (s === "preboard") {
       const available = usingUnified

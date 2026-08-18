@@ -84,50 +84,73 @@ describe("modeOf", () => {
 });
 
 describe("defaults", () => {
-  it("review opens to first polished curator + agent proposal when one is loaded", () => {
-    expect(defaultSlots("review", { polishedCurators: ["curator-b", "curator-a"] }))
-      .toEqual({
-        baseline: "polished:curator-b",
-        comparator: "agent_proposal",
-      });
+  // 2026-08-17: the review default was ``polishedCurators[0]`` — with no
+  // availability check — so whichever row the store listed first became
+  // the baseline. On eid 1658 /curation-versions returns three
+  // ``consensus`` rows ahead of any curator polish, so a curator opened
+  // a design and read "Viewing: strict consensus": a closed lane's
+  // vocabulary, chosen by nobody. These pin the replacement.
+  it("review opens on the curation as it stands, whatever the store lists first", () => {
+    expect(
+      defaultSlots("review", { polishedCurators: ["curator-b", "curator-a"] }),
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 
-  it("review falls back to live baseline (then preboard) when no polished pack is loaded", () => {
-    // 2026-06-08: defaults now prefer `live` over `preboard` when
-    // no availability map is supplied. Without an availability
-    // hint defaultSlots treats live as available and picks it.
-    expect(defaultSlots("review")).toEqual({
-      baseline: "live",
-      comparator: "agent_proposal",
-    });
-    expect(defaultSlots("review", { polishedCurators: [] })).toEqual({
-      baseline: "live",
-      comparator: "agent_proposal",
-    });
-    // When live is explicitly unavailable, defaults fall through
-    // to preboard (the prior behaviour).
+  it("never lets a consensus row become the default", () => {
+    // The exact shape of the bug: consensus first in the list. Even if
+    // one reaches this far (the offer is withdrawn upstream in
+    // useSourceAvailability), it cannot be defaulted to.
     expect(
       defaultSlots("review", {
-        polishedCurators: [],
-        availability: { live: { available: false } },
+        polishedCurators: ["consensus_strict_consensus", "gold"],
       }),
-    ).toEqual({
-      baseline: "preboard",
-      comparator: "agent_proposal",
-    });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 
-  it("edit opens to Gemma preboard + agent proposal", () => {
+  it("review does not fall back to live or preboard", () => {
+    // Was live → preboard. Both are pre-curation states; opening a
+    // review on one puts the curator's own work last.
+    for (const options of [
+      undefined,
+      { polishedCurators: [] },
+      { polishedCurators: [], availability: { live: { available: false } } },
+    ]) {
+      expect(defaultSlots("review", options)).toEqual({
+        baseline: "current",
+        comparator: "agent_proposal",
+      });
+    }
+  });
+
+  it("edit still opens to Gemma preboard + agent proposal", () => {
+    // Unchanged: edit flow is the calibration-package workflow, the one
+    // case where a pre-curation snapshot IS the right baseline.
     expect(defaultSlots("edit")).toEqual({
       baseline: "preboard",
       comparator: "agent_proposal",
     });
-    // Curators-list is ignored in edit mode — baseline is the
-    // package-anchored preboard regardless.
     expect(defaultSlots("edit", { polishedCurators: ["curator-b"] })).toEqual({
       baseline: "preboard",
       comparator: "agent_proposal",
     });
+  });
+
+  it("edit falls through preboard → live → current, never to a listed row", () => {
+    expect(
+      defaultSlots("edit", {
+        polishedCurators: ["consensus_strict_consensus"],
+        availability: { preboard: { available: false } },
+      }),
+    ).toEqual({ baseline: "live", comparator: "agent_proposal" });
+    expect(
+      defaultSlots("edit", {
+        polishedCurators: ["consensus_strict_consensus"],
+        availability: {
+          preboard: { available: false },
+          live: { available: false },
+        },
+      }),
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 });
 
@@ -162,10 +185,7 @@ describe("ticket-pinned baseline", () => {
         availability: { [GOLD]: { available: false } },
         pinnedBaseline: GOLD,
       }),
-    ).toEqual({
-      baseline: "polished:local-curator",
-      comparator: "agent_proposal",
-    });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 
   it("is ignored when it names a source that can't be a baseline", () => {
@@ -174,23 +194,28 @@ describe("ticket-pinned baseline", () => {
         polishedCurators: ["gold"],
         pinnedBaseline: "agent_proposal",
       }),
-    ).toEqual({ baseline: "polished:gold", comparator: "agent_proposal" });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 
-  it("no pin leaves every existing default untouched", () => {
+  it("no pin falls to the curation as it stands", () => {
     expect(
       defaultSlots("review", { polishedCurators: ["gold"], pinnedBaseline: null }),
-    ).toEqual({ baseline: "polished:gold", comparator: "agent_proposal" });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 });
 
-describe("the curator's own polished row as the review default", () => {
+describe("having curated here beats the pin, and names what is edited", () => {
   // Once the curator has committed, the page edits /design — their own
   // work — while the chip went on naming whatever the store listed
-  // first, which for a gold-pinned ticket was "Gold polished". The chip
-  // now names what is being edited.
+  // first, which for a gold-pinned ticket was "Gold polished".
+  //
+  // The rule resolved to ``polished:<me>`` until 2026-08-17. That named
+  // a real row, but not the one being rendered: a curator's own polish
+  // is editable, so DesignDraftContext sources ``saved`` from /design
+  // either way. Same content, two names, and the chip picked the one
+  // that invited "is this my polish, or the design?". It now says
+  // ``current``.
   const GOLD: Source = "polished:gold";
-  const MINE: Source = "polished:local-curator";
 
   it("wins over the row the store happens to list first", () => {
     expect(
@@ -198,7 +223,7 @@ describe("the curator's own polished row as the review default", () => {
         polishedCurators: ["gold", "local-curator"],
         ownPolishedCurator: "local-curator",
       }),
-    ).toEqual({ baseline: MINE, comparator: "agent_proposal" });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 
   it("wins over the ticket pin", () => {
@@ -208,7 +233,7 @@ describe("the curator's own polished row as the review default", () => {
         pinnedBaseline: GOLD,
         ownPolishedCurator: "local-curator",
       }),
-    ).toEqual({ baseline: MINE, comparator: "agent_proposal" });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 
   it("yields to the pin on an experiment the curator hasn't curated", () => {
@@ -224,27 +249,34 @@ describe("the curator's own polished row as the review default", () => {
   });
 
   it("matches a namespaced producer against a bare username", () => {
+    // ``curator:Local-Curator`` from /curations vs the bare name — the
+    // match still has to fold both, even though what it returns no
+    // longer names the row.
     expect(
       defaultSlots("review", {
         polishedCurators: ["gold", "curator:Local-Curator"],
         pinnedBaseline: GOLD,
         ownPolishedCurator: "local-curator",
       }),
-    ).toEqual({
-      baseline: "polished:curator:Local-Curator",
-      comparator: "agent_proposal",
-    });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 
-  it("yields when the curator's own row isn't loaded here", () => {
+  it("still beats the pin when the curator's own polished row is unavailable", () => {
+    // Behaviour change, deliberate. The old rule required the polished
+    // row to be loadable, because it was going to RENDER that row; it
+    // now renders /design, whose content does not depend on the chip
+    // being available. A listed row means "I have committed here", and
+    // that fact is what the pin has to yield to — landing back on gold
+    // while /design holds the curator's work is the disconnect this
+    // rule exists to close.
     expect(
       defaultSlots("review", {
         polishedCurators: ["gold", "local-curator"],
-        availability: { [MINE]: { available: false } },
+        availability: { "polished:local-curator": { available: false } },
         pinnedBaseline: GOLD,
         ownPolishedCurator: "local-curator",
       }),
-    ).toEqual({ baseline: GOLD, comparator: "agent_proposal" });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 
   it("leaves the edit flow alone", () => {
@@ -260,12 +292,13 @@ describe("the curator's own polished row as the review default", () => {
   });
 
   it("changes nothing when the curator is unknown", () => {
+    // No identity ⇒ no preference; the ordinary review default applies.
     expect(
       defaultSlots("review", {
         polishedCurators: ["gold", "local-curator"],
         ownPolishedCurator: null,
       }),
-    ).toEqual({ baseline: GOLD, comparator: "agent_proposal" });
+    ).toEqual({ baseline: "current", comparator: "agent_proposal" });
   });
 });
 
@@ -327,6 +360,14 @@ describe("polished helpers", () => {
 });
 
 describe("sourceLabel", () => {
+  it("names the current curation as a thing, not as a row", () => {
+    // The point of the token: the curator asked to look at "the
+    // current curation", so that is what the chip says. Naming a row
+    // instead ("Gold polished", "strict consensus") is what made the
+    // baseline read as a choice between copies.
+    expect(sourceLabel("current")).toBe("current curation");
+  });
+
   it("labels system sources", () => {
     expect(sourceLabel("empty")).toBe("(empty)");
     // 2026-06-08: preboard relabeled "Gemma preboard" (was

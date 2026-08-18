@@ -81,10 +81,18 @@ export function ChipOverrideMount({
   //    on GSE1024 / GSE161828: the synthetic was shadowing real
   //    factor findings + the calibration_match framing on tag
   //    findings, leaving curators with a structurally-thin view).
+  //  * baseline=current + comparator=agent_proposal — the same rule,
+  //    for what became THE default review pair on 2026-08-17. Without
+  //    it the synthetic fired on plain page load and shadowed the
+  //    boss-critic feed: GSE190221 opened on a "chip-diff:current->
+  //    agent_proposal" batch of six structural cards where the real
+  //    review had a design-scope blocker and two routed factor
+  //    verdicts. Exactly the 2026-06-02 failure, one default later.
   const shouldOverride =
     comparator !== "empty"
     && !(baseline === "empty" && comparator === "agent_proposal")
-    && !(baseline === "preboard" && comparator === "agent_proposal");
+    && !(baseline === "preboard" && comparator === "agent_proposal")
+    && !(baseline === "current" && comparator === "agent_proposal");
 
   useEffect(() => {
     if (!shouldOverride) {

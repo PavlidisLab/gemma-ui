@@ -47,8 +47,12 @@ test.describe("Sidebar + chip strip — interactivity traps @live", () => {
     const chipStrip = page.getByRole("region", {
       name: /Comparison source selection/i,
     });
-    const chipButtons = chipStrip.getByRole("button");
-    await chipButtons.nth(1).click(); // comparator
+    // Target the dropdown by its popup role, not by index. The strip
+    // used to hold two dropdowns and this was ``nth(1)``; the baseline
+    // became a read-only label on 2026-08-17, so an index here silently
+    // re-points at whatever button happens to sit second.
+    const chipButtons = chipStrip.locator('button[aria-haspopup="listbox"]');
+    await chipButtons.first().click(); // comparator
     const comparatorListbox = page.getByRole("listbox").first();
     await expect(comparatorListbox).toBeVisible({ timeout: 2000 });
     await comparatorListbox.getByText("(empty)", { exact: true }).click();

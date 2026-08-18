@@ -259,9 +259,8 @@ export function DesignEditor({
               you're viewing{" "}
               <span className="font-mono">{baselineLabel ?? baselineSourceKind ?? "this curation"}</span>
               {" "}— edits write to the local pack, so editing while
-              viewing this baseline is locked. Switch the baseline
-              chip to the editable target (consensus / your polished
-              row) to edit.
+              viewing this baseline is locked. Only the current
+              curation is editable.
             </>
           ) : (
             <>
