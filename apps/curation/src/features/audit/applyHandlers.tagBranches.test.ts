@@ -794,6 +794,76 @@ describe("resolveApplyAction — replace_tag", () => {
 // Focus-only fallbacks for non-tag/factor target kinds
 // ---------------------------------------------------------------------------
 
+describe("the applied URI is the one the card showed", () => {
+  // 🛑 CGR8, 2026-08-13: the card displayed `CLO_0002405` and Agree
+  // applied `EFO_0006273`, because display and apply read the two URI
+  // fields in OPPOSITE order. The display side moved onto the shared
+  // resolver then; these two apply branches were still inverted until
+  // 2026-08-18. A curator accepting a proposal whose displayed term is
+  // not the applied term is accepting something they were not shown.
+  //
+  // The wire contract on `ApplyActionPayload`: `new_value_uri` is the
+  // agent's grounded bind and WINS; `proposer_term.uri` is the fallback
+  // older agents emit. Duplicate terms across ontologies are common,
+  // which is the only condition under which the two disagree at all.
+  const DISPLAYED = "http://purl.obolibrary.org/obo/EFO_0006273";
+  const STALE = "http://purl.obolibrary.org/obo/CLO_0002405";
+
+  it("modifies a tag with the apply action's URI, not the proposer term's", () => {
+    const d = design({ tags: [tag(5, "cell line", "CGR8")] });
+    const f = finding({
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:cell-line/cgr8",
+      proposer_term: { label: "CGR8 cell", uri: STALE },
+      apply_action: {
+        kind: "replace_tag",
+        new_value: "CGR8",
+        new_value_uri: DISPLAYED,
+      },
+    } as Partial<AuditFinding>);
+
+    const next = resolveApplyAction(f, { design: d })!.mutate!(d);
+    expect(next.tags[0].value.uri).toBe(DISPLAYED);
+  });
+
+  it("swaps a tag to the apply action's URI too", () => {
+    const d = design({ tags: [tag(7, "cell line", "old line")] });
+    const f = finding({
+      issue_code: "tag_value_wrong",
+      target_id: "tag:7",
+      proposer_term: { label: "CGR8 cell", uri: STALE },
+      apply_action: {
+        kind: "swap_tag",
+        new_category: "cell line",
+        new_value: "CGR8",
+        new_value_uri: DISPLAYED,
+      },
+    } as Partial<AuditFinding>);
+
+    const action = resolveApplyAction(f, { design: d });
+    if (action?.mutates) {
+      const next = action.mutate!(d);
+      const swapped = next.tags.find((t) => t.value.label === "CGR8");
+      expect(swapped?.value.uri).toBe(DISPLAYED);
+    }
+  });
+
+  it("still falls back to the proposer term when the action carries none", () => {
+    // Older agents emit only `proposer_term`. The fallback is the whole
+    // reason the precedence exists, so it has to keep working.
+    const d = design({ tags: [tag(5, "cell line", "CGR8")] });
+    const f = finding({
+      issue_code: "calibration_tag_match_near",
+      target_id: "tag:cell-line/cgr8",
+      proposer_term: { label: "CGR8 cell", uri: STALE },
+      apply_action: { kind: "replace_tag", new_value: "CGR8" },
+    } as Partial<AuditFinding>);
+
+    const next = resolveApplyAction(f, { design: d })!.mutate!(d);
+    expect(next.tags[0].value.uri).toBe(STALE);
+  });
+});
+
 describe("resolveApplyAction — focus-only routing by target kind", () => {
   const cases: Array<[string, string]> = [
     ["assignment:GSM123", "samples tab"],

@@ -373,9 +373,16 @@ function resolveProposalApply(
       finding.proposer_term?.label ||
       (typeof aaMod.new_value === "string" ? aaMod.new_value : "")
     ).trim();
-    const newValUri =
-      finding.proposer_term?.uri ??
-      (typeof aaMod.new_value_uri === "string" ? aaMod.new_value_uri : null);
+    // 🛑 `new_value_uri` wins, `proposer_term.uri` is the fallback older
+    // agents emit — the order stated on `ApplyActionPayload` and the one
+    // `findingProposedUris` applies for the DISPLAY side. These two
+    // branches read it inverted until 2026-08-18, which is invisible
+    // while the fields agree and they almost always do; a duplicate term
+    // across ontologies makes them disagree, and then the card shows one
+    // term and this writes the other. Seen on a `cell line` proposal for
+    // CGR8: displayed CLO_0002405, applied EFO_0006273. Through the
+    // shared resolver so display and apply cannot drift apart again.
+    const newValUri = findingProposedUris(finding).valueUri;
     const modCategory: OntologyTerm | undefined = newCatLabel
       ? { label: newCatLabel, uri: newCatUri }
       : undefined;
@@ -509,9 +516,10 @@ function resolveProposalApply(
       finding.proposer_term?.label ||
       (typeof a.new_value === "string" ? a.new_value : "")
     ).trim();
-    const valueUri =
-      finding.proposer_term?.uri ??
-      (typeof a.new_value_uri === "string" ? a.new_value_uri : null);
+    // Same inversion as the modify branch above, same fix — see the note
+    // there. A curator accepting a proposal whose displayed term is not
+    // the applied term is accepting something they were not shown.
+    const valueUri = findingProposedUris(finding).valueUri;
     if (!categoryLabel || !valueLabel) return null;
     // Never swap a protected (assay / technology-type) tag, on either
     // the baseline or the replacement side.
