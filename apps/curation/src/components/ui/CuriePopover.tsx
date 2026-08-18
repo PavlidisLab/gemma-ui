@@ -48,12 +48,9 @@ import {
 } from "@/lib/derivedFacts";
 import {
   BASIS_COPY,
-  DEFAULT_MAX_OBJECT_BREADTH,
-  isTopicRelation,
   mergeRelations,
-  rankRelations,
+  topicRelations,
   useTermRelations,
-  withinBreadth,
   type MergedRelation,
 } from "@/api/termRelations";
 import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
@@ -122,18 +119,15 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // this is affordable; the contract's own warning is that one call per
   // row of a browse page is fifty queries.
   const relationsQ = useTermRelations(activeUri, true);
-  // Merge the copies the harvest emits for one fact, drop the objects
-  // that identify nothing, then rank — all three in `api/termRelations`
-  // with the measurements that forced them.
+  // Keep the claims this term makes, then fold the copies that render
+  // as one sentence. Both rules live in `api/termRelations` with the
+  // measurements that forced them.
   const relations = useMemo(() => {
     const rows = relationsQ.data ?? null;
     if (!rows) return null;
-    return rankRelations(
-      withinBreadth(
-        mergeRelations(rows.filter((r) => isTopicRelation(r, activeUri))),
-        DEFAULT_MAX_OBJECT_BREADTH,
-      ),
-    );
+    // Server order is the order — it ranks properly as of 2026-08-18,
+    // and a second definition of "strongest" here would drift from it.
+    return mergeRelations(topicRelations(rows, activeUri));
   }, [relationsQ.data, activeUri]);
 
   const gemmaDone = !gemma.isLoading;
@@ -432,7 +426,17 @@ function RelatedRow({
   // listing of everything curated against it rather than knowledge
   // about it. So the row reads left to right as written, `predicate →
   // object`, with no arrow glyph to state a direction that cannot vary.
-  const other = { label: relation.object, uri: relation.object_uri ?? null };
+  // 🛑 The DERIVED claim, not the stored relation. The server mints it
+  // — `Alzheimer disease --has_genotype--> APP/PS1` becomes `APP/PS1 is
+  // model of Alzheimer disease`, with the taxon picking the verb (a
+  // mouse *models* a disease; a human line *has* it). Inverting the
+  // stored row ourselves is how three consumers end up inverting it
+  // three ways, and the fields are null when nothing is implied, so a
+  // claim cannot be rendered where none exists.
+  const other = {
+    label: relation.implied_object ?? relation.object,
+    uri: relation.implied_object_uri ?? relation.object_uri ?? null,
+  };
   const basis = BASIS_COPY[relation.basis] ?? {
     label: relation.basis,
     title: "",
@@ -441,9 +445,9 @@ function RelatedRow({
   return (
     <div className="text-[10px] leading-snug text-slate-600 dark:text-slate-300">
       <span className="text-slate-500 dark:text-slate-400">
-        {/* The predicate as the curator or the ontology wrote it —
-            never reworded to fit the reading order. */}
-        {relation.predicate}
+        {/* The implied predicate, minted by the server for the derived
+            claim. Never the stored one reworded by us. */}
+        {relation.implied_predicate ?? relation.predicate}
       </span>{" "}
       <OtherEnd term={other} taxon={relation.taxon_name} onNavigate={onNavigate} />
       {/* Basis and support ride on the SAME line, dim. They have to be

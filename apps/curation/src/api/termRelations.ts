@@ -36,13 +36,6 @@ import { curieToUrl } from "@/lib/curie";
  */
 export type RelationBasis = "CURATED" | "ONTOLOGY" | "EXTERNAL" | "CORPUS";
 
-const BASIS_RANK: Record<RelationBasis, number> = {
-  CURATED: 100,
-  ONTOLOGY: 80,
-  EXTERNAL: 60,
-  CORPUS: 20,
-};
-
 /** Curator-facing words for the basis. "A curator asserted this" and
  *  "this co-occurs in our corpus" are different claims and must never
  *  render alike. */
@@ -108,6 +101,44 @@ export interface RelationRow {
    *  which have no experiment behind them. */
   example_dataset_id?: number | null;
   corroborated?: boolean | null;
+  /** `TERM_LEVEL` (what the term is, where it came from) or
+   *  `EXPERIMENT_LEVEL` (how one experiment was run). Classified per
+   *  ROW, not per predicate, because the same predicate does both jobs:
+   *  `disease model: Alzheimer → has_genotype → APP/PS1` is knowledge
+   *  and `female → has_genotype → XX` is a sample's sex. Both endpoints
+   *  return `TERM_LEVEL` only unless asked otherwise, so this arrives
+   *  already filtered. */
+  topicality?: "TERM_LEVEL" | "EXPERIMENT_LEVEL" | null;
+  /** 🛑 Which way the relation may be REASONED along, which is not the
+   *  same as which way it can be read. `Alzheimer disease --has_genotype-->
+   *  APP/PS1` is true from both ends and inferable from one: APP/PS1
+   *  implies an Alzheimer model, and not every Alzheimer model is
+   *  APP/PS1. `NEITHER` covers predicates nobody has classified —
+   *  including `RO_0001000 derives from`, which carries two meanings on
+   *  one URI. */
+  inference_direction?:
+    | "SUBJECT_IMPLIES_OBJECT"
+    | "OBJECT_IMPLIES_SUBJECT"
+    | "NEITHER"
+    | null;
+  /** The derived claim as its own triple — **use this, never invert the
+   *  stored one**, or three consumers invert it three ways. Taxon picks
+   *  the verb: a mouse carrying APP/PS1 *models* Alzheimer disease, a
+   *  human line carrying LRRK2 G2019S *has* Parkinson. All six are null
+   *  when nothing is implied, so a claim cannot be rendered where none
+   *  exists. */
+  implied_subject?: string | null;
+  implied_subject_uri?: string | null;
+  implied_predicate?: string | null;
+  implied_predicate_uri?: string | null;
+  implied_object?: string | null;
+  implied_object_uri?: string | null;
+  /** Groups the side-by-side rows one relation produces across bases.
+   *  🛑 It does NOT group two stored relations that derive the same
+   *  claim — `BRCA1 has disease breast cancer` and `breast cancer
+   *  has_genotype BRCA1` carry different triple keys and one identical
+   *  implied triple. Dedupe on what a reader sees. */
+  triple_key?: string | null;
 }
 
 /**
@@ -143,31 +174,40 @@ export interface MergedRelation extends RelationRow {
  * and collapsing them would resolve a disagreement the record does not.
  */
 export function mergeRelations(rows: readonly RelationRow[]): MergedRelation[] {
-  // Keyed on the object's LABEL, not its URI: the split we are folding
-  // is precisely grounded-vs-null on the same object, so a URI in the
-  // key would keep the copies apart. Two rows whose objects carry
-  // DIFFERENT non-null URIs stay separate even under one label — that
-  // is two terms that happen to share a name, which is the one case
-  // where collapsing would resolve a disagreement the record does not.
+  // 🛑 Keyed on the IMPLIED triple — what a reader sees — not on
+  // `tripleKey`, which identifies the STORED relation. Two different
+  // stored relations can derive one identical claim: `BRCA1 has disease
+  // breast cancer` and `breast cancer has_genotype BRCA1` carry
+  // different triple keys and render as the same sentence, so a card
+  // keyed on the stored identity says it twice.
+  //
+  // Still keyed within a basis: two bases naming one pair are two
+  // claims — an ontology's molecular diagnosis and a curator's clinical
+  // syndrome are both correct and neither subsumes the other.
   const groups = new Map<string, MergedRelation[]>();
-  const key = (r: RelationRow) =>
+  const claim = (r: RelationRow) =>
     [
       r.basis,
-      (r.subject_uri ?? r.subject ?? "").toLowerCase(),
-      (r.predicate_uri ?? r.predicate ?? "").toLowerCase(),
-      (r.object ?? "").trim().toLowerCase(),
+      (r.implied_subject ?? r.subject ?? "").trim().toLowerCase(),
+      (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase(),
+      (r.implied_object ?? r.object ?? "").trim().toLowerCase(),
     ].join("|");
 
   for (const r of rows) {
-    const bucket = groups.get(key(r)) ?? [];
-    const uri = (r.object_uri ?? "").trim();
+    const bucket = groups.get(claim(r)) ?? [];
+    const uri = (r.implied_object_uri ?? r.object_uri ?? "").trim();
+    // The same value grounded and ungrounded stays SEPARATE server-side,
+    // deliberately — merging asserts that an ungrounded `APP/PS1`
+    // denotes `TGEMO_00174 APP/PS1`, which is a call nobody has made.
+    // We fold them only when one of the two carries no URI at all, which
+    // is the same row wearing less identity, never two URIs.
     const into = bucket.find((m) => {
-      const seen = (m.object_uri ?? "").trim();
+      const seen = (m.implied_object_uri ?? m.object_uri ?? "").trim();
       return !seen || !uri || seen === uri;
     });
     if (!into) {
       bucket.push({ ...r, copies: 1 });
-      groups.set(key(r), bucket);
+      groups.set(claim(r), bucket);
       continue;
     }
     into.copies += 1;
@@ -175,11 +215,8 @@ export function mergeRelations(rows: readonly RelationRow[]): MergedRelation[] {
       into.number_of_experiments ?? 0,
       r.number_of_experiments ?? 0,
     );
-    // Prefer the variant that carries a grounded object — a URI is
-    // navigable and a bare label is not.
-    if (!into.object_uri && uri) {
-      into.object_uri = r.object_uri;
-      into.object_category = r.object_category ?? into.object_category;
+    if (!into.implied_object_uri && r.implied_object_uri) {
+      into.implied_object_uri = r.implied_object_uri;
     }
     if (!into.example_dataset_id && r.example_dataset_id) {
       into.example_dataset_id = r.example_dataset_id;
@@ -189,144 +226,129 @@ export function mergeRelations(rows: readonly RelationRow[]): MergedRelation[] {
 }
 
 /**
- * Strongest first: basis rank, then support.
+ * 🛑 **There is no client-side ranking, and that is deliberate.**
  *
- * 🛑 Sorted HERE because the endpoint does not sort. Measured on
- * gemma2: `?subject=<Alzheimer>` serves its support-10 row **tenth**,
- * behind five support-1 rows. The server's own `getScore()` is
- * `basisRank * 1000 + attested`, so this is that ordering applied
- * client-side, not a second opinion about it. Asked the backend to sort
- * at the boundary; when they do, this becomes a stable no-op and should
- * be deleted rather than left to disagree.
+ * There was one, for a day: `?subject=<Alzheimer>` served its
+ * support-10 row tenth, behind five support-1 rows, because
+ * `getScore()` returned a constant for every self-sufficient basis and
+ * the sort fell through to alphabetical. Fixed server-side 2026-08-18,
+ * and verified here before this was removed — Alzheimer now arrives
+ * `[10, 7, 5, 4, 3]` and Parkinson `[8, 2, 1, 1, 1]`, both strictly
+ * descending, with support bounded so it can never cross a basis-rank
+ * gap.
  *
- * 🛑 Basis outranks support, always. An `ONTOLOGY` row reports
- * `numberOfExperiments: 0` because asserted rows are not counted — sort
- * on support alone and the strongest rows sink to the bottom. That is
- * live today: CLO's `is disease model for` rows arrive at support 0.
+ * Re-implementing it here would be a second definition of "strongest",
+ * and the two would drift the first time `ONTOLOGY` and `CORPUS` rows
+ * arrive together. Server order is the order. The one thing that
+ * perturbs it is {@link mergeRelations} taking the max support of two
+ * folded copies, which can lift a row past the one above it — a
+ * deliberate trade for saying a claim once.
  */
-export function rankRelations(rows: readonly MergedRelation[]): MergedRelation[] {
-  return [...rows].sort((a, b) => {
-    const rank = (BASIS_RANK[b.basis] ?? 0) - (BASIS_RANK[a.basis] ?? 0);
-    if (rank !== 0) return rank;
-    const support =
-      (b.number_of_experiments ?? 0) - (a.number_of_experiments ?? 0);
-    if (support !== 0) return support;
-    return a.object.localeCompare(b.object);
-  });
-}
 
 /**
- * 🛑 Drop the rows whose object identifies nothing.
+ * Categories whose card must stay silent.
  *
- * `objectBreadth` counts distinct subjects per object. `Homozygous
- * negative` reaches 2898 subjects, `24 h` 448 — perfectly good curated
- * statements, and useless as "what else is known about this term",
- * which is the question this surface asks. The cap is a RELEVANCE
- * filter for one panel, never a quality judgement about the row.
- *
- * 🛑 Breadth `0` is impossible by construction (every row's object is
- * in the table), so it means the lookup missed — treat it as unknown
- * and keep the row rather than reading 0 as maximally specific. A
- * case-collation bug produced exactly that on older builds, and it
- * failed toward keeping the dirtiest values.
+ * A disease is the DESTINATION of everything this surface shows —
+ * `gene → has disease → disease`, `cell line → is disease model for →
+ * disease` — so its own card has nothing to add, and what it would list
+ * instead is every model anyone ever curated against it. `breast
+ * cancer` was showing thirteen of those (Paul, 2026-08-18: *"disease
+ * terms needn't list anything either — they would be the object of
+ * relations we want to show"*).
  */
-export function withinBreadth(
-  rows: readonly MergedRelation[],
-  max: number,
-): MergedRelation[] {
-  return rows.filter((r) => {
-    const b = r.object_breadth;
-    if (b === null || b === undefined || b === 0) return true;
-    return b <= max;
-  });
-}
+const SILENT_SUBJECT_KINDS = new Set(["disease", "disease model"]);
+
+/** Predicates whose OBJECT is a disease by definition. Used only to
+ *  recognise that the term on screen is a disease when no row happens
+ *  to carry it on the subject side. */
+const DISEASE_OBJECT_PREDICATES = new Set([
+  "http://purl.obolibrary.org/obo/RO_0016002", // has disease
+  "http://purl.obolibrary.org/obo/CLO_0000179", // is disease model for
+  "http://purl.obolibrary.org/obo/CLO_0000015", // derives from patient having disease
+]);
+
+const same = (a: string | null | undefined, b: string) =>
+  !!a && a.trim().toLowerCase() === b;
 
 /**
- * The relations worth putting on a term card.
+ * Is the term on screen a disease?
  *
- * Three conditions, and each one came from a curator looking at a card
- * that had too much on it.
- *
- * **1. The predicate has to say what a term IS or WHERE IT CAME FROM.**
- * The harvest is predicate-agnostic and most of it, by volume, is
- * experimental bookkeeping: over ten datasets' relations, `delivered
- * for duration` 375 rows, `has developmental stage` 297, `located in`
- * 115, `derives from` (RO_0001000, `amplified total RNA → total RNA`)
- * 64, against `is disease model for` 61, `has disease` 31, `induced by`
- * 14. All good curated statements; how long a drug was delivered is a
- * fact about an experiment, not about the drug.
- *
- * **2. The term on screen has to be the SUBJECT.** A relation reads in
- * one direction and the inbound view of it is a corpus listing, not
- * knowledge: `breast cancer` was showing `← has disease LM1`,
- * `← has disease LM9`, `← has disease FVB-Tg(C3-1-TAg)cJeg/JegJ` and
- * twelve more — every model anyone has ever curated against it. That is
- * a search result wearing a term card's clothes.
- *
- * **3. The subject has to be an ENTITY whose origin is knowledge** — a
- * cell line, a genotype, a strain. Diseases and disease models are the
- * DESTINATION of everything here (`gene → has disease → disease`,
- * `cell line → is disease model for → disease`), so a disease term's
- * own card has nothing to add and renders none (Paul, 2026-08-18:
- * *"disease terms needn't list anything either — they would be the
- * object of relations we want to show"*). It also drops the class of
- * row that started this: `female → has_genotype → XX` is a sample's sex
- * read back at you, and `BRCA1 → has_genotype → Knockdown` says nothing
- * about BRCA1.
- *
- * What survives is the question a curator actually has. On `BRCA1`:
- * `has disease → breast cancer`. On a cell line: `derived from cell →
- * astrocyte`, `is disease model for → glioblastoma`. One or two lines,
- * measured against live data, and nothing on the terms that should be
- * quiet.
- *
- * 🛑 The cost is real and deliberate: `MPTP` loses `← induced by ←
- * Parkinson disease`, which is interesting on a treatment card. Inbound
- * comes back the day there is a reason to distinguish "one useful
- * inbound relation" from "seventeen models of this disease", and the
- * backend's row classification is where that would come from — asked in
- * `UIB_TO_GEMMA_BACKEND_2026_08_18_THE_HARVEST_IS_BROADER_THAN_ANY_READER`.
+ * Read off the rows rather than off the URI's namespace: EFO carries
+ * diseases and much else besides, and a namespace test would be a guess
+ * where the data states it. A term is a disease if a row names it as a
+ * subject categorised that way, or as the object of a predicate whose
+ * object is a disease by definition.
  */
-const TOPIC_PREDICATES: Record<string, string> = {
-  // What a thing turned out to be / to model
-  "http://purl.obolibrary.org/obo/RO_0016002": "has disease",
-  "http://gemma.msl.ubc.ca/ont/TGEMO_00171": "induced by",
-  "http://purl.obolibrary.org/obo/CLO_0000179": "is disease model for",
-  "http://purl.obolibrary.org/obo/CLO_0000015": "derives from patient having disease",
-  // Where a line came from
-  "http://purl.obolibrary.org/obo/ENVO_01003004": "derives from part of",
-  "http://purl.obolibrary.org/obo/CLO_0037210": "derived from cell line",
-  "http://purl.obolibrary.org/obo/CLO_0037209": "derived from cell",
-};
-
-/** Subject kinds whose origins and associations are knowledge about the
- *  term itself. 🛑 `disease` and `disease model` are deliberately absent
- *  — see condition 3. Compared lowercased: the corpus carries both
- *  `Disease model` and `disease model`. */
-const TOPIC_SUBJECT_KINDS = new Set(["cell line", "genotype", "strain"]);
-
-/**
- * Is this a relation worth showing on the card for `activeUri`?
- *
- * `activeUri` is required rather than optional on purpose: the same row
- * is knowledge on one term's card and a listing on another's, so a
- * caller that does not say which card it is filtering for cannot be
- * given a correct answer.
- */
-export function isTopicRelation(r: RelationRow, activeUri: string): boolean {
+export function isDiseaseTerm(
+  rows: readonly RelationRow[],
+  activeUri: string,
+): boolean {
   const active = (activeUri ?? "").trim().toLowerCase();
   if (!active) return false;
-  if ((r.subject_uri ?? "").trim().toLowerCase() !== active) return false;
-  const kind = (r.subject_category ?? "").trim().toLowerCase();
-  if (!TOPIC_SUBJECT_KINDS.has(kind)) return false;
-  const uri = (r.predicate_uri ?? "").trim();
-  const label = (r.predicate ?? "").trim().toLowerCase();
-  return uri in TOPIC_PREDICATES || Object.values(TOPIC_PREDICATES).includes(label);
+  return rows.some((r) => {
+    if (same(r.subject_uri, active)) {
+      return SILENT_SUBJECT_KINDS.has(
+        (r.subject_category ?? "").trim().toLowerCase(),
+      );
+    }
+    if (same(r.object_uri, active)) {
+      return DISEASE_OBJECT_PREDICATES.has((r.predicate_uri ?? "").trim());
+    }
+    return false;
+  });
 }
 
-/** Matches Gemma's own search-widening default. Below it, dose and
- *  duration values drop out and topics stay. */
-export const DEFAULT_MAX_OBJECT_BREADTH = 25;
+/**
+ * Does this row make a claim ABOUT the term on screen?
+ *
+ * 🛑 Decided from the stored ends plus the server's licence, never from
+ * `impliedSubjectUri`: that field is null wherever the underlying
+ * annotation was ungrounded, and keying on it silently drops the
+ * ungrounded half of the evidence. The term is the implied subject when
+ * it sits on the licensed end — and `NEITHER` licenses nothing, which
+ * is the entire point of the field.
+ */
+export function impliesFrom(r: RelationRow, activeUri: string): boolean {
+  const active = (activeUri ?? "").trim().toLowerCase();
+  if (!active) return false;
+  if (r.inference_direction === "SUBJECT_IMPLIES_OBJECT") {
+    return same(r.subject_uri, active);
+  }
+  if (r.inference_direction === "OBJECT_IMPLIES_SUBJECT") {
+    return same(r.object_uri, active);
+  }
+  return false;
+}
+
+/**
+ * The relations worth putting on the card for `activeUri`.
+ *
+ * 🛑 **No predicate allow-list.** There was one — seven URIs chosen off
+ * a tally of what the harvest holds — and it is gone: the server now
+ * classifies every row `TERM_LEVEL` / `EXPERIMENT_LEVEL` per ROW (the
+ * subject's category decides, which a predicate list cannot express)
+ * and returns term-level only by default. Stacking a client list on top
+ * subtracts twice and silently, and `has phenotype` is already excluded
+ * server-side on the evidence we sent them.
+ *
+ * 🛑 **No breadth cap either, and that one was doing harm.** The single
+ * relation on the `BRCA1` card is `has disease → breast cancer`, and
+ * `breast cancer` as an object carries breadth 31 — over the 25 that
+ * search widening uses, so the cap was deleting the one row the card
+ * exists for. Breadth separates a topic from a dose, which is the job
+ * `topicality` now does properly and per row; a small bar belongs to
+ * the suppression gate, not to a card that shows five things.
+ *
+ * What is left is the orientation, which is ours: show the claims this
+ * term makes, not the ones made about it.
+ */
+export function topicRelations(
+  rows: readonly RelationRow[],
+  activeUri: string,
+): RelationRow[] {
+  if (isDiseaseTerm(rows, activeUri)) return [];
+  return rows.filter((r) => impliesFrom(r, activeUri));
+}
 
 /**
  * Everything related to one term, both directions in one request.
