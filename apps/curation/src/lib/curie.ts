@@ -59,6 +59,24 @@ const CURIE_TO_URL_PREFIX: Record<string, string> = {
  *      the cell-line name (``label``): ``…/search?query=KGN``. Needs the
  *      label; returns ``null`` without one.
  *  Returns ``null`` for any term that isn't a cell line. */
+/** MGI link-out for a mouse strain.
+ *
+ *  Gemma resolves strain values to MGI's own strain pages —
+ *  ``https://www.informatics.jax.org/strain/MGI:3028467`` → `C57BL/6J`,
+ *  verified against `/annotations/term` — so unlike every other
+ *  registry here the URI IS the page. No lookup, no rewriting: return
+ *  it when it points at informatics.jax.org and null otherwise.
+ *
+ *  It exists because MGI is in neither OBO nor OLS (see `termRegistry`,
+ *  which files it under `other`), so a strain grounded this way had no
+ *  click-through anywhere in the app — the one registry Gemma can
+ *  resolve and the UI could not open. */
+export function mgiUrl(uri: string | null | undefined): string | null {
+  const iri = (uri ?? "").trim();
+  if (!iri) return null;
+  return /^https?:\/\/(www\.)?informatics\.jax\.org\//i.test(iri) ? iri : null;
+}
+
 export function cellosaurusUrl(
   uri: string | null | undefined,
   label?: string | null,

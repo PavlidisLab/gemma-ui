@@ -34,6 +34,7 @@ import {
   cellosaurusUrl,
   curieToUrl,
   isOlsHosted,
+  mgiUrl,
   ncbiGeneIdFromUri,
   olsUrl,
   ontobeeUrl,
@@ -45,6 +46,17 @@ import {
   deriveFromTerm,
   type DerivedFact,
 } from "@/lib/derivedFacts";
+import {
+  BASIS_COPY,
+  DEFAULT_MAX_OBJECT_BREADTH,
+  mergeRelations,
+  rankRelations,
+  useTermRelations,
+  withinBreadth,
+  type MergedRelation,
+} from "@/api/termRelations";
+import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
+import { geneDisplayLabel, isGeneUri } from "@/lib/gene";
 
 export interface CuriePopoverProps {
   uri: string;
@@ -101,6 +113,24 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   // terms but not others; fill the gap from OLS in parallel, used only
   // when the primary source shipped none.
   const synonymsQ = useTermSynonyms(activeUri, olsCapable);
+  // What else is known about this term — Gemma's ANNOTATION_RELATION.
+  // Always on, for every term (not gated on ``olsCapable``): the source
+  // is Gemma, not OLS, and the relations that matter most are on terms
+  // OLS never indexes — Cellosaurus lines, MGI strains, TGEMO models.
+  // One request per popover a curator opened, which is the whole reason
+  // this is affordable; the contract's own warning is that one call per
+  // row of a browse page is fifty queries.
+  const relationsQ = useTermRelations(activeUri, true);
+  // Merge the copies the harvest emits for one fact, drop the objects
+  // that identify nothing, then rank — all three in `api/termRelations`
+  // with the measurements that forced them.
+  const relations = useMemo(() => {
+    const rows = relationsQ.data ?? null;
+    if (!rows) return null;
+    return rankRelations(
+      withinBreadth(mergeRelations(rows), DEFAULT_MAX_OBJECT_BREADTH),
+    );
+  }, [relationsQ.data]);
 
   const gemmaDone = !gemma.isLoading;
   const gemmaHit = !!gemma.data;
@@ -229,9 +259,11 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
         {primaryLoading ? (
           <Loading source={isNcbiGene ? "ncbi" : undefined} />
         ) : detail ? (
-          <Body
+          <CuriePopoverBody
             detail={detail}
             childrenResult={childrenQ.data ?? null}
+            relations={relations}
+            activeUri={activeUri}
             onNavigate={navigateTo}
           />
         ) : showOlsCta ? (
@@ -261,6 +293,11 @@ function Loading({ source }: { source?: "ols" | "ncbi" }) {
     <div className="text-slate-500 dark:text-slate-400 italic">{label}</div>
   );
 }
+
+/** How many relations to list before collapsing the tail. The card is
+ *  small and the panel is reference material, not a worklist — a term
+ *  with fifty relations should not push the source pills off screen. */
+const MAX_SHOWN_RELATIONS = 6;
 
 /** How many immediate children to list inline before collapsing the
  *  rest into a "(+N more)" tail — a couple is enough to hint that a
@@ -320,15 +357,212 @@ function DerivedBlock({ facts }: { facts: DerivedFact[] }) {
   );
 }
 
-function Body({
+/**
+ * What else is known about this term — Gemma's `ANNOTATION_RELATION`.
+ *
+ * 🛑 **These are not annotations, and nothing here is actionable.** No
+ * row was written onto any experiment. A curator reading this in the
+ * tag list would take it for somebody's claim about the dataset in
+ * front of them and for something they could edit; it is neither, which
+ * is why it lives in a term card and nowhere near the design. There is
+ * deliberately no Accept, no Add, and no "apply this" — an inference
+ * that becomes a tag stops being recomputable, and the curator still
+ * has to make the annotation themselves.
+ *
+ * 🛑 **Rendered literally, `subject — predicate → object`.** Which end a
+ * term sits on is the curator's choice of predicate, and both shapes
+ * are in the corpus: `SNCA → has disease → Parkinson disease` and
+ * `disease model: autism → has_genotype → Mef2c`. A renderer that
+ * normalized them into "related disease" would draw half the corpus
+ * backwards, so the arrow states the direction and the predicate is
+ * never reworded.
+ *
+ * 🛑 **The basis rides on every row.** "A curator asserted this" and
+ * "this co-occurs in our corpus" are different claims, and a row that
+ * does not say which invites the weaker one to be read as the stronger.
+ */
+function RelatedBlock({
+  relations,
+  activeUri,
+  onNavigate,
+}: {
+  relations: readonly MergedRelation[];
+  activeUri: string;
+  onNavigate: (uri: string) => void;
+}) {
+  const shown = relations.slice(0, MAX_SHOWN_RELATIONS);
+  const more = relations.length - shown.length;
+  return (
+    <div className="pt-1 border-t border-slate-200 dark:border-slate-700 space-y-1">
+      <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+        related terms{" "}
+        {/* Says what class of thing these are, in the words the rest of
+            the app uses: "derived" is a fact read from OUTSIDE the
+            experiment, distinct from "inherited" (a projection up from
+            a sample characteristic) and from curated. */}
+        <span className="font-normal italic">— derived, not curated</span>
+      </div>
+      {shown.map((r, i) => (
+        <RelatedRow
+          key={`${r.basis}-${r.predicate}-${r.object}-${i}`}
+          relation={r}
+          activeUri={activeUri}
+          onNavigate={onNavigate}
+        />
+      ))}
+      {more > 0 ? (
+        <div className="text-[10px] text-slate-400 dark:text-slate-500">
+          (+{more} more)
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** One relation, from the point of view of the term on screen. */
+function RelatedRow({
+  relation,
+  activeUri,
+  onNavigate,
+}: {
+  relation: MergedRelation;
+  activeUri: string;
+  onNavigate: (uri: string) => void;
+}) {
+  // Which end is the OTHER one. Compared on the resolved IRI so a CURIE
+  // on either side still matches.
+  const active = (curieToUrl(activeUri) ?? activeUri).toLowerCase();
+  const subjectIri = (
+    curieToUrl(relation.subject_uri ?? "") ??
+    relation.subject_uri ??
+    ""
+  ).toLowerCase();
+  const activeIsSubject = !!subjectIri && subjectIri === active;
+  const other = activeIsSubject
+    ? { label: relation.object, uri: relation.object_uri ?? null }
+    : { label: relation.subject, uri: relation.subject_uri ?? null };
+  const basis = BASIS_COPY[relation.basis] ?? {
+    label: relation.basis,
+    title: "",
+  };
+  const support = relation.number_of_experiments ?? 0;
+  return (
+    <div className="text-[10px] leading-snug text-slate-600 dark:text-slate-300">
+      <span className="text-slate-500 dark:text-slate-400">
+        {/* The arrow carries the direction so the predicate never has to
+            be reworded to fit the reading order. */}
+        {activeIsSubject ? "→ " : "← "}
+        {relation.predicate}
+      </span>{" "}
+      <OtherEnd term={other} taxon={relation.taxon_name} onNavigate={onNavigate} />
+      <div className="text-[9px] text-slate-400 dark:text-slate-500">
+        <span title={basis.title}>{basis.label}</span>
+        {relation.source ? (
+          <span title={relation.source_version ?? undefined}>
+            {" "}
+            · {relation.source}
+          </span>
+        ) : null}
+        {/* 🛑 Support is what THIS caller can see — it is ACL-exact and
+            counted at read — so it is phrased as datasets we can show,
+            never as a property of the relation. Absent on an asserted
+            basis, where 0 means "not counted", not "no evidence". */}
+        {support > 0 ? (
+          <span title="Datasets you can see that carry this relation. Counted behind your permissions, so another curator may see a different number.">
+            {" "}
+            · {support} dataset{support === 1 ? "" : "s"}
+          </span>
+        ) : null}
+        {relation.copies > 1 ? (
+          <span title="The source emits this fact more than once, split on fields that do not change what it says. Folded here; the count shown is the largest of them.">
+            {" "}
+            · folded {relation.copies}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** The far end of a relation: navigable when it is grounded, a gene
+ *  chip when it is a gene.
+ *
+ *  Genes get the symbol-plus-species treatment every other surface
+ *  gives them. A gene shown without its species has misled a reader
+ *  before, and relation subjects are frequently genes — the corpus
+ *  stores them as NCBI gene IRIs, not ontology terms. */
+function OtherEnd({
+  term,
+  taxon,
+  onNavigate,
+}: {
+  term: { label: string; uri: string | null };
+  taxon: string | null | undefined;
+  onNavigate: (uri: string) => void;
+}) {
+  const gene = isGeneUri(term.uri);
+  const label = gene ? geneDisplayLabel(term.label, term.uri) : term.label;
+  const body = (
+    <>
+      {label}
+      {gene ? (
+        <GeneSpeciesMark
+          uri={term.uri}
+          species={taxon ?? null}
+          // 🛑 No dataset to compare against — a term card is not an
+          // experiment page. That yields the "unchecked" verdict, which
+          // shows the species and claims nothing about whether it is
+          // the right one. Passing the RELATION's taxon here would be
+          // comparing a value with itself and rendering a match nobody
+          // checked.
+          datasetTaxon={null}
+          className="ml-0.5"
+        />
+      ) : null}
+    </>
+  );
+  if (!term.uri) {
+    // Ungrounded values are ordinary, not broken — `aortic banding` has
+    // no URI and is a perfectly good object. Plain text, no dead link.
+    return <span className="text-slate-700 dark:text-slate-200">{body}</span>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onNavigate(term.uri!);
+      }}
+      className="text-blue-700 hover:underline dark:text-blue-300"
+      title={`open ${shortenUri(term.uri)}`}
+    >
+      {body}
+    </button>
+  );
+}
+
+/** Exported for render tests: the card body is where the sections
+ *  live, and asserting on what a curator reads means rendering it
+ *  directly rather than booting the popover's four fetches. Production
+ *  only ever mounts it through {@link CuriePopover}. */
+export function CuriePopoverBody({
   detail,
   childrenResult,
+  relations,
+  activeUri,
   onNavigate,
 }: {
   detail: NonNullable<ReturnType<typeof useGemmaTerm>["data"]>;
   /** Immediate children (direct subclasses) of the term, or null while
    *  the lazy fetch is pending / when the term has none. */
   childrenResult: TermChildren | null;
+  /** Relations this term takes part in, either end. Null while the
+   *  side-fetch is pending; empty for the many terms nothing is
+   *  recorded about, which renders as nothing at all. */
+  relations: readonly MergedRelation[] | null;
+  /** The term the card is currently showing — decides which end of each
+   *  relation is "the other one". */
+  activeUri: string;
   /** Walk the popover to another term (parent / alternate id / child). */
   onNavigate: (uri: string) => void;
 }) {
@@ -413,6 +647,13 @@ function Body({
         </div>
       ) : null}
       {facts.length > 0 ? <DerivedBlock facts={facts} /> : null}
+      {relations && relations.length > 0 ? (
+        <RelatedBlock
+          relations={relations}
+          activeUri={activeUri}
+          onNavigate={onNavigate}
+        />
+      ) : null}
       {detail.parents.length > 0 ? (
         <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
           <span className="font-semibold">parents: </span>
@@ -574,8 +815,10 @@ function Body({
  *  Cellosaurus link: a native Cellosaurus term (CVCL accession) gets
  *  ONLY that, while a Cell-Line-Ontology term (CLO) keeps Ontobee + OLS
  *  and adds a Cellosaurus name-search alongside. NCBI genes keep their
- *  single Gene link. Anything we can't place (MGI, unrecognised
- *  prefixes) gets no registry link rather than a guess. */
+ *  single Gene link. **Mouse strains** get an MGI link — the
+ *  URI is the page there, so it is the one registry that needs no
+ *  builder. Anything we still can't place (unrecognised prefixes) gets
+ *  no registry link rather than a guess. */
 function TermLinkOuts({
   uri,
   source,
@@ -592,11 +835,18 @@ function TermLinkOuts({
   const links: Array<{ key: string; href: string; label: string }> = [];
   const cvcl = cellosaurusUrl(uri, label);
   const nativeCvcl = /CVCL_\d+/i.test(uri);
+  const mgi = mgiUrl(uri);
   if (source === "ncbi") {
     if (oboUrl) links.push({ key: "ncbi", href: oboUrl, label: "NCBI Gene" });
   } else if (nativeCvcl && cvcl) {
     // Native Cellosaurus entity — OBO/OLS don't host it.
     links.push({ key: "cvcl", href: cvcl, label: "Cellosaurus" });
+  } else if (mgi) {
+    // A mouse strain grounded to MGI. Gemma resolves these (and the
+    // write gate accepts them), so curators can now bind a strain to
+    // one — and until this link existed, that binding was the only kind
+    // in the app a curator could not open and check.
+    links.push({ key: "mgi", href: mgi, label: "MGI" });
   } else {
     // Only offer the registry that actually holds the term. TGEMO,
     // Cellosaurus and MGI are in neither OBO nor OLS, so a blanket

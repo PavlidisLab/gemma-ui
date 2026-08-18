@@ -60,6 +60,7 @@ export default defineConfig(({ mode }) => {
     env.GEMMA_RO_PROXY_URL || "http://host.docker.internal:8199";
   // Ontology-search routing exception. ``/rest/v2/annotations/search``
   // + ``/rest/v2/annotations/term`` + ``/rest/v2/annotations/children``
+  // + ``/rest/v2/annotations/relations``
   // + ``/rest/v2/genes``
   // hit Gemma's ontology indexes; a local_api stack may not carry the
   // full OBO / EFO / MONDO / UBERON / CL / CHEBI corpora in memory, so
@@ -71,7 +72,7 @@ export default defineConfig(({ mode }) => {
   const ONTOLOGY_URL = env.GEMMA_ONTOLOGY_URL || "";
   if (!ONTOLOGY_URL) {
     console.warn(
-      "[curation] GEMMA_ONTOLOGY_URL not set — ontology term search (annotations/search, /term, /children) and gene lookup (/genes) will not work until you set it to your own Gemma ontology host in .env.local",
+      "[curation] GEMMA_ONTOLOGY_URL not set — ontology term search (annotations/search, /term, /children, /relations) and gene lookup (/genes) will not work until you set it to your own Gemma ontology host in .env.local",
     );
   }
 
@@ -83,7 +84,7 @@ export default defineConfig(({ mode }) => {
 
   if (ONTOLOGY_URL) {
     console.log(
-      `[curation] /rest/v2/annotations/{search,term,children} + /rest/v2/genes → ${ONTOLOGY_URL} (ontology routing exception)`,
+      `[curation] /rest/v2/annotations/{search,term,children,relations} + /rest/v2/genes → ${ONTOLOGY_URL} (ontology routing exception)`,
     );
   }
 
@@ -158,6 +159,25 @@ export default defineConfig(({ mode }) => {
               // gene binding, including the ones whose stored label
               // never said.
               "/rest/v2/genes": {
+                target: ONTOLOGY_URL,
+                changeOrigin: true,
+                configure: (proxy) => {
+                  proxy.on("proxyReq", (proxyReq) => {
+                    proxyReq.removeHeader("origin");
+                    proxyReq.removeHeader("referer");
+                  });
+                },
+              },
+              // ``/annotations/relations`` (+ ``/relations/implies``)
+              // rides the same exception, and must: it is Gemma's
+              // ANNOTATION_RELATION table — derived facts about terms,
+              // with the basis they are known on — and the store has no
+              // such table, so the default ``/rest`` route would 404
+              // every call. Same host as ``/term`` on purpose: a
+              // relation and the term it is about have to come from one
+              // ontology release, or the popover shows a relation to a
+              // term it cannot then resolve.
+              "/rest/v2/annotations/relations": {
                 target: ONTOLOGY_URL,
                 changeOrigin: true,
                 configure: (proxy) => {
