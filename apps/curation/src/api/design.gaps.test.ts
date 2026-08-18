@@ -411,3 +411,56 @@ describe("normaliseDesignForSave — non-tag fields", () => {
     expect(out.tags).toEqual([]);
   });
 });
+
+/**
+ * 🛑 What the save body carries, pinned because both sides believed
+ * otherwise.
+ *
+ * cab, 2026-08-17: *"You are right not to send `gold_data_version` on
+ * `PUT /design` … Keep dropping it in `normaliseDesignForSave`."* We were
+ * never dropping it. The normaliser SPREADS the design, and a TypeScript
+ * type that does not declare a field does not stop a runtime key from
+ * riding through a spread — the field arrives on every `/design` read via
+ * snakeify and goes straight back out on the PUT.
+ *
+ * Left in place rather than "fixed", deliberately: on a whole-design
+ * replace, dropping a field is not neutral. If the store defaults an
+ * absent `goldDataVersion` to empty, stripping it here would UNSTAMP every
+ * row a curator commits — and the composed-design path did exactly that
+ * until `2e5ef50`, which is a live candidate for the store's 34 unstamped
+ * base rows. Which of echo-or-strip is safe is the store's semantics to
+ * state, and it is asked in
+ * `UIB_TO_CAB_2026_08_17_WE_WERE_NEVER_DROPPING_IT`.
+ *
+ * So this test asserts today's real behaviour, not the desired one. When
+ * the contract is settled it flips, and it will be found by the flip
+ * failing rather than by anyone re-reading a spread.
+ */
+describe("normaliseDesignForSave — the version stamp we do not author", () => {
+  it("echoes gold_data_version straight back into the PUT body", () => {
+    const out = normaliseDesignForSave({
+      experiment_id: 42,
+      experiment_short_name: "GSE96826",
+      factors: [],
+      biomaterials: [],
+      tags: [],
+      gold_data_version: "pg500-ceed814d51df",
+    } as unknown as Design) as unknown as Record<string, unknown>;
+
+    expect(out.gold_data_version).toBe("pg500-ceed814d51df");
+  });
+
+  it("sends no stamp at all when the design carries none", () => {
+    // The wipe case. A design composed before `2e5ef50` reached the PUT
+    // like this, with the field simply absent from a whole-design replace.
+    const out = normaliseDesignForSave({
+      experiment_id: 42,
+      experiment_short_name: "GSE96826",
+      factors: [],
+      biomaterials: [],
+      tags: [],
+    } as unknown as Design) as unknown as Record<string, unknown>;
+
+    expect("gold_data_version" in out).toBe(false);
+  });
+});

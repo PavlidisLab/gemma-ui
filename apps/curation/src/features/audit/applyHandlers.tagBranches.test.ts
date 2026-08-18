@@ -577,10 +577,15 @@ describe("resolveApplyAction — replace_tag", () => {
   });
 
   // -------------------------------------------------------------------
-  // supersede set — ticket 189 / GSE245515 shape. The producer doesn't
-  // emit ``supersedes`` yet; these pin the reader so the behaviour is
-  // right the day it does, and pin the no-field case so nothing moves
-  // until then.
+  // supersede set — ticket 189 / GSE245515 shape.
+  //
+  // The FIELD landed on ``ApplyAction`` 2026-08-17 (cab); no producer
+  // populates it yet, so both cases below stay. Worth knowing why the
+  // declaration mattered even though the reader was already written:
+  // ``_Strict`` on the agents side is ``extra="ignore"``, so before that
+  // commit a ``supersedes`` set by any caller constructed cleanly and
+  // serialized to ``{'kind': 'replace_tag'}`` — silently dropped, no
+  // symptom, and a green "we tested the send" against an empty payload.
   // -------------------------------------------------------------------
 
   const CLO_IPSC = "http://purl.obolibrary.org/obo/CLO_0037209";
