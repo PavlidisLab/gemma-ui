@@ -297,3 +297,55 @@ describe("one claim, however many stored relations derive it", () => {
     expect(merged[0].number_of_experiments).toBe(4);
   });
 });
+
+describe("a class lists its members, and that is not a fact about it", () => {
+  // 🛑 Live: `induced pluripotent stem cell line cell` (CLO_0037307)
+  // implies seventeen rows — `derived from cell line → 201B7`, `585A1`,
+  // `Detroit 551 cell`, `WT33` — the corpus's iPSC lines. Same shape as
+  // the disease card listing its models, one level up.
+  const CLASS = "http://purl.obolibrary.org/obo/CLO_0037307";
+  const member = (object: string): RelationRow => ({
+    subject: "induced pluripotent stem cell line cell",
+    subject_uri: CLASS,
+    subject_category: "cell line",
+    predicate: "derived from cell line",
+    predicate_uri: "http://purl.obolibrary.org/obo/CLO_0037210",
+    object,
+    basis: "CURATED",
+    number_of_experiments: 1,
+    topicality: "TERM_LEVEL",
+    inference_direction: "SUBJECT_IMPLIES_OBJECT",
+    implied_subject: "induced pluripotent stem cell line cell",
+    implied_predicate: "derived from cell line",
+    implied_object: object,
+  });
+
+  it("drops a predicate that is enumerating rather than describing", () => {
+    const rows = ["201B7", "585A1", "Detroit 551 cell", "WT33"].map(member);
+    expect(topicRelations(rows, CLASS)).toHaveLength(0);
+  });
+
+  it("keeps a term that simply has a couple of origins", () => {
+    const rows = ["astrocyte", "fibroblast"].map(member);
+    expect(topicRelations(rows, CLASS)).toHaveLength(2);
+  });
+
+  it("drops only the enumerating predicate, never the card", () => {
+    // 🛑 Per predicate. A line with one disease and five listed members
+    // keeps the disease.
+    const disease: RelationRow = {
+      ...member("carcinoma"),
+      predicate: "has disease",
+      predicate_uri: "http://purl.obolibrary.org/obo/RO_0016002",
+      implied_predicate: "has disease",
+      implied_object: "carcinoma",
+    };
+    const rows = [
+      ...["201B7", "585A1", "Detroit 551 cell", "WT33"].map(member),
+      disease,
+    ];
+    const kept = topicRelations(rows, CLASS);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].implied_object).toBe("carcinoma");
+  });
+});

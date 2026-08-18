@@ -342,12 +342,49 @@ export function impliesFrom(r: RelationRow, activeUri: string): boolean {
  * What is left is the orientation, which is ours: show the claims this
  * term makes, not the ones made about it.
  */
+/**
+ * How many objects one predicate may name before the card is listing
+ * members rather than stating a property.
+ *
+ * 🛑 A generic CLASS relates to everything filed under it. Live:
+ * `induced pluripotent stem cell line cell` (CLO_0037307) implies
+ * seventeen rows — `derived from cell line → 201B7`, `→ 585A1`,
+ * `→ Detroit 551 cell`, `→ WT33` — which is the corpus's iPSC lines,
+ * not a fact about the term. The same complaint as the disease card,
+ * one level up: `breast cancer` listed its models, this lists its
+ * members.
+ *
+ * A specific entity has one or two origins. `U-87 MG` has one
+ * (`derived from cell → astrocyte`); `BRCA1` has one (`has disease →
+ * breast cancer`). Three is generous for a fact and far below any
+ * listing we have seen, so a predicate that names more than three is
+ * enumerating rather than describing, and the whole group goes.
+ *
+ * 🛑 Per predicate, not per card: a term with one origin and one
+ * disease should keep both, and only the enumerating group should
+ * disappear. Client-side because the wire has no measure of it —
+ * `objectBreadth` counts subjects per object, and this is the mirror,
+ * objects per subject. Asked for as `subjectBreadth`, which would let
+ * the server answer it once for every consumer instead of each of us
+ * inferring it from a page of results.
+ */
+const MAX_OBJECTS_PER_PREDICATE = 3;
+
 export function topicRelations(
   rows: readonly RelationRow[],
   activeUri: string,
 ): RelationRow[] {
   if (isDiseaseTerm(rows, activeUri)) return [];
-  return rows.filter((r) => impliesFrom(r, activeUri));
+  const mine = rows.filter((r) => impliesFrom(r, activeUri));
+  const perPredicate = new Map<string, number>();
+  for (const r of mine) {
+    const k = (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase();
+    perPredicate.set(k, (perPredicate.get(k) ?? 0) + 1);
+  }
+  return mine.filter((r) => {
+    const k = (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase();
+    return (perPredicate.get(k) ?? 0) <= MAX_OBJECTS_PER_PREDICATE;
+  });
 }
 
 /**
