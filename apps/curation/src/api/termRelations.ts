@@ -84,6 +84,22 @@ export interface RelationRow {
   /** Which ontology / resource said so, on an asserted basis. */
   source?: string | null;
   source_version?: string | null;
+  /** What the source itself said, verbatim, where the row is a reading
+   *  of a record rather than the record itself. Cellosaurus files
+   *  `A-549 derives from patient having disease lung adenocarcinoma`
+   *  with `NCIT:C3512 Lung adenocarcinoma` here — the attribution a
+   *  curator wants before taking a third party's word, and origin
+   *  rather than judgement, which is the only thing this surface
+   *  shows. Null on `ONTOLOGY` rows: a restriction is its own evidence.
+   *  🛑 Where it merely REPEATS the object, the producer has not
+   *  resolved that object's label — see the note on `object`. */
+  evidence?: string | null;
+  /** `ASSERTED` on every row in the corpus as of 2026-08-18. Typed
+   *  because it is on the wire and because a retraction would arrive
+   *  here rather than as a row quietly disappearing; nothing keys on it
+   *  yet, and when a second value turns up, a row that is not asserted
+   *  must not render as one. */
+  status?: string | null;
   /** 🛑 Datasets supporting this, **as seen by the caller** — ACL-exact
    *  and counted at read. Anonymous and authenticated see different
    *  numbers for the same relation, so this is never presented as a
@@ -264,6 +280,22 @@ export function mergeRelations(rows: readonly RelationRow[]): MergedRelation[] {
  * perturbs it is {@link mergeRelations} taking the max support of two
  * folded copies, which can lift a row past the one above it — a
  * deliberate trade for saying a claim once.
+ *
+ * There was a second one, for a day: a tie-break inside runs the server
+ * left equal. Every asserted row carries support 0, so `imatinib`'s ten
+ * CHEBI roles arrived tied and the tie fell to alphabetical —
+ * `antihypertensive agent` (487 chemicals bear it) first and `tyrosine
+ * kinase inhibitor` (44, the one that identifies the compound) tenth,
+ * behind a "+5 more". We sorted those runs by `object_breadth` and
+ * asked for it at the API boundary instead, because every consumer of
+ * `?limit=` wants it and a gate wants the specific end first for the
+ * same reason a card does. Shipped server-side 2026-08-18 and measured
+ * on build `a18e488faf`: imatinib arrives 44, 138, 139, 245, 327, 344,
+ * 411, 487, 636, 5326, and Alzheimer's support-1 run 1, 1, 1, 1, 3, 4,
+ * 13, 15, 37, 2898 — ascending inside each tie, never across one. So
+ * the client sort is deleted rather than left as a redundant copy: it
+ * ran AFTER the merge, on post-merge support, and could therefore
+ * re-order rows the server had placed deliberately.
  */
 
 /**
@@ -400,45 +432,6 @@ function isSharedObject(r: RelationRow): boolean {
   // backend — neither is evidence of a singleton.
   if (b === null || b === undefined || b === 0) return true;
   return b > 1;
-}
-
-/**
- * Most specific first, WITHIN what the server already ordered.
- *
- * 🛑 Not a re-ranking. The server sorts by basis then support, and for
- * an asserted basis every row carries support 0 — so ten CHEBI roles
- * arrive tied, and a tie falls to alphabetical order. On `imatinib` that
- * put `antihypertensive agent` (borne by 487 chemicals) first and
- * `tyrosine kinase inhibitor` (44, the one that identifies the compound)
- * last, behind a "+5 more".
- *
- * This sorts only inside runs the server left tied — same basis, same
- * support — so no row can cross another the server deliberately placed.
- * The tiebreak is specificity, on the backend's own advice: *"rank or
- * cap roles by objectBreadth; do not treat the ten as a set."*
- */
-export function specificFirstWithinTies(rows: readonly MergedRelation[]): MergedRelation[] {
-  const out: MergedRelation[] = [];
-  let run: MergedRelation[] = [];
-  const flush = () => {
-    out.push(
-      ...[...run].sort(
-        (a, b) => (a.object_breadth ?? 0) - (b.object_breadth ?? 0),
-      ),
-    );
-    run = [];
-  };
-  for (const r of rows) {
-    const prev = run[run.length - 1];
-    const tied =
-      prev &&
-      prev.basis === r.basis &&
-      (prev.number_of_experiments ?? 0) === (r.number_of_experiments ?? 0);
-    if (!tied) flush();
-    run.push(r);
-  }
-  flush();
-  return out;
 }
 
 export function topicRelations(

@@ -49,7 +49,6 @@ import {
 import {
   BASIS_COPY,
   mergeRelations,
-  specificFirstWithinTies,
   topicRelations,
   useTermRelations,
   type MergedRelation,
@@ -126,11 +125,11 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
   const relations = useMemo(() => {
     const rows = relationsQ.data ?? null;
     if (!rows) return null;
-    // Server order is the order — it ranks properly as of 2026-08-18,
-    // and a second definition of "strongest" here would drift from it.
-    return specificFirstWithinTies(
-      mergeRelations(topicRelations(rows, activeUri)),
-    );
+    // Server order is the order. It ranks by basis, then support, then
+    // — since 2026-08-18, at our ask — by how specific the object is
+    // inside a run the first two left tied. Nothing re-ranks here; a
+    // second definition of "strongest" would drift from that one.
+    return mergeRelations(topicRelations(rows, activeUri));
   }, [relationsQ.data, activeUri]);
 
   const gemmaDone = !gemma.isLoading;
@@ -442,6 +441,30 @@ function RelatedBlock({
   );
 }
 
+/**
+ * The hover on a source's name: what that source actually said, and
+ * which version of it said so.
+ *
+ * `evidence` is the source's own line behind a resolved object —
+ * Cellosaurus records `A-549 derives from patient having disease lung
+ * adenocarcinoma` as `NCIT:C3512 Lung adenocarcinoma` — which is the
+ * attribution a curator needs before taking a third party's word for
+ * something nobody here asserted. Origin, never judgement.
+ *
+ * 🛑 Skipped when it merely repeats the object, which is a producer
+ * that has not resolved that object's label rather than a source with
+ * something to add.
+ */
+function sourceTitle(r: MergedRelation): string | undefined {
+  const said = r.evidence?.trim();
+  const parts: string[] = [];
+  if (said && said.toLowerCase() !== (r.object ?? "").trim().toLowerCase()) {
+    parts.push(`${r.source} records this as: ${said}`);
+  }
+  if (r.source_version) parts.push(`version ${r.source_version}`);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
 /** One relation, from the point of view of the term on screen. */
 function RelatedRow({
   relation,
@@ -491,7 +514,7 @@ function RelatedRow({
         {" · "}
         <span title={basis.title}>{basis.label}</span>
         {relation.source ? (
-          <span title={relation.source_version ?? undefined}>
+          <span title={sourceTitle(relation)}>
             {" "}
             {relation.source}
           </span>

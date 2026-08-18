@@ -13,11 +13,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   impliesFrom,
-  specificFirstWithinTies,
   isDiseaseTerm,
   mergeRelations,
   topicRelations,
-  type MergedRelation,
   type RelationRow,
 } from "./termRelations";
 
@@ -377,41 +375,53 @@ describe("in a crowded group, a property stays and an instance goes", () => {
   });
 });
 
-describe("ties the server left alphabetical are broken by specificity", () => {
-  // 🛑 Not a re-ranking. Every asserted row carries support 0, so ten
-  // CHEBI roles arrive tied and a tie falls to alphabetical: on
-  // `imatinib` that put `antihypertensive agent` (487 chemicals bear it)
-  // first and `tyrosine kinase inhibitor` (44) last, behind a "+5 more".
-  const r = (object: string, object_breadth: number, sup = 0): MergedRelation => ({
+const IMATINIB = "http://purl.obolibrary.org/obo/CHEBI_45783";
+
+describe("the server's order is the order", () => {
+  // The client tie-break is gone. Every asserted row carries support 0,
+  // so `imatinib`'s ten CHEBI roles arrive tied, and the server now
+  // orders a tied run by how specific the object is — measured on build
+  // `a18e488faf`, verbatim below. Re-imposing that here would be a
+  // second definition of "most specific", running after the merge and
+  // therefore able to move rows the server placed deliberately.
+  const r = (object: string, object_breadth: number, sup = 0): RelationRow => ({
     subject: "imatinib",
+    subject_uri: IMATINIB,
     predicate: "has role",
     object,
     object_breadth,
     basis: "ONTOLOGY",
+    source: "CHEBI",
     number_of_experiments: sup,
+    inference_direction: "SUBJECT_IMPLIES_OBJECT",
     implied_object: object,
-    copies: 1,
+    implied_triple_key: `${IMATINIB} has-role ${object}`,
   });
 
-  it("puts the role that identifies the compound first", () => {
-    const ranked = specificFirstWithinTies([
-      r("antihypertensive agent", 487),
-      r("antineoplastic agent", 5326),
-      r("tyrosine kinase inhibitor", 44),
-    ]);
-    expect(ranked[0].object).toBe("tyrosine kinase inhibitor");
+  // As served, ascending inside the tie.
+  const asServed = [
+    r("tyrosine kinase inhibitor", 44),
+    r("antitubercular agent", 138),
+    r("hepatoprotective agent", 139),
+    r("antimalarial", 245),
+    r("antirheumatic drug", 327),
+  ];
+
+  it("keeps what the server sent, in the order it sent it", () => {
+    expect(mergeRelations(asServed).map((x) => x.object)).toEqual(
+      asServed.map((x) => x.object),
+    );
   });
 
-  it("never moves a row past one the server ordered above it", () => {
-    // Different support ⇒ the server meant that order, and specificity
-    // does not get to overturn it.
-    const ranked = specificFirstWithinTies([
-      r("well supported but broad", 5326, 10),
-      r("specific but unsupported", 2, 1),
-    ]);
-    expect(ranked.map((x) => x.object)).toEqual([
-      "well supported but broad",
-      "specific but unsupported",
+  it("leads with the role that identifies the compound", () => {
+    // The card takes the first three of a crowded group; the server
+    // having sorted the tie is what makes those three the specific ones.
+    expect(
+      topicRelations(asServed, IMATINIB).map((x) => x.object),
+    ).toEqual([
+      "tyrosine kinase inhibitor",
+      "antitubercular agent",
+      "hepatoprotective agent",
     ]);
   });
 });

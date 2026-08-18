@@ -63,6 +63,37 @@ const asserted: MergedRelation = {
   copies: 1,
 };
 
+/** Cellosaurus, which resolved the object and kept its own line for it. */
+const external: MergedRelation = {
+  subject: "A-549",
+  subject_uri: "https://www.cellosaurus.org/CVCL_0023",
+  subject_category: "cell line",
+  predicate: "derives from patient having disease",
+  object: "lung adenocarcinoma",
+  object_uri: "http://purl.obolibrary.org/obo/MONDO_0005061",
+  object_category: "disease",
+  basis: "EXTERNAL",
+  source: "CELLOSAURUS",
+  evidence: "NCIT:C3512 Lung adenocarcinoma",
+  number_of_experiments: 0,
+  object_breadth: 2777,
+  example_dataset_id: null,
+  copies: 1,
+};
+
+/** The same producer's other predicate, which has NOT resolved its
+ *  object: `evidence` is a verbatim copy of the label. Filed with the
+ *  backend 2026-08-18; until it lands, a hover repeating the line above
+ *  it is noise, so there must not be one. */
+const unresolved: MergedRelation = {
+  ...external,
+  predicate: "derives from anatomic part",
+  object: "In situ; Lung",
+  object_uri: "http://purl.obolibrary.org/obo/UBERON_0002048",
+  object_category: "organism part",
+  evidence: "In situ; Lung",
+};
+
 function renderRelations(relations: MergedRelation[]) {
   return render(
     <CuriePopoverBody
@@ -136,6 +167,26 @@ describe("related terms on a term card", () => {
   it("says when the source emitted one fact more than once", () => {
     renderRelations([curated]);
     expect(screen.getByText(/folded 2/)).toBeTruthy();
+  });
+
+
+  it("carries the source's own words for a third party's claim", () => {
+    // 🛑 Origin, never judgement. Nobody here asserted that A-549 came
+    // from a lung adenocarcinoma, so the row says who did and — in the
+    // hover, where detail lives — the line they filed it under.
+    const { container } = renderRelations([external]);
+    const src = [...container.querySelectorAll("span")].find(
+      (n) => n.textContent?.trim() === "CELLOSAURUS",
+    );
+    expect(src?.getAttribute("title")).toContain("NCIT:C3512 Lung adenocarcinoma");
+  });
+
+  it("stays quiet where the source only repeats the object", () => {
+    const { container } = renderRelations([unresolved]);
+    const src = [...container.querySelectorAll("span")].find(
+      (n) => n.textContent?.trim() === "CELLOSAURUS",
+    );
+    expect(src?.getAttribute("title") ?? "").not.toContain("In situ");
   });
 
   it("renders nothing at all when nothing is recorded", () => {
