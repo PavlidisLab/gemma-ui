@@ -10,7 +10,7 @@
  * it moves whole. Pure move: no behaviour, palette, or filter rule
  * changed here.
  */
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import {
   StatementEditModal,
   type StatementDraft,
@@ -21,8 +21,6 @@ import { isGeneUri, parseGeneLabel } from "@/lib/gene";
 import { CurieLink } from "@/components/ui/CurieLink";
 import { Term } from "@/components/ui/Term";
 import { HelpPopup } from "@/components/ui/HelpPopup";
-import { CategoryPicker } from "@/features/design/CategoryPicker";
-import { OntologyTermPicker } from "@/features/design/OntologyTermPicker";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { useStickyState } from "@/lib/useStickyState";
 import { shortenUri } from "@/lib/curie";
@@ -50,7 +48,6 @@ import { experimentTarget, factorTarget, tagTarget } from "@/features/audit/targ
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import type {
   Biomaterial,
-  OntologyTerm,
   Statement,
   Tag,
 } from "@/features/experiment/types";
@@ -320,7 +317,7 @@ function useTagEditContext(): TagEditCtxValue | null {
  *  StatementDraft. Tag.statements[] becomes the (predicate, object)
  *  pair list; the modal doesn't echo the subject inside each pair
  *  since subject==tag.value per the wire spec. */
-function tagToDraft(tag: Tag): StatementDraft {
+export function tagToDraft(tag: Tag): StatementDraft {
   return {
     category: { label: tag.category.label, uri: tag.category.uri ?? null },
     subject: { label: tag.value.label, uri: tag.value.uri ?? null },
@@ -334,7 +331,7 @@ function tagToDraft(tag: Tag): StatementDraft {
 /** Convert a StatementDraft into the Statement[] the Tag stores. The
  *  subject mirrors the draft's subject; pairs with neither predicate
  *  nor object are dropped. */
-function draftToStatements(draft: StatementDraft): Statement[] {
+export function draftToStatements(draft: StatementDraft): Statement[] {
   return draft.pairs
     .filter((p) => p.predicate?.label || p.object?.label)
     .map((p) => ({
@@ -1090,154 +1087,6 @@ export function TagBar({
 // kept out of this tsx file so React Fast Refresh doesn't invalidate
 // HMR on every component edit.
 
-/** Inline category + value picker, reused for both edit-existing and
- *  add-new flows. Click outside or Escape to cancel; click ✓ (or
- *  blur into outside) to commit when both fields are populated.
- *  Mirrors the editor that lived in the now-retired TagsPanel. */
-function ChipEditor({
-  category,
-  value,
-  onCommit,
-  onCancel,
-  onDelete,
-}: {
-  category: OntologyTerm;
-  value: OntologyTerm;
-  onCommit: (category: OntologyTerm, value: OntologyTerm) => void;
-  onCancel: () => void;
-  onDelete?: () => void;
-}) {
-  const [cat, setCat] = useState<OntologyTerm | null>(category);
-  const [val, setVal] = useState<OntologyTerm | null>(value);
-  // Two-stage local delete: first trash-click arms (visual change +
-  // "click again to confirm"); second click commits. Auto-disarms
-  // after 3s so the curator can't get stuck in an armed state.
-  // The global commit-bar "undo" rolls back EVERY pending edit at
-  // once, so per-chip deletion needs its own confirm step otherwise
-  // a curator who deletes one tag then hits global undo loses every
-  // other unsaved edit too.
-  const [deleteArmed, setDeleteArmed] = useState(false);
-  useEffect(() => {
-    if (!deleteArmed) return;
-    const t = window.setTimeout(() => setDeleteArmed(false), 3000);
-    return () => window.clearTimeout(t);
-  }, [deleteArmed]);
-  const ref = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    function onDoc(e: MouseEvent) {
-      if (!ref.current) return;
-      if (!ref.current.contains(e.target as Node)) {
-        if (cat && cat.label && val && val.label) {
-          onCommit(cat, val);
-        } else {
-          onCancel();
-        }
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [cat, val, onCommit, onCancel]);
-
-  const canSave = !!(cat && cat.label && val && val.label);
-  // ``isDirty`` gates the save / cancel buttons — they only matter
-  // when the curator has actually changed something. For chips the
-  // curator opened-but-didn't-edit (or protected chips that
-  // shouldn't really be editable), the editor stays clean. Click-
-  // outside still commits the (unchanged) state and Esc still
-  // exits, so no behaviour is lost — just the redundant chrome.
-  const termsEqual = (a: OntologyTerm | null, b: OntologyTerm | null) => {
-    const al = (a?.label ?? "").trim();
-    const bl = (b?.label ?? "").trim();
-    const au = a?.uri ?? null;
-    const bu = b?.uri ?? null;
-    return al === bl && au === bu;
-  };
-  const isDirty = !termsEqual(cat, category) || !termsEqual(val, value);
-
-  return (
-    <span
-      ref={ref}
-      className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border bg-emerald-50 border-emerald-300 text-emerald-900"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <CategoryPicker
-        value={cat}
-        placeholder="category"
-        onCommit={(next) => setCat(next ?? null)}
-      />
-      <span className="text-emerald-700/70">:</span>
-      <OntologyTermPicker
-        value={val}
-        category={cat?.label || null}
-        searchCategory={cat?.label || null}
-        placeholder="value"
-        onCommit={(next) => setVal(next ?? null)}
-      />
-      {isDirty ? (
-        <>
-          <button
-            type="button"
-            className="ml-1 px-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800 hover:text-emerald-950 disabled:opacity-40 disabled:cursor-not-allowed"
-            onClick={() => canSave && onCommit(cat!, val!)}
-            disabled={!canSave}
-            title={
-              canSave
-                ? "save edit"
-                : `fill ${!cat?.label ? "category" : "value"} first`
-            }
-          >
-            save
-          </button>
-          <button
-            type="button"
-            className="px-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 hover:text-slate-800"
-            onClick={onCancel}
-            title="discard changes"
-          >
-            cancel
-          </button>
-        </>
-      ) : null}
-      {onDelete ? (
-        <button
-          type="button"
-          className={cn(
-            "ml-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide transition-colors",
-            deleteArmed
-              ? "bg-rose-600 text-white hover:bg-rose-700"
-              : "text-rose-700 hover:bg-rose-100 hover:text-rose-900 dark:text-rose-300 dark:hover:bg-rose-900/30",
-          )}
-          onClick={() => {
-            if (deleteArmed) {
-              onDelete();
-            } else {
-              setDeleteArmed(true);
-            }
-          }}
-          title={
-            deleteArmed
-              ? "click again to confirm delete (auto-cancels in 3s)"
-              : "delete tag (requires a second click)"
-          }
-        >
-          {deleteArmed ? "✗ confirm" : "🗑 delete"}
-        </button>
-      ) : null}
-    </span>
-  );
-}
-
 /** One renderable value inside a tag group. Splits comma-joined
  *  single-tag values (Gemma sometimes returns a single tag with
  *  ``value.label = "A, B, C"``) so they collapse the same way as
@@ -1709,30 +1558,17 @@ function EditableDirectGroupChip({
   const { draft, apply } = useDesignDraft();
   const readOnly = useIsReadOnly();
   const [open, setOpen] = useState(false);
-  // ``editingId`` + ``commitEdit`` retained for any legacy paths that
-  // still call into ChipEditor; today's chip-click surface routes
-  // through ``openEditTag`` from TagEditCtx → StatementEditModal at
-  // the TagBar level, which handles statements as well as flat
-  // category/value pairs.
-  const [editingId, setEditingId] = useState<number | null>(null);
   const tagEdit = useTagEditContext();
 
-  function commitEdit(tag: Tag, cat: OntologyTerm, val: OntologyTerm) {
-    if (!draft) return;
-    const next = setTagCategory(draft, tag.id, cat);
-    apply(setTagValue(next, tag.id, val));
-    setEditingId(null);
-  }
   function deleteOne(tagId: number) {
     if (!draft) return;
     apply(deleteTag(draft, tagId));
-    setEditingId(null);
   }
 
   // Tags whose category names the experiment's assay shape are
   // load-time invariants (Gemma's import attaches them); the curator
   // shouldn't be able to delete them from the UI. Drop the × button
-  // and the ChipEditor onDelete prop when the group is protected.
+  // when the group is protected.
   const protectedCategory = isProtectedTagCategory(category.label);
 
   // Single tag — render as just the value chip wrapped in an
@@ -1741,19 +1577,6 @@ function EditableDirectGroupChip({
   // group header carries it. Category + URI move to hover title.
   if (tags.length === 1) {
     const tag = tags[0];
-    if (editingId === tag.id) {
-      return (
-        <ChipEditor
-          category={tag.category}
-          value={tag.value}
-          onCancel={() => setEditingId(null)}
-          onCommit={(c, v) => commitEdit(tag, c, v)}
-          onDelete={
-            protectedCategory ? undefined : () => deleteOne(tag.id)
-          }
-        />
-      );
-    }
     const isNew = addedTagIds?.has(tag.id) ?? false;
     const valueDisplay = abbreviateValueLabel(tag.value.label || "");
     const canEdit = !protectedCategory && !readOnly && !!tagEdit;
@@ -1910,11 +1733,10 @@ function EditableDirectGroupChip({
             supporting_evidence (pending the Gemma wire field). */}
         <EvidenceTrigger evidence={tag.supporting_evidence} className="ml-0.5" />
         {/* Delete affordance — Design review 2026-06-15: "edit should lead
-            to the delete being exposed, but that's all." So the
-            chip no longer opens the ChipEditor — it just exposes
-            a × delete button on hover. Reveals on group-hover via
-            the ``group/chip`` parent so the chip stays compact
-            until the curator targets it. */}
+            to the delete being exposed, but that's all." A chip
+            click routes to the StatementEditModal; the × delete
+            reveals on group-hover via the ``group/chip`` parent so
+            the chip stays compact until the curator targets it. */}
         {protectedCategory || readOnly ? null : (
           <button
             type="button"
@@ -1975,19 +1797,7 @@ function EditableDirectGroupChip({
       </button>
       {open ? (
         <span className="inline-flex items-baseline gap-1 flex-wrap px-1.5 py-0.5">
-          {tags.map((tag) =>
-            editingId === tag.id ? (
-              <ChipEditor
-                key={tag.id}
-                category={tag.category}
-                value={tag.value}
-                onCancel={() => setEditingId(null)}
-                onCommit={(c, v) => commitEdit(tag, c, v)}
-                onDelete={
-                  protectedCategory ? undefined : () => deleteOne(tag.id)
-                }
-              />
-            ) : (
+          {tags.map((tag) => (
               <span
                 key={tag.id}
                 data-audit-target={tagTarget(tag.category.label, tag.value.label)}
@@ -2065,8 +1875,7 @@ function EditableDirectGroupChip({
                   </button>
                 )}
               </span>
-            ),
-          )}
+          ))}
         </span>
       ) : null}
     </span>
