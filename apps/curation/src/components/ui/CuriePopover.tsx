@@ -853,17 +853,26 @@ export function CuriePopoverBody({
           })()}
         </div>
       ) : null}
-      <div className="flex items-baseline gap-2 pt-1 border-t border-slate-200 dark:border-slate-700 mt-1">
+      {/* 🛑 `flex-wrap`, and every atom inside is `whitespace-nowrap`.
+          A CLO cell line is the widest footer in the app — three
+          link-outs (Ontobee · OLS · Cellosaurus) beside a source badge
+          and an ontology version — and without this the row does not
+          wrap between its parts, it SQUEEZES them, so the browser
+          breaks inside the labels instead: "open in" over two lines and
+          "copy URI" over two more (Paul, 2026-08-18). Breaking between
+          parts is fine; breaking a two-word label is what read as
+          broken. */}
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 pt-1 border-t border-slate-200 dark:border-slate-700 mt-1">
         <span
           className={
             // No ``uppercase`` — "Gemma" is a name, not an acronym, and
             // shouting it (design review 2026-06-21) read wrong. "OLS" / "NCBI"
             // are already capitalised in the literal.
             detail.source === "ols"
-              ? "text-[9px] tracking-wide text-indigo-700 dark:text-indigo-300"
+              ? "text-[9px] tracking-wide whitespace-nowrap text-indigo-700 dark:text-indigo-300"
               : detail.source === "ncbi"
-                ? "text-[9px] tracking-wide text-amber-700 dark:text-amber-300"
-                : "text-[9px] tracking-wide text-emerald-700 dark:text-emerald-300"
+                ? "text-[9px] tracking-wide whitespace-nowrap text-amber-700 dark:text-amber-300"
+                : "text-[9px] tracking-wide whitespace-nowrap text-emerald-700 dark:text-emerald-300"
           }
         >
           {detail.source === "ols"
@@ -878,7 +887,7 @@ export function CuriePopoverBody({
           // ``3.91.0`` reads as ``EFO 3.91.0`` — not an app version. The
           // raw value rides in the hover title.
           <span
-            className="text-[9px] text-slate-400 dark:text-slate-500 truncate max-w-[10rem]"
+            className="text-[9px] text-slate-400 dark:text-slate-500 truncate max-w-[10rem] whitespace-nowrap"
             title={detail.ontologyVersion}
           >
             {formatOntologyVersion(detail.uri, detail.ontologyVersion)}
@@ -926,7 +935,7 @@ function TermLinkOuts({
   label?: string | null;
 }) {
   const linkCls =
-    "text-[10px] text-blue-700 hover:underline dark:text-blue-300";
+    "text-[10px] whitespace-nowrap text-blue-700 hover:underline dark:text-blue-300";
   const links: Array<{ key: string; href: string; label: string }> = [];
   const cvcl = cellosaurusUrl(uri, label);
   const nativeCvcl = /CVCL_\d+/i.test(uri);
@@ -973,10 +982,10 @@ function TermLinkOuts({
     if (cvcl) links.push({ key: "cvcl", href: cvcl, label: "Cellosaurus" });
   }
   return (
-    <span className="ml-auto flex items-baseline gap-1 text-[10px] text-slate-400 dark:text-slate-500">
-      {links.length > 0 ? <span>open in</span> : null}
+    <span className="ml-auto flex flex-wrap items-baseline gap-1 text-[10px] text-slate-400 dark:text-slate-500">
+      {links.length > 0 ? <span className="whitespace-nowrap">open in</span> : null}
       {links.map((l, i) => (
-        <span key={l.key} className="flex items-baseline gap-1">
+        <span key={l.key} className="flex items-baseline gap-1 whitespace-nowrap">
           {i > 0 ? <span aria-hidden>·</span> : null}
           <a
             href={l.href}
