@@ -100,6 +100,47 @@ function fvName(fv: FactorValue): string {
   return geneDisplayLabel(subject?.label, subject?.uri) || "(unlabelled FV)";
 }
 
+/** Per-factor display names for the crosstab — ``fvName`` plus a
+ *  statement-modifier suffix, applied ONLY when two FVs in the same
+ *  factor would otherwise read identically.
+ *
+ *  A factor can legitimately hold two levels whose subject label is
+ *  the same and whose identity lives in the statement's modifier —
+ *  GSE16435's ``developmental stage``: ``infant stage · has
+ *  developmental stage · P10`` vs ``… P20``, twelve samples each.
+ *  Keyed and tinted on the bare label, the crosstab showed ONE
+ *  "infant stage" level across all 24 samples — two levels collapsed
+ *  with no visible trace (2026-08-19). On collision the object labels
+ *  are appended (``infant stage · P10``); non-colliding FVs keep
+ *  their exact previous name, so nothing else in the table moves.
+ *
+ *  Same contract as ``fvName``: the bucket key, the cell, the tint
+ *  index, and the hover lookup all read from THIS map, so they can't
+ *  drift apart. */
+export function fvDisplayNames(f: Factor): Map<FactorValue, string> {
+  const names = new Map<FactorValue, string>();
+  const byName = new Map<string, FactorValue[]>();
+  for (const fv of f.factor_values) {
+    const n = fvName(fv);
+    names.set(fv, n);
+    const group = byName.get(n);
+    if (group) group.push(fv);
+    else byName.set(n, [fv]);
+  }
+  for (const [n, group] of byName) {
+    if (group.length < 2) continue;
+    for (const fv of group) {
+      const mods = (fv.statements ?? [])
+        .map((s) =>
+          geneDisplayLabel(s.object?.label, s.object?.uri ?? null),
+        )
+        .filter(Boolean);
+      if (mods.length > 0) names.set(fv, `${n} · ${mods.join(" · ")}`);
+    }
+  }
+  return names;
+}
+
 export function DesignSummary({
   factors,
   biomaterials,
@@ -126,17 +167,24 @@ export function DesignSummary({
   // claims them in some factor) get an "(unassigned)" label so they
   // surface as a row instead of being silently dropped — that's
   // usually a curation gap worth seeing.
+  // Collision-disambiguated FV names, one map per standard factor —
+  // the single source every consumer below reads (see fvDisplayNames).
+  const namesByColumn = useMemo(
+    () => standard.map(fvDisplayNames),
+    [standard],
+  );
+
   const rows = useMemo(() => {
     if (standard.length === 0 || biomaterials.length === 0) return [];
     const buckets = new Map<string, { values: string[]; count: number }>();
     for (const bm of biomaterials) {
       const tuple: string[] = [];
-      for (const f of standard) {
+      standard.forEach((f, j) => {
         const fv = f.factor_values.find((v) =>
           (v.biomaterial_short_names ?? []).includes(bm.short_name),
         );
-        tuple.push(fv ? fvName(fv) : "(unassigned)");
-      }
+        tuple.push(fv ? namesByColumn[j].get(fv) ?? fvName(fv) : "(unassigned)");
+      });
       const key = tuple.join("");
       const existing = buckets.get(key);
       if (existing) existing.count++;
@@ -148,24 +196,23 @@ export function DesignSummary({
     return Array.from(buckets.values()).sort((a, b) =>
       compareValuesNatural(a.values.join(" / "), b.values.join(" / ")),
     );
-  }, [standard, biomaterials]);
+  }, [standard, biomaterials, namesByColumn]);
 
   // Per-column ``FV label → FactorValue`` lookup so a table cell can
   // surface the FV's full curation in a hover (statements, ontology
   // grounding, baseline, sample count) without a trip to the Design
-  // tab. Uses the SAME label derivation as the row builder above so the
+  // tab. Reads the SAME name map as the row builder above so the
   // cell's displayed label keys straight in. Design review 2026-07-20.
   const fvByLabelByColumn = useMemo(
     () =>
-      standard.map((f) => {
+      namesByColumn.map((names) => {
         const m = new Map<string, FactorValue>();
-        for (const fv of f.factor_values) {
-          const lab = fvName(fv);
+        for (const [fv, lab] of names) {
           if (!m.has(lab)) m.set(lab, fv);
         }
         return m;
       }),
-    [standard],
+    [namesByColumn],
   );
 
   // Column sort. ``null`` keeps the deterministic default (tuple
@@ -229,7 +276,10 @@ export function DesignSummary({
     f.name || f.category?.label || "(factor)";
 
   const factorHeaderTooltip = (f: Factor): string => {
-    const labels = (f.factor_values ?? []).map((fv) => fvName(fv));
+    const names = fvDisplayNames(f);
+    const labels = (f.factor_values ?? []).map(
+      (fv) => names.get(fv) ?? fvName(fv),
+    );
     const namePart = f.name || f.category?.label || "(factor)";
     const valuesPart =
       labels.length > 0 ? `\nlevels: ${labels.join(" · ")}` : "";
