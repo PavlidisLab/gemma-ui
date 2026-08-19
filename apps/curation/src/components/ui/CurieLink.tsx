@@ -21,7 +21,7 @@
  * Per design review 2026-06-13: "make sure this is a modular item that
  * shows up for all places ontology terms go".
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { shortenUri } from "@/lib/curie";
 import { CuriePopover } from "./CuriePopover";
 
@@ -39,6 +39,19 @@ export interface CurieLinkProps {
   /** Optional surrounding text for the ``title`` hover. Defaults
    *  to the raw URI. */
   title?: string;
+  /** Keep focus where it is when the chip is clicked. For chips
+   *  inside a focus-scoped overlay (the term-picker dropdown lives
+   *  on its input's blur), letting the button take focus closes the
+   *  very surface the popover is anchored to. */
+  preserveFocus?: boolean;
+  /** Popover open/close notifications, so a blur-managed host can
+   *  suspend its close-on-blur while the curator is inspecting the
+   *  term. Also fired with ``false`` if the chip unmounts with the
+   *  popover open (the host's hold must not outlive the popover). */
+  onOpenChange?: (open: boolean) => void;
+  /** Stacking override passed to the popover — see
+   *  ``CuriePopoverProps.zIndex``. */
+  popoverZIndex?: number;
 }
 
 const DEFAULT_CLS =
@@ -49,10 +62,36 @@ export function CurieLink({
   display,
   className,
   title,
+  preserveFocus,
+  onOpenChange,
+  popoverZIndex,
 }: CurieLinkProps): JSX.Element | null {
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  // Refs so the unmount cleanup below reads the CURRENT open state and
+  // callback, not the ones captured on mount — and so notification
+  // happens outside the state updater (StrictMode double-invokes
+  // updaters; a side effect there would fire the host twice).
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  const setOpenNotified = (next: boolean) => {
+    if (next !== openRef.current) onOpenChangeRef.current?.(next);
+    setOpen(next);
+  };
+
+  // A host holding state on our behalf (see ``onOpenChange``) must be
+  // released if the chip unmounts while open — the picker's rows
+  // re-render away on every keystroke, and a hold with no popover left
+  // to close it would wedge the host permanently.
+  useEffect(() => {
+    return () => {
+      if (openRef.current) onOpenChangeRef.current?.(false);
+    };
+  }, []);
 
   if (!uri) return null;
 
@@ -70,9 +109,14 @@ export function CurieLink({
           if (btnRef.current) {
             setRect(btnRef.current.getBoundingClientRect());
           }
-          setOpen((v) => !v);
+          setOpenNotified(!open);
         }}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          // Keep the focus owner focused (a picker input, say) — the
+          // click still fires; only the focus shift is suppressed.
+          if (preserveFocus) e.preventDefault();
+        }}
         className={className ?? DEFAULT_CLS}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -80,7 +124,12 @@ export function CurieLink({
         {display ?? shortenUri(uri)}
       </button>
       {open && rect ? (
-        <CuriePopover uri={uri} anchorRect={rect} onClose={() => setOpen(false)} />
+        <CuriePopover
+          uri={uri}
+          anchorRect={rect}
+          onClose={() => setOpenNotified(false)}
+          zIndex={popoverZIndex}
+        />
       ) : null}
     </>
   );

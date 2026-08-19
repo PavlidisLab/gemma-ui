@@ -9,7 +9,7 @@ import { ApiError } from "@/api/client";
 import { Spinner } from "@/components/ui/Spinner";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
-import { shortenUri } from "@/lib/curie";
+import { CurieLink } from "@/components/ui/CurieLink";
 import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
 import { GeneLabel } from "@/components/ui/GeneLabel";
 import { isGeneUri, parseGeneLabel } from "@/lib/gene";
@@ -29,6 +29,10 @@ import { getRecentTerms, pushRecentTerm, type RecentTerm } from "./recentTerms";
  *  Enter falls back to free text until the curator arrows to (or
  *  hovers) a row. */
 const HIGHLIGHT_NONE = -1;
+
+/** The dropdown portal is ``z-[60]``; a CuriePopover opened from one of
+ *  its rows must clear it (the popover's own default is ``z-50``). */
+const INSPECT_POPOVER_Z = 70;
 
 /**
  * Typeahead picker over Gemma's annotation catalog. Used for
@@ -126,6 +130,17 @@ export function OntologyTermPicker({
   const [highlight, setHighlight] = useState(HIGHLIGHT_NONE);
   const [recent, setRecent] = useState<RecentTerm[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  // While a CuriePopover opened from a dropdown row is up, the curator
+  // is verifying a term, not leaving the picker — so the input's
+  // deferred blur handler must neither commit the draft as free text
+  // nor close the dropdown out from under the popover. Interacting
+  // with the popover (its buttons/links take focus) is what blurs the
+  // input; the ref holds that blur inert until the popover closes.
+  // CurieLink guarantees a ``false`` even if its row unmounts.
+  const inspectHoldRef = useRef(false);
+  const onInspectOpenChange = (open: boolean) => {
+    inspectHoldRef.current = open;
+  };
 
   // The dropdown portals to <body> with a computed `fixed` position
   // instead of the plain `absolute` it used to have, because a couple
@@ -397,12 +412,27 @@ export function OntologyTermPicker({
             // typed-then-tab-out workflow lands on the right URI
             // instead of stripping or carrying-forward the wrong one.
             window.setTimeout(() => {
+              // Focus moved into a term-inspection popover, not away
+              // from the picker — committing the half-typed draft here
+              // would rewrite the value because the curator clicked
+              // "verify". Normal blur handling resumes once the
+              // popover closes (the closing click lands wherever it
+              // was aimed: a row commits, outside closes the editor).
+              if (inspectHoldRef.current) return;
               if (draft !== (value?.label ?? "")) commitFreeText(draft);
               else setEditing(false);
             }, 100);
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
+              // An open inspection popover consumes this Escape (its
+              // own document listener closes it — that listener runs
+              // after this one, so the hold still reads true here);
+              // the editor cancels on the next press, not the same one.
+              if (inspectHoldRef.current) {
+                e.preventDefault();
+                return;
+              }
               setDraft(value?.label ?? "");
               setEditing(false);
               e.preventDefault();
@@ -476,6 +506,7 @@ export function OntologyTermPicker({
                     recordRecent(r);
                     setEditing(false);
                   }}
+                  onInspectOpenChange={onInspectOpenChange}
                 />
               ))}
             </>
@@ -500,6 +531,7 @@ export function OntologyTermPicker({
                   highlighted={i === highlight}
                   onPick={() => commitCandidate(c)}
                   onHover={() => setHighlight(i)}
+                  onInspectOpenChange={onInspectOpenChange}
                 />
               ))}
             </>
@@ -525,8 +557,13 @@ export function OntologyTermPicker({
             >
               keep current:{" "}
               <span className="font-medium">{value!.label}</span>
-              <span className="ml-1 text-slate-400 font-mono">
-                {shortenUri(value!.uri!)}
+              <span className="ml-1">
+                <CurieLink
+                  uri={value!.uri!}
+                  preserveFocus
+                  onOpenChange={onInspectOpenChange}
+                  popoverZIndex={INSPECT_POPOVER_Z}
+                />
               </span>
             </li>
           ) : null}
@@ -561,6 +598,7 @@ export function OntologyTermPicker({
                     stale={findStale}
                     onPick={() => commitTermCandidate(c)}
                     onHover={() => setHighlight(idx)}
+                    onInspectOpenChange={onInspectOpenChange}
                   />
                 );
               })}
@@ -866,11 +904,14 @@ function CandidateRow({
   highlighted,
   onPick,
   onHover,
+  onInspectOpenChange,
 }: {
   candidate: AnnotationCandidate;
   highlighted: boolean;
   onPick: () => void;
   onHover: () => void;
+  /** Forwarded to the row's CurieLink — see the picker's inspect hold. */
+  onInspectOpenChange: (open: boolean) => void;
 }) {
   const used = candidate.usage_count > 0;
   const ontology = !!candidate.uri;
@@ -935,8 +976,13 @@ function CandidateRow({
           right while the symbol + taxon suffix stay grouped left. */}
       <span className="flex-1" />
       {ontology ? (
-        <span className="text-[10px] text-slate-400 font-mono shrink-0">
-          {shortenUri(candidate.uri!)}
+        <span className="shrink-0">
+          <CurieLink
+            uri={candidate.uri!}
+            preserveFocus
+            onOpenChange={onInspectOpenChange}
+            popoverZIndex={INSPECT_POPOVER_Z}
+          />
         </span>
       ) : null}
       {candidate.category_label ? (
@@ -1047,9 +1093,12 @@ function candidateTooltip(candidate: AnnotationCandidate): string {
 function RecentTermRow({
   term,
   onPick,
+  onInspectOpenChange,
 }: {
   term: RecentTerm;
   onPick: () => void;
+  /** Forwarded to the row's CurieLink — see the picker's inspect hold. */
+  onInspectOpenChange: (open: boolean) => void;
 }) {
   const ontology = !!term.uri;
   return (
@@ -1068,8 +1117,13 @@ function RecentTermRow({
       </span>
       <span className="flex-1" />
       {ontology ? (
-        <span className="text-[10px] text-slate-400 font-mono shrink-0">
-          {shortenUri(term.uri!)}
+        <span className="shrink-0">
+          <CurieLink
+            uri={term.uri!}
+            preserveFocus
+            onOpenChange={onInspectOpenChange}
+            popoverZIndex={INSPECT_POPOVER_Z}
+          />
         </span>
       ) : null}
     </li>
@@ -1117,6 +1171,7 @@ function FindTermRow({
   stale,
   onPick,
   onHover,
+  onInspectOpenChange,
 }: {
   candidate: TermCandidate;
   /** Slot category the agent was asked to scope to — used to flag
@@ -1126,6 +1181,10 @@ function FindTermRow({
   stale?: boolean;
   onPick: () => void;
   onHover: () => void;
+  /** Forwarded to the row's CurieLink — see the picker's inspect hold.
+   *  Matters most on this row kind: these URIs are agent-proposed, and
+   *  the popover is where "Gemma doesn't know this term" shows. */
+  onInspectOpenChange: (open: boolean) => void;
 }) {
   const catMismatch =
     !!candidate.category &&
@@ -1150,9 +1209,20 @@ function FindTermRow({
           >
             {candidate.label}
           </span>
-          <span className="text-[10px] text-slate-400 font-mono shrink-0">
-            {shortenUri(candidate.uri) || candidate.ontology}
-          </span>
+          {candidate.uri ? (
+            <span className="shrink-0">
+              <CurieLink
+                uri={candidate.uri}
+                preserveFocus
+                onOpenChange={onInspectOpenChange}
+                popoverZIndex={INSPECT_POPOVER_Z}
+              />
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-400 font-mono shrink-0">
+              {candidate.ontology}
+            </span>
+          )}
           <SourceBadge source={candidate.source} />
           {candidate.category ? (
             <span

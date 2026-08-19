@@ -61,9 +61,14 @@ export interface CuriePopoverProps {
   /** Anchor element — popover positions itself relative to it. */
   anchorRect: DOMRect;
   onClose: () => void;
+  /** Stacking override for anchors that live inside an overlay already
+   *  above the default ``z-50`` (the term-picker dropdown is ``z-[60]``).
+   *  A style-level number beats a second z-* class, whose winner would
+   *  depend on stylesheet order rather than the caller's intent. */
+  zIndex?: number;
 }
 
-export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
+export function CuriePopover({ uri, anchorRect, onClose, zIndex }: CuriePopoverProps) {
   // In-card navigation: clicking a parent / alternate-id term walks the
   // popover to that term instead of stacking a second card (the reviewer
   // 2026-06-21 — "opens another card … might get confusing"; an in-place
@@ -217,7 +222,7 @@ export function CuriePopover({ uri, anchorRect, onClose }: CuriePopoverProps) {
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       className="fixed z-50 rounded-md border border-slate-300 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800 max-w-sm min-w-[18rem] text-[11px]"
-      style={{ left: pos.left, top: pos.top }}
+      style={{ left: pos.left, top: pos.top, zIndex }}
     >
       <div className="px-3 py-2 space-y-1.5">
         <div className="flex items-baseline gap-2 flex-wrap">
