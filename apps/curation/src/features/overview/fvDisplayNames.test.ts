@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { Factor, FactorValue } from "@/features/experiment/types";
-import { fvDisplayNames } from "./DesignSummary";
+import { fvDisplayNames, isUnspecifiedFv } from "./DesignSummary";
 
 function fv(
   label: string,
@@ -73,5 +73,29 @@ describe("fvDisplayNames", () => {
     const b = fv("mutant", [{ label: "P20" }]);
     const names = fvDisplayNames(factor([a, b]));
     expect(names.get(a)).toBe("mutant · Pank1");
+  });
+});
+
+describe("isUnspecifiedFv", () => {
+  it("keys on the TGEMO_00122 subject URI, whatever the label says", () => {
+    const v = fv("some odd label");
+    v.statements![0] = {
+      ...v.statements![0],
+      subject: {
+        label: "some odd label",
+        uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00122",
+      },
+    };
+    expect(isUnspecifiedFv(v)).toBe(true);
+  });
+
+  it("falls back to the exact label for free-text rows", () => {
+    expect(isUnspecifiedFv(fv("Unspecified factor value"))).toBe(true);
+    expect(isUnspecifiedFv(fv("unspecified factor value "))).toBe(true);
+  });
+
+  it("a real level is not unspecified", () => {
+    const v = fv("infant stage", [{ label: "P10" }]);
+    expect(isUnspecifiedFv(v)).toBe(false);
   });
 });

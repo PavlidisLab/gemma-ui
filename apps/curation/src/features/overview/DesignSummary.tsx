@@ -43,6 +43,14 @@ function DesignCardLegend() {
             least one biomaterial isn't covered by any FV in that factor;
             usually a curation gap.
           </li>
+          <li>
+            <span className="text-slate-400 italic text-[10px]">
+              Unspecified factor value
+            </span>{" "}
+            — a deliberate level saying no value applies to these samples
+            (TGEMO:00122). Muted and untinted so the real levels carry the
+            table; not a gap, unlike (unassigned).
+          </li>
         </ul>
       </div>
       <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
@@ -141,6 +149,19 @@ export function fvDisplayNames(f: Factor): Map<FactorValue, string> {
   return names;
 }
 
+/** Gemma's explicit "no value applies here" level — ``TGEMO_00122
+ *  Unspecified factor value``. A deliberate curation statement, not a
+ *  gap: the sample belongs to the factor but no level describes it
+ *  (contrast "(unassigned)", where no FV claims the sample at all).
+ *  Keyed on the URI; the exact label is the fallback for rows where
+ *  the term arrived as free text. */
+export function isUnspecifiedFv(fv: FactorValue): boolean {
+  for (const s of fv.statements ?? []) {
+    if (/TGEMO_00122$/i.test(s.subject?.uri ?? "")) return true;
+  }
+  return fvName(fv).trim().toLowerCase() === "unspecified factor value";
+}
+
 export function DesignSummary({
   factors,
   biomaterials,
@@ -172,6 +193,25 @@ export function DesignSummary({
   const namesByColumn = useMemo(
     () => standard.map(fvDisplayNames),
     [standard],
+  );
+
+  // Display labels (per column) whose FV is the explicit "Unspecified
+  // factor value" term. Those cells render muted + small and take no
+  // tint — a table where half the design is deliberately unspecified
+  // (GSE153791's 3-sub-experiment layout) otherwise reads as walls of
+  // full-weight "Unspecified factor value" indistinguishable from real
+  // levels (Paul, 2026-08-19). Label-keyed because the crosstab's
+  // bucket/tint machinery runs on the display strings.
+  const unspecifiedLabelsByColumn = useMemo(
+    () =>
+      namesByColumn.map((names) => {
+        const set = new Set<string>();
+        for (const [fv, lab] of names) {
+          if (isUnspecifiedFv(fv)) set.add(lab);
+        }
+        return set;
+      }),
+    [namesByColumn],
   );
 
   const rows = useMemo(() => {
@@ -248,12 +288,16 @@ export function DesignSummary({
     for (const row of sortedRows) {
       row.values.forEach((v, j) => {
         if (v === "(unassigned)") return;
+        // Unspecified levels stay untinted (muted text carries the
+        // meaning), and skipping them here keeps the first hues on the
+        // real levels.
+        if (unspecifiedLabelsByColumn[j]?.has(v)) return;
         const seen = out[j];
         if (!seen.has(v)) seen.set(v, seen.size);
       });
     }
     return out;
-  }, [sortedRows, standard]);
+  }, [sortedRows, standard, unspecifiedLabelsByColumn]);
   const onSortClick = (col: "assays" | number) => {
     setSort((cur) => {
       if (!cur || cur.col !== col) return { col, dir: "asc" };
@@ -429,8 +473,15 @@ export function DesignSummary({
                     {row.count}
                   </td>
                   {row.values.map((v, j) => {
+                    // "Unspecified factor value" is a deliberate level
+                    // meaning "no value applies" — keep the words (a
+                    // blank would read as a render bug) but step them
+                    // back: small, grey, italic, no tint, so real
+                    // levels carry the table's visual weight.
+                    const unspecified =
+                      unspecifiedLabelsByColumn[j]?.has(v) ?? false;
                     const tint =
-                      v === "(unassigned)"
+                      v === "(unassigned)" || unspecified
                         ? undefined
                         : tintForIndex(valueIdxByColumn[j]?.get(v) ?? -1);
                     const fv =
@@ -444,7 +495,9 @@ export function DesignSummary({
                           "px-2 py-1 border border-slate-200 " +
                           (v === "(unassigned)"
                             ? "text-rose-700 italic"
-                            : "text-slate-700")
+                            : unspecified
+                              ? "text-slate-400 italic text-[10px]"
+                              : "text-slate-700")
                         }
                         style={tint ? { backgroundColor: tint } : undefined}
                       >
