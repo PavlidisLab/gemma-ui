@@ -27,8 +27,8 @@ function term(label: string): OntologyTerm {
   return { label, uri: null, resolver: null, score: null };
 }
 
-/** Minimal ``FactorProposal`` factory. Statements / FV detail aren't
- *  load-bearing for the lookup tests — we only need a stable
+/** Minimal ``FactorProposal`` factory. Statements / FV detail don't
+ *  matter for the lookup tests — we only need a stable
  *  ``category.label`` for the fallback path. */
 function factor(categoryLabel: string): FactorProposal {
   return {

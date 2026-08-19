@@ -13,6 +13,7 @@ const curationTermRenderer: FvTermRenderer = ({
   uri,
   variant,
   provenance,
+  statementCategory,
 }) => (
   <Term
     uri={uri}
@@ -20,6 +21,7 @@ const curationTermRenderer: FvTermRenderer = ({
     variant={variant === "predicate" ? "predicate" : "default"}
     className="!whitespace-normal break-words"
     provenance={provenance}
+    statementCategory={statementCategory}
   >
     {label}
   </Term>

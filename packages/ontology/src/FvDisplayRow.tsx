@@ -28,6 +28,14 @@ export interface FvDisplayEvidence {
 }
 
 export interface FvDisplayStatement {
+  /** The statement's own category slot (Gemma's model gives every
+   *  statement one, usually mirroring the factor's category). Passed
+   *  to the term renderer on SUBJECT chips so comparison surfaces can
+   *  reveal on hover whether a producer grounded it — an agent payload
+   *  can ship a grounded factor category yet uri-less statement
+   *  categories, and the chips alone can't show that (2026-08-19,
+   *  ticket 190 / GSE17482). Optional; absent on older payloads. */
+  category?: FvDisplayTerm | null;
   subject?: FvDisplayTerm | null;
   predicate?: FvDisplayTerm | null;
   object?: FvDisplayTerm | null;
@@ -85,6 +93,11 @@ export type FvTermRenderer = (props: {
    *  ``Term`` renderer threads it to ``Term``'s ``size`` prop.
    *  Default (``undefined``) renders at the normal size. */
   size?: "default" | "sm";
+  /** The owning statement's category, supplied for SUBJECT chips only
+   *  (predicates / objects receive ``undefined``). Renderers fold it
+   *  into the hover tooltip so a curator can see whether the producer
+   *  grounded the category without leaving the comparison. */
+  statementCategory?: FvDisplayTerm | null;
 }) => JSX.Element;
 
 export interface FvDisplayRowProps {
@@ -238,6 +251,7 @@ export function FvDisplayRow({
             provenance: subjUri ? undefined : _statementProvenance(head),
             diff: isDiff(0, "subject"),
             size: compact ? "sm" : undefined,
+            statementCategory: head?.category ?? null,
           })
         ) : !fvName ? (
           // Only show the "(blank)" placeholder when the WHOLE row
@@ -525,6 +539,7 @@ function ExtraStatementLine({
               : _statementProvenance(statement),
             diff: subjDiff,
             size: compact ? "sm" : undefined,
+            statementCategory: statement.category ?? null,
           })
         : null}
       {predLabel ? (

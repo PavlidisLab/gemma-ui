@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import { curieToUrl } from "@/lib/curie";
+import { curieToUrl, shortenUri } from "@/lib/curie";
 import { type ReactNode } from "react";
 import { CurieLink } from "./CurieLink";
 import { useDatasetTaxon } from "@/features/design/DesignDraftContext";
@@ -59,6 +59,7 @@ export function Term({
   diff = false,
   title,
   size = "default",
+  statementCategory,
 }: {
   children: ReactNode;
   uri?: string | null;
@@ -103,6 +104,16 @@ export function Term({
    *  non-italic stays so role (category / value / free) still reads.
    *  Per design review 2026-06-15. */
   diff?: boolean;
+  /** The owning statement's category (subject chips on comparison
+   *  surfaces). Folded into the hover tooltip as its own line —
+   *  ``category: cell line — CLO:0000031`` or ``… — free text (no
+   *  ontology term)`` — so a curator can tell from the proposer chip
+   *  alone whether the agent grounded the category, BEFORE adopting
+   *  (2026-08-19, ticket 190: a payload shipped a grounded factor
+   *  category with uri-less statement categories, and nothing on
+   *  screen could show the difference). Never invents: shows exactly
+   *  what the payload carries. */
+  statementCategory?: { label?: string | null; uri?: string | null } | null;
 }) {
   // Auto-pick free vs default based on URI presence when caller
   // didn't pin a variant. Predicates and baselines bypass the auto-
@@ -148,11 +159,28 @@ export function Term({
     return lines.length ? lines.join("\n") : undefined;
   })();
   const tooltipUri = uri || provenanceTooltip || undefined;
+  // Statement-category line — appended to whatever tooltip the chip
+  // already has, never replacing it. Rendered verbatim from the
+  // payload so an ungrounded category reads as exactly that.
+  const categoryLine = (() => {
+    if (!statementCategory) return undefined;
+    const label = (statementCategory.label ?? "").trim();
+    const catUri = (statementCategory.uri ?? "").trim();
+    if (!label && !catUri) return undefined;
+    const ground = catUri
+      ? shortenUri(catUri) || catUri
+      : "free text (no ontology term)";
+    return `category: ${label || "(unlabelled)"} — ${ground}`;
+  })();
   // Caller-supplied title wins for the chip body + label; the CURIE
   // link keeps the URI tooltip below. A gene's tooltip carries what
   // the chip stopped showing — the full name and the species question
   // — so shortening the label doesn't lose anything.
-  const outerTitle = title ?? gene?.tooltip ?? tooltipUri;
+  const baseTitle = title ?? gene?.tooltip ?? tooltipUri;
+  const outerTitle =
+    baseTitle && categoryLine
+      ? `${baseTitle}\n${categoryLine}`
+      : baseTitle ?? categoryLine;
 
   // CURIE inline → ALWAYS opens the modular CuriePopover (label /
   // definition / parents from Gemma; explicit "Fetch from OLS"
@@ -303,6 +331,7 @@ export const termRenderer: FvTermRenderer = ({
   provenance,
   diff,
   size,
+  statementCategory,
 }) => (
   <Term
     uri={uri}
@@ -311,6 +340,7 @@ export const termRenderer: FvTermRenderer = ({
     provenance={provenance}
     diff={diff}
     size={size}
+    statementCategory={statementCategory}
   >
     {label}
   </Term>
