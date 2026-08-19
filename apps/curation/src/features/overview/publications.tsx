@@ -298,10 +298,9 @@ export function PublicationRow({
         <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
           {/* Why this paper is linked to this experiment — inert until
               a curator runs "populate provenance", and absent for a
-              link with nothing recorded, which is every link on a
-              backend that doesn't carry the association yet. Sits with
-              the identifiers, not the title: it speaks to the LINK,
-              not to the paper. */}
+              link nobody has recorded a basis for. Sits with the
+              identifiers, not the title: it speaks to the LINK, not to
+              the paper. */}
           <ProvenanceDot refId={publicationRefId(publication)} />
           {pmidUrl ? (
             <a

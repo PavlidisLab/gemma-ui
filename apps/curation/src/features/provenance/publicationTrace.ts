@@ -16,11 +16,13 @@
  * removed last month), and this conversion only ever knows the link
  * that survived.
  *
- * Landed Gemma-side 2026-08-17 and live on gemma2; the local store does
- * not copy the field through yet, so on a local-mode experiment every
- * publication answers "nothing recorded" until it does. That is the
- * same posture the rest of this feature takes — sparse is the design,
- * empty is not a bug.
+ * Landed Gemma-side 2026-08-17 and live on gemma2; carried into the
+ * local store 2026-08-19 (1,010 entries over 464 experiment×PMID pairs,
+ * 855 of them `TAS`). 88 entries stay null because Gemma asserts nothing
+ * about those 39 links — GSE99114's second paper is one, where the
+ * store's linked paper and GEO's disagree and both are kept on purpose.
+ * That is the posture the rest of this feature takes: sparse is the
+ * design, empty is not a bug.
  */
 
 import type {
@@ -99,6 +101,14 @@ export function traceFromPublication(
   const event: ProvenanceEvent = {
     kind,
     at: a.asserted_at ?? null,
+    // 🛑 On an IMPORT-sourced row, `assertedAt` is when Gemma wrote the
+    // assertion down and not when the paper was linked: GEO's submitter
+    // named the PMID at submission, and the store's filled rows were
+    // stamped by an August 2026 backfill. A curator or an agent, by
+    // contrast, asserts the link as they make it — there the two times
+    // are the same event and qualifying the date would be noise. See
+    // `at_is_record_time`.
+    at_is_record_time: kind === "imported",
     actor: actorFor(a),
     // Gemma's own one-line statement of why this is the right paper.
     // It rides on `reason` — the field that already means "the words

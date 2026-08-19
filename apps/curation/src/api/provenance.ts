@@ -73,6 +73,24 @@ export interface ProvenanceActor {
 export interface ProvenanceEvent {
   kind: ProvenanceEventKind;
   at?: string | null;
+  /** `at` says when the basis was WRITTEN DOWN, not when the thing
+   *  happened.
+   *
+   *  Set only by the producer that knows the difference, and today
+   *  that is the publication trace: Gemma's `assertedAt` on a
+   *  `PUBLICATION_ASSOCIATION` row is when the assertion was recorded,
+   *  and 1,007 of the store's rows were written by a backfill in
+   *  August 2026 — for links GEO's submitter made years earlier. So
+   *  "Imported with the dataset · 2026-08-19" put a date on the import
+   *  that is off by the age of the dataset, on EVERY paper in the
+   *  corpus, which is worse than saying nothing: it is precise and
+   *  wrong. Rendered as "recorded <date>".
+   *
+   *  Never sent by the store — its events come from findings and
+   *  dispositions, where `at` IS the event time. If it grows an
+   *  append-only event table that carries assertion rows, this is the
+   *  field to fill. */
+  at_is_record_time?: boolean | null;
   /** Object form preferred; a bare string is tolerated so an early
    *  writer that only knows a name still renders. */
   actor?: ProvenanceActor | string | null;

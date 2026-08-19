@@ -20,6 +20,9 @@ import { render } from "@testing-library/react";
 
 import { snakeify } from "@/api/client";
 import type { ProvenanceLookupResponse } from "@/api/provenance";
+import type { Publication } from "@/features/experiment/types";
+
+import { publicationTraces } from "./publicationTrace";
 
 import {
   ProvenanceDot,
@@ -90,7 +93,7 @@ const WIRE = {
   },
 };
 
-/** GSE9121's `prime adult stage` tag — the case Paul screenshotted.
+/** GSE9121's `prime adult stage` tag — the screenshotted case.
  *  One agent event, one grounding quote, and a `summary` phrased as a
  *  question about a tag that plainly exists. Captured verbatim from
  *  the same route. */
@@ -258,5 +261,121 @@ describe("provenance lookup wire", () => {
     it("never says a human failed to review it", () => {
       expect(card()).not.toContain("not reviewed");
     });
+  });
+});
+
+/**
+ * The OTHER wire a provenance run reads, and the one that had no pin.
+ *
+ * A publication's trace does not come from the lookup route — the
+ * association rides on `Design.publications`, so it crosses the same
+ * camel→snake boundary in a completely different response. Every other
+ * publication test hand-writes the snake_case fixture, which pins the
+ * conversion of the trace but not the conversion of the bytes: a
+ * renamed wire field would leave `evidence_code` / `asserted_at`
+ * `undefined` and render exactly like "nothing recorded".
+ *
+ * Captured verbatim from `GET /rest/v2/datasets/24976/design` on the
+ * local store (:8095, 2026-08-19), the day the associations landed in
+ * the store — both entries, untouched. GSE99114 is the useful capture
+ * precisely because its two papers disagree: Gemma asserts the Cell Rep
+ * one and carries nothing for the eNeuro one, so one row must show a
+ * disc and the other must not.
+ */
+const WIRE_DESIGN_PUBLICATIONS = [
+  {
+    association: null,
+    authors: "Groves A, Kihara Y, Jonnalagadda D, Rivera R, Kennedy G, Mayford M, et al.",
+    citation: "Groves A et al., 2018. eNeuro.",
+    doi: "10.1523/ENEURO.0239-18.2018",
+    journal: "eNeuro",
+    pubmedId: "30255127",
+    title:
+      "A Functionally Defined In Vivo Astrocyte Population Identified by c-Fos " +
+      "Activation in a Mouse Model of Multiple Sclerosis Modulated by S1P " +
+      "Signaling: Immediate-Early Astrocytes (ieAstrocytes).",
+    year: "2018",
+  },
+  {
+    association: {
+      assertedAt: "2026-08-19T00:36:33.570+00:00",
+      assertedBy: "administrator",
+      confidence: null,
+      evidence:
+        "Checked against GEO on 2026-08-19: GSE99114 lists !Series_pubmed_id " +
+        "38064339 as its first (primary) publication.",
+      evidenceCode: "TAS",
+      role: "primary",
+      source: "geo_submitter_link",
+      status: "accepted",
+      supportingEvidence: null,
+    },
+    authors:
+      "Jonnalagadda D, Kihara Y, Groves A, Ray M, Saha A, Ellington C, " +
+      "Lee-Okada HC, Furihata T, Yokomizo T, Quadros EV, Rivera R, Chun J",
+    citation: "Jonnalagadda D et al., 2023. Cell Rep.",
+    doi: "10.1016/j.celrep.2023.113545",
+    journal: "Cell Rep",
+    pubmedId: "38064339",
+    title:
+      "FTY720 requires vitamin B(12)-TCN2-CD320 signaling in astrocytes to " +
+      "reduce disease in an animal model of multiple sclerosis.",
+    year: "2023",
+  },
+];
+
+describe("the design wire a publication's trace is built from", () => {
+  const traces = () =>
+    publicationTraces(snakeify(WIRE_DESIGN_PUBLICATIONS) as Publication[]);
+
+  it("keeps every association field the disc reads", () => {
+    const trace = traces().get("publication:pmid:38064339");
+    expect(trace).toBeTruthy();
+    const [e] = trace!.events;
+    expect(e.kind).toBe("imported");
+    expect(e.at).toBe("2026-08-19T00:36:33.570+00:00");
+    // The three that only exist in camelCase on the wire, and each of
+    // which renders as its own line in the hover.
+    expect(e.evidence_code).toBe("TAS");
+    expect(e.reason).toContain("Checked against GEO");
+    expect(e.actor).toEqual({ kind: "import", name: "administrator" });
+  });
+
+  it("carries no trace for the paper Gemma asserts nothing about", () => {
+    // 39 (experiment, PMID) pairs across the store are like this. Absent
+    // provenance is a fact about the link, not a hole in the data.
+    expect(traces().has("publication:pmid:30255127")).toBe(false);
+  });
+
+  it("puts the disc on the asserted paper and not on the other", () => {
+    const byRef = traces();
+    const run: ProvenanceRunValue = {
+      status: "ready",
+      byRef,
+      asked: 2,
+      traced: byRef.size,
+      populate: () => {},
+      clear: () => {},
+    };
+    const { container } = render(
+      <ProvenanceRunContext.Provider value={run}>
+        <ProvenanceDot refId="publication:pmid:38064339" />
+        <ProvenanceDot refId="publication:pmid:30255127" />
+      </ProvenanceRunContext.Provider>,
+    );
+    expect(
+      container.querySelectorAll('[title^="Imported with the dataset"]'),
+    ).toHaveLength(1);
+  });
+
+  it("says how much anybody checked, in words", () => {
+    const origin = originOf(traces().get("publication:pmid:38064339")!);
+    const { container } = render(<ProvenanceTraceCard origin={origin!} />);
+    const text = container.textContent ?? "";
+    // 🛑 TAS vs IIA is the whole point: 855 store entries carry TAS
+    // (someone checked GEO), 152 carry IIA (inferred from the import
+    // path). Rendering the bare code would leave that unreadable.
+    expect(text).toContain("TAS — Traceable Author Statement");
+    expect(text).toContain("Checked against GEO");
   });
 });

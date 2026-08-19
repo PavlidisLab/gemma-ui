@@ -90,7 +90,7 @@ describe("a link that can account for itself", () => {
 
 describe("silence over a confident lie", () => {
   it("says nothing for a link with no association at all", () => {
-    // The local store does not carry the field, and Gemma itself has
+    // 88 of the store's 1,098 publication entries, and Gemma itself has
     // writers that set a publication without recording one.
     const { association: _drop, ...bare } = GEO_BACKFILL;
     expect(traceFromPublication(bare)).toBeNull();

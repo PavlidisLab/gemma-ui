@@ -70,12 +70,17 @@ describe("the disc on a linked paper", () => {
     render(
       withRun([GEO_BACKFILL], <PublicationRow publication={GEO_BACKFILL} />),
     );
-    expect(screen.getByTitle("Imported with the dataset · 2026-08-17")).toBeTruthy();
+    // "recorded" because this is Gemma's `assertedAt` — the date the
+    // backfill noted GEO's link, not the date the link was made.
+    expect(
+      screen.getByTitle("Imported with the dataset · recorded 2026-08-17"),
+    ).toBeTruthy();
   });
 
   it("stays away on a backend that carries no association", () => {
-    // Every link on the local store today. "Nothing recorded" is the
-    // expected answer and must not read as a marker.
+    // A link Gemma asserts nothing about, and any backend predating the
+    // field. "Nothing recorded" is a real answer and must not read as a
+    // marker.
     const { association: _drop, ...bare } = GEO_BACKFILL;
     render(withRun([bare], <PublicationRow publication={bare} />));
     expect(screen.queryByTitle(/Imported with the dataset/)).toBeNull();
@@ -91,6 +96,23 @@ describe("the disc on a linked paper", () => {
       ),
     );
     expect(screen.getByTitle(/Imported with the dataset/)).toBeTruthy();
+  });
+
+  // 🛑 An import is a KNOWN origin, so it gets the filled disc. The
+  // hollow ring belongs to `unknown` — an event we can't attribute —
+  // and while the two shared it, the commonest answer on the page was
+  // the one nobody could see at 9px (2026-08-19). Colour still carries
+  // WHO, so slate stays slate.
+  it("draws a filled disc, not the hollow ring that means unattributed", () => {
+    const { container } = render(
+      withRun(
+        [GEO_BACKFILL],
+        <ProvenanceDot refId={publicationRefId(GEO_BACKFILL)} />,
+      ),
+    );
+    expect(container.querySelector("circle")?.getAttribute("fill")).toBe(
+      "currentColor",
+    );
   });
 });
 
@@ -119,6 +141,10 @@ describe("what the hover says", () => {
       },
     })!;
     render(<ProvenanceTraceCard origin={originOf(trace)!} />);
+    // 🛑 NOT "recorded 2026-08-17". A curator asserts the link as they
+    // make it, so the assertion's date IS the act's date and the
+    // qualifier would be noise. It is earned only where the link
+    // predates the note about it — see the import case above.
     expect(screen.getByText("Added by rachel · 2026-08-17")).toBeTruthy();
     expect(screen.getByText(/series title/)).toBeTruthy();
   });

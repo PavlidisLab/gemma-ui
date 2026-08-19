@@ -7,7 +7,7 @@
  * marker that appears on everything says nothing, and a ring on every
  * chip to mean "we asked and nobody knew" is chrome charging rent.
  *
- * 🛑 **Provenance, not judgement** (Paul, 2026-08-16). This surface
+ * 🛑 **Provenance, not judgement** (2026-08-16). This surface
  * answers three questions and no others: **when was it added, by whom,
  * and did it come from an agent** — and then, the part that actually
  * earns the hover, **what evidence grounded it**. A paper quote or a
@@ -125,8 +125,15 @@ function originKind(event: ProvenanceEvent): OriginKind {
 }
 
 /** Colour carries origin, not approval. Sky reads "machine", emerald
- *  "a person", slate "recorded, source unclear". Amber is gone with
- *  the verdict it used to mean. */
+ *  "a person", slate "no person and no agent — the system holds this".
+ *  Amber is gone with the verdict it used to mean, and stays gone: the
+ *  house rule is that amber means warning.
+ *
+ *  🛑 Fill separates the two slates. An import is a KNOWN origin and
+ *  gets the filled disc; the hollow ring is kept for `unknown`, where
+ *  we hold an event we cannot attribute. They rendered identically —
+ *  as the faintest glyph in the set — so the most common answer on the
+ *  page ("GEO's submitter record says so") was the one nobody saw. */
 function toneFor(origin: Origin): StatusDiscTone {
   switch (origin.kind) {
     case "agent":
@@ -134,7 +141,7 @@ function toneFor(origin: Origin): StatusDiscTone {
     case "curator":
       return "done";
     case "import":
-      return "untouched";
+      return "neutral";
     default:
       return "untouched";
   }
@@ -142,7 +149,7 @@ function toneFor(origin: Origin): StatusDiscTone {
 
 /** The one-line answer to "when, by whom, from an agent?" */
 export function originLine(origin: Origin): string {
-  const when = formatWhen(origin.event.at);
+  const when = whenLine(origin.event);
   const who = actorLine(origin.event.actor);
   const lead =
     origin.kind === "agent"
@@ -204,8 +211,8 @@ export function ProvenanceTraceCard({ origin }: { origin: Origin }) {
             {actorLine(e.actor) ? (
               <span className="opacity-80"> · {actorLine(e.actor)}</span>
             ) : null}
-            {formatWhen(e.at) ? (
-              <span className="opacity-60"> · {formatWhen(e.at)}</span>
+            {whenLine(e) ? (
+              <span className="opacity-60"> · {whenLine(e)}</span>
             ) : null}
           </div>
           {/* The curator's own words, where they gave any. */}
@@ -314,6 +321,22 @@ function actorLine(actor: ProvenanceEvent["actor"]): string {
   const sha = (a.head_sha ?? "").trim();
   if (sha) bits.push(sha.slice(0, 7));
   return bits.join(" · ");
+}
+
+/**
+ * The date, and whether it is the date of the thing or of the note
+ * about the thing.
+ *
+ * A producer that only knows when the basis was written down says so —
+ * "recorded 2026-08-19" — because the bare date is read as when it
+ * happened. On a paper GEO's submitter linked in 2018 and Gemma
+ * asserted in a 2026 backfill, the unqualified line dated the import to
+ * the backfill on every dataset in the corpus.
+ */
+function whenLine(event: ProvenanceEvent): string {
+  const when = formatWhen(event.at);
+  if (!when) return "";
+  return event.at_is_record_time ? `recorded ${when}` : when;
 }
 
 /** Date only. A trace spans months; the minute it happened has never
