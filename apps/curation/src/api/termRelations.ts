@@ -94,13 +94,23 @@ export interface RelationRow {
    *  🛑 Where it merely REPEATS the object, the producer has not
    *  resolved that object's label — see the note on `object`. */
   evidence?: string | null;
-  /** 🛑 `ASSERTED` or `REFUTED`. A retraction arrives HERE, not as a row
-   *  quietly disappearing (gemma backend, 2026-08-18) — MGI's
-   *  not-disease report is the only producer writing `REFUTED` today,
-   *  and it says a genotype does NOT model the disease it names. The
-   *  row still carries an assertive implied triple, so anything
-   *  rendering it as written states the opposite of what MGI reported.
-   *  {@link topicRelations} drops them; see the note there. */
+  /** 🛑 `ASSERTED` or `REFUTED`, and `REFUTED` is **not a withdrawn
+   *  claim** — nobody took anything back. It is a source publishing the
+   *  NEGATIVE: MGI's not-disease report, the only producer writing them
+   *  today, says a genotype was found not to model the disease it
+   *  names. A denial is a finding, not an erratum.
+   *
+   *  `Pax3<Sp-2H>` is the proof and it carries both at once — asserted
+   *  for Waardenburg syndrome type **1**, refuted for type **3**, same
+   *  predicate, same four citations, because those papers are what
+   *  established which it is. Nothing here is a correction of anything.
+   *
+   *  What that costs a reader: the row still carries an assertive
+   *  implied triple (`is model of`), so rendering it as written states
+   *  the negative as a claim. {@link topicRelations} drops them.
+   *  What it is worth: a term that looks empty may be one something
+   *  negative is known about — Waardenburg type 3 returns zero rows
+   *  by default and four denials with `includeRefuted=true`. */
   status?: "ASSERTED" | "REFUTED" | (string & {}) | null;
   /** 🛑 Datasets supporting this, **as seen by the caller** — ACL-exact
    *  and counted at read. Anonymous and authenticated see different

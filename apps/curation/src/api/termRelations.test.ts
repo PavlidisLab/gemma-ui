@@ -376,40 +376,180 @@ describe("in a crowded group, a property stays and an instance goes", () => {
 });
 
 describe("a refutation is not rendered as a claim", () => {
-  // MGI reports genotypes that do NOT model a disease. Those arrive as
-  // `status: "REFUTED"` carrying the same assertive implied triple as
-  // any other row, so a card that renders them as written states MGI's
-  // finding backwards — under a header saying these are known facts.
-  const GENO = "http://www.informatics.jax.org/allele/MGI:5432",
-    GLAUCOMA = "http://purl.obolibrary.org/obo/MONDO_0005041";
-  const mgi = (status: string | undefined): RelationRow => ({
-    subject: "Pitx2<egl1>",
-    subject_uri: GENO,
+  /**
+   * Captured verbatim from gemma2 build `e5c26ad33e`:
+   * `/annotations/relations?subject=<MGI:1856293>&includeRefuted=true`.
+   *
+   * 🛑 The case is the argument. `Pax3<Sp-2H>` **is** a model of
+   * Waardenburg syndrome type **1** and **is not** a model of type
+   * **3** — same subject, same predicate, two disease labels one digit
+   * apart, and MGI cites the same four papers for both, because those
+   * papers are what established it is type 1 and not type 3.
+   *
+   * `impliedPredicate` is the stored verb copied through with no
+   * negation applied (gemma backend, `AnnotationsWebService:1106`), so
+   * all four rows read `is model of`. A status-blind card puts the
+   * denial on screen as a claim, next to the true one, in MGI's name.
+   *
+   * The wire never serves these to us today — the card fetches
+   * `/implies`, which refuses refuted rows whether or not the parameter
+   * is sent (verified against this very subject). The guard is
+   * defence in depth, and this fixture is why it is not theoretical:
+   * 151 such rows exist, and they were unreadable until the backend
+   * exposed `includeRefuted` so we could pin one.
+   *
+   * Each allele appears twice, as `Pax3<Sp-2H>` and `Pax3<+>|Pax3<Sp-2H>`,
+   * under ONE `subjectUri` — the duplicate-copies shape {@link mergeRelations}
+   * folds.
+   */
+  const PAX3 = "https://www.informatics.jax.org/allele/MGI:1856293";
+  const PAX3_CARD: RelationRow[] = [
+  {
+    subject: "Pax3<+>|Pax3<Sp-2H>",
+    subject_uri: "https://www.informatics.jax.org/allele/MGI:1856293",
     subject_category: "genotype",
     predicate: "is model of",
-    object: "glaucoma",
-    object_uri: GLAUCOMA,
+    predicate_uri: "http://purl.obolibrary.org/obo/RO_0003301",
+    object: "Waardenburg syndrome type 3",
+    object_uri: "http://purl.obolibrary.org/obo/MONDO_0007862",
+    object_category: "disease",
+    taxon_name: "mouse",
     basis: "EXTERNAL",
     source: "MGI",
-    status,
+    number_of_experiments: 0,
+    object_breadth: 4,
+    subject_breadth: 2,
+    example_dataset_id: null,
+    topicality: "TERM_LEVEL",
     inference_direction: "SUBJECT_IMPLIES_OBJECT",
-    implied_subject: "Pitx2<egl1>",
+    implied_subject: "Pax3<+>|Pax3<Sp-2H>",
     implied_predicate: "is model of",
-    implied_object: "glaucoma",
+    implied_object: "Waardenburg syndrome type 3",
+    implied_object_uri: "http://purl.obolibrary.org/obo/MONDO_0007862",
+    implied_triple_key: "https://www.informatics.jax.org/allele/MGI:1856293 http://purl.obolibrary.org/obo/RO_0003301 http://purl.obolibrary.org/obo/MONDO_0007862",
+    status: "REFUTED",
+    evidence: null,
+  },
+  {
+    subject: "Pax3<Sp-2H>",
+    subject_uri: "https://www.informatics.jax.org/allele/MGI:1856293",
+    subject_category: "genotype",
+    predicate: "is model of",
+    predicate_uri: "http://purl.obolibrary.org/obo/RO_0003301",
+    object: "Waardenburg syndrome type 3",
+    object_uri: "http://purl.obolibrary.org/obo/MONDO_0007862",
+    object_category: "disease",
+    taxon_name: "mouse",
+    basis: "EXTERNAL",
+    source: "MGI",
+    number_of_experiments: 0,
+    object_breadth: 4,
+    subject_breadth: 2,
+    example_dataset_id: null,
+    topicality: "TERM_LEVEL",
+    inference_direction: "SUBJECT_IMPLIES_OBJECT",
+    implied_subject: "Pax3<Sp-2H>",
+    implied_predicate: "is model of",
+    implied_object: "Waardenburg syndrome type 3",
+    implied_object_uri: "http://purl.obolibrary.org/obo/MONDO_0007862",
+    implied_triple_key: "https://www.informatics.jax.org/allele/MGI:1856293 http://purl.obolibrary.org/obo/RO_0003301 http://purl.obolibrary.org/obo/MONDO_0007862",
+    status: "REFUTED",
+    evidence: "PMID:7600971;PMID:8631247;PMID:10699180;PMID:9344762",
+  },
+  {
+    subject: "Pax3<+>|Pax3<Sp-2H>",
+    subject_uri: "https://www.informatics.jax.org/allele/MGI:1856293",
+    subject_category: "genotype",
+    predicate: "is model of",
+    predicate_uri: "http://purl.obolibrary.org/obo/RO_0003301",
+    object: "Waardenburg syndrome type 1",
+    object_uri: "http://purl.obolibrary.org/obo/MONDO_0008670",
+    object_category: "disease",
+    taxon_name: "mouse",
+    basis: "EXTERNAL",
+    source: "MGI",
+    number_of_experiments: 0,
+    object_breadth: 9,
+    subject_breadth: 2,
+    example_dataset_id: null,
+    topicality: "TERM_LEVEL",
+    inference_direction: "SUBJECT_IMPLIES_OBJECT",
+    implied_subject: "Pax3<+>|Pax3<Sp-2H>",
+    implied_predicate: "is model of",
+    implied_object: "Waardenburg syndrome type 1",
+    implied_object_uri: "http://purl.obolibrary.org/obo/MONDO_0008670",
+    implied_triple_key: "https://www.informatics.jax.org/allele/MGI:1856293 http://purl.obolibrary.org/obo/RO_0003301 http://purl.obolibrary.org/obo/MONDO_0008670",
+    status: "ASSERTED",
+    evidence: null,
+  },
+  {
+    subject: "Pax3<Sp-2H>",
+    subject_uri: "https://www.informatics.jax.org/allele/MGI:1856293",
+    subject_category: "genotype",
+    predicate: "is model of",
+    predicate_uri: "http://purl.obolibrary.org/obo/RO_0003301",
+    object: "Waardenburg syndrome type 1",
+    object_uri: "http://purl.obolibrary.org/obo/MONDO_0008670",
+    object_category: "disease",
+    taxon_name: "mouse",
+    basis: "EXTERNAL",
+    source: "MGI",
+    number_of_experiments: 0,
+    object_breadth: 9,
+    subject_breadth: 2,
+    example_dataset_id: null,
+    topicality: "TERM_LEVEL",
+    inference_direction: "SUBJECT_IMPLIES_OBJECT",
+    implied_subject: "Pax3<Sp-2H>",
+    implied_predicate: "is model of",
+    implied_object: "Waardenburg syndrome type 1",
+    implied_object_uri: "http://purl.obolibrary.org/obo/MONDO_0008670",
+    implied_triple_key: "https://www.informatics.jax.org/allele/MGI:1856293 http://purl.obolibrary.org/obo/RO_0003301 http://purl.obolibrary.org/obo/MONDO_0008670",
+    status: "ASSERTED",
+    evidence: "PMID:7600971;PMID:8631247;PMID:10699180;PMID:9344762",
+  },
+  ];
+
+  it("drops the denial and keeps the claim", () => {
+    const kept = topicRelations(PAX3_CARD, PAX3);
+    expect(kept).toHaveLength(2);
+    expect(kept.every((r) => r.status === "ASSERTED")).toBe(true);
   });
 
-  it("drops the refuted row", () => {
-    expect(topicRelations([mgi("REFUTED")], GENO)).toEqual([]);
+  it("leaves nothing on screen that names the disease MGI denies", () => {
+    // The whole point, stated as the assertion a reader would make:
+    // type 1 survives, type 3 is nowhere.
+    const shown = topicRelations(PAX3_CARD, PAX3)
+      .map((r) => r.implied_object)
+      .join(" | ");
+    expect(shown).toContain("Waardenburg syndrome type 1");
+    expect(shown).not.toContain("type 3");
   });
 
-  it("keeps the asserted one", () => {
-    expect(topicRelations([mgi("ASSERTED")], GENO)).toHaveLength(1);
+  it("folds the two spellings of the surviving claim into one sentence", () => {
+    // One allele, two labels, one `subjectUri` — so the card says it
+    // once and reports that it was folded.
+    const merged = mergeRelations(topicRelations(PAX3_CARD, PAX3));
+    expect(merged).toHaveLength(1);
+    expect(merged[0].copies).toBe(2);
   });
 
   it("treats a missing status as asserted", () => {
     // An older deployment omits the field, and dropping on absence
-    // would delete the whole surface rather than one row.
-    expect(topicRelations([mgi(undefined)], GENO)).toHaveLength(1);
+    // would delete the whole surface rather than one row. So the denial
+    // comes BACK when nothing says it is one — absence is not a
+    // refutation.
+    const noStatus = PAX3_CARD.map(({ status: _drop, ...rest }) => rest);
+    const shown = topicRelations(noStatus, PAX3)
+      .map((r) => r.implied_object)
+      .join(" | ");
+    expect(shown).toContain("type 3");
+    // Three, not four: with every row surviving the status gate they
+    // form one predicate group over the cap, and the crowded-group rule
+    // trims it by breadth. A different rule doing a different job —
+    // worth pinning so a later change to either is not read as the
+    // other having fired.
+    expect(topicRelations(noStatus, PAX3)).toHaveLength(3);
   });
 });
 
