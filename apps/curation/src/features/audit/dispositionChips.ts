@@ -599,3 +599,50 @@ export function acceptChipsFor(
 //
 // The chip VOCABULARY stays here; that ownership is deliberate
 // (2026-06-14). Only the historical-interpretation helpers left.
+
+// ---------------------------------------------------------------------------
+// Display label for a stored reason slug
+// ---------------------------------------------------------------------------
+
+/** Every chip set above, for slug → label lookup. Order matters only
+ *  for slugs that appear in several sets with different labels (e.g.
+ *  ``redundant`` is "Redundant" generically and "Redundant (other)"
+ *  in the tag set): the FIRST occurrence wins, so the generic sets
+ *  lead. This is display vocabulary, not historical interpretation —
+ *  the legacy-key remap deliberately lives agents-side (see above). */
+const ALL_CHIP_SETS: DialogChip[][] = [
+  DISMISS_CHIPS,
+  ACCEPT_CHIPS,
+  NOT_SURE_CHIPS,
+  CAL_MISS_FACTOR_DISMISS_CHIPS,
+  CAL_MISS_TAG_DISMISS_CHIPS,
+  CAL_MISS_ACCEPT_CHIPS,
+  CAL_MISS_FACTOR_ACCEPT_CHIPS,
+  CAL_EXTRA_TAG_DISMISS_CHIPS,
+  CAL_EXTRA_FACTOR_DISMISS_CHIPS,
+  FACTOR_MATCH_DISMISS_CHIPS,
+  TAG_MATCH_DISMISS_CHIPS,
+  FACTOR_PARTITION_DISMISS_CHIPS,
+  CAL_EXTRA_ACCEPT_CHIPS,
+  TAG_DISMISS_CHIPS,
+];
+
+let reasonLabelCache: Map<string, string> | null = null;
+
+/** Curator-facing label for a structured reason slug, however it was
+ *  stored. Unknown slugs (legacy rows, agents-side additions this
+ *  build hasn't seen) fall back to the slug with underscores opened —
+ *  legible, and honest that we don't have a curated label for it. */
+export function reasonSlugLabel(slug: string): string {
+  if (!reasonLabelCache) {
+    reasonLabelCache = new Map();
+    for (const set of ALL_CHIP_SETS) {
+      for (const chip of set) {
+        if (!reasonLabelCache.has(chip.key)) {
+          reasonLabelCache.set(chip.key, chip.label);
+        }
+      }
+    }
+  }
+  return reasonLabelCache.get(slug) ?? slug.replace(/_/g, " ");
+}

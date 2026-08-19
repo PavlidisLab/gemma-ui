@@ -26,6 +26,20 @@ import type {
 } from "@/api/workflowTypes";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
 import { useTicket } from "@/api/tickets";
+import { useAuditsForExperiments } from "@/api/audits";
+import { useProposalReviewsForExperiments } from "@/api/reviewProposals";
+import { reasonSlugLabel } from "@/features/audit/dispositionChips";
+import {
+  DISPOSITION_FILTER_ANY,
+  DISPOSITION_STATUS_CHIPS,
+  dispositionBadgeNoun,
+  isDispositionFilterActive,
+  mergeTriageRows,
+  triageRowMatches,
+  triageRowsForReport,
+  type DispositionFilterState,
+  type TriageRow,
+} from "./dispositionFilter";
 import { taskKindHeaderLabel } from "./nextTask";
 import { SetProgressBar } from "@/components/ui/SetProgressBar";
 import { progressFromGroup } from "./setProgress";
@@ -295,6 +309,164 @@ function FilterBar({
 // the top-right of the filter row.
 
 // ---------------------------------------------------------------------------
+// Finding-disposition filter (ticket context only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Second filter row for ticket queues: filter the target list by
+ * finding disposition (status · reason · reviewer). Unlocks the
+ * auto-triage workflow (handoff 2026-07-23): `agent-triage`
+ * dispositions the bulk of a ticket's findings and leaves the
+ * genuinely-uncertain pile as `needs_more_info`; this row is the one
+ * click that shows the curator that pile.
+ *
+ * Collapsed by default — expanding it is what triggers the audit
+ * fan-out (one GET per ticket target; a 400-target ticket is 400
+ * requests, cached and shared with each row's sidebar). Collapsing
+ * clears the filter so a hidden filter can never silently empty the
+ * list.
+ *
+ * Counts are faceted: each status chip counts the targets that would
+ * match if that status were selected, under the OTHER active axes —
+ * and likewise for the reason / reviewer options. Counts span the
+ * whole ticket, not the visible page (same rule as the progress
+ * chips, design review 2026-06-14).
+ */
+function DispositionFilterBar({
+  open,
+  onToggle,
+  filter,
+  onFilter,
+  rows,
+  loaded,
+  total,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  filter: DispositionFilterState;
+  onFilter: (f: DispositionFilterState) => void;
+  /** Every triage row across the ticket's targets (loaded so far). */
+  rows: TriageRow[];
+  /** Experiments whose audit list has resolved / total targets. */
+  loaded: number;
+  total: number;
+}) {
+  const active = isDispositionFilterActive(filter);
+  const loading = open && loaded < total;
+
+  const countForStatus = (status: DispositionFilterState["status"]) =>
+    rows.filter((r) => triageRowMatches(r, { ...filter, status })).length;
+
+  // Observed option lists, counted under the other axes. Sorted by
+  // count so the big buckets (the auto-triage reasons) lead.
+  const optionCounts = (
+    axis: "reason" | "reviewer",
+  ): Array<{ value: string; n: number }> => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const v = r[axis];
+      if (!v) continue;
+      if (!triageRowMatches(r, { ...filter, [axis]: v })) continue;
+      counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([value, n]) => ({ value, n }))
+      .sort((a, b) => b.n - a.n || a.value.localeCompare(b.value));
+  };
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-1.5 border-b border-slate-100 dark:border-slate-800 flex-wrap bg-white dark:bg-slate-900">
+      <button
+        type="button"
+        onClick={onToggle}
+        title={
+          open
+            ? "Hide the finding-disposition filter (clears it)"
+            : "Filter this ticket's targets by finding disposition — status, reason, reviewer"
+        }
+        className="text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+        aria-expanded={open}
+      >
+        Findings {open ? "▾" : "▸"}
+      </button>
+      {open ? (
+        <>
+          <div className="flex items-center gap-1 flex-wrap">
+            {DISPOSITION_STATUS_CHIPS.map((c) => {
+              const isActive = filter.status === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => onFilter({ ...filter, status: c.id })}
+                  className={`text-xs px-2.5 py-0.5 rounded-full transition-colors ${
+                    isActive
+                      ? "bg-violet-600 text-white"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {c.label}{" "}
+                  <span
+                    className={`text-[10px] ${
+                      isActive
+                        ? "text-violet-100"
+                        : "text-slate-400 dark:text-slate-500"
+                    }`}
+                  >
+                    ({countForStatus(c.id)})
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <select
+            value={filter.reason}
+            onChange={(e) => onFilter({ ...filter, reason: e.target.value })}
+            title="Filter by the structured reason on the latest disposition"
+            className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-violet-500"
+          >
+            <option value="any">reason: any</option>
+            {optionCounts("reason").map((o) => (
+              <option key={o.value} value={o.value}>
+                {reasonSlugLabel(o.value)} ({o.n})
+              </option>
+            ))}
+          </select>
+          <select
+            value={filter.reviewer}
+            onChange={(e) => onFilter({ ...filter, reviewer: e.target.value })}
+            title="Filter by who made the disposition — agent-triage vs a curator"
+            className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-violet-500"
+          >
+            <option value="any">reviewer: any</option>
+            {optionCounts("reviewer").map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.value} ({o.n})
+              </option>
+            ))}
+          </select>
+          {loading ? (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
+              loading dispositions… {loaded}/{total}
+            </span>
+          ) : null}
+          {active ? (
+            <button
+              type="button"
+              onClick={() => onFilter(DISPOSITION_FILTER_ANY)}
+              title="Clear the disposition filter"
+              className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+            >
+              clear ×
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Export-Set button
 // ---------------------------------------------------------------------------
 
@@ -555,6 +727,10 @@ export function ExperimentQueue({
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("-lastUpdated");
   const [offset, setOffset] = useState(0);
+  const [dispOpen, setDispOpen] = useState(false);
+  const [dispFilter, setDispFilter] = useState<DispositionFilterState>(
+    DISPOSITION_FILTER_ANY,
+  );
   const [pageSizeRaw, setPageSize] = useStickyState<number>(
     "experimentQueue.pageSize",
     PAGE_SIZE_DEFAULT,
@@ -660,16 +836,95 @@ export function ExperimentQueue({
     return base;
   };
 
+  // Finding-disposition filter (ticket context only). The audit
+  // fan-out is gated on the curator opening the filter row — one GET
+  // per ticket target, riding the same cache keys as each row's
+  // sidebar, so nothing is fetched twice. Targets span the WHOLE
+  // ticket (not just the visible page) so chip counts follow the
+  // same whole-ticket rule as the progress chips.
+  const ticketExperimentIds = useMemo(
+    () => [...ticketTargetStatusById.keys()],
+    [ticketTargetStatusById],
+  );
+  const dispEngaged =
+    ticketId != null &&
+    dispOpen &&
+    ticketExperimentIds.length > 0;
+  // BOTH review kinds: a ticket's findings are ``kind='proposal'``
+  // rows for review tickets and ``kind='audit'`` rows for audit
+  // tickets, and the queue can't know which up front — reading one
+  // kind returns confident zeros for the other (measured on ticket
+  // 140: all 37 targets have zero audit-kind rows).
+  const auditQueries = useAuditsForExperiments(ticketExperimentIds, {
+    enabled: dispEngaged,
+  });
+  const proposalQueries = useProposalReviewsForExperiments(
+    ticketExperimentIds,
+    { enabled: dispEngaged },
+  );
+  const dispLoaded = dispEngaged
+    ? auditQueries.filter(
+        (q, i) => q.isSuccess && proposalQueries[i]?.isSuccess,
+      ).length
+    : 0;
+  // Per-target triage rows, folded from each experiment's MOST RECENT
+  // report of each kind (the same reports the row's sidebar shows).
+  // Keyed on the queries' dataUpdatedAt fingerprint rather than the
+  // array identity — useQueries returns a fresh array every render.
+  const auditDataStamp = [...auditQueries, ...proposalQueries]
+    .map((q) => q.dataUpdatedAt)
+    .join(",");
+  const triageByExperiment = useMemo(() => {
+    const m = new Map<number, TriageRow[]>();
+    if (!dispEngaged) return m;
+    ticketExperimentIds.forEach((id, i) => {
+      m.set(
+        id,
+        mergeTriageRows(
+          triageRowsForReport(id, auditQueries[i]?.data?.items?.[0]),
+          triageRowsForReport(id, proposalQueries[i]?.data?.items?.[0]),
+        ),
+      );
+    });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispEngaged, auditDataStamp, ticketExperimentIds]);
+  const allTriageRows = useMemo(
+    () => [...triageByExperiment.values()].flat(),
+    [triageByExperiment],
+  );
+  const dispActive = dispEngaged && isDispositionFilterActive(dispFilter);
+  const matchingTriageCount = (datasetId: number): number =>
+    (triageByExperiment.get(datasetId) ?? []).filter((r) =>
+      triageRowMatches(r, dispFilter),
+    ).length;
+
   // Apply the progress-state filter client-side on the rows the
   // server returned. The /datasets endpoint doesn't carry a step-
   // state aggregate query param, so this happens after the fetch.
   // Empty results are honest — the bottom-of-list "no experiments
   // match" caption fires when the filter clears the whole page.
+  // The disposition filter stacks on top (AND): a row survives when
+  // at least one of its findings matches every active axis.
   const rows = useMemo(() => {
-    if (activeFilter === "all") return allRows;
-    return allRows.filter((d) => stateFor(d.id) === activeFilter);
+    let r = allRows;
+    if (activeFilter !== "all") {
+      r = r.filter((d) => stateFor(d.id) === activeFilter);
+    }
+    if (dispActive) {
+      r = r.filter((d) => matchingTriageCount(d.id) > 0);
+    }
+    return r;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, allRows, statusMap, ticketTargetStatusById]);
+  }, [
+    activeFilter,
+    allRows,
+    statusMap,
+    ticketTargetStatusById,
+    dispActive,
+    dispFilter,
+    triageByExperiment,
+  ]);
 
   // Per-filter counts for the chip labels. In a ticket context the
   // counts come from the ticket's target list (ALL targets, not just
@@ -800,6 +1055,30 @@ export function ExperimentQueue({
         onNext={() => setOffset((o) => o + pageSize)}
       />
 
+      {/* Finding-disposition filter — ticket context only: the axes
+          are per-finding triage state, which only exists on audit
+          reports, and the whole-ticket fan-out needs a bounded
+          target list to be affordable. */}
+      {ticketId != null && ticketExperimentIds.length > 0 ? (
+        <DispositionFilterBar
+          open={dispOpen}
+          onToggle={() => {
+            // Collapsing clears the filter — a hidden active filter
+            // silently emptying the list is the bug.
+            if (dispOpen) setDispFilter(DISPOSITION_FILTER_ANY);
+            setDispOpen((v) => !v);
+          }}
+          filter={dispFilter}
+          onFilter={(f) => {
+            setDispFilter(f);
+            setOffset(0);
+          }}
+          rows={allTriageRows}
+          loaded={dispLoaded}
+          total={ticketExperimentIds.length}
+        />
+      ) : null}
+
       {/* Row list */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
@@ -828,6 +1107,17 @@ export function ExperimentQueue({
             groupType={group?.type}
             groupTaskKind={group?.task_kind ?? null}
             leadingBadge={leadingBadge}
+            findingsBadge={
+              dispActive
+                ? {
+                    label: `${matchingTriageCount(d.id)} ${dispositionBadgeNoun(
+                      dispFilter,
+                    )}`,
+                    title:
+                      "findings on this experiment matching the disposition filter",
+                  }
+                : undefined
+            }
           />
         ))}
       </div>

@@ -16,7 +16,12 @@
  * after a PATCH succeeds, refreshing the report query is enough —
  * we don't have to merge the patch into local cache by hand.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api } from "./client";
 import type {
   AuditFindingDispositionPatch,
@@ -37,6 +42,32 @@ const KEY = {
   detail: (auditId: string) => ["audits", "detail", auditId] as const,
 };
 
+/** Shared fetcher for the per-experiment audit list, so the single-
+ *  and multi-experiment hooks below populate the SAME cache entries. */
+async function fetchAuditsForExperiment(
+  experimentId: number | string,
+): Promise<AuditListResponse> {
+  try {
+    return await api.get<AuditListResponse>(
+      `/rest/v2/datasets/${experimentId}/audits`,
+    );
+  } catch (e: unknown) {
+    // Gemma 2.0 doesn't yet expose the local_api ``/audits``
+    // surface (it has ``/auditEvents``, a different concept).
+    // Treat 404 as "no audits" rather than poisoning every
+    // audit-aware surface with an error toast.
+    if (
+      e &&
+      typeof e === "object" &&
+      "status" in e &&
+      (e as { status: number }).status === 404
+    ) {
+      return { items: [], total: 0 } as AuditListResponse;
+    }
+    throw e;
+  }
+}
+
 /** Per-experiment audit list, most recent first. The sidebar reads
  *  the most recent item as "the current audit for this experiment".
  *  Disabled when `experimentId` is missing / negative — keeps the
@@ -48,29 +79,38 @@ export function useAuditsForExperiment(
   const enabled = (options.enabled ?? true) && Boolean(experimentId);
   return useQuery({
     queryKey: KEY.byExperiment(experimentId),
-    queryFn: async () => {
-      try {
-        return await api.get<AuditListResponse>(
-          `/rest/v2/datasets/${experimentId}/audits`,
-        );
-      } catch (e: unknown) {
-        // Gemma 2.0 doesn't yet expose the local_api ``/audits``
-        // surface (it has ``/auditEvents``, a different concept).
-        // Treat 404 as "no audits" rather than poisoning every
-        // audit-aware surface with an error toast.
-        if (
-          e &&
-          typeof e === "object" &&
-          "status" in e &&
-          (e as { status: number }).status === 404
-        ) {
-          return { items: [], total: 0 } as AuditListResponse;
-        }
-        throw e;
-      }
-    },
+    queryFn: () => fetchAuditsForExperiment(experimentId),
     enabled,
     refetchOnWindowFocus: true,
+  });
+}
+
+/** Audit lists for MANY experiments at once — the ticket queue's
+ *  disposition filter tallies findings across every target of a
+ *  ticket. One query per experiment (the store has no bulk endpoint),
+ *  but each rides the SAME cache key as ``useAuditsForExperiment``,
+ *  so opening a row after the tally has loaded costs nothing — and a
+ *  disposition PATCH from the sidebar invalidates the tally too.
+ *  ``enabled: false`` keeps the whole fan-out off until the curator
+ *  actually engages the filter (a 400-target ticket is 400 GETs).
+ *  Cached entries are reused across pages of the same ticket. */
+export function useAuditsForExperiments(
+  experimentIds: Array<number | string>,
+  options: { enabled?: boolean } = {},
+) {
+  const enabled = options.enabled ?? true;
+  return useQueries({
+    queries: experimentIds.map((id) => ({
+      queryKey: KEY.byExperiment(id),
+      queryFn: () => fetchAuditsForExperiment(id),
+      enabled: enabled && Boolean(id),
+      // The tally is a batch read over possibly hundreds of rows;
+      // window-focus refetch storms would hammer the store for no
+      // curator-visible gain. The sidebar's own query (same key)
+      // still refetches on focus once a row is opened.
+      refetchOnWindowFocus: false,
+      staleTime: 30_000,
+    })),
   });
 }
 

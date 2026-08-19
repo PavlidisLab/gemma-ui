@@ -13,6 +13,7 @@ import type {
 } from "@/api/auditTypes";
 import type { SubtaskDecision } from "@/api/types";
 import { dedupeSubtaskDecisions } from "./subtaskDecisions";
+import { latestDispositionByTarget } from "./dispositionFold";
 import {
   SEVERITY_RANK,
   TARGET_KIND_ORDER,
@@ -50,11 +51,10 @@ export function AuditReportView({
     notes?: string,
   ) => Promise<void>;
 }) {
-  const dispositionByTarget = useMemo(() => {
-    const m = new Map<string, AuditFindingDisposition>();
-    for (const d of report.dispositions ?? []) m.set(d.target_id, d);
-    return m;
-  }, [report.dispositions]);
+  const dispositionByTarget = useMemo(
+    () => latestDispositionByTarget(report.dispositions),
+    [report.dispositions],
+  );
 
   return (
     <div className="space-y-4">

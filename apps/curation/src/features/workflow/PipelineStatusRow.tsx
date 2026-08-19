@@ -106,6 +106,7 @@ export function PipelineStatusRow({
   groupType,
   groupTaskKind,
   leadingBadge,
+  findingsBadge,
 }: {
   dataset: WorkflowDatasetRow;
   status: ExperimentPipelineStatus | undefined;
@@ -139,6 +140,11 @@ export function PipelineStatusRow({
    *  semantic of the work — ``audit`` (violet), ``pipeline`` (sky),
    *  ``screen`` (fuchsia), ``quality`` (emerald), ``info`` (amber). */
   leadingBadge?: { label: string; tone: BadgeTone };
+  /** Optional badge in the right-hand flag cluster. The ticket
+   *  queue's disposition filter uses it to say WHY a row survived
+   *  the filter ("3 need info") — without it, filtered rows look
+   *  identical to unfiltered ones and the filter reads as inert. */
+  findingsBadge?: { label: string; title?: string };
 }) {
   const accession = dataset.short_name || String(dataset.id);
   const title = dataset.name;
@@ -217,6 +223,14 @@ export function PipelineStatusRow({
           {title}
         </span>
         <span className="flex items-center gap-1 shrink-0">
+          {findingsBadge && (
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 ring-1 ring-inset ring-violet-200 dark:ring-violet-800"
+              title={findingsBadge.title}
+            >
+              {findingsBadge.label}
+            </span>
+          )}
           {dataset.troubled && (
             <span
               className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 ring-1 ring-inset ring-red-200 dark:ring-red-800"
