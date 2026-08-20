@@ -260,11 +260,11 @@ export function FactorValueCard({
               onClick={onToggleBaseline}
               title={
                 fv.is_baseline
-                  ? "Unmark as baseline"
+                  ? "Marked as the baseline. Click to unmark."
                   : gemmaAutoDetectsBaseline(fv)
-                    ? "Gemma's DEA already treats this value as the reference " +
-                      "level — marking it is optional. Marking a different " +
-                      "value overrides this one."
+                    ? "Not marked — Gemma's DEA already treats this value as " +
+                      "the reference level, so marking it is optional. Click " +
+                      "to mark it anyway; marking any value overrides the rest."
                     : "Mark as baseline"
               }
               className="cursor-pointer"
@@ -277,9 +277,16 @@ export function FactorValueCard({
                 // role", …) and DEA will use it with nothing marked, so
                 // the card says so instead of asking. Still clickable —
                 // marking it is allowed, it just isn't needed.
-                <Pill variant="baseline" className="opacity-70">
-                  ▂ baseline (Gemma)
-                </Pill>
+                //
+                // HOLLOW, not a dimmed copy of the filled pill. A factor
+                // can hold two levels the detector recognises (an
+                // "untreated / reference subject role" beside a "sham /
+                // control"), and then two chips both read "baseline".
+                // Unmarking one only moved it down the list — the sort
+                // puts marked FVs first — and left a chip that still
+                // looked marked, so the curator saw the rows resort and
+                // nothing else. Fill now carries the mark on its own.
+                <Pill variant="baseline-auto">▂ baseline (Gemma)</Pill>
               ) : (
                 <span className="text-xs text-slate-400 hover:text-slate-700 underline">
                   set baseline

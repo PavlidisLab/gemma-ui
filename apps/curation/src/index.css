@@ -111,6 +111,14 @@
     "ontology-resolved" elsewhere.
    */
   .pill.baseline { @apply bg-sky-100 text-sky-800; }
+  /*
+    Hollow twin of ``.pill.baseline``: same sky hue (the palette is the
+    subject — "baseline" — not the source), no fill. Filled = the FV
+    carries the mark; outline = it doesn't, and Gemma's detector would
+    pick it up regardless. Fill/no-fill is the whole cue, so it has to
+    survive a glance at two chips one row apart.
+   */
+  .pill.baseline-auto { @apply bg-transparent text-sky-700 border border-sky-300; }
 
   .btn { @apply inline-flex items-center gap-1 px-2.5 py-1.5 text-sm rounded border border-slate-300 bg-white hover:bg-slate-50; }
   .btn.primary { @apply bg-blue-700 text-white border-blue-700 hover:bg-blue-800; }
@@ -269,6 +277,11 @@ html.dark .pill.medium {
 html.dark .pill.baseline {
   background-color: rgb(12 74 110 / 0.5);    /* sky-900 / 50% */
   color: rgb(186 230 253);                   /* sky-200 */
+}
+html.dark .pill.baseline-auto {
+  background-color: transparent;
+  color: rgb(125 211 252);                   /* sky-300 */
+  border-color: rgb(7 89 133);               /* sky-800 */
 }
 
 html.dark .diff-add {
