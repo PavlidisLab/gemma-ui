@@ -277,8 +277,12 @@ export function duplicateFactorValue(
   const clone: FactorValue = {
     id: nextFvId,
     free_text_label: labelSuffix,
-    // A copy can never inherit baseline-ness — there's exactly one
-    // baseline per factor, the source is already it.
+    // A copy does not inherit the baseline mark. Not because a factor
+    // can hold only one — it can hold two, see ``toggleBaseline`` — but
+    // because duplicating a value is a way to start editing a new arm,
+    // and a second reference level is a deliberate act with a real cost
+    // (Gemma's DEA then needs a subset factor). The curator declares it
+    // with the chip; it should not arrive as a side effect of Duplicate.
     is_baseline: false,
     biomaterial_short_names: [],
     statements: src.statements.map((s) => ({
@@ -697,9 +701,26 @@ export function setFvLabel(
 }
 
 /**
- * Toggle baseline within a factor; turning a non-baseline FV into the
- * baseline unmarks all others in the same factor (Gemma allows exactly
- * one baseline per factor).
+ * Toggle the baseline mark on one FV. **Siblings are never touched.**
+ *
+ * This used to unmark every other FV in the factor, on the premise that
+ * Gemma allowed exactly one baseline. It doesn't: a dataset holding two
+ * experiments has a reference level per experiment, and Gemma's own
+ * apply stopped clearing siblings 2026-08-19 (gemma backend). Clearing
+ * them here made a two-baseline factor unrepresentable — marking B
+ * silently unmarked A, so the curator could never record the design
+ * they meant, and could never SEE that two were possible.
+ *
+ * The cost is that switching the baseline is now two clicks (unmark A,
+ * mark B) rather than one. That is the honest trade: a click that
+ * quietly rewrites a value the curator didn't point at is the thing
+ * that made this whole area confusing, per
+ * ``feedback_never_auto_write_a_field_the_curator_owns``.
+ *
+ * Marking a second one is allowed and flagged, not blocked — the
+ * ValidatorBanner asks whether it was intended and points at the
+ * "subset by" control, since Gemma's DEA refuses a multiple-baseline
+ * contrast without a subset factor.
  */
 export function toggleBaseline(
   design: Design,
@@ -723,13 +744,8 @@ export function toggleBaseline(
     return {
       ...f,
       factor_values: f.factor_values.map((fv) => {
-        if (fv.id !== fvId) {
-          // Other FVs lose baseline if we're turning one on.
-          return {
-            ...fv,
-            is_baseline: turningOn ? false : fv.is_baseline,
-          };
-        }
+        // Siblings are left exactly as they are — see the note above.
+        if (fv.id !== fvId) return fv;
         if (!turningOn) {
           // Turning off: just flip the flag, keep statements.
           return { ...fv, is_baseline: false };

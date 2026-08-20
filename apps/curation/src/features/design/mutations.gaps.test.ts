@@ -160,8 +160,14 @@ describe("toggleBaseline — FV already baseline: toggle removes it", () => {
   });
 });
 
-describe("toggleBaseline — two FVs in same factor: toggling one un-baselines the other", () => {
-  it("unmarks the previously-baseline FV when a new one is toggled on", () => {
+describe("toggleBaseline — two FVs in same factor: siblings are never touched", () => {
+  // REVERSED 2026-08-19. This used to assert that marking fv2 unmarked
+  // fv1. Gemma allows a factor to carry two reference levels (a dataset
+  // holding two experiments has one per experiment) and its own apply
+  // stopped clearing siblings, so clearing them here made that design
+  // unrepresentable: marking B silently unmarked A. Paul: "just allow
+  // it but flag it" — the ValidatorBanner does the flagging.
+  it("marks the new FV and LEAVES the existing baseline alone", () => {
     const fv1 = makeFv(10, {
       is_baseline: true,
       statements: [realStatement("wild type genotype")],
@@ -176,8 +182,35 @@ describe("toggleBaseline — two FVs in same factor: toggling one un-baselines t
 
     // The new one is baseline.
     expect(nextFv2.is_baseline).toBe(true);
-    // The old one is no longer baseline.
-    expect(nextFv1.is_baseline).toBe(false);
+    // ...and so is the old one. Two references, deliberately.
+    expect(nextFv1.is_baseline).toBe(true);
+  });
+
+  // Switching the baseline is now two clicks rather than one. That is
+  // the trade for never rewriting a value the curator didn't point at.
+  it("unmarking one leaves the other marked — switching takes two clicks", () => {
+    const fv1 = makeFv(10, { is_baseline: true, statements: [] });
+    const fv2 = makeFv(11, { is_baseline: false, statements: [] });
+    const design = makeDesign([makeFactor(1, "genotype", [fv1, fv2])]);
+
+    const both = toggleBaseline(design, 1, 11);
+    const switched = toggleBaseline(both, 1, 10);
+    const [a, b] = switched.factors[0].factor_values;
+
+    expect(a.is_baseline).toBe(false);
+    expect(b.is_baseline).toBe(true);
+  });
+
+  it("a sibling's statements survive the toggle untouched", () => {
+    const fv1 = makeFv(10, {
+      is_baseline: true,
+      statements: [realStatement("wild type genotype")],
+    });
+    const fv2 = makeFv(11, { is_baseline: false, statements: [] });
+    const design = makeDesign([makeFactor(1, "genotype", [fv1, fv2])]);
+
+    const next = toggleBaseline(design, 1, 11);
+    expect(next.factors[0].factor_values[0].statements).toEqual(fv1.statements);
   });
 
   it("does not touch is_baseline on other factors when toggling within one factor", () => {

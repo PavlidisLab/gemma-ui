@@ -141,6 +141,26 @@ describe("baseline chip — a detected level yields to an explicit mark", () => 
     expect(button.getAttribute("title")).not.toMatch(/already treats this/i);
   });
 
+  // ``toggleBaseline`` no longer clears siblings, so the click ADDS a
+  // second reference rather than moving the existing one. The copy said
+  // "make this one the baseline instead" and "marking any value
+  // overrides the rest" — both were true only while it did.
+  it("promises to ADD a second mark, not to move the existing one", () => {
+    renderCard(fv(false), vi.fn(), true);
+    const title = screen.getByTitle(/another value here IS marked/i)
+      .getAttribute("title")!;
+    expect(title).toMatch(/marks this one too/i);
+    expect(title).not.toMatch(/instead/i);
+    expect(title).not.toMatch(/overrides the rest/i);
+  });
+
+  it("names the cost of a second reference — DEA needs a subset factor", () => {
+    renderCard(fv(false), vi.fn(), true);
+    expect(
+      screen.getByTitle(/needs a subset factor for DEA/i),
+    ).toBeTruthy();
+  });
+
   it("marks the chip itself as overridden, not plain '(Gemma)'", () => {
     renderCard(fv(false), vi.fn(), true);
     expect(screen.getByText("▂ baseline (Gemma, overridden)")).toBeTruthy();

@@ -25,6 +25,48 @@ import type { FvChange } from "./diff";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { fvTarget } from "@/features/audit/targetIds";
 
+/** What the baseline chip's click actually does, said plainly.
+ *
+ *  Every branch here has been wrong at some point today, so each states
+ *  the CURRENT state first and the EFFECT second:
+ *
+ *  - it claimed Gemma's DEA used a detected value while a sibling was
+ *    explicitly marked — an explicit ``getIsBaseline()`` outranks the
+ *    detector, so it doesn't;
+ *  - it said "marking any value overrides the rest" and "make this one
+ *    the baseline instead", both true only while ``toggleBaseline``
+ *    cleared siblings. It no longer does: marking a second one ADDS a
+ *    second reference level.
+ *
+ *  Two references are legal and flagged, not blocked, so the copy names
+ *  the cost — Gemma's DEA refuses a multiple-baseline contrast without a
+ *  subset factor — rather than implying the click is free or forbidden. */
+function baselineToggleTitle(
+  fv: FactorValue,
+  siblingIsMarkedBaseline: boolean,
+): string {
+  if (fv.is_baseline) return "Marked as the baseline. Click to unmark.";
+
+  const secondReferenceCost =
+    "a factor may carry two reference levels, but it then needs a " +
+    "subset factor for DEA.";
+
+  if (gemmaAutoDetectsBaseline(fv)) {
+    return siblingIsMarkedBaseline
+      ? "Not marked. Gemma would read this as a reference level, but " +
+          "another value here IS marked and an explicit mark wins. " +
+          "Clicking marks this one too — " +
+          secondReferenceCost
+      : "Not marked — Gemma's DEA already treats this value as the " +
+          "reference level, so marking it is optional. Click to mark it " +
+          "explicitly.";
+  }
+  return siblingIsMarkedBaseline
+    ? "Mark as a baseline too. Another value here is already marked — " +
+        secondReferenceCost
+    : "Mark as baseline";
+}
+
 export function FactorValueCard({
   fv,
   factorCategory,
@@ -268,21 +310,7 @@ export function FactorValueCard({
             <button
               type="button"
               onClick={onToggleBaseline}
-              title={
-                fv.is_baseline
-                  ? "Marked as the baseline. Click to unmark."
-                  : gemmaAutoDetectsBaseline(fv)
-                    ? siblingIsMarkedBaseline
-                      ? "Not marked. Gemma would read this as a reference " +
-                        "level, but another value here IS marked and an " +
-                        "explicit mark wins. Click to make this one the " +
-                        "baseline instead."
-                      : "Not marked — Gemma's DEA already treats this value " +
-                        "as the reference level, so marking it is optional. " +
-                        "Click to mark it anyway; marking any value " +
-                        "overrides the rest."
-                    : "Mark as baseline"
-              }
+              title={baselineToggleTitle(fv, siblingIsMarkedBaseline)}
               className="cursor-pointer"
             >
               {fv.is_baseline ? (
