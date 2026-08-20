@@ -53,6 +53,13 @@ export function ValidatorBanner({
   const multiBaselineFactors = state.factors.filter(
     (s) => s.baseline_count > 1,
   );
+  // Factor values nothing is assigned to. Advisory for the same reason
+  // as the three above — it has to stay visible on a design that is
+  // otherwise clean, and a design CAN be clean with one: "every sample
+  // assigned" says nothing about a level that holds none.
+  const emptyFvFactors = state.factors.filter(
+    (s) => s.empty_factor_values.length > 0,
+  );
 
   if (state.ok) {
     return (
@@ -97,6 +104,15 @@ export function ValidatorBanner({
               onSelectFactor={onSelectFactor}
               heading="more than one baseline"
               noteFor={(s) => multiBaselineNote(s, design)}
+            />
+          ) : null}
+          {emptyFvFactors.length > 0 ? (
+            <FactorNotes
+              factors={emptyFvFactors}
+              design={design}
+              onSelectFactor={onSelectFactor}
+              heading="factor value with no samples"
+              noteFor={emptyFactorValueNote}
             />
           ) : null}
         </div>
@@ -209,6 +225,15 @@ export function ValidatorBanner({
             onSelectFactor={onSelectFactor}
             heading="more than one baseline"
             noteFor={(s) => multiBaselineNote(s, design)}
+          />
+        ) : null}
+        {emptyFvFactors.length > 0 ? (
+          <FactorNotes
+            factors={emptyFvFactors}
+            design={design}
+            onSelectFactor={onSelectFactor}
+            heading="factor value with no samples"
+            noteFor={emptyFactorValueNote}
           />
         ) : null}
       </div>
@@ -398,6 +423,37 @@ function overfullStatementNote(
         {" "}
         — Gemma holds two per subject; split the extras into their own
         statements before this design is written back.
+      </span>
+    </>
+  );
+}
+
+/** Levels with no samples on them. Not a blocker — a value the curator
+ *  added a moment ago and hasn't assigned yet is exactly this shape, and
+ *  scolding them mid-build is the nag this channel exists to avoid. It
+ *  names the consequence instead, which is downstream and quiet: Gemma
+ *  has nothing to contrast at that level, so the level drops out of the
+ *  analysis without saying so. */
+function emptyFactorValueNote(
+  s: DesignValidationState["factors"][number],
+): ReactNode {
+  const empties = s.empty_factor_values;
+  const listed = empties
+    .slice(0, 3)
+    .map((e) => `"${e.label}"`)
+    .join(", ");
+  return (
+    <>
+      {empties.length === 1
+        ? "1 value is not assigned to any samples"
+        : `${empties.length} values are not assigned to any samples`}{" "}
+      — {listed}
+      {empties.length > 3 ? ", …" : ""}
+      <span className="text-slate-500 italic">
+        {" "}
+        — an empty level contributes nothing to a differential-expression
+        contrast and won't appear in the analysis. Assign samples to it,
+        or delete it.
       </span>
     </>
   );

@@ -644,3 +644,131 @@ describe("validateDesign — overfull_statement_groups", () => {
     expect(overState.ok).toBe(okState.ok);
   });
 });
+
+// ---------------------------------------------------------------------------
+// empty_factor_values — a level nothing is assigned to
+//
+// The inverse of unassigned_biomaterials, and NOT covered by it: a
+// factor can account for every sample and still carry a level holding
+// none. Advisory (Paul, 2026-08-20) — an empty level is the normal
+// shape of a value the curator just added.
+// ---------------------------------------------------------------------------
+
+describe("validateDesign — empty_factor_values", () => {
+  const twoSamples = [
+    { short_name: "s1", name: "s1", characteristics: {} },
+    { short_name: "s2", name: "s2", characteristics: {} },
+  ];
+
+  it("says nothing when every value holds samples", () => {
+    const design = emptyDesign({
+      factors: [
+        categoricalFactor(1, "treatment", [
+          fv(1, "control", ["s1"], true),
+          fv(2, "drug", ["s2"]),
+        ]),
+      ],
+      biomaterials: twoSamples,
+    });
+    expect(validateDesign(design).factors[0].empty_factor_values).toEqual([]);
+  });
+
+  it("flags a value with no samples even when every sample IS assigned", () => {
+    // Both samples accounted for across control + drug, so
+    // ``unassigned_biomaterials`` is clean — the leftover third level
+    // is invisible to it.
+    const design = emptyDesign({
+      factors: [
+        categoricalFactor(1, "treatment", [
+          fv(1, "control", ["s1"], true),
+          fv(2, "drug", ["s2"]),
+          fv(3, "vehicle", []),
+        ]),
+      ],
+      biomaterials: twoSamples,
+    });
+    const state = validateDesign(design).factors[0];
+    expect(state.unassigned_biomaterials).toEqual([]);
+    expect(state.empty_factor_values).toEqual([
+      { fv_id: 3, label: "vehicle" },
+    ]);
+  });
+
+  it("names an unlabelled value by its single statement's subject", () => {
+    // Matches how the FV card titles itself, so the note names what the
+    // curator sees rather than a bare id.
+    const design = emptyDesign({
+      factors: [
+        categoricalFactor(1, "treatment", [
+          fv(1, "control", ["s1", "s2"], true),
+          fvWithSubjectUri(9, "", [], "valproic acid", "http://x/CHEBI_1"),
+        ]),
+      ],
+      biomaterials: twoSamples,
+    });
+    expect(validateDesign(design).factors[0].empty_factor_values).toEqual([
+      { fv_id: 9, label: "valproic acid" },
+    ]);
+  });
+
+  it("falls back to the id when there is no label and no subject", () => {
+    const design = emptyDesign({
+      factors: [
+        categoricalFactor(1, "treatment", [
+          fv(1, "control", ["s1", "s2"], true),
+          fv(4, "", []),
+        ]),
+      ],
+      biomaterials: twoSamples,
+    });
+    expect(validateDesign(design).factors[0].empty_factor_values).toEqual([
+      { fv_id: 4, label: "FV 4" },
+    ]);
+  });
+
+  it("is advisory — an empty level does not fail ok", () => {
+    const build = (fvs: FactorValue[]): Design => {
+      const d = emptyDesign({
+        factors: [categoricalFactor(1, "treatment", fvs)],
+        biomaterials: twoSamples,
+      });
+      // Ground the category + describe the factor so the baseline
+      // design really is valid — otherwise both sides are ok=false for
+      // unrelated reasons and the comparison proves nothing.
+      d.factors[0].category = {
+        label: "treatment",
+        uri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+      };
+      d.factors[0].description = "treatment arm";
+      return d;
+    };
+    const clean = validateDesign(
+      build([fv(1, "control", ["s1"], true), fv(2, "drug", ["s2"])]),
+    );
+    const withEmpty = validateDesign(
+      build([
+        fv(1, "control", ["s1"], true),
+        fv(2, "drug", ["s2"]),
+        fv(3, "vehicle", []),
+      ]),
+    );
+    expect(withEmpty.factors[0].empty_factor_values).toHaveLength(1);
+    expect(withEmpty.ok).toBe(clean.ok);
+    expect(clean.ok).toBe(true);
+  });
+
+  it("stays quiet on continuous factors", () => {
+    // Per-sample measurements, not a discrete partition — the same
+    // reason unassigned / baseline checks skip these.
+    const design = emptyDesign({
+      factors: [
+        {
+          ...categoricalFactor(1, "age", [fv(1, "", [])]),
+          type: "continuous",
+        },
+      ],
+      biomaterials: twoSamples,
+    });
+    expect(validateDesign(design).factors[0].empty_factor_values).toEqual([]);
+  });
+});

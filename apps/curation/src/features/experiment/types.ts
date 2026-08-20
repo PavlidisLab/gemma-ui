@@ -558,6 +558,24 @@ export interface FactorValidationState {
   baseline_uncertain_reason: string;
   unassigned_biomaterials: string[];
   duplicate_assignments: string[]; // biomaterials assigned to >1 FV in this factor
+  /** FVs with zero samples assigned. The inverse of
+   *  ``unassigned_biomaterials``: that one asks "is every sample
+   *  accounted for", this one asks "does every level actually describe
+   *  anything". A factor can satisfy the first and still fail this —
+   *  every sample assigned across three FVs while a fourth, left over
+   *  from an edit or an agent proposal, holds none.
+   *
+   *  ADVISORY, not part of ``ok`` (Paul, 2026-08-20: "not a blocker").
+   *  An empty level is legitimate mid-edit — a value the curator just
+   *  added and hasn't assigned yet is the normal way to build a factor,
+   *  and blocking commit on it would fire constantly during ordinary
+   *  work. What it costs is downstream, not on the wire: Gemma's DEA
+   *  has no samples at that level, so the level contributes no contrast
+   *  and simply vanishes from the analysis.
+   *
+   *  Empty for continuous factors, which carry per-sample measurements
+   *  rather than a discrete partition. */
+  empty_factor_values: { fv_id: number; label: string }[];
   unknown_predicates: number;
   /** Statements with no Statement.category. Real Gemma requires it;
    *  the commit-time normalizer auto-fills from the factor's category,
@@ -859,6 +877,23 @@ export function validateDesign(design: Design): DesignValidationState {
     const unassigned = isContinuous
       ? []
       : [...allBmNames].filter((n) => !seen.has(n)).sort();
+    // Levels nothing landed on. Named by the same rule the FV card
+    // titles itself by — its own label, falling back to the subject of
+    // its single statement — so the advisory names what the curator
+    // sees on the card rather than a bare id.
+    const emptyFvs = isContinuous
+      ? []
+      : f.factor_values
+          .filter((fv) => fv.biomaterial_short_names.length === 0)
+          .map((fv) => ({
+            fv_id: fv.id,
+            label:
+              (fv.free_text_label || "").trim() ||
+              (fv.statements.length === 1
+                ? (fv.statements[0].subject?.label || "").trim()
+                : "") ||
+              `FV ${fv.id}`,
+          }));
     const duplicates = [...seen.entries()]
       .filter(([, n]) => n > 1)
       .map(([sn]) => sn)
@@ -904,6 +939,7 @@ export function validateDesign(design: Design): DesignValidationState {
         : "",
       unassigned_biomaterials: unassigned,
       duplicate_assignments: duplicates,
+      empty_factor_values: emptyFvs,
       unknown_predicates: unknownPredicates,
       statements_missing_category: stmtsMissingCategory,
       deprecated_baseline_fvs: deprecatedBaselineFvs,

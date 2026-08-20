@@ -371,17 +371,35 @@ export function FactorValueCard({
             title for cases the curator needs it. The "(was N)"
             change marker still surfaces inline because it's an edit
             signal, not metadata.
+
+            The count is a chip, not slate-400 body text (2026-08-20).
+            It had been styled as metadata and reads as the group size —
+            how many samples this level actually holds — which is the
+            number a curator scans a factor for. At slate-400 it
+            disappeared beside the free-text label and the original-value
+            trail, and a level holding one sample looked no different
+            from one holding twenty.
           */}
           <span
-            className={
+            className={cn(
+              "text-xs px-1.5 py-0.5 rounded tabular-nums font-medium",
               fv.biomaterial_short_names.length === 0
-                ? "text-xs font-semibold text-rose-700 dark:text-rose-400"
-                : "text-xs text-slate-400"
-            }
+                ? "font-semibold text-rose-700 bg-rose-50 dark:text-rose-300 dark:bg-rose-900/40"
+                : "text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-800",
+            )}
             title={
               fv.biomaterial_short_names.length === 0
                 ? `FV id ${fv.id} — no samples assigned. This factor value will not appear in any analysis; assign at least one sample or delete this FV.`
-                : `FV id ${fv.id}`
+                : // Names, not just the count — a curator checking a
+                  // suspiciously small level wants to know WHICH samples
+                  // landed there. Capped so a 500-sample level doesn't
+                  // produce a tooltip taller than the screen; the Samples
+                  // tab is the full list.
+                  `FV id ${fv.id} — ${fv.biomaterial_short_names.length} sample(s) at this level: ${fv.biomaterial_short_names
+                    .slice(0, 12)
+                    .join(", ")}${
+                    fv.biomaterial_short_names.length > 12 ? ", …" : ""
+                  }`
             }
           >
             {fv.biomaterial_short_names.length === 0 ? (
