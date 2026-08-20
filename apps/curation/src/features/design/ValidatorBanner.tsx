@@ -36,6 +36,15 @@ export function ValidatorBanner({
   const overfullFactors = state.factors.filter(
     (s) => s.overfull_statement_groups.length > 0,
   );
+  // More than one marked baseline. Legal — a dataset that is really two
+  // experiments in one carries a reference per sub-experiment, and
+  // Gemma's split clones the flag onto each — so this asks whether it
+  // was intended rather than calling it wrong. Advisory channel for the
+  // same reason as the two above: it has to stay visible on a design
+  // that is otherwise clean, which the amber list is not.
+  const multiBaselineFactors = state.factors.filter(
+    (s) => s.baseline_required && s.baseline_count > 1,
+  );
 
   if (state.ok) {
     return (
@@ -45,7 +54,11 @@ export function ValidatorBanner({
             <span className="font-semibold">✓ design valid</span>
             {state.factors.map((s) => (
               <span key={s.factor_id}>
-                {nameOf(design, s.factor_id)}: 1 baseline · all{" "}
+                {/* Was a hardcoded "1 baseline". A valid design may carry
+                    two references, or none marked at all where Gemma
+                    detects one — both printed as "1", the banner
+                    contradicting the cards. */}
+                {nameOf(design, s.factor_id)}: {baselineSummary(s)} · all{" "}
                 {design.biomaterials.length} samples assigned
               </span>
             ))}
@@ -67,6 +80,15 @@ export function ValidatorBanner({
               onSelectFactor={onSelectFactor}
               heading="over Gemma's statement limit"
               noteFor={overfullStatementNote}
+            />
+          ) : null}
+          {multiBaselineFactors.length > 0 ? (
+            <FactorNotes
+              factors={multiBaselineFactors}
+              design={design}
+              onSelectFactor={onSelectFactor}
+              heading="more than one baseline"
+              noteFor={multiBaselineNote}
             />
           ) : null}
         </div>
@@ -249,6 +271,42 @@ function FactorNotes({
   );
 }
 
+/** How the valid-design banner states the baseline situation. Three
+ *  real cases, and the old copy printed all of them as "1 baseline":
+ *  nothing marked but Gemma detects one (the common case — marking is
+ *  optional), exactly one marked, and more than one marked (legal, for
+ *  a dataset holding two experiments). */
+function baselineSummary(s: DesignValidationState["factors"][number]): string {
+  if (s.baseline_count === 0) {
+    return s.gemma_auto_baseline.length > 0
+      ? "baseline detected by Gemma"
+      : "no baseline";
+  }
+  return s.baseline_count === 1
+    ? "1 baseline"
+    : `${s.baseline_count} baselines`;
+}
+
+/** More than one FV marked baseline. Legal, so this asks rather than
+ *  scolds — Paul, 2026-08-19: flag it "not as an error, just as a, did
+ *  you need to do this?" */
+function multiBaselineNote(
+  s: DesignValidationState["factors"][number],
+): ReactNode {
+  return (
+    <>
+      {s.baseline_count} values marked baseline — did you need more than
+      one?
+      <span className="text-slate-500 italic">
+        {" "}
+        — right when this dataset is really two experiments in one (each
+        gets its own reference level); otherwise one of them is probably
+        left over.
+      </span>
+    </>
+  );
+}
+
 /** The proposer's uncertain-baseline note. */
 function baselineUncertainNote(
   s: DesignValidationState["factors"][number],
@@ -303,8 +361,10 @@ function warningsFor(s: DesignValidationState["factors"][number]): string[] {
     s.gemma_auto_baseline.length === 0
   )
     warnings.push("no baseline marked");
-  if (s.baseline_required && s.baseline_count > 1)
-    warnings.push(`${s.baseline_count} baselines marked (should be 1)`);
+  // More than one marked baseline is deliberately NOT a warning — it is
+  // legal, and it is the right answer for a two-experiments-in-one
+  // dataset. It surfaces as a slate ``FactorNotes`` row asking whether
+  // the curator meant it. See ``multiBaselineNote``.
   if (s.nonstandard_marked_baseline) {
     const { label, standard } = s.nonstandard_marked_baseline;
     warnings.push(

@@ -546,12 +546,10 @@ function factorIssueLines(
   // ``baseline_satisfied`` covers the case Gemma resolves on its own
   // (an unmarked "reference substance role" / "female" FV) — that
   // factor has a reference for DEA and isn't a quality issue.
+  // Only the zero case can fail now: ``baseline_satisfied`` is true for
+  // any count >= 1, because more than one marked baseline is legal.
   if (s.baseline_required && !s.baseline_satisfied) {
-    out.push(
-      s.baseline_count === 0
-        ? "no baseline FV marked"
-        : `${s.baseline_count} baseline FVs marked — exactly 1 expected`,
-    );
+    out.push("no baseline FV marked");
   }
   if (s.unassigned_biomaterials.length > 0) {
     out.push(

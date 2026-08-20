@@ -567,8 +567,12 @@ function buildItems({
   // (cell line) also flow through here even though the
   // ValidatorBanner still flags them — the curator's already
   // acknowledged the warning at design time.
+  // ``>= 1``, not ``=== 1``: a dataset that is really two experiments in
+  // one carries a reference per sub-experiment, and blocking publish on
+  // that would refuse a design the curator marked deliberately. Only the
+  // absence of any reference fails.
   const baselinesOk = validation.factors.every(
-    (s) => !s.baseline_blocks_commit || s.baseline_count === 1,
+    (s) => !s.baseline_blocks_commit || s.baseline_count >= 1,
   );
   const noUnknownPredicates = validation.factors.every(
     (s) => s.unknown_predicates === 0,

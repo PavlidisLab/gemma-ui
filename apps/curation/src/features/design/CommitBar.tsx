@@ -64,9 +64,14 @@ export function CommitBar({
   // category) — the ValidatorBanner still surfaces a "no baseline
   // marked" bullet so the curator considers it, but commit isn't
   // gated.
+  // ``=== 0``, not ``!== 1``: more than one marked baseline is legal
+  // (a two-experiments-in-one dataset carries a reference per
+  // sub-experiment) and must not gate the commit. Only the absence of
+  // any reference does. The ValidatorBanner asks about the multi case
+  // in its slate advisory channel instead.
   const baselineProblem = validation
     ? validation.factors.filter(
-        (f) => f.baseline_blocks_commit && f.baseline_count !== 1,
+        (f) => f.baseline_blocks_commit && f.baseline_count === 0,
       )
     : [];
   const hasBaselineProblem = baselineProblem.length > 0;
@@ -231,10 +236,9 @@ export function CommitBar({
               ).trim();
               const factorLabel =
                 rawName || `(unnamed factor#${f.factor_id})`;
-              const issue =
-                f.baseline_count === 0
-                  ? "no baseline"
-                  : `${f.baseline_count} baselines (need 1)`;
+              // Only the zero case reaches this list now — a multi-
+              // baseline factor is legal and never gated.
+              const issue = "no baseline";
               const state = overrideState[f.factor_id] ?? {
                 checked: false,
                 reason: "",

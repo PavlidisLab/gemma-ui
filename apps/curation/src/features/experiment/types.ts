@@ -528,7 +528,11 @@ export function factorBaselineBlocksCommit(
 
 export interface FactorValidationState {
   factor_id: number;
-  baseline_count: number;          // 0 means missing, >1 means duplicates
+  /** How many FVs carry the explicit mark. 0 means none. **>1 is legal**
+   *  — a two-experiments-in-one dataset carries one reference per
+   *  sub-experiment — so nothing may treat it as an error; the UI asks
+   *  whether it was intended and moves on. */
+  baseline_count: number;
   /** Whether the baseline-count rule applies to this factor at
    *  all. False for batch / block factors — those are nuisance
    *  variables and have no natural baseline. UI / commit gating
@@ -613,9 +617,10 @@ export interface FactorValidationState {
    *  for one. Mirrors ``BaselineSelection.getBaselineLevels``; the
    *  first entry is the FV it would land on. */
   gemma_auto_baseline: AutoBaselineFv[];
-  /** The baseline question is answered — one marked FV, or Gemma
-   *  detects one on its own. Consumers should read THIS rather than
-   *  comparing ``baseline_count`` to 1. */
+  /** The baseline question is answered — at least one marked FV, or
+   *  Gemma detects one on its own. Consumers should read THIS rather
+   *  than comparing ``baseline_count`` to 1: more than one mark is
+   *  legal, so ``=== 1`` reads a deliberate design as a defect. */
   baseline_satisfied: boolean;
   /** A curator marked an FV that Gemma would NOT have recognised,
    *  while another FV in the same factor carries a term it WOULD —
@@ -862,7 +867,13 @@ export function validateDesign(design: Design): DesignValidationState {
       f.baseline_relevance === "uncertain" && baselineCount === 0;
     // What Gemma would do with this factor if nobody marked anything.
     const autoBaseline = isContinuous ? [] : gemmaAutoBaselineFvs(f);
-    const baselineSatisfied = baselineCount === 1 || autoBaseline.length > 0;
+    // More than one marked baseline is ALLOWED (Paul, 2026-08-19). It is
+    // the right answer when a dataset is really two experiments in one —
+    // Gemma's own ``SplitExperimentServiceImpl`` clones the flag onto
+    // each split's factor values, so one baseline per resulting
+    // experiment is the model. The UI asks whether the curator meant it
+    // (a slate FactorNotes row) and never calls it invalid.
+    const baselineSatisfied = baselineCount >= 1 || autoBaseline.length > 0;
     // A marked FV that Gemma wouldn't have recognised, on a factor
     // where it would have recognised something else. The mark wins, so
     // "male" quietly becomes the reference on a factor holding
