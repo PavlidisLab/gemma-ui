@@ -42,8 +42,16 @@ export function ValidatorBanner({
   // was intended rather than calling it wrong. Advisory channel for the
   // same reason as the two above: it has to stay visible on a design
   // that is otherwise clean, which the amber list is not.
+  //
+  // ANY factor, deliberately un-gated by ``baseline_required`` (Paul,
+  // 2026-08-19: "just flag any >1-baseline factor to the curator").
+  // Block / batch / cell-type / cell-line factors carry
+  // ``baseline_required: false`` because nothing should ASK them for a
+  // baseline — but two marks already sitting on one is worth a look
+  // wherever it happens, and more surprising there, not less. Gemma
+  // agrees: its DEA counts explicitly marked values, not categories.
   const multiBaselineFactors = state.factors.filter(
-    (s) => s.baseline_required && s.baseline_count > 1,
+    (s) => s.baseline_count > 1,
   );
 
   if (state.ok) {
@@ -192,6 +200,15 @@ export function ValidatorBanner({
             onSelectFactor={onSelectFactor}
             heading="over Gemma's statement limit"
             noteFor={overfullStatementNote}
+          />
+        ) : null}
+        {multiBaselineFactors.length > 0 ? (
+          <FactorNotes
+            factors={multiBaselineFactors}
+            design={design}
+            onSelectFactor={onSelectFactor}
+            heading="more than one baseline"
+            noteFor={multiBaselineNote}
           />
         ) : null}
       </div>

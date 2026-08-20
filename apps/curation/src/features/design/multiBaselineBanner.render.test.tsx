@@ -30,15 +30,19 @@ function fv(id: number, label: string, bm: string, baseline = false): FactorValu
   };
 }
 
-function designWith(fvs: FactorValue[]): Design {
+function designWith(
+  fvs: FactorValue[],
+  category = "treatment",
+  uri: string | null = "http://www.ebi.ac.uk/efo/EFO_0000727",
+): Design {
   return {
     experiment_id: 1,
     experiment_short_name: "GSE0",
     factors: [
       {
         id: 1,
-        name: "treatment",
-        category: { label: "treatment", uri: "http://www.ebi.ac.uk/efo/EFO_0000727" },
+        name: category,
+        category: { label: category, uri },
         description: "described",
         type: "categorical",
         factor_values: fvs,
@@ -117,6 +121,47 @@ describe("ValidatorBanner — two baselines ask, they don't scold", () => {
 
   it("a single marked baseline carries no advisory at all", () => {
     renderFor(designWith([fv(1, "vehicle", "s1", true), fv(2, "drug", "s2")]));
+    expect(screen.queryByText("more than one baseline")).toBeNull();
+  });
+
+  // Paul, 2026-08-19: "just flag ANY >1-baseline factor to the curator."
+  // ``block`` is in NO_BASELINE_CATEGORIES, so ``baseline_required`` is
+  // false and the filter used to skip it — the one category where two
+  // marks are most surprising was the one that stayed silent.
+  it("flags a block factor too, which never REQUIRES a baseline", () => {
+    const d = designWith(
+      [
+        fv(1, "lane 1", "s1", true),
+        fv(2, "lane 2", "s2", true),
+      ],
+      "block",
+      null,
+    );
+    expect(validateDesign(d).factors[0].baseline_required).toBe(false);
+    renderFor(d);
+    expect(screen.getByText("more than one baseline")).toBeTruthy();
+  });
+
+  // The advisory has to hang off BOTH banner branches. It was wired
+  // into the valid one only, so a design with any unrelated warning
+  // (here: an ungrounded category) dropped it exactly when the curator
+  // had the most on screen to read.
+  it("survives the warnings branch, not just the valid one", () => {
+    const d = designWith(
+      [fv(1, "vehicle A", "s1", true), fv(2, "vehicle B", "s2", true)],
+      "treatment",
+      null, // ungrounded -> the design has warnings
+    );
+    expect(validateDesign(d).ok).toBe(false);
+    renderFor(d);
+    expect(screen.getByText(/design has warnings/)).toBeTruthy();
+    expect(screen.getByText("more than one baseline")).toBeTruthy();
+  });
+
+  it("still says nothing about a block factor with one mark", () => {
+    renderFor(
+      designWith([fv(1, "lane 1", "s1", true), fv(2, "lane 2", "s2")], "block", null),
+    );
     expect(screen.queryByText("more than one baseline")).toBeNull();
   });
 });
