@@ -96,16 +96,73 @@ describe("ValidatorBanner — two baselines ask, they don't scold", () => {
   // that is a dead end discovered at analysis time.
   it("names the DEA consequence, not just the question", () => {
     renderFor(TWO);
-    expect(screen.getByText(/needs a\s+subset factor before DEA can run/)).toBeTruthy();
+    expect(
+      screen.getByText(/needs a subset before DEA can run/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/refuses a\s+multiple-baseline contrast/),
+    ).toBeTruthy();
   });
 
-  // The draft carries subset RECOMMENDATIONS, never whether a subset
-  // factor is configured — so the note may state the requirement but
-  // must not accuse the curator of having skipped it.
-  it("states the requirement without claiming a subset is missing", () => {
+  // Paul: two baselines "strongly supports that the curator needs to
+  // select a 'subset by' factor". Naming the consequence isn't enough —
+  // the note has to name the control, which already exists as the
+  // SubsetRecommendationsBlock in "Experiment-wide decisions".
+  it("points at the control that fixes it", () => {
     renderFor(TWO);
-    expect(screen.queryByText(/no subset factor/i)).toBeNull();
-    expect(screen.queryByText(/missing subset/i)).toBeNull();
+    expect(screen.getByText(/choose a .subset by. factor/i)).toBeTruthy();
+    expect(screen.getByText(/Experiment-wide decisions/)).toBeTruthy();
+  });
+
+  // ...and stops asking once they've done it. An accepted
+  // SubsetRecommendation carrying a by_factor_id IS the choice; a note
+  // that keeps demanding one after the fact is the nag this advisory
+  // channel exists to avoid.
+  it("acknowledges an accepted subset instead of demanding one", () => {
+    const d = designWith([
+      fv(1, "vehicle A", "s1", true),
+      fv(2, "vehicle B", "s2", true),
+    ]);
+    d.factors.push({
+      id: 2,
+      name: "cell line",
+      category: { label: "cell line", uri: null },
+      description: "d",
+      type: "categorical",
+      factor_values: [],
+    } as unknown as Design["factors"][number]);
+    d.subset_recommendations = [
+      {
+        id: "curator:subset:2:1",
+        by_factor_id: 2,
+        level_labels: [],
+        rationale: "",
+        status: "accepted",
+        source: "curator",
+      },
+    ];
+    renderFor(d);
+    expect(screen.getByText(/subset by cell line is recorded/)).toBeTruthy();
+    expect(screen.queryByText(/No subset recorded yet/)).toBeNull();
+  });
+
+  it("ignores a subset the curator rejected — that is not a choice", () => {
+    const d = designWith([
+      fv(1, "vehicle A", "s1", true),
+      fv(2, "vehicle B", "s2", true),
+    ]);
+    d.subset_recommendations = [
+      {
+        id: "agent:subset:9:1",
+        by_factor_id: 9,
+        level_labels: [],
+        rationale: "",
+        status: "rejected",
+        source: "agent",
+      },
+    ];
+    renderFor(d);
+    expect(screen.getByText(/No subset recorded yet/)).toBeTruthy();
   });
 
   it("counts the baselines rather than printing a hardcoded '1'", () => {

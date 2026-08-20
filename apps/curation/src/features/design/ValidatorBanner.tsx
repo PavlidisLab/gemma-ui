@@ -96,7 +96,7 @@ export function ValidatorBanner({
               design={design}
               onSelectFactor={onSelectFactor}
               heading="more than one baseline"
-              noteFor={multiBaselineNote}
+              noteFor={(s) => multiBaselineNote(s, design)}
             />
           ) : null}
         </div>
@@ -208,7 +208,7 @@ export function ValidatorBanner({
             design={design}
             onSelectFactor={onSelectFactor}
             heading="more than one baseline"
-            noteFor={multiBaselineNote}
+            noteFor={(s) => multiBaselineNote(s, design)}
           />
         ) : null}
       </div>
@@ -308,21 +308,35 @@ function baselineSummary(s: DesignValidationState["factors"][number]): string {
  *  scolds — Paul, 2026-08-19: flag it "not as an error, just as a, did
  *  you need to do this?"
  *
- *  It still has to name the consequence. Gemma's DEA now throws
- *  ``MultipleBaselinesRequireSubsetException`` on a multi-baseline
- *  factor unless a subset factor is configured (gemma backend,
- *  2026-08-19) — it used to silently pick whichever baseline it reached
- *  first. A friendly question that omits that leaves the curator to
- *  find out at analysis time, which is the dead end this channel exists
- *  to prevent.
+ *  It still has to name the consequence, and then the ACTION. Gemma's
+ *  DEA throws ``MultipleBaselinesRequireSubsetException`` on a
+ *  multi-baseline factor unless a subset factor is configured (gemma
+ *  backend, 2026-08-19) — it used to silently pick whichever baseline it
+ *  reached first. Per Paul: two baselines "strongly supports that the
+ *  curator needs to select a 'subset by' factor". So the note names the
+ *  control that does it — the design tab's "Experiment-wide decisions"
+ *  pane, whose ``SubsetRecommendationsBlock`` writes exactly this.
  *
- *  Stated as a requirement, not an accusation: the design draft carries
- *  ``subset_recommendations`` (a suggestion) but not whether a subset
- *  factor is actually configured, so the card must not claim one is
- *  missing. */
+ *  And it checks first. An accepted ``SubsetRecommendation`` carrying a
+ *  ``by_factor_id`` IS the curator's subset-by choice, so a note that
+ *  keeps demanding one after they made it is the nag this channel is
+ *  supposed to avoid. (An earlier draft of this claimed the draft
+ *  couldn't know — it can; ``subset_recommendations`` rides on the
+ *  design.) What it deliberately does NOT claim is that Gemma's own DEA
+ *  config is set: this is the curation-side decision that drives it,
+ *  not the analysis config itself. */
 function multiBaselineNote(
   s: DesignValidationState["factors"][number],
+  design: Design,
 ): ReactNode {
+  const accepted = (design.subset_recommendations ?? []).filter(
+    (r) => r.status === "accepted" && typeof r.by_factor_id === "number",
+  );
+  const byFactor = accepted
+    .map((r) => design.factors.find((f) => f.id === r.by_factor_id))
+    .filter((f): f is NonNullable<typeof f> => !!f)
+    .map((f) => f.name || f.category?.label || `factor ${f.id}`);
+
   return (
     <>
       {s.baseline_count} values marked baseline — did you need more than
@@ -330,10 +344,18 @@ function multiBaselineNote(
       <span className="text-slate-500 italic">
         {" "}
         — legitimate when this dataset is really two experiments in one,
-        each with its own reference level. That factor then needs a
-        subset factor before DEA can run: Gemma refuses a
-        multiple-baseline contrast rather than picking one. If it isn't
-        two experiments, one of these is probably left over.
+        each with its own reference level. Gemma then refuses a
+        multiple-baseline contrast rather than picking one, so this
+        factor needs a subset before DEA can run.{" "}
+        {byFactor.length > 0 ? (
+          <>subset by {byFactor.join(", ")} is recorded.</>
+        ) : (
+          <>
+            No subset recorded yet — choose a “subset by” factor under
+            Experiment-wide decisions. If it isn’t two experiments, one
+            of these marks is probably left over.
+          </>
+        )}
       </span>
     </>
   );
