@@ -289,7 +289,20 @@ function baselineSummary(s: DesignValidationState["factors"][number]): string {
 
 /** More than one FV marked baseline. Legal, so this asks rather than
  *  scolds — Paul, 2026-08-19: flag it "not as an error, just as a, did
- *  you need to do this?" */
+ *  you need to do this?"
+ *
+ *  It still has to name the consequence. Gemma's DEA now throws
+ *  ``MultipleBaselinesRequireSubsetException`` on a multi-baseline
+ *  factor unless a subset factor is configured (gemma backend,
+ *  2026-08-19) — it used to silently pick whichever baseline it reached
+ *  first. A friendly question that omits that leaves the curator to
+ *  find out at analysis time, which is the dead end this channel exists
+ *  to prevent.
+ *
+ *  Stated as a requirement, not an accusation: the design draft carries
+ *  ``subset_recommendations`` (a suggestion) but not whether a subset
+ *  factor is actually configured, so the card must not claim one is
+ *  missing. */
 function multiBaselineNote(
   s: DesignValidationState["factors"][number],
 ): ReactNode {
@@ -299,9 +312,11 @@ function multiBaselineNote(
       one?
       <span className="text-slate-500 italic">
         {" "}
-        — right when this dataset is really two experiments in one (each
-        gets its own reference level); otherwise one of them is probably
-        left over.
+        — legitimate when this dataset is really two experiments in one,
+        each with its own reference level. That factor then needs a
+        subset factor before DEA can run: Gemma refuses a
+        multiple-baseline contrast rather than picking one. If it isn't
+        two experiments, one of these is probably left over.
       </span>
     </>
   );

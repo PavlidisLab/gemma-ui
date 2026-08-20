@@ -87,6 +87,23 @@ describe("ValidatorBanner — two baselines ask, they don't scold", () => {
     expect(screen.getByText(/two experiments in one/)).toBeTruthy();
   });
 
+  // Gemma's DEA throws MultipleBaselinesRequireSubsetException on a
+  // multi-baseline factor with no subset factor. A question that omits
+  // that is a dead end discovered at analysis time.
+  it("names the DEA consequence, not just the question", () => {
+    renderFor(TWO);
+    expect(screen.getByText(/needs a\s+subset factor before DEA can run/)).toBeTruthy();
+  });
+
+  // The draft carries subset RECOMMENDATIONS, never whether a subset
+  // factor is configured — so the note may state the requirement but
+  // must not accuse the curator of having skipped it.
+  it("states the requirement without claiming a subset is missing", () => {
+    renderFor(TWO);
+    expect(screen.queryByText(/no subset factor/i)).toBeNull();
+    expect(screen.queryByText(/missing subset/i)).toBeNull();
+  });
+
   it("counts the baselines rather than printing a hardcoded '1'", () => {
     renderFor(TWO);
     expect(screen.getByText(/2 baselines/)).toBeTruthy();
