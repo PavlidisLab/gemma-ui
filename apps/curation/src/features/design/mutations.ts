@@ -1558,13 +1558,14 @@ export function setBiomaterialCharacteristic(
 
 /**
  * Move a biomaterial to a different FV within the same factor (reassignment).
- * No-op when the target FV already has it.
+ * No-op when the target FV already has it. ``toFvId === null`` unassigns:
+ * the sample leaves every FV in this factor and holds no value for it.
  */
 export function reassignSample(
   design: Design,
   factorId: number,
   biomaterialShortName: string,
-  toFvId: number,
+  toFvId: number | null,
 ): Design {
   return reassignSamples(design, factorId, [biomaterialShortName], toFvId);
 }
@@ -1576,12 +1577,16 @@ export function reassignSample(
  * fan-out that bit single-cell datasets where dropping one tile
  * could trigger 50 sequential ``apply()`` invocations and
  * 50 reductions over the design.
+ *
+ * ``toFvId === null`` unassigns: no FV matches the add branch, so
+ * the samples are only removed — they end up holding no value for
+ * this factor (the validator's ``unassigned_biomaterials`` state).
  */
 export function reassignSamples(
   design: Design,
   factorId: number,
   biomaterialShortNames: string[],
-  toFvId: number,
+  toFvId: number | null,
 ): Design {
   const moving = new Set(biomaterialShortNames);
   if (moving.size === 0) return design;

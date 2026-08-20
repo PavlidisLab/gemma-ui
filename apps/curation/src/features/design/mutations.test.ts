@@ -3,6 +3,8 @@ import {
   addCategoricalFactorFromCharacteristic,
   addContinuousFactorFromCharacteristic,
   isContinuousCharacteristic,
+  reassignSample,
+  reassignSamples,
   removeAppliedProposalFromDesign,
   setStatement,
 } from "./mutations";
@@ -683,5 +685,87 @@ describe("promoting a characteristic carries its ontology URIs", () => {
       label: "sex",
       uri: "http://example.org/custom",
     });
+  });
+});
+
+/**
+ * ``reassignSample(s)`` with a null target = unassign. The samples
+ * tab's per-sample dropdown and its selected-rows bar both send
+ * null when the curator picks "— unassigned —", so a mis-assignment
+ * is undoable rather than only re-pointable at another value.
+ */
+describe("reassignSamples — null target unassigns", () => {
+  function twoFactorDesign(): Design {
+    const treatment: Factor = {
+      ...factor(1, "treatment"),
+      factor_values: [
+        {
+          id: 10,
+          free_text_label: "vehicle",
+          is_baseline: true,
+          statements: [],
+          biomaterial_short_names: ["s1", "s2"],
+        },
+        {
+          id: 11,
+          free_text_label: "drug",
+          is_baseline: false,
+          statements: [],
+          biomaterial_short_names: ["s3"],
+        },
+      ],
+    };
+    const genotype: Factor = {
+      ...factor(2, "genotype"),
+      factor_values: [
+        {
+          id: 20,
+          free_text_label: "wild type",
+          is_baseline: true,
+          statements: [],
+          biomaterial_short_names: ["s1", "s2", "s3"],
+        },
+      ],
+    };
+    return makeDesign({ factors: [treatment, genotype] });
+  }
+
+  it("drops the sample from every FV of the target factor", () => {
+    const next = reassignSample(twoFactorDesign(), 1, "s1", null);
+    const fvs = next.factors[0].factor_values;
+    expect(fvs.map((fv) => fv.biomaterial_short_names)).toEqual([
+      ["s2"],
+      ["s3"],
+    ]);
+  });
+
+  it("leaves the sample's other factors alone", () => {
+    const next = reassignSample(twoFactorDesign(), 1, "s1", null);
+    expect(next.factors[1].factor_values[0].biomaterial_short_names).toEqual([
+      "s1",
+      "s2",
+      "s3",
+    ]);
+  });
+
+  it("unassigns a bulk selection spanning several FVs", () => {
+    const next = reassignSamples(twoFactorDesign(), 1, ["s1", "s3"], null);
+    expect(
+      next.factors[0].factor_values.map((fv) => fv.biomaterial_short_names),
+    ).toEqual([["s2"], []]);
+  });
+
+  it("is a no-op on an already-unassigned sample", () => {
+    const d = twoFactorDesign();
+    const once = reassignSample(d, 1, "s1", null);
+    const twice = reassignSample(once, 1, "s1", null);
+    expect(twice.factors[0].factor_values).toEqual(
+      once.factors[0].factor_values,
+    );
+    // Untouched FVs keep their identity — nothing re-allocates, so
+    // memoized rows downstream don't churn.
+    expect(twice.factors[0].factor_values[0]).toBe(
+      once.factors[0].factor_values[0],
+    );
   });
 });

@@ -235,11 +235,16 @@ function SampleTable({
   onSortChange: (s: SortState) => void;
   selected: Set<string>;
   onSelectedChange: (s: Set<string>) => void;
-  onReassign: (shortName: string, factorId: number, toFvId: number) => void;
+  /** ``toFvId === null`` unassigns the sample from this factor. */
+  onReassign: (
+    shortName: string,
+    factorId: number,
+    toFvId: number | null,
+  ) => void;
   onReassignBulk: (
     shortNames: string[],
     factorId: number,
-    toFvId: number,
+    toFvId: number | null,
   ) => void;
   onSetCharacteristic: (shortName: string, key: string, value: string) => void;
   onPromoteCharacteristic: (key: string) => void;
@@ -2326,6 +2331,12 @@ function ColumnResizeHandle({
   );
 }
 
+/** Sentinel `<option>` value standing for "no factor value". It can't
+ *  be `""` — that's the placeholder a mixed cell rests on, and
+ *  picking an option whose value equals the current one fires no
+ *  change event, so a mixed group could never be cleared. */
+const UNASSIGNED_OPTION = "__unassigned__";
+
 function FvSelect({
   factor,
   currentFvId,
@@ -2339,7 +2350,10 @@ function FvSelect({
    *  cell as a curation smell — design factors should apply at the
    *  source-sample level. Picking a value commits to all siblings. */
   isMixed?: boolean;
-  onChange: (fvId: number) => void;
+  /** ``null`` = unassign — drop the sample from every FV in this
+   *  factor. A mis-assignment has to be undoable, not just
+   *  re-pointable at another value. */
+  onChange: (fvId: number | null) => void;
 }) {
   // Four visual states: ontology-backed (emerald — matches the
   // codebase-wide "green = ontology-backed" cue), free-text-assigned
@@ -2381,13 +2395,19 @@ function FvSelect({
     ? "siblings disagree on this factor — pick a value to apply to all of them"
     : currentFvId === null
       ? "unassigned — pick a value"
-      : "click to reassign this sample";
+      : "click to reassign this sample, or pick “— unassigned —” to clear it";
 
   const selectEl = (
     <select
-      value={isMixed ? "" : (currentFvId ?? "")}
+      value={isMixed ? "" : (currentFvId ?? UNASSIGNED_OPTION)}
       onChange={(e) => {
-        const id = Number(e.target.value);
+        const v = e.target.value;
+        if (v === "") return; // the mixed placeholder — not a target
+        if (v === UNASSIGNED_OPTION) {
+          if (isMixed || currentFvId !== null) onChange(null);
+          return;
+        }
+        const id = Number(v);
         if (Number.isFinite(id) && (isMixed || id !== currentFvId)) onChange(id);
       }}
       className={cn(
@@ -2399,8 +2419,18 @@ function FvSelect({
       title={currentFv && currentFv.statements.length > 0 ? undefined : fallbackTitle}
       onClick={(e) => e.stopPropagation()}
     >
-      <option value="" disabled>
-        {isMixed ? "— mixed —" : "— unassigned —"}
+      {/* The mixed placeholder is a resting state, not a target;
+          "— unassigned —" IS a target (clears the assignment). */}
+      {isMixed ? (
+        <option value="" disabled>
+          — mixed —
+        </option>
+      ) : null}
+      <option
+        value={UNASSIGNED_OPTION}
+        title="clear this factor for the sample — it holds no value here"
+      >
+        — unassigned —
       </option>
       {factor.factor_values.map((fv) => {
         const r = fvDisplayLabel(fv, factor.factor_values, {
@@ -2603,14 +2633,18 @@ function BulkActionBar({
     factor: Factor;
     index: Map<string, { label: string; is_baseline: boolean; fv_id: number }>;
   }[];
-  onApply: (factorId: number, toFvId: number) => void;
+  /** ``toFvId === null`` unassigns the selected samples. */
+  onApply: (factorId: number, toFvId: number | null) => void;
   onClearSelection: () => void;
 }) {
   const [factorId, setFactorId] = useState<number | null>(
     factors[0]?.id ?? null,
   );
   const factor = factors.find((f) => f.id === factorId) ?? null;
-  const [fvId, setFvId] = useState<number | null>(null);
+  // Three-state target: a FV id, ``"unassigned"`` (a real target —
+  // clear the factor on these samples), or ``null`` for "nothing
+  // picked yet", which is where a mixed selection rests.
+  const [fvId, setFvId] = useState<number | "unassigned" | null>(null);
 
   // Index for the currently-chosen factor, so we can read each
   // selected sample's existing FV.
@@ -2638,7 +2672,7 @@ function BulkActionBar({
   useEffect(() => {
     if (currentFvIds.size === 1) {
       const only = [...currentFvIds][0];
-      setFvId(only ?? null);
+      setFvId(only ?? "unassigned");
     } else {
       setFvId(null);
     }
@@ -2655,7 +2689,11 @@ function BulkActionBar({
   // design while the bulk bar was open), drop the stale id. Effect-
   // not-render so we don't trigger an in-render setState warning.
   useEffect(() => {
-    if (factor && fvId != null && !factor.factor_values.some((fv) => fv.id === fvId)) {
+    if (
+      factor &&
+      typeof fvId === "number" &&
+      !factor.factor_values.some((fv) => fv.id === fvId)
+    ) {
       setFvId(null);
     }
   }, [factor, fvId]);
@@ -2665,10 +2703,11 @@ function BulkActionBar({
   // and its enabled state.
   const wouldChangeCount = useMemo(() => {
     if (fvId == null || !indexForFactor) return 0;
+    const target = fvId === "unassigned" ? null : fvId;
     let n = 0;
     for (const sn of selectedShortNames) {
       const cur = indexForFactor.get(sn)?.fv_id ?? null;
-      if (cur !== fvId) n++;
+      if (cur !== target) n++;
     }
     return n;
   }, [fvId, indexForFactor, selectedShortNames]);
@@ -2684,7 +2723,9 @@ function BulkActionBar({
         <HelpPopup title="Selected-rows assign" size="sm">
           <p>
             Sets the chosen factor value on every selected sample at once.
-            For a richer column → value mapping, use <em>bulk assign…</em>.
+            Pick <em>— unassigned —</em> to clear the factor on the
+            selection instead. For a richer column → value mapping, use{" "}
+            <em>bulk assign…</em>.
           </p>
         </HelpPopup>
       </span>
@@ -2705,10 +2746,17 @@ function BulkActionBar({
       </select>
       <span className="text-blue-900/70">to</span>
       <select
-        value={fvId ?? ""}
-        onChange={(e) =>
-          setFvId(e.target.value === "" ? null : Number(e.target.value))
-        }
+        value={fvId == null ? "" : fvId === "unassigned" ? UNASSIGNED_OPTION : fvId}
+        onChange={(e) => {
+          const v = e.target.value;
+          setFvId(
+            v === ""
+              ? null
+              : v === UNASSIGNED_OPTION
+                ? "unassigned"
+                : Number(v),
+          );
+        }}
         className="text-xs border border-slate-300 rounded px-1 py-0.5 bg-white max-w-[16rem]"
         disabled={!factor}
         title={
@@ -2717,9 +2765,14 @@ function BulkActionBar({
             : undefined
         }
       >
-        <option value="">
-          {isMixed ? "— mixed; pick to set all —" : "— unassigned —"}
-        </option>
+        {/* Mixed rests on the empty placeholder; "— unassigned —" is
+            a real target that clears the factor on the selection. */}
+        {isMixed ? (
+          <option value="" disabled>
+            — mixed; pick to set all —
+          </option>
+        ) : null}
+        <option value={UNASSIGNED_OPTION}>— unassigned —</option>
         {factorFvOptions.map((fv) => {
           const r = fvDisplayLabel(fv, factorFvOptions, {
             compact: fv.id === fvId,
@@ -2740,17 +2793,21 @@ function BulkActionBar({
           type="button"
           className="btn primary text-xs"
           onClick={() => {
-            if (factorId != null && fvId != null) onApply(factorId, fvId);
+            if (factorId != null && fvId != null) {
+              onApply(factorId, fvId === "unassigned" ? null : fvId);
+            }
           }}
         >
-          apply to {wouldChangeCount} sample
-          {wouldChangeCount === 1 ? "" : "s"}
+          {fvId === "unassigned" ? "unassign" : "apply to"} {wouldChangeCount}{" "}
+          sample{wouldChangeCount === 1 ? "" : "s"}
         </button>
       ) : (
         <span className="text-[11px] text-blue-900/60 italic">
           {fvId == null
             ? "pick a value to apply"
-            : "all selected samples already have this value"}
+            : fvId === "unassigned"
+              ? "no selected sample has a value for this factor"
+              : "all selected samples already have this value"}
         </span>
       )}
       <button
