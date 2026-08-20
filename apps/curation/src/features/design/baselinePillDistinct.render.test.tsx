@@ -46,7 +46,11 @@ function fv(is_baseline: boolean): FactorValue {
   };
 }
 
-function renderCard(value: FactorValue, onToggleBaseline = vi.fn()) {
+function renderCard(
+  value: FactorValue,
+  onToggleBaseline = vi.fn(),
+  siblingIsMarkedBaseline = false,
+) {
   // The open card mounts CategoryPicker, which fetches the canonical
   // category list.
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -62,6 +66,7 @@ function renderCard(value: FactorValue, onToggleBaseline = vi.fn()) {
         onAddStatement={vi.fn()}
         onStatementChange={vi.fn()}
         onStatementDelete={vi.fn()}
+        siblingIsMarkedBaseline={siblingIsMarkedBaseline}
       />
     </QueryClientProvider>,
   );
@@ -115,5 +120,43 @@ describe("baseline chip — marked vs Gemma-detected are visually distinct", () 
   it("the marked chip's tooltip offers the unmark, not a restatement", () => {
     renderCard(fv(true));
     expect(screen.getByTitle(/click to unmark/i)).toBeTruthy();
+  });
+});
+
+/**
+ * Gemma resolves an explicit ``getIsBaseline()`` FIRST and only falls
+ * through to ``BaselineSelection``'s term / URI matching when nothing is
+ * marked (gemma backend, 2026-08-19). So while a sibling carries the
+ * mark, a detected-but-unmarked level is NOT what the DEA will use, and
+ * a card that says it is makes a false statement about the analysis.
+ *
+ * This is live on GSE2437: "Untreated" is marked, "Sham" is detected,
+ * and the card used to tell the curator Sham was the reference.
+ */
+describe("baseline chip — a detected level yields to an explicit mark", () => {
+  it("says the mark elsewhere wins, rather than claiming the DEA uses this", () => {
+    renderCard(fv(false), vi.fn(), true);
+    const button = screen.getByTitle(/another value here IS marked/i);
+    expect(button.getAttribute("title")).toMatch(/explicit mark wins/i);
+    expect(button.getAttribute("title")).not.toMatch(/already treats this/i);
+  });
+
+  it("marks the chip itself as overridden, not plain '(Gemma)'", () => {
+    renderCard(fv(false), vi.fn(), true);
+    expect(screen.getByText("▂ baseline (Gemma, overridden)")).toBeTruthy();
+    expect(screen.queryByText("▂ baseline (Gemma)")).toBeNull();
+  });
+
+  it("still reads as not-marked — hollow, so the sibling owns the fill", () => {
+    renderCard(fv(false), vi.fn(), true);
+    expect(chipClasses("▂ baseline (Gemma, overridden)")).toContain(
+      "baseline-auto",
+    );
+  });
+
+  it("with NO sibling marked it keeps the plain claim, which is then true", () => {
+    renderCard(fv(false), vi.fn(), false);
+    expect(screen.getByText("▂ baseline (Gemma)")).toBeTruthy();
+    expect(screen.getByTitle(/already treats this/i)).toBeTruthy();
   });
 });

@@ -44,9 +44,19 @@ export function FactorValueCard({
   compact = false,
   onExpand,
   originalValues,
+  siblingIsMarkedBaseline = false,
 }: {
   fv: FactorValue;
   factorCategory: OntologyTerm | null;
+  /** Does ANOTHER factor value in this factor carry the explicit
+   *  ``is_baseline`` mark? Gemma's precedence is explicit-first:
+   *  ``getIsBaseline()`` decides, and only when nothing is marked does
+   *  ``BaselineSelection`` fall through to term / URI matching. So a
+   *  detected-but-unmarked FV is NOT what the DEA will use while a
+   *  sibling is marked, and saying otherwise on the card is a false
+   *  statement about the analysis. Confirmed by the Gemma backend
+   *  2026-08-19. */
+  siblingIsMarkedBaseline?: boolean;
   /** What the submitter wrote for these samples, in the factor's own
    *  characteristic column. Rendered on every FV that has one, not
    *  only where it disagrees: a curator who can't tell "same as the
@@ -262,9 +272,15 @@ export function FactorValueCard({
                 fv.is_baseline
                   ? "Marked as the baseline. Click to unmark."
                   : gemmaAutoDetectsBaseline(fv)
-                    ? "Not marked — Gemma's DEA already treats this value as " +
-                      "the reference level, so marking it is optional. Click " +
-                      "to mark it anyway; marking any value overrides the rest."
+                    ? siblingIsMarkedBaseline
+                      ? "Not marked. Gemma would read this as a reference " +
+                        "level, but another value here IS marked and an " +
+                        "explicit mark wins. Click to make this one the " +
+                        "baseline instead."
+                      : "Not marked — Gemma's DEA already treats this value " +
+                        "as the reference level, so marking it is optional. " +
+                        "Click to mark it anyway; marking any value " +
+                        "overrides the rest."
                     : "Mark as baseline"
               }
               className="cursor-pointer"
@@ -286,7 +302,18 @@ export function FactorValueCard({
                 // puts marked FVs first — and left a chip that still
                 // looked marked, so the curator saw the rows resort and
                 // nothing else. Fill now carries the mark on its own.
-                <Pill variant="baseline-auto">▂ baseline (Gemma)</Pill>
+                //
+                // "overridden" when a sibling is marked: the detector
+                // still recognises this term, but Gemma resolves the
+                // explicit mark first, so the plain "(Gemma)" wording
+                // would claim a DEA behaviour that will not happen.
+                // Same word the ValidatorBanner uses for the inverse
+                // case ("an explicit mark overrides it").
+                <Pill variant="baseline-auto">
+                  {siblingIsMarkedBaseline
+                    ? "▂ baseline (Gemma, overridden)"
+                    : "▂ baseline (Gemma)"}
+                </Pill>
               ) : (
                 <span className="text-xs text-slate-400 hover:text-slate-700 underline">
                   set baseline

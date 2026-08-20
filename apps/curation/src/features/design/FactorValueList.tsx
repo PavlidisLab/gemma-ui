@@ -219,6 +219,9 @@ export function FactorValueList({
             change={change}
             onLabelChange={(label) => onFvLabelChange(fv.id, label)}
             onToggleBaseline={() => onToggleBaseline(fv.id)}
+            siblingIsMarkedBaseline={factor.factor_values.some(
+              (o) => o.id !== fv.id && o.is_baseline,
+            )}
             onDelete={() => onDeleteFv(fv.id)}
             onDuplicate={
               onDuplicateFv ? () => onDuplicateFv(fv.id) : undefined
