@@ -977,7 +977,19 @@ function MainGrid({
   // Default-open. Curators want the proposals panel visible by
   // default so they notice newly-submitted proposals; if they want
   // the editor full-width they can collapse it explicitly.
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  //
+  // Sticky (2026-08-20): a curator who hides the panel expects it to
+  // stay hidden as they walk the next experiment, and the next — it
+  // was re-opening on every navigation because this was plain
+  // ``useState``. Same storage convention as ``sidebar.view`` and the
+  // drag-width below, so all three parts of the panel's state persist
+  // together instead of two out of three. The collapsed state is a
+  // full-height labelled click target, so a persisted "closed" is
+  // always one obvious click from coming back.
+  const [sidebarOpen, setSidebarOpen] = useStickyState<boolean>(
+    "sidebar.open",
+    true,
+  );
 
   // Chip strip drives sidebar visibility: ``?cmp=`` empty ⇒ nothing
   // to render in the right panel, so close it. Inverse (auto-reopen
@@ -1006,7 +1018,11 @@ function MainGrid({
       setSidebarOpen(false);
     }
     prevComparatorRef.current = chipForSidebar.comparator;
-  }, [chipForSidebar.comparator]);
+    // ``setSidebarOpen`` is a ``useState`` setter under the sticky
+    // wrapper, so it is referentially stable — listed because the
+    // wrapper hides that from the exhaustive-deps rule, not because
+    // re-running on it would mean anything.
+  }, [chipForSidebar.comparator, setSidebarOpen]);
   // Sidebar width. Default 320 = Tailwind's old ``lg:w-80``. Curators
   // who want more room for the v2 ProposalCard's verify-N or edit
   // affordances drag the left edge wider; persists via localStorage.
