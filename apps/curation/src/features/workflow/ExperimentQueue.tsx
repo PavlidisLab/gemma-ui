@@ -13,7 +13,7 @@ import {
   useFinalizeGroup,
   useReopenGroup,
 } from "@/api/workflow";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PipelineStatusRow, type BadgeTone } from "./PipelineStatusRow";
 import { useMe } from "@/api/session";
 import { useToast } from "@/components/ui/Toast";
@@ -45,6 +45,7 @@ import { SetProgressBar } from "@/components/ui/SetProgressBar";
 import { progressFromGroup } from "./setProgress";
 import { cn } from "@/lib/cn";
 import { useStickyState } from "@/lib/useStickyState";
+import { rememberTicketMemberOrder } from "@/features/tickets/ticketMemberOrder";
 
 /** Default page size + user-settable picker options.
  *
@@ -925,6 +926,22 @@ export function ExperimentQueue({
     dispFilter,
     triageByExperiment,
   ]);
+
+  // Hand the displayed order to the experiment page's ticket walker.
+  // The rows here are ordered by the SERVER (``sort``, default
+  // ``-lastUpdated``) and narrowed by the curator's filters; the
+  // ``‹ N/M ›`` chip on the experiment page has neither of those and
+  // was walking the ticket's raw target order instead — on an
+  // 18-member ticket, near-exactly the reverse of this list. Recording
+  // what was shown is the only way the two can agree, since the chip
+  // can't re-derive a server sort without re-fetching every member.
+  useEffect(() => {
+    if (ticketId == null || rows.length === 0) return;
+    rememberTicketMemberOrder(
+      ticketId,
+      rows.map((d) => d.id),
+    );
+  }, [ticketId, rows]);
 
   // Per-filter counts for the chip labels. In a ticket context the
   // counts come from the ticket's target list (ALL targets, not just

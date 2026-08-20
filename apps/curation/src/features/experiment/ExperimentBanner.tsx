@@ -14,6 +14,7 @@ import { setDesignTitle } from "@/features/design/mutations";
 import { useCurationDetails } from "@/api/curation";
 import { useMe } from "@/api/session";
 import { useTicket } from "@/api/tickets";
+import { orderTicketTargetsAsListed } from "@/features/tickets/ticketMemberOrder";
 import {
   useDatasetVisibility,
   usePublishExperiment,
@@ -1923,8 +1924,21 @@ export function TicketContextChip({
   }, [open]);
 
   if (!ticket) return null;
-  const expTargets = ticket.targets.filter(
-    (t) => t.target_type === "EXPRESSION_EXPERIMENT",
+  // Walk the members in the order the curator saw them listed, not the
+  // order the store happens to return targets in. The ticket page lists
+  // them through ``ExperimentQueue`` under a server sort
+  // (``-lastUpdated`` by default), which on a real ticket runs close to
+  // the reverse of ``ticket.targets`` — so clicking the second row of
+  // an 18-member ticket landed here reading "18/18" and ‹ walked away
+  // from the rest of the list. ``orderTicketTargetsAsListed`` is a
+  // no-op when the curator arrived from a bookmark rather than the
+  // queue, which is the old behaviour.
+  //
+  // One ordering serves the counter, the ‹ › buttons, the popover's
+  // member list AND its [ / ] keys — they all read ``expTargets``.
+  const expTargets = orderTicketTargetsAsListed(
+    ticketId,
+    ticket.targets.filter((t) => t.target_type === "EXPRESSION_EXPERIMENT"),
   );
   const currentNumericId =
     typeof experimentId === "number"
