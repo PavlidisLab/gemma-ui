@@ -76,6 +76,90 @@ export function canonicalPredicateUri(uri: string | null | undefined): string {
   return byCurie ? byCurie.uri : "";
 }
 
+/**
+ * The predicate ``<select>``, shared by the singleton
+ * ``StatementEditor`` and the grouped ``InlinePredicateObjectPair``.
+ *
+ * Was copy-pasted between the two, with both copies carrying a
+ * "same chrome as the other one" comment — and they had already
+ * drifted once (the canonicalising ``value=`` landed on the singleton
+ * first and had to be re-applied to the pair row months later, design
+ * review 2026-07-20). One control now, two callers.
+ *
+ * The empty option does double duty: it is the placeholder while no
+ * predicate is chosen, and it is the way to REMOVE one afterwards.
+ * Leaving it labelled "predicate" in both states hid the removal path
+ * entirely — a curator with a wrong predicate/object pair could see no
+ * way out of it but the statement-level delete, which throws away the
+ * subject too (2026-08-20). So when a predicate IS set the option names
+ * what it does, including the object it takes with it: clearing the
+ * predicate without clearing the object would leave a dangling object
+ * with nothing to attach it to, which the wire has no shape for.
+ */
+function PredicateSelect({
+  statement,
+  size,
+  onChange,
+}: {
+  statement: Statement;
+  /** ``md`` — the singleton row. ``sm`` — a stacked pair inside a
+   *  ``StatementGroupEditor``, where the subject column already sets
+   *  the row height. */
+  size: "md" | "sm";
+  onChange: (next: Statement) => void;
+}) {
+  return (
+    <select
+      className={
+        // Populated: recedes to near-text so subject + object carry
+        // the visual weight. Empty: dashed/italic chip matching the
+        // object placeholder next to it, so an unfilled statement
+        // reads as "fill in predicate, then object" rather than one
+        // loud control beside a quiet placeholder.
+        (size === "md"
+          ? "text-sm rounded px-1 py-0 cursor-pointer max-w-[14rem] "
+          : "text-[11px] rounded px-0.5 py-0 cursor-pointer ") +
+        (statement.predicate
+          ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
+          : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
+      }
+      // Canonicalise so a legacy obo-purl predicate URI
+      // (``…/obo/TGEMO_00167``) still selects its ``…/ont/…`` option
+      // instead of blanking to the placeholder.
+      value={canonicalPredicateUri(statement.predicate?.uri)}
+      title={
+        statement.predicate
+          ? `${statement.predicate.label} — pick “none” to remove this predicate and its object`
+          : "Link this subject to an object. The subject on its own is a complete statement; a predicate is optional."
+      }
+      onChange={(e) => {
+        if (e.target.value === "") {
+          onChange({ ...statement, predicate: null, object: null });
+        } else {
+          const def = PREDICATES.find((p) => p.uri === e.target.value)!;
+          // ``def`` carries a ``description`` for the picker tooltip;
+          // the on-wire ``Statement.predicate`` is just ``{label, uri}``
+          // so we project rather than spread.
+          onChange({
+            ...statement,
+            predicate: { label: def.label, uri: def.uri },
+            object: statement.object ?? { label: "" },
+          });
+        }
+      }}
+    >
+      <option value="">
+        {statement.predicate ? "— none (removes object) —" : "predicate"}
+      </option>
+      {PREDICATES.map((p) => (
+        <option key={p.uri} value={p.uri}>
+          {p.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function StatementEditor({
   statement,
   factorCategory,
@@ -108,8 +192,6 @@ export function StatementEditor({
   // already conveys that information; tinting the subject text was
   // redundant and inconsistent with how non-baseline subjects render
   // (no special colour).
-
-  const selectedPredicateUri = canonicalPredicateUri(statement.predicate?.uri);
 
   const cat = statement.category ?? null;
   const catMismatch =
@@ -162,46 +244,7 @@ export function StatementEditor({
       ) : null}
 
       <span className="inline-flex items-center gap-1">
-        {/*
-          Predicate select. When a predicate is picked it recedes to
-          near-text styling so subject + object carry the visual
-          weight. When empty it matches the object placeholder's
-          dashed/italic chip — same affordance language as the
-          neighbouring object slot so an unfilled statement reads as
-          "fill in predicate, then object" rather than one loud
-          control next to a quiet placeholder.
-        */}
-        <select
-          className={
-            "text-sm rounded px-1 py-0 cursor-pointer max-w-[14rem] " +
-            (statement.predicate
-              ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
-              : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
-          }
-          value={selectedPredicateUri}
-          onChange={(e) => {
-            if (e.target.value === "") {
-              onChange({ ...statement, predicate: null, object: null });
-            } else {
-              const def = PREDICATES.find((p) => p.uri === e.target.value)!;
-              // ``def`` carries a ``description`` for the picker
-              // tooltip; the on-wire ``Statement.predicate`` is just
-              // ``{label, uri}`` so we project rather than spread.
-              onChange({
-                ...statement,
-                predicate: { label: def.label, uri: def.uri },
-                object: statement.object ?? { label: "" },
-              });
-            }
-          }}
-        >
-          <option value="">predicate</option>
-          {PREDICATES.map((p) => (
-            <option key={p.uri} value={p.uri}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+        <PredicateSelect statement={statement} size="md" onChange={onChange} />
         <GuidelinePopup snippet={PREDICATE_GUIDELINE} size="sm" />
         {/* The predicate popup answers "is this predicate legal here";
             the templates popup answers "what is the whole composed
@@ -241,20 +284,28 @@ export function StatementEditor({
       {/* Statement delete — sits inline with the statement's S-P-O
           row, not right-edge-floated. Design review 2026-06-14: the
           ``ml-auto`` floated it to the same column as the FV-level
-          Delete, so the two looked like duplicate buttons. Icon
-          shape ("×") instead of a "Delete" pill so it doesn't
-          compete with the larger FV-level Delete either. */}
+          Delete, so the two looked like duplicate buttons.
+
+          It carries the word "statement" (2026-08-20). A bare "×"
+          sitting between the predicate dropdown and "+ pred/obj" reads
+          as "remove the predicate/object" — the thing immediately to
+          its left — and it does something much bigger: it throws away
+          the subject and the whole row. It stays a text link rather
+          than a pill so it still doesn't compete with the FV-level
+          Delete, and it now mirrors the "+ statement" affordance
+          directly below the card. */}
       <button
         type="button"
-        className="text-[12px] leading-none w-5 h-5 rounded text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-900/30 inline-flex items-center justify-center"
+        className="text-[11px] leading-none px-1 py-0.5 rounded text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-900/30 inline-flex items-center gap-0.5"
         onClick={() => {
           if (hasContent) setConfirming(true);
           else onDelete();
         }}
-        title="Delete this statement"
+        title="Delete this whole statement — subject, predicate and object. To drop only the predicate and object, set the predicate to “none”."
         aria-label="delete statement"
       >
-        ×
+        <span aria-hidden>×</span>
+        <span>statement</span>
       </button>
 
       {/* "+ pred/obj" — add a second predicate/object about the same
@@ -476,45 +527,7 @@ function InlinePredicateObjectPair({
 }) {
   return (
     <span className="group inline-flex items-center gap-1">
-      <select
-        className={
-          // Same chrome as the singleton StatementEditor — recedes
-          // when populated, dashed/italic placeholder chip matching
-          // the object slot when empty.
-          "text-[11px] rounded px-0.5 py-0 cursor-pointer " +
-          (statement.predicate
-            ? "bg-transparent border border-transparent hover:border-slate-300 focus:border-slate-400 text-slate-700"
-            : "italic font-normal border border-dashed border-slate-400 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:border-slate-500 hover:text-slate-700 focus:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700")
-        }
-        // Canonicalise so a legacy obo-purl predicate URI
-        // (``…/obo/TGEMO_00167``) still selects its ``…/ont/…`` option
-        // instead of blanking to the placeholder — same fix the
-        // singleton ``StatementEditor`` applies. Without this a real
-        // predicate like "delivered for duration" showed as an empty
-        // dropdown in the grouped editor (design review 2026-07-20).
-        value={canonicalPredicateUri(statement.predicate?.uri)}
-        onChange={(e) => {
-          if (e.target.value === "") {
-            onChange({ ...statement, predicate: null, object: null });
-          } else {
-            const def = PREDICATES.find((p) => p.uri === e.target.value)!;
-            // Project to ``{label, uri}`` — the on-wire ``predicate`` omits
-            // the picker-only ``description`` field (matches the singleton).
-            onChange({
-              ...statement,
-              predicate: { label: def.label, uri: def.uri },
-              object: statement.object ?? { label: "" },
-            });
-          }
-        }}
-      >
-        <option value="">predicate</option>
-        {PREDICATES.map((p) => (
-          <option key={p.uri} value={p.uri}>
-            {p.label}
-          </option>
-        ))}
-      </select>
+      <PredicateSelect statement={statement} size="sm" onChange={onChange} />
 
       {statement.predicate ? (
         <>
