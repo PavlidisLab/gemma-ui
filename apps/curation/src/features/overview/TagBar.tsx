@@ -1562,7 +1562,7 @@ function EditableDirectGroupChip({
 
   function deleteOne(tagId: number) {
     if (!draft) return;
-    apply(deleteTag(draft, tagId));
+    apply((d) => deleteTag(d, tagId));
   }
 
   // Tags whose category names the experiment's assay shape are

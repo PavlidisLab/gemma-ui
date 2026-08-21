@@ -371,7 +371,7 @@ export function DesignEditor({
         })()}
         onSelect={setSelectedFactorId}
         onFactorFieldsChange={(factorId, patch) =>
-          apply(setFactorFields(draft, factorId, patch))
+          apply((d) => setFactorFields(d, factorId, patch))
         }
         onAddFactor={() => {
           const result = addFactor(draft);
@@ -384,7 +384,7 @@ export function DesignEditor({
           setSelectedFactorId(result.factorId);
         }}
         onDeleteFactor={(factorId) => {
-          apply(deleteFactor(draft, factorId));
+          apply((d) => deleteFactor(d, factorId));
           if (selectedFactorId === factorId) {
             setSelectedFactorId(null);
           }
@@ -398,7 +398,7 @@ export function DesignEditor({
           // baseline lands).
           const savedFactor =
             saved?.factors.find((f) => f.id === factorId) ?? null;
-          apply(revertFactor(draft, factorId, savedFactor));
+          apply((d) => revertFactor(d, factorId, savedFactor));
           // If the curator just dropped the factor they had selected
           // (added-in-draft, savedFactor=null path), clear selection
           // so FactorValueList doesn't render against a stale id.
@@ -423,7 +423,7 @@ export function DesignEditor({
           <ContinuousFactorView
             factor={selectedFactor}
             onNameChange={(name) =>
-              apply(setFactorFields(draft, selectedFactor.id, { name }))
+              apply((d) => setFactorFields(d, selectedFactor.id, { name }))
             }
           />
         ) : (
@@ -435,14 +435,14 @@ export function DesignEditor({
               originalValues={originalValues}
               changesByFvId={changes.byFv.get(selectedFactor.id) ?? null}
               onFvLabelChange={(fvId, label) =>
-                apply(setFvLabel(draft, selectedFactor.id, fvId, label))
+                apply((d) => setFvLabel(d, selectedFactor.id, fvId, label))
               }
               onToggleBaseline={(fvId) =>
-                apply(toggleBaseline(draft, selectedFactor.id, fvId))
+                apply((d) => toggleBaseline(d, selectedFactor.id, fvId))
               }
-              onAddFv={() => apply(addFactorValue(draft, selectedFactor.id))}
+              onAddFv={() => apply((d) => addFactorValue(d, selectedFactor.id))}
               onDeleteFv={(fvId) =>
-                apply(deleteFactorValue(draft, selectedFactor.id, fvId))
+                apply((d) => deleteFactorValue(d, selectedFactor.id, fvId))
               }
               onDuplicateFv={(fvId) => {
                 const result = duplicateFactorValue(
@@ -453,10 +453,10 @@ export function DesignEditor({
                 if (result) apply(result.design);
               }}
               onAddStatement={(fvId) =>
-                apply(addStatement(draft, selectedFactor.id, fvId))
+                apply((d) => addStatement(d, selectedFactor.id, fvId))
               }
               onAddSiblingStatement={(fvId, seed) =>
-                apply(addSiblingStatement(draft, selectedFactor.id, fvId, seed))
+                apply((d) => addSiblingStatement(d, selectedFactor.id, fvId, seed))
               }
               onAddStatementFromTemplate={(fvId, tpl) =>
                 apply(
@@ -474,10 +474,10 @@ export function DesignEditor({
                 )
               }
               onStatementChange={(fvId, index, next: Statement) =>
-                apply(setStatement(draft, selectedFactor.id, fvId, index, next))
+                apply((d) => setStatement(d, selectedFactor.id, fvId, index, next))
               }
               onStatementDelete={(fvId, index) =>
-                apply(deleteStatement(draft, selectedFactor.id, fvId, index))
+                apply((d) => deleteStatement(d, selectedFactor.id, fvId, index))
               }
               onRevertFv={(fvId, change) =>
                 // change.before is null for "added" (FV didn't exist

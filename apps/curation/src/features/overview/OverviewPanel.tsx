@@ -255,7 +255,7 @@ export function OverviewPanel() {
             accession: meta?.experiment_short_name,
           })}
           onCommit={(description) =>
-            draft && apply(setDesignDescription(draft, description))
+            draft && apply((d) => setDesignDescription(d, description))
           }
         />
       </article>
@@ -395,7 +395,7 @@ export function OverviewPanel() {
                           );
                         }
                       }
-                      apply(deletePublication(draft, p.pubmed_id, p.doi));
+                      apply((d) => deletePublication(d, p.pubmed_id, p.doi));
                     }}
                   />
                 );
@@ -429,7 +429,7 @@ export function OverviewPanel() {
             />
           </div>
           <AddPublicationForm
-            onAdd={(pub) => draft && apply(addPublication(draft, pub))}
+            onAdd={(pub) => draft && apply((d) => addPublication(d, pub))}
             accession={meta?.external_source?.accession ?? ""}
             title={meta?.title ?? ""}
           />

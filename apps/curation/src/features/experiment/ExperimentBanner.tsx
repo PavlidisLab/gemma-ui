@@ -646,7 +646,7 @@ function TitleEditor({ title }: { title: string }) {
 
   function commit() {
     const next = d.trim();
-    if (next !== title && draft) apply(setDesignTitle(draft, next));
+    if (next !== title && draft) apply((d) => setDesignTitle(d, next));
     setEditing(false);
   }
 
