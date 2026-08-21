@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
-import { gemmaUrl } from "@/lib/gemmaConfig";
+import { GEMMA_1_LABEL, useGemma1Url } from "./gemma1";
 import { curationUrl } from "@/lib/appLinks";
 import { LoginModal } from "./LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
@@ -21,6 +21,9 @@ export function AppBar() {
   const onBrowser = useRouterState({
     select: (s) => s.location.pathname.startsWith("/browser"),
   });
+  const gemma1Browse = useGemma1Url(
+    "/expressionExperiment/showAllExpressionExperiments.html",
+  );
 
   return (
     <header className="flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
@@ -64,11 +67,9 @@ export function AppBar() {
       <div className="flex-1" />
 
       <NavButton onClick={() => setAboutOpen(true)}>About</NavButton>
-      <ExtAnchor
-        href={gemmaUrl("/expressionExperiment/showAllExpressionExperiments.html")}
-      >
-        Legacy browser
-      </ExtAnchor>
+      {gemma1Browse ? (
+        <ExtAnchor href={gemma1Browse}>{GEMMA_1_LABEL}</ExtAnchor>
+      ) : null}
       <ExtAnchor href="https://pavlidislab.github.io/Gemma/">Docs</ExtAnchor>
 
       {/* Auth surface — in-app sign-in modal posts directly to
