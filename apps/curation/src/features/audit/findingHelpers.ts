@@ -822,6 +822,64 @@ export function isEchoRationale(s: string | null | undefined): boolean {
   );
 }
 
+/** The term a `suggested_fix` proposes, when it names one cleanly.
+ *
+ * The agents put the actionable term in backticks — "Add tag `cat:
+ * val`.", "Replace with `cell type: CD11b-positive cell` or …" — a
+ * convention `pendingFindingLabel` already reads. This lifts it so the
+ * header can render it as a TERM CHIP beside the current value instead
+ * of a 50-char cut of the sentence around it. Paul, 2026-08-20: *"why
+ * doesn't this show the 'replace with' nicely with curies etc.? Make it
+ * clearly labeled as the replacement, but the tiny 'akdjfkj …' is
+ * lame."*
+ *
+ * 🛑 Returns `null` rather than guessing when the sentence is not
+ * shaped like one term:
+ *
+ *  - more than one backticked span — "Split into two factors: (1)
+ *    `treatment` … (2) `timepoint` …" names two, and chipping the first
+ *    would assert the fix is about `treatment` alone;
+ *  - a long lead-in, which means the backtick is an aside rather than
+ *    the object of the verb.
+ *
+ * 🛑 And it never carries a URI. The agent ships the replacement as
+ * prose with no grounding, so the chip renders ungrounded — inventing
+ * a CURIE for a label is exactly the hallucination the term pickers
+ * exist to prevent. Filed against the agents repo. */
+export interface FindingFixTerm {
+  /** The agent's own verb, e.g. "Replace with". */
+  verb: string;
+  category: string | null;
+  value: string;
+}
+
+/** Longest lead-in still readable as "<verb> `<term>`" in a header. */
+const FIX_VERB_MAX = 24;
+
+export function findingFixTerm(
+  finding: AuditFinding,
+): FindingFixTerm | null {
+  const fix = (finding.suggested_fix ?? "").trim();
+  if (!fix) return null;
+  const spans = fix.match(/`[^`]+`/gu);
+  if (!spans || spans.length !== 1) return null;
+  const at = fix.indexOf(spans[0]);
+  const verb = fix
+    .slice(0, at)
+    .trim()
+    .replace(/[:,\-\u2013\u2014]+$/u, "")
+    .trim();
+  if (!verb || verb.length > FIX_VERB_MAX) return null;
+  const inner = spans[0].slice(1, -1).trim();
+  if (!inner) return null;
+  const colon = inner.indexOf(":");
+  return {
+    verb,
+    category: colon > 0 ? inner.slice(0, colon).trim() : null,
+    value: (colon > 0 ? inner.slice(colon + 1) : inner).trim(),
+  };
+}
+
 export function findingShortRationale(finding: AuditFinding): string | null {
   const max = 50;
   const trim = (s: string | null | undefined): string => {

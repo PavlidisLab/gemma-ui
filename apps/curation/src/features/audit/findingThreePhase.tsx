@@ -52,6 +52,7 @@ import { HelpPopup } from "@/components/ui/HelpPopup";
 import { guidelineRefForFinding } from "@/lib/guidelineRegistry";
 import { normalizeWikiUrl } from "@/lib/guidelines";
 import { splitRationaleTrail } from "./rationaleText";
+import { isEchoRationale } from "./findingHelpers";
 
 // ---------------------------------------------------------------------------
 // Phase 3 of the rollout (design review 2026-06-15): UI now reads the new wire
@@ -702,12 +703,33 @@ export function ThreePhaseFindingBody({
     !!finding.issue_code && /(^|_)match(_exact|_near|_close)?$/.test(
       finding.issue_code,
     );
+  //
+  // 🛑 `rationale` FIRST. The fallback used to jump straight to
+  // `suggested_fix`, so "WHY PROPOSED" printed the ACTION and the
+  // agent's actual reasoning — which is populated on these findings and
+  // is the only thing that answers "why" — was never rendered at all.
+  // Measured on GSE104324 (2026-08-20): the FV finding's `rationale`
+  // runs "The FV label 'NRG1 10 nM' implies a dose statement … the dose
+  // is semantically important for downstream matching", while the slot
+  // showed "Add a second statement: subject=protein (CHEBI:36080) + …".
+  // Paul, on three separate cards: "this didn't display very clearly",
+  // "wholly uninformative".
+  //
+  // The fix is not lost — `SuggestedFixRow` renders it below, labelled
+  // as the fix, with its backticked terms as chips. It was only ever in
+  // this slot because the slot would otherwise be empty.
   if (!why && !isMatchCode) {
-    const fix = (finding.suggested_fix ?? "").trim();
-    if (fix) {
+    const rationale = (finding.rationale ?? "").trim();
+    // `isEchoRationale` catches a rationale that merely restates the
+    // row's own chips ("The existing curation has `cell type: …`") —
+    // that is not a why either, so fall past it to the fix.
+    const usable =
+      rationale && !isEchoRationale(rationale) ? rationale : "";
+    const text = usable || (finding.suggested_fix ?? "").trim();
+    if (text) {
       why = {
-        brief: fix,
-        rationale: fix,
+        brief: text,
+        rationale: text,
         evidence: [],
         citation: "",
         citation_url: "",

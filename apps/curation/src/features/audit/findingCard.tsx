@@ -81,6 +81,7 @@ import {
   findingDispositionButtonLabels,
   findingDisplayedGoldEmpty,
   findingProposedUris,
+  findingFixTerm,
   findingShortRationale,
   findingSubjectLabel,
   isMatchFinding,
@@ -1022,6 +1023,32 @@ export function CompactFindingCard({
  *  2026-06-11: "keep the text on the same line as the title and
  *  shorten it." */
 function FindingShortRationale({ finding }: { finding: AuditFinding }) {
+  // A fix that names one term gets rendered AS that term — labelled
+  // with the agent's own verb — instead of a 50-char cut of the
+  // sentence around it. "· Replace with `cell type: CD11b-positive
+  // cell` or…" said less than the chip does and read as broken text.
+  const fixTerm = findingFixTerm(finding);
+  if (fixTerm) {
+    return (
+      <span className="inline-flex items-baseline gap-1 min-w-0 text-[11px]">
+        <span className="text-slate-400 dark:text-slate-500">·</span>
+        <span className="uppercase tracking-wide text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+          {fixTerm.verb}
+        </span>
+        {fixTerm.category ? (
+          <span className="text-slate-500 dark:text-slate-400">
+            {fixTerm.category}:
+          </span>
+        ) : null}
+        {/* 🛑 No URI — the agent ships the replacement as prose, so
+            this renders ungrounded rather than borrowing a CURIE from
+            the value it is replacing. */}
+        <Term uri={null} asLink={false} className="!whitespace-normal break-words">
+          {fixTerm.value}
+        </Term>
+      </span>
+    );
+  }
   const summary = findingShortRationale(finding);
   if (!summary) return null;
   return (

@@ -2859,10 +2859,24 @@ export function FindingDetailsEditor({
                     {
                       key: "agree",
                       kind: "primary-accept" as const,
-                      label: "Agree",
+                      // 🛑 Says what it does. A bare "Agree" beside a
+                      // factor proposal reads as "apply this", and
+                      // Paul clicked it expecting the factor to land on
+                      // the left: *"accepting the factor proposal
+                      // doesn't do anything on the left side — complete
+                      // fail."* It was working as designed — these
+                      // findings (wrong_fv_partition, conflated,
+                      // partition_mismatch) have no per-row mutation —
+                      // but the only thing saying so was a tooltip.
+                      // The primary button on this row already labels
+                      // itself by what it does ("Add →" when it
+                      // mutates, "Focus →" when it doesn't); this now
+                      // matches.
+                      label: "Agree (nothing to apply)",
                       onClick: onAgree,
                       title:
-                        "Accept the finding without modifying the draft — the auditor flagged something the per-row comparator can't surface.",
+                        "Records your agreement — there is no per-row change to apply for this finding, so the design is untouched. " +
+                        "Use Focus to jump to the element and edit it directly.",
                     } satisfies ActionButton,
                   ]
                 : []
