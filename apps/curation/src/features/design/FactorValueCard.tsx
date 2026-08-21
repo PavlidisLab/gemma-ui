@@ -927,7 +927,15 @@ function CompactStatementRow({
           value={subj?.label || ""}
           placeholder="free-text value"
           onCommit={onSubjectCommit}
-          className="!whitespace-normal break-words italic"
+          // The input inherits this too (InlineText puts `className` on
+          // both faces), and these values are long — "nephrogenic
+          // interstitium, glomerular mesangium of Bowmans capsule,
+          // glomerular mesangium" is 88 characters. A browser-default
+          // input is ~20 wide, which opens showing only the TAIL of
+          // what you meant to edit. min-width does nothing to the
+          // read face (an inline span ignores it), so this only sizes
+          // the editor.
+          className="!whitespace-normal break-words italic min-w-[48ch] max-w-full"
         />
       ) : (
         <Term
