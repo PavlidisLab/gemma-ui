@@ -25,6 +25,14 @@ import type { Dataset, PaginatedResponse, Taxon } from "@/lib/types";
 
 const BASE = "/rest/v2";
 
+/** Start of the "this week" window, as a plain ``YYYY-MM-DD`` the
+ *  Gemma filter parser widens to midnight UTC. Kept date-granular on
+ *  purpose: a timestamp would change every render and churn the
+ *  React Query cache key, where a date only rolls over once a day. */
+const UPDATED_SINCE = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
 /** One ontology term that exemplifies a treatment subcategory. Ships
  *  ranked-by-count under each ``treatmentSubcategories[].topTerms``
  *  so the home page can show "e.g. dexamethasone, doxycycline, JQ1"
@@ -165,6 +173,10 @@ export interface TaxonRow {
 export interface TechnologyRow {
   label: string;
   count: number;
+  /** ``/browser/$preset`` slug that reproduces this row's slice of the
+   *  corpus. Carried on the row so charts don't have to match on the
+   *  display label to work out where a click should go. */
+  preset: string;
 }
 
 export interface RecentDataset {
@@ -291,7 +303,13 @@ export interface GemmaSummary {
   }>;
   recentDatasets: RecentDataset[];
   snapshotAt: string | null;
+  /** Datasets whose ``lastUpdated`` falls inside the last 7 days. */
   updatedThisWeek: number | null;
+  /** The ``YYYY-MM-DD`` that ``updatedThisWeek`` counts from — hand it
+   *  to the browser page so the linked list is the same set. */
+  updatedSince: string;
+  /** Datasets made public inside the same window. Always null today;
+   *  see the resolution site for why. */
   newThisWeek: number | null;
   isLoading: boolean;
   isError: boolean;
@@ -315,9 +333,17 @@ function rollUpFromSamplesByTech(samplesByTech: {
   microarray: number | null;
 }): TechnologyRow[] {
   return [
-    { label: "RNA-seq", count: samplesByTech.rnaSeq ?? 0 },
-    { label: "Microarray", count: samplesByTech.microarray ?? 0 },
-    { label: "Single-cell", count: samplesByTech.singleCell ?? 0 },
+    { label: "RNA-seq", count: samplesByTech.rnaSeq ?? 0, preset: "rnaseq" },
+    {
+      label: "Microarray",
+      count: samplesByTech.microarray ?? 0,
+      preset: "microarray",
+    },
+    {
+      label: "Single-cell",
+      count: samplesByTech.singleCell ?? 0,
+      preset: "scrnaseq",
+    },
   ]
     .filter((r) => r.count > 0)
     .sort((a, b) => b.count - a.count);
@@ -427,6 +453,17 @@ export function useGemmaSummary(): GemmaSummary {
     retry: false,
   });
 
+  // "Updated this week" — a real corpus-wide count, not a tally of the
+  // recent-datasets page. The earlier version counted how many of the
+  // top-50 ``sort=-lastUpdated`` rows fell inside the window, which
+  // silently saturated at 50 (the true figure is in the hundreds).
+  const updatedThisWeekQ = useNumericCount(
+    `${BASE}/datasets/count?filter=${encodeURIComponent(
+      `lastUpdated > ${UPDATED_SINCE}`,
+    )}`,
+    `datasets-updated-since-${UPDATED_SINCE}`,
+  );
+
   // Annotation counts — single global as a fallback when
   // /stats/home isn't deployed. v2 snapshot carries
   // ontologyTermCount + byAnnotationCategory + drugCount +
@@ -513,13 +550,6 @@ export function useGemmaSummary(): GemmaSummary {
     recentDatasets = [];
   }
 
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const updatedThisWeek =
-    recentDatasets.length > 0
-      ? recentDatasets.filter(
-          (d) => d.lastUpdated && Date.parse(d.lastUpdated) >= sevenDaysAgo,
-        ).length
-      : null;
 
   // isLoading collapses to true while every relevant query is
   // still pending. Each tile's local "loading" gate keys off
@@ -585,8 +615,15 @@ export function useGemmaSummary(): GemmaSummary {
     topPerturbedGenes: wire?.topPerturbedGenes ?? [],
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,
-    updatedThisWeek,
-    newThisWeek: updatedThisWeek,
+    updatedThisWeek: updatedThisWeekQ.data ?? null,
+    updatedSince: UPDATED_SINCE,
+    // No corpus-wide "made public since <date>" count exists: the
+    // /datasets filter has no creation or publication date property
+    // (only lastUpdated), and /stats/home carries no equivalent
+    // field. Stays null until Gemma REST ships one — the tile hides
+    // itself rather than showing lastUpdated a second time under a
+    // label that would claim something different.
+    newThisWeek: null,
     isLoading,
     isError: false,
   };
