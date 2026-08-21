@@ -96,6 +96,41 @@ export function canonicalPredicateUri(uri: string | null | undefined): string {
  * predicate without clearing the object would leave a dangling object
  * with nothing to attach it to, which the wire has no shape for.
  */
+/**
+ * Does this statement sit under a different category than its factor?
+ *
+ * 🛑 A DIFFERENCE IS NOT AN ERROR, and this deliberately does not say so.
+ * The chip used to go amber on it, in a palette where amber means
+ * warning — but composing a statement under another category is a
+ * sanctioned shape (`13_statement_templates` §10), and cab measured it
+ * on 2026-08-21: **95 of 3,731 gold statements differ on purpose** — a
+ * `genotype` statement on a `treatment` FV for a CRISPR guide, a
+ * `cell line` statement on a `cell type` FV. Flagging the mismatch
+ * would have called 95 correct rows wrong, which is why the rule
+ * "a statement's category must match its factor's" was checked and
+ * rejected rather than shipped.
+ *
+ * The chip already RENDERS the category, so a curator can see the
+ * difference without being told it is a defect. All this drives is the
+ * tooltip, which names what the factor says for comparison.
+ *
+ * Shared by the singleton row and the grouped pair row because those
+ * two have drifted apart before — the canonicalising predicate `value=`
+ * landed on one and had to be re-applied to the other months later.
+ */
+function categoryDiffersFromFactor(
+  cat: OntologyTerm | null,
+  factorCategory: OntologyTerm | null,
+): boolean {
+  return (
+    cat != null &&
+    factorCategory != null &&
+    (cat.label.trim().toLowerCase() !==
+      factorCategory.label.trim().toLowerCase() ||
+      (cat.uri ?? null) !== (factorCategory.uri ?? null))
+  );
+}
+
 /** Sentinel for the synthetic option that shows an ungrounded
  *  predicate. Not a URI, so it can never collide with a preset. */
 const UNGROUNDED_PREDICATE = "\u0000ungrounded-predicate";
@@ -259,26 +294,20 @@ export function StatementEditor({
   // (no special colour).
 
   const cat = statement.category ?? null;
-  const catMismatch =
-    cat != null &&
-    factorCategory != null &&
-    (cat.label.trim().toLowerCase() !== factorCategory.label.trim().toLowerCase() ||
-      (cat.uri ?? null) !== (factorCategory.uri ?? null));
+  const catDiffers = categoryDiffersFromFactor(cat, factorCategory);
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span
         className={
           "inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border " +
-          (catMismatch
-            ? "bg-amber-50 border-amber-300 text-amber-900"
-            : cat
-              ? "bg-slate-50 border-slate-200 text-slate-600"
-              : "bg-white border-dashed border-slate-300 text-slate-400")
+          (cat
+            ? "bg-slate-50 border-slate-200 text-slate-600"
+            : "bg-white border-dashed border-slate-300 text-slate-400")
         }
         title={
-          catMismatch
-            ? `Category differs from factor (${factorCategory?.label ?? "?"})`
+          catDiffers
+            ? `Statement category — the factor's is “${factorCategory?.label ?? "?"}”. Composing under a different category is a normal shape, not a defect.`
             : "statement category"
         }
       >
@@ -458,11 +487,7 @@ export function StatementGroupEditor({
   // afterwards, which is the same third pair by a slower route.
   const atPairLimit = statements.length >= MAX_STATEMENT_PAIRS;
   const cat = head.category ?? null;
-  const catMismatch =
-    cat != null &&
-    factorCategory != null &&
-    (cat.label.trim().toLowerCase() !== factorCategory.label.trim().toLowerCase() ||
-      (cat.uri ?? null) !== (factorCategory.uri ?? null));
+  const catDiffers = categoryDiffersFromFactor(cat, factorCategory);
 
   // Edits to category / subject fan out to every statement in the
   // group. The design draft's `apply` reducer is functional (#151)
@@ -497,15 +522,13 @@ export function StatementGroupEditor({
       <span
         className={
           "inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border " +
-          (catMismatch
-            ? "bg-amber-50 border-amber-300 text-amber-900"
-            : cat
-              ? "bg-slate-50 border-slate-200 text-slate-600"
-              : "bg-white border-dashed border-slate-300 text-slate-400")
+          (cat
+            ? "bg-slate-50 border-slate-200 text-slate-600"
+            : "bg-white border-dashed border-slate-300 text-slate-400")
         }
         title={
-          catMismatch
-            ? `Category differs from factor (${factorCategory?.label ?? "?"})`
+          catDiffers
+            ? `Statement category — applies to every predicate/object pair under this subject. The factor's is “${factorCategory?.label ?? "?"}”; composing under a different category is a normal shape, not a defect.`
             : "statement category — applies to every predicate/object pair under this subject"
         }
       >

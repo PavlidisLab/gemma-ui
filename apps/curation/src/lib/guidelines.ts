@@ -402,6 +402,7 @@ export const PREDICATE_GUIDELINE: GuidelineSnippet = {
   sourceUrl: PREDICATE_URL,
   bullets: [
     "Predicates ADD information to an existing object. Appending a characteristic ADDS a separate entity. Prefer predicates first; append a new characteristic only if no predicate fits.",
+    "🛑 A predicate/object pair attaches to the SUBJECT, never to another pair — statements are flat. Before adding a second pair, read it alone with the category and subject and nothing else: if it is only true as a qualification of the first pair, it is the wrong shape. See the statement-shapes crib sheet.",
     "Two EFCs that overlap exactly (flat p-value DEA) usually need merging — same predicate-vs-append rules apply.",
     "`has role` (RO_0000087) — baseline marker. object + has role + control / wild type genotype / initial time point / reference (substance|subject) role.",
     "`has_genotype` (GENO_0000222) — gene-level perturbation. gene (NCBI) + has_genotype + mutation type.",
@@ -675,6 +676,10 @@ export const STATEMENT_TEMPLATE_GUIDELINE: GuidelineSnippet = {
   source: "curation_rules 13_statement_templates",
   sourceUrl: PREDICATE_URL,
   bullets: [
+    "🛑 THE CATEGORY SCOPES THE CLAIM — it is part of the assertion, not bookkeeping. The same subject + predicate + object means DIFFERENT THINGS under different categories: under `genotype`, `Gja1 targeted to astrocyte` says the engineered alteration was confined to astrocytes; the same triple under another category would be saying where the gene product sits.",
+    "🛑 PAIRS DO NOT QUALIFY EACH OTHER. Statements are FLAT — every predicate/object pair hangs off the SUBJECT, so a second pair can never scope the first. A shape that only makes sense as a nested qualification is not expressible here, and writing it anyway makes a false claim about the subject: `hepatocellular carcinoma + delivered at dose + 25 mg/kg` reads as a dose OF THE DISEASE, because the dose belongs to the inducer and there is nowhere to say so.",
+    "THE TEST — READ EACH PAIR ALONE, with the category and the subject, every other pair hidden. If any single pair is false or nonsensical by itself, the arrangement is wrong. Never reach for a second pair to rescue the first.",
+    "A statement's category does NOT have to match its factor's, and differing is not a defect — a `genotype` statement on a `treatment` FV for a CRISPR guide, a `cell line` statement on a `cell type` FV. Measured over gold 2026-08-21: 95 of 3,731 statements differ deliberately.",
     "Two principles, and they conflict in only one direction: prefer FEWER annotations, and prefer the arrangement that RETAINS more. Collapsing two annotations into one-annotation-plus-a-statement is a win; dropping a statement to reach \"one annotation\" is a loss. When they disagree, DETAIL WINS.",
     "A template is a SHAPE, not a licence. Every one still has to be true of the samples — the composed form doesn't make a claim safer, it makes a true claim more completely.",
     "Cell type from a tissue: `cell type (CL) + derives from part of (ENVO_01003004) + organism part (UBERON)`. Not redundant with a constant cell-type characteristic — the tissue relationship exists nowhere in that characteristic. Compare the STATEMENT SET, never the value alone.",
