@@ -1311,16 +1311,20 @@ function BaselineDriftSection({
     // with a soft dismiss so the curator's intent is recorded.
     const cat = (factor.category?.uri ?? "").trim();
     const label = (factor.category?.label ?? "").trim().toLowerCase();
-    const match =
-      draft.factors.find(
-        (df) => cat && df.category?.uri === cat,
-      ) ??
-      draft.factors.find(
-        (df) => label && (df.category?.label ?? "").toLowerCase() === label,
-      );
-    if (match) {
-      applyDraft(deleteFactor(draft, match.id));
-    }
+    // 🛑 Resolve AND delete against the live draft, not the captured
+    // one. Two drift cards removed in quick succession would otherwise
+    // both compute from the same render's draft, and the second would
+    // undo the first — the last-write-wins shape that split statements
+    // on GSE152448 (b67a559). The match has to move inside too: a
+    // factor id looked up in a stale draft is the wrong id to delete.
+    applyDraft((d) => {
+      const match =
+        d.factors.find((df) => cat && df.category?.uri === cat) ??
+        d.factors.find(
+          (df) => label && (df.category?.label ?? "").toLowerCase() === label,
+        );
+      return match ? deleteFactor(d, match.id) : d;
+    });
     handleKeep(factor); // also dismiss the card so it doesn't linger
   }
   function handleKeep(factor: Factor): void {
