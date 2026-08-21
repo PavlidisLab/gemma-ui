@@ -64,13 +64,14 @@ const HAS_MODIFIER = predicate("http://purl.obolibrary.org/obo/RO_0002573");
 const POS_FOR_PRODUCT = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00169");
 const NEG_FOR_PRODUCT = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00170");
 // RO_0002503's own label is "towards"; the SoT was corrected to match
-// the ontology on 2026-08-21. `targeted towards` now ENDS IN it, so the
-// two picker rows differ only by a leading word — see the note on the
-// predicate select in StatementEditor.
+// the ontology on 2026-08-21. That briefly left `targeted towards`
+// ending in it — two picker rows a leading word apart — which is why
+// TGEMO_00215 was renamed `targeted to` the same day. Resolved; the
+// pair is only worth remembering as the reason the tooltips exist.
 const TOWARD = predicate("http://purl.obolibrary.org/obo/RO_0002503");
 const LOCATED_IN = predicate("http://purl.obolibrary.org/obo/RO_0001025");
 const SAMPLED_AFTER = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00202");
-const TARGETED_TOWARDS = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00215");
+const TARGETED_TO = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00215");
 const HAS_CHILD_WITH_DISEASE = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00201");
 const HAS_DEV_STAGE = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00168");
 
@@ -254,22 +255,29 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
   {
     id: "genotype-targeted",
     category: "genotype",
-    label: "gene + targeted towards + cell type / tissue",
+    label: "gene + targeted to + cell type / tissue",
     description:
       "A perturbation RESTRICTED to one cell type or tissue — conditional " +
       "/ Cre-lox KO, cell-type-specific knockdown, tissue-specific " +
-      "overexpression: gene + targeted towards + the CL or UBERON target " +
-      "(TGEMO_00215). Sits ALONGSIDE the has_genotype statement on the " +
-      "same gene, not instead of it. The target is what the alteration " +
-      "acts on and is INDEPENDENT of the cell type the experiment " +
-      "profiled — a Cre driver restricting a knockout to astrocytes takes " +
-      "`astrocyte` here even when whole cortex was sequenced.",
+      "overexpression: gene + targeted to + the CL or UBERON target " +
+      "(TGEMO_00215). 🛑 The CATEGORY is what scopes it: on a `genotype` " +
+      "statement this says the engineered alteration was confined there, " +
+      "NOT that the gene product localises there. What is targeted is the " +
+      "GENOTYPE, not the gene. Emit it under `genotype` or not at all. " +
+      "State the has_genotype pair alongside — a target with no alteration " +
+      "named is a poor annotation — but it is NOT what carries the " +
+      "meaning: Gemma's statements are flat, so the two pairs are " +
+      "independent assertions about the same subject and neither can " +
+      "qualify the other. The target comes from the Cre DRIVER, never the " +
+      "floxed gene, and is INDEPENDENT of what was profiled — a knockout " +
+      "restricted to astrocytes takes `astrocyte` even when whole cortex " +
+      "was sequenced.",
     subjectHint: "gene (NCBI_GENE)",
     objectHint: "cell type (CL) or tissue (UBERON)",
     build: (cat) =>
       withCategory(cat, {
         subject: { label: "" },
-        predicate: { ...TARGETED_TOWARDS },
+        predicate: { ...TARGETED_TO },
         object: { label: "" },
       }),
   },
@@ -325,8 +333,8 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       "A targeted agent and its target — antibody (EFO_0004390) + toward " +
       "(RO_0002503) + antigen. `towards` is DIRECTION: a response and its " +
       "stimulus, an agent and what it acts on. 🛑 NOT a perturbation " +
-      "target — that is `targeted towards` (TGEMO_00215), one suffix away " +
-      "in the picker and a different predicate. 🛑 NOT a graft host " +
+      "target — that is `targeted to` (TGEMO_00215), a different " +
+      "predicate. 🛑 NOT a graft host " +
       "either: a xenograft is not a phenotype response, and the host is a " +
       "plain `growth condition` value with no statement at all.",
     subjectHint: "agent (e.g. antibody, EFO_0004390)",
@@ -605,7 +613,7 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       "is an ANATOMICAL structure or a disease, NEVER a gene. `<gene> " +
       "located in <cell type>` is the conditional-knockout case wearing " +
       "the wrong predicate — it says where the gene sits, not where the " +
-      "alteration acts; that one is `targeted towards`.",
+      "alteration acts; that one is `targeted to`.",
     subjectHint: "structure (UBERON)",
     objectHint: "sub-region or axis (e.g. ventral, left hemisphere)",
     build: (cat) =>

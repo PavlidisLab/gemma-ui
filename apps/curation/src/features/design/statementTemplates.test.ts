@@ -114,7 +114,7 @@ describe("templatesFor", () => {
     // The agents side gained the same guard with 13_statement_templates
     // §§1-21 (cab, 2026-08-21): an allow-list saying a predicate is legal
     // while nothing shows what a correct statement with it looks like is
-    // how curators end up coining a shape. `targeted towards` arrived
+    // how curators end up coining a shape. `targeted to` arrived
     // exactly that way — sanctioned, reachable, and undocumented on this
     // side until it had a template.
     const covered = new Set(

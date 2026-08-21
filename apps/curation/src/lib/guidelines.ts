@@ -297,7 +297,7 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
       "Common allele-STATE terms are TGEMO: Homozygous negative (TGEMO_00001), Overexpression (TGEMO_00004), Constitutive active mutation (TGEMO_00008), gene knockdown (OBI_0002625).",
       "ZYGOSITY comes from GENO, not TGEMO: heterozygous (GENO_0000135), homozygous (GENO_0000136), unspecified zygosity (GENO_0000137). TGEMO's own `Heterozygous` was deleted in a cleanup and its TGEMO_00002 parent is deprecated — both resolve to nothing, so don't cite them. The shape is `gene (NCBI_GENE) + has_genotype + heterozygous (GENO_0000135)`, for a single-allele KO and for `+/mut` where the effect is unknown or partial LOF. There is deliberately NO template for it — build it from the term picker, having decided it is the right one, because the two neighbouring cases are more common than this one: where the paper NAMES the allele, allele notation (`mHTT/+`) beats a bare zygosity word since it carries identity as well; where the second allele is UNKNOWN, write `[mut]/?` rather than guessing either way.",
       "Drug-induced KO (Cre-loxP via tamoxifen / dox) is still Genotype — don't annotate the inducer.",
-      "A knockout RESTRICTED to one cell type or tissue takes a second statement on the same gene: `+ targeted towards (TGEMO_00215) + CL | UBERON`. The target is where the alteration acts, which is not necessarily what was profiled.",
+      "A knockout RESTRICTED to one cell type or tissue takes a second pair on the same gene: `+ targeted to (TGEMO_00215) + CL | UBERON`. What is targeted is the GENOTYPE, not the gene — the `genotype` category is what says so, and the target is where the alteration acts, not necessarily what was profiled.",
       "Capture the FUNCTIONAL change of a mutation (e.g. dominant-negative), not just the position.",
     ],
     donts: [
@@ -419,8 +419,9 @@ export const PREDICATE_GUIDELINE: GuidelineSnippet = {
     "`has child with disease` (TGEMO_00201) — sample from a parent whose child has a specific disease.",
     "`has developmental stage` (TGEMO_00168) — UBERON developmental stage + has developmental stage + free-text exact age.",
     "`located in` (RO_0001025) — disease or genotype localised to an organism part. Used inside genotype EFCs too.",
-    "`towards` (RO_0002503) — DIRECTION OF A PHENOTYPE RESPONSE. `response to` / `resistant to` / `sensitive toward` / `susceptible toward` + towards + treatment. 🛑 Not `targeted towards` (next bullet), which it sits beside in the picker. Since RO_0002503 was relabelled to its ontology form, `targeted towards` ENDS IN `towards` — the two rows differ by a leading word, so read the whole row.",
-    "`targeted towards` (TGEMO_00215) — a perturbation RESTRICTED to a cell type or tissue: gene (NCBI_GENE) + targeted towards + CL / UBERON. Conditional / Cre-lox KO, cell-type-specific knockdown, tissue-specific overexpression. It sits ALONGSIDE the `has_genotype` statement on the same gene, and its object is what the alteration acts on — INDEPENDENT of the cell type the experiment profiled. Not `towards` (a phenotype response has a direction; a knockout does not), not `located in` (that would assert the gene's own anatomical location), not `delivered to` (that presupposes an administration event a germline conditional allele never had).",
+    "`towards` (RO_0002503) — DIRECTION OF A PHENOTYPE RESPONSE. `response to` / `resistant to` / `sensitive toward` / `susceptible toward` + towards + treatment. Spelled `towards` since 2026-08-21, when the sanctioned labels were aligned to their source ontologies; RO offers no `toward`.",
+    "`targeted to` (TGEMO_00215) — a perturbation RESTRICTED to a cell type or tissue: gene (NCBI_GENE) + targeted to + CL / UBERON. Conditional / Cre-lox KO, cell-type-specific knockdown, tissue-specific overexpression. 🛑 THE CATEGORY SCOPES IT: under `genotype` it says the engineered alteration was confined there, not that the gene product localises there — what is targeted is the GENOTYPE, not the gene. It is NOT scoped by the has_genotype pair beside it and cannot be, because Gemma's statements are flat and one pair can't qualify another; state the perturbation alongside anyway, since a target with no alteration named is a poor annotation. The object is INDEPENDENT of the cell type the experiment profiled. Not `located in` (that asserts the gene's own anatomical location), not `delivered to` (that presupposes an administration event a germline conditional allele never had).",
+    "Was minted as `targeted towards` on 2026-08-21 and renamed the same day — RO_0002503's own label is `towards`, so the two sat one word apart in this list. `targeted towards` and `restricted to cell type` survive as exact synonyms in TGEMO, so anything already written against the old label still resolves.",
     "`sampled after` (TGEMO_00202) — timepoint sampled after a treatment / disease event with a reference subject in the experiment.",
   ],
   donts: [
@@ -685,7 +686,7 @@ export const STATEMENT_TEMPLATE_GUIDELINE: GuidelineSnippet = {
     "Baseline / reference role: `<the FV's own value> + has role (RO_0000087) + role term`. Keep the named value and add the role to it.",
     "DEA subsetting axis: `<FV value> + has role + \"Experiment 1\" | \"Experiment 2\"` on the factor that ALREADY makes the split — instead of a duplicate `collection of material` factor that exists only to tell the DEA machinery what to subset on.",
     "Ungroundable identifiers (donor / subject codes, hybrid strain backgrounds, lab-internal line names) stay FREE TEXT with no URI. That is the honest annotation, not a gap.",
-    "Conditional / cell-type-targeted knockout: `gene + has_genotype + <allele state>` AND `gene + targeted towards (TGEMO_00215) + CL | UBERON` — two statements on the same gene subject, because the alteration and where it acts are two facts. The Cre driver and the floxed allele stay separate assertions, not one merged label.",
+    "Conditional / cell-type-targeted knockout: `gene + has_genotype + <allele state>` AND `gene + targeted to (TGEMO_00215) + CL | UBERON` — two INDEPENDENT pairs on one gene subject under the `genotype` category. The category is what scopes the target to the alteration; the pairs cannot scope each other, because Gemma's statements are flat. The TARGET comes from the Cre driver (GFAP → astrocyte, Alb → hepatocyte), never from the floxed gene, and the driver is never itself the subject.",
     "Confounded cause axis has its own encoding — see the batch-confound rules.",
   ],
   examples: [
@@ -694,7 +695,7 @@ export const STATEMENT_TEMPLATE_GUIDELINE: GuidelineSnippet = {
     "organism part: brain (UBERON_0000955) + has modifier -> organoid (TGEMO_00205)",
     "treatment: protein (CHEBI_36080) + derives from -> CCL19 (NCBI_GENE) + delivered at dose -> 10 ng/ml",
     "genotype: Hoxa5 (NCBI_GENE) + has_genotype -> Overexpression (TGEMO_00004)",
-    "genotype: S1pr1 (NCBI_GENE) + has_genotype -> Homozygous negative + targeted towards -> astrocyte (CL_0000127) — a conditional KO; the cortex it was sequenced from doesn't change the target",
+    "genotype: S1pr1 (NCBI_GENE) + has_genotype -> Homozygous negative + targeted to -> astrocyte (CL_0000127) — a conditional KO; the cortex it was sequenced from doesn't change the target",
     "genotype: Utrn (NCBI_GENE) + has_genotype -> heterozygous (GENO_0000135) — single-allele KO; zygosity is GENO, and TGEMO_00003 is deleted",
     "developmental stage: prime adult stage + has role -> Experiment 1",
   ],
