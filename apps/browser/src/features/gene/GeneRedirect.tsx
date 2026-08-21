@@ -8,17 +8,19 @@
 
 import { useEffect } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { useUrlInitial } from "@/features/shared/useUrlInitial";
 import { useQuery } from "@tanstack/react-query";
 import { resolveGeneNcbiId } from "@/api/endpoints";
 import { PageMask } from "@gemma/ui";
 
 export function GeneRedirect() {
   const { id } = useParams({ from: "/gene/$id" });
+  const { taxon } = useUrlInitial();
   const navigate = useNavigate();
 
   const q = useQuery({
-    queryKey: ["gene-resolve", id],
-    queryFn: ({ signal }) => resolveGeneNcbiId(id, signal),
+    queryKey: ["gene-resolve", id, taxon ?? ""],
+    queryFn: ({ signal }) => resolveGeneNcbiId(id, { taxon, signal }),
     enabled: !!id,
   });
 

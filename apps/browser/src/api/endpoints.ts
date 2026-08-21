@@ -817,13 +817,56 @@ export async function getGene(
  *  Returns `null` when nothing matches or the top hit carries no NCBI id. */
 export async function resolveGeneNcbiId(
   query: string,
-  signal?: AbortSignal,
+  options: { taxon?: string; signal?: AbortSignal } = {},
 ): Promise<number | null> {
+  const { taxon, signal } = options;
   const q = query.trim();
   if (!q) return null;
   if (/^\d+$/.test(q)) return Number(q);
-  const hits = await searchGenes(q, { limit: 1, signal });
-  return hits[0]?.ncbiId ?? null;
+
+  // Without a taxon this takes whatever the search ranks first, which
+  // is not necessarily the species the caller meant: /genes/search?
+  // query=Myc ranks rat, then mouse, then human. Callers that know the
+  // species say so — but ``taxon`` can't just be passed alongside
+  // ``limit=1``, because Gemma REST applies the limit BEFORE the taxon
+  // filter. query=Myc&taxon=mouse&limit=1 truncates to the rat hit and
+  // then filters it out, returning an empty list; the same call at
+  // limit=3 returns mouse Myc. So ask for a page wide enough to
+  // survive that truncation and pick the match here.
+  const limit = taxon ? TAXON_RESOLVE_PAGE : 1;
+  const hits = await searchGenes(q, { taxon, limit, signal });
+  if (!taxon) return hits[0]?.ncbiId ?? null;
+  const exact = hits.find(
+    (g) => g.officialSymbol?.toLowerCase() === q.toLowerCase(),
+  );
+  return (exact ?? hits[0])?.ncbiId ?? null;
+}
+
+/** How many hits to pull when a taxon is supplied — see the truncation
+ *  note in resolveGeneNcbiId. 20 clears every case we've seen (the
+ *  worst, "Myc", needs 3). */
+const TAXON_RESOLVE_PAGE = 20;
+
+/** Bulk symbol → gene lookup. ``/genes/{genes}`` takes a
+ *  comma-separated list and resolves each entry as an NCBI id, an
+ *  Ensembl id, or an official symbol — so one call covers a whole
+ *  chart's worth of symbols.
+ *
+ *  A symbol is not unique across taxa (``Myc`` returns the human,
+ *  mouse and rat genes), so callers that mean a particular species
+ *  have to pick from the result by taxon.
+ */
+export async function getGenesBySymbols(
+  symbols: string[],
+  signal?: AbortSignal,
+): Promise<Gene[]> {
+  const list = symbols.map((x) => x.trim()).filter(Boolean);
+  if (list.length === 0) return [];
+  const r = await apiGet<PaginatedResponse<Gene>>(
+    `${BASE}/genes/${encodeURIComponent(list.join(","))}`,
+    { signal },
+  );
+  return r.data ?? [];
 }
 
 export async function getGeneLocations(
