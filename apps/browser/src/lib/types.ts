@@ -218,11 +218,14 @@ export interface PipelineStatus {
  *  GeeqValueObject Java class).
  *
  *  All sub-scores normalised to [-1, 1] (higher = better); the
- *  aggregate ``publicQualityScore`` / ``publicSuitabilityScore``
- *  are bounded to [0, 1]. */
+ *  aggregate ``publicQualityScore`` is bounded to [0, 1].
+ *
+ *  Suitability is deliberately absent. It was removed from the GEEQ
+ *  score, so ``publicSuitabilityScore`` and the ``sScore*`` fields are
+ *  no longer declared here even though gemma-rest still emits them —
+ *  the index signature below keeps them harmless on the way in. */
 export interface GeeqScores {
   publicQualityScore?: number | null;
-  publicSuitabilityScore?: number | null;
 
   // ─── Flags / counts (not in the score-bar table) ───
   /** ``true`` when the dataset has no processed data vectors. */
@@ -230,16 +233,6 @@ export interface GeeqScores {
   corrMatIssues?: number | null;
   replicatesIssues?: number | null;
   batchCorrected?: boolean | null;
-
-  // ─── Suitability sub-scores ───
-  sScorePublication?: number | null;
-  sScorePlatformAmount?: number | null;
-  sScorePlatformTechMulti?: number | null;
-  sScoreAvgPlatformPopularity?: number | null;
-  sScoreAvgPlatformSize?: number | null;
-  sScoreSampleSize?: number | null;
-  sScoreRawData?: number | null;
-  sScoreMissingValues?: number | null;
 
   // ─── Quality sub-scores ───
   qScoreOutliers?: number | null;
