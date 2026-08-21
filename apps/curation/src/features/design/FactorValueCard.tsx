@@ -547,6 +547,7 @@ export function FactorValueCard({
                   <li>
                     <CompactStatementRow
                       statement={ungroundedValue(fv, factorCategory)!}
+                      onSubjectCommit={compact ? undefined : onLabelChange}
                     />
                   </li>
                 ) : null)
@@ -878,8 +879,21 @@ function ReadonlyStatement({
  *  Echoing the header is the cheaper cost. */
 function CompactStatementRow({
   statement,
+  onSubjectCommit,
 }: {
   statement: FactorValue["statements"][number];
+  /** When given, the SUBJECT renders as double-click-to-edit text
+   *  instead of a static term, and commits through this.
+   *
+   *  Only the free-text branch passes it. A value with no statement
+   *  IS its label, so this row is the whole value — and it renders in
+   *  the exact slot where a grounded sibling puts an editable term
+   *  picker. Read-only there made the open editor look like it had a
+   *  field and refuse to open it: double-clicking selected the word
+   *  and nothing else (GSE64959, 14 of 14 organism-part values).
+   *  The header's label editor was the only way in and does not look
+   *  like the thing you are trying to change. */
+  onSubjectCommit?: (next: string) => void;
 }) {
   const cat = statement.category;
   const subj = statement.subject;
@@ -904,13 +918,26 @@ function CompactStatementRow({
           {cat!.label!}
         </Term>
       ) : null}
-      <Term
-        uri={subjUri}
-        asLink={false}
-        className="!whitespace-normal break-words"
-      >
-        {subj?.label || "(blank)"}
-      </Term>
+      {onSubjectCommit ? (
+        // Same control the FV header uses for this same field, so a
+        // curator who learns one has learned both. Grounding the value
+        // stays "+ statement" — editing text here changes the text,
+        // and nothing quietly mints a statement out of it.
+        <InlineText
+          value={subj?.label || ""}
+          placeholder="free-text value"
+          onCommit={onSubjectCommit}
+          className="!whitespace-normal break-words italic"
+        />
+      ) : (
+        <Term
+          uri={subjUri}
+          asLink={false}
+          className="!whitespace-normal break-words"
+        >
+          {subj?.label || "(blank)"}
+        </Term>
+      )}
       {hasPred ? (
         <>
           <span className="text-slate-400 dark:text-slate-500"> - </span>
