@@ -151,3 +151,210 @@ describe("composeCurationDesign — materialise factors from proposal payload", 
     expect(design.factors).toEqual([]);
   });
 });
+
+/**
+ * The carry-through regression (2026-08-20, cab's handoff
+ * SUBSET_RECOMMENDATIONS_UI_2026_08_20.md).
+ *
+ * composeCurationDesign rebuilt the Design from a literal of named
+ * keys, so any field nobody remembered to list was dropped between the
+ * store and every consumer. It ate `publications` (2026-06-11),
+ * `gold_data_version` (2026-08-17), and `subset_recommendations` from
+ * the day that field existed: 69 of 500 experiments carry a
+ * Gemma-seeded recommendation and the design tab said "None recorded"
+ * for all of them.
+ *
+ * These pin the FIX rather than the three symptoms — the return
+ * carries the object now, so the assertion that matters is that a
+ * field this adapter has never heard of survives the trip.
+ */
+describe("composeCurationDesign — carries the whole design object", () => {
+  const withDownstream = {
+    experimental_factors: [],
+    bio_material_assignments: [],
+    subset_recommendations: [
+      {
+        id: "gemma-subset-organism-part",
+        by_factor_id: 1,
+        gemma_factor_id: 23079,
+        level_labels: ["Ammon's horn", "frontal cortex"],
+        rationale: "Gemma already subsets the DEA on `organism part`.",
+        status: "agent_recommended",
+        source: "gemma",
+      },
+    ],
+    should_split_on_factor_id: -1,
+    should_split_rationale: "one arm",
+  } as unknown as G2Design;
+
+  it("keeps subset_recommendations", () => {
+    const d = composeCurationDesign(withDownstream, 18392, "GSE74438", null);
+    expect(d.subset_recommendations).toHaveLength(1);
+    expect(d.subset_recommendations?.[0].source).toBe("gemma");
+    expect(d.subset_recommendations?.[0].gemma_factor_id).toBe(23079);
+  });
+
+  it("keeps both split fields", () => {
+    const d = composeCurationDesign(withDownstream, 18392, "GSE74438", null);
+    expect(d.should_split_on_factor_id).toBe(-1);
+    expect(d.should_split_rationale).toBe("one arm");
+  });
+
+  it("keeps a field this adapter has never been taught about", () => {
+    // The actual contract. If someone reintroduces a named-key literal
+    // this fails, whatever the field of the week happens to be.
+    const g2 = {
+      ...withDownstream,
+      some_field_added_next_quarter: "survives",
+    } as unknown as G2Design;
+    const d = composeCurationDesign(g2, 18392, "GSE74438", null);
+    expect(
+      (d as unknown as Record<string, unknown>).some_field_added_next_quarter,
+    ).toBe(
+      "survives",
+    );
+  });
+
+  it("drops the wire-only shapes it re-derives", () => {
+    // `experimental_factors` / `bio_material_assignments` are recomposed
+    // into `factors` / `biomaterials`; carrying them too would put a
+    // stale second copy of the design in every PUT body.
+    const d = composeCurationDesign(withDownstream, 18392, "GSE74438", null);
+    const raw = d as unknown as Record<string, unknown>;
+    expect(raw.experimental_factors).toBeUndefined();
+    expect(raw.bio_material_assignments).toBeUndefined();
+    expect(raw.id).toBeUndefined();
+    expect(raw.name).toBeUndefined();
+  });
+});
+
+/**
+ * Factor identity, the same drop one level down (2026-08-20).
+ *
+ * `composeFactor` builds from the `experimental_factors[]` projection,
+ * which carries only the local row id. `gemmaFactorId` /
+ * `localFactorId` live on the server's own `factors[]` array — so every
+ * composed factor came back with `gemma_factor_id` undefined and any
+ * consumer asking "is this still the factor Gemma meant" had nothing
+ * but the per-row sequence number, which is the id that bound one
+ * design's organism-part levels to another's genotype factor.
+ */
+describe("composeCurationDesign — factor identity", () => {
+  // GSE74438's real shape: two Gemma-known factors and one
+  // curator-added factor with a local id and no Gemma id.
+  const g2 = {
+    experimental_factors: [
+      {
+        id: 1,
+        name: "organism part",
+        category: { category: "organism part", category_uri: null },
+        values: [],
+      },
+      {
+        id: 3,
+        name: "genetic manipulation",
+        category: { category: "genotype", category_uri: null },
+        values: [],
+      },
+    ],
+    bio_material_assignments: [],
+    factors: [
+      { id: 1, gemma_factor_id: 36160, local_factor_id: null },
+      { id: 3, gemma_factor_id: null, local_factor_id: "local-8f7f40227569" },
+    ],
+  } as unknown as G2Design;
+
+  it("carries gemma_factor_id from the factors array onto the composed factor", () => {
+    const d = composeCurationDesign(g2, 18392, "GSE74438", null);
+    expect(d.factors.map((f) => f.gemma_factor_id)).toEqual([36160, null]);
+  });
+
+  it("carries local_factor_id for factors Gemma has never seen", () => {
+    const d = composeCurationDesign(g2, 18392, "GSE74438", null);
+    expect(d.factors[1].local_factor_id).toBe("local-8f7f40227569");
+  });
+
+  it("still composes when the server sends no factors array", () => {
+    // Neither shape carries identity here, so the answer is a definite
+    // `null` rather than `undefined` — the ladder normalizes, and the
+    // fold's "this design knows no Gemma ids" guard reads both the
+    // same way.
+    const bare = { ...g2, factors: undefined } as unknown as G2Design;
+    const d = composeCurationDesign(bare, 18392, "GSE74438", null);
+    expect(d.factors).toHaveLength(2);
+    expect(d.factors[0].gemma_factor_id).toBeNull();
+  });
+
+  it("does not let the identity merge clobber the composed shape", () => {
+    const d = composeCurationDesign(g2, 18392, "GSE74438", null);
+    expect(d.factors[0].name).toBe("organism part");
+    expect(d.factors[0].category.label).toBe("organism part");
+  });
+});
+
+/**
+ * Identity from the projection (2026-08-20, later the same day).
+ *
+ * cab fixed `Design.experimental_factors` at source so the projection
+ * carries the id fields too. A design serialized before that has them
+ * only on `factors[]`, so both are read — one ladder, projection first.
+ */
+describe("composeCurationDesign — identity ladder", () => {
+  it("reads gemma_factor_id off the projection when it is there", () => {
+    const g2 = {
+      experimental_factors: [
+        {
+          id: 1,
+          name: "organism part",
+          category: { category: "organism part", category_uri: null },
+          gemma_factor_id: 36160,
+          local_factor_id: null,
+          values: [],
+        },
+      ],
+      bio_material_assignments: [],
+      // No `factors[]` at all — the projection is the only source.
+    } as unknown as G2Design;
+    const d = composeCurationDesign(g2, 18392, "GSE74438", null);
+    expect(d.factors[0].gemma_factor_id).toBe(36160);
+  });
+
+  it("falls back to factors[] for a design serialized before the fix", () => {
+    const g2 = {
+      experimental_factors: [
+        {
+          id: 1,
+          name: "organism part",
+          category: { category: "organism part", category_uri: null },
+          values: [],
+        },
+      ],
+      bio_material_assignments: [],
+      factors: [{ id: 1, gemma_factor_id: 36160, local_factor_id: null }],
+    } as unknown as G2Design;
+    const d = composeCurationDesign(g2, 18392, "GSE74438", null);
+    expect(d.factors[0].gemma_factor_id).toBe(36160);
+  });
+
+  it("is null, not undefined, for a factor Gemma has never seen", () => {
+    // The fold reads "no Gemma ids anywhere in this design" as "we
+    // learned nothing", so the distinction has to survive: a null here
+    // is a real answer, and every factor being null is what makes a
+    // UI-authored polished row exempt from the staleness check.
+    const g2 = {
+      experimental_factors: [
+        {
+          id: 3,
+          name: "genetic manipulation",
+          category: { category: "genotype", category_uri: null },
+          local_factor_id: "local-8f7f40227569",
+          values: [],
+        },
+      ],
+      bio_material_assignments: [],
+    } as unknown as G2Design;
+    const d = composeCurationDesign(g2, 18392, "GSE74438", null);
+    expect(d.factors[0].gemma_factor_id).toBeNull();
+    expect(d.factors[0].local_factor_id).toBe("local-8f7f40227569");
+  });
+});

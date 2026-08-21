@@ -4,6 +4,7 @@ import {
   type Design,
   type DesignValidationState,
 } from "@/features/experiment/types";
+import { liveSubsets, resolveSubset } from "./subsetRecommendations";
 
 /**
  * Compact summary of the validator state. Green for ok; amber for any
@@ -97,7 +98,16 @@ export function ValidatorBanner({
               noteFor={overfullStatementNote}
             />
           ) : null}
-          {multiBaselineFactors.length > 0 ? (
+          {overfullFactors.length > 0 ? (
+          <FactorNotes
+            factors={overfullFactors}
+            design={design}
+            onSelectFactor={onSelectFactor}
+            heading="over Gemma's statement limit"
+            noteFor={overfullStatementNote}
+          />
+        ) : null}
+        {multiBaselineFactors.length > 0 ? (
             <FactorNotes
               factors={multiBaselineFactors}
               design={design}
@@ -207,15 +217,6 @@ export function ValidatorBanner({
             heading="agent flagged"
             noteFor={baselineUncertainNote}
             titleFor={(s) => s.baseline_uncertain_reason}
-          />
-        ) : null}
-        {overfullFactors.length > 0 ? (
-          <FactorNotes
-            factors={overfullFactors}
-            design={design}
-            onSelectFactor={onSelectFactor}
-            heading="over Gemma's statement limit"
-            noteFor={overfullStatementNote}
           />
         ) : null}
         {multiBaselineFactors.length > 0 ? (
@@ -354,11 +355,15 @@ function multiBaselineNote(
   s: DesignValidationState["factors"][number],
   design: Design,
 ): ReactNode {
-  const accepted = (design.subset_recommendations ?? []).filter(
-    (r) => r.status === "accepted" && typeof r.by_factor_id === "number",
-  );
-  const byFactor = accepted
-    .map((r) => design.factors.find((f) => f.id === r.by_factor_id))
+  // 🛑 ``liveSubsets``, not ``status === "accepted"``. Accept is the
+  // DEFAULT (Paul, 2026-08-20), so the narrow test saw a live Gemma
+  // recommendation sitting in the design and still told the curator
+  // "no subset recorded yet" — the nag this channel exists to avoid,
+  // on the 69 experiments most likely to hit the multi-baseline case.
+  // The fold also drops recommendations whose factor has since been
+  // re-partitioned away, which genuinely do not answer this.
+  const byFactor = liveSubsets(design)
+    .map((r) => resolveSubset(r, design).factor)
     .filter((f): f is NonNullable<typeof f> => !!f)
     .map((f) => f.name || f.category?.label || `factor ${f.id}`);
 

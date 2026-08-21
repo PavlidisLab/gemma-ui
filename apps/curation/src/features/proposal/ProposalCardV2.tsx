@@ -1190,6 +1190,12 @@ export function ProposalCardV2({
 
       {tab === "review" && (
         <>
+      {/* Analysis scope (split / subset) — shared with
+          ProposalSidebarPanel, and first in the tab (Paul, 2026-08-20).
+          It sat below the triage strip, so the curator met the
+          per-verdict chips before being told what scope the analysis
+          runs at. */}
+      <DownstreamShapeBlock draft={draft} />
       {/* ---------------- Triage strip ----------------
           Only renders chips for non-affirmative verdicts: when the
           design is fine, the study isn't a split candidate, and no
@@ -1249,8 +1255,6 @@ export function ProposalCardV2({
         );
       })()}
 
-      {/* Downstream shape (split / subset) — shared with ProposalSidebarPanel. */}
-      <DownstreamShapeBlock draft={draft} />
 
       {/* ---------------- Metadata badge ---------------- */}
       {/* Cohort-level metadata (sample count, individual count, batch

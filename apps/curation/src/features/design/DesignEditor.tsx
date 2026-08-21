@@ -38,6 +38,21 @@ import {
   toggleBaseline,
 } from "./mutations";
 import { validateDesign } from "@/features/experiment/types";
+import {
+  countRejectedSubsets,
+  isInEffect,
+  isRejected,
+  proposedSubsets,
+  recordedSubsets,
+  resolveSubset,
+  sourceChip,
+  subsetFactorLabel,
+  subsetsWantAttention,
+  summariseSplit,
+  summariseSubsets,
+  tierMetaOf,
+  tierTitle,
+} from "./subsetRecommendations";
 import { capitalizeCategory } from "@/lib/ontologyTerm";
 import type {
   Design, Factor, Statement, SubsetRecommendation,
@@ -535,6 +550,31 @@ function ExperimentDecisionsSection({
   const splitOn = factorId !== null && factorId > 0 ? factorId : null;
   const explicitlyDoNotSplit = factorId === -1;
 
+  // What the collapsed header says. The pane used to read only the
+  // split field, so it said "none recorded" over a live Gemma subset
+  // recommendation — which is the state 69 of 500 experiments are in,
+  // and the reviewer had to open the pane to find out. Paul,
+  // 2026-08-20: if a recommendation is active it belongs in the
+  // unexpanded area.
+  const splitSummary = summariseSplit(draft);
+  const subsetSummary = summariseSubsets(draft);
+  // A rejection counts as recorded even though it is not in effect —
+  // otherwise the header says "none recorded" over the curator's own
+  // no-vote and the pane collapses on the one state where the only
+  // control that undoes it is inside.
+  const rejectedCount = countRejectedSubsets(draft);
+  const anythingRecorded =
+    !!splitSummary || !!subsetSummary || rejectedCount > 0;
+  // 🛑 Recorded is not the same as needs-you. 63 of the 69 seeded
+  // recommendations are tier-2 `convention` — routine policy Paul has
+  // said should be "a NOTICE at most" — so auto-opening a tall pane for
+  // one is the panel shouting a fact nobody asked for. That is what
+  // made this "very large and confusing". Open for a split decision or
+  // a `qa` / `two_in_one` tier; otherwise the summary chip carries it,
+  // which is what Paul asked for in the first place: if a
+  // recommendation is active, show it in the UNEXPANDED area.
+  const openOnArrival = !!splitSummary || subsetsWantAttention(draft);
+
   const setFields = (
     nextFactorId: number | null,
     nextRationale: string,
@@ -549,17 +589,29 @@ function ExperimentDecisionsSection({
   return (
     <details
       className="rounded border border-slate-300 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-700 open:shadow-sm"
-      open={decisionMade}
+      open={openOnArrival}
     >
-      <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-200 flex items-center gap-2">
+      <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-medium text-slate-700 dark:text-slate-200 flex items-center gap-2 flex-wrap">
         <span>Experiment-wide decisions</span>
-        {decisionMade ? (
+        {splitSummary ? (
           <span className="text-[10px] uppercase tracking-wide rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200 px-2 py-0.5">
-            {explicitlyDoNotSplit
-              ? "no-split asserted"
-              : "split recommended"}
+            {splitSummary}
           </span>
-        ) : (
+        ) : null}
+        {/* Slate, not amber: a subset in effect is the normal state of
+            an experiment, not an alarm. 64 of the 69 seeded ones are
+            tier-2 convention. */}
+        {subsetSummary ? (
+          <span className="text-[10px] uppercase tracking-wide rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-200 px-2 py-0.5">
+            {subsetSummary}
+          </span>
+        ) : null}
+        {rejectedCount > 0 ? (
+          <span className="text-[10px] uppercase tracking-wide text-slate-400">
+            {rejectedCount} subset{rejectedCount === 1 ? "" : "s"} rejected
+          </span>
+        ) : null}
+        {anythingRecorded ? null : (
           <span className="text-[10px] text-slate-400">
             none recorded
           </span>
@@ -651,19 +703,18 @@ function ExperimentDecisionsSection({
             </>
           ) : null}
         </div>
-        <textarea
-          className="w-full text-[12px] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 min-h-[3.5rem]"
-          placeholder={
-            decisionMade
-              ? "Rationale (optional): why this split / no-split?"
-              : "Select a decision above to record rationale."
-          }
-          value={rationale}
-          disabled={!decisionMade}
-          onChange={(e) =>
-            setFields(factorId, e.target.value)
-          }
-        />
+        {/* Only once there is a decision to explain. A disabled box
+            whose placeholder says "select a decision above" is ~90px of
+            control the curator cannot use, and it was the tallest thing
+            left in the pane. */}
+        {decisionMade ? (
+          <textarea
+            className="w-full text-[12px] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 min-h-[3.5rem]"
+            placeholder="Rationale (optional): why this split / no-split?"
+            value={rationale}
+            onChange={(e) => setFields(factorId, e.target.value)}
+          />
+        ) : null}
 
         <SubsetRecommendationsBlock
           draft={draft}
@@ -707,10 +758,21 @@ function SubsetRecommendationsBlock({
   readOnly: boolean;
   onApply: (next: Design | ((d: Design) => Design)) => void;
 }) {
-  const recs = draft.subset_recommendations ?? [];
-  const pending = recs.filter((r) => r.status === "agent_recommended");
-  const accepted = recs.filter((r) => r.status === "accepted");
-  const rejected = recs.filter((r) => r.status === "rejected");
+  // 🛑 The RECORD, not everything on the design. Agent rows are being
+  // reviewed on the proposal panel (Paul, 2026-08-20: "these should be
+  // in the proposal panel on the right, if they are coming from a
+  // proposal") — they come back here only once rejected, because a
+  // rejection is a decision and decisions belong in the decisions pane.
+  const recs = recordedSubsets(draft);
+  const proposedElsewhere = proposedSubsets(draft).length;
+  // Two buckets, not three. There was a "Pending" bucket sitting above
+  // an "Accepted" one, which is the shape of a queue the curator has to
+  // work through — and this is not one. Paul, 2026-08-20: "the default
+  // is to accept it unless you disagree". A recommendation is in effect
+  // from the moment it arrives; the only thing that moves it out of
+  // this list is the curator rejecting it.
+  const inEffect = recs.filter(isInEffect);
+  const rejected = recs.filter(isRejected);
 
   const setStatus = (
     id: string,
@@ -731,12 +793,6 @@ function SubsetRecommendationsBlock({
         r.id === id ? { ...r, rationale } : r,
       ),
     }));
-  };
-
-  const factorName = (id: number | null | undefined): string => {
-    if (id == null) return "(no factor)";
-    const f = draft.factors.find((f) => f.id === id);
-    return f?.name || f?.category?.label || `factor ${id}`;
   };
 
   /** Record "subset the DEA by this factor" as the curator's own
@@ -788,6 +844,17 @@ function SubsetRecommendationsBlock({
     }));
   };
 
+  /** One line, not a second copy of the cards. The agent's rows are
+   *  reviewed on the proposal panel; hiding them here without saying so
+   *  would be a curator wondering where a recommendation went. */
+  const proposedHint =
+    proposedElsewhere > 0 ? (
+      <div className="text-[11px] text-slate-500 dark:text-slate-400 italic">
+        {proposedElsewhere} more proposed by the agent — review{" "}
+        {proposedElsewhere === 1 ? "it" : "them"} in the proposal panel.
+      </div>
+    ) : null;
+
   const addControl = (
     <AddSubsetControl
       factors={draft.factors ?? []}
@@ -810,83 +877,136 @@ function SubsetRecommendationsBlock({
           Subset recommendations
         </div>
         <div className="text-[11px] text-slate-500 dark:text-slate-400 italic">
-          None recorded. The agent seeds DEA-subset and
-          partial-coverage recommendations here on import — or record
-          your own.
+          None recorded. Gemma's own analysis structure seeds DEA-subset
+          recommendations here on import — or record your own.
         </div>
+        {proposedHint}
         {addControl}
       </div>
     );
   }
 
   const renderCard = (r: SubsetRecommendation) => {
-    const factorLabel = factorName(r.by_factor_id);
-    const levelLabels = r.level_labels.join(", ");
-    const isAccepted = r.status === "accepted";
-    const isRejected = r.status === "rejected";
-    const isPending = r.status === "agent_recommended";
-    const accent = isAccepted
-      ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
-      : isRejected
+    const { factor, stale, matchedLevels, driftedLevels } = resolveSubset(
+      r,
+      draft,
+    );
+    const axis = subsetFactorLabel(r, draft);
+    const tier = tierMetaOf(r);
+    const rejected = isRejected(r);
+    // Three states, three tints, and none of them is an alarm. A subset
+    // in effect is the ordinary condition of an experiment.
+    const accent = stale
+      ? "border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30 opacity-60"
+      : rejected
         ? "border-slate-400 bg-slate-100 dark:bg-slate-900/40 opacity-70"
-        : "border-amber-400 bg-amber-50 dark:bg-amber-900/20";
+        : "border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20";
+
+    // ONE prose line, not two. A convention-tier Gemma row said "cell
+    // type, 2 levels" three times over — in the header, in
+    // `tier_evidence`, and again in `rationale` — which is most of what
+    // made the pane unreadable. The tier's own sentence leads because
+    // it explains the judgement; the other stays reachable on hover
+    // rather than being dropped, because neither is ours to discard.
+    const evidence = (r.tier_evidence ?? "").trim();
+    const rationale = (r.rationale ?? "").trim();
+    const lead = evidence || rationale;
+    const alsoSaid = evidence && rationale ? rationale : undefined;
+
     return (
       <div
         key={r.id}
         className={`rounded border ${accent} px-2 py-1.5 text-[11px] space-y-1`}
       >
         <div className="flex items-center gap-1 flex-wrap">
-          <span className="font-medium text-slate-700 dark:text-slate-200">
-            Subset by <em>{factorLabel}</em>
-          </span>
-          {/* No levels means the whole factor is the subset axis —
-              DEA runs once per level. Say that, rather than leaving
-              the card looking like a subset whose levels went
-              missing. */}
-          {levelLabels ? (
-            <span className="text-slate-600 dark:text-slate-300">
-              → {levelLabels}
+          {/* A row that names no axis is a NOTE, not a subset. Saying
+              "Subset by (no factor) → every level (DEA per level)"
+              claimed a DEA per level of nothing. */}
+          {axis ? (
+            <span className="font-medium text-slate-700 dark:text-slate-200">
+              Subset by <em>{axis}</em>
             </span>
           ) : (
-            <span className="text-slate-500 dark:text-slate-400">
-              → every level (DEA per level)
+            <span className="font-medium text-slate-700 dark:text-slate-200">
+              Analysis note
             </span>
           )}
+          {axis && matchedLevels.length > 0 ? (
+            <span className="text-slate-600 dark:text-slate-300">
+              → {matchedLevels.map((fv) => fv.free_text_label).join(", ")}
+            </span>
+          ) : axis && (r.level_labels ?? []).length === 0 ? (
+            // Empty level_labels means the whole factor is the axis —
+            // DEA runs once per level. Only true of a row that HAS an
+            // axis.
+            <span className="text-slate-500 dark:text-slate-400">
+              → every level
+            </span>
+          ) : null}
+          {tier ? (
+            <span
+              className="text-[10px] uppercase tracking-wide rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-200 px-1.5 py-0.5"
+              title={tierTitle(r)}
+            >
+              {tier.label}
+            </span>
+          ) : null}
           <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-500">
-            {r.source} · {r.status}
+            {sourceChip(r)}
           </span>
         </div>
-        <textarea
-          className="w-full text-[11px] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 min-h-[2.5rem] disabled:opacity-60"
-          placeholder={readOnly ? "" : "Rationale"}
-          value={r.rationale}
-          disabled={readOnly}
-          onChange={(e) => setRationale(r.id, e.target.value)}
-        />
+        {/* 🛑 Stale is EXPECTED. Paul, 2026-08-20: "our polishing will
+            cause this. it's okay." So it says the recommendation no
+            longer applies and stops offering it — no warning colour,
+            nothing to resolve, no ask. */}
+        {stale ? (
+          <div className="text-[10px] italic text-slate-500 dark:text-slate-400">
+            No longer applies — the factor this described has been
+            changed or removed since it was recorded.
+          </div>
+        ) : null}
+        {!stale && factor === null && axis ? (
+          <div className="text-[10px] italic text-slate-500 dark:text-slate-400">
+            Not yet a factor in this design — the rationale is the only
+            anchor.
+          </div>
+        ) : null}
+        {/* Levels corroborate, they never condemn (cab, 2026-08-20):
+            factor identity decides whether this still applies, and a
+            URI-grounded level the factor no longer carries is worth
+            saying and nothing more. */}
+        {driftedLevels.length > 0 ? (
+          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+            Levels this factor no longer carries:{" "}
+            {driftedLevels.join(", ")}
+          </div>
+        ) : null}
+        {/* 🛑 The agent's and Gemma's words are THEIRS. Read-only —
+            an editable box over them invites the curator to overwrite
+            the record of what was actually said, and it was the single
+            biggest thing on the card. The curator's own row keeps its
+            editor. */}
+        {r.source === "curator" ? (
+          <textarea
+            className="w-full text-[11px] border border-slate-300 dark:border-slate-700 rounded px-2 py-1 bg-white dark:bg-slate-900 min-h-[2.5rem] disabled:opacity-60"
+            placeholder={readOnly ? "" : "Rationale"}
+            value={r.rationale}
+            disabled={readOnly}
+            onChange={(e) => setRationale(r.id, e.target.value)}
+          />
+        ) : lead ? (
+          <div
+            className="text-[10px] text-slate-600 dark:text-slate-300"
+            title={alsoSaid}
+          >
+            {lead}
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
-          {isPending ? (
-            <>
-              <button
-                type="button"
-                disabled={readOnly}
-                onClick={() => setStatus(r.id, "accepted")}
-                className="text-[11px] px-2 py-0.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50"
-              >
-                Accept
-              </button>
-              <button
-                type="button"
-                disabled={readOnly}
-                onClick={() => setStatus(r.id, "rejected")}
-                className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                Reject
-              </button>
-            </>
-          ) : r.source === "curator" ? (
+          {r.source === "curator" ? (
             // The curator's own entry has no suggestion behind it to
-            // revert TO — "pending" would mean waiting on an agent
-            // that never proposed this. Removing it is the undo.
+            // revert TO — a "reject" would mean declining a proposal
+            // that never happened. Removing it is the undo.
             <button
               type="button"
               disabled={readOnly}
@@ -896,15 +1016,32 @@ function SubsetRecommendationsBlock({
             >
               Remove
             </button>
-          ) : (
+          ) : rejected ? (
             <button
               type="button"
               disabled={readOnly}
               onClick={() => setStatus(r.id, "agent_recommended")}
               className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              title="Revert to pending."
+              title="Put this recommendation back in effect."
             >
-              Undo ({r.status})
+              Undo reject
+            </button>
+          ) : (
+            // 🛑 Reject is the ONLY affordance. Accepting is what
+            // happens by default, so an Accept here would ask the
+            // curator to agree with a decision already in force.
+            <button
+              type="button"
+              disabled={readOnly || stale}
+              onClick={() => setStatus(r.id, "rejected")}
+              className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              title={
+                stale
+                  ? "Already out of effect — the factor it described is gone."
+                  : "In effect by default. Reject if you disagree."
+              }
+            >
+              Reject
             </button>
           )}
         </div>
@@ -918,24 +1055,17 @@ function SubsetRecommendationsBlock({
         Subset recommendations
       </div>
       <div className="text-[11px] text-slate-500 dark:text-slate-400">
-        Subsetting is routine — accepted subsets propagate downstream
-        (DEA, future agent runs). Factors whose coverage aligns with
-        an accepted subset are NOT split flags.
+        Subsetting is routine, and these are in effect unless you
+        reject them. They propagate downstream (DEA, future agent
+        runs); factors whose coverage aligns with one are NOT split
+        flags.
       </div>
-      {pending.length > 0 ? (
-        <div className="space-y-1">
-          <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-            Pending ({pending.length})
-          </div>
-          {pending.map(renderCard)}
-        </div>
-      ) : null}
-      {accepted.length > 0 ? (
+      {inEffect.length > 0 ? (
         <div className="space-y-1">
           <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-            Accepted ({accepted.length})
+            In effect ({inEffect.length})
           </div>
-          {accepted.map(renderCard)}
+          {inEffect.map(renderCard)}
         </div>
       ) : null}
       {rejected.length > 0 ? (
@@ -946,6 +1076,7 @@ function SubsetRecommendationsBlock({
           {rejected.map(renderCard)}
         </div>
       ) : null}
+      {proposedHint}
       {addControl}
     </div>
   );

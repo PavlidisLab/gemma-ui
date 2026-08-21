@@ -15,6 +15,7 @@ import {
 } from "./ProposerDetailsDialog";
 
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { DownstreamShapeBlock } from "@/features/design/DownstreamShapeBlock";
 import {
   ProposeProgressPanel,
   type ProgressPanelState,
@@ -254,6 +255,14 @@ export function AuditSidebarPanel({
           </div>
         ) : null}
       </div>
+      {/* Analysis scope (split / subset recommendations), at the top.
+          This panel has never shown one: DownstreamShapeBlock was wired
+          into the two proposal surfaces only, so a curator auditing an
+          experiment Gemma already subsets on was never told. Sits
+          OUTSIDE the report branch on purpose — it describes the
+          design, not the audit, so it renders whether or not a report
+          has loaded. */}
+      <DownstreamShapeBlock draft={draft} framed />
       {showProgress ? (
         <ProposeProgressPanel
           state={stream}

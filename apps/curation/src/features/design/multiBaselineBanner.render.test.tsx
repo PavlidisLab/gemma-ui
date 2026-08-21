@@ -146,6 +146,62 @@ describe("ValidatorBanner — two baselines ask, they don't scold", () => {
     expect(screen.queryByText(/No subset recorded yet/)).toBeNull();
   });
 
+  // 🛑 The behaviour change, 2026-08-20. `agent_recommended` is the
+  // arrival state of every seeded row and it does NOT mean "pending":
+  // accept is the default. The note used to test `status ===
+  // "accepted"` and so kept demanding a subset-by from curators who
+  // already had a live Gemma one sitting in the design — on exactly
+  // the 69 experiments most likely to hit multiple baselines.
+  it("counts a Gemma recommendation nobody has touched — accept is the default", () => {
+    const d = designWith([
+      fv(1, "vehicle A", "s1", true),
+      fv(2, "vehicle B", "s2", true),
+    ]);
+    d.factors.push({
+      id: 2,
+      name: "organism part",
+      category: { label: "organism part", uri: null },
+      description: "d",
+      type: "categorical",
+      factor_values: [],
+    } as unknown as Design["factors"][number]);
+    d.subset_recommendations = [
+      {
+        id: "gemma-subset-organism-part",
+        by_factor_id: 2,
+        level_labels: [],
+        rationale: "Gemma already subsets the DEA on `organism part`.",
+        status: "agent_recommended",
+        source: "gemma",
+      },
+    ];
+    renderFor(d);
+    expect(screen.getByText(/subset by organism part is recorded/)).toBeTruthy();
+    expect(screen.queryByText(/No subset recorded yet/)).toBeNull();
+  });
+
+  // Staleness is expected — polishing outruns Gemma's analysis — but a
+  // recommendation whose factor is gone genuinely does not answer the
+  // "which axis do I subset by" question, so it stops counting.
+  it("ignores one whose factor has been curated away", () => {
+    const d = designWith([
+      fv(1, "vehicle A", "s1", true),
+      fv(2, "vehicle B", "s2", true),
+    ]);
+    d.subset_recommendations = [
+      {
+        id: "gemma-subset-organism-part",
+        by_factor_id: 42,
+        level_labels: [],
+        rationale: "",
+        status: "agent_recommended",
+        source: "gemma",
+      },
+    ];
+    renderFor(d);
+    expect(screen.getByText(/No subset recorded yet/)).toBeTruthy();
+  });
+
   it("ignores a subset the curator rejected — that is not a choice", () => {
     const d = designWith([
       fv(1, "vehicle A", "s1", true),

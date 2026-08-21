@@ -310,23 +310,110 @@ export interface SubsetRecommendation {
    *  that isn't yet a factor — the rationale field is the only
    *  anchor in that case. */
   by_factor_id?: number | null;
+  /** The axis this is about, as the producer named it ("cell type").
+   *  Survives a factor being renamed or curated away, so it is the
+   *  label of last resort when ``by_factor_id`` resolves to nothing.
+   *  Empty on a row that names no axis at all. */
+  category?: string | null;
+  /** The levels of the axis as (label, uri) PAIRS — the canonical
+   *  form, and the only one that cannot desynchronise.
+   *
+   *  🛑 An ungrounded level keeps its pair with ``uri: ""`` rather than
+   *  being dropped, so this list always agrees with ``level_labels``.
+   *  Empty string means ABSTAIN, never "the level is gone".
+   *
+   *  Landed agents-side 2026-08-20 (`c8fe0cc`); absent on rows written
+   *  before that, which is every row in the store until the next
+   *  re-seed. Readers fall back to the flat projections below. */
+  levels?: SubsetLevel[] | null;
   /** FV ``free_text_label`` strings within ``by_factor_id`` that
    *  define the subset. Analysis restricted to samples whose
-   *  ``by_factor_id`` FV is in this list. */
+   *  ``by_factor_id`` FV is in this list.
+   *
+   *  🛑 EMPTY MEANS EVERY LEVEL — that IS subset-DEA, one analysis per
+   *  level — but only on a row that names an axis. On a row with no
+   *  axis at all it means nothing, and saying "every level" there
+   *  claims a DEA per level of nothing.
+   *
+   *  A flat PROJECTION of ``levels``, independently sorted. */
   level_labels: string[];
+  /** The grounded levels as ontology URIs.
+   *
+   *  🛑 A **SET**, not an array parallel to ``level_labels`` — measured
+   *  over the 60 grounded rows, 15 have a different LENGTH and all 60
+   *  are independently sorted, so index `i` lines up only by
+   *  coincidence. On GSE20396 zipping pairs the retinal-ganglion-CELL
+   *  URI with an anatomical LAYER label. Intersect it; never zip it.
+   *  Read ``levels`` when you need the pairing. */
+  level_uris?: string[] | null;
   /** Curator rationale or, for ``agent_recommended`` entries, the
    *  agent's rationale from the gestalt split_recommendation. */
   rationale: string;
   /** Lifecycle state.
-   *  - ``agent_recommended`` — agent suggested; pending curator.
-   *  - ``accepted`` — curator agreed; downstream tools respect.
-   *  - ``rejected`` — curator declined; preserved as a no-vote. */
+   *  - ``agent_recommended`` — the wire's arrival state.
+   *  - ``accepted`` — curator explicitly agreed.
+   *  - ``rejected`` — curator declined; preserved as a no-vote.
+   *
+   *  🛑 ``agent_recommended`` does NOT mean "awaiting a decision" in the
+   *  UI. Paul, 2026-08-20: *"the default is to accept it unless you
+   *  disagree"* — a recommendation is in effect on arrival, and reject
+   *  is the only disposition the curator has to make. Never read this
+   *  field directly to answer "does this apply"; ask
+   *  ``isInEffect`` in ``features/design/subsetRecommendations.ts``,
+   *  which is the one place that fold lives. */
   status: "agent_recommended" | "accepted" | "rejected";
-  /** Provenance. */
-  source: "agent" | "curator";
+  /** Provenance — three values, not two.
+   *  - ``gemma`` — Gemma's own DEA already subsets on this axis. A fact
+   *    being carried, not a judgement being made.
+   *  - ``agent`` — our proposer recommends it.
+   *  - ``curator`` — you created it. */
+  source: "gemma" | "agent" | "curator";
   /** Source agent run id, for agent-recommended entries. */
   source_run_id?: string;
+  /** Gemma's own factor id for the axis.
+   *
+   *  🛑 THIS is the identity; ``by_factor_id`` above is a LOCAL,
+   *  per-row sequence number only meaningful in the row it was resolved
+   *  against. Cab measured it 2026-08-20: one base-design
+   *  ``by_factor_id`` copied into the polished rows bound GSE74438's
+   *  organism-part levels to a GENOTYPE factor, where local id 1 is a
+   *  different factor — it RESOLVED, which is worse than dangling. Any
+   *  reader re-homing a recommendation re-resolves from here. */
+  gemma_factor_id?: number | null;
+  /** How loudly this deserves to be surfaced. Paul's four tiers.
+   *
+   *  Live on the wire since 2026-08-20: 63 ``convention`` / 5 ``qa`` /
+   *  1 ``two_in_one`` over the 69 seeded experiments.
+   *
+   *  🛑 Still tolerate-null. Absent reads as "unclassified", never as
+   *  tier 1 — folding null to ``none`` would hide every row authored
+   *  before the field landed, and every row from a producer that does
+   *  not classify. */
+  tier?: SubsetTier | null;
+  /** The classifier's own sentence explaining why THIS row got THIS
+   *  tier — Gemma's batch verdict for ``qa``, the framing pass's split
+   *  reasoning for ``two_in_one``.
+   *
+   *  Prose, and rendered verbatim like ``rationale``: never parsed.
+   *  Distinct from ``TIER_META[tier].blurb``, which says what the tier
+   *  MEANS in general; this says what happened here. */
+  tier_evidence?: string | null;
 }
+
+/** One level of a subsetting axis — its label AND its grounding,
+ *  together, because the pair is the object. */
+export interface SubsetLevel {
+  label: string;
+  /** Empty string on an ungrounded level, which is kept rather than
+   *  dropped so the list stays aligned with ``level_labels``. */
+  uri?: string | null;
+}
+
+/** Subset tiers, most quiet first. Mirrors the agents-side
+ *  ``TIER_NONE`` / ``TIER_CONVENTION`` / ``TIER_QA`` /
+ *  ``TIER_TWO_IN_ONE`` constants — same strings, and they are the wire
+ *  contract, so don't re-spell them here. */
+export type SubsetTier = "none" | "convention" | "qa" | "two_in_one";
 
 export interface Design {
   experiment_id: number;

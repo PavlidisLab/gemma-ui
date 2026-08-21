@@ -65,6 +65,14 @@ interface G2FactorValue {
 
 interface G2ExperimentalFactor {
   id: number;
+  /** 🐍 SNAKE on purpose, unlike its `factors[]` twin. The projection
+   *  returns plain dicts, so the server model's camel alias generator
+   *  never reaches inside — its neighbours (`is_baseline`,
+   *  `category_uri`, `bio_material_name`) are snake for the same
+   *  reason. Post-`snakeify` both spellings land here identically, so
+   *  this only matters when reading the raw payload. */
+  gemma_factor_id?: number | null;
+  local_factor_id?: string | null;
   name?: string | null;
   description?: string | null;
   /** "categorical" | "continuous". */
@@ -108,7 +116,11 @@ interface LegacyBiomaterial {
   geo_fields?: Record<string, string>;
 }
 
-export interface G2Design {
+/** The wire-only half of the design payload: fields this adapter
+ *  reads and TRANSFORMS (or renames) on its way to a `Design`. Every
+ *  other `Design` field the server emits rides through untouched —
+ *  see `G2Design` below. */
+interface G2DesignWire {
   id?: number;
   name?: string | null;
   description?: string | null;
@@ -172,6 +184,22 @@ export interface G2Design {
    *  freshly-landed rows as stale. */
   baseline?: unknown;
 }
+
+/** Everything on `Design` that the server emits in its final shape and
+ *  this adapter does not touch — `subset_recommendations`,
+ *  `should_split_on_factor_id`, `loaded_at`, and whatever lands next.
+ *
+ *  🛑 Deliberately an `Omit` of `Design` rather than a list of names. A
+ *  field added to `Design` joins this passthrough on its own, which is
+ *  the property the old hand-listed return literal did not have: it
+ *  dropped `publications` for eight weeks (fixed 2026-06-11),
+ *  `gold_data_version` for eight more (2026-08-17), and
+ *  `subset_recommendations` from the day the field existed until
+ *  2026-08-20 — three instances of one bug, because a literal that
+ *  enumerates known keys is a data-loss site by construction. */
+type DesignPassthrough = Partial<Omit<Design, keyof G2DesignWire>>;
+
+export type G2Design = G2DesignWire & DesignPassthrough;
 
 // ─── Curation-proposal overlay shape ─────────────────────────────
 
@@ -272,9 +300,41 @@ export function composeCurationDesign(
     }
   }
 
-  let factors: Factor[] = (g2.experimental_factors ?? []).map((ef) =>
-    composeFactor(ef, fvOverlay, samplesByFvId),
-  );
+  // Factor IDENTITY, from whichever of the two shapes carries it.
+  //
+  // 🛑 `gemma_factor_id` is the identity; the `id` beside it is a
+  // per-row sequence number, and cab measured what trusting it costs
+  // (2026-08-20): one design's `by_factor_id` resolved against another
+  // design bound GSE74438's organism-part levels to a GENOTYPE factor.
+  // It resolved, which is worse than dangling.
+  //
+  // The `experimental_factors[]` projection carried no identity at all
+  // until cab fixed it at source the same day, so a design serialized
+  // before then has it only on `factors[]`. Both are read: the
+  // projection first (it is the row being composed), then a lookup into
+  // `factors[]`, which is 1:1 on `id` and so an exact match rather than
+  // a heuristic one. Two sources, one ladder — not two mechanisms.
+  const identityById = new Map<
+    number,
+    Pick<Factor, "gemma_factor_id" | "local_factor_id">
+  >();
+  for (const f of g2.factors ?? []) {
+    if (typeof f?.id === "number") {
+      identityById.set(f.id, {
+        gemma_factor_id: f.gemma_factor_id ?? null,
+        local_factor_id: f.local_factor_id ?? null,
+      });
+    }
+  }
+
+  let factors: Factor[] = (g2.experimental_factors ?? []).map((ef) => {
+    const fallback = identityById.get(ef.id);
+    return {
+      ...composeFactor(ef, fvOverlay, samplesByFvId),
+      gemma_factor_id: ef.gemma_factor_id ?? fallback?.gemma_factor_id ?? null,
+      local_factor_id: ef.local_factor_id ?? fallback?.local_factor_id ?? null,
+    };
+  });
 
   // Materialise from proposal payload when the canonical design has
   // no factors yet. The agent's proposed factors live in the proposal
@@ -322,7 +382,25 @@ export function composeCurationDesign(
     },
   );
 
+  // 🛑 CARRY THE OBJECT, then override. Everything the server put on
+  // the design row survives by default; only the fields below, which
+  // this adapter genuinely transforms or renames, get replaced.
+  //
+  // The four dropped here are wire-only: `id` / `name` are the G2
+  // spellings of `experiment_id` / `title`, and the two array shapes
+  // are re-derived into `factors` / `biomaterials` just below — sending
+  // them back on the PUT would double the body with a stale copy of
+  // what we just recomposed.
+  const {
+    id: _wireId,
+    name: _wireName,
+    experimental_factors: _wireFactors,
+    bio_material_assignments: _wireAssignments,
+    ...carried
+  } = g2;
+
   return {
+    ...carried,
     experiment_id:
       typeof experimentId === "number" ? experimentId : Number(experimentId),
     experiment_short_name: experimentShortName,
@@ -357,18 +435,9 @@ export function composeCurationDesign(
     original_platform: meta?.original_platform ?? "",
     original_platform_short_name: meta?.original_platform_short_name ?? "",
     original_platform_id: meta?.original_platform_id ?? null,
-    // Carried, never authored — see the field notes on G2Design. All
-    // three ride together: this function is the read path for the whole
-    // app (useDesign → fetchDesignSnapshot → here), so a field missed
-    // here is a field the page never sees AND a field the next commit
-    // silently drops from a whole-design replace.
-    ...(g2.gold_data_version
-      ? { gold_data_version: g2.gold_data_version }
-      : {}),
-    ...(g2.annotation_version
-      ? { annotation_version: g2.annotation_version }
-      : {}),
-    ...(g2.baseline ? { baseline: g2.baseline } : {}),
+    // `gold_data_version` / `annotation_version` / `baseline` used to be
+    // copied through by hand here. They ride in `...carried` now, along
+    // with everything else — which is the whole point of the change.
   };
 }
 

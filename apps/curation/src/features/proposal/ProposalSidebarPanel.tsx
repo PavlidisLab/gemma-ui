@@ -242,6 +242,12 @@ export function ProposalSidebarPanel({
           Proposal IS the canonical location for the field; no
           AuditEvidence fallback applies on this surface. */}
       <OrientationProse text={proposal.experiment_summary ?? null} />
+      {/* Analysis scope, at the top (Paul, 2026-08-20). It is a
+          statement about the whole experiment: a curator who reads the
+          per-element cards first has started reviewing a design without
+          being told what its analysis scope is. Sat below
+          DecisionsStrip until now. */}
+      <DownstreamShapeBlock draft={draft} />
       {datasetSummary && datasetSummary.nSamples > 0 ? (
         <div className="px-1 pb-1.5 border-b border-sky-200 dark:border-sky-800">
           <MetadataBadge summary={datasetSummary} />
@@ -255,10 +261,6 @@ export function ProposalSidebarPanel({
         agentConsidered={proposal.evidence?.agent_considered}
       />
       <DecisionsStrip proposal={proposal} />
-      {/* Split / subset recommendation — shared with ProposalCardV2. Reads
-          the design draft's should_split_on_factor_id / subset_recommendations
-          (seeded at import from the live S2o/S2n machinery). */}
-      <DownstreamShapeBlock draft={draft} />
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-600 dark:text-slate-300">
           Proposal review
