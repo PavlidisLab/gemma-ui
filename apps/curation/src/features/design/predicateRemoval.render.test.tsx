@@ -126,3 +126,47 @@ describe("the statement-level delete", () => {
     expect(button.getAttribute("title")).toMatch(/none/i);
   });
 });
+
+/**
+ * An ungrounded predicate is not the same as an off-list one.
+ *
+ * GSE152448 ships `has_genotype` and `has modifier` label-only, with no
+ * URI. Both ARE presets (GENO_0000222, RO_0002573) — the URI-keyed
+ * lookup just misses. Calling that "not a preset" sent the curator
+ * hunting for a replacement for the predicate that was already right;
+ * the fix is to pick the same name from the list.
+ */
+describe("a predicate the URI lookup can't match", () => {
+  function ungrounded(label: string): Statement {
+    return {
+      category: { label: "genotype", uri: null },
+      subject: { label: "KDM6A", uri: null },
+      predicate: { label, uri: null },
+      object: { label: "Homozygous negative", uri: null },
+    };
+  }
+
+  it("shows the predicate instead of claiming there is none", () => {
+    // It used to fall through to the empty option, which reads
+    // "none (removes object)" — denying a predicate that is there, from
+    // a control whose text says choosing it deletes the object.
+    renderEditable([ungrounded("has_genotype")]);
+    expect(screen.getAllByText(/has_genotype/).length).toBeGreaterThan(0);
+  });
+
+  it("calls a preset arriving without its URI 'not grounded'", () => {
+    renderEditable([ungrounded("has_genotype")]);
+    expect(screen.getAllByText(/not grounded/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/not a preset/i)).toBeNull();
+  });
+
+  it("calls a genuinely off-list label 'not a preset'", () => {
+    renderEditable([ungrounded("wibbles at")]);
+    expect(screen.getAllByText(/not a preset/i).length).toBeGreaterThan(0);
+  });
+
+  it("matches the preset case-insensitively", () => {
+    renderEditable([ungrounded("Has Modifier")]);
+    expect(screen.getAllByText(/not grounded/i).length).toBeGreaterThan(0);
+  });
+});

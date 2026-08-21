@@ -128,6 +128,19 @@ function PredicateSelect({
   const label = (statement.predicate?.label ?? "").trim();
   const isPreset = PREDICATES.some((p) => p.uri === presetUri);
   const ungrounded = !!label && !isPreset;
+  // 🛑 "Ungrounded" and "off-list" are different problems and the
+  // curator fixes them differently. `has_genotype` and `has modifier`
+  // ARE presets (GENO_0000222, RO_0002573) — GSE152448 just ships them
+  // label-only, with no URI, so the URI-keyed lookup misses. Calling
+  // that "not a preset" sends the curator hunting for a replacement
+  // for a predicate that is already the right one; the fix is to pick
+  // the SAME name from the list, which grounds it in one click.
+  //
+  // A label that matches nothing is the other case, and there the
+  // curator does have to choose something else.
+  const matchesPreset = PREDICATES.find(
+    (p) => p.label.trim().toLowerCase() === label.toLowerCase(),
+  );
   return (
     <select
       className={
@@ -149,7 +162,9 @@ function PredicateSelect({
       value={ungrounded ? UNGROUNDED_PREDICATE : presetUri}
       title={
         ungrounded
-          ? `“${label}” is not one of Gemma's preset predicates, so it can't be written back — pick a preset, or “none” to drop it and its object.`
+          ? matchesPreset
+            ? `“${label}” is a preset predicate but arrived without its URI, so it can't be written back. Pick “${matchesPreset.label}” from this list to ground it.`
+            : `“${label}” is not one of Gemma's preset predicates, so it can't be written back — pick a preset, or “none” to drop it and its object.`
           : statement.predicate
             ? `${statement.predicate.label} — pick “none” to remove this predicate and its object`
             : "Link this subject to an object. The subject on its own is a complete statement; a predicate is optional."
@@ -186,7 +201,9 @@ function PredicateSelect({
           : "predicate"}
       </option>
       {ungrounded ? (
-        <option value={UNGROUNDED_PREDICATE}>{label} — not a preset</option>
+        <option value={UNGROUNDED_PREDICATE}>
+          {label} — {matchesPreset ? "not grounded" : "not a preset"}
+        </option>
       ) : null}
       {PREDICATES.map((p) => (
         <option key={p.uri} value={p.uri}>
