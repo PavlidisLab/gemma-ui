@@ -330,3 +330,182 @@ describe("applyDetailsEditsToDesign — multi-slot edits on the same statement",
     expect(stmt.predicate?.label).toBe("delivered to");
   });
 });
+
+/**
+ * An empty-string URI is not a URI.
+ *
+ * GSE152448 (cab, 2026-08-21) put the shape on the record: four of its
+ * statements carry the empty STRING as a predicate URI — not a missing
+ * key — and four more carry it as a subject URI. The row kept its
+ * labels and lost its grounding, which is why it looked fine on every
+ * screen until a commit, where Gemma hard-rejects a label-bearing slot
+ * with no URI.
+ *
+ * The apply boundary is where that spelling could enter a curator's
+ * draft: every grounding check in the app is a falsy test, so `""` and
+ * `null` agree everywhere EXCEPT the `??` that writes the value, where
+ * `null` falls through to the existing URI and `""` installs itself.
+ * Two spellings of "ungrounded" behaving oppositely is the defect.
+ */
+describe("applyDetailsEditsToDesign — an empty URI is ungrounded, not a value", () => {
+  function ethanolDesign() {
+    return design({
+      factors: [
+        factor({
+          id: 100,
+          categoryLabel: "treatment",
+          fvs: [
+            {
+              id: 1000,
+              label: "ethanol",
+              bms: ["GSM1", "GSM2", "GSM3"],
+              statements: [
+                {
+                  subject: {
+                    label: "ethanol",
+                    uri: "http://purl.obolibrary.org/obo/CHEBI_16236",
+                  },
+                  predicate: {
+                    label: "delivered to",
+                    uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00183",
+                  },
+                  object: {
+                    label: "hippocampus",
+                    uri: "http://purl.obolibrary.org/obo/UBERON_0001954",
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+  }
+
+  it("writes null, never the empty string, into a statement slot", () => {
+    const appliedFix: AppliedFix = {
+      kind: "details_edit",
+      note: null,
+      edits: [
+        {
+          path: "fv[0].statements[0].predicate",
+          ok: true,
+          to_label: "has modifier",
+          to_uri: "",
+          from_label: "has modifier",
+          from_uri: "",
+          note: "pick=currently",
+        },
+      ],
+    };
+    const next = applyDetailsEditsToDesign(
+      ethanolDesign(),
+      mkFinding("ok"),
+      mkReport(),
+      appliedFix,
+    );
+    const stmt = next.factors[0].factor_values[0].statements[0];
+    expect(stmt.predicate?.label).toBe("has modifier");
+    // The point of the test: `""` must not survive the apply. It reads
+    // as ungrounded to every check downstream while still being a value
+    // to the writer, which is exactly how it travels unnoticed.
+    expect(stmt.predicate?.uri).toBeNull();
+    expect(stmt.predicate?.uri).not.toBe("");
+  });
+
+  it("does not wipe a grounded factor category when the edit's URI is blank", () => {
+    const d = ethanolDesign();
+    d.factors[0].category = {
+      label: "treatment",
+      uri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+    };
+    const appliedFix: AppliedFix = {
+      kind: "details_edit",
+      note: null,
+      edits: [
+        {
+          path: "factor.category",
+          ok: false,
+          to_label: "treatment",
+          to_uri: "",
+          from_label: "treatment",
+          from_uri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+          note: "pick=edit",
+        },
+      ],
+    };
+    const next = applyDetailsEditsToDesign(
+      d,
+      mkFinding("ok"),
+      mkReport(),
+      appliedFix,
+    );
+    // A blank URI on a label-only edit means "I didn't supply one",
+    // the same as an absent one — not "unground this". Wiping it would
+    // hand the curator an ungrounded category, which is a hard commit
+    // block they never asked for.
+    expect(next.factors[0].category.uri).toBe(
+      "http://www.ebi.ac.uk/efo/EFO_0000727",
+    );
+  });
+
+  it("skips a row whose only content is a blank URI", () => {
+    const d = ethanolDesign();
+    const appliedFix: AppliedFix = {
+      kind: "details_edit",
+      note: null,
+      edits: [
+        {
+          path: "fv[0].statements[0].object",
+          ok: null,
+          to_label: null,
+          to_uri: "",
+          from_label: "hippocampus",
+          from_uri: "http://purl.obolibrary.org/obo/UBERON_0001954",
+          note: "pick=null",
+        },
+      ],
+    };
+    const next = applyDetailsEditsToDesign(
+      d,
+      mkFinding("ok"),
+      mkReport(),
+      appliedFix,
+    );
+    const stmt = next.factors[0].factor_values[0].statements[0];
+    expect(stmt.object?.label).toBe("hippocampus");
+    expect(stmt.object?.uri).toBe(
+      "http://purl.obolibrary.org/obo/UBERON_0001954",
+    );
+  });
+
+  it("keeps the slot's own label when only the URI half is supplied", () => {
+    const appliedFix: AppliedFix = {
+      kind: "details_edit",
+      note: null,
+      edits: [
+        {
+          path: "fv[0].statements[0].object",
+          ok: true,
+          // ``to_label`` ABSENT — a regrounding of the same term, not a
+          // rename. Reading absent as "" blanked the label.
+          to_uri: "http://purl.obolibrary.org/obo/UBERON_0002421",
+          from_label: "hippocampus",
+          from_uri: "http://purl.obolibrary.org/obo/UBERON_0001954",
+          note: "pick=reference",
+        },
+      ],
+    };
+    const next = applyDetailsEditsToDesign(
+      ethanolDesign(),
+      mkFinding("ok"),
+      mkReport(),
+      appliedFix,
+    );
+    const stmt = next.factors[0].factor_values[0].statements[0];
+    expect(stmt.object?.label).toBe("hippocampus");
+    expect(stmt.object?.uri).toBe(
+      "http://purl.obolibrary.org/obo/UBERON_0002421",
+    );
+  });
+});

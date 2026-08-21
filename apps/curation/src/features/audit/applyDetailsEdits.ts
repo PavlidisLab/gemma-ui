@@ -105,6 +105,31 @@ function goldFvForAgentIdx(
   return paired ?? null;
 }
 
+/**
+ * Normalise an edit row's URI: an empty string is not a URI.
+ *
+ * `""` and `null` mean the same thing to every grounding check in the
+ * app — they are all falsy tests — but they behave OPPOSITELY at the
+ * `??` that writes the value: `null` falls through to the slot's
+ * existing URI, `""` is a value and gets installed. So a row carrying
+ * an empty URI could both wipe a good grounding and travel onward as a
+ * label-bearing slot with `uri: ""`, which Gemma hard-rejects on
+ * commit. Agent payloads do carry the empty-string spelling — the
+ * GSE152448 rows are empty strings, not missing keys — so it is
+ * flattened here, at the one boundary where edits enter the draft,
+ * rather than at each read.
+ *
+ * `undefined` passes through untouched: the caller still has to tell
+ * "this half wasn't edited" from "deliberately left ungrounded", and
+ * a gate keyed on the shape of a URI can't see an absent one.
+ */
+function groundedUri(
+  v: string | null | undefined,
+): string | null | undefined {
+  if (v === undefined) return undefined;
+  return (v ?? "").trim() || null;
+}
+
 export function applyDetailsEditsToDesign(
   draft: Design,
   finding: AuditFinding,
@@ -136,9 +161,10 @@ export function applyDetailsEditsToDesign(
   for (const edit of appliedFix.edits) {
     // Skip rows the curator confirmed without changing — verdict is
     // recorded on the audit, no design mutation needed.
+    const nextUriRaw = groundedUri(edit.to_uri);
     const hasEdit =
       (edit.to_label !== undefined && edit.to_label !== null) ||
-      (edit.to_uri !== undefined && edit.to_uri !== null);
+      (nextUriRaw !== undefined && nextUriRaw !== null);
     if (!hasEdit) continue;
 
     const parsed = parsePath(edit.path);
@@ -148,7 +174,7 @@ export function applyDetailsEditsToDesign(
       // Category rename. Preserve the URI when the curator didn't
       // type one (label-only edit); same for label.
       const nextLabel = edit.to_label ?? goldFactor.category.label;
-      const nextUri = edit.to_uri ?? goldFactor.category.uri ?? null;
+      const nextUri = nextUriRaw ?? goldFactor.category.uri ?? null;
       mutated = setFactorFields(mutated, goldFactor.id, {
         category: { label: nextLabel, uri: nextUri },
         // ``name`` mirrors category.label by convention; the
@@ -189,9 +215,22 @@ export function applyDetailsEditsToDesign(
     const idx = parsed.statementIndex;
     const current = goldFv.statements[idx];
     if (!current) continue;
+    // An ABSENT half means this part wasn't edited, so the slot keeps
+    // what it already had; a present-but-empty half is a deliberate
+    // ungrounding and is written as such. Reading them the same way is
+    // what let a blank URI both wipe a good one and travel as `""`.
+    const currentPart =
+      parsed.part === "subject"
+        ? current.subject
+        : parsed.part === "predicate"
+          ? current.predicate
+          : current.object;
     const nextTerm = {
-      label: edit.to_label ?? "",
-      uri: edit.to_uri ?? null,
+      label:
+        edit.to_label === undefined
+          ? (currentPart?.label ?? "")
+          : (edit.to_label ?? ""),
+      uri: nextUriRaw === undefined ? (currentPart?.uri ?? null) : nextUriRaw,
     };
     const next: Statement = {
       ...current,
