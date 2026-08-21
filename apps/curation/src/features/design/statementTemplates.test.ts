@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { STATEMENT_TEMPLATES, templatesFor } from "./statementTemplates";
-import { KNOWN_PREDICATE_URIS } from "@/generated/predicates";
+import { KNOWN_PREDICATE_URIS, PREDICATES } from "@/generated/predicates";
 
 /**
  * Guards on the pre-baked statement shapes.
@@ -108,5 +108,23 @@ describe("templatesFor", () => {
       true,
     );
     expect(head.map((t) => t.id)).toContain("cell-type-from-tissue");
+  });
+
+  it("every sanctioned predicate has at least one worked template", () => {
+    // The agents side gained the same guard with 13_statement_templates
+    // §§1-21 (cab, 2026-08-21): an allow-list saying a predicate is legal
+    // while nothing shows what a correct statement with it looks like is
+    // how curators end up coining a shape. `targeted towards` arrived
+    // exactly that way — sanctioned, reachable, and undocumented on this
+    // side until it had a template.
+    const covered = new Set(
+      STATEMENT_TEMPLATES.map((t) => t.build(null).predicate?.uri).filter(
+        Boolean,
+      ),
+    );
+    const orphans = PREDICATES.filter((p) => !covered.has(p.uri)).map(
+      (p) => p.label,
+    );
+    expect(orphans).toEqual([]);
   });
 });

@@ -40,42 +40,49 @@ export interface StatementTemplate {
   objectHint?: string;
 }
 
-const HAS_ROLE = predicate("has role");
-const HAS_GENOTYPE = predicate("has_genotype");
-const HAS_PHENOTYPE = predicate("has phenotype");
-const HAS_DISEASE = predicate("has disease");
+const HAS_ROLE = predicate("http://purl.obolibrary.org/obo/RO_0000087");
+const HAS_GENOTYPE = predicate("http://purl.obolibrary.org/obo/GENO_0000222");
+const HAS_PHENOTYPE = predicate("http://purl.obolibrary.org/obo/RO_0002200");
+const HAS_DISEASE = predicate("http://purl.obolibrary.org/obo/RO_0016002");
 // CLO's own object property. Pairs with HAS_DISEASE: that one is the
 // engineered case, this one is the donor's.
-const DERIVES_FROM_PATIENT_HAVING_DISEASE = predicate(
-  "derives from patient having disease");
-const DERIVES_FROM_PART_OF = predicate("derives from part of");
-const DERIVES_FROM_CELL_LINE = predicate("derives from cell line");
-const DERIVES_FROM_CELL = predicate("derives from cell");
-const DERIVES_FROM = predicate("derives from");
-const ADJACENT_TO = predicate("adjacent to");
-const DELIVERED_AT_DOSE = predicate("delivered at dose");
-const DELIVERED_FOR_DURATION = predicate("delivered for duration");
-const DELIVERED_TO = predicate("delivered to");
-const INDUCED_BY = predicate("induced by");
-const HAS_MODIFIER = predicate("has modifier");
-const POS_FOR_PRODUCT = predicate("positive for product of gene");
-const NEG_FOR_PRODUCT = predicate("negative for product of gene");
-const TOWARD = predicate("toward");
-const LOCATED_IN = predicate("located in");
-const SAMPLED_AFTER = predicate("sampled after");
-const HAS_DEV_STAGE = predicate("has developmental stage");
+const DERIVES_FROM_PATIENT_HAVING_DISEASE = predicate("http://purl.obolibrary.org/obo/CLO_0000015");
+const DERIVES_FROM_PART_OF = predicate("http://purl.obolibrary.org/obo/ENVO_01003004");
+// CLO_0037210's own rdfs:label really is "derives from cell line cell"
+// (verified against OLS, 2026-08-21). The SoT was corrected to match the
+// ontology; the picker shows the ontology's wording, so prose that names
+// the predicate has to use it too or a curator cannot find the row.
+const DERIVES_FROM_CELL_LINE = predicate("http://purl.obolibrary.org/obo/CLO_0037210");
+const DERIVES_FROM_CELL = predicate("http://purl.obolibrary.org/obo/CLO_0037209");
+const DERIVES_FROM = predicate("http://purl.obolibrary.org/obo/RO_0001000");
+const ADJACENT_TO = predicate("http://purl.obolibrary.org/obo/RO_0002220");
+const DELIVERED_AT_DOSE = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00166");
+const DELIVERED_FOR_DURATION = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00167");
+const DELIVERED_TO = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00183");
+const INDUCED_BY = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00171");
+const HAS_MODIFIER = predicate("http://purl.obolibrary.org/obo/RO_0002573");
+const POS_FOR_PRODUCT = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00169");
+const NEG_FOR_PRODUCT = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00170");
+// RO_0002503's own label is "towards"; the SoT was corrected to match
+// the ontology on 2026-08-21. `targeted towards` now ENDS IN it, so the
+// two picker rows differ only by a leading word — see the note on the
+// predicate select in StatementEditor.
+const TOWARD = predicate("http://purl.obolibrary.org/obo/RO_0002503");
+const LOCATED_IN = predicate("http://purl.obolibrary.org/obo/RO_0001025");
+const SAMPLED_AFTER = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00202");
+const TARGETED_TOWARDS = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00215");
+const HAS_CHILD_WITH_DISEASE = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00201");
+const HAS_DEV_STAGE = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00168");
 
 // Allele-STATE genotype objects (Homozygous negative, Overexpression,
 // Constitutive active mutation, ...) are GENERATED from the agents SoT
 // (design_constants.GENOTYPE_OBJECT_VOCAB) — looked up via `genoObj`
 // below, so the picker can't drift from what the agent grounds.
-// 🛑 The SoT MOVED and no template has caught up: `05_genotype_efc.md`
-// now sanctions bare zygosity when it is GROUNDED — `heterozygous`
-// GENO_0000135 for a single-allele KO and for `+/mut` — and the sync
-// carries those terms into GENOTYPE_OBJECT_TERMS. Nothing offers them
-// yet (see the retired `genotype-het` note below); the retirement was
-// argued against an UNGROUNDED bare `Heterozygous`, which is a
-// different object. Pending a call on whether to restore the template.
+// Zygosity objects (`heterozygous` GENO_0000135, `homozygous`
+// GENO_0000136, `unspecified zygosity` GENO_0000137) come from GENO and
+// arrive through the same table; `05_genotype_efc.md` §Mutations
+// sanctions them GROUNDED. An ungrounded bare `Heterozygous` is still
+// wrong, and that is what the earlier retirement was about.
 // Every OBO term takes the `/obo/` path — including OBI. An `/obi/`
 // variant was hand-built here once and resolves to nothing in Gemma,
 // which hard-rejects an ungrounded URI on commit, so the prefix is no
@@ -103,19 +110,28 @@ const TGEMO = {
 };
 
 /**
- * Resolve a predicate from the generated agents-SoT allow-list by label.
+ * Resolve a predicate from the generated agents-SoT allow-list BY URI.
  *
- * Only the label is spelled here; the URI always comes from
- * `generated/predicates.ts`. Hand-built URIs drifted from the SoT once
- * already — TGEMO predicates live under `gemma.msl.ubc.ca/ont`, not the
- * OBO purl base, so every TGEMO template shipped a legacy-namespace URI
- * that the editor had to canonicalize on the way back in. Throws on an
- * unknown label so a typo fails at module load rather than emitting an
- * ungrounded predicate into a curator's design.
+ * Keyed on the URI, not the label, because labels move and URIs don't.
+ * On 2026-08-21 alone the SoT corrected two of them to their ontology
+ * form — `derives from cell line` → `derives from cell line cell`
+ * (CLO_0037210) and `toward` → `towards` (RO_0002503) — and each rename
+ * threw here at module load, which took the whole design editor down
+ * rather than one template with it. The URI is the identity; the label
+ * is a display string this returns fresh from the SoT, so a relabel now
+ * flows through instead of breaking.
+ *
+ * Still throws on an unknown URI: a predicate DROPPED from the
+ * allow-list has to fail loudly rather than emit an unsanctioned
+ * statement into a curator's design. The URI is spelled in full because
+ * the namespace is part of the identity — TGEMO predicates live under
+ * `gemma.msl.ubc.ca/ont`, not the OBO purl base, and every TGEMO
+ * template once shipped a legacy-namespace URI the editor had to
+ * canonicalize on the way back in.
  */
-function predicate(label: string): OntologyTerm {
-  const p = PREDICATES.find((x) => x.label === label);
-  if (!p) throw new Error(`unknown predicate: ${label}`);
+function predicate(uri: string): OntologyTerm {
+  const p = PREDICATES.find((x) => x.uri === uri);
+  if (!p) throw new Error(`unknown predicate URI: ${uri}`);
   return { label: p.label, uri: p.uri };
 }
 function term(label: string, lid: string): OntologyTerm {
@@ -156,16 +172,32 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         object: genoObj("Homozygous negative"),
       }),
   },
-  // NOTE: bare `genotype-het` (gene + has_genotype + Heterozygous) was
-  // RETIRED as under-specified — but that argument was about an
-  // UNGROUNDED zygosity word. `05_genotype_efc.md` §Mutations now
-  // sanctions `has_genotype + heterozygous (GENO_0000135)` for a
-  // single-allele KO and for `+/mut`, and the agents side stopped
-  // flagging the grounded form. Restoring a template here is a curation
-  // call, not a mechanical one: the same rule warns against reaching for
-  // a zygosity word when the paper doesn't pin the second allele, which
-  // is what the retirement was guarding. Until then use
-  // `genotype-mut-freetext` with allele notation (`mHTT/+`).
+  // `genotype-het` was retired once as under-specified. That argument
+  // was about an UNGROUNDED zygosity word; the GROUNDED one is a
+  // different object and `05_genotype_efc.md` §Mutations sanctions it.
+  // Zygosity comes from GENO, not TGEMO — TGEMO's `Heterozygous`
+  // (TGEMO_00003) was deleted outright in a cleanup, so the id that
+  // used to sit here resolves to nothing.
+  {
+    id: "genotype-het",
+    category: "genotype",
+    label: "gene + has_genotype + heterozygous",
+    description:
+      "Single-allele heterozygous KO, and `+/mut` where the mutation's " +
+      "effect is unknown or partial loss of function: gene + has_genotype " +
+      "+ heterozygous (GENO_0000135). Zygosity is GENO, not TGEMO. When " +
+      "the paper names the allele, prefer allele notation (`mHTT/+`) — it " +
+      "carries the zygosity AND the identity. When the paper does not pin " +
+      "the second allele down, don't reach for a zygosity word at all: " +
+      "write `[mut]/?` so the unknown side stays explicit.",
+    subjectHint: "gene (NCBI_GENE)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...HAS_GENOTYPE },
+        object: genoObj("heterozygous"),
+      }),
+  },
   {
     id: "genotype-oe",
     category: "genotype",
@@ -226,6 +258,28 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         object: { label: "" },
       }),
   },
+  {
+    id: "genotype-targeted",
+    category: "genotype",
+    label: "gene + targeted towards + cell type / tissue",
+    description:
+      "A perturbation RESTRICTED to one cell type or tissue — conditional " +
+      "/ Cre-lox KO, cell-type-specific knockdown, tissue-specific " +
+      "overexpression: gene + targeted towards + the CL or UBERON target " +
+      "(TGEMO_00215). Sits ALONGSIDE the has_genotype statement on the " +
+      "same gene, not instead of it. The target is what the alteration " +
+      "acts on and is INDEPENDENT of the cell type the experiment " +
+      "profiled — a Cre driver restricting a knockout to astrocytes takes " +
+      "`astrocyte` here even when whole cortex was sequenced.",
+    subjectHint: "gene (NCBI_GENE)",
+    objectHint: "cell type (CL) or tissue (UBERON)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...TARGETED_TOWARDS },
+        object: { label: "" },
+      }),
+  },
 
   // -- Treatment --------------------------------------------------------
   {
@@ -267,6 +321,27 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       withCategory(cat, {
         subject: { label: "" },
         predicate: { ...DELIVERED_TO },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "treatment-agent-toward",
+    category: "treatment",
+    label: "agent + towards + what it is directed at",
+    description:
+      "A targeted agent and its target — antibody (EFO_0004390) + toward " +
+      "(RO_0002503) + antigen. `towards` is DIRECTION: a response and its " +
+      "stimulus, an agent and what it acts on. 🛑 NOT a perturbation " +
+      "target — that is `targeted towards` (TGEMO_00215), one suffix away " +
+      "in the picker and a different predicate. 🛑 NOT a graft host " +
+      "either: a xenograft is not a phenotype response, and the host is a " +
+      "plain `growth condition` value with no statement at all.",
+    subjectHint: "agent (e.g. antibody, EFO_0004390)",
+    objectHint: "what it is directed at (antigen / stimulus)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...TOWARD },
         object: { label: "" },
       }),
   },
@@ -408,6 +483,27 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         object: { label: "" },
       }),
   },
+  {
+    id: "clinical-child-disease",
+    category: "clinical history",
+    label: "subject + has child with disease + disease",
+    description:
+      "A familial cohort: the profiled individual is UNAFFECTED and the " +
+      "design is defined by a relative's condition — mothers sampled by " +
+      "their child's diagnosis. subject + has child with disease " +
+      "(TGEMO_00201) + disease (MONDO). 🛑 The disease is NOT the " +
+      "subject's. Don't also tag the experiment with it as though the " +
+      "profiled people were affected — that assertion is the whole reason " +
+      "this predicate exists.",
+    subjectHint: "the profiled subject (free text is fine)",
+    objectHint: "the CHILD's disease (MONDO)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...HAS_CHILD_WITH_DISEASE },
+        object: { label: "" },
+      }),
+  },
 
   // -- Origin: what the material IS, and where it came FROM -------------
   // 13_statement_templates §1-§3. Each of these collapses a pair of flat
@@ -436,11 +532,11 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
   {
     id: "cell-type-from-line",
     category: "cell type",
-    label: "cell type + derives from cell line + cell line",
+    label: "cell type + derives from cell line cell + cell line",
     description:
       "The profiled cells were differentiated or otherwise derived FROM a " +
       "named line. The line is not what was measured — annotate the profiled " +
-      "cell and carry the line as provenance. derives from cell line " +
+      "cell and carry the line as provenance. derives from cell line cell " +
       "(CLO_0037210).",
     subjectHint: "cell type (CL) — what was profiled",
     objectHint: "parent cell line (CLO) — e.g. H9 cell",
@@ -456,7 +552,7 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     category: "cell type",
     label: "cell type + derives from cell + cell type",
     description:
-      "Same shape as `derives from cell line`, for when the origin is a " +
+      "Same shape as `derives from cell line cell`, for when the origin is a " +
       "primary cell rather than a named line. derives from cell " +
       "(CLO_0037209).",
     subjectHint: "cell type (CL) — what was profiled",
@@ -465,6 +561,25 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       withCategory(cat, {
         subject: { label: "" },
         predicate: { ...DERIVES_FROM_CELL },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "cell-type-adjacent-to",
+    category: "cell type",
+    label: "cell type / structure + adjacent to + neighbour",
+    description:
+      "Rare. The material is defined by what it sits BESIDE — a co-culture " +
+      "partner, a peritumoural region: cell type (CL) or structure " +
+      "(UBERON) + adjacent to (RO_0002220) + the neighbour. The " +
+      "paired-tissue control (control + adjacent to + disease) is the " +
+      "other use and has its own template under `disease`.",
+    subjectHint: "cell type (CL) or structure (UBERON)",
+    objectHint: "neighbouring cell type / structure",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...ADJACENT_TO },
         object: { label: "" },
       }),
   },
@@ -484,6 +599,27 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         subject: { label: "" },
         predicate: { ...HAS_MODIFIER },
         object: { ...TGEMO.organoid },
+      }),
+  },
+  {
+    id: "anatomy-located-in",
+    category: "organism part",
+    label: "structure + located in + sub-region / axis",
+    description:
+      "A finer position the ontology doesn't carry as its own class — a " +
+      "hemisphere, a dorsoventral level, a cortical layer: structure " +
+      "(UBERON) + located in (RO_0001025) + the sub-region. 🛑 The subject " +
+      "is an ANATOMICAL structure or a disease, NEVER a gene. `<gene> " +
+      "located in <cell type>` is the conditional-knockout case wearing " +
+      "the wrong predicate — it says where the gene sits, not where the " +
+      "alteration acts; that one is `targeted towards`.",
+    subjectHint: "structure (UBERON)",
+    objectHint: "sub-region or axis (e.g. ventral, left hemisphere)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...LOCATED_IN },
+        object: { label: "" },
       }),
   },
 
@@ -521,8 +657,8 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
   {
     id: "pheno-resistant",
     category: "phenotype",
-    label: "resistant to + toward + drug",
-    description: "Drug resistance — resistant to (PATO_0001178) + toward + CHEBI drug.",
+    label: "resistant to + towards + drug",
+    description: "Drug resistance — resistant to (PATO_0001178) + towards + CHEBI drug.",
     subjectHint: "(filled)",
     objectHint: "drug (CHEBI)",
     build: (cat) =>
@@ -535,8 +671,8 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
   {
     id: "pheno-response",
     category: "phenotype",
-    label: "response to + toward + treatment",
-    description: "Treatment response — response to (PATO_0000077) + toward + treatment.",
+    label: "response to + towards + treatment",
+    description: "Treatment response — response to (PATO_0000077) + towards + treatment.",
     subjectHint: "(filled)",
     objectHint: "treatment (CHEBI / free text)",
     build: (cat) =>
@@ -549,8 +685,8 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
   {
     id: "pheno-sensitive",
     category: "phenotype",
-    label: "sensitive toward + toward + drug",
-    description: "Drug sensitivity — sensitive toward (PATO_0000516) + toward + drug.",
+    label: "sensitive toward + towards + drug",
+    description: "Drug sensitivity — sensitive toward (PATO_0000516) + towards + drug.",
     subjectHint: "(filled)",
     objectHint: "drug (CHEBI)",
     build: (cat) =>
@@ -584,6 +720,26 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         subject: { label: "" },
         predicate: { ...HAS_PHENOTYPE },
         object: { ...SO.decreased_gpl },
+      }),
+  },
+  {
+    id: "pheno-of-material",
+    category: "phenotype",
+    label: "material + has phenotype + phenotype term",
+    description:
+      "An observable state of the material or the perturbed gene that is " +
+      "not its identity, its genotype or its disease: cell type (CL) or " +
+      "gene (NCBI_GENE) + has phenotype (RO_0002200) + the phenotype. 🛑 " +
+      "Distinct from `induced by` (which states a cause) and from `has " +
+      "modifier` (the generic escape hatch). If a disease term fits, `has " +
+      "disease` is more specific and wins.",
+    subjectHint: "cell type (CL) or gene (NCBI_GENE)",
+    objectHint: "phenotype term",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...HAS_PHENOTYPE },
+        object: { label: "" },
       }),
   },
 

@@ -208,9 +208,11 @@ function PredicateSelect({
       {/* Each option carries its SoT description as a tooltip, the way
           the modal's copy of this control already did. Labels alone
           can't separate near-synonyms that sit adjacent in the list —
-          `toward` (RO_0002503, direction of a phenotype response) and
+          `towards` (RO_0002503, direction of a phenotype response) and
           `targeted towards` (TGEMO_00215, a perturbation restricted to
-          a cell type) differ by one suffix and mean different things. */}
+          a cell type) mean different things, and since RO_0002503 was
+          relabelled to its ontology form the second now ENDS IN the
+          first — the rows differ by a leading word and nothing else. */}
       {PREDICATES.map((p) => (
         <option key={p.uri} value={p.uri} title={p.description}>
           {p.label}

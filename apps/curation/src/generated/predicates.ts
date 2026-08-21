@@ -28,7 +28,7 @@ export const PREDICATES: readonly PredicateDef[] = [
   { label: "delivered at dose", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00166", description: "Dose attached to a treatment. E.g. drug delivered at dose 5 uM." },
   { label: "delivered for duration", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00167", description: "Duration attached to a treatment. E.g. drug delivered for duration 24 h." },
   { label: "delivered to", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00183", description: "Organism part / cell where the treatment was delivered. E.g. drug delivered to hippocampus." },
-  { label: "derives from cell line", uri: "http://purl.obolibrary.org/obo/CLO_0037210", description: "Sample / cell line is derived from a named CLO cell line." },
+  { label: "derives from cell line cell", uri: "http://purl.obolibrary.org/obo/CLO_0037210", description: "Sample / cell line is derived from a named CLO cell line." },
   { label: "derives from cell", uri: "http://purl.obolibrary.org/obo/CLO_0037209", description: "Sample is derived from a CL cell type." },
   { label: "derives from part of", uri: "http://purl.obolibrary.org/obo/ENVO_01003004", description: "Sample is derived from part of an organism part (UBERON)." },
   { label: "derives from", uri: "http://purl.obolibrary.org/obo/RO_0001000", description: "Catch-all when none of the `derives from x` cases fit." },
@@ -42,7 +42,7 @@ export const PREDICATES: readonly PredicateDef[] = [
   { label: "positive for product of gene", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00169", description: "Marker-positive cell type/line. E.g. CD4 T cell positive for product of gene CD25." },
   { label: "negative for product of gene", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00170", description: "Marker-negative cell type/line." },
   { label: "sampled after", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00202", description: "Timepoint sampled after a treatment / disease event." },
-  { label: "toward", uri: "http://purl.obolibrary.org/obo/RO_0002503", description: "Direction of a phenotype response. E.g. response to + toward + treatment." },
+  { label: "towards", uri: "http://purl.obolibrary.org/obo/RO_0002503", description: "Direction of a phenotype response. E.g. response to + towards + treatment." },
   { label: "targeted towards", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00215", description: "A cell-type/tissue-TARGETED perturbation (conditional/Cre-lox KO, cell-type-specific knockdown, tissue-specific overexpression) is restricted to / directed at a specific cell type or tissue. SUBJECT = the perturbed gene; OBJECT = the grounded CL (cell type) or UBERON (tissue) target, e.g. S1pr1 + targeted towards + astrocyte [CL_0000127]. The target is INDEPENDENT of the experiment's profiled cell type. Minted as TGEMO_00215 on 2026-08-21 (Paul: 'Mint in TGEMO') after 18 experiments had proposed it with a null URI and 8 reached applyAction, where applying one produced a design that could not be committed. Nothing in RO fits: RO_0002503 'towards' relates a relational quality to what it is a quality toward, and RO_0001025 'located in' would assert the gene's own anatomical location rather than where the alteration acts; TGEMO_00183 'delivered to' presupposes an administration event a germline conditional allele does not have." },
 ] as const;
 

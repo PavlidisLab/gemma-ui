@@ -139,7 +139,7 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
     sourceUrl: WIKI_BASE,
     bullets: [
       "Use CLO. If the specific line isn't in CLO, climb to a less specific term.",
-      "Cells derived from a line: tag the appropriate EFO term + `derives from cell line` (CLO_0037210) + parent line.",
+      "Cells derived from a line: tag the appropriate EFO term + `derives from cell line cell` (CLO_0037210) + parent line.",
       "Common derived terms: iPSC-derived (EFO_0005740), stem cell-derived (EFO_0002886), ESC-derived (EFO_0005738), fibroblast-derived (EFO_0002009).",
       "Markers / FACS markers must NEVER be the only FV. Use cell line/type + `positive for product of gene` (TGEMO_00169) / `negative for product of gene` (TGEMO_00170) + gene (NCBI_GENE).",
       "Diseased line — ask who put the disease there, not whether the material is diseased: engineered / bred by us → `has disease` (RO_0016002); drug or surgery → `induced by` (TGEMO_00171); came with the donor → `derives from patient having disease` (CLO_0000015).",
@@ -294,8 +294,10 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
     bullets: [
       "Use NCBI_GENE for the gene. Human genes ALL CAPS, mouse/rat Title Case.",
       "Format: gene (NCBI_GENE) + `has_genotype` (GENO_0000222) + mutation type (TGEMO term or free text).",
-      "Common mutation TGEMO terms: Homozygous negative (TGEMO_00001), Heterozygous (TGEMO_00002), Overexpression (TGEMO_00004), Constitutive active mutation (TGEMO_00008), gene knockdown (OBI_0002625).",
+      "Common allele-STATE terms are TGEMO: Homozygous negative (TGEMO_00001), Overexpression (TGEMO_00004), Constitutive active mutation (TGEMO_00008), gene knockdown (OBI_0002625).",
+      "ZYGOSITY comes from GENO, not TGEMO: heterozygous (GENO_0000135), homozygous (GENO_0000136), unspecified zygosity (GENO_0000137). TGEMO's own `Heterozygous` was deleted in a cleanup and its TGEMO_00002 parent is deprecated — both resolve to nothing, so don't cite them. Where the paper names the allele, allele notation (`mHTT/+`) beats a bare zygosity word because it carries identity as well; where the second allele is unknown, write `[mut]/?` rather than guessing either way.",
       "Drug-induced KO (Cre-loxP via tamoxifen / dox) is still Genotype — don't annotate the inducer.",
+      "A knockout RESTRICTED to one cell type or tissue takes a second statement on the same gene: `+ targeted towards (TGEMO_00215) + CL | UBERON`. The target is where the alteration acts, which is not necessarily what was profiled.",
       "Capture the FUNCTIONAL change of a mutation (e.g. dominant-negative), not just the position.",
     ],
     donts: [
@@ -319,7 +321,7 @@ export const CATEGORY_GUIDELINES: Record<string, GuidelineSnippet> = {
     source: "Curating EFCs",
     sourceUrl: WIKI_BASE,
     bullets: [
-      "Drug-resistance pattern: `resistant to` (PATO_0001178) + `toward` (RO_0002503) + drug (CHEBI). Sensitive: PATO_0000516. Susceptible: PATO_0001152. Response: PATO_0000077.",
+      "Drug-resistance pattern: `resistant to` (PATO_0001178) + `towards` (RO_0002503) + drug (CHEBI). Sensitive: PATO_0000516. Susceptible: PATO_0001152. Response: PATO_0000077.",
       "Gene-expression-level pattern: gene (NCBI) + `has phenotype` (RO_0002200) + increased_gene_product_level (SO_0002315) or decreased_gene_product_level (SO_0002316).",
       "Use PATO baselines (`reference subject role`) for the comparator.",
     ],
@@ -411,13 +413,14 @@ export const PREDICATE_GUIDELINE: GuidelineSnippet = {
     "`induced by` (TGEMO_00171) — disease/phenotype induced by drug or surgery. Distinct from `has modifier`.",
     "`has modifier` (RO_0002573) — object differs from original form; organism-part location qualifier (e.g. dorsal); or fallback when no other predicate fits.",
     "`positive for product of gene` (TGEMO_00169) / `negative for product of gene` (TGEMO_00170) — marker-positive / -negative cell types. cell type + (predicate) + gene (NCBI).",
-    "`derives from cell line` (CLO_0037210) — sample derived from a CLO cell line. `derives from cell` (CLO_0037209) — from a CL cell type. `derives from part of` (ENVO_01003004) — part of an organism part. `derives from` (RO_0001000) — generic catch-all.",
+    "`derives from cell line cell` (CLO_0037210) — sample derived from a CLO cell line. `derives from cell` (CLO_0037209) — from a CL cell type. `derives from part of` (ENVO_01003004) — part of an organism part. `derives from` (RO_0001000) — generic catch-all.",
     "`has disease` (RO_0016002) — the ENGINEERED case only. The test is PROVENANCE, not pathology: did we put the disease there, or did it come with the donor? \"Is this material diseased?\" separates nothing — for a germline disease every cell carries the defect, so it reads true for patient fibroblasts and tumour lines alike. Put there by us (engineering / breeding) → `has disease`; put there by a drug or surgery → `induced by` (TGEMO_00171); came with the donor → `derives from patient having disease` (CLO_0000015).",
     "`derives from patient having disease` (CLO_0000015) — the donor had it; the sample was not modified or induced to have it. Use ONLY when the disease isn't recoverable from the entity's own record: a line that resolves in CLO / Cellosaurus already carries its disease, so restating it annotates a property documented elsewhere. An UNGROUNDED line has no such record, so the statement is the only place the fact can live.",
     "`has child with disease` (TGEMO_00201) — sample from a parent whose child has a specific disease.",
     "`has developmental stage` (TGEMO_00168) — UBERON developmental stage + has developmental stage + free-text exact age.",
     "`located in` (RO_0001025) — disease or genotype localised to an organism part. Used inside genotype EFCs too.",
-    "`toward` (RO_0002503) — phenotype response. `response to` / `resistant to` / `sensitive toward` / `susceptible toward` + toward + treatment.",
+    "`towards` (RO_0002503) — DIRECTION OF A PHENOTYPE RESPONSE. `response to` / `resistant to` / `sensitive toward` / `susceptible toward` + towards + treatment. 🛑 Not `targeted towards` (next bullet), which it sits beside in the picker. Since RO_0002503 was relabelled to its ontology form, `targeted towards` ENDS IN `towards` — the two rows differ by a leading word, so read the whole row.",
+    "`targeted towards` (TGEMO_00215) — a perturbation RESTRICTED to a cell type or tissue: gene (NCBI_GENE) + targeted towards + CL / UBERON. Conditional / Cre-lox KO, cell-type-specific knockdown, tissue-specific overexpression. It sits ALONGSIDE the `has_genotype` statement on the same gene, and its object is what the alteration acts on — INDEPENDENT of the cell type the experiment profiled. Not `towards` (a phenotype response has a direction; a knockout does not), not `located in` (that would assert the gene's own anatomical location), not `delivered to` (that presupposes an administration event a germline conditional allele never had).",
     "`sampled after` (TGEMO_00202) — timepoint sampled after a treatment / disease event with a reference subject in the experiment.",
   ],
   donts: [
@@ -459,7 +462,7 @@ export const TAGS_GUIDELINE: GuidelineSnippet = {
     "Same ontology rules as FactorValues — see the Curating EFCs guide for which ontology each category prefers (UBERON for organism part, CL for cell type, MONDO for disease, etc).",
     "Search uses ontology inference — tagging `brain` is redundant if a specific brain region (Ammon's horn, dentate gyrus, …) is already in the design.",
     "TGEMO study-design tags are tag-only (use `study design` as the EFC): `[Sample Study]` (TGEMO_00020), `[Cell Line Sample Study]` (TGEMO_00033), `[Benchmark Study]` (TGEMO_00032), `[Time Consuming]` (TGEMO_00011).",
-    "The graft relationship is also a `study design` value — but unlike the tags above it can be a factor when it varies. See the Graft studies crib sheet.",
+    "The graft relationship CAN be a `study design` tag — when nothing varies. Unlike the tag-only terms above it is also a legitimate factor when it varies, and several other categories are right depending on what the axis asks. See the Graft studies crib sheet before picking one.",
     "Assay-type tags (`Transcription Profiling by Array` / `…High-Throughput Sequencing` / `Single-Cell RNA Sequencing` / `Single Nucleus RNA Sequencing`) are auto-applied — if missing, run `gemma-cli updateGEOData --update-experiment-tags -e GSE…`.",
     "Most experiments need ≤3 manually-added tags. If you're routinely adding more, ask for review.",
   ],
@@ -567,17 +570,17 @@ export const DERIVED_MATERIAL_GUIDELINE: GuidelineSnippet = {
   sourceUrl: TAGS_URL,
   bullets: [
     "The SUBJECT is the cell type — annotate what the cells ARE NOW. The origin rides as statements on that subject: an organoid is not an organism part, and the parent line is not the cell type.",
-    "Template: cell type + `derives from cell line` (CLO_0037210) → parent line, + `has modifier` (RO_0002573) → `organoid` (TGEMO_00205).",
+    "Template: cell type + `derives from cell line cell` (CLO_0037210) → parent line, + `has modifier` (RO_0002573) → `organoid` (TGEMO_00205).",
     "Several statements on ONE subject is the intended shape — there is no second-predicate slot. A richer annotation is more statements sharing a subject.",
     "Always compose endpoint + origin, even when the BioMaterials say `cell type=iPSC`: `iPSC-derived cardiomyocytes` → `cardiac muscle cell` (CL_0000746); `rapid neuron differentiation` → `neuron` (CL_0000540). Endpoint alone drops the derivation; line alone drops the differentiated identity — both are half-annotations.",
-    "Pick the MOST SPECIFIC `derives from` predicate that fits: `derives from cell line` (CLO_0037210) for a named line, `derives from cell` (CLO_0037209) for a CL cell type, `derives from part of` (ENVO_01003004) for an organism part, `derives from patient having disease` (CLO_0000015) for primary patient tissue. `derives from` (RO_0001000) is the catch-all when none of those fit — e.g. an origin term like `induced pluripotent stem cell` (EFO_0004905).",
+    "Pick the MOST SPECIFIC `derives from` predicate that fits: `derives from cell line cell` (CLO_0037210) for a named line, `derives from cell` (CLO_0037209) for a CL cell type, `derives from part of` (ENVO_01003004) for an organism part, `derives from patient having disease` (CLO_0000015) for primary patient tissue. `derives from` (RO_0001000) is the catch-all when none of those fit — e.g. an origin term like `induced pluripotent stem cell` (EFO_0004905).",
     "An organoid / spheroid / explant is a culture MODALITY, not an anatomical part: the anatomy or cell type is the value, `organoid` (TGEMO_00205) rides as `has modifier` on it. `organism part: organoid` asserts a body part that does not exist.",
     "Generic derived-line parents when no line is named: iPSC-derived (EFO_0005740), stem cell-derived (EFO_0002886), ESC-derived (EFO_0005738), fibroblast-derived (EFO_0002009).",
     "In-vitro time-courses (hESC neural differentiation day 0-22, organoid culture week 1-8) are a Timepoint EFC, not a developmental stage — what varies is the experiment's clock, not an organism's age.",
     "A derived model MAY carry the stage it RECAPITULATES when the paper states one (`cortical organoids comparable to post-conception week 19` → that modelled stage).",
   ],
   examples: [
-    "cell type: retinal cell (CL_0009004) + derives from cell line -> H9 cell (CLO_0003612) + has modifier -> organoid (TGEMO_00205)",
+    "cell type: retinal cell (CL_0009004) + derives from cell line cell -> H9 cell (CLO_0003612) + has modifier -> organoid (TGEMO_00205)",
     "cell type: neuron (CL_0000540) + derives from -> induced pluripotent stem cell (EFO_0004905)",
   ],
   donts: [
@@ -591,7 +594,7 @@ export const DERIVED_MATERIAL_GUIDELINE: GuidelineSnippet = {
 /**
  * Graft studies. Re-derived from `gemma-curation-agents`
  * `docs/curation_rules/09_experiment_tags.md` — the "Grafts" section
- * (where the term hangs, the host, the four terms) and
+ * (the four terms, which category, the never-three, the host) and
  * "Pre-experiment animal / host / source-tissue properties" — plus
  * `01_workflow_and_checklist.md` (taxon is the sequenced RNA, not the
  * host), `06_baseline_factor_values.md` (graft baselines, recorded
@@ -607,12 +610,19 @@ export const DERIVED_MATERIAL_GUIDELINE: GuidelineSnippet = {
  */
 export const GRAFT_GUIDELINE: GuidelineSnippet = {
   title: "Graft studies — xeno / allo / syngeneic / auto",
-  source: "curation_rules 09_experiment_tags §Grafts + 01_workflow_and_checklist",
+  source:
+    "curation_rules 09_experiment_tags §Grafts (§Which CATEGORY the graft " +
+    "goes in · §Never these three · §The host organism) + " +
+    "12_meta_principles §the category encodes the QUESTION + " +
+    "01_workflow_and_checklist",
   sourceUrl: TAXON_URL,
   bullets: [
-    "The graft relationship is a `study design` value: `xenograft` (OBI_0100058), `allograft` (TGEMO_00211), `syngeneic graft` (TGEMO_00212), `autograft` (TGEMO_00213). Same values whether it's constant across samples (→ experiment tag) or varies (→ factor) — the ordinary tag-vs-factor rule decides which.",
+    "The terms: `xenograft` (OBI_0100058), `allograft` (TGEMO_00211), `syngeneic graft` (TGEMO_00212), `autograft` (TGEMO_00213). Same values whether the graft is constant across samples (→ experiment tag) or varies (→ factor) — the ordinary tag-vs-factor rule decides which. Grafts are a common design, not an edge case: roughly one core-corpus experiment in four hundred is one.",
     "We annotate that the source IS a graft, not the grafting procedure.",
-    "The host goes under `growth condition` — not on the grafted material.",
+    "SEVERAL CATEGORIES ARE RIGHT, and a rule demanding one would be wrong — the category encodes the QUESTION the axis asks, not the term. What kind of material was profiled → `collection of material`. How or where the cells were grown → `growth condition`. Which model or line this is → `cell line` / `cell type`. Nothing varies and it is true of the whole experiment → `study design`. Measured over the core corpus 2026-08-21 the graft term appears under nine categories and most of those uses are defensible; a single-category rule would have destroyed about three correct annotations for every wrong one it fixed.",
+    "`treatment` is legitimate ONLY when the graft VARIES — a grafted arm against a non-grafted arm is a real manipulation and a real contrast. A CONSTANT `treatment: xenograft` tag annotates the procedure, which is the one thing the opening rule says we don’t do.",
+    "The host organism is a VALUE, not a statement: `growth condition: <host species> [NCBITaxon_…]`, beside `in vivo design` / `spheroid` / co-culture. Constant → tag, varies → factor, same value either way.",
+    "Record the host. It is captured on about one graft experiment in fifty and it is what makes a graft interpretable — which animal the material grew in bears on the stroma, the immune compartment and the read mapping. It is NOT recoverable from the taxon, which is the species of the RNA; the whole point of the taxon rule is that the two differ.",
     "The grafted material keeps its own `cell line` / `cell type` annotation, unchanged.",
     "Anatomy is NOT displaced by the graft relationship. An orthotopic graft sits in a real body part, so `organism part` stays anatomical and stands alongside the study-design value — they are different facts in different categories.",
     "Taxon is the species of the RNA that was sequenced, NOT the host. Human tumour cells in immunocompromised mice → taxon human, even when the GEO record lists both species. When GEO metadata and the actual RNA source disagree, the RNA source wins.",
@@ -630,8 +640,11 @@ export const GRAFT_GUIDELINE: GuidelineSnippet = {
   donts: [
     "Don't take the taxon from the GEO organism field on a graft study without checking which species was actually sequenced.",
     "Don't drop `organism part` just because the samples are grafted or from a cell line — on an orthotopic graft the site is real.",
-    "Don't hang the graft term on the cell type as a modifier, or curate it as a Treatment — it's `study design`.",
-    "Don't reach for a dedicated `host organism` term — it doesn't exist yet; the host goes under `growth condition`.",
+    "Don't hang the graft term on the cell type as a modifier.",
+    "NEVER `organism part` — a graft is not an anatomical part, and filing it beside `bone marrow` and `skin of body` in one axis reads as an anatomical claim that is false. This is the same inversion already ruled on for organoids, and it is the single most common wrong home for the graft term.",
+    "NEVER `disease` — a graft is not a disease; the tumour it carries is. NEVER `environmental history` — that category is housing, diet and exposure, not what the material is.",
+    "Don't reach for a PREDICATE to attach the host. Every candidate is wrong: `towards` (RO_0002503) means direction of a phenotype response, `located in` takes anatomy or a cell type in 455 experiments and never a species, `has host` (RO_0002454) needs an organism on both sides and a graft is tissue, and `in taxon` would assert the grafted cells ARE the host species — the taxon trap stated as a relation. The corpus’s one host annotation reached for `towards`; don’t copy it.",
+    "Don't reach for a dedicated `host organism` term — it doesn't exist; the host goes under `growth condition` (EFO_0000523).",
     "Don't bind a non-host gene symbol to a host-organism gene URI — drop the URI and keep free text rather than assert the wrong organism.",
   ],
 };
@@ -664,7 +677,7 @@ export const STATEMENT_TEMPLATE_GUIDELINE: GuidelineSnippet = {
     "Two principles, and they conflict in only one direction: prefer FEWER annotations, and prefer the arrangement that RETAINS more. Collapsing two annotations into one-annotation-plus-a-statement is a win; dropping a statement to reach \"one annotation\" is a loss. When they disagree, DETAIL WINS.",
     "A template is a SHAPE, not a licence. Every one still has to be true of the samples — the composed form doesn't make a claim safer, it makes a true claim more completely.",
     "Cell type from a tissue: `cell type (CL) + derives from part of (ENVO_01003004) + organism part (UBERON)`. Not redundant with a constant cell-type characteristic — the tissue relationship exists nowhere in that characteristic. Compare the STATEMENT SET, never the value alone.",
-    "Cell type from a line: `cell type (CL) + derives from cell line (CLO_0037210) + line (CLO)`. The line isn't what was measured; the profiled cell is the annotation and the line is provenance. Use `derives from cell` (CLO_0037209) when the origin is a primary cell.",
+    "Cell type from a line: `cell type (CL) + derives from cell line cell (CLO_0037210) + line (CLO)`. The line isn't what was measured; the profiled cell is the annotation and the line is provenance. Use `derives from cell` (CLO_0037209) when the origin is a primary cell.",
     "Culture modality: `organism part | cell type + has modifier (RO_0002573) + organoid (TGEMO_00205)`. An organoid is not an anatomical part.",
     "Disease model: `disease (MONDO) + induced by (TGEMO_00171) + chemical (CHEBI) | procedure`. One statement per inducer.",
     "Protein treatment (the catalog triplet): `protein (CHEBI_36080) + derives from (RO_0001000) + gene (NCBI_GENE)`, with `delivered at dose` on the same `protein` subject.",
@@ -672,14 +685,17 @@ export const STATEMENT_TEMPLATE_GUIDELINE: GuidelineSnippet = {
     "Baseline / reference role: `<the FV's own value> + has role (RO_0000087) + role term`. Keep the named value and add the role to it.",
     "DEA subsetting axis: `<FV value> + has role + \"Experiment 1\" | \"Experiment 2\"` on the factor that ALREADY makes the split — instead of a duplicate `collection of material` factor that exists only to tell the DEA machinery what to subset on.",
     "Ungroundable identifiers (donor / subject codes, hybrid strain backgrounds, lab-internal line names) stay FREE TEXT with no URI. That is the honest annotation, not a gap.",
-    "Confounded cause axis and conditional knockouts have their own encodings — see the batch-confound rules and the genotype EFC guide; the Cre driver and the floxed allele are separate assertions, not one merged label.",
+    "Conditional / cell-type-targeted knockout: `gene + has_genotype + <allele state>` AND `gene + targeted towards (TGEMO_00215) + CL | UBERON` — two statements on the same gene subject, because the alteration and where it acts are two facts. The Cre driver and the floxed allele stay separate assertions, not one merged label.",
+    "Confounded cause axis has its own encoding — see the batch-confound rules.",
   ],
   examples: [
     "cell type: astrocyte (CL_0000127) + derives from part of -> spinal cord (UBERON_0002240)",
-    "cell type: retinal cell (CL_0009004) + derives from cell line -> H9 cell (CLO_0003612)",
+    "cell type: retinal cell (CL_0009004) + derives from cell line cell -> H9 cell (CLO_0003612)",
     "organism part: brain (UBERON_0000955) + has modifier -> organoid (TGEMO_00205)",
     "treatment: protein (CHEBI_36080) + derives from -> CCL19 (NCBI_GENE) + delivered at dose -> 10 ng/ml",
     "genotype: Hoxa5 (NCBI_GENE) + has_genotype -> Overexpression (TGEMO_00004)",
+    "genotype: S1pr1 (NCBI_GENE) + has_genotype -> Homozygous negative + targeted towards -> astrocyte (CL_0000127) — a conditional KO; the cortex it was sequenced from doesn't change the target",
+    "genotype: Utrn (NCBI_GENE) + has_genotype -> heterozygous (GENO_0000135) — single-allele KO; zygosity is GENO, and TGEMO_00003 is deleted",
     "developmental stage: prime adult stage + has role -> Experiment 1",
   ],
   donts: [
