@@ -88,12 +88,27 @@ describe("removing a predicate", () => {
     expect(screen.getAllByText("predicate").length).toBeGreaterThan(0);
   });
 
-  it("names the object it takes with it", () => {
+  it("names what it takes with it — the whole clause", () => {
     // Clearing the predicate but keeping the object would leave the
     // object attached to nothing, which the wire has no shape for. The
     // option says so rather than surprising the curator.
+    //
+    // "Clause" rather than "object" since 2026-08-20: the handler
+    // clears BOTH, so naming only the object undersold it.
     renderEditable([stmt("delivered at dose", "20 g/kg")]);
-    expect(screen.getAllByText(/removes object/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/removes this clause/i).length).toBeGreaterThan(0);
+  });
+
+  it("🛑 keeps the word 'predicate' in the empty option once one is set", () => {
+    // Paul, 2026-08-20: "select 'predicate' i.e no predicate". The
+    // empty option has to stay recognisably THE empty one — labelling
+    // it with the consequence alone ("none (removes object)") made it
+    // read as a different, unrelated entry rather than the placeholder
+    // the curator already knows.
+    renderEditable([stmt("delivered at dose", "20 g/kg")]);
+    expect(
+      screen.getAllByText(/^predicate\b.*none/i).length,
+    ).toBeGreaterThan(0);
   });
 });
 

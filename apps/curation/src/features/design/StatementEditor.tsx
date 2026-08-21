@@ -96,6 +96,10 @@ export function canonicalPredicateUri(uri: string | null | undefined): string {
  * predicate without clearing the object would leave a dangling object
  * with nothing to attach it to, which the wire has no shape for.
  */
+/** Sentinel for the synthetic option that shows an ungrounded
+ *  predicate. Not a URI, so it can never collide with a preset. */
+const UNGROUNDED_PREDICATE = "\u0000ungrounded-predicate";
+
 function PredicateSelect({
   statement,
   size,
@@ -108,6 +112,22 @@ function PredicateSelect({
   size: "md" | "sm";
   onChange: (next: Statement) => void;
 }) {
+  // 🛑 A predicate the preset list does not carry still has to be
+  // SHOWN. `value` is the predicate's URI, so an ungrounded one
+  // (`has_genotype`, `has modifier` — label, no URI) matched no option
+  // and fell through to the first, which reads "— none (removes object)
+  // —". The curator was told the statement has no predicate when it has
+  // one, by a control whose own text says picking it would delete the
+  // object. GSE152448 has four, and they block the commit — so the one
+  // screen that could say WHICH four was denying they existed.
+  //
+  // It gets its own option instead, named and marked. Selecting it is a
+  // no-op (it is already the state); the preset options and "none" work
+  // as before, so grounding it is one click.
+  const presetUri = canonicalPredicateUri(statement.predicate?.uri);
+  const label = (statement.predicate?.label ?? "").trim();
+  const isPreset = PREDICATES.some((p) => p.uri === presetUri);
+  const ungrounded = !!label && !isPreset;
   return (
     <select
       className={
@@ -126,13 +146,17 @@ function PredicateSelect({
       // Canonicalise so a legacy obo-purl predicate URI
       // (``…/obo/TGEMO_00167``) still selects its ``…/ont/…`` option
       // instead of blanking to the placeholder.
-      value={canonicalPredicateUri(statement.predicate?.uri)}
+      value={ungrounded ? UNGROUNDED_PREDICATE : presetUri}
       title={
-        statement.predicate
-          ? `${statement.predicate.label} — pick “none” to remove this predicate and its object`
-          : "Link this subject to an object. The subject on its own is a complete statement; a predicate is optional."
+        ungrounded
+          ? `“${label}” is not one of Gemma's preset predicates, so it can't be written back — pick a preset, or “none” to drop it and its object.`
+          : statement.predicate
+            ? `${statement.predicate.label} — pick “none” to remove this predicate and its object`
+            : "Link this subject to an object. The subject on its own is a complete statement; a predicate is optional."
       }
       onChange={(e) => {
+        // Re-picking the row's own ungrounded value changes nothing.
+        if (e.target.value === UNGROUNDED_PREDICATE) return;
         if (e.target.value === "") {
           onChange({ ...statement, predicate: null, object: null });
         } else {
@@ -148,9 +172,22 @@ function PredicateSelect({
         }
       }}
     >
+      {/* The word "predicate" stays put whether one is set or not, so
+          the empty option is recognisably THE empty one — Paul,
+          2026-08-20: "select 'predicate' i.e no predicate". Naming
+          only the consequence ("none (removes object)") made it read
+          as a different, unrelated entry.
+          "Clause" rather than "object" because it takes the predicate
+          with it: the handler clears both, and a predicate with no
+          object has no shape on the wire. */}
       <option value="">
-        {statement.predicate ? "— none (removes object) —" : "predicate"}
+        {statement.predicate
+          ? "predicate — none (removes this clause)"
+          : "predicate"}
       </option>
+      {ungrounded ? (
+        <option value={UNGROUNDED_PREDICATE}>{label} — not a preset</option>
+      ) : null}
       {PREDICATES.map((p) => (
         <option key={p.uri} value={p.uri}>
           {p.label}
