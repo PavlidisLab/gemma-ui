@@ -31,7 +31,7 @@ import {
 import { cn } from "@/lib/cn";
 import type { ExternalSource } from "@/features/experiment/types";
 import { useExperimentGroups, useGroup } from "@/api/workflow";
-import { experimentRoute, navigate, workflowRoute } from "@/routes";
+import { navigate, siblingExperimentRoute, workflowRoute } from "@/routes";
 import { StatusDisc, type StatusDiscTone } from "@/components/ui/StatusDisc";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
 import type {
@@ -825,8 +825,13 @@ function ExperimentGroupChips({
 
 /** Dropdown listing every group the experiment belongs to, with the
  *  active one marked. Click a non-active row to navigate to that
- *  set's context (preserves the active tab via experimentRoute +
- *  the group= query param). */
+ *  set's context, keeping the tab the curator is on.
+ *
+ *  🛑 It did not, despite this comment saying so since it was written:
+ *  ``experimentRoute(id, undefined, g.id)`` OMITS the tab param rather
+ *  than preserving it, so every switch bounced back to the default tab.
+ *  ``siblingExperimentRoute`` reads the live route and is the only
+ *  thing that actually keeps it. */
 function SetSwitchDropdown({
   experimentId,
   activeGroupId,
@@ -857,7 +862,9 @@ function SetSwitchDropdown({
             disabled={isActive}
             onClick={() => {
               onClose();
-              navigate(experimentRoute(experimentId, undefined, g.id));
+              navigate(
+                siblingExperimentRoute(experimentId, { groupContext: g.id }),
+              );
             }}
             className={cn(
               "w-full text-left px-3 py-1.5 flex items-baseline gap-2",
@@ -1073,7 +1080,9 @@ function SetNavigatorPopover({
       // Anchor the URL's group context to this group so subsequent
       // tab switches / inline prev-next stay in-set without the
       // curator having to re-pick the group.
-      navigate(experimentRoute(target.experiment_id, undefined, groupId));
+      navigate(
+        siblingExperimentRoute(target.experiment_id, { groupContext: groupId }),
+      );
       onClose();
     },
     [summaries, onClose, groupId],
@@ -1209,7 +1218,9 @@ function SetNavigatorPopover({
               onClick={() => {
                 if (m.experiment_id <= 0) return;
                 navigate(
-                  experimentRoute(m.experiment_id, undefined, groupId),
+                  siblingExperimentRoute(m.experiment_id, {
+                    groupContext: groupId,
+                  }),
                 );
                 onClose();
               }}
@@ -1957,8 +1968,12 @@ export function TicketContextChip({
   const currentTarget = idx >= 0 ? expTargets[idx] : null;
   const prevTarget = idx > 0 ? expTargets[idx - 1] : null;
   const nextTarget = idx >= 0 && idx < total - 1 ? expTargets[idx + 1] : null;
+  // 🛑 Keeps the curator's tab (and comparison chips) — Paul,
+  // 2026-08-20: walking a ticket "should keep the tab that was
+  // selected, so nav stays on design details or whatever". This used
+  // to build the URL by hand and dropped everything but the ticket.
   function navigateTo(targetId: number): void {
-    navigate(`#/experiments/${targetId}?ticket=${ticketId}`);
+    navigate(siblingExperimentRoute(targetId, { ticketContext: String(ticketId) }));
   }
   // Layout per design review 2026-06-14:
   //   [← Ticket]   [Boss-critic 200 …]   ‹ 12/200 ›
@@ -2140,7 +2155,9 @@ function TicketNavigatorPopover({
       const wrapped = ((idx % targets.length) + targets.length) % targets.length;
       const target = targets[wrapped];
       if (!target) return;
-      window.location.hash = `#/experiments/${target.target_id}?ticket=${ticketId}`;
+      window.location.hash = siblingExperimentRoute(target.target_id, {
+        ticketContext: String(ticketId),
+      });
       onClose();
     },
     [targets, ticketId, onClose],
@@ -2239,7 +2256,9 @@ function TicketNavigatorPopover({
                 t.target_id === currentExperimentId ? currentRowRef : undefined
               }
               onClick={() => {
-                window.location.hash = `#/experiments/${t.target_id}?ticket=${ticketId}`;
+                window.location.hash = siblingExperimentRoute(t.target_id, {
+                  ticketContext: String(ticketId),
+                });
                 onClose();
               }}
             />

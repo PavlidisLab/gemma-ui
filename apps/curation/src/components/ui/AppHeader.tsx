@@ -27,6 +27,7 @@ import { SettingsMenu } from "@/features/settings/SettingsMenu";
 import { useLogout, useMe } from "@/api/session";
 import { TicketContextChip } from "@/features/experiment/ExperimentBanner";
 import { navigate } from "@/routes";
+import { ExperimentQuickSearch } from "@/features/landing/ExperimentQuickSearch";
 import { browserUrl, adminUrl } from "@/lib/appLinks";
 
 export function AppHeader({
@@ -71,6 +72,7 @@ export function AppHeader({
   const logout = useLogout();
   const me = useMe();
   const isAdmin = me.data?.authorities?.includes("GROUP_ADMIN") ?? false;
+  const onDashboard = useHashMatches(["#/"]);
   return (
     // ``min-h-12`` rather than a fixed ``h-12``, and ``flex-wrap`` on
     // the bar itself: on a 1400px window the contents of this header
@@ -160,6 +162,26 @@ export function AppHeader({
           away from natural reading order. Per Design review
           2026-05-27. */}
       <div className="flex items-center gap-3 shrink-0 ml-auto">
+        {/* Find an experiment from anywhere — Paul, 2026-08-20: "we
+            have room here to add a search-for-experiment box that works
+            like the one on the dashboard". It IS the one on the
+            dashboard: same component, compact variant, so the
+            single-hit jump, the ticket-context resolution and the
+            catalogue-loading guard cannot drift between the two.
+
+            Suppressed ON the dashboard, which already carries the
+            full-width version a few pixels below — two search boxes for
+            one catalogue is the curator wondering which one is real. */}
+        {onDashboard ? null : (
+          <ExperimentQuickSearch
+            variant="compact"
+            onSelect={(id, ticketId) =>
+              navigate(
+                `#/experiments/${id}${ticketId ? `?ticket=${ticketId}` : ""}`,
+              )
+            }
+          />
+        )}
         <nav className="flex items-center gap-1 whitespace-nowrap">
           <ExternalNavTab href={browserUrl("/browser")}>Browse</ExternalNavTab>
           {isAdmin ? (

@@ -204,6 +204,48 @@ export function experimentRoute(
   return `#/experiments/${String(id)}${qs ? `?${qs}` : ""}`;
 }
 
+/** The tab the curator is looking at right now, read off the live
+ *  hash. ``undefined`` when they are not on an experiment page. */
+export function currentExperimentTab(): ExperimentTab | undefined {
+  const r = parseRoute();
+  return r.kind === "experiment" ? r.tab : undefined;
+}
+
+/** Walk to another experiment WITHOUT losing where the curator was.
+ *
+ *  Paul, 2026-08-20: walking a ticket with ‹ › *"should keep the tab
+ *  that was selected, so nav stays on design details or whatever."*
+ *  The same argument covers the comparison chips — a curator walking
+ *  20 members comparing `current` against `agent_proposal` set that up
+ *  once, not once per member.
+ *
+ *  🛑 Every member-walking affordance must route through here. The
+ *  ticket walker had three separate hand-built URL literals (‹ ›, the
+ *  popover's `[` / `]` keys, and its member rows) and the group walker
+ *  called ``experimentRoute`` with ``tab: undefined``, which omits the
+ *  param rather than preserving it — a comment above it claimed
+ *  otherwise for months. Five sites, five chances to drop the tab.
+ *
+ *  Reads the current tab rather than taking it as a prop because these
+ *  are leaf components several levels below the Shell that owns it;
+ *  prop-drilling it is what the hand-built literals were avoiding. */
+export function siblingExperimentRoute(
+  id: number | string,
+  context: { groupContext?: string; ticketContext?: string },
+): string {
+  const r = parseRoute();
+  const from = r.kind === "experiment" ? r : null;
+  return experimentRoute(
+    id,
+    from?.tab,
+    context.groupContext,
+    context.ticketContext,
+    from
+      ? { base: from.baselineSource, cmp: from.comparatorSource }
+      : undefined,
+  );
+}
+
 export function workflowRoute(groupId?: string): string {
   return groupId ? `#/workflow/${encodeURIComponent(groupId)}` : "#/workflow";
 }
