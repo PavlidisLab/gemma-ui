@@ -80,9 +80,9 @@ const HAS_DEV_STAGE = predicate("http://gemma.msl.ubc.ca/ont/TGEMO_00168");
 // below, so the picker can't drift from what the agent grounds.
 // Zygosity objects (`heterozygous` GENO_0000135, `homozygous`
 // GENO_0000136, `unspecified zygosity` GENO_0000137) come from GENO and
-// arrive through the same table; `05_genotype_efc.md` §Mutations
-// sanctions them GROUNDED. An ungrounded bare `Heterozygous` is still
-// wrong, and that is what the earlier retirement was about.
+// arrive through the same table, and `05_genotype_efc.md` §Mutations
+// sanctions them GROUNDED — but NO template offers one, on purpose. See
+// the note where `genotype-het` used to sit, below.
 // Every OBO term takes the `/obo/` path — including OBI. An `/obi/`
 // variant was hand-built here once and resolves to nothing in Gemma,
 // which hard-rejects an ungrounded URI on commit, so the prefix is no
@@ -172,32 +172,25 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         object: genoObj("Homozygous negative"),
       }),
   },
-  // `genotype-het` was retired once as under-specified. That argument
-  // was about an UNGROUNDED zygosity word; the GROUNDED one is a
-  // different object and `05_genotype_efc.md` §Mutations sanctions it.
-  // Zygosity comes from GENO, not TGEMO — TGEMO's `Heterozygous`
-  // (TGEMO_00003) was deleted outright in a cleanup, so the id that
-  // used to sit here resolves to nothing.
-  {
-    id: "genotype-het",
-    category: "genotype",
-    label: "gene + has_genotype + heterozygous",
-    description:
-      "Single-allele heterozygous KO, and `+/mut` where the mutation's " +
-      "effect is unknown or partial loss of function: gene + has_genotype " +
-      "+ heterozygous (GENO_0000135). Zygosity is GENO, not TGEMO. When " +
-      "the paper names the allele, prefer allele notation (`mHTT/+`) — it " +
-      "carries the zygosity AND the identity. When the paper does not pin " +
-      "the second allele down, don't reach for a zygosity word at all: " +
-      "write `[mut]/?` so the unknown side stays explicit.",
-    subjectHint: "gene (NCBI_GENE)",
-    build: (cat) =>
-      withCategory(cat, {
-        subject: { label: "" },
-        predicate: { ...HAS_GENOTYPE },
-        object: genoObj("heterozygous"),
-      }),
-  },
+  // 🛑 NO bare-zygosity template, deliberately — `gene + has_genotype +
+  // heterozygous (GENO_0000135)` is a DOCUMENTED pattern, not a
+  // one-click shape (Paul, 2026-08-21: "the guidelines map out the
+  // pattern they can use, it's not to be a template").
+  //
+  // The grounding is sanctioned — `05_genotype_efc.md` §Mutations
+  // blesses it for a single-allele KO and for `+/mut`, zygosity comes
+  // from GENO rather than TGEMO, and the terms ride in on the same sync
+  // as everything else. But the same page says not to reach for a
+  // zygosity word when the paper doesn't pin the second allele down
+  // (`[mut]/?` instead), and a template puts the word one click away,
+  // which is the pull that argument is resisting. A hover description
+  // is weaker than not offering it. The pattern is written out in
+  // `guidelines.ts` — the genotype EFC snippet and the statement-
+  // template examples — where reading it is the step before using it.
+  //
+  // The term itself stays reachable through the ontology term picker,
+  // so a curator following the guideline is not blocked; they just
+  // arrive at it having read the rule.
   {
     id: "genotype-oe",
     category: "genotype",
