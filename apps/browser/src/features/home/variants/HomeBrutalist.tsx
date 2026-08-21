@@ -81,7 +81,7 @@ export function HomeBrutalist() {
             <RecentActivityCard
               items={s.recentDatasets}
               updatedThisWeek={s.updatedThisWeek}
-              newThisWeek={s.newThisWeek}
+              added={s.added}
               updatedSince={s.updatedSince}
             />
           </Panel>
@@ -316,12 +316,12 @@ const RECENT_CARD_ANNOTATION_CATEGORIES = new Set([
 function RecentActivityCard({
   items,
   updatedThisWeek,
-  newThisWeek,
+  added,
   updatedSince,
 }: {
   items: RecentDataset[];
   updatedThisWeek: number | null;
-  newThisWeek: number | null;
+  added: GemmaSummary["added"];
   updatedSince: string;
 }) {
   // Corpus activity for the week on top — each figure links to the
@@ -408,14 +408,16 @@ function RecentActivityCard({
           to="/browser"
           search={{ sort: "-lastUpdated", updatedSince }}
         />
-        {/* "Added this week" (i.e. made public) has no corpus-wide
-            count behind it — /datasets can only be filtered on
-            lastUpdated, and /stats/home ships no equivalent field.
-            Rendering the updated figure twice under a second label
-            would be a made-up number, so the stat stays out until
-            Gemma REST exposes one. */}
-        {newThisWeek !== null ? (
-          <WeekStat count={newThisWeek} noun="added this week" to="/browser" />
+        {/* Plain text, no link: /datasets can't be filtered on a
+            creation date, so there is nothing to send a click to. The
+            window is whichever one the server found something in —
+            "added since 2025-08-21" today, narrowing to a week on its
+            own once loading resumes. */}
+        {added ? (
+          <WeekStat
+            count={added.count}
+            noun={`added since ${shortDate(added.since)}`}
+          />
         ) : null}
       </div>
       {/* Caption the example. Without it the dataset below reads as
@@ -486,6 +488,17 @@ function RecentActivityCard({
   );
 }
 
+/** "21 Aug 2025" — the window label on the added-datasets stat. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 /** Arrow control for stepping the recently-updated card. */
 function StepButton({
   label,
@@ -520,7 +533,10 @@ function WeekStat({
 }: {
   count: number | null;
   noun: string;
-  to: string;
+  /** Omitted when no filter can reproduce the figure — the stat then
+   *  renders as plain text rather than as a link that goes nowhere
+   *  useful. */
+  to?: string;
   search?: Record<string, string>;
 }) {
   const body = (
@@ -531,7 +547,8 @@ function WeekStat({
       <span className="text-[11px] text-stone-600">datasets {noun}</span>
     </>
   );
-  if (count === null) return <span className="inline-flex items-baseline">{body}</span>;
+  if (count === null || !to)
+    return <span className="inline-flex items-baseline">{body}</span>;
   return (
     <Link
       to={to}

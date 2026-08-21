@@ -70,6 +70,19 @@ interface TreatmentSubcategoryWire {
   subBuckets?: TreatmentSubcategoryWire[];
 }
 
+/** One trailing-window count of datasets created in Gemma. Several
+ *  windows ship at once because a fixed 7-day figure would read a
+ *  permanent zero: nothing has been created in the last 90 days, and
+ *  the most recent public dataset dates to 2026-05-12. ``since`` is
+ *  resolved server-side from the snapshot's ``generatedAt``, so the
+ *  figure can be labelled with it verbatim rather than recomputing a
+ *  date against a snapshot that may be a day old. */
+interface DatasetsAddedWindowWire {
+  days: number;
+  since: string;
+  count: number;
+}
+
 /** ``/stats/home`` v2 payload — the agents-side full landed wishlist. Mirrors
  *  ``HomeStats.java`` in the Gemma REST module. */
 interface HomeStatsWire {
@@ -145,6 +158,9 @@ interface HomeStatsWire {
     taxon: string | null;
     numberOfExpressionExperiments: number;
   }>;
+  /** Datasets created in Gemma over several trailing windows.
+   *  Undefined on snapshots that predate the field. */
+  datasetsAdded?: DatasetsAddedWindowWire[];
   recentExperiments: Array<{
     id: number;
     shortName: string;
@@ -308,9 +324,17 @@ export interface GemmaSummary {
   /** The ``YYYY-MM-DD`` that ``updatedThisWeek`` counts from — hand it
    *  to the browser page so the linked list is the same set. */
   updatedSince: string;
-  /** Datasets made public inside the same window. Always null today;
-   *  see the resolution site for why. */
-  newThisWeek: number | null;
+  /** Datasets **added to Gemma** — the shortest trailing window whose
+   *  count isn't zero, or null when every window is zero or the field
+   *  hasn't shipped.
+   *
+   *  Deliberately not "made public": Gemma records no publication
+   *  date. ``MakePublicEvent`` / ``DatasetPublishedEvent`` exist as
+   *  types but have never fired (0 occurrences across ~5,000 sampled
+   *  audit events), so creation — the ``action='C'`` audit row, which
+   *  every dataset has — is the only signal there is, and "added" is
+   *  the strongest claim it supports. */
+  added: { count: number; since: string; days: number } | null;
   isLoading: boolean;
   isError: boolean;
 }
@@ -551,6 +575,18 @@ export function useGemmaSummary(): GemmaSummary {
   }
 
 
+  // Shortest window that actually has something in it. Rendering a
+  // fixed 7-day figure would show a permanent 0 today; this narrows on
+  // its own to "N added this week" once loading resumes, with no UI
+  // change.
+  const added = (() => {
+    const windows = (wire?.datasetsAdded ?? [])
+      .filter((w) => w.count > 0)
+      .sort((a, b) => a.days - b.days);
+    const w = windows[0];
+    return w ? { count: w.count, since: w.since, days: w.days } : null;
+  })();
+
   // isLoading collapses to true while every relevant query is
   // still pending. Each tile's local "loading" gate keys off
   // its own value being null, so a partial-fill page renders.
@@ -617,13 +653,7 @@ export function useGemmaSummary(): GemmaSummary {
     snapshotAt: wire?.generatedAt ?? null,
     updatedThisWeek: updatedThisWeekQ.data ?? null,
     updatedSince: UPDATED_SINCE,
-    // No corpus-wide "made public since <date>" count exists: the
-    // /datasets filter has no creation or publication date property
-    // (only lastUpdated), and /stats/home carries no equivalent
-    // field. Stays null until Gemma REST ships one — the tile hides
-    // itself rather than showing lastUpdated a second time under a
-    // label that would claim something different.
-    newThisWeek: null,
+    added,
     isLoading,
     isError: false,
   };
