@@ -43,6 +43,7 @@ export const PREDICATES: readonly PredicateDef[] = [
   { label: "negative for product of gene", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00170", description: "Marker-negative cell type/line." },
   { label: "sampled after", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00202", description: "Timepoint sampled after a treatment / disease event." },
   { label: "toward", uri: "http://purl.obolibrary.org/obo/RO_0002503", description: "Direction of a phenotype response. E.g. response to + toward + treatment." },
+  { label: "targeted towards", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00215", description: "A cell-type/tissue-TARGETED perturbation (conditional/Cre-lox KO, cell-type-specific knockdown, tissue-specific overexpression) is restricted to / directed at a specific cell type or tissue. SUBJECT = the perturbed gene; OBJECT = the grounded CL (cell type) or UBERON (tissue) target, e.g. S1pr1 + targeted towards + astrocyte [CL_0000127]. The target is INDEPENDENT of the experiment's profiled cell type. Minted as TGEMO_00215 on 2026-08-21 (Paul: 'Mint in TGEMO') after 18 experiments had proposed it with a null URI and 8 reached applyAction, where applying one produced a design that could not be committed. Nothing in RO fits: RO_0002503 'towards' relates a relational quality to what it is a quality toward, and RO_0001025 'located in' would assert the gene's own anatomical location rather than where the alteration acts; TGEMO_00183 'delivered to' presupposes an administration event a germline conditional allele does not have." },
 ] as const;
 
 export const KNOWN_PREDICATE_URIS: ReadonlySet<string> = new Set(
@@ -67,4 +68,7 @@ export const GENOTYPE_OBJECT_TERMS: readonly GenotypeObjectTerm[] = [
   { label: "Homozygous negative", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00001" },
   { label: "Overexpression", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00004" },
   { label: "Single-copy overexpression", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00005" },
+  { label: "heterozygous", uri: "http://purl.obolibrary.org/obo/GENO_0000135" },
+  { label: "homozygous", uri: "http://purl.obolibrary.org/obo/GENO_0000136" },
+  { label: "unspecified zygosity", uri: "http://purl.obolibrary.org/obo/GENO_0000137" },
 ] as const;

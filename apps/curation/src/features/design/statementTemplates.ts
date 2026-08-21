@@ -68,9 +68,14 @@ const HAS_DEV_STAGE = predicate("has developmental stage");
 // Allele-STATE genotype objects (Homozygous negative, Overexpression,
 // Constitutive active mutation, ...) are GENERATED from the agents SoT
 // (design_constants.GENOTYPE_OBJECT_VOCAB) — looked up via `genoObj`
-// below, so the picker can't drift from what the agent grounds. Bare
-// `Heterozygous` is intentionally NOT offered: the object needs allele
-// identity (`mHTT/+`) or an allele-state term (STATEMENT_GRAMMAR §5).
+// below, so the picker can't drift from what the agent grounds.
+// 🛑 The SoT MOVED and no template has caught up: `05_genotype_efc.md`
+// now sanctions bare zygosity when it is GROUNDED — `heterozygous`
+// GENO_0000135 for a single-allele KO and for `+/mut` — and the sync
+// carries those terms into GENOTYPE_OBJECT_TERMS. Nothing offers them
+// yet (see the retired `genotype-het` note below); the retirement was
+// argued against an UNGROUNDED bare `Heterozygous`, which is a
+// different object. Pending a call on whether to restore the template.
 // Every OBO term takes the `/obo/` path — including OBI. An `/obi/`
 // variant was hand-built here once and resolves to nothing in Gemma,
 // which hard-rejects an ungrounded URI on commit, so the prefix is no
@@ -151,9 +156,16 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         object: genoObj("Homozygous negative"),
       }),
   },
-  // NOTE: bare `genotype-het` (gene + has_genotype + Heterozygous) is
-  // RETIRED — zygosity without allele identity is under-specified. Use
-  // `genotype-mut-freetext` with allele notation (`mHTT/+`) instead.
+  // NOTE: bare `genotype-het` (gene + has_genotype + Heterozygous) was
+  // RETIRED as under-specified — but that argument was about an
+  // UNGROUNDED zygosity word. `05_genotype_efc.md` §Mutations now
+  // sanctions `has_genotype + heterozygous (GENO_0000135)` for a
+  // single-allele KO and for `+/mut`, and the agents side stopped
+  // flagging the grounded form. Restoring a template here is a curation
+  // call, not a mechanical one: the same rule warns against reaching for
+  // a zygosity word when the paper doesn't pin the second allele, which
+  // is what the retirement was guarding. Until then use
+  // `genotype-mut-freetext` with allele notation (`mHTT/+`).
   {
     id: "genotype-oe",
     category: "genotype",

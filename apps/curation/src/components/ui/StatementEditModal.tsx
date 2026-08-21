@@ -24,8 +24,9 @@ import type { OntologyTerm } from "@/features/experiment/types";
  *                                (28 entries from EFO.factor.categories).
  *   - ``OntologyTermPicker``   — typeahead + agent-side ontology search
  *                                for subject + object.
- *   - predicate ``<select>``   — locked to ``PREDICATES`` (21 entries
- *                                from gemma-core ``Relation.terms.txt``).
+ *   - predicate ``<select>``   — locked to ``PREDICATES``, generated from
+ *                                the agents SoT ``data/predicates.json``
+ *                                (the count moves; don't restate it here).
  *
  * Wire shape (``AnnotationTagInput`` / ``AnnotationValueObject``)
  * — category + subject (== ``value``) + primary predicate/object pair
