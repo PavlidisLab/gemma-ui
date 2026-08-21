@@ -824,28 +824,29 @@ export async function resolveGeneNcbiId(
   if (!q) return null;
   if (/^\d+$/.test(q)) return Number(q);
 
-  // Without a taxon this takes whatever the search ranks first, which
-  // is not necessarily the species the caller meant: /genes/search?
-  // query=Myc ranks rat, then mouse, then human. Callers that know the
-  // species say so — but ``taxon`` can't just be passed alongside
-  // ``limit=1``, because Gemma REST applies the limit BEFORE the taxon
-  // filter. query=Myc&taxon=mouse&limit=1 truncates to the rat hit and
-  // then filters it out, returning an empty list; the same call at
-  // limit=3 returns mouse Myc. So ask for a page wide enough to
-  // survive that truncation and pick the match here.
-  const limit = taxon ? TAXON_RESOLVE_PAGE : 1;
-  const hits = await searchGenes(q, { taxon, limit, signal });
-  if (!taxon) return hits[0]?.ncbiId ?? null;
-  const exact = hits.find(
-    (g) => g.officialSymbol?.toLowerCase() === q.toLowerCase(),
-  );
-  return (exact ?? hits[0])?.ncbiId ?? null;
-}
+  // With a taxon, this is an exact symbol lookup and there's a
+  // deterministic endpoint for it — no ranking, no limit, no way for
+  // the answer to depend on how many rows were asked for.
+  //
+  // The ranked search is the wrong tool here and was actively unsafe:
+  // /genes/search?query=Myc ranks rat first, so a mouse link resolved
+  // to the rat gene, and adding taxon= didn't fix it because the limit
+  // was applied upstream of the taxon filter (limit=1 → empty,
+  // limit=3 → mouse). Both were fixed server-side; this avoids the
+  // class rather than the instance.
+  if (taxon) {
+    const r = await apiGet<PaginatedResponse<Gene>>(
+      `${BASE}/taxa/${encodeURIComponent(taxon)}/genes/${encodeURIComponent(q)}`,
+      { signal },
+    );
+    return r.data?.[0]?.ncbiId ?? null;
+  }
 
-/** How many hits to pull when a taxon is supplied — see the truncation
- *  note in resolveGeneNcbiId. 20 clears every case we've seen (the
- *  worst, "Myc", needs 3). */
-const TAXON_RESOLVE_PAGE = 20;
+  // No taxon: free text from the gene search box, where ranking is
+  // what the caller wants.
+  const hits = await searchGenes(q, { limit: 1, signal });
+  return hits[0]?.ncbiId ?? null;
+}
 
 /** Bulk symbol → gene lookup. ``/genes/{genes}`` takes a
  *  comma-separated list and resolves each entry as an NCBI id, an
