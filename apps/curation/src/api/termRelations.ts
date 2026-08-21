@@ -22,7 +22,54 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "./client";
+import { PREDICATES } from "@/generated/predicates";
 import { curieToUrl } from "@/lib/curie";
+
+/**
+ * The grouping key for a row's predicate — its URI's SANCTIONED LABEL
+ * when we can resolve one, its own label otherwise.
+ *
+ * 🛑 A predicate's label is vocabulary and moves; its URI is identity.
+ * Three sanctioned labels were corrected to their source ontologies'
+ * own on 2026-08-21 (`derived from cell line` → `derives from cell line
+ * cell` CLO_0037210, `toward` → `towards` RO_0002503, `is model of` →
+ * `has role in modeling` RO_0003301), and the stored rows were
+ * deliberately NOT migrated with them: `ANNOTATION_RELATION` is rebuilt
+ * by its producer and picks up the new spelling on re-harvest, while
+ * the `CHARACTERISTIC` rows need an UPDATE that is held while Gemma 1.0
+ * shares the production database. So one predicate arriving under two
+ * spellings is the PLANNED intermediate state, not an anomaly.
+ *
+ * Keyed on the raw label, that state splits one predicate into two
+ * groups — which shows a claim twice in the dedup, and silently stops
+ * the crowding guard firing, since each half then sits under the
+ * per-predicate ceiling.
+ *
+ * Resolving through the URI rather than keying on it directly is what
+ * keeps a row that carries no `predicate_uri` behaving exactly as
+ * before: it keys on its own label, as it always did.
+ *
+ * ⚠️ It resolves only the predicates the CURATION allow-list carries
+ * (23). Gemma sanctions 29, so a derived row can name one we don't —
+ * `has role in modeling` (RO_0003301) is the third relabel and is not
+ * ours. Those still key on the label and would still split. Left that
+ * way rather than widened: RO_0003301 has zero stored rows, and the
+ * allow-list is a curation decision, not a rendering one. If a Gemma-
+ * only predicate ever splits a card, the fix is a table of Gemma's 29,
+ * not a second spelling bolted on here.
+ */
+function predicateKey(
+  label: string | null | undefined,
+  uri: string | null | undefined,
+): string {
+  const u = (uri ?? "").trim();
+  if (u) {
+    const canonical = curieToUrl(u) ?? u;
+    const known = PREDICATES.find((p) => p.uri === canonical);
+    if (known) return known.label.trim().toLowerCase();
+  }
+  return (label ?? "").trim().toLowerCase();
+}
 
 /**
  * How a relation is known, strongest first.
@@ -238,7 +285,10 @@ export function mergeRelations(rows: readonly RelationRow[]): MergedRelation[] {
       : [
           r.basis,
           (r.implied_subject ?? r.subject ?? "").trim().toLowerCase(),
-          (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase(),
+          predicateKey(
+            r.implied_predicate ?? r.predicate,
+            r.implied_predicate_uri ?? r.predicate_uri,
+          ),
           (r.implied_object ?? r.object ?? "").trim().toLowerCase(),
         ].join("|");
 
@@ -466,7 +516,10 @@ export function topicRelations(
   const mine = stated.filter((r) => impliesFrom(r, activeUri));
   const groups = new Map<string, RelationRow[]>();
   for (const r of mine) {
-    const k = (r.implied_predicate ?? r.predicate ?? "").trim().toLowerCase();
+    const k = predicateKey(
+      r.implied_predicate ?? r.predicate,
+      r.implied_predicate_uri ?? r.predicate_uri,
+    );
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
   const out: RelationRow[] = [];

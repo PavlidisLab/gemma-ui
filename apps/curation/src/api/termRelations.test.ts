@@ -603,3 +603,59 @@ describe("the server's order is the order", () => {
     ]);
   });
 });
+
+/**
+ * One predicate arriving under two spellings.
+ *
+ * geb corrected three sanctioned predicate labels to their source
+ * ontologies' own on 2026-08-21 and deliberately did NOT migrate the
+ * stored rows with them — `ANNOTATION_RELATION` is rebuilt by its
+ * producer and picks up the new spelling on re-harvest, while the
+ * `CHARACTERISTIC` rows need an UPDATE held while Gemma 1.0 shares the
+ * production database. Mixed spellings for one URI are therefore the
+ * PLANNED intermediate state, and the grouping has to survive it.
+ */
+describe("a relabelled predicate is one predicate, not two", () => {
+  const LINE = "http://purl.obolibrary.org/obo/CLO_0037210";
+  const row = (predicate: string): RelationRow => ({
+    subject: "retinal cell",
+    subject_uri: "http://purl.obolibrary.org/obo/CL_0009004",
+    subject_category: "cell type",
+    predicate,
+    predicate_uri: LINE,
+    object: "H9 cell",
+    object_uri: "http://purl.obolibrary.org/obo/CLO_0003612",
+    basis: "CURATED",
+  });
+
+  it("merges the old and new spellings of one URI into a single claim", () => {
+    // `derived from cell line` is what the stored rows still say;
+    // `derives from cell line cell` is CLO's own label and what a
+    // re-harvested row carries. Same URI, same subject, same object —
+    // one claim, and keyed on the raw label it was two.
+    const merged = mergeRelations([
+      row("derived from cell line"),
+      row("derives from cell line cell"),
+    ]);
+    expect(merged).toHaveLength(1);
+  });
+
+  it("still separates two genuinely different predicates", () => {
+    const other = row("derives from cell");
+    other.predicate_uri = "http://purl.obolibrary.org/obo/CLO_0037209";
+    expect(
+      mergeRelations([row("derives from cell line cell"), other]),
+    ).toHaveLength(2);
+  });
+
+  it("leaves a row carrying no predicate URI keyed on its own label", () => {
+    // The fallback has to stay label-keyed: an unsanctioned or
+    // URI-less predicate is not something we can resolve, and quietly
+    // folding it into a neighbour would merge two different claims.
+    const bare = row("derived from cell line");
+    bare.predicate_uri = null;
+    const other = row("something else entirely");
+    other.predicate_uri = null;
+    expect(mergeRelations([bare, other])).toHaveLength(2);
+  });
+});
