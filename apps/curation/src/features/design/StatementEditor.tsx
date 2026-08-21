@@ -473,10 +473,29 @@ export function StatementGroupEditor({
             key={i}
             statement={s}
             sharedCategory={cat?.label || factorCategory?.label || null}
+            // 🛑 Past the ceiling. The editor's "+ pred/obj" cannot
+            // build a third pair, so any group that HAS one arrived
+            // from an agent proposal or an older snapshot — and until
+            // now it rendered identically to the two legal rows, so the
+            // curator being asked to "split the extras" could not see
+            // which row was the extra. Paul, 2026-08-20: *"if that
+            // happens, the ui has to warn. Gemma only supports 2."*
+            overLimit={i >= MAX_STATEMENT_PAIRS}
             onChange={(next) => onChange(i, next)}
             onDelete={() => onDelete(i)}
           />
         ))}
+        {statements.length > MAX_STATEMENT_PAIRS ? (
+          <div className="text-[10px] text-amber-800 dark:text-amber-200">
+            Gemma stores {MAX_STATEMENT_PAIRS} pairs per subject — the{" "}
+            {statements.length - MAX_STATEMENT_PAIRS === 1
+              ? "marked one has"
+              : `${statements.length - MAX_STATEMENT_PAIRS} marked ones have`}{" "}
+            nowhere to land and would be dropped on write. Move{" "}
+            {statements.length - MAX_STATEMENT_PAIRS === 1 ? "it" : "them"} to a
+            separate statement with “+ statement”.
+          </div>
+        ) : null}
         {/* Capped at ``MAX_STATEMENT_PAIRS``. Gemma holds two
             predicate/object slots per subject and no third, so a
             stacked pair beyond that has nowhere to land. Disabled
@@ -515,6 +534,7 @@ export function StatementGroupEditor({
 function InlinePredicateObjectPair({
   statement,
   sharedCategory,
+  overLimit = false,
   onChange,
   onDelete,
 }: {
@@ -522,11 +542,28 @@ function InlinePredicateObjectPair({
   /** Category shared at the group level — threaded so the object
    *  picker's "Search ontologies" affordance has a scope. */
   sharedCategory: string | null;
+  /** This pair sits past Gemma's two-slot ceiling and has nowhere to
+   *  land on write. Marked rather than hidden — it is real curation
+   *  that someone entered, and hiding it would lose it silently, which
+   *  is the failure this marker exists to make visible. */
+  overLimit?: boolean;
   onChange: (next: Statement) => void;
   onDelete: () => void;
 }) {
   return (
-    <span className="group inline-flex items-center gap-1">
+    <span
+      className={
+        "group inline-flex items-center gap-1" +
+        (overLimit
+          ? " rounded border border-dashed border-amber-500 bg-amber-50 px-1 dark:border-amber-500/70 dark:bg-amber-900/20"
+          : "")
+      }
+      title={
+        overLimit
+          ? "No slot for this in Gemma — it holds two predicate/object pairs per subject. Move it to its own statement or it is dropped on write."
+          : undefined
+      }
+    >
       <PredicateSelect statement={statement} size="sm" onChange={onChange} />
 
       {statement.predicate ? (

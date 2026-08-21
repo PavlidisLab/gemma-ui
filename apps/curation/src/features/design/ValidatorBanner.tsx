@@ -30,13 +30,6 @@ export function ValidatorBanner({
   // than "fix this." Empty for designs without per-factor agent
   // hints (curator-built factors, pre-baseline-relevance proposals).
   const softFactors = state.factors.filter((s) => s.baseline_uncertain);
-  // Advisory, so deliberately NOT routed through ``warningsFor`` —
-  // that list only renders on the ``!ok`` path, and an over-full
-  // statement group on an otherwise-clean design has to still be
-  // visible.
-  const overfullFactors = state.factors.filter(
-    (s) => s.overfull_statement_groups.length > 0,
-  );
   // More than one marked baseline. Legal — a dataset that is really two
   // experiments in one carries a reference per sub-experiment, and
   // Gemma's split clones the flag onto each — so this asks whether it
@@ -89,25 +82,7 @@ export function ValidatorBanner({
               titleFor={(s) => s.baseline_uncertain_reason}
             />
           ) : null}
-          {overfullFactors.length > 0 ? (
-            <FactorNotes
-              factors={overfullFactors}
-              design={design}
-              onSelectFactor={onSelectFactor}
-              heading="over Gemma's statement limit"
-              noteFor={overfullStatementNote}
-            />
-          ) : null}
-          {overfullFactors.length > 0 ? (
-          <FactorNotes
-            factors={overfullFactors}
-            design={design}
-            onSelectFactor={onSelectFactor}
-            heading="over Gemma's statement limit"
-            noteFor={overfullStatementNote}
-          />
-        ) : null}
-        {multiBaselineFactors.length > 0 ? (
+          {multiBaselineFactors.length > 0 ? (
             <FactorNotes
               factors={multiBaselineFactors}
               design={design}
@@ -408,31 +383,6 @@ function baselineUncertainNote(
   );
 }
 
-/** Subjects carrying more predicate/object pairs than Gemma's two
- *  slots hold. The editor no longer lets one be built, so these came
- *  in from an agent proposal or an older snapshot. */
-function overfullStatementNote(
-  s: DesignValidationState["factors"][number],
-): ReactNode {
-  const groups = s.overfull_statement_groups;
-  const listed = groups
-    .slice(0, 3)
-    .map((g) => `"${g.subject}" (${g.pairs})`)
-    .join(", ");
-  return (
-    <>
-      {groups.length === 1 ? "a subject carries" : `${groups.length} subjects carry`}{" "}
-      more than {MAX_STATEMENT_PAIRS} predicate/object pairs — {listed}
-      {groups.length > 3 ? ", …" : ""}
-      <span className="text-slate-500 italic">
-        {" "}
-        — Gemma holds two per subject; split the extras into their own
-        statements before this design is written back.
-      </span>
-    </>
-  );
-}
-
 /** Levels with no samples on them. Not a blocker — a value the curator
  *  added a moment ago and hasn't assigned yet is exactly this shape, and
  *  scolding them mid-build is the nag this channel exists to avoid. It
@@ -486,6 +436,15 @@ function warningsFor(s: DesignValidationState["factors"][number]): string[] {
       `baseline is marked "${label}", but Gemma's standard reference here ` +
         `is "${standard}" — an explicit mark overrides it, so check this ` +
         `is deliberate`,
+    );
+  }
+  // Names the subject and the count, because "split the extras" is
+  // unactionable without knowing which subject is over and by how much.
+  for (const g of s.overfull_statement_groups) {
+    warnings.push(
+      `"${g.subject}" carries ${g.pairs} predicate/object pairs — Gemma ` +
+        `holds ${MAX_STATEMENT_PAIRS}, so the extra would be dropped on ` +
+        `write. Split it into its own statement.`,
     );
   }
   if (s.unassigned_biomaterials.length > 0)

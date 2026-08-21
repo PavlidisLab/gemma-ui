@@ -221,6 +221,33 @@ export function DismissDialog({
     setPos({ top, left });
   }, [anchor]);
 
+  // 🛑 Correct the guess with the REAL height once it is on screen.
+  //
+  // ``DIALOG_H_ESTIMATE`` is 200px and this dialog is ~830px when the
+  // reason list is long — `tag` findings offer eleven chips plus a note
+  // box plus the button row. So the flip test above passed (200px fits
+  // below the anchor), the dialog opened downward, and its Confirm
+  // button sat below the fold with nothing to scroll: ``overflow-y-auto``
+  // cannot help a box whose own bottom edge is off the viewport. Paul,
+  // 2026-08-20: *"bad targeting of this popup, cant reach the ok
+  // button."*
+  //
+  // Measuring beats a bigger constant — the height depends on how many
+  // chips the issue code carries, and the next mode with a longer list
+  // would walk straight back into this.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !pos) return;
+    const vh = window.innerHeight;
+    const maxTop = vh - VIEWPORT_GUTTER - el.offsetHeight;
+    // Only ever moves UP, and only when it has to, so this settles in
+    // one pass rather than oscillating with the effect that set `pos`.
+    if (pos.top > maxTop) {
+      const top = Math.max(VIEWPORT_GUTTER, maxTop);
+      if (top !== pos.top) setPos({ top, left: pos.left });
+    }
+  }, [pos]);
+
   // Dialog is sticky — clicks outside, viewport resize, and scrolling
   // do NOT dismiss. Curators routinely open the disposition dialog,
   // then scroll around the experiment page to check samples / read the
@@ -275,7 +302,15 @@ export function DismissDialog({
     <div
       ref={ref}
       className="fixed z-50 bg-white border border-slate-300 rounded shadow-xl p-2.5 text-xs overflow-y-auto dark:bg-slate-900 dark:border-slate-700"
-      style={{ top: pos.top, left: pos.left, width: DIALOG_W, maxHeight: "90vh" }}
+      // `calc(100vh - 2 * gutter)` rather than a flat 90vh: on a short
+      // window 90vh still overhangs once the top gutter is added, and
+      // this is the cap the clamp above measures against.
+      style={{
+        top: pos.top,
+        left: pos.left,
+        width: DIALOG_W,
+        maxHeight: `calc(100vh - ${VIEWPORT_GUTTER * 2}px)`,
+      }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >

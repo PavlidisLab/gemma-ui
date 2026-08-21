@@ -1057,6 +1057,16 @@ export function validateDesign(design: Design): DesignValidationState {
         s.duplicate_assignments.length === 0 &&
         s.unknown_predicates === 0 &&
         s.statements_missing_category === 0 &&
+        // 🛑 Over Gemma's two-slot ceiling is a WARNING, not an
+        // advisory. Paul, 2026-08-20: *"if that happens, the ui has to
+        // warn. Gemma only supports 2."* It used to route to the quiet
+        // notes channel, which put "a subject carries more than 2
+        // predicate/object pairs" inside a green **✓ design valid**
+        // box — the header flatly contradicting the line beneath it,
+        // over a design that loses a clause the moment it is written
+        // back. `AnnotationValueObject` has `predicate`/`object` and
+        // `secondPredicate`/`secondObject`, and no third.
+        s.overfull_statement_groups.length === 0 &&
         // ``deprecated_baseline_fvs`` deliberately absent: a non-canonical
         // baseline label is a wording preference, not a broken design.
         // It used to fail here on the premise that Gemma wouldn't
