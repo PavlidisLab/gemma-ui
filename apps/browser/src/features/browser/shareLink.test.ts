@@ -141,3 +141,27 @@ describe("isEmptySettings", () => {
     expect(isEmptySettings(settings({ currentQuery: "half-typed" }))).toBe(true);
   });
 });
+
+describe("the platform page's 'open in browser' link", () => {
+  // The link on /platforms/$shortName encodes its platform through
+  // this pair. It used to pass `?platforms=GPL96`, which nothing read
+  // — `useUrlInitial` knows `s` and not `platforms` — so the Browser
+  // opened unfiltered. Pinned here because the call site casts its
+  // search object to `never` to satisfy the router, which is exactly
+  // the cast that hid the original bug from the compiler.
+  it("round-trips a platform id through the encoded settings param", () => {
+    const encoded = encodeSearchSettings(
+      settings({ platforms: [{ id: 1 }] as SearchSettings["platforms"] }),
+    );
+    expect(decodeSearchSettings(encoded)).toEqual({ platforms: [{ id: 1 }] });
+  });
+
+  it("carries nothing else, so the Browser opens on that platform alone", () => {
+    const decoded = decodeSearchSettings(
+      encodeSearchSettings(
+        settings({ platforms: [{ id: 226 }] as SearchSettings["platforms"] }),
+      ),
+    );
+    expect(Object.keys(decoded ?? {})).toEqual(["platforms"]);
+  });
+});

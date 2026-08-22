@@ -23,14 +23,23 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
+  getAllPlatforms,
   getDatasetsByPlatform,
   getElementGenes,
   getPlatformAnnotations,
   getPlatformByShortName,
+  getPlatformElementCount,
   getPlatformElements,
 } from "@/api/endpoints";
 import type { MappedGene } from "@/api/endpoints";
-import type { AnnotationTerm, Dataset, Platform } from "@/lib/types";
+import { encodeSearchSettings } from "@/features/browser/shareLink";
+import {
+  emptySearchSettings,
+  type AnnotationTerm,
+  type Dataset,
+  type Platform,
+  type SearchSettings,
+} from "@/lib/types";
 import { manufacturerOf } from "./manufacturer";
 import { PageMask } from "@gemma/ui";
 
@@ -101,6 +110,31 @@ function Breadcrumbs({ name }: { name: string }) {
 function Hero({ platform: p }: { platform: Platform }) {
   const tech = p.technologyType ?? "—";
   const taxon = p.taxon?.commonName ?? p.taxon?.scientificName ?? "—";
+
+  // Element count. Not on the platform entity — it's the
+  // ``totalElements`` of a one-row elements page, which is why it
+  // arrives separately and can still be loading when the rest is drawn.
+  const elementsQ = useQuery({
+    queryKey: ["platform", p.id, "element-count"],
+    queryFn: ({ signal }) => getPlatformElementCount(p.id, signal),
+    staleTime: 60 * 60 * 1000,
+  });
+
+  // What this platform was merged FROM. `mergedInto` is filterable even
+  // though it isn't returned on the value object, so a merge target can
+  // name its mergees in one query. The other direction — what a mergee
+  // was merged INTO — has no equivalent (`mergees.id` is not a
+  // filterable property and `mergedInto` is not serialized), so that
+  // half is a chip without a name until the API carries the field.
+  const mergeesQ = useQuery({
+    queryKey: ["platform", p.id, "mergees"],
+    queryFn: ({ signal }) =>
+      getAllPlatforms({ filter: [[`mergedInto.id = ${p.id}`]] }, signal),
+    enabled: p.isMerged === true,
+    staleTime: 60 * 60 * 1000,
+  });
+  const mergees = mergeesQ.data?.data ?? [];
+
   return (
     <header className="bg-white border border-gemma-grid rounded-md p-5">
       {/* shortName + manufacturer + status flags */}
@@ -128,7 +162,10 @@ function Hero({ platform: p }: { platform: Platform }) {
           </span>
         ) : null}
         {p.isMergee ? (
-          <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 text-slate-700">
+          <span
+            title="This platform's elements were folded into a combined platform, which is what its datasets are analyzed on."
+            className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 text-slate-700"
+          >
             mergee (subsumed)
           </span>
         ) : null}
@@ -138,9 +175,46 @@ function Hero({ platform: p }: { platform: Platform }) {
         {p.name ?? "Untitled platform"}
       </h1>
 
+      {/* Merge relationship. Named in the direction the API can answer;
+          silent in the other rather than guessing at a target. */}
+      {p.isMerged && mergees.length > 0 ? (
+        <p className="text-xs text-gemma-subtle mt-2">
+          Combines{" "}
+          {mergees.map((m, i) => (
+            <span key={m.id}>
+              {i > 0 ? ", " : ""}
+              <Link
+                to="/platforms/$shortName"
+                params={{ shortName: m.shortName ?? String(m.id) }}
+                className="text-gemma-accent hover:underline"
+              >
+                {m.shortName ?? `#${m.id}`}
+              </Link>
+            </span>
+          ))}
+          .
+        </p>
+      ) : p.isMergee ? (
+        <p className="text-xs text-gemma-subtle mt-2">
+          Merged into a combined platform. Datasets run on this array are
+          analyzed on that one.
+        </p>
+      ) : null}
+
       {/* Quick stats row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
         <Stat label="Experiments" value={(p.numberOfExpressionExperiments ?? 0).toLocaleString()} />
+        <Stat
+          label="Elements"
+          value={
+            elementsQ.data !== undefined
+              ? elementsQ.data.toLocaleString()
+              : elementsQ.isError
+                ? "—"
+                : "…"
+          }
+          hint="probes / design elements on this platform"
+        />
         <Stat
           label="Switched out"
           value={(p.numberOfSwitchedExpressionExperiments ?? 0).toLocaleString()}
@@ -641,7 +715,25 @@ function DatasetsSection({ platform: p }: { platform: Platform }) {
         </span>
         <Link
           to="/browser"
-          search={{ platforms: shortName } as never}
+          // `?s=` — the same encoded-settings param a shared link uses,
+          // and the only channel the Browser reads a platform from
+          // (`useUrlInitial` knows sort, updatedSince, categoryUri,
+          // annotationUri, taxon and s — nothing named `platforms`).
+          // This used to pass `{ platforms: shortName }`, which landed
+          // as `?platforms=GPL96`, was read by nobody, and opened the
+          // Browser unfiltered. The `as never` on the old call is why
+          // the compiler never said so.
+          //
+          // Ids only, matching `decodeSearchSettings` — the platform
+          // selector matches on id and supplies its own label.
+          search={
+            {
+              s: encodeSearchSettings({
+                ...emptySearchSettings(),
+                platforms: [{ id: p.id }] as SearchSettings["platforms"],
+              }),
+            } as never
+          }
           className="ml-auto text-[11px] text-gemma-accent hover:underline"
         >
           open in browser →
