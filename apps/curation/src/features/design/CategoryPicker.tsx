@@ -260,12 +260,19 @@ export function CategoryPicker({
           isUnknown && "outline outline-1 outline-amber-300",
           className,
         )}
+        // Same shape as the term picker's read face — what it is,
+        // then the action ending in the field's name — so category,
+        // value and object all hover alike.
         title={
           isUnknown
-            ? "not in the canonical category list — double-click to edit"
+            ? `${label} — not in the canonical category list\ndouble-click to edit category`
             : hasUri
-              ? `${label} — ${value!.uri} (double-click to edit)`
-              : "double-click to edit"
+              ? `${label} · ${shortenUri(
+                  value!.uri!,
+                )}\ndouble-click to edit category`
+              : label
+                ? `${label} — free text, no URI\ndouble-click to edit category`
+                : "double-click to edit category"
         }
       >
         {label || placeholder || "(category)"}

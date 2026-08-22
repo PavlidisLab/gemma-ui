@@ -201,8 +201,12 @@ function PredicateSelect({
             ? `“${label}” is a preset predicate but arrived without its URI, so it can't be written back. Pick “${matchesPreset.label}” from this list to ground it.`
             : `“${label}” is not one of Gemma's preset predicates, so it can't be written back — pick a preset, or “none” to drop it and its object.`
           : statement.predicate
-            ? `${statement.predicate.label} — pick “none” to remove this predicate and its object`
-            : "Link this subject to an object. The subject on its own is a complete statement; a predicate is optional."
+            ? `${statement.predicate.label}${
+                statement.predicate.uri
+                  ? ` · ${shortenUri(statement.predicate.uri)}`
+                  : ""
+              }\nclick to change predicate — “none” removes it and its object`
+            : "click to set predicate — it links the value to an object. The value on its own is a complete statement; a predicate is optional."
       }
       onChange={(e) => {
         // Re-picking the row's own ungrounded value changes nothing.
@@ -307,8 +311,8 @@ export function StatementEditor({
         }
         title={
           catDiffers
-            ? `Statement category — the factor's is “${factorCategory?.label ?? "?"}”. Composing under a different category is a normal shape, not a defect.`
-            : "statement category"
+            ? `${cat?.label ?? "?"} — the statement's own category. The factor's is “${factorCategory?.label ?? "?"}”; composing under a different one is a normal shape, not a defect.`
+            : "the statement's own category"
         }
       >
         <CategoryPicker
@@ -333,7 +337,10 @@ export function StatementEditor({
       />
       {statement.subject.uri ? (
         <span className="text-[10px]">
-          <CurieLink uri={statement.subject.uri} />
+          <CurieLink
+            uri={statement.subject.uri}
+            title={`${statement.subject.uri}\nclick to inspect value URI`}
+          />
         </span>
       ) : null}
 
@@ -369,7 +376,10 @@ export function StatementEditor({
           />
           {statement.object?.uri ? (
             <span className="text-[10px]">
-              <CurieLink uri={statement.object.uri} />
+              <CurieLink
+                uri={statement.object.uri}
+                title={`${statement.object.uri}\nclick to inspect object URI`}
+              />
             </span>
           ) : null}
         </>
@@ -528,8 +538,8 @@ export function StatementGroupEditor({
         }
         title={
           catDiffers
-            ? `Statement category — applies to every predicate/object pair under this subject. The factor's is “${factorCategory?.label ?? "?"}”; composing under a different category is a normal shape, not a defect.`
-            : "statement category — applies to every predicate/object pair under this subject"
+            ? `${cat?.label ?? "?"} — the statement's own category, applying to every predicate/object pair under this value. The factor's is “${factorCategory?.label ?? "?"}”; composing under a different one is a normal shape, not a defect.`
+            : "the statement's own category — applies to every predicate/object pair under this value"
         }
       >
         <CategoryPicker
@@ -550,7 +560,10 @@ export function StatementGroupEditor({
         />
         {head.subject.uri ? (
           <span className="text-[10px]">
-            <CurieLink uri={head.subject.uri} />
+            <CurieLink
+              uri={head.subject.uri}
+              title={`${head.subject.uri}\nclick to inspect value URI`}
+            />
           </span>
         ) : null}
       </div>
@@ -666,7 +679,10 @@ function InlinePredicateObjectPair({
           />
           {statement.object?.uri ? (
             <span className="text-[10px]">
-              <CurieLink uri={statement.object.uri} />
+              <CurieLink
+                uri={statement.object.uri}
+                title={`${statement.object.uri}\nclick to inspect object URI`}
+              />
             </span>
           ) : null}
         </>

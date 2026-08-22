@@ -9,6 +9,7 @@ import { ApiError } from "@/api/client";
 import { Spinner } from "@/components/ui/Spinner";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
+import { shortenUri } from "@/lib/curie";
 import { CurieLink } from "@/components/ui/CurieLink";
 import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
 import { GeneLabel } from "@/components/ui/GeneLabel";
@@ -761,6 +762,18 @@ export function OntologyTermPicker({
   }
 
   const isEmpty = !label;
+  // Gemma's own name for the slot this picker fills. A Statement's
+  // subject IS its ``value`` on the wire (``value`` / ``valueUri`` on
+  // the Characteristic it extends), and its object is ``object`` /
+  // ``objectUri`` — so the hover text teaches the words the curator
+  // will meet in Gemma's tools and in the API, rather than a generic
+  // "term" (2026-08-21).
+  const fieldWord =
+    searchContext === "object"
+      ? "object"
+      : searchContext === "subject"
+        ? "value"
+        : "term";
   return (
     <span
       role={readOnly ? undefined : "button"}
@@ -807,12 +820,25 @@ export function OntologyTermPicker({
         isUnknown && "outline outline-1 outline-amber-300",
         className,
       )}
+      // What it is on the first line, what clicking does on the
+      // second — and the action phrase ENDS with the field's name, so
+      // the sentence the curator reads is "click to edit value". The
+      // name in front ("value: prime adult stage") read as a form
+      // field's caption and pushed the term itself out of first
+      // position (2026-08-21).
+      //
+      // CURIE, not the full IRI: the IRI made the tooltip three times
+      // wider than the row it explains and taught nothing the CURIE
+      // doesn't. The chip beside the term still carries the full IRI
+      // on its own hover for whoever needs to copy it.
       title={
         hasUri
-          ? `${label} — ${value!.uri} (click to edit; URI override inside the picker)`
+          ? `${label} · ${shortenUri(
+              value!.uri!,
+            )}\nclick to edit ${fieldWord} — URI override inside the picker`
           : label
-            ? `${label} — free text (click to edit)`
-            : `click to pick a term`
+            ? `${label} — free text, no URI\nclick to edit ${fieldWord}`
+            : `click to pick ${fieldWord}`
       }
     >
       {geneValue ? (

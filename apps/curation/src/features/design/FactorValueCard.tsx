@@ -14,6 +14,7 @@ import {
 } from "./statementTemplates";
 import { matchesOriginal } from "./originalValue";
 import { cn } from "@/lib/cn";
+import { shortenUri } from "@/lib/curie";
 import {
   factorRequiresBaseline,
   type FactorValue,
@@ -224,7 +225,7 @@ export function FactorValueCard({
       }
       title={
         compact && onExpand && !isRemoved
-          ? "double-click to expand and edit"
+          ? "double-click to expand and edit this factor value"
           : undefined
       }
     >
@@ -273,7 +274,11 @@ export function FactorValueCard({
                 ) : (
                   <InlineText
                     value={fv.free_text_label}
-                    placeholder={derivedName || "free-text label"}
+                    placeholder={derivedName || "name"}
+                    // Gemma calls this the factor value's name, so the
+                    // hover does too — the curator learns the word on
+                    // the field it belongs to (2026-08-21).
+                    field="name"
                     onCommit={onLabelChange}
                   />
                 )}
@@ -839,6 +844,22 @@ function ungroundedValue(
   };
 }
 
+/** Hover text for a compact-mode predicate — the term, then the name
+ *  of the field it fills, the way the editable surfaces put the field
+ *  name last. Shows the CURIE rather than the full IRI, matching the
+ *  term picker's read face, so every part of a statement hovers
+ *  alike. Returns undefined for a predicate with no label, so an
+ *  absent predicate has no tooltip at all. */
+function predicateTitle(
+  pred: { label?: string | null; uri?: string | null } | null | undefined,
+): string | undefined {
+  const label = (pred?.label ?? "").trim();
+  if (!label) return undefined;
+  return pred?.uri
+    ? `${label} · ${shortenUri(pred.uri)} — predicate`
+    : `${label} — predicate, free text, no URI`;
+}
+
 /** Read-only rendering of a Statement, used for tombstone tiles. */
 function ReadonlyStatement({
   statement,
@@ -926,6 +947,7 @@ function CompactStatementRow({
         <InlineText
           value={subj?.label || ""}
           placeholder="free-text value"
+          field="value"
           onCommit={onSubjectCommit}
           // The input inherits this too (InlineText puts `className` on
           // both faces), and these values are long — "nephrogenic
@@ -951,7 +973,7 @@ function CompactStatementRow({
           <span className="text-slate-400 dark:text-slate-500"> - </span>
           <span
             className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
-            title={pred?.uri || undefined}
+            title={predicateTitle(pred)}
           >
             {pred?.label}
           </span>
@@ -1021,7 +1043,7 @@ function CompactStatementGroup({
                 </span>
                 <span
                   className="text-[10px] text-slate-500 dark:text-slate-200 font-mono"
-                  title={pred?.uri || undefined}
+                  title={predicateTitle(pred)}
                 >
                   {pred?.label}
                 </span>

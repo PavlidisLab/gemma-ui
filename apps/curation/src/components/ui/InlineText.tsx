@@ -17,12 +17,19 @@ export function InlineText({
   onCommit,
   placeholder,
   className,
+  field,
   dirty,
 }: {
   value: string;
   onCommit: (next: string) => void;
   placeholder?: string;
   className?: string;
+  /** Names the field this cell edits, in the vocabulary Gemma itself
+   *  uses ("name", "value"), so the hover says "double-click to edit
+   *  name" instead of a bare "double-click to edit". A curator learns
+   *  the word here and meets it again on the wire and in Gemma's own
+   *  tools. Omit and the tooltip stays generic. */
+  field?: string;
   /** When true, the cell shows a subtle blue ring + dot to mark
    *  uncommitted-vs-saved drift. Display-only — the parent decides
    *  what "dirty" means (here: draft.characteristics differs from
@@ -98,9 +105,8 @@ export function InlineText({
       title={
         readOnly
           ? undefined
-          : dirty
-            ? "uncommitted edit · double-click to edit"
-            : "double-click to edit"
+          : (dirty ? "uncommitted edit · " : "") +
+            (field ? `double-click to edit ${field}` : "double-click to edit")
       }
     >
       {value || placeholder || "(empty)"}
