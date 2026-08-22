@@ -422,12 +422,39 @@ export async function getDatasetById(
 /**
  * Free-text search over the full ontology — used as a fallback when
  * the local AnnotationSelector tree is capped at 200 terms per
- * category and the user types something not in that window.
+ * category and the user types something not in that window. Results
+ * surface as "more matches"; the click-to-add path attaches the term
+ * to filters, after which counts update via the normal dataset query.
  *
- * The endpoint does not carry per-experiment counts in our corpus
- * (usageCount tends to be 0); we surface results as "more matches"
- * and the click-to-add path attaches the term to filters, after
- * which counts update via the normal dataset query.
+ * ``rank=composite`` reorders by token coverage with corpus usage as a
+ * secondary signal, rather than by the Lucene tf-idf default. Without
+ * it a term is buried under its own prefix matches: measured on gemma2
+ * 2026-08-22, ``aspirin`` returns ``aspirin-triggered resolvin …`` rows
+ * (usageCount 0) ahead of ``acetylsalicylic acid`` (usageCount 9),
+ * which lands 16th of 20. Under ``composite`` it is 2nd. Ranking
+ * matters more here than anywhere else: this list exists to add a term
+ * to a FILTER, and a term with no datasets behind it filters the
+ * result set to nothing.
+ *
+ * ``composite`` rather than ``rank=usage``, which this started as and
+ * which the curation picker dropped on 2026-08-13 — see the measured
+ * comment in ``apps/curation/src/api/annotations.ts``. Usage alone is
+ * closer to a partition (used terms first) than a ranking, and it does
+ * not even win the duplicate-label case it exists for: of the three
+ * terms labelled ``dorsal root ganglion``, both lucene and usage lead
+ * with the one used once, and only composite leads with the one used
+ * 236 times.
+ *
+ * Every strategy reorders the same candidate set, and ``limit``
+ * truncates AFTER reordering — so this changes which terms are visible
+ * at all, not just their order. Older servers ignore the parameter and
+ * fall back to Lucene ordering.
+ *
+ * The doc comment here once claimed the endpoint "does not carry
+ * per-experiment counts in our corpus (usageCount tends to be 0)",
+ * which was the stated reason no ranking parameter was ever sent. It
+ * does not hold — the counts are populated, and they are what pulls
+ * the useful term up.
  */
 export async function searchAnnotations(
   query: string,
@@ -436,7 +463,7 @@ export async function searchAnnotations(
 ): Promise<AnnotationSearchResult[]> {
   const r = await apiGet<{ data?: AnnotationSearchResult[] }>(
     `${BASE}/annotations/search`,
-    { params: { query, limit }, signal },
+    { params: { query, limit, rank: "composite" }, signal },
   );
   return r.data ?? [];
 }
