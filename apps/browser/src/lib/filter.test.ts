@@ -273,3 +273,44 @@ describe("generateFilter — malformed input can't corrupt the filter", () => {
       .not.toContain(" and  and ");
   });
 });
+
+describe("generateFilter — platforms and technology types", () => {
+  // The receiving end of the platform page's "open in browser" link.
+  // The link encodes `platforms: [{id}]`; these are the clauses that id
+  // has to turn into. Measured against gemma2 2026-08-22: the pair
+  // below returns 410 datasets for GPL96, and the technology-type pair
+  // returns 10,951 for microarray, against 23,547 unfiltered.
+  const settings = (patch: Partial<SearchSettings>): SearchSettings => ({
+    ...emptySearchSettings(),
+    ...patch,
+  });
+
+  it("ORs arrayDesignUsed against originalPlatform for a picked platform", () => {
+    const f = generateFilter(settings({ platforms: [{ id: 1 }] as SearchSettings["platforms"] }));
+    expect(f).toContainEqual([
+      "bioAssays.arrayDesignUsed.id in (1)",
+      "bioAssays.originalPlatform.id in (1)",
+    ]);
+  });
+
+  it("keeps a platform id that arrived without a label", () => {
+    // A shared link decodes to ids only. The clause must not depend on
+    // the name having been hydrated yet.
+    const f = generateFilter(settings({ platforms: [{ id: 42 }] as SearchSettings["platforms"] }));
+    expect(f.flat().join(" ")).toContain("42");
+  });
+
+  it("puts technology types in the same ORed clause as platforms", () => {
+    // One clause, not two ANDed ones — picking Microarray AND a
+    // specific array must widen, not narrow to their intersection.
+    const f = generateFilter(
+      settings({
+        platforms: [{ id: 1 }] as SearchSettings["platforms"],
+        technologyTypes: ["ONECOLOR", "TWOCOLOR"],
+      }),
+    );
+    const clause = f.find((c) => c.some((sc) => sc.includes("arrayDesignUsed.id")));
+    expect(clause).toBeDefined();
+    expect(clause!.some((sc) => sc.includes("technologyType in (ONECOLOR,TWOCOLOR)"))).toBe(true);
+  });
+});

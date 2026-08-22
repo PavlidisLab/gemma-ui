@@ -119,6 +119,33 @@ export function BrowserPage() {
     gid,
   });
 
+  // Fill in platforms that arrived as bare ids.
+  //
+  // A shared link and the platform page's "open in browser" both encode
+  // platforms as ids only — `decodeSearchSettings` returns `[{id: 1}]`
+  // and the selectors are supposed to match on id and supply the label.
+  // They match, but nothing supplied the label: the filter chip read
+  // "#1" and the side panel could not tell which technology group the
+  // platform belonged to, so it couldn't open it either. Swap in the
+  // full record once the facet list arrives.
+  //
+  // An id with no match is LEFT ALONE, not dropped — it is still a live
+  // filter clause, and silently discarding it would change the results
+  // the visitor was linked to.
+  useEffect(() => {
+    const list = platforms.data?.data;
+    if (!list?.length) return;
+    if (settings.platforms.length === 0) return;
+    if (settings.platforms.every((p) => p.shortName || p.name)) return;
+    const byId = new Map(list.map((p) => [p.id, p]));
+    const hydrated = settings.platforms.map((p) =>
+      p.shortName || p.name ? p : (byId.get(p.id) ?? p),
+    );
+    if (hydrated.some((p, i) => p !== settings.platforms[i])) {
+      dispatch({ type: "setPlatforms", value: hydrated });
+    }
+  }, [platforms.data, settings.platforms]);
+
   // Seed initial taxon once taxa are loaded
   useEffect(() => {
     if (seededTaxonRef.current) return;
