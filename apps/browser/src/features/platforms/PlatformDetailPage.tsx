@@ -191,9 +191,25 @@ function Hero({ platform: p }: { platform: Platform }) {
         </p>
       ) : null}
 
-      {/* Quick stats row */}
+      {/* Quick stats row. Type first, then the counts, largest scope to
+          smallest: experiments on the platform, elements on the array,
+          genes those elements reach. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-        <Stat label="Experiments" value={(p.numberOfExpressionExperiments ?? 0).toLocaleString()} />
+        {p.color ? <Stat label="Channels" value={p.color} /> : null}
+        <Stat
+          label="Experiments"
+          value={(p.numberOfExpressionExperiments ?? 0).toLocaleString()}
+          // Switched-out datasets are a footnote to the experiment
+          // count, not a measure of the platform — they were on it and
+          // moved off. Its own tile gave it equal weight to the counts
+          // that describe the array itself.
+          sub={
+            p.numberOfSwitchedExpressionExperiments
+              ? `${p.numberOfSwitchedExpressionExperiments.toLocaleString()} switched out`
+              : undefined
+          }
+          subHint="datasets switched off this platform to a newer or preferred one"
+        />
         <Stat
           label="Elements"
           value={
@@ -214,23 +230,23 @@ function Hero({ platform: p }: { platform: Platform }) {
           <Stat
             label="Genes"
             value={p.numberOfGenes.toLocaleString()}
-            hint={
-              (p.numberOfMappedElements != null
-                ? `${p.numberOfMappedElements.toLocaleString()} elements map to a gene. `
-                : "") +
-              (p.geneCountsLastUpdated
-                ? `Counted ${p.geneCountsLastUpdated}.`
-                : "Derived from the element list, current.")
+            // Same treatment as switched-out: mapped elements qualify
+            // the gene count rather than standing beside it. The gap
+            // between the two is what says whether the array is densely
+            // or sparsely annotated.
+            sub={
+              p.numberOfMappedElements != null
+                ? `from ${p.numberOfMappedElements.toLocaleString()} elements`
+                : undefined
+            }
+            subHint={
+              p.geneCountsLastUpdated
+                ? `Elements mapping to a gene. Counted ${p.geneCountsLastUpdated}.`
+                : "Elements mapping to a gene. Derived from the element list, so current."
             }
           />
         ) : null}
-        <Stat
-          label="Switched out"
-          value={(p.numberOfSwitchedExpressionExperiments ?? 0).toLocaleString()}
-          hint="datasets switched off this platform to a newer/preferred one"
-        />
-        {p.color ? <Stat label="Channels" value={p.color} /> : <div />}
-        {p.releaseVersion ? <Stat label="Version" value={p.releaseVersion} /> : <div />}
+        {p.releaseVersion ? <Stat label="Version" value={p.releaseVersion} /> : null}
       </div>
     </header>
   );
@@ -280,10 +296,15 @@ function Stat({
   label,
   value,
   hint,
+  sub,
+  subHint,
 }: {
   label: string;
   value: string;
   hint?: string;
+  /** A qualifier on the number above — a footnote, not a second stat. */
+  sub?: string;
+  subHint?: string;
 }) {
   return (
     <div title={hint} className="bg-gemma-bg border border-gemma-grid rounded px-3 py-2">
@@ -291,6 +312,11 @@ function Stat({
       <div className="text-lg font-semibold tabular-nums text-gemma-ink mt-0.5">
         {value}
       </div>
+      {sub ? (
+        <div className="text-[10px] text-gemma-subtle mt-0.5" title={subHint}>
+          {sub}
+        </div>
+      ) : null}
     </div>
   );
 }
