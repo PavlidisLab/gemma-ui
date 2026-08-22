@@ -18,6 +18,13 @@ export default {
     extend: {
       colors: {
         gemma: {
+          // Page background. The CSS var has always been there; the
+          // token was not, so every `bg-gemma-bg` in the app compiled
+          // to nothing — 19 of them, across page backgrounds, zebra
+          // rows, hover states and two sticky table headers. The
+          // Platforms header was the visible one: transparent, so the
+          // rows scrolled underneath and printed on top of it.
+          bg: "rgb(var(--skin-bg) / <alpha-value>)",
           ink: "rgb(var(--skin-ink) / <alpha-value>)",
           subtle: "rgb(var(--skin-subtle) / <alpha-value>)",
           grid: "rgb(var(--skin-grid) / <alpha-value>)",
