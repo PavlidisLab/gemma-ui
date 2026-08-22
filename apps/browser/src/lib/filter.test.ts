@@ -119,14 +119,78 @@ describe("generateFilter — a term is bound to its category", () => {
   });
 });
 
-describe("generateFilter — the branches that did not change", () => {
-  it("leaves negative annotations on none()", () => {
+describe("generateFilter — an excluded term is bound the same way", () => {
+  // Exclusion binds for the same reason inclusion does, and so that the
+  // two are exact complements. Measured against gemma2: 23,547 datasets
+  // total, any(...) 314, none(...) 23,233. Unbound, the exclusion
+  // removed 411 — strictly more than the include added.
+  it("wraps value and category in one none() quantifier", () => {
     const f = wire(
       settings({
         negativeAnnotations: [term(DISEASE, "disease", ALZHEIMER, "Alzheimer disease")],
       }),
     );
+    expect(f).toBe(
+      `none(allCharacteristics.valueUri in (${ALZHEIMER}) and allCharacteristics.categoryUri = ${DISEASE})`,
+    );
+  });
+
+  it("is the exact complement of the include for the same row", () => {
+    const t = term(DISEASE, "disease", ALZHEIMER, "Alzheimer disease");
+    const included = wire(settings({ annotations: [t] }));
+    const excluded = wire(settings({ negativeAnnotations: [t] }));
+    // Same predicate, opposite quantifier — nothing else may differ.
+    expect(excluded).toBe(`none(${included.slice("any(".length)}`);
+  });
+
+  it("ANDs the halves of one category rather than ORing them", () => {
+    // The give-away for a regression: `none(A) or none(B)` keeps a
+    // dataset that carries A as long as it lacks B. Both have to go.
+    const s = settings({
+      negativeAnnotations: [
+        term(DISEASE, "disease", ALZHEIMER, "Alzheimer disease"),
+        term(DISEASE, "disease", null, "some free text"),
+      ],
+    });
+    const clauses = generateFilter(s);
+    expect(clauses).toHaveLength(2);
+    expect(clauses.every((c) => c.length === 1)).toBe(true);
+    // " or " joins an inner array; every disjunction here would be wrong.
+    expect(wire(s)).not.toContain(" or ");
+  });
+
+  it("gives each excluded category its own quantifier", () => {
+    const clauses = generateFilter(
+      settings({
+        negativeAnnotations: [
+          term(DISEASE, "disease", ALZHEIMER, "Alzheimer disease"),
+          term(GENOTYPE, "genotype", TNF_GENE, "TNF [human]"),
+        ],
+      }),
+    );
+    expect(clauses).toHaveLength(2);
+    expect(clauses.flat().every((c) => c.startsWith("none("))).toBe(true);
+    const f = clauses.flat().join(" ");
+    expect(f).toContain(`categoryUri = ${DISEASE}`);
+    expect(f).toContain(`categoryUri = ${GENOTYPE}`);
+  });
+
+  it("still emits none() for an uncategorised excluded term", () => {
+    // Nothing to bind to, but the quantifier is what makes it negative.
+    const f = wire(
+      settings({ negativeAnnotations: [term(null, null, ALZHEIMER, "Alzheimer disease")] }),
+    );
     expect(f).toBe(`none(allCharacteristics.valueUri in (${ALZHEIMER}))`);
+  });
+});
+
+describe("generateFilter — the branches that did not change", () => {
+  it("keeps a whole-category exclude as a bare none() over the category", () => {
+    // `negativeCategories` means "no term in this category" — there is
+    // no value to bind, so the conjunction would say nothing.
+    expect(
+      wire(settings({ negativeCategories: [{ classUri: DISEASE, className: "disease" }] })),
+    ).toBe(`none(allCharacteristics.categoryUri in (${DISEASE}))`);
   });
 
   it("keeps a whole-category include as a bare category clause", () => {
@@ -140,6 +204,30 @@ describe("generateFilter — the branches that did not change", () => {
 
   it("emits nothing for empty settings", () => {
     expect(generateFilter(settings())).toEqual([]);
+  });
+});
+
+describe("generateFilter — values are quoted for the grammar", () => {
+  // FilterArg.g4: STRING admits anything but ( ) , " and space, so a
+  // term name carrying one of those has to be quoted, and a quote
+  // inside the quotes escapes as \" .
+  it("quotes a free-text term that carries a space", () => {
+    const f = wire(settings({ annotations: [term(null, null, null, "some free text")] }));
+    expect(f).toBe(`allCharacteristics.value in ("some free text")`);
+  });
+
+  it("escapes an embedded quote rather than dropping it", () => {
+    const f = wire(settings({ annotations: [term(null, null, null, 'a "quoted" term')] }));
+    expect(f).toBe(`allCharacteristics.value in ("a \\"quoted\\" term")`);
+  });
+
+  it("quotes excluded values too", () => {
+    // The negative branches used to join raw, so a comma or a space in
+    // a term name produced a clause that parsed as something else.
+    const f = wire(
+      settings({ negativeAnnotations: [term(null, null, null, "some free text")] }),
+    );
+    expect(f).toBe(`none(allCharacteristics.value in ("some free text"))`);
   });
 });
 

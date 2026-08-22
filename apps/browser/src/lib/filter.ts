@@ -1,8 +1,9 @@
 // Ported from src/lib/filter.js. Semantics match the Vue browser
-// EXCEPT for one deliberate divergence, documented at the annotation
-// branch below: a term is now bound to the category it was picked
-// from, which the Vue version could not express. Everything else
-// should still be kept in step.
+// EXCEPT for one deliberate divergence, documented at
+// `annotationClauses` below: a term is now bound to the category it was
+// picked from — in both directions, included and excluded — which the
+// Vue version could not express. Everything else should still be kept
+// in step.
 //
 // Returns a DNF-shaped filter: outer array = ANDed clauses, each
 // inner array = ORed sub-clauses. The API then joins them with
@@ -27,7 +28,12 @@ export function capitalizeFirstLetter(str: string): string {
 
 function quoteIfNecessary(s: string): string {
   if (s.match(/[(), "]/) || s.length === 0) {
-    return '"' + s.replaceAll('"', "\\") + '"';
+    // FilterArg.g4: `CHAR_IN_QUOTE: CHAR | [(), ] | '\\"'` — a quote
+    // inside a quoted string escapes as \" . This used to substitute a
+    // lone backslash for the quote, which still lexes (CHAR admits a
+    // bare backslash) and so corrupted the value silently rather than
+    // erroring.
+    return '"' + s.replaceAll('"', '\\"') + '"';
   }
   return s;
 }
@@ -77,77 +83,8 @@ export function generateFilter(s: SearchSettings): string[][] {
 
   // Annotations (per-category)
   if (s.annotations.length > 0) {
-    const groups = new Map<string, AnnotationTerm[]>();
-    for (const a of s.annotations) {
-      const k = getCategoryId(a) ?? "";
-      if (!groups.has(k)) groups.set(k, []);
-      groups.get(k)!.push(a);
-    }
-    for (const [categoryId, items] of groups) {
-      const categoryUri = items.find((t) => t.classUri !== null)?.classUri ?? null;
-      const categoryName = items.find((t) => t.classUri === null)?.className ?? null;
-
-      // The category is bound to the value INSIDE one characteristic,
-      // via the `any(...)` quantifier.
-      //
-      // This is the deliberate divergence from the Vue browser, which
-      // carried a FIXME here: it emitted the category and the value as
-      // two independent clauses because Gemma REST could not express
-      // the conjunction. Two clauses mean "has some characteristic
-      // categorised X AND has some characteristic valued Y" — which
-      // matches a dataset where those are DIFFERENT characteristics.
-      // Picking Disease › Alzheimer's also matched datasets annotated
-      // with Alzheimer's under some other category, as long as they
-      // carried any disease annotation at all.
-      //
-      // Gemma REST gained the quantifier on 2026-08-22, so the filter
-      // now says what the visitor meant. Counts drop slightly and are
-      // strictly more correct — Disease › Alzheimer's went 329 → 314
-      // when this landed. Measured on TNF as a perturbed gene, where
-      // the difference is starker: value-only 72, two loose clauses
-      // 51, quantified 39.
-      //
-      // `all(...)` over a conjunction is rejected by the server (400):
-      // negating "every element satisfies A and B" needs a disjunction
-      // the subquery can't hold. `any` and `none` are the usable ones,
-      // and the negative branches below already use `none`.
-      const catClause =
-        categoryUri !== null
-          ? `allCharacteristics.categoryUri = ${quoteIfNecessary(categoryId)}`
-          : categoryName !== null
-            ? `allCharacteristics.category = ${quoteIfNecessary(categoryId)}`
-            : null;
-      if (catClause === null) {
-        // Uncategorized terms have nothing to bind to; they still
-        // filter on value alone, as before.
-        console.warn("Selection of the 'Uncategorized' category is not supported.");
-      }
-
-      let termUris = items.filter((t) => t.termUri !== null).map((t) => t.termUri!) as string[];
-      let termNames = items.filter((t) => t.termUri === null).map((t) => t.termName!).filter(Boolean) as string[];
-
-      /** Bind one value clause to this group's category, when it has one. */
-      const bind = (valueClause: string) =>
-        catClause === null ? valueClause : `any(${valueClause} and ${catClause})`;
-
-      const f: string[] = [];
-      if (termUris.length > MAX_URIS_IN_CLAUSE) {
-        console.warn(`Too many annotations (${termUris.length}) under ${categoryId}; retaining first ${MAX_URIS_IN_CLAUSE}.`);
-        termUris = termUris.slice(0, MAX_URIS_IN_CLAUSE);
-      }
-      if (termUris.length > 0) {
-        f.push(bind(`allCharacteristics.valueUri in (${termUris.map(quoteIfNecessary).join(", ")})`));
-      }
-      if (termNames.length > MAX_URIS_IN_CLAUSE) {
-        console.warn(`Too many annotations (${termNames.length}) under ${categoryId}; retaining first ${MAX_URIS_IN_CLAUSE}.`);
-        termNames = termNames.slice(0, MAX_URIS_IN_CLAUSE);
-      }
-      if (termNames.length > 0) {
-        f.push(bind(`allCharacteristics.value in (${termNames.map(quoteIfNecessary).join(", ")})`));
-      }
-      // A group with a category but no terms would previously push an
-      // empty clause, which joins to "" and corrupts the filter string.
-      if (f.length > 0) filter.push(f);
+    for (const clause of annotationClauses(s.annotations, "any")) {
+      filter.push(clause);
     }
   }
 
@@ -166,19 +103,12 @@ export function generateFilter(s: SearchSettings): string[][] {
     if (nameString) filter.push([`none(allCharacteristics.category in (${nameString}))`]);
   }
 
-  // Negative annotations
+  // Negative annotations (per-category, same binding as the positive
+  // branch — see annotationClauses)
   if (s.negativeAnnotations.length > 0) {
-    let na = s.negativeAnnotations;
-    if (na.length > MAX_URIS_IN_CLAUSE) {
-      console.warn(`Too many negative annotations (${na.length}); retaining first ${MAX_URIS_IN_CLAUSE}.`);
-      na = na.slice(0, MAX_URIS_IN_CLAUSE);
+    for (const clause of annotationClauses(s.negativeAnnotations, "none")) {
+      filter.push(clause);
     }
-    const idA = na.filter((a) => a.termUri);
-    const nameA = na.filter((a) => a.termUri === null).filter((a) => a.termName);
-    const idString = idA.map((a) => a.termUri).join(",");
-    const nameString = nameA.map((a) => a.termName).join(",");
-    if (idString) filter.push([`none(allCharacteristics.valueUri in (${idString}))`]);
-    if (nameString) filter.push([`none(allCharacteristics.value in (${nameString}))`]);
   }
 
   // Safety: refuse to ship monster filters.
@@ -188,6 +118,114 @@ export function generateFilter(s: SearchSettings): string[][] {
     return [];
   }
   return filter;
+}
+
+/**
+ * Clauses for one set of annotation selections, grouped by the category
+ * each term was picked under, with the value bound to that category
+ * INSIDE one characteristic via a quantifier.
+ *
+ * `mode` is that quantifier: `any` for included terms, `none` for
+ * excluded ones. Both directions bind, which is the deliberate
+ * divergence from the Vue browser — it carried a FIXME here and emitted
+ * the category and the value as two independent clauses, because Gemma
+ * REST could not express the conjunction. Two clauses mean "has some
+ * characteristic categorised X AND has some characteristic valued Y",
+ * which matches a dataset where those are DIFFERENT characteristics:
+ * picking Disease › Alzheimer's also matched datasets annotated with
+ * Alzheimer's under some other category, as long as they carried any
+ * disease annotation at all.
+ *
+ * Gemma REST gained the quantifier on 2026-08-22. Counts drop slightly
+ * and are strictly more correct — Disease › Alzheimer's went 329 → 314.
+ * Measured on TNF as a perturbed gene, where the difference is starker:
+ * value-only 72, two loose clauses 51, quantified 39.
+ *
+ * `none` binds for the same reason and, in the negative direction, so
+ * that the two are exact complements: on gemma2, 23,547 datasets total,
+ * `any(...)` 314, `none(...)` 23,233. Unbound the exclusion removed 411
+ * — strictly more than the include added — so ticking and unticking the
+ * same side-panel row did not return you to where you started.
+ *
+ * `all(...)` is rejected by the server over a conjunction (400):
+ * "every element satisfies A and B" negates to a disjunction the
+ * subquery cannot hold. `any` and `none` are the usable ones.
+ *
+ * The two modes differ in how a group's URI-valued and free-text halves
+ * combine. Included terms OR — a dataset matching either belongs in the
+ * results. Excluded terms AND — both have to go, and `none(A) or
+ * none(B)` would keep a dataset that carries A as long as it lacks B.
+ * Hence `string[][]`: `any` returns one ORed clause per group, `none`
+ * returns each sub-clause in its own ANDed slot.
+ */
+function annotationClauses(
+  terms: AnnotationTerm[],
+  mode: "any" | "none",
+): string[][] {
+  const groups = new Map<string, AnnotationTerm[]>();
+  for (const a of terms) {
+    const k = getCategoryId(a) ?? "";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(a);
+  }
+
+  const noun = mode === "none" ? "excluded annotations" : "annotations";
+  const out: string[][] = [];
+
+  for (const [categoryId, items] of groups) {
+    const categoryUri = items.find((t) => t.classUri !== null)?.classUri ?? null;
+    const categoryName = items.find((t) => t.classUri === null)?.className ?? null;
+    const catClause =
+      categoryUri !== null
+        ? `allCharacteristics.categoryUri = ${quoteIfNecessary(categoryId)}`
+        : categoryName !== null
+          ? `allCharacteristics.category = ${quoteIfNecessary(categoryId)}`
+          : null;
+    if (catClause === null) {
+      // Uncategorized terms have nothing to bind to; they still filter
+      // on value alone. An exclusion still needs its `none(...)` — the
+      // quantifier is what makes it negative, the binding is separate.
+      console.warn("Selection of the 'Uncategorized' category is not supported.");
+    }
+
+    /** Bind one value clause to this group's category, when it has one. */
+    const bind = (valueClause: string) =>
+      catClause === null
+        ? mode === "none"
+          ? `none(${valueClause})`
+          : valueClause
+        : `${mode}(${valueClause} and ${catClause})`;
+
+    let termUris = items.filter((t) => t.termUri !== null).map((t) => t.termUri!) as string[];
+    let termNames = items.filter((t) => t.termUri === null).map((t) => t.termName!).filter(Boolean) as string[];
+
+    const f: string[] = [];
+    if (termUris.length > MAX_URIS_IN_CLAUSE) {
+      console.warn(`Too many ${noun} (${termUris.length}) under ${categoryId}; retaining first ${MAX_URIS_IN_CLAUSE}.`);
+      termUris = termUris.slice(0, MAX_URIS_IN_CLAUSE);
+    }
+    if (termUris.length > 0) {
+      f.push(bind(`allCharacteristics.valueUri in (${termUris.map(quoteIfNecessary).join(", ")})`));
+    }
+    if (termNames.length > MAX_URIS_IN_CLAUSE) {
+      console.warn(`Too many ${noun} (${termNames.length}) under ${categoryId}; retaining first ${MAX_URIS_IN_CLAUSE}.`);
+      termNames = termNames.slice(0, MAX_URIS_IN_CLAUSE);
+    }
+    if (termNames.length > 0) {
+      f.push(bind(`allCharacteristics.value in (${termNames.map(quoteIfNecessary).join(", ")})`));
+    }
+
+    // A group with a category but no usable terms would otherwise push
+    // an empty clause, which joins to "" and corrupts the filter string.
+    if (f.length === 0) continue;
+    if (mode === "none") {
+      for (const c of f) out.push([c]);
+    } else {
+      out.push(f);
+    }
+  }
+
+  return out;
 }
 
 export function generateFilterSummary(s: SearchSettings): string {
