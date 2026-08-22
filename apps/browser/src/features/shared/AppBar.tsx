@@ -26,7 +26,7 @@ export function AppBar() {
   );
 
   return (
-    <header className="flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
+    <header className="shrink-0 flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
       <Link
         to="/"
         className="flex shrink-0 items-center gap-2 font-semibold text-stone-900 hover:no-underline"
