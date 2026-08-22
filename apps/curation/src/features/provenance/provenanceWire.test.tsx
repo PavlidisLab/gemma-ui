@@ -379,3 +379,101 @@ describe("the design wire a publication's trace is built from", () => {
     expect(text).toContain("Checked against GEO");
   });
 });
+
+/** Verbatim wire bytes — GSE12623's `assay: bulk RNA-seq assay`,
+ *  captured from `POST /rest/v2/datasets/12623/provenance/lookup`
+ *  (:8095, 2026-08-22). Three `agent_proposed` events, of which the
+ *  first two are identical in every field including the microsecond.
+ *  The third is a genuinely separate proposal: earlier, its own run,
+ *  and the only one carrying the agent version. */
+const WIRE_GSE12623_DUPLICATE = {
+  byRefId: {
+    "tag:7": {
+      refId: "tag:7",
+      reviewState: "unreviewed",
+      events: [
+        {
+          kind: "agent_proposed",
+          at: "2026-08-22T10:58:57.908610+00:00",
+          actor: { kind: "agent", name: null, model: "claude-sonnet-5", headSha: null },
+          runId: null,
+          summary:
+            "All samples are bulk total RNA-seq on a single platform, so this assay tag is accurate.",
+          confidence: null,
+          confidenceBucket: null,
+          reason: null,
+          evidence: [],
+          before: null,
+          after: null,
+        },
+        {
+          kind: "agent_proposed",
+          at: "2026-08-22T10:58:57.908610+00:00",
+          actor: { kind: "agent", name: null, model: "claude-sonnet-5", headSha: null },
+          runId: null,
+          summary:
+            "All samples are bulk total RNA-seq on a single platform, so this assay tag is accurate.",
+          confidence: null,
+          confidenceBucket: null,
+          reason: null,
+          evidence: [],
+          before: null,
+          after: null,
+        },
+        {
+          kind: "agent_proposed",
+          at: "2026-08-22T08:22:24.118053+00:00",
+          actor: {
+            kind: "agent",
+            name: "v1.1-359-g4fdddb7-dirty",
+            model: "claude-sonnet-5",
+            headSha: "4fdddb7",
+          },
+          runId: "2026-08-22_test100b_smoke10",
+          summary:
+            "All samples are bulk total RNA-seq on a single platform, so this assay tag is accurate.",
+          confidence: null,
+          confidenceBucket: null,
+          reason: null,
+          evidence: [],
+          before: null,
+          after: null,
+        },
+      ],
+    },
+  },
+};
+
+describe("a trace the store sent twice", () => {
+  const trace = () =>
+    (snakeify(WIRE_GSE12623_DUPLICATE) as ProvenanceLookupResponse).by_ref_id[
+      "tag:7"
+    ];
+
+  it("collapses the identical pair and keeps the distinct proposal", () => {
+    const origin = originOf(trace())!;
+    // Oldest is the origin — the 08:22 run. What remains below it is
+    // ONE line, not the two the store sent.
+    expect(origin.event.run_id).toBe("2026-08-22_test100b_smoke10");
+    expect(origin.rest).toHaveLength(1);
+    expect(origin.rest[0].at).toBe("2026-08-22T10:58:57.908610+00:00");
+  });
+
+  it("does not print the same sentence twice", () => {
+    const { container } = render(
+      <ProvenanceTraceCard origin={originOf(trace())!} />,
+    );
+    const text = container.textContent ?? "";
+    const hits = text.split("proposed by an agent").length - 1;
+    expect(hits).toBe(1);
+  });
+
+  it("keeps two proposals that differ in any field", () => {
+    // The guard is identity, not similarity: same annotation, same
+    // agent, same second, different run is still two events.
+    const wire = JSON.parse(JSON.stringify(WIRE_GSE12623_DUPLICATE));
+    wire.byRefId["tag:7"].events[1].runId = "some-other-run";
+    const res = snakeify(wire) as ProvenanceLookupResponse;
+    expect(originOf(res.by_ref_id["tag:7"])!.rest).toHaveLength(2);
+  });
+});

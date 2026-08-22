@@ -65,6 +65,36 @@ export function ProvenanceDot({
   );
 }
 
+/**
+ * Collapse events that are identical in every field.
+ *
+ * The store emits the same record twice for some traces — measured on
+ * GSE12623's `assay: bulk RNA-seq assay`, two `agent_proposed` events
+ * sharing a timestamp to the microsecond (`10:58:57.908610`), the same
+ * null actor name and run id, and the same summary. The trace also
+ * holds a genuinely separate proposal from 08:22 with its own run, so
+ * this is one event written twice rather than an agent proposing twice.
+ *
+ * The card had no way to show that: it renders kind, actor and date, so
+ * two copies of one record read as the same sentence printed twice.
+ *
+ * 🛑 Identity only — same value in EVERY field. Two proposals from
+ * different runs, or the same run at different times, both survive.
+ * Collapsing anything looser would be deciding that two things the
+ * store distinguishes are the same thing, which is not ours to decide.
+ * Filed against the agents side; this stops the double line, not the
+ * double write.
+ */
+function dedupeEvents(events: ProvenanceEvent[]): ProvenanceEvent[] {
+  const seen = new Set<string>();
+  return events.filter((e) => {
+    const key = JSON.stringify(e);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Where the annotation came from: agent, human, or the import. */
 type OriginKind = "agent" | "curator" | "import" | "unknown";
 
@@ -88,8 +118,8 @@ interface Origin {
  * surface is not for.
  */
 export function originOf(trace: ProvenanceTrace): Origin | null {
-  const events = (trace.events ?? []).filter(
-    (e) => e.kind !== "curator_rejected",
+  const events = dedupeEvents(
+    (trace.events ?? []).filter((e) => e.kind !== "curator_rejected"),
   );
   if (events.length === 0) return null;
   // The server sends newest-first, so the origin is the last one.
