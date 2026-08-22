@@ -9,7 +9,13 @@ import { getMyself } from "@/api/endpoints";
 import { HelpHint } from "@/features/shared/HelpHint";
 import { fallbackTaxa } from "@/lib/gemmaConfig";
 import { emptySearchSettings } from "@/lib/types";
+import type { SearchSettings } from "@/lib/types";
 import { generateFilter, generateFilterDescription, generateFilterSummary } from "@/lib/filter";
+import {
+  decodeSearchSettings,
+  encodeSearchSettings,
+  isEmptySettings,
+} from "./shareLink";
 import { SHOW_GEEQ } from "@/lib/geeq";
 import { SidePanel } from "./SidePanel";
 import { ResultsTable } from "./ResultsTable";
@@ -46,6 +52,7 @@ export function BrowserPage() {
         categoryLabel: url.categoryLabel,
         annotationUri: url.annotationUri,
         annotationLabel: url.annotationLabel,
+        shared: url.shared ? decodeSearchSettings(url.shared) ?? undefined : undefined,
       }),
   );
 
@@ -129,6 +136,7 @@ export function BrowserPage() {
         categoryLabel: url.categoryLabel,
         annotationUri: url.annotationUri,
         annotationLabel: url.annotationLabel,
+        shared: url.shared ? decodeSearchSettings(url.shared) ?? undefined : undefined,
       });
       dispatch({ type: "load", value: seeded });
       seededTaxonRef.current = true;
@@ -244,6 +252,7 @@ export function BrowserPage() {
             </span>
           ) : null}
           <div className="flex-1" />
+          <CopyLinkButton settings={settings} sort={sort} />
           {expanded.size > 0 ? (
             <button onClick={() => setExpanded(new Set())} className="btn btn-ghost text-xs">
               Collapse all
@@ -319,6 +328,64 @@ export function BrowserPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * "Copy link" — writes a URL that reproduces the current search and
+ * filters.
+ *
+ * There isn't one to copy from the address bar: the Browser keeps
+ * SearchSettings out of the URL on purpose, so that typing doesn't
+ * navigate. This serialises the state on demand instead (see
+ * shareLink.ts) and hands back a link that seeds it on arrival.
+ *
+ * `sort` rides along as its own param because it lives in page state
+ * rather than in SearchSettings, and `?sort=` was already understood.
+ */
+function CopyLinkButton({
+  settings,
+  sort,
+}: {
+  settings: SearchSettings;
+  sort?: string;
+}) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  useEffect(() => {
+    if (state === "idle") return;
+    const t = window.setTimeout(() => setState("idle"), 1800);
+    return () => window.clearTimeout(t);
+  }, [state]);
+
+  async function copy() {
+    const params = new URLSearchParams();
+    if (!isEmptySettings(settings)) params.set("s", encodeSearchSettings(settings));
+    if (sort) params.set("sort", sort);
+    const qs = params.toString();
+    const url = `${window.location.origin}/browser${qs ? `?${qs}` : ""}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setState("copied");
+    } catch {
+      // Clipboard access can be refused (permissions, insecure origin).
+      // Say so rather than pretending it worked.
+      setState("failed");
+    }
+  }
+
+  return (
+    <button
+      onClick={copy}
+      className="btn btn-ghost text-xs"
+      title="Copy a link that reproduces this search and its filters"
+    >
+      {state === "copied"
+        ? "Link copied"
+        : state === "failed"
+          ? "Copy failed"
+          : "Copy link"}
+    </button>
   );
 }
 

@@ -63,10 +63,18 @@ export function makeInitialSettings(params: {
    *  the visitor clicked. */
   annotationUri?: string;
   annotationLabel?: string;
+  /** Decoded ``?s=`` payload — a whole shared search. Applied first so
+   *  the narrower params above still win if both are somehow present. */
+  shared?: Partial<SearchSettings>;
 }): SearchSettings {
-  const base = emptySearchSettings();
-  base.query = params.query;
-  base.currentQuery = params.query ?? "";
+  const base = { ...emptySearchSettings(), ...(params.shared ?? {}) };
+  // Only override the shared query when a route actually carries one:
+  // assigning unconditionally wiped the query out of every ``?s=``
+  // link, since /browser has no $query param to supply.
+  if (params.query !== undefined) {
+    base.query = params.query;
+    base.currentQuery = params.query;
+  }
 
   if (params.initialTaxon && params.taxa) {
     const lc = params.initialTaxon.toLowerCase();

@@ -36,6 +36,9 @@ export interface UrlInitial {
   annotationLabel?: string;
   /** Species hint for ``/gene/$id`` — see GeneRedirect. */
   taxon?: string;
+  /** Whole serialised search + filter state, from ``?s=`` — what the
+   *  Browser's "Copy link" button writes. See ``shareLink.ts``. */
+  shared?: string;
 }
 
 /** ``updatedSince`` goes straight into a Gemma filter clause, so only
@@ -72,5 +75,6 @@ export function useUrlInitial(): UrlInitial {
     annotationUri: HTTP_URI.test(annotationUri ?? "") ? annotationUri! : undefined,
     annotationLabel: qs?.get("annotationLabel") ?? undefined,
     taxon: qs?.get("taxon") ?? undefined,
+    shared: qs?.get("s") ?? undefined,
   };
 }
