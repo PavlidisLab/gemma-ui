@@ -201,7 +201,14 @@ export function AnnotationSelector(props: Props) {
       ghosts.push({
         classUri: c.classUri,
         className: c.className,
-        numberOfExpressionExperiments: 0,
+        // No count, rather than 0. A ghost is a category the facet
+        // query didn't return a number for — either it narrowed out,
+        // or it's one of `excludedCategories` and never appears there
+        // at all (the home page's factor-value chart links straight to
+        // several of those). Zero was a placeholder, but it renders as
+        // a figure, and "Phenotypes 0" next to 998 results reads as a
+        // broken filter rather than an unknown count.
+        numberOfExpressionExperiments: undefined,
         children: [],
       });
       known.add(cid);
@@ -582,7 +589,9 @@ export function AnnotationSelector(props: Props) {
                   ) : null}
                 </button>
                 <span className="text-gemma-subtle text-xs tabular-nums">
-                  {formatNumber(cat.numberOfExpressionExperiments ?? 0)}
+                  {typeof cat.numberOfExpressionExperiments === "number"
+                    ? formatNumber(cat.numberOfExpressionExperiments)
+                    : null}
                 </span>
               </div>
               {!isOpen && selectedHere.length > 0 ? (
