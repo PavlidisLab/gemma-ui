@@ -25,13 +25,14 @@ import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
   getAllPlatforms,
   getDatasetsByPlatform,
+  getElementAlignments,
   getElementGenes,
   getPlatformAnnotations,
   getPlatformByShortName,
   getPlatformElementCount,
   getPlatformElements,
 } from "@/api/endpoints";
-import type { MappedGene } from "@/api/endpoints";
+import type { MappedGene, PlatformElement } from "@/api/endpoints";
 import { encodeSearchSettings } from "@/features/browser/shareLink";
 import {
   emptySearchSettings,
@@ -386,13 +387,22 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
           {total !== null ? total.toLocaleString() : "…"}
           {debounced ? ` · "${debounced}"` : ""}
         </span>
+        {/* Disabled, not removed. The box sent `filter=name like '%q%'`
+            and the server ignored it: measured 2026-08-22, GPL96 with
+            and without the filter returns the same 22,283 total and the
+            same first rows. So typing narrowed nothing while the header
+            printed the query beside the full count, which reads as a
+            search that ran and matched everything. Asked for in the
+            platform-page handoff, together with gene-symbol search.
+            Re-enable by dropping `disabled` once the filter lands. */}
         <input
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="probe name…"
-          title="filters by probe name only — gene-symbol search needs a backend addition (see endpoints.ts TODO)"
-          className="ml-auto text-[11px] px-1.5 py-0.5 rounded border border-gemma-grid focus:outline-none focus:ring-1 focus:ring-gemma-accent/50 focus:border-gemma-accent w-36"
+          disabled
+          placeholder="probe search unavailable"
+          title="The REST API accepts a filter on this endpoint but does not apply it — a query returns the whole platform. Disabled until it does, rather than searching and silently matching everything."
+          className="ml-auto text-[11px] px-1.5 py-0.5 rounded border border-gemma-grid focus:outline-none focus:ring-1 focus:ring-gemma-accent/50 focus:border-gemma-accent w-44 disabled:bg-gemma-bg disabled:text-gemma-subtle disabled:cursor-not-allowed"
         />
       </header>
 
@@ -487,7 +497,7 @@ function ElementRow({
   element: el,
   platformId,
 }: {
-  element: { id: number; name: string; description?: string | null };
+  element: PlatformElement;
   platformId: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -522,8 +532,15 @@ function ElementRow({
           <td></td>
           <td colSpan={2} className="px-2 py-2 space-y-2">
             <GeneMappings genesQ={genesQ} />
-            <ProbeSequence elementName={el.name} />
-            <GenomeAlignment elementId={el.id} />
+            <ProbeSequence
+              sequence={el.sequence}
+              sequenceLength={el.sequenceLength}
+            />
+            <GenomeAlignment
+              platformId={platformId}
+              elementId={el.id}
+              enabled={open}
+            />
           </td>
         </tr>
       ) : null}
@@ -589,91 +606,136 @@ function GeneMappings({
   );
 }
 
-/** Probe oligonucleotide sequence — MOCK. Backend doesn't expose
- *  one today. Generates a deterministic 60-mer from the probe name
- *  so the same probe always shows the same sequence (no flashing
- *  on re-render) and so the curator can clearly tell it's not real
- *  data via the ``stub`` badge. */
-function ProbeSequence({ elementName }: { elementName: string }) {
-  const seq = mockSequence(elementName, 60);
+/** Probe oligonucleotide sequence — real, and free: it rides down with
+ *  the elements page (`withSequence`), so opening a row costs nothing.
+ *
+ *  This used to render a deterministic 60-mer generated from the probe
+ *  name under a `stub` badge, because REST carried no sequence. It does
+ *  now. Every base below is the platform's. */
+function ProbeSequence({
+  sequence,
+  sequenceLength,
+}: {
+  sequence?: string | null;
+  sequenceLength?: number | null;
+}) {
+  if (!sequence) {
+    return (
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-gemma-subtle mb-1">
+          Sequence
+        </div>
+        <div className="text-[11px] text-gemma-subtle italic">
+          none recorded for this element
+        </div>
+      </div>
+    );
+  }
+  // `sequenceLength` is the full length of the biological sequence; the
+  // string itself can be shorter. Say which number is which rather than
+  // printing one and implying the other.
+  const shown = sequence.length;
+  const full = sequenceLength ?? shown;
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wide text-gemma-subtle mb-1 flex items-baseline gap-1.5">
-        <span>Sequence · {seq.length}bp</span>
-        <StubBadge />
+      <div className="text-[10px] uppercase tracking-wide text-gemma-subtle mb-1">
+        Sequence · {full.toLocaleString()}bp
+        {shown < full ? ` · first ${shown.toLocaleString()} shown` : ""}
       </div>
       <code className="text-[10px] text-gemma-ink font-mono break-all leading-tight">
-        {seq}
+        {sequence}
       </code>
     </div>
   );
 }
 
-/** Genome alignment — MOCK. Backend doesn't expose alignments per
- *  element today. Generates a deterministic plausible coord set so
- *  the row layout is testable; clearly badged. */
-function GenomeAlignment({ elementId }: { elementId: number }) {
-  const a = mockAlignment(elementId);
+/** Genome alignment — the real BLAT summary, wired but dark.
+ *
+ *  This used to render deterministic fake coordinates ("chr3:5,429,183
+ *  -5,429,426 (−) score 98") under a `stub` badge. Fabricated genomic
+ *  coordinates are the one kind of stub worth deleting on sight: they
+ *  are indistinguishable from a real answer once screenshotted.
+ *
+ *  `mappingSummary` exists and is documented to carry these, but
+ *  returns none on any probe measured — see `getElementAlignments`. So
+ *  the panel says what it doesn't have and renders the moment the
+ *  server starts sending it. */
+function GenomeAlignment({
+  platformId,
+  elementId,
+  enabled,
+}: {
+  platformId: number;
+  elementId: number;
+  enabled: boolean;
+}) {
+  const q = useQuery({
+    queryKey: ["platform", platformId, "element", elementId, "alignments"],
+    queryFn: ({ signal }) => getElementAlignments(platformId, elementId, signal),
+    enabled,
+    staleTime: Infinity,
+  });
+  const rows = q.data ?? [];
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wide text-gemma-subtle mb-1 flex items-baseline gap-1.5">
-        <span>Genome alignment</span>
-        <StubBadge />
+      <div className="text-[10px] uppercase tracking-wide text-gemma-subtle mb-1">
+        Genome alignment
       </div>
-      <div className="text-[11px] text-gemma-ink font-mono">
-        {a.chr}:{a.start.toLocaleString()}-{a.end.toLocaleString()}{" "}
-        <span className="text-gemma-subtle">({a.strand})</span>
-        <span className="ml-2 text-[10px] text-gemma-subtle">
-          score {a.score} · {a.unique ? "unique" : "multi-mapping"}
-        </span>
-      </div>
+      {q.isLoading ? (
+        <div className="text-[11px] text-gemma-subtle italic">loading…</div>
+      ) : q.isError ? (
+        <div className="text-[11px] text-rose-700 italic">
+          couldn't load alignments
+        </div>
+      ) : rows.length === 0 ? (
+        <div
+          className="text-[11px] text-gemma-subtle italic"
+          title="The REST API documents geneMappingSummaries on this endpoint but returns none today; asked about in the platform-page handoff."
+        >
+          not published by the API
+        </div>
+      ) : (
+        <ul className="space-y-0.5">
+          {rows.map((r, i) => {
+            const b = r.blatResult ?? {};
+            const chr = b.targetChromosomeName;
+            const start = b.targetStart;
+            const end = b.targetEnd;
+            const identity = r.identity ?? b.identity;
+            const score = r.score ?? b.score;
+            return (
+              <li key={i} className="text-[11px] text-gemma-ink font-mono">
+                {chr && start != null && end != null ? (
+                  <>
+                    {chr}:{start.toLocaleString()}-{end.toLocaleString()}
+                    {b.strand ? (
+                      <span className="text-gemma-subtle"> ({b.strand})</span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="text-gemma-subtle italic">
+                    alignment without coordinates
+                  </span>
+                )}
+                {score != null || identity != null ? (
+                  <span className="ml-2 text-[10px] text-gemma-subtle">
+                    {score != null ? `score ${score}` : ""}
+                    {score != null && identity != null ? " · " : ""}
+                    {identity != null ? `identity ${identity}` : ""}
+                  </span>
+                ) : null}
+                {r.genes?.length ? (
+                  <span className="ml-2 text-[10px] text-gemma-subtle">
+                    → {r.genes.map((g) => g.officialSymbol ?? "?").join(", ")}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
-}
-
-function StubBadge() {
-  return (
-    <span
-      className="text-[8px] uppercase tracking-wide px-1 py-0 rounded bg-amber-100 border border-amber-300 text-amber-800"
-      title="mock data — backend doesn't expose this today (see endpoints.ts TODOs)"
-    >
-      stub
-    </span>
-  );
-}
-
-function mockSequence(seed: string, length: number): string {
-  const bases = "ACGT";
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  let out = "";
-  for (let i = 0; i < length; i++) {
-    h = (h * 1103515245 + 12345) >>> 0;
-    out += bases[h % 4];
-  }
-  return out;
-}
-
-function mockAlignment(elementId: number): {
-  chr: string;
-  start: number;
-  end: number;
-  strand: "+" | "-";
-  score: number;
-  unique: boolean;
-} {
-  const chroms = ["chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chrX"];
-  const h = (elementId * 2654435761) >>> 0;
-  const chr = chroms[h % chroms.length];
-  const start = 1_000_000 + (h % 200_000_000);
-  return {
-    chr,
-    start,
-    end: start + 60 + (h % 200),
-    strand: h % 2 === 0 ? "+" : "-",
-    score: 95 + (h % 6), // 95–100, plausible BLAT
-    unique: h % 5 !== 0,
-  };
 }
 
 /** Inline paginated datasets-on-this-platform table. Same shape as

@@ -237,6 +237,26 @@ export interface PlatformElement {
   id: number;
   name: string;
   description?: string | null;
+  /** Raw probe sequence, present only when the listing was asked for
+   *  it (`withSequence`). Null for elements that carry none — a gene
+   *  -list pseudoplatform has no oligos to report. */
+  sequence?: string | null;
+  sequenceLength?: number | null;
+}
+
+/** One BLAT alignment behind a probe, as `mappingSummary` reports it. */
+export interface GeneMappingSummary {
+  blatResult?: {
+    targetChromosomeName?: string | null;
+    targetStart?: number | null;
+    targetEnd?: number | null;
+    strand?: string | null;
+    identity?: number | null;
+    score?: number | null;
+  } | null;
+  identity?: number | null;
+  score?: number | null;
+  genes?: MappedGene[] | null;
 }
 
 export interface PlatformElementsArgs {
@@ -279,6 +299,11 @@ export async function getPlatformElements(
   const params: Params = {
     offset: args.offset ?? 0,
     limit: args.limit ?? 50,
+    // Sequences come down with the page rather than per expanded row.
+    // The server warns this inflates a full 22k-element response by
+    // ~1 MB, which is why it is opt-in — but a page is 50 rows, so it
+    // costs ~15 KB and saves a request every time a row opens.
+    withSequence: true,
   };
   if (args.query && args.query.trim()) {
     // Today: only matches probe names. Searching by gene symbol /
@@ -308,6 +333,34 @@ export interface MappedGene {
   aliases?: string[];
   taxon?: { commonName?: string; scientificName?: string };
   ncbiUri?: string;
+}
+
+/**
+ * BLAT alignments behind one probe — where it lands on the genome and
+ * which genes that supports.
+ *
+ * Addressed by element ID, not name: probe names routinely contain a
+ * slash (`AFFX-HUMISGF3A/M97935_MA_at`) and an encoded slash in a path
+ * segment 404s, so a name-addressed call fails for exactly the probes
+ * that are most interesting.
+ *
+ * ⚠️ Returns [] on every probe measured 2026-08-22 — the endpoint
+ * answers 200 but omits `geneMappingSummaries` entirely, including for
+ * probes that demonstrably map to a gene through the sibling `/genes`
+ * call (GPL96 `1007_s_at` → DDR1), and on a merge target as well as a
+ * mergee. Asked about in the platform-page handoff. Wired anyway: the
+ * moment the field is populated this lights up with no further change.
+ */
+export async function getElementAlignments(
+  platformId: number | string,
+  elementId: number,
+  signal?: AbortSignal,
+): Promise<GeneMappingSummary[]> {
+  const r = await apiGet<{ data?: { geneMappingSummaries?: GeneMappingSummary[] } }>(
+    `${BASE}/platforms/${platformId}/elements/${elementId}/mappingSummary`,
+    { signal },
+  );
+  return r.data?.geneMappingSummaries ?? [];
 }
 
 export async function getElementGenes(
