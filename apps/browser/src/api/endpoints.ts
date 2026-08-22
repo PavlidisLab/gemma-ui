@@ -295,42 +295,24 @@ export interface PlatformElementsArgs {
 }
 
 /**
- * The `filter` clause for a probe-name search, which is not the
- * `name like '%q%'` it looks like it should be. Two constraints in
- * Gemma's shared filter machinery, both measured on the deployed build
- * 2026-08-22:
+ * The `filter` clause for a probe-name search.
  *
- *  1. **`like` is prefix-only.** Supplied wildcards are escaped and a
- *     trailing `%` is appended, so `%1007%` searches for a literal
- *     percent sign and returns nothing.
- *  2. **A value containing `_` matches nothing.** `_` is a SQL
- *     single-character wildcard, gets escaped, and the escaped form
- *     finds no rows. This is vicious on Affymetrix platforms where
- *     nearly every probe carries one: searching the full, correct name
- *     `1007_s_at` returns zero, which reads as "no such probe".
+ * `like` is a PREFIX match, and it escapes any wildcard you supply — so
+ * `%1007%` searches for a literal percent sign and returns nothing
+ * (measured, still true on `e6d6d6a055`). Wildcards are stripped rather
+ * than passed through; there is no substring search to be had.
  *
- * So: strip wildcards, cut at the first underscore, and prefix-match
- * what's left. `1007_s_at` searches `1007` and finds itself, plus any
- * sibling with that prefix — a superset, never a confidently wrong
- * empty result. A query that is nothing but underscores has no prefix
- * to search, so it falls back to an exact match.
- *
- * `truncated` is for the UI to say so, rather than silently returning
- * more than was asked for.
+ * A value containing `_` used to match nothing at all, because the
+ * single-character SQL wildcard was escaped without an `escape` clause
+ * — which made every Affymetrix probe name unsearchable, since nearly
+ * all of them carry one. This function cut names back to their first
+ * segment to work around it. Fixed server-side in `e6d6d6a055`
+ * (2026-08-22) across every filtered endpoint, so the workaround is
+ * gone and a full name is searched as typed: `name like 1007_s_at`
+ * returns that probe.
  */
-export function elementNameFilter(query: string): {
-  filter: string;
-  prefix: string;
-  truncated: boolean;
-} {
-  const cleaned = query.trim().replace(/[%'"]/g, "");
-  const prefix = cleaned.split("_")[0];
-  if (!prefix) return { filter: `name = ${cleaned}`, prefix: cleaned, truncated: false };
-  return {
-    filter: `name like ${prefix}`,
-    prefix,
-    truncated: prefix.length < cleaned.length,
-  };
+export function elementNameFilter(query: string): string {
+  return `name like ${query.trim().replace(/[%'"]/g, "")}`;
 }
 
 /** Datasets-on-this-platform — paginated. Goes through the standard
@@ -376,7 +358,7 @@ export async function getPlatformElements(
   if (args.gene && args.gene.trim()) {
     params.gene = args.gene.trim();
   } else if (args.query && args.query.trim()) {
-    params.filter = elementNameFilter(args.query).filter;
+    params.filter = elementNameFilter(args.query);
   }
   return apiGet<PaginatedResponse<PlatformElement>>(
     `${BASE}/platforms/${platformId}/elements`,

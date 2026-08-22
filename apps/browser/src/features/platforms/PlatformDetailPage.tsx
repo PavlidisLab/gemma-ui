@@ -23,7 +23,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
-  elementNameFilter,
   getDatasetsByPlatform,
   getElementAlignments,
   getElementGenes,
@@ -454,12 +453,6 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
     placeholderData: keepPreviousData,
   });
 
-  // Probe search is prefix-only and cannot carry an underscore, so a
-  // full probe name is cut back to its first segment. Say so, rather
-  // than quietly returning a superset of what was typed.
-  const nameSearch =
-    mode === "probe" && debounced ? elementNameFilter(debounced) : null;
-
   const total = elementsQ.data?.totalElements ?? null;
   const totalPages = total !== null ? Math.max(1, Math.ceil(total / ELEMENTS_PAGE)) : null;
   const rows = elementsQ.data?.data ?? [];
@@ -474,27 +467,7 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
         </h2>
         <span className="text-[11px] text-gemma-subtle tabular-nums">
           {total !== null ? total.toLocaleString() : "…"}
-          {debounced ? (
-            <>
-              {" · "}
-              {/* Say what was actually searched. A name search cut back
-                  to its prefix returns more than was typed, and the
-                  count beside the query is what makes that visible. */}
-              &quot;{nameSearch?.truncated ? nameSearch.prefix : debounced}
-              &quot;
-              {nameSearch?.truncated ? (
-                <span
-                  className="not-italic"
-                  title={`"${debounced}" was searched as "${nameSearch.prefix}" — the API cannot match a probe name containing an underscore.`}
-                >
-                  {" "}
-                  (prefix)
-                </span>
-              ) : null}
-            </>
-          ) : (
-            ""
-          )}
+          {debounced ? ` · "${debounced}"` : ""}
         </span>
         <div className="ml-auto flex items-baseline gap-1">
           <div className="flex rounded border border-gemma-grid overflow-hidden">
