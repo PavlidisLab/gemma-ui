@@ -488,7 +488,11 @@ function RecentActivityCard({
   );
 }
 
-/** "21 Aug 2025" — the window label on the added-datasets stat. */
+/** "22 Aug 2025" — the window label on the added-datasets stat.
+ *  Rendered in UTC because the server resolves `since` from the
+ *  snapshot's `generatedAt`: read in a western timezone, a
+ *  small-hours UTC boundary lands on the previous day and the label
+ *  stops naming the window it actually counts. */
 function shortDate(iso: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return iso;
@@ -496,6 +500,7 @@ function shortDate(iso: string): string {
     year: "numeric",
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
   });
 }
 
@@ -547,8 +552,10 @@ function WeekStat({
       <span className="text-[11px] text-stone-600">datasets {noun}</span>
     </>
   );
-  if (count === null || !to)
-    return <span className="inline-flex items-baseline">{body}</span>;
+  // A plain inline span, not inline-flex: flex makes the space between
+  // the number and its noun a zero-width item, so the two ran together
+  // as "1,192datasets added".
+  if (count === null || !to) return <span>{body}</span>;
   return (
     <Link
       to={to}
