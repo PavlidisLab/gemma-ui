@@ -184,15 +184,45 @@ describe("generateFilter — an excluded term is bound the same way", () => {
   });
 });
 
-describe("generateFilter — the branches that did not change", () => {
-  it("keeps a whole-category exclude as a bare none() over the category", () => {
-    // `negativeCategories` means "no term in this category" — there is
-    // no value to bind, so the conjunction would say nothing.
+describe("generateFilter — excluding a whole category", () => {
+  // `negativeCategories` means "no term in this category" — there is no
+  // value to bind, so the conjunction would say nothing. It excludes
+  // every term in the category, including ones no facet response
+  // listed, which is what the side panel used to approximate by
+  // negating each visible child: on gemma2 that dropped 6,070 datasets
+  // against the category clause's 7,429.
+  it("names the category once instead of listing its terms", () => {
     expect(
       wire(settings({ negativeCategories: [{ classUri: DISEASE, className: "disease" }] })),
-    ).toBe(`none(allCharacteristics.categoryUri in (${DISEASE}))`);
+    ).toBe(`none(allCharacteristics.categoryUri = ${DISEASE})`);
   });
 
+  it("gives each excluded category its own clause", () => {
+    // One clause each rather than a comma-joined none(... in (...)):
+    // same meaning, and each is independently removable, which is what
+    // lets the facet fetch drop a category's own exclusion.
+    const clauses = generateFilter(
+      settings({
+        negativeCategories: [
+          { classUri: DISEASE, className: "disease" },
+          { classUri: GENOTYPE, className: "genotype" },
+        ],
+      }),
+    );
+    expect(clauses).toEqual([
+      [`none(allCharacteristics.categoryUri = ${DISEASE})`],
+      [`none(allCharacteristics.categoryUri = ${GENOTYPE})`],
+    ]);
+  });
+
+  it("falls back to the category name when there is no URI", () => {
+    expect(
+      wire(settings({ negativeCategories: [{ classUri: null, className: "disease" }] })),
+    ).toBe("none(allCharacteristics.category = disease)");
+  });
+});
+
+describe("generateFilter — the branches that did not change", () => {
   it("keeps a whole-category include as a bare category clause", () => {
     // `categories` means "any term in this category" — there is no
     // value to bind, so the quantifier would say nothing.

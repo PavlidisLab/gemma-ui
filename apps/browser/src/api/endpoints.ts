@@ -4,6 +4,7 @@
 
 import { apiGet, type Params } from "./client";
 import { compressFilter, compressArg } from "@/lib/utils";
+import { negativeCategoryClause } from "@/lib/filter";
 import { excludedCategories, excludedTerms } from "@/lib/gemmaConfig";
 import type {
   AnnotationSearchResult,
@@ -1250,12 +1251,26 @@ export async function getCategoriesWithChildren(
     list.map(async (cat) => {
       const catId = cat.classUri || cat.className?.toLowerCase() || "";
       if (!catId) return { ...cat, children: [] };
+      // Drop this category's own exclusion before listing its terms.
+      // `none(categoryUri = X)` means no dataset in the result set
+      // carries a term in X, so the children come back empty, the row
+      // is dropped below for having none, and the category the visitor
+      // just excluded vanishes from the panel — along with any way to
+      // un-exclude it, or to keep one term of it. Every other clause
+      // still applies, so the counts stay honest about the rest of the
+      // filter.
+      const selfExclusion = negativeCategoryClause(cat);
+      const childFilter = selfExclusion
+        ? args.filter
+            .map((c) => c.filter((sc) => sc !== selfExclusion))
+            .filter((c) => c.length > 0)
+        : args.filter;
       try {
         const r = await getAnnotationsByCategory(
           {
             category: catId,
             query: args.query,
-            filter: args.filter,
+            filter: childFilter,
             applyExclusions: args.applyExclusions,
             excludeFreeText: args.applyExclusions,
             gid: args.gid,

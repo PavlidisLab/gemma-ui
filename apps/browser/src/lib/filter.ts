@@ -88,19 +88,23 @@ export function generateFilter(s: SearchSettings): string[][] {
     }
   }
 
-  // Negative categories
+  // Negative categories — one clause each, rather than one `none(...)`
+  // over a comma-joined list. Identical semantics ("no characteristic
+  // whose category is in {A, B}" is "none A" AND "none B") and it makes
+  // each exclusion independently removable, which is what lets the
+  // facet fetch drop a category's own exclusion when listing that
+  // category's terms. See getCategoriesWithChildren.
   if (s.negativeCategories.length > 0) {
     let nc = s.negativeCategories;
     if (nc.length > MAX_URIS_IN_CLAUSE) {
       console.warn(`Too many negative categories (${nc.length}); retaining first ${MAX_URIS_IN_CLAUSE}.`);
       nc = nc.slice(0, MAX_URIS_IN_CLAUSE);
     }
-    const idCats = nc.filter((c) => c.classUri);
-    const nameCats = nc.filter((c) => c.classUri === null).filter((c) => c.className);
-    const idString = idCats.map((c) => c.classUri).join(",");
-    const nameString = nameCats.map((c) => c.className).join(",");
-    if (idString) filter.push([`none(allCharacteristics.categoryUri in (${idString}))`]);
-    if (nameString) filter.push([`none(allCharacteristics.category in (${nameString}))`]);
+    for (const c of nc) {
+      const clause = negativeCategoryClause(c);
+      if (clause) filter.push([clause]);
+      else console.warn("Exclusion of the 'Uncategorized' category is not supported.");
+    }
   }
 
   // Negative annotations (per-category, same binding as the positive
@@ -118,6 +122,30 @@ export function generateFilter(s: SearchSettings): string[][] {
     return [];
   }
   return filter;
+}
+
+/**
+ * The clause that excludes an entire category — every term in it, not
+ * just the ones a facet response happened to list.
+ *
+ * Exported because the annotation facet has to be able to identify and
+ * drop it: listing the terms under a category you've excluded returns
+ * nothing by construction, which collapses the category out of the side
+ * panel and leaves no way to un-exclude it. `getCategoriesWithChildren`
+ * strips exactly this clause from that category's own children fetch.
+ * Matching on the emitted string is why it lives here rather than being
+ * reconstructed at the call site.
+ *
+ * Returns null for an uncategorised entry, which has nothing to name.
+ */
+export function negativeCategoryClause(c: Category): string | null {
+  if (c.classUri) {
+    return `none(allCharacteristics.categoryUri = ${quoteIfNecessary(c.classUri)})`;
+  }
+  if (c.className) {
+    return `none(allCharacteristics.category = ${quoteIfNecessary(c.className)})`;
+  }
+  return null;
 }
 
 /**

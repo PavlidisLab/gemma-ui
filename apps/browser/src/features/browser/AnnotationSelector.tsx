@@ -355,18 +355,25 @@ export function AnnotationSelector(props: Props) {
     const clearedCatNeg = negativeCategories.filter((c) => categoryId(c) !== cid);
 
     if (state === "all-pos") {
-      // pos -> neg. Expand to per-term negation rather than category-
-      // level NOT: cat-level NOT narrows the facet response so hard
-      // that the children list collapses to whatever still survives
-      // in the narrowed result set, which reads as "the click ate the
-      // list." Per-term keeps each previously-visible child pinned via
-      // negativeAnnotations + the supplemented render path, so all
-      // children flip from blue check to red X.
-      const children = mergedChildren(cat);
+      // pos -> neg, at the category level: one `none(categoryUri = X)`
+      // clause that excludes every term in the category.
+      //
+      // This used to expand into per-term negation instead, because a
+      // category-level NOT narrowed the facet response so hard that the
+      // children list collapsed and the row read as "the click ate the
+      // list". That is fixed where it belongs — the children fetch now
+      // drops the category's own exclusion (getCategoriesWithChildren)
+      // — so the workaround can go.
+      //
+      // The expansion was never equivalent, either. Children are capped
+      // at ANNOTATION_FETCH_LIMIT and are already narrowed by the
+      // current filter, so it excluded whichever terms happened to be
+      // on screen: measured on gemma2, excluding Disease that way
+      // dropped 6,070 datasets where the category clause drops 7,429.
       onChangeSelected(clearedSel);
-      onChangeNegative([...clearedNeg, ...children]);
+      onChangeNegative(clearedNeg);
       onChangeCategoriesSelected(clearedCatSel);
-      onChangeCategoriesNegative(clearedCatNeg);
+      onChangeCategoriesNegative([...clearedCatNeg, asCategory]);
     } else if (state === "all-neg") {
       // neg -> off
       onChangeSelected(clearedSel);
