@@ -26,6 +26,7 @@ import {
   getDatasetsByPlatform,
   getElementAlignments,
   getElementGenes,
+  getGenesByNcbiIds,
   getPlatformAnnotations,
   getPlatformByShortName,
   getPlatformElementCount,
@@ -251,6 +252,28 @@ function Hero({ platform: p }: { platform: Platform }) {
   );
 }
 
+/**
+ * UCSC genome-browser link for one alignment — the click-through the
+ * legacy Gemma probe page had.
+ *
+ * The assembly is NOT `blatResult.targetDatabase`, which is a plain
+ * label ("human"); it is `taxon.externalDatabase.name` ("hg38"), the
+ * UCSC db name. Chromosome names arrive bare ("1", "6_GL000253v2_alt")
+ * and UCSC wants the `chr` prefix, which is also correct for alt
+ * contigs. Returns null when the assembly or the coordinates are
+ * missing, so the row falls back to plain text rather than a link that
+ * lands nowhere.
+ */
+function ucscUrl(b: NonNullable<GeneMappingSummary["blatResult"]>): string | null {
+  const db = b.taxon?.externalDatabase?.name;
+  const chr = b.targetChromosomeName;
+  if (!db || !chr || b.targetStart == null || b.targetEnd == null) return null;
+  const seq = /^chr/i.test(chr) ? chr : `chr${chr}`;
+  return `https://genome.ucsc.edu/cgi-bin/hgTracks?db=${encodeURIComponent(
+    db,
+  )}&position=${encodeURIComponent(`${seq}:${b.targetStart}-${b.targetEnd}`)}`;
+}
+
 /** BLAT identity and score arrive as fractions, not percentages. */
 function pct(v: number): string {
   return `${(v * 100).toFixed(v >= 0.999 ? 0 : 1)}%`;
@@ -456,6 +479,35 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
   const total = elementsQ.data?.totalElements ?? null;
   const totalPages = total !== null ? Math.max(1, Math.ceil(total / ELEMENTS_PAGE)) : null;
   const rows = elementsQ.data?.data ?? [];
+
+  // Gene NAMES for the page on screen. `withGenes` carries the symbol
+  // and not the name, which is right for a compact column but leaves
+  // the row saying "SSBP2" and nothing about what SSBP2 is. One call
+  // for the distinct genes on this page resolves that; names never
+  // change, so it caches forever.
+  // NCBI ids — the lookup does not accept Gemma's internal gene id and
+  // answers an empty list rather than an error when handed one. A gene
+  // without an NCBI id simply keeps its symbol and no name.
+  const geneNcbiIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const r of rows) {
+      for (const g of r.genes ?? []) if (g.ncbiId != null) ids.add(g.ncbiId);
+    }
+    return [...ids].sort((a, b) => a - b);
+  }, [rows]);
+  const geneNamesQ = useQuery({
+    queryKey: ["genes", "names", geneNcbiIds.join(",")],
+    queryFn: ({ signal }) => getGenesByNcbiIds(geneNcbiIds, signal),
+    enabled: geneNcbiIds.length > 0,
+    staleTime: Infinity,
+  });
+  const geneNames = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const g of geneNamesQ.data ?? []) {
+      if (g.officialName) m.set(g.id, g.officialName);
+    }
+    return m;
+  }, [geneNamesQ.data]);
   const showingFrom = total === 0 ? 0 : page * ELEMENTS_PAGE + 1;
   const showingTo = Math.min(showingFrom + rows.length - 1, total ?? 0);
 
@@ -524,6 +576,7 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
                 key={el.id}
                 element={el}
                 platformId={p.id}
+                geneNames={geneNames}
               />
             ))}
           </tbody>
@@ -592,9 +645,13 @@ function PagerButton({
 function ElementRow({
   element: el,
   platformId,
+  geneNames,
 }: {
   element: PlatformElement;
   platformId: number;
+  /** Gene id → official name, resolved for the visible page. Empty
+   *  while that lookup is in flight; the symbol renders either way. */
+  geneNames: Map<number, string>;
 }) {
   const [open, setOpen] = useState(false);
   const genesQ = useQuery({
@@ -620,23 +677,38 @@ function ElementRow({
               say what it maps to without opening. `[]` is a real answer
               — "maps to no gene" — and is drawn differently from the
               field being absent. */}
+          {/* Genes ride down with the page (`withGenes`), so the row
+              can say what it maps to without opening. `[]` is a real
+              answer — "maps to no gene" — and is drawn differently from
+              the field being absent.
+              The symbol alone doesn't say what the gene is, so a probe
+              mapping to exactly one gene shows its name beside it; with
+              several, the symbols stay compact and the names go in the
+              tooltip. */}
           {el.genes?.length ? (
-            <span className="mr-1.5 inline-flex gap-1 align-baseline">
-              {el.genes.slice(0, 3).map((g) => (
-                <span
-                  key={g.id}
-                  className="font-mono text-[10px] text-gemma-ink"
-                  title={g.ncbiId ? `NCBI:${g.ncbiId}` : undefined}
-                >
-                  {g.officialSymbol ?? `#${g.id}`}
-                </span>
-              ))}
-              {el.genes.length > 3 ? (
-                <span className="text-[10px] text-gemma-subtle">
-                  +{el.genes.length - 3}
+            <div className="flex items-baseline gap-1.5 min-w-0">
+              <span
+                className="font-mono text-[10px] text-gemma-ink shrink-0"
+                title={el.genes
+                  .map((g) => {
+                    const n = geneNames.get(g.id);
+                    const sym = g.officialSymbol ?? `#${g.id}`;
+                    return n ? `${sym} — ${n}` : sym;
+                  })
+                  .join("\n")}
+              >
+                {el.genes
+                  .slice(0, 3)
+                  .map((g) => g.officialSymbol ?? `#${g.id}`)
+                  .join(", ")}
+                {el.genes.length > 3 ? ` +${el.genes.length - 3}` : ""}
+              </span>
+              {el.genes.length === 1 && geneNames.get(el.genes[0].id) ? (
+                <span className="truncate text-[11px] text-gemma-subtle">
+                  {geneNames.get(el.genes[0].id)}
                 </span>
               ) : null}
-            </span>
+            </div>
           ) : null}
           {el.description ? (
             <span className="text-gemma-ink line-clamp-1">{el.description}</span>
@@ -681,8 +753,12 @@ function GeneMappings({
       ) : genesQ.isError ? (
         <div className="text-[11px] text-rose-700">failed to load</div>
       ) : (genesQ.data?.length ?? 0) === 0 ? (
+        // Don't guess at WHY. A probe can map to nothing because it
+        // has no genome alignment, because its alignments are
+        // non-specific, or because it is a control — and the payload
+        // says none of that. State the fact only.
         <div className="text-[11px] text-gemma-subtle italic">
-          no gene mapping — likely a control / housekeeping probe
+          no gene mapping met criteria
         </div>
       ) : (
         <ul className="space-y-0.5">
@@ -817,47 +893,66 @@ function GenomeAlignment({
             const chr = b.targetChromosomeName;
             const start = b.targetStart;
             const end = b.targetEnd;
+            const url = ucscUrl(b);
+            const coords =
+              chr && start != null && end != null
+                ? `${chr}:${start.toLocaleString()}-${end.toLocaleString()}`
+                : null;
             return (
-              <li key={i} className="text-[11px] text-gemma-ink font-mono">
-                {chr && start != null && end != null ? (
-                  <>
-                    {chr}:{start.toLocaleString()}-{end.toLocaleString()}
-                    {b.strand ? (
-                      <span className="text-gemma-subtle"> ({b.strand})</span>
-                    ) : null}
-                    {isAltContig(chr) ? (
-                      <span
-                        className="ml-1 text-[9px] text-gemma-subtle not-italic"
-                        title="An alternate contig — usually the same locus as the primary-assembly hit above, not a second place the probe lands."
+              // Two lines, not one: the locus plus its metrics ran past
+              // the panel, which is a half-width column on this page.
+              <li key={i} className="text-[11px] leading-snug">
+                <div className="font-mono text-gemma-ink break-all">
+                  {coords ? (
+                    url ? (
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-gemma-accent hover:underline"
+                        title="Open this locus in the UCSC genome browser"
                       >
-                        alt
-                      </span>
-                    ) : null}
-                  </>
-                ) : (
-                  <span className="text-gemma-subtle italic">
-                    alignment without coordinates
-                  </span>
-                )}
-                {b.identity != null || b.score != null ? (
-                  <span className="ml-2 text-[10px] text-gemma-subtle">
-                    {b.identity != null ? `${pct(b.identity)} identity` : ""}
-                    {b.identity != null && b.score != null ? " · " : ""}
-                    {b.score != null ? `score ${pct(b.score)}` : ""}
-                  </span>
-                ) : null}
-                {r.genes?.length ? (
-                  <span className="ml-2 text-[10px] text-gemma-subtle">
-                    → {r.genes.map((g) => g.officialSymbol ?? "?").join(", ")}
-                  </span>
-                ) : (
-                  <span
-                    className="ml-2 text-[10px] text-gemma-subtle italic"
-                    title="The probe aligns here but the alignment supports no gene — a real result, not a missing one."
-                  >
-                    no gene
-                  </span>
-                )}
+                        {coords}
+                      </a>
+                    ) : (
+                      coords
+                    )
+                  ) : (
+                    <span className="text-gemma-subtle italic">
+                      alignment without coordinates
+                    </span>
+                  )}
+                  {b.strand ? (
+                    <span className="text-gemma-subtle"> ({b.strand})</span>
+                  ) : null}
+                  {chr && isAltContig(chr) ? (
+                    <span
+                      className="ml-1 text-[9px] text-gemma-subtle"
+                      title="An alternate contig — usually the same locus as the primary-assembly hit above, not a second place the probe lands."
+                    >
+                      alt
+                    </span>
+                  ) : null}
+                </div>
+                <div className="text-[10px] text-gemma-subtle">
+                  {b.identity != null ? `${pct(b.identity)} identity` : ""}
+                  {b.identity != null && b.score != null ? " · " : ""}
+                  {b.score != null ? `score ${pct(b.score)}` : ""}
+                  {r.genes?.length ? (
+                    <>
+                      {b.identity != null || b.score != null ? " · " : ""}
+                      {r.genes.map((g) => g.officialSymbol ?? "?").join(", ")}
+                    </>
+                  ) : (
+                    <span
+                      title="The probe aligns here but the alignment supports no gene — a real result, not a missing one."
+                      className="italic"
+                    >
+                      {b.identity != null || b.score != null ? " · " : ""}
+                      no gene
+                    </span>
+                  )}
+                </div>
               </li>
             );
           })}
@@ -988,8 +1083,20 @@ function DatasetsSection({ platform: p }: { platform: Platform }) {
 function DatasetRow({ dataset: d }: { dataset: Dataset }) {
   return (
     <tr className="border-t border-gemma-grid hover:bg-gemma-bg/60">
-      <td className="px-2 py-1 font-mono text-[10px] text-gemma-ink whitespace-nowrap">
-        {d.shortName}
+      <td className="px-2 py-1 font-mono text-[10px] whitespace-nowrap">
+        {/* The accession is the way off this page and into the dataset;
+            it was the only column here that named a thing you could go
+            to and didn't. Keyed by numeric id, as the results table
+            does — a short name works in the route too, but not every
+            dataset has a GEO-shaped one (`stanley_chen`). */}
+        <Link
+          to="/dataset/$id"
+          params={{ id: String(d.id) }}
+          className="text-gemma-accent hover:underline"
+          title={d.name ?? undefined}
+        >
+          {d.shortName}
+        </Link>
       </td>
       <td className="px-2 py-1 text-[11px] text-gemma-ink leading-snug">
         <span className="line-clamp-1">{d.name}</span>

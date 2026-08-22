@@ -273,7 +273,11 @@ export interface GeneMappingSummary {
     targetChromosomeName?: string | null;
     targetStart?: number | null;
     targetEnd?: number | null;
-    targetDatabase?: { name?: string | null } | null;
+    /** A plain label ("human"), NOT the assembly. The genome build is
+     *  `taxon.externalDatabase.name` ("hg38"), which is what a genome
+     *  browser needs. */
+    targetDatabase?: string | null;
+    taxon?: { externalDatabase?: { name?: string | null } | null } | null;
     strand?: string | null;
     identity?: number | null;
     score?: number | null;
@@ -407,6 +411,35 @@ export async function getElementAlignments(
     { signal },
   );
   return r.data?.geneMappingSummaries ?? [];
+}
+
+/**
+ * Gene records by NCBI id, in one request.
+ *
+ * `withGenes` on the elements listing carries `{id, officialSymbol,
+ * ncbiId}` and deliberately not the name — it is a compact column, and
+ * hydrating gene entities per row is what it exists to avoid. But a
+ * symbol alone doesn't say what the gene IS, so the listing resolves
+ * the names for the page it is showing: one call for the distinct
+ * genes on screen, not one per row.
+ *
+ * 🛑 **NCBI ids, not Gemma's internal ones.** `/genes/{genes}` matches
+ * "gene identifiers": `/genes/23635` returns SSBP2, while
+ * `/genes/245694` — SSBP2's own `id` on every other payload — returns
+ * nothing at all rather than erroring. Passing a symbol works too and
+ * is worse: `/genes/SSBP2` returns three rows across species. The
+ * returned records carry both, so the caller keys the result by `id`.
+ */
+export async function getGenesByNcbiIds(
+  ncbiIds: number[],
+  signal?: AbortSignal,
+): Promise<MappedGene[]> {
+  if (ncbiIds.length === 0) return [];
+  const r = await apiGet<PaginatedResponse<MappedGene>>(
+    `${BASE}/genes/${ncbiIds.join(",")}`,
+    { signal },
+  );
+  return r.data ?? [];
 }
 
 export async function getElementGenes(
