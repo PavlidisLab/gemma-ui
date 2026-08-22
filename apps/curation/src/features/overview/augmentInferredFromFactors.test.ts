@@ -73,3 +73,115 @@ describe("augmentInferredFromFactors", () => {
     expect(out).toEqual([direct]);
   });
 });
+
+describe("augmentInferredFromFactors — a statement's own category", () => {
+  // GSE9012 (experiment 14475), verbatim: a `genotype` factor whose
+  // two FVs each carry a second statement categorised `organism part`.
+  // Those are the only organism-part facts in the design — no EE tag
+  // and no sample characteristic carries one — so before this the
+  // overview showed no anatomy at all while Gemma's own annotations
+  // endpoint (and therefore the public browser) showed the carcinoma.
+  const stmtFv = (
+    id: number,
+    free_text_label: string,
+    statements: unknown[],
+  ) =>
+    ({ id, free_text_label, is_baseline: false, biomaterial_short_names: [], statements }) as never;
+
+  const gse9012 = (): Factor[] => [
+    factor({
+      id: 1,
+      name: "genotype",
+      category: { label: "genotype", uri: "http://www.ebi.ac.uk/efo/EFO_0000513" },
+      factor_values: [
+        stmtFv(1, "Trim24 KO", [
+          { category: { label: "genotype", uri: null }, subject: { label: "Trim24", uri: null } },
+          {
+            category: { label: "organism part", uri: "http://www.ebi.ac.uk/efo/EFO_0000635" },
+            subject: { label: "hepatocellular carcinoma", uri: null },
+          },
+        ]),
+        stmtFv(2, "wild type", [
+          { category: { label: "genotype", uri: null }, subject: { label: "wild type genotype", uri: null } },
+          {
+            category: { label: "organism part", uri: "http://www.ebi.ac.uk/efo/EFO_0000635" },
+            subject: { label: "liver", uri: null },
+          },
+        ]),
+      ],
+    }),
+  ];
+
+  it("surfaces organism part from a genotype factor's statements", () => {
+    const out = augmentInferredFromFactors([], gse9012());
+    const organ = out.find((t) => t.category?.label === "organism part");
+    expect(organ).toBeDefined();
+    expect(organ!.value?.label).toBe("hepatocellular carcinoma, liver");
+    expect(organ!.inferred).toBe(true);
+    expect(organ!.inferred_source).toBe("Statement");
+  });
+
+  it("carries the statement category's own URI, not the factor's", () => {
+    const out = augmentInferredFromFactors([], gse9012());
+    const organ = out.find((t) => t.category?.label === "organism part");
+    expect(organ!.category?.uri).toBe("http://www.ebi.ac.uk/efo/EFO_0000635");
+  });
+
+  it("still emits the factor's own chip, unchanged", () => {
+    // Additive: the existing projection is not replaced.
+    const out = augmentInferredFromFactors([], gse9012());
+    const geno = out.find((t) => t.category?.label === "genotype");
+    expect(geno!.value?.label).toBe("Trim24 KO, wild type");
+    expect(geno!.inferred_source).toBe("FactorValue");
+  });
+
+  it("does not repeat a statement that shares its factor's category", () => {
+    // Only divergent categories get their own chip; the rest are
+    // already covered by the factor projection.
+    const out = augmentInferredFromFactors([], gse9012());
+    expect(out.filter((t) => t.category?.label === "genotype")).toHaveLength(1);
+  });
+
+  it("merges one category across several factors into a single chip", () => {
+    const factors = [
+      ...gse9012(),
+      factor({
+        id: 2,
+        name: "treatment",
+        category: { label: "treatment", uri: null },
+        factor_values: [
+          stmtFv(3, "dosed", [
+            { category: { label: "organism part", uri: null }, subject: { label: "liver", uri: null } },
+          ]),
+        ],
+      }),
+    ];
+    const organ = augmentInferredFromFactors([], factors).filter(
+      (t) => t.category?.label === "organism part",
+    );
+    expect(organ).toHaveLength(1);
+    // "liver" appears in both factors and is listed once.
+    expect(organ[0].value?.label).toBe("hepatocellular carcinoma, liver");
+  });
+
+  it("ignores statements with no category or no subject", () => {
+    const factors = [
+      factor({
+        id: 1,
+        name: "genotype",
+        category: { label: "genotype", uri: null },
+        factor_values: [
+          stmtFv(1, "x", [
+            { subject: { label: "no category", uri: null } },
+            { category: { label: "organism part", uri: null }, subject: { label: "  ", uri: null } },
+          ]),
+        ],
+      }),
+    ];
+    expect(
+      augmentInferredFromFactors([], factors).some(
+        (t) => t.category?.label === "organism part",
+      ),
+    ).toBe(false);
+  });
+});

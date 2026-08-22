@@ -72,6 +72,70 @@ export function augmentInferredFromFactors(
       evidence_code: "IIA",
     });
   }
+  // Statements whose OWN category differs from their factor's. The
+  // projection above asks "what is this factor about?"; this asks
+  // "what category is each term actually serving?", which is the
+  // question a reader of the tag bar has.
+  //
+  // GSE9012 is the case that exposed it: a `genotype` factor whose two
+  // FVs each carry a second statement categorised `organism part` —
+  // hepatocellular carcinoma on one arm, liver on the other. Those are
+  // the ONLY organism-part facts in the whole design (no EE tag, no
+  // sample characteristic carries one), so the overview showed nothing
+  // and the experiment read as having no anatomy at all. Gemma's own
+  // /datasets/{id}/annotations surfaces them, which is why the public
+  // browser shows the chip and this page didn't.
+  //
+  // Divergence is normal, not a defect — roughly 95 of 3,731 gold
+  // statements differ from their factor deliberately (see da374c5), so
+  // this reports rather than flags.
+  //
+  // Merged across factors by category so two factors carrying organism
+  // part yield one chip, not two.
+  const byCategory = new Map<
+    string,
+    { label: string; uri: string | null; values: string[]; seen: Set<string> }
+  >();
+  for (const factor of factors) {
+    if (factor.type === "continuous") continue;
+    const factorCat = (factor.category?.label || factor.name || "").trim().toLowerCase();
+    for (const fv of factor.factor_values ?? []) {
+      for (const st of fv.statements ?? []) {
+        const catLabel = (st.category?.label || "").trim();
+        // No category of its own, or the same one the factor already
+        // projected — either way the chip above covers it.
+        if (!catLabel || catLabel.toLowerCase() === factorCat) continue;
+        const subject = (st.subject?.label || "").trim();
+        if (!subject) continue;
+        const key = catLabel.toLowerCase();
+        const entry =
+          byCategory.get(key) ??
+          { label: catLabel, uri: st.category?.uri ?? null, values: [], seen: new Set<string>() };
+        const vk = subject.toLowerCase();
+        if (!entry.seen.has(vk)) {
+          entry.seen.add(vk);
+          entry.values.push(subject);
+        }
+        byCategory.set(key, entry);
+      }
+    }
+  }
+  for (const entry of byCategory.values()) {
+    synth.push({
+      id: nextSynthId--,
+      category: { label: entry.label, uri: entry.uri },
+      value: {
+        label: [...entry.values]
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+          .join(", "),
+        uri: null,
+      },
+      inferred: true,
+      inferred_source: "Statement",
+      evidence_code: "IIA",
+    });
+  }
+
   if (synth.length === 0) return tags;
   return [...tags, ...synth];
 }
