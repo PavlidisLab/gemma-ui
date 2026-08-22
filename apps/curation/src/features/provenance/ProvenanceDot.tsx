@@ -68,22 +68,34 @@ export function ProvenanceDot({
 /**
  * Collapse events that are identical in every field.
  *
- * The store emits the same record twice for some traces — measured on
- * GSE12623's `assay: bulk RNA-seq assay`, two `agent_proposed` events
- * sharing a timestamp to the microsecond (`10:58:57.908610`), the same
- * null actor name and run id, and the same summary. The trace also
- * holds a genuinely separate proposal from 08:22 with its own run, so
- * this is one event written twice rather than an agent proposing twice.
+ * Measured on GSE12623's `assay: bulk RNA-seq assay`: one ref in the
+ * request, three `agent_proposed` events out, two of them equal in
+ * every field including the microsecond.
  *
- * The card had no way to show that: it renders kind, actor and date, so
- * two copies of one record read as the same sentence printed twice.
+ * ⚠️ **Nothing is written twice.** The lookup emits one event per
+ * (finding × matching ref), so two findings in one report that both
+ * match a ref produce two events from one stored record
+ * (`local_api/provenance.py::_trace_for_refs`). The shared microsecond
+ * is not evidence either way — `at` comes from the report's timestamp,
+ * so any two events off one report carry the same one by construction.
+ * Null `run_id` / actor name / head sha likewise just mean that report
+ * was posted without run provenance.
  *
- * 🛑 Identity only — same value in EVERY field. Two proposals from
- * different runs, or the same run at different times, both survive.
- * Collapsing anything looser would be deciding that two things the
- * store distinguishes are the same thing, which is not ours to decide.
- * Filed against the agents side; this stops the double line, not the
- * double write.
+ * 🛑 So this may be collapsing two GENUINELY DIFFERENT findings — a
+ * different judge, target and reasoning — because `ProvenanceEventD`
+ * carries no finding identity and they are byte-identical on the wire.
+ * The card renders kind, actor and date; two different findings had
+ * already become the same sentence printed twice before this function
+ * saw them. Collapsing loses the count, not the content.
+ *
+ * The fix is on the agents side: put the finding's `target_id` (and
+ * `judge`) on the event. Then two real findings differ here and both
+ * render, and a true duplicate stays truly identical. Asked for in
+ * `handoffs/UIB_TO_CAB_2026_08_22_*`; delete nothing here when it
+ * lands — this guard becomes exact rather than approximate.
+ *
+ * Identity only, in the meantime: two proposals differing in any field
+ * — run, timestamp, actor — both survive.
  */
 function dedupeEvents(events: ProvenanceEvent[]): ProvenanceEvent[] {
   const seen = new Set<string>();
