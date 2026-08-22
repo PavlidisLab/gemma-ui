@@ -40,17 +40,12 @@ export function AboutModal({
               help and documentation ↗
             </a>.
           </p>
+          {/* The "(credits ↗)" parenthetical pointed at
+              pavlidislab.github.io/Gemma/credits.html, which 404s.
+              Credits and funding come back here once there's a page to
+              send people to. */}
           <p className="mt-2 text-sm text-gemma-ink">
-            Gemma was developed by the Pavlidis group at UBC (
-            <a
-              href="https://pavlidislab.github.io/Gemma/credits.html"
-              target="_blank"
-              rel="noreferrer"
-              className="text-gemma-accent hover:underline"
-            >
-              credits ↗
-            </a>
-            ).
+            Gemma was developed by the Pavlidis group at UBC.
           </p>
         </header>
 
@@ -129,21 +124,40 @@ export function AboutModal({
 
         <Section title="Contact">
           <div className="bg-white border border-gemma-grid rounded-md p-4 flex items-center gap-5">
-            {/* Both marks at a shared optical height. mslLogo is a
-                150x91 transparent export — anything much past h-12
-                softens it (see packages/assets). */}
+            {/* Both marks at a shared optical height, each linking to
+                its institution. mslLogo is a 150x91 transparent export
+                — anything much past h-12 softens it (see
+                packages/assets). The alt text doubles as the link's
+                accessible name, so it names the institution rather
+                than describing the artwork. */}
             <div className="flex items-center gap-4 shrink-0">
-              <img
-                src={mslLogo}
-                alt="Michael Smith Laboratories"
-                className="h-11 w-auto"
-              />
+              <a
+                href="https://www.msl.ubc.ca"
+                target="_blank"
+                rel="noreferrer"
+                title="Michael Smith Laboratories"
+                className="shrink-0 hover:opacity-75 transition-opacity"
+              >
+                <img
+                  src={mslLogo}
+                  alt="Michael Smith Laboratories"
+                  className="h-11 w-auto"
+                />
+              </a>
               <span className="w-px self-stretch bg-gemma-grid" aria-hidden />
-              <img
-                src={ubcLogo}
-                alt="University of British Columbia"
-                className="h-11 w-auto"
-              />
+              <a
+                href="https://www.ubc.ca"
+                target="_blank"
+                rel="noreferrer"
+                title="University of British Columbia"
+                className="shrink-0 hover:opacity-75 transition-opacity"
+              >
+                <img
+                  src={ubcLogo}
+                  alt="University of British Columbia"
+                  className="h-11 w-auto"
+                />
+              </a>
             </div>
             <div className="min-w-0 text-sm leading-relaxed">
               <a
