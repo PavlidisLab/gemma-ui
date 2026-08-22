@@ -281,6 +281,24 @@ export interface GeneMappingSummary {
     strand?: string | null;
     identity?: number | null;
     score?: number | null;
+    /** PSL fields, carried so the UI can rebuild the UCSC custom track
+     *  Gemma 1.0 generated server-side. `targetSize` is NOT among them;
+     *  see `pslTrack`. */
+    matches?: number | null;
+    mismatches?: number | null;
+    repMatches?: number | null;
+    ns?: number | null;
+    queryGapCount?: number | null;
+    queryGapBases?: number | null;
+    targetGapCount?: number | null;
+    targetGapBases?: number | null;
+    queryStart?: number | null;
+    queryEnd?: number | null;
+    blockCount?: number | null;
+    blockSizes?: string | null;
+    queryStarts?: string | null;
+    targetStarts?: string | null;
+    querySequence?: { name?: string | null; length?: number | null } | null;
   } | null;
   genes?: ElementGene[] | null;
 }
