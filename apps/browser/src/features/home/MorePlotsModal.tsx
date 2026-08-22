@@ -21,9 +21,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getGenesBySymbols } from "@/api/endpoints";
 import type React from "react";
+import { Link } from "@tanstack/react-router";
 import { Modal } from "@/features/shared/Modal";
 import { BarRow, Panel, PlotHeader, ValueRow, type RowLink } from "./panels";
-import { fmtCount, type GemmaSummary, type TaxonRow, type TechnologyRow } from "./useGemmaSummary";
+import {
+  fmtCount,
+  type GemmaSummary,
+  type TaxonRow,
+  type TechnologyRow,
+  type TreatmentTopTerm,
+} from "./useGemmaSummary";
 
 /**
  * ExperimentalFactor categories that are user-facing, keyed by the
@@ -428,6 +435,36 @@ function PerturbedGenesBars({ s }: { s: GemmaSummary }) {
   );
 }
 
+/** The example terms under a treatment sub-bucket, each a link into
+ *  the browser filtered to that annotation.
+ *
+ *  Linked on value alone, with no category clause. The bucket's
+ *  `count` is the value-only count — dexamethasone reads 159 both in
+ *  the snapshot and from /datasets/count on the bare valueUri, while
+ *  binding it to the treatment category gives 158, because one dataset
+ *  files it elsewhere. The rule across these charts is that the link
+ *  reproduces whatever the number counts: for perturbed genes that
+ *  means category-bound, and here it means not. */
+function TermLinks({ terms }: { terms: TreatmentTopTerm[] }) {
+  return (
+    <>
+      {terms.map((t, i) => (
+        <span key={t.uri}>
+          {i > 0 ? <span className="text-stone-400"> · </span> : null}
+          <Link
+            to="/browser"
+            search={{ annotationUri: t.uri, annotationLabel: t.label }}
+            title={`Browse the ${t.count.toLocaleString()} experiments annotated with ${t.label}`}
+            className="text-stone-500 hover:text-blue-700 hover:underline"
+          >
+            {t.label}
+          </Link>
+        </span>
+      ))}
+    </>
+  );
+}
+
 /** Gemma annotates a perturbed gene under the genotype category. */
 const GENOTYPE_CATEGORY_URI = "http://www.ebi.ac.uk/efo/EFO_0000513";
 /** Term-URI prefix Gemma uses for NCBI genes. */
@@ -471,12 +508,9 @@ function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
                   : r.label
               }
               footnote={
-                r.topTerms.length > 0
-                  ? r.topTerms
-                      .slice(0, 4)
-                      .map((t) => t.label)
-                      .join(" · ")
-                  : undefined
+                r.topTerms.length > 0 ? (
+                  <TermLinks terms={r.topTerms.slice(0, 4)} />
+                ) : undefined
               }
             />
           ))}

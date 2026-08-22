@@ -25,6 +25,8 @@ import { LoginModal } from "@/features/shared/LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import { gemmaLogoText, ubcLogo } from "@gemma/assets";
+import { isBaselineTerm } from "@/lib/baseline";
+import { tintForIndex } from "@/lib/valueTint";
 import { InfoBadge, Panel } from "../panels";
 import { MorePlotsModal } from "../MorePlotsModal";
 import {
@@ -370,16 +372,23 @@ function RecentActivityCard({
   const chips = useMemo(() => {
     const rows = annsQ.data?.data ?? [];
     const seen = new Set<string>();
-    const out: Array<{ category: string; term: string }> = [];
+    const out: Array<{ category: string; term: string; uri: string | null }> = [];
     for (const a of rows) {
+      // The category an annotation is SERVING, which is what Gemma
+      // reports per annotation — not what the term is ontologically.
       const cat = (a.className ?? "").trim().toLowerCase();
       if (!RECENT_CARD_ANNOTATION_CATEGORIES.has(cat)) continue;
       const term = (a.termName ?? "").trim();
       if (!term) continue;
+      // Baseline / reference levels say nothing about what the study
+      // is: every controlled design carries "reference subject role"
+      // and "wild type genotype", so they crowded out the terms that
+      // actually distinguish one experiment from the next.
+      if (isBaselineTerm(term, a.termUri)) continue;
       const key = `${cat}|${term.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ category: cat, term });
+      out.push({ category: cat, term, uri: a.termUri ?? null });
       if (out.length >= 5) break;
     }
     return out;
@@ -460,13 +469,20 @@ function RecentActivityCard({
           </Link>
           <div className="mt-1.5 flex flex-wrap content-start gap-1 h-[3.2em] overflow-hidden">
             {chips.map((c) => (
-              <span
+              <Link
                 key={`${c.category}-${c.term}`}
-                className="inline-flex items-center text-[10px] leading-none px-1.5 py-0.5 border border-stone-400 text-stone-800"
-                title={c.category}
+                to="/browser"
+                search={
+                  c.uri
+                    ? { annotationUri: c.uri, annotationLabel: c.term }
+                    : undefined
+                }
+                title={`${c.category} — browse experiments annotated with ${c.term}`}
+                style={{ backgroundColor: categoryTint(c.category) }}
+                className="inline-flex items-center text-[10px] leading-none px-1.5 py-0.5 border border-stone-400 text-stone-800 hover:border-stone-900 hover:no-underline"
               >
                 {c.term}
-              </span>
+              </Link>
             ))}
           </div>
           <div className="mt-2 text-[10px] text-stone-500 inline-flex items-baseline gap-2">
@@ -502,6 +518,16 @@ function shortDate(iso: string): string {
     day: "numeric",
     timeZone: "UTC",
   });
+}
+
+/** Stable per-category tint, so the same category is the same colour
+ *  on every card and a reader learns the palette rather than re-reading
+ *  each chip. Deterministic from the label — the categories that reach
+ *  here are a fixed whitelist, so a hash gives every one its own hue
+ *  without a hand-maintained colour table to fall out of step. */
+function categoryTint(category: string): string | undefined {
+  const idx = [...RECENT_CARD_ANNOTATION_CATEGORIES].indexOf(category);
+  return tintForIndex(idx);
 }
 
 /** Arrow control for stepping the recently-updated card. */
