@@ -48,6 +48,14 @@ export interface CategoriesArgs {
   filter: string[][];
   limit?: number;
   applyExclusions: boolean; // true ⇒ send excludedCategories/Terms
+  /** Category URIs to keep in the facet even when `excludedCategories`
+   *  would drop them. The exclusion list is about what's worth
+   *  *offering* to browse by — free-text and numeric axes whose term
+   *  lists are thousands of one-offs. It shouldn't also suppress the
+   *  count of a category the visitor has already picked: they arrive
+   *  on such a filter from the home page's factor-value chart, and a
+   *  selected row with no number reads as a broken filter. */
+  keepCategories?: string[];
   gid?: string;
 }
 
@@ -72,7 +80,10 @@ export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) 
     gid: args.gid,
   };
   if (args.applyExclusions) {
-    params.excludedCategories = await compressArg(excludedCategories.join(","));
+    const keep = new Set(args.keepCategories ?? []);
+    params.excludedCategories = await compressArg(
+      excludedCategories.filter((c) => !keep.has(c)).join(","),
+    );
     params.excludeFreeTextCategories = "true";
     params.excludeUncategorizedTerms = "true";
     params.excludedTerms = await compressArg(excludedTerms.join(","));

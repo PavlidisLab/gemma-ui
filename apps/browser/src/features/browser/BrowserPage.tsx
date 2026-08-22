@@ -92,10 +92,23 @@ export function BrowserPage() {
   const datasets = useDatasets(browsing);
   const taxa = useTaxa({ query: settings.query, filter, gid });
   const platforms = usePlatforms({ query: settings.query, filter, gid });
+  // A selected category is never excluded from its own facet — see
+  // CategoriesArgs.keepCategories. Sorted so the query key is stable
+  // across re-orderings of the same selection.
+  const keepCategories = useMemo(
+    () =>
+      settings.categories
+        .map((c) => c.classUri)
+        .filter((u): u is string => !!u)
+        .sort(),
+    [settings.categories],
+  );
+
   const categories = useCategories({
     query: settings.query,
     filter,
     applyExclusions: !settings.ignoreExcludedTerms,
+    keepCategories,
     gid,
   });
 
