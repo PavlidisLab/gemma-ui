@@ -66,11 +66,26 @@ const DISALLOWED_CATEGORY_FILTER_PREFIXES = [
   "experimentalDesign.experimentalFactors.factorValues.characteristics.",
 ];
 
+/** A sub-clause may be wrapped in a quantifier — ``any(<predicate> and
+ *  <predicate>)`` — so the property name isn't necessarily at the
+ *  front of the string. Match the prefix against what's inside.
+ *
+ *  Annotation clauses only became quantified on 2026-08-22 (see
+ *  `filter.ts`); before that a positive clause started with the
+ *  property and matched directly, and `none(...)` exclusions did not —
+ *  they leaked into the facet query unnoticed. */
+export const unquantify = (sc: string) => sc.replace(/^(?:any|none|all)\(/i, "");
+
 export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) {
   // Strip annotation-style sub-clauses from the filter — we don't want
   // selecting a value to hide the category it belongs to.
   const mFilter = args.filter
-    .map((c) => c.filter((sc) => !DISALLOWED_CATEGORY_FILTER_PREFIXES.some((p) => sc.startsWith(p))))
+    .map((c) =>
+      c.filter(
+        (sc) =>
+          !DISALLOWED_CATEGORY_FILTER_PREFIXES.some((p) => unquantify(sc).startsWith(p)),
+      ),
+    )
     .filter((c) => c.length > 0);
   const compressed = await compressFilter(mFilter);
   const params: Params = {
