@@ -45,7 +45,7 @@ import {
   type Platform,
   type SearchSettings,
 } from "@/lib/types";
-import { gemmaUrl } from "@/lib/gemmaConfig";
+import { publicGemmaUrl } from "@/lib/gemmaConfig";
 import { manufacturerOf } from "./manufacturer";
 import { PageMask } from "@gemma/ui";
 
@@ -885,7 +885,10 @@ function GenomeAlignment({
     staleTime: Infinity,
   });
   const rows = q.data ?? [];
-  const trackUrl = gemmaUrl(
+  // UCSC fetches this itself, so it needs a base reachable from the
+  // internet — not the one this app talks to. Empty when we have none,
+  // which drops the track and leaves the position link.
+  const trackUrl = publicGemmaUrl(
     `/rest/v2/platforms/${platformId}/elements/${elementId}/pslTrack`,
   );
   return (

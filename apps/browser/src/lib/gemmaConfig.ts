@@ -50,6 +50,44 @@ export function gemmaUrl(path: string): string {
   return baseUrl + path;
 }
 
+/**
+ * A Gemma URL for someone ELSE to fetch — a genome browser loading a
+ * custom track, say. Empty string when we have no base we can honestly
+ * claim is reachable from outside; callers drop the feature rather than
+ * hand out a link that times out.
+ *
+ * 🛑 Not `gemmaUrl`. That resolves to whatever this app talks to, which
+ * is an internal address as often as not: UCSC was handed
+ * `http://frink.msl.ubc.ca:8080/rest/v2/...` and answered "connection
+ * timed out: either the server is offline or a firewall between UCSC
+ * and the server blocks the connection". Reachable from the dev box is
+ * not reachable from the internet, and the two had been the same
+ * string.
+ *
+ * Order:
+ *  1. `VITE_GEMMA_PUBLIC_URL` — say it outright, ends all guessing.
+ *  2. This page's own origin, unless we're on a dev host. In
+ *     production the app is served from the public Gemma, so its
+ *     origin IS the public base, with nothing to configure.
+ *  3. The configured base, but only when it is `https:`. A heuristic,
+ *     and named as one: it separates `https://gemma2.msl.ubc.ca` from
+ *     `http://frink.msl.ubc.ca:8080` in the dev setups we have, and it
+ *     will be wrong for a public plain-http host. Set the var there.
+ */
+export function publicGemmaUrl(path: string): string {
+  const explicit = import.meta.env.VITE_GEMMA_PUBLIC_URL;
+  if (explicit) return String(explicit).replace(/\/+$/, "") + path;
+
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|$)/i.test(origin)) {
+    return origin + path;
+  }
+
+  if (/^https:\/\//i.test(baseUrl)) return baseUrl + path;
+  return "";
+}
+
 /** Legacy Gemma gene page — works for both NCBI-id and Gemma-internal
  *  id. Prefer the NCBI id when known: it's stable across taxa and
  *  rebuilds, and the URL is shareable. Returns null when neither id
