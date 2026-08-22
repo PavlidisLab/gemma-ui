@@ -484,6 +484,22 @@ export interface Platform {
   taxonID?: number;
   isMerged?: boolean;
   isMergee?: boolean;
+  /** The platform this one was folded into, or null. Landed
+   *  2026-08-22; before that `isMergee` said a merge had happened
+   *  without naming the other side, and no query could recover it. */
+  mergedInto?: { id: number; shortName?: string | null } | null;
+  /** The platforms folded into this one — `[]` when none. */
+  mergees?: Array<{ id: number; shortName?: string | null }> | null;
+  /** Gene-mapping counts, only present when the request asked for them
+   *  (`withGeneCounts`). Null means NOT COMPUTED, never zero: on a
+   *  microarray they come from a report that has to be generated, and
+   *  production had never written one as of 2026-08-22. Gene-list
+   *  platforms derive them live and always answer. */
+  numberOfGenes?: number | null;
+  numberOfMappedElements?: number | null;
+  /** Age of the report the counts came from. Null on a gene-list
+   *  platform means "derived live, current" — not "unknown". */
+  geneCountsLastUpdated?: string | null;
   troubled?: boolean;
   needsAttention?: boolean;
   curationNote?: string;

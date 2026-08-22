@@ -224,6 +224,11 @@ export async function getPlatformByShortName(
     params: {
       filter: `shortName = ${shortName}`,
       limit: 1,
+      // Gene-mapping counts are expensive (~1.7s on the largest
+      // platform), so they are opt-in and read from a generated report
+      // rather than computed per request. One platform, one page —
+      // worth asking for. Null comes back when no report exists yet.
+      withGeneCounts: true,
     },
     signal,
   });
@@ -242,30 +247,90 @@ export interface PlatformElement {
    *  -list pseudoplatform has no oligos to report. */
   sequence?: string | null;
   sequenceLength?: number | null;
+  /** Genes this element maps to, present only when the listing asked
+   *  (`withGenes`). `[]` means "maps to nothing", which is a different
+   *  claim from the field being absent because nobody asked. */
+  genes?: ElementGene[] | null;
 }
 
-/** One BLAT alignment behind a probe, as `mappingSummary` reports it. */
+export interface ElementGene {
+  id: number;
+  officialSymbol?: string | null;
+  ncbiId?: number | null;
+}
+
+/**
+ * One BLAT alignment behind a probe, as `mappingSummary` reports it.
+ *
+ * `identity` and `score` are FRACTIONS (0–1), and they live on
+ * `blatResult` rather than a level up. Chromosome names include alt
+ * contigs (`6_GL000253v2_alt`), which is why a probe on the primary
+ * assembly often reports several alignments that are all the same
+ * locus.
+ */
 export interface GeneMappingSummary {
   blatResult?: {
     targetChromosomeName?: string | null;
     targetStart?: number | null;
     targetEnd?: number | null;
+    targetDatabase?: { name?: string | null } | null;
     strand?: string | null;
     identity?: number | null;
     score?: number | null;
   } | null;
-  identity?: number | null;
-  score?: number | null;
-  genes?: MappedGene[] | null;
+  genes?: ElementGene[] | null;
 }
 
 export interface PlatformElementsArgs {
   offset?: number;
   limit?: number;
-  /** Optional name filter — uses the Gemma REST ``filter`` param
-   *  with a ``like`` operator on the element name. Falls back to
-   *  whatever the server does when empty. */
+  /** Probe-name search. See `elementNameFilter` for why this is not
+   *  simply `name like '%q%'`. */
   query?: string;
+  /** Gene search — official symbol, alias, older symbol or NCBI id.
+   *  Resolved server-side through the search service and scoped to the
+   *  platform's own taxon. Matches no gene ⇒ empty page, never the
+   *  unfiltered listing. */
+  gene?: string;
+}
+
+/**
+ * The `filter` clause for a probe-name search, which is not the
+ * `name like '%q%'` it looks like it should be. Two constraints in
+ * Gemma's shared filter machinery, both measured on the deployed build
+ * 2026-08-22:
+ *
+ *  1. **`like` is prefix-only.** Supplied wildcards are escaped and a
+ *     trailing `%` is appended, so `%1007%` searches for a literal
+ *     percent sign and returns nothing.
+ *  2. **A value containing `_` matches nothing.** `_` is a SQL
+ *     single-character wildcard, gets escaped, and the escaped form
+ *     finds no rows. This is vicious on Affymetrix platforms where
+ *     nearly every probe carries one: searching the full, correct name
+ *     `1007_s_at` returns zero, which reads as "no such probe".
+ *
+ * So: strip wildcards, cut at the first underscore, and prefix-match
+ * what's left. `1007_s_at` searches `1007` and finds itself, plus any
+ * sibling with that prefix — a superset, never a confidently wrong
+ * empty result. A query that is nothing but underscores has no prefix
+ * to search, so it falls back to an exact match.
+ *
+ * `truncated` is for the UI to say so, rather than silently returning
+ * more than was asked for.
+ */
+export function elementNameFilter(query: string): {
+  filter: string;
+  prefix: string;
+  truncated: boolean;
+} {
+  const cleaned = query.trim().replace(/[%'"]/g, "");
+  const prefix = cleaned.split("_")[0];
+  if (!prefix) return { filter: `name = ${cleaned}`, prefix: cleaned, truncated: false };
+  return {
+    filter: `name like ${prefix}`,
+    prefix,
+    truncated: prefix.length < cleaned.length,
+  };
 }
 
 /** Datasets-on-this-platform — paginated. Goes through the standard
@@ -299,20 +364,19 @@ export async function getPlatformElements(
   const params: Params = {
     offset: args.offset ?? 0,
     limit: args.limit ?? 50,
-    // Sequences come down with the page rather than per expanded row.
-    // The server warns this inflates a full 22k-element response by
-    // ~1 MB, which is why it is opt-in — but a page is 50 rows, so it
-    // costs ~15 KB and saves a request every time a row opens.
+    // Sequences and genes come down with the page rather than per
+    // expanded row. The server warns sequences inflate a full 22k
+    // -element response by ~1 MB, which is why they are opt-in — but a
+    // page is 50 rows, so it costs ~15 KB and saves a request every
+    // time a row opens. Genes are one batch query per page against the
+    // denormalized GENE2CS table, not 50 round-trips.
     withSequence: true,
+    withGenes: true,
   };
-  if (args.query && args.query.trim()) {
-    // Today: only matches probe names. Searching by gene symbol /
-    // alias (e.g. "BRCA1" → all probes that map to BRCA1) needs a
-    // backend addition — see TODO at top of this file
-    // (`backendGaps`). Quote the value so spaces don't break the
-    // Gemma REST filter parser.
-    const q = args.query.trim().replace(/'/g, "");
-    params.filter = `name like '%${q}%'`;
+  if (args.gene && args.gene.trim()) {
+    params.gene = args.gene.trim();
+  } else if (args.query && args.query.trim()) {
+    params.filter = elementNameFilter(args.query).filter;
   }
   return apiGet<PaginatedResponse<PlatformElement>>(
     `${BASE}/platforms/${platformId}/elements`,

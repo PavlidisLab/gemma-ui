@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
-  getAllPlatforms,
+  elementNameFilter,
   getDatasetsByPlatform,
   getElementAlignments,
   getElementGenes,
@@ -32,7 +32,11 @@ import {
   getPlatformElementCount,
   getPlatformElements,
 } from "@/api/endpoints";
-import type { MappedGene, PlatformElement } from "@/api/endpoints";
+import type {
+  GeneMappingSummary,
+  MappedGene,
+  PlatformElement,
+} from "@/api/endpoints";
 import { encodeSearchSettings } from "@/features/browser/shareLink";
 import {
   emptySearchSettings,
@@ -121,20 +125,12 @@ function Hero({ platform: p }: { platform: Platform }) {
     staleTime: 60 * 60 * 1000,
   });
 
-  // What this platform was merged FROM. `mergedInto` is filterable even
-  // though it isn't returned on the value object, so a merge target can
-  // name its mergees in one query. The other direction — what a mergee
-  // was merged INTO — has no equivalent (`mergees.id` is not a
-  // filterable property and `mergedInto` is not serialized), so that
-  // half is a chip without a name until the API carries the field.
-  const mergeesQ = useQuery({
-    queryKey: ["platform", p.id, "mergees"],
-    queryFn: ({ signal }) =>
-      getAllPlatforms({ filter: [[`mergedInto.id = ${p.id}`]] }, signal),
-    enabled: p.isMerged === true,
-    staleTime: 60 * 60 * 1000,
-  });
-  const mergees = mergeesQ.data?.data ?? [];
+  // Both merge directions come off the platform itself as of
+  // 2026-08-22. This used to need a `?filter=mergedInto.id=` query for
+  // the mergees, and the other direction — what a mergee was folded
+  // INTO — could not be answered at all.
+  const mergees = p.mergees ?? [];
+  const mergedInto = p.mergedInto ?? null;
 
   return (
     <header className="bg-white border border-gemma-grid rounded-md p-5">
@@ -176,29 +172,22 @@ function Hero({ platform: p }: { platform: Platform }) {
         {p.name ?? "Untitled platform"}
       </h1>
 
-      {/* Merge relationship. Named in the direction the API can answer;
-          silent in the other rather than guessing at a target. */}
-      {p.isMerged && mergees.length > 0 ? (
+      {/* Merge relationship, both directions named. */}
+      {mergees.length > 0 ? (
         <p className="text-xs text-gemma-subtle mt-2">
           Combines{" "}
           {mergees.map((m, i) => (
             <span key={m.id}>
               {i > 0 ? ", " : ""}
-              <Link
-                to="/platforms/$shortName"
-                params={{ shortName: m.shortName ?? String(m.id) }}
-                className="text-gemma-accent hover:underline"
-              >
-                {m.shortName ?? `#${m.id}`}
-              </Link>
+              <PlatformRef target={m} />
             </span>
           ))}
           .
         </p>
-      ) : p.isMergee ? (
+      ) : mergedInto ? (
         <p className="text-xs text-gemma-subtle mt-2">
-          Merged into a combined platform. Datasets run on this array are
-          analyzed on that one.
+          Merged into <PlatformRef target={mergedInto} />. Datasets run on this
+          array are analyzed on that one.
         </p>
       ) : null}
 
@@ -216,6 +205,25 @@ function Hero({ platform: p }: { platform: Platform }) {
           }
           hint="probes / design elements on this platform"
         />
+        {/* Gene counts are null until a report has been generated for
+            this platform — null means NOT COMPUTED, so the tile is
+            omitted rather than showing a zero that reads as "maps to no
+            genes". Gene-list platforms derive them live and always
+            answer, with no report age to show. */}
+        {p.numberOfGenes != null ? (
+          <Stat
+            label="Genes"
+            value={p.numberOfGenes.toLocaleString()}
+            hint={
+              (p.numberOfMappedElements != null
+                ? `${p.numberOfMappedElements.toLocaleString()} elements map to a gene. `
+                : "") +
+              (p.geneCountsLastUpdated
+                ? `Counted ${p.geneCountsLastUpdated}.`
+                : "Derived from the element list, current.")
+            }
+          />
+        ) : null}
         <Stat
           label="Switched out"
           value={(p.numberOfSwitchedExpressionExperiments ?? 0).toLocaleString()}
@@ -225,6 +233,46 @@ function Hero({ platform: p }: { platform: Platform }) {
         {p.releaseVersion ? <Stat label="Version" value={p.releaseVersion} /> : <div />}
       </div>
     </header>
+  );
+}
+
+/** BLAT identity and score arrive as fractions, not percentages. */
+function pct(v: number): string {
+  return `${(v * 100).toFixed(v >= 0.999 ? 0 : 1)}%`;
+}
+
+/** GRCh38 alt contigs carry an `_alt` / `_random` / `chrUn_` suffix.
+ *  A probe with one primary hit typically also aligns to every alt
+ *  contig covering the same locus, so they are the same finding
+ *  repeated rather than multi-mapping. */
+function isAltContig(chr: string): boolean {
+  return /_alt$|_random$|^chrUn|^Un_/i.test(chr);
+}
+
+/** Primary assembly first; the alt-contig repeats after it. */
+function sortAlignments(rows: GeneMappingSummary[]): GeneMappingSummary[] {
+  return [...rows].sort((a, b) => {
+    const ca = a.blatResult?.targetChromosomeName ?? "";
+    const cb = b.blatResult?.targetChromosomeName ?? "";
+    return Number(isAltContig(ca)) - Number(isAltContig(cb));
+  });
+}
+
+/** A link to another platform by short name, falling back to the id
+ *  when a merge partner has none. */
+function PlatformRef({
+  target,
+}: {
+  target: { id: number; shortName?: string | null };
+}) {
+  return (
+    <Link
+      to="/platforms/$shortName"
+      params={{ shortName: target.shortName ?? String(target.id) }}
+      className="text-gemma-accent hover:underline"
+    >
+      {target.shortName ?? `#${target.id}`}
+    </Link>
   );
 }
 
@@ -346,6 +394,10 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
+  // Probe-name and gene search are separate server-side questions
+  // (`filter=name like …` vs `gene=`), so the visitor picks which one
+  // they're asking rather than us guessing from the string.
+  const [mode, setMode] = useState<"probe" | "gene">("probe");
 
   // 250ms debounce — fast enough to feel live, slow enough to avoid
   // bursts of fetches on every keystroke.
@@ -358,18 +410,29 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
   // can land on an offset past the new totalElements.
   useEffect(() => {
     setPage(0);
-  }, [debounced]);
+  }, [debounced, mode]);
 
   const elementsQ = useQuery({
-    queryKey: ["platform", p.id, "elements", debounced, page],
+    queryKey: ["platform", p.id, "elements", mode, debounced, page],
     queryFn: ({ signal }) =>
       getPlatformElements(
         p.id,
-        { offset: page * ELEMENTS_PAGE, limit: ELEMENTS_PAGE, query: debounced || undefined },
+        {
+          offset: page * ELEMENTS_PAGE,
+          limit: ELEMENTS_PAGE,
+          query: mode === "probe" ? debounced || undefined : undefined,
+          gene: mode === "gene" ? debounced || undefined : undefined,
+        },
         signal,
       ),
     placeholderData: keepPreviousData,
   });
+
+  // Probe search is prefix-only and cannot carry an underscore, so a
+  // full probe name is cut back to its first segment. Say so, rather
+  // than quietly returning a superset of what was typed.
+  const nameSearch =
+    mode === "probe" && debounced ? elementNameFilter(debounced) : null;
 
   const total = elementsQ.data?.totalElements ?? null;
   const totalPages = total !== null ? Math.max(1, Math.ceil(total / ELEMENTS_PAGE)) : null;
@@ -385,25 +448,59 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
         </h2>
         <span className="text-[11px] text-gemma-subtle tabular-nums">
           {total !== null ? total.toLocaleString() : "…"}
-          {debounced ? ` · "${debounced}"` : ""}
+          {debounced ? (
+            <>
+              {" · "}
+              {/* Say what was actually searched. A name search cut back
+                  to its prefix returns more than was typed, and the
+                  count beside the query is what makes that visible. */}
+              &quot;{nameSearch?.truncated ? nameSearch.prefix : debounced}
+              &quot;
+              {nameSearch?.truncated ? (
+                <span
+                  className="not-italic"
+                  title={`"${debounced}" was searched as "${nameSearch.prefix}" — the API cannot match a probe name containing an underscore.`}
+                >
+                  {" "}
+                  (prefix)
+                </span>
+              ) : null}
+            </>
+          ) : (
+            ""
+          )}
         </span>
-        {/* Disabled, not removed. The box sent `filter=name like '%q%'`
-            and the server ignored it: measured 2026-08-22, GPL96 with
-            and without the filter returns the same 22,283 total and the
-            same first rows. So typing narrowed nothing while the header
-            printed the query beside the full count, which reads as a
-            search that ran and matched everything. Asked for in the
-            platform-page handoff, together with gene-symbol search.
-            Re-enable by dropping `disabled` once the filter lands. */}
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          disabled
-          placeholder="probe search unavailable"
-          title="The REST API accepts a filter on this endpoint but does not apply it — a query returns the whole platform. Disabled until it does, rather than searching and silently matching everything."
-          className="ml-auto text-[11px] px-1.5 py-0.5 rounded border border-gemma-grid focus:outline-none focus:ring-1 focus:ring-gemma-accent/50 focus:border-gemma-accent w-44 disabled:bg-gemma-bg disabled:text-gemma-subtle disabled:cursor-not-allowed"
-        />
+        <div className="ml-auto flex items-baseline gap-1">
+          <div className="flex rounded border border-gemma-grid overflow-hidden">
+            {(["probe", "gene"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={
+                  "text-[10px] px-1.5 py-0.5 " +
+                  (mode === m
+                    ? "bg-gemma-accent text-white"
+                    : "bg-white text-gemma-subtle hover:text-gemma-ink")
+                }
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={mode === "probe" ? "probe name…" : "gene symbol…"}
+            title={
+              mode === "probe"
+                ? "Matches the START of a probe name. The API's `like` is prefix-only and cannot carry an underscore, so a full name such as 1007_s_at is searched as 1007."
+                : "Official symbol, alias, older symbol or NCBI id. Resolved against this platform's taxon; returns the probes for the best-matching gene."
+            }
+            className="text-[11px] px-1.5 py-0.5 rounded border border-gemma-grid focus:outline-none focus:ring-1 focus:ring-gemma-accent/50 focus:border-gemma-accent w-36"
+          />
+        </div>
       </header>
 
       <div className="flex-1 min-h-0 overflow-auto">
@@ -520,11 +617,33 @@ function ElementRow({
           {el.name}
         </td>
         <td className="px-2 py-1 text-[11px] text-gemma-subtle leading-snug">
+          {/* Genes ride down with the page (`withGenes`), so the row can
+              say what it maps to without opening. `[]` is a real answer
+              — "maps to no gene" — and is drawn differently from the
+              field being absent. */}
+          {el.genes?.length ? (
+            <span className="mr-1.5 inline-flex gap-1 align-baseline">
+              {el.genes.slice(0, 3).map((g) => (
+                <span
+                  key={g.id}
+                  className="font-mono text-[10px] text-gemma-ink"
+                  title={g.ncbiId ? `NCBI:${g.ncbiId}` : undefined}
+                >
+                  {g.officialSymbol ?? `#${g.id}`}
+                </span>
+              ))}
+              {el.genes.length > 3 ? (
+                <span className="text-[10px] text-gemma-subtle">
+                  +{el.genes.length - 3}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
           {el.description ? (
             <span className="text-gemma-ink line-clamp-1">{el.description}</span>
-          ) : (
+          ) : !el.genes?.length ? (
             <span className="italic">—</span>
-          )}
+          ) : null}
         </td>
       </tr>
       {open ? (
@@ -649,17 +768,18 @@ function ProbeSequence({
   );
 }
 
-/** Genome alignment — the real BLAT summary, wired but dark.
+/** Genome alignment — the real BLAT summary.
  *
- *  This used to render deterministic fake coordinates ("chr3:5,429,183
- *  -5,429,426 (−) score 98") under a `stub` badge. Fabricated genomic
- *  coordinates are the one kind of stub worth deleting on sight: they
- *  are indistinguishable from a real answer once screenshotted.
+ *  Live since 2026-08-22. It had rendered a hash of the element id
+ *  dressed as coordinates, then said "not published by the API" for a
+ *  few hours, because the field was serialized away behind
+ *  `@JsonIgnore` on the value object — the query had been running and
+ *  its result discarded on the way out.
  *
- *  `mappingSummary` exists and is documented to carry these, but
- *  returns none on any probe measured — see `getElementAlignments`. So
- *  the panel says what it doesn't have and renders the moment the
- *  server starts sending it. */
+ *  `identity` and `score` are fractions, shown as percentages. A probe
+ *  on the primary assembly typically reports several alignments that
+ *  are the same locus on alt contigs (`6_GL000253v2_alt`), so the
+ *  primary-assembly ones sort first and the rest are marked. */
 function GenomeAlignment({
   platformId,
   elementId,
@@ -688,21 +808,16 @@ function GenomeAlignment({
           couldn't load alignments
         </div>
       ) : rows.length === 0 ? (
-        <div
-          className="text-[11px] text-gemma-subtle italic"
-          title="The REST API documents geneMappingSummaries on this endpoint but returns none today; asked about in the platform-page handoff."
-        >
-          not published by the API
+        <div className="text-[11px] text-gemma-subtle italic">
+          no alignments recorded
         </div>
       ) : (
         <ul className="space-y-0.5">
-          {rows.map((r, i) => {
+          {sortAlignments(rows).map((r, i) => {
             const b = r.blatResult ?? {};
             const chr = b.targetChromosomeName;
             const start = b.targetStart;
             const end = b.targetEnd;
-            const identity = r.identity ?? b.identity;
-            const score = r.score ?? b.score;
             return (
               <li key={i} className="text-[11px] text-gemma-ink font-mono">
                 {chr && start != null && end != null ? (
@@ -711,24 +826,39 @@ function GenomeAlignment({
                     {b.strand ? (
                       <span className="text-gemma-subtle"> ({b.strand})</span>
                     ) : null}
+                    {isAltContig(chr) ? (
+                      <span
+                        className="ml-1 text-[9px] text-gemma-subtle not-italic"
+                        title="An alternate contig — usually the same locus as the primary-assembly hit above, not a second place the probe lands."
+                      >
+                        alt
+                      </span>
+                    ) : null}
                   </>
                 ) : (
                   <span className="text-gemma-subtle italic">
                     alignment without coordinates
                   </span>
                 )}
-                {score != null || identity != null ? (
+                {b.identity != null || b.score != null ? (
                   <span className="ml-2 text-[10px] text-gemma-subtle">
-                    {score != null ? `score ${score}` : ""}
-                    {score != null && identity != null ? " · " : ""}
-                    {identity != null ? `identity ${identity}` : ""}
+                    {b.identity != null ? `${pct(b.identity)} identity` : ""}
+                    {b.identity != null && b.score != null ? " · " : ""}
+                    {b.score != null ? `score ${pct(b.score)}` : ""}
                   </span>
                 ) : null}
                 {r.genes?.length ? (
                   <span className="ml-2 text-[10px] text-gemma-subtle">
                     → {r.genes.map((g) => g.officialSymbol ?? "?").join(", ")}
                   </span>
-                ) : null}
+                ) : (
+                  <span
+                    className="ml-2 text-[10px] text-gemma-subtle italic"
+                    title="The probe aligns here but the alignment supports no gene — a real result, not a missing one."
+                  >
+                    no gene
+                  </span>
+                )}
               </li>
             );
           })}
