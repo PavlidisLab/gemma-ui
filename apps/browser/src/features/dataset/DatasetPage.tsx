@@ -37,7 +37,9 @@ import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
-import { gemmaUrl, geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
+import { geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
+import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
+import { SHOW_GEEQ } from "@/lib/geeq";
 import { capitalizeFirstLetter } from "@/lib/filter";
 import type {
   Dataset,
@@ -182,7 +184,9 @@ function Banner({
 }) {
   const geo = dataset.accession?.accession;
   const geeq = dataset.geeq;
-  const legacyUrl = gemmaUrl(`/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`);
+  const gemma1Url = useGemma1Url(
+    `/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`,
+  );
   const me = useMe();
   const curateHref = me.data ? curationUrl(`/#/experiments/${dataset.id}`) : null;
 
@@ -199,10 +203,11 @@ function Banner({
       <div className="mx-auto w-full max-w-[1200px] px-6 py-3 flex gap-4 flex-wrap items-start">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
-            <a href={legacyUrl} target="_blank" rel="noopener noreferrer"
-              className="text-lg font-semibold text-slate-900 hover:underline">
+            {/* Plain text, not a link: this used to jump to the Gemma
+                1.0 page for the dataset you're already looking at. */}
+            <span className="text-lg font-semibold text-slate-900">
               {dataset.shortName}
-            </a>
+            </span>
             <h1 className="text-sm text-slate-600 leading-snug min-w-0">{dataset.name}</h1>
           </div>
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
@@ -215,10 +220,12 @@ function Banner({
                 {geo}<ExternalLink size={11} />
               </a>
             )}
-            <a href={legacyUrl} target="_blank" rel="noopener noreferrer"
-              className="text-sky-700 hover:underline inline-flex items-center gap-1">
-              Gemma<ExternalLink size={11} />
-            </a>
+            {gemma1Url && (
+              <a href={gemma1Url} target="_blank" rel="noopener noreferrer"
+                className="text-sky-700 hover:underline inline-flex items-center gap-1">
+                {GEMMA_1_LABEL}<ExternalLink size={11} />
+              </a>
+            )}
             {curateHref && (
               <a href={curateHref} target="_blank" rel="noopener noreferrer"
                 className="text-sky-700 hover:underline inline-flex items-center gap-1"
@@ -229,7 +236,7 @@ function Banner({
           </div>
           {ps && <PipelineStatusRow ps={ps} />}
         </div>
-        {geeq && <GeeqChip geeq={geeq} />}
+        {SHOW_GEEQ && geeq && <GeeqChip geeq={geeq} />}
         {ps?.troubled && (
           <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 shrink-0"
             title={ps.troubleDetails ?? undefined}>
@@ -287,21 +294,12 @@ function PipelineStatusRow({ ps }: { ps: PipelineStatus }) {
 // GEEQ sub-score labels — keys mirror the actual wire field names
 // emitted by gemma-rest's GeeqValueObject (see GeeqScores in
 // @/lib/types). Wrong keys here would silently drop a row from the
-// breakdown popover. Suitability scores capture whether the dataset
-// is fit for downstream use (publication, platform amount, raw data,
-// sample size); quality scores capture how clean the data actually is
-// (outliers, replicate behaviour, batch effects).
-const S_SCORE_LABELS: Record<string, string> = {
-  sScorePublication:           "Has publication",
-  sScoreSampleSize:            "Sample size",
-  sScoreRawData:               "Raw data available",
-  sScoreMissingValues:         "Few missing values",
-  sScorePlatformAmount:        "Platform amount",
-  sScorePlatformTechMulti:     "Single technology",
-  sScoreAvgPlatformPopularity: "Platform popularity",
-  sScoreAvgPlatformSize:       "Platform size",
-};
-
+// breakdown popover. Quality scores capture how clean the data
+// actually is (outliers, replicate behaviour, batch effects).
+//
+// The suitability half (publication, platform amount, raw data, sample
+// size) is gone: it was removed from the score, so showing its
+// sub-scores would describe a number nobody computes anymore.
 const Q_SCORE_LABELS: Record<string, string> = {
   qScoreOutliers:                  "Few outliers",
   qScoreSampleMeanCorrelation:     "Sample correlation (mean)",
@@ -348,16 +346,10 @@ function GeeqChip({ geeq }: { geeq: GeeqScores }) {
 function GeeqPopover({ geeq }: { geeq: GeeqScores }) {
   return (
     <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white border border-slate-200 rounded shadow-lg text-[11px]">
-      <div className="px-3 py-2 border-b border-slate-100 flex items-baseline justify-between">
+      <div className="px-3 py-2 border-b border-slate-100">
         <span className="text-xs font-semibold text-slate-700">GEEQ scores</span>
-        {geeq.publicSuitabilityScore != null && (
-          <span className="text-slate-500">
-            suitability {geeq.publicSuitabilityScore.toFixed(2)}
-          </span>
-        )}
       </div>
       <div className="divide-y divide-slate-100">
-        <ScoreGroup label="Suitability" scores={geeq} labels={S_SCORE_LABELS} />
         <ScoreGroup label="Quality" scores={geeq} labels={Q_SCORE_LABELS} />
       </div>
       <div className="px-3 py-1.5 border-t border-slate-100 text-[10px] text-slate-400">
@@ -3071,6 +3063,9 @@ function buildDeHeatmapPayload(
 
 function DownloadsTab({ dataset }: { dataset: Dataset }) {
   const id = dataset.id;
+  const gemma1Full = useGemma1Url(
+    `/expressionExperiment/showExpressionExperiment.html?id=${id}`,
+  );
   // Result-set list — populates the per-contrast DE download rows.
   // We hit `/datasets/{id}/analyses/differential/resultSets` which 302s
   // to `/resultSets?datasets={id}`; fetch follows the redirect.
@@ -3156,23 +3151,23 @@ function DownloadsTab({ dataset }: { dataset: Dataset }) {
         )}
       </SectionCard>
 
-      <SectionCard title="Other" subtitle="External resources">
-        <ul className="text-sm space-y-1.5 text-sky-700">
-          <li>
-            <a
-              className="hover:underline inline-flex items-center gap-1"
-              href={gemmaUrl(
-                `/expressionExperiment/showExpressionExperiment.html?id=${id}`,
-              )}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Legacy Gemma page (full details)
-              <ExternalLink size={11} />
-            </a>
-          </li>
-        </ul>
-      </SectionCard>
+      {gemma1Full && (
+        <SectionCard title="Other" subtitle="External resources">
+          <ul className="text-sm space-y-1.5 text-sky-700">
+            <li>
+              <a
+                className="hover:underline inline-flex items-center gap-1"
+                href={gemma1Full}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {GEMMA_1_LABEL} page (full details)
+                <ExternalLink size={11} />
+              </a>
+            </li>
+          </ul>
+        </SectionCard>
+      )}
     </div>
   );
 }

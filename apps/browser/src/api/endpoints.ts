@@ -4,6 +4,7 @@
 
 import { apiGet, type Params } from "./client";
 import { compressFilter, compressArg } from "@/lib/utils";
+import { negativeCategoryClause } from "@/lib/filter";
 import { excludedCategories, excludedTerms } from "@/lib/gemmaConfig";
 import type {
   AnnotationSearchResult,
@@ -48,6 +49,14 @@ export interface CategoriesArgs {
   filter: string[][];
   limit?: number;
   applyExclusions: boolean; // true ⇒ send excludedCategories/Terms
+  /** Category URIs to keep in the facet even when `excludedCategories`
+   *  would drop them. The exclusion list is about what's worth
+   *  *offering* to browse by — free-text and numeric axes whose term
+   *  lists are thousands of one-offs. It shouldn't also suppress the
+   *  count of a category the visitor has already picked: they arrive
+   *  on such a filter from the home page's factor-value chart, and a
+   *  selected row with no number reads as a broken filter. */
+  keepCategories?: string[];
   gid?: string;
 }
 
@@ -58,11 +67,26 @@ const DISALLOWED_CATEGORY_FILTER_PREFIXES = [
   "experimentalDesign.experimentalFactors.factorValues.characteristics.",
 ];
 
+/** A sub-clause may be wrapped in a quantifier — ``any(<predicate> and
+ *  <predicate>)`` — so the property name isn't necessarily at the
+ *  front of the string. Match the prefix against what's inside.
+ *
+ *  Annotation clauses only became quantified on 2026-08-22 (see
+ *  `filter.ts`); before that a positive clause started with the
+ *  property and matched directly, and `none(...)` exclusions did not —
+ *  they leaked into the facet query unnoticed. */
+export const unquantify = (sc: string) => sc.replace(/^(?:any|none|all)\(/i, "");
+
 export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) {
   // Strip annotation-style sub-clauses from the filter — we don't want
   // selecting a value to hide the category it belongs to.
   const mFilter = args.filter
-    .map((c) => c.filter((sc) => !DISALLOWED_CATEGORY_FILTER_PREFIXES.some((p) => sc.startsWith(p))))
+    .map((c) =>
+      c.filter(
+        (sc) =>
+          !DISALLOWED_CATEGORY_FILTER_PREFIXES.some((p) => unquantify(sc).startsWith(p)),
+      ),
+    )
     .filter((c) => c.length > 0);
   const compressed = await compressFilter(mFilter);
   const params: Params = {
@@ -72,7 +96,10 @@ export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) 
     gid: args.gid,
   };
   if (args.applyExclusions) {
-    params.excludedCategories = await compressArg(excludedCategories.join(","));
+    const keep = new Set(args.keepCategories ?? []);
+    params.excludedCategories = await compressArg(
+      excludedCategories.filter((c) => !keep.has(c)).join(","),
+    );
     params.excludeFreeTextCategories = "true";
     params.excludeUncategorizedTerms = "true";
     params.excludedTerms = await compressArg(excludedTerms.join(","));
@@ -197,6 +224,11 @@ export async function getPlatformByShortName(
     params: {
       filter: `shortName = ${shortName}`,
       limit: 1,
+      // Gene-mapping counts are expensive (~1.7s on the largest
+      // platform), so they are opt-in and read from a generated report
+      // rather than computed per request. One platform, one page —
+      // worth asking for. Null comes back when no report exists yet.
+      withGeneCounts: true,
     },
     signal,
   });
@@ -210,15 +242,81 @@ export interface PlatformElement {
   id: number;
   name: string;
   description?: string | null;
+  /** Raw probe sequence, present only when the listing was asked for
+   *  it (`withSequence`). Null for elements that carry none — a gene
+   *  -list pseudoplatform has no oligos to report. */
+  sequence?: string | null;
+  sequenceLength?: number | null;
+  /** Genes this element maps to, present only when the listing asked
+   *  (`withGenes`). `[]` means "maps to nothing", which is a different
+   *  claim from the field being absent because nobody asked. */
+  genes?: ElementGene[] | null;
+}
+
+export interface ElementGene {
+  id: number;
+  officialSymbol?: string | null;
+  ncbiId?: number | null;
+}
+
+/**
+ * One BLAT alignment behind a probe, as `mappingSummary` reports it.
+ *
+ * `identity` and `score` are FRACTIONS (0–1), and they live on
+ * `blatResult` rather than a level up. Chromosome names include alt
+ * contigs (`6_GL000253v2_alt`), which is why a probe on the primary
+ * assembly often reports several alignments that are all the same
+ * locus.
+ */
+export interface GeneMappingSummary {
+  blatResult?: {
+    targetChromosomeName?: string | null;
+    targetStart?: number | null;
+    targetEnd?: number | null;
+    /** A plain label ("human"), NOT the assembly. The genome build is
+     *  `taxon.externalDatabase.name` ("hg38"), which is what a genome
+     *  browser needs. */
+    targetDatabase?: string | null;
+    taxon?: { externalDatabase?: { name?: string | null } | null } | null;
+    strand?: string | null;
+    identity?: number | null;
+    score?: number | null;
+  } | null;
+  genes?: ElementGene[] | null;
 }
 
 export interface PlatformElementsArgs {
   offset?: number;
   limit?: number;
-  /** Optional name filter — uses the Gemma REST ``filter`` param
-   *  with a ``like`` operator on the element name. Falls back to
-   *  whatever the server does when empty. */
+  /** Probe-name search. See `elementNameFilter` for why this is not
+   *  simply `name like '%q%'`. */
   query?: string;
+  /** Gene search — official symbol, alias, older symbol or NCBI id.
+   *  Resolved server-side through the search service and scoped to the
+   *  platform's own taxon. Matches no gene ⇒ empty page, never the
+   *  unfiltered listing. */
+  gene?: string;
+}
+
+/**
+ * The `filter` clause for a probe-name search.
+ *
+ * `like` is a PREFIX match, and it escapes any wildcard you supply — so
+ * `%1007%` searches for a literal percent sign and returns nothing
+ * (measured, still true on `e6d6d6a055`). Wildcards are stripped rather
+ * than passed through; there is no substring search to be had.
+ *
+ * A value containing `_` used to match nothing at all, because the
+ * single-character SQL wildcard was escaped without an `escape` clause
+ * — which made every Affymetrix probe name unsearchable, since nearly
+ * all of them carry one. This function cut names back to their first
+ * segment to work around it. Fixed server-side in `e6d6d6a055`
+ * (2026-08-22) across every filtered endpoint, so the workaround is
+ * gone and a full name is searched as typed: `name like 1007_s_at`
+ * returns that probe.
+ */
+export function elementNameFilter(query: string): string {
+  return `name like ${query.trim().replace(/[%'"]/g, "")}`;
 }
 
 /** Datasets-on-this-platform — paginated. Goes through the standard
@@ -252,15 +350,19 @@ export async function getPlatformElements(
   const params: Params = {
     offset: args.offset ?? 0,
     limit: args.limit ?? 50,
+    // Sequences and genes come down with the page rather than per
+    // expanded row. The server warns sequences inflate a full 22k
+    // -element response by ~1 MB, which is why they are opt-in — but a
+    // page is 50 rows, so it costs ~15 KB and saves a request every
+    // time a row opens. Genes are one batch query per page against the
+    // denormalized GENE2CS table, not 50 round-trips.
+    withSequence: true,
+    withGenes: true,
   };
-  if (args.query && args.query.trim()) {
-    // Today: only matches probe names. Searching by gene symbol /
-    // alias (e.g. "BRCA1" → all probes that map to BRCA1) needs a
-    // backend addition — see TODO at top of this file
-    // (`backendGaps`). Quote the value so spaces don't break the
-    // Gemma REST filter parser.
-    const q = args.query.trim().replace(/'/g, "");
-    params.filter = `name like '%${q}%'`;
+  if (args.gene && args.gene.trim()) {
+    params.gene = args.gene.trim();
+  } else if (args.query && args.query.trim()) {
+    params.filter = elementNameFilter(args.query);
   }
   return apiGet<PaginatedResponse<PlatformElement>>(
     `${BASE}/platforms/${platformId}/elements`,
@@ -281,6 +383,63 @@ export interface MappedGene {
   aliases?: string[];
   taxon?: { commonName?: string; scientificName?: string };
   ncbiUri?: string;
+}
+
+/**
+ * BLAT alignments behind one probe — where it lands on the genome and
+ * which genes that supports.
+ *
+ * Addressed by element ID, not name: probe names routinely contain a
+ * slash (`AFFX-HUMISGF3A/M97935_MA_at`) and an encoded slash in a path
+ * segment 404s, so a name-addressed call fails for exactly the probes
+ * that are most interesting.
+ *
+ * ⚠️ Returns [] on every probe measured 2026-08-22 — the endpoint
+ * answers 200 but omits `geneMappingSummaries` entirely, including for
+ * probes that demonstrably map to a gene through the sibling `/genes`
+ * call (GPL96 `1007_s_at` → DDR1), and on a merge target as well as a
+ * mergee. Asked about in the platform-page handoff. Wired anyway: the
+ * moment the field is populated this lights up with no further change.
+ */
+export async function getElementAlignments(
+  platformId: number | string,
+  elementId: number,
+  signal?: AbortSignal,
+): Promise<GeneMappingSummary[]> {
+  const r = await apiGet<{ data?: { geneMappingSummaries?: GeneMappingSummary[] } }>(
+    `${BASE}/platforms/${platformId}/elements/${elementId}/mappingSummary`,
+    { signal },
+  );
+  return r.data?.geneMappingSummaries ?? [];
+}
+
+/**
+ * Gene records by NCBI id, in one request.
+ *
+ * `withGenes` on the elements listing carries `{id, officialSymbol,
+ * ncbiId}` and deliberately not the name — it is a compact column, and
+ * hydrating gene entities per row is what it exists to avoid. But a
+ * symbol alone doesn't say what the gene IS, so the listing resolves
+ * the names for the page it is showing: one call for the distinct
+ * genes on screen, not one per row.
+ *
+ * 🛑 **NCBI ids, not Gemma's internal ones.** `/genes/{genes}` matches
+ * "gene identifiers": `/genes/23635` returns SSBP2, while
+ * `/genes/245694` — SSBP2's own `id` on every other payload — returns
+ * nothing at all rather than erroring. Passing a symbol works too and
+ * is worse: `/genes/SSBP2` returns three rows across species. The
+ * returned records carry both, so the caller keys the result by `id`.
+ */
+export async function getGenesByNcbiIds(
+  ncbiIds: number[],
+  signal?: AbortSignal,
+): Promise<MappedGene[]> {
+  if (ncbiIds.length === 0) return [];
+  const r = await apiGet<PaginatedResponse<MappedGene>>(
+    `${BASE}/genes/${ncbiIds.join(",")}`,
+    { signal },
+  );
+  return r.data ?? [];
 }
 
 export async function getElementGenes(
@@ -844,13 +1003,57 @@ export async function getGene(
  *  Returns `null` when nothing matches or the top hit carries no NCBI id. */
 export async function resolveGeneNcbiId(
   query: string,
-  signal?: AbortSignal,
+  options: { taxon?: string; signal?: AbortSignal } = {},
 ): Promise<number | null> {
+  const { taxon, signal } = options;
   const q = query.trim();
   if (!q) return null;
   if (/^\d+$/.test(q)) return Number(q);
+
+  // With a taxon, this is an exact symbol lookup and there's a
+  // deterministic endpoint for it — no ranking, no limit, no way for
+  // the answer to depend on how many rows were asked for.
+  //
+  // The ranked search is the wrong tool here and was actively unsafe:
+  // /genes/search?query=Myc ranks rat first, so a mouse link resolved
+  // to the rat gene, and adding taxon= didn't fix it because the limit
+  // was applied upstream of the taxon filter (limit=1 → empty,
+  // limit=3 → mouse). Both were fixed server-side; this avoids the
+  // class rather than the instance.
+  if (taxon) {
+    const r = await apiGet<PaginatedResponse<Gene>>(
+      `${BASE}/taxa/${encodeURIComponent(taxon)}/genes/${encodeURIComponent(q)}`,
+      { signal },
+    );
+    return r.data?.[0]?.ncbiId ?? null;
+  }
+
+  // No taxon: free text from the gene search box, where ranking is
+  // what the caller wants.
   const hits = await searchGenes(q, { limit: 1, signal });
   return hits[0]?.ncbiId ?? null;
+}
+
+/** Bulk symbol → gene lookup. ``/genes/{genes}`` takes a
+ *  comma-separated list and resolves each entry as an NCBI id, an
+ *  Ensembl id, or an official symbol — so one call covers a whole
+ *  chart's worth of symbols.
+ *
+ *  A symbol is not unique across taxa (``Myc`` returns the human,
+ *  mouse and rat genes), so callers that mean a particular species
+ *  have to pick from the result by taxon.
+ */
+export async function getGenesBySymbols(
+  symbols: string[],
+  signal?: AbortSignal,
+): Promise<Gene[]> {
+  const list = symbols.map((x) => x.trim()).filter(Boolean);
+  if (list.length === 0) return [];
+  const r = await apiGet<PaginatedResponse<Gene>>(
+    `${BASE}/genes/${encodeURIComponent(list.join(","))}`,
+    { signal },
+  );
+  return r.data ?? [];
 }
 
 export async function getGeneLocations(
@@ -1207,12 +1410,26 @@ export async function getCategoriesWithChildren(
     list.map(async (cat) => {
       const catId = cat.classUri || cat.className?.toLowerCase() || "";
       if (!catId) return { ...cat, children: [] };
+      // Drop this category's own exclusion before listing its terms.
+      // `none(categoryUri = X)` means no dataset in the result set
+      // carries a term in X, so the children come back empty, the row
+      // is dropped below for having none, and the category the visitor
+      // just excluded vanishes from the panel — along with any way to
+      // un-exclude it, or to keep one term of it. Every other clause
+      // still applies, so the counts stay honest about the rest of the
+      // filter.
+      const selfExclusion = negativeCategoryClause(cat);
+      const childFilter = selfExclusion
+        ? args.filter
+            .map((c) => c.filter((sc) => sc !== selfExclusion))
+            .filter((c) => c.length > 0)
+        : args.filter;
       try {
         const r = await getAnnotationsByCategory(
           {
             category: catId,
             query: args.query,
-            filter: args.filter,
+            filter: childFilter,
             applyExclusions: args.applyExclusions,
             excludeFreeText: args.applyExclusions,
             gid: args.gid,

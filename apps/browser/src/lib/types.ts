@@ -218,11 +218,14 @@ export interface PipelineStatus {
  *  GeeqValueObject Java class).
  *
  *  All sub-scores normalised to [-1, 1] (higher = better); the
- *  aggregate ``publicQualityScore`` / ``publicSuitabilityScore``
- *  are bounded to [0, 1]. */
+ *  aggregate ``publicQualityScore`` is bounded to [0, 1].
+ *
+ *  Suitability is deliberately absent. It was removed from the GEEQ
+ *  score, so ``publicSuitabilityScore`` and the ``sScore*`` fields are
+ *  no longer declared here even though gemma-rest still emits them —
+ *  the index signature below keeps them harmless on the way in. */
 export interface GeeqScores {
   publicQualityScore?: number | null;
-  publicSuitabilityScore?: number | null;
 
   // ─── Flags / counts (not in the score-bar table) ───
   /** ``true`` when the dataset has no processed data vectors. */
@@ -230,16 +233,6 @@ export interface GeeqScores {
   corrMatIssues?: number | null;
   replicatesIssues?: number | null;
   batchCorrected?: boolean | null;
-
-  // ─── Suitability sub-scores ───
-  sScorePublication?: number | null;
-  sScorePlatformAmount?: number | null;
-  sScorePlatformTechMulti?: number | null;
-  sScoreAvgPlatformPopularity?: number | null;
-  sScoreAvgPlatformSize?: number | null;
-  sScoreSampleSize?: number | null;
-  sScoreRawData?: number | null;
-  sScoreMissingValues?: number | null;
 
   // ─── Quality sub-scores ───
   qScoreOutliers?: number | null;
@@ -491,6 +484,22 @@ export interface Platform {
   taxonID?: number;
   isMerged?: boolean;
   isMergee?: boolean;
+  /** The platform this one was folded into, or null. Landed
+   *  2026-08-22; before that `isMergee` said a merge had happened
+   *  without naming the other side, and no query could recover it. */
+  mergedInto?: { id: number; shortName?: string | null } | null;
+  /** The platforms folded into this one — `[]` when none. */
+  mergees?: Array<{ id: number; shortName?: string | null }> | null;
+  /** Gene-mapping counts, only present when the request asked for them
+   *  (`withGeneCounts`). Null means NOT COMPUTED, never zero: on a
+   *  microarray they come from a report that has to be generated, and
+   *  production had never written one as of 2026-08-22. Gene-list
+   *  platforms derive them live and always answer. */
+  numberOfGenes?: number | null;
+  numberOfMappedElements?: number | null;
+  /** Age of the report the counts came from. Null on a gene-list
+   *  platform means "derived live, current" — not "unknown". */
+  geneCountsLastUpdated?: string | null;
   troubled?: boolean;
   needsAttention?: boolean;
   curationNote?: string;

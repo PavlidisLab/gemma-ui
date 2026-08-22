@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { Link } from "@tanstack/react-router";
 import { marked } from "marked";
 import { ChevronDown, ChevronRight, AlertOctagon } from "lucide-react";
+import { SHOW_GEEQ } from "@/lib/geeq";
 import type {
   AnnotationTerm,
   Category,
@@ -120,7 +121,7 @@ export function ResultsTable(props: Props) {
           ) : null}
           {datasets.map((d) => {
             const isOpen = expanded.has(d.id);
-            const q = d.geeq?.publicQualityScore;
+            const q = SHOW_GEEQ ? d.geeq?.publicQualityScore : undefined;
             return (
               <Fragment key={d.id}>
                 <tr

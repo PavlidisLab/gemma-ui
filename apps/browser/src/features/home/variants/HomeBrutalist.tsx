@@ -1,15 +1,15 @@
 /**
  * Brutalist grid variant — sharp blocks, asymmetric layout.
  *
- * Design intent (v3 — richer stats + marquee, 2026-05-25):
+ * Design intent (v4 — fixed panels + plots popup, 2026-08-21):
  *   - Hero stats row: Datasets, Platforms, Samples, Result sets
  *     (DEA), Ontology terms — each in its own block.
- *   - Two split blocks below: taxon breakdown (top 6) and
- *     technology-type breakdown (single-cell / RNA-seq /
- *     microarray / other). Each block fills progressively as its
- *     query resolves — no whole-page block-on-slowest.
- *   - Scrolling marquee of recently-updated dataset short names
- *     under the stats, links into each dataset's detail page.
+ *   - "What Gemma is / provide / how to access", collapsible.
+ *   - One row of two panels that hold still: annotation coverage,
+ *     and recent activity (the week's counts, then one worked
+ *     example). Each block fills progressively as its query
+ *     resolves — no whole-page block-on-slowest.
+ *   - Everything distributional lives behind "More plots".
  *   - Hard 1px borders, no rounded corners, no shadows.
  *   - Single accent (blue-700) for hover affordances only.
  */
@@ -19,55 +19,30 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { GENERAL_INFO } from "../copy";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { useMe, useLogout } from "@/api/auth";
 import { getDatasetAnnotations } from "@/api/endpoints";
 import { LoginModal } from "@/features/shared/LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import { gemmaLogoText, ubcLogo } from "@gemma/assets";
+import { isBaselineTerm } from "@/lib/baseline";
+import { tintForIndex } from "@/lib/valueTint";
+import { InfoBadge, Panel } from "../panels";
+import { MorePlotsModal } from "../MorePlotsModal";
 import {
   useGemmaSummary,
   fmtCount,
   cleanExperimentTitle,
   type GemmaSummary,
-  type TaxonRow,
-  type TechnologyRow,
   type RecentDataset,
 } from "../useGemmaSummary";
-
-/**
- * Whitelist of ExperimentalFactor categories that are user-facing
- * on the public home page. Keys are the canonical Gemma category
- * label (lowercased) as it arrives from
- * ``factorValuesByCategory``. Values are the display label used in
- * the bar chart.
- *
- * Buckets not in this map are dropped (assay / BioSource / block /
- * labelling — curator-bookkeeping, not real experimental axes).
- * Multiple keys can map to the same display group when a natural
- * merge applies (e.g. ``molecular entity`` rolls into Treatment —
- * both are "what was applied to the sample").
- */
-const FACTOR_CATEGORY_DISPLAY: Record<string, string> = {
-  genotype: "Genotype",
-  treatment: "Treatment",
-  "molecular entity": "Treatment",
-  disease: "Disease",
-  "organism part": "Tissue",
-  "cell type": "Cell type",
-  strain: "Strain",
-  "cell line": "Cell line",
-  "developmental stage": "Developmental stage",
-  age: "Age",
-  "biological sex": "Sex",
-};
 
 export function HomeBrutalist() {
   const s = useGemmaSummary();
   // General-info section starts expanded on first load (per design review);
   // power users can fold it away once they know what Gemma is.
   const [infoOpen, setInfoOpen] = useState(true);
+  const [plotsOpen, setPlotsOpen] = useState(false);
   return (
     <div
       className="h-full overflow-y-auto bg-stone-100 text-stone-950"
@@ -93,44 +68,39 @@ export function HomeBrutalist() {
             and charts below. */}
         <GeneralInfo open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
 
-        {/* Two cycling boxes in one row. Left rotates through the
-            corpus breakdowns (taxon · technology · annotation coverage
-            · recently updated); right rotates through the distribution
-            plots (factor values · perturbed genes · treatment
-            subcategories). Both auto-rotate (pause on hover, honour
-            prefers-reduced-motion); dots + arrows jump manually. */}
+        {/* Two fixed panels, one row: annotation coverage on the left,
+            the recent-activity panel on the right. This replaced a
+            pair of auto-rotating carousels — two showcases cycling
+            beside each other meant nothing on the row held still long
+            enough to read. The distribution plots they used to hide
+            now live behind "More plots", where they can be looked at
+            deliberately. */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-px">
-          <CyclingBox
-            titles={[
-              "Datasets by taxon",
-              "Samples by technology",
-              "Annotation coverage",
-              "Recently updated",
-            ]}
-            panes={[
-              <TaxonBreakdown key="taxon" rows={s.byTaxon} />,
-              <TechnologyBreakdown
-                key="tech"
-                rows={s.byTechnology}
-                totalCells={s.totalCells}
-              />,
-              <AnnotationCoverageBreakdown key="annotation" s={s} />,
-              <RecentlyUpdatedCard key="recent" items={s.recentDatasets} />,
-            ]}
-          />
-          <CyclingBox
-            titles={[
-              "Factor values per category",
-              "Top genes perturbed",
-              "Treatment subcategories",
-            ]}
-            panes={[
-              <CategoryBars key="category" s={s} />,
-              <PerturbedGenesBars key="perturbed" s={s} />,
-              <TreatmentSubcategoryBars key="treatment" s={s} />,
-            ]}
-          />
+          <Panel>
+            <AnnotationCoverageBreakdown s={s} />
+          </Panel>
+          <Panel>
+            <RecentActivityCard
+              items={s.recentDatasets}
+              updatedThisWeek={s.updatedThisWeek}
+              added={s.added}
+              updatedSince={s.updatedSince}
+            />
+          </Panel>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setPlotsOpen(true)}
+          className="w-full border border-stone-950 border-t-0 bg-stone-100 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-stone-600 hover:bg-stone-200 hover:text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-600"
+        >
+          More plots →
+        </button>
+        <MorePlotsModal
+          open={plotsOpen}
+          onClose={() => setPlotsOpen(false)}
+          s={s}
+        />
 
         {/* Surface buttons removed 2026-05-26 — the reviewer: redundant with
             the stat tiles up top. Datasets / Platforms / Genes
@@ -233,85 +203,6 @@ function StatsRow({ s }: { s: GemmaSummary }) {
   );
 }
 
-function CyclingBox({
-  titles,
-  panes,
-}: {
-  // Parallel arrays — titles[i] labels panes[i] (used for the dot
-  // aria-labels). Kept as props so one component drives every home-page
-  // carousel (breakdowns on the left, distribution plots on the right).
-  titles: readonly string[];
-  panes: React.ReactNode[];
-}) {
-  // One box that cycles through its panes instead of laying them out
-  // side-by-side. Auto-advances every 7 s; hover pauses,
-  // prefers-reduced-motion locks on pane 0. Dots + arrows jump
-  // manually. Panes with their own inner cycle (e.g. RecentlyUpdated's
-  // 5 s dataset rotation) only run while they're the mounted pane.
-  const n = panes.length;
-  const [idx, setIdx] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const go = (i: number) => setIdx(((i % n) + n) % n);
-
-  useEffect(() => {
-    if (paused) return;
-    if (typeof window !== "undefined" && window.matchMedia) {
-      const m = window.matchMedia("(prefers-reduced-motion: reduce)");
-      if (m.matches) return;
-    }
-    const t = window.setInterval(() => setIdx((i) => (i + 1) % n), 7000);
-    return () => window.clearInterval(t);
-  }, [paused, n]);
-
-  return (
-    <div
-      className="flex flex-col h-full border border-stone-950 bg-stone-100"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-    >
-      {/* flex-1 + min-height keeps the box from jumping as it cycles
-          between panes of different lengths, and lets side-by-side
-          boxes stretch to a shared row height. Shorter panes sit at
-          the top. */}
-      <div className="flex-1 min-h-[15rem]">{panes[idx]}</div>
-      <div className="flex items-center justify-between border-t border-stone-300 px-4 py-2">
-        <button
-          type="button"
-          onClick={() => go(idx - 1)}
-          aria-label="Previous"
-          className="px-2 py-0.5 text-stone-500 hover:text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-600"
-        >
-          ←
-        </button>
-        <div className="flex items-center gap-2">
-          {panes.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => go(i)}
-              aria-label={`Show ${titles[i]}`}
-              aria-current={i === idx}
-              className={`w-2 h-2 border border-stone-500 transition-colors focus:outline-none focus:ring-1 focus:ring-stone-600 ${
-                i === idx
-                  ? "bg-stone-900 border-stone-900"
-                  : "bg-transparent hover:border-stone-800"
-              }`}
-            />
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => go(idx + 1)}
-          aria-label="Next"
-          className="px-2 py-0.5 text-stone-500 hover:text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-600"
-        >
-          →
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
   // Eight URI-bound counts (excludeFreeText=true), rendered as a
   // label/value list matching the taxon + technology breakdowns.
@@ -408,361 +299,6 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
   );
 }
 
-function CategoryBars({ s }: { s: GemmaSummary }) {
-  // Factor-values-per-category bar chart. Source:
-  // /stats/home.factorValuesByCategory. Filter / merge against
-  // FACTOR_CATEGORY_DISPLAY so the chart shows the ~8-10 user-
-  // facing experimental axes only.
-  //
-  // Each row also picks up an EE-coverage tag from
-  // categoryDistribution (bar carries FV depth; tag carries EE
-  // breadth). The two distributions are independently sourced; we
-  // join on category URI primarily, label as fallback.
-  const eeByUri = new Map<string, number>();
-  const eeByLabel = new Map<string, number>();
-  for (const c of s.categoryDistribution) {
-    if (c.categoryUri) eeByUri.set(c.categoryUri, c.numberOfExpressionExperiments);
-    if (c.category)
-      eeByLabel.set(
-        c.category.trim().toLowerCase(),
-        c.numberOfExpressionExperiments,
-      );
-  }
-
-  const merged = new Map<
-    string,
-    { uris: Set<string>; sourceLabels: Set<string>; count: number }
-  >();
-  for (const row of s.factorValuesByCategory) {
-    const key = row.category.trim().toLowerCase();
-    const display = FACTOR_CATEGORY_DISPLAY[key];
-    if (!display) continue;
-    const cur =
-      merged.get(display) ??
-      { uris: new Set<string>(), sourceLabels: new Set<string>(), count: 0 };
-    if (row.uri) cur.uris.add(row.uri);
-    cur.sourceLabels.add(key);
-    cur.count += row.count;
-    merged.set(display, cur);
-  }
-
-  // Resolve EE coverage per displayed group. When multiple source
-  // categories merged into one group (e.g. molecular entity →
-  // Treatment), take the max EE count — summing would double-count
-  // experiments tagged with both.
-  const rows = Array.from(merged.entries())
-    .map(([label, v]) => {
-      let ee = 0;
-      for (const uri of v.uris) {
-        const x = eeByUri.get(uri);
-        if (x !== undefined && x > ee) ee = x;
-      }
-      if (ee === 0) {
-        for (const lbl of v.sourceLabels) {
-          const x = eeByLabel.get(lbl);
-          if (x !== undefined && x > ee) ee = x;
-        }
-      }
-      return { label, count: v.count, ee: ee > 0 ? ee : null };
-    })
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10); // match sibling panels' row count
-
-  const ready = rows.length > 0;
-  const max = Math.max(1, ...rows.map((r) => r.count));
-  return (
-    <div className="bg-stone-100">
-      <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between gap-2">
-        <span className="text-stone-900 font-semibold">
-          Factor values per category
-        </span>
-        <span
-          className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
-          title="Factor-value occurrences per ExperimentalFactor category — each experiment defines its own FactorValue records (so Sex shows thousands of occurrences, not two), and the bar reflects how heavily a category is used across the corpus."
-        >
-          occurrences
-        </span>
-      </div>
-      {ready ? (
-        <ul>
-          {rows.map((r) => (
-            <CategoryBar
-              key={r.label}
-              label={r.label}
-              count={r.count}
-              max={max}
-            />
-          ))}
-        </ul>
-      ) : (
-        <div className="px-4 py-3 text-stone-500 text-xs">
-          {s.isLoading ? "loading…" : "no factor-value categories"}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TreatmentSubcategoryBars({ s }: { s: GemmaSummary }) {
-  // Right-third bar chart: the treatment sub-buckets shipped by
-  // the agents side (approved-drug / hormone / vitamin / toxin / vehicle /
-  // other-chemical / pathogen / biologic / control-reference /
-  // other). Sums to byAnnotationCategory.treatment.
-  //
-  // Drop the ``control`` group (Control / reference, Vehicles /
-  // solvents) — those dominate the count but carry no biological
-  // signal; surfacing them on the home page just buries the real
-  // pharmacology / biological buckets and pushes "control" to the
-  // top of the chart, which is misleading. Group field comes from
-  // the agents-side treatmentSubcategories.group ("control" / "pharmacology"
-  // / "biological" / "unclassified"). Then cap at 10 so the panel
-  // matches its siblings in row count and bottoms line up.
-  const rows = s.treatmentSubcategories
-    .filter((r) => r.group !== "control")
-    .slice(0, 10);
-  const ready = rows.length > 0;
-  const max = Math.max(1, ...rows.map((r) => r.count));
-  return (
-    <div className="bg-stone-100">
-      <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between gap-2">
-        <span className="text-stone-900 font-semibold">
-          Treatment subcategories
-        </span>
-        <span
-          className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
-          title="Experiments using any annotation in each treatment sub-bucket. Buckets span CHEBI chemicals (approved drugs, hormones, toxins, vitamins, other chemicals), NCBITaxon pathogens, PR / NCBI-gene biologics, and an unclassified ``other`` catch-all. Control / reference and vehicle / solvent buckets are filtered out — they dominate the count but carry no biological signal."
-        >
-          experiments
-        </span>
-      </div>
-      {ready ? (
-        <ul>
-          {rows.map((r) => {
-            const pct = Math.max(0.5, (r.count / max) * 100);
-            // Rich title= tooltip carries the new data (top terms +
-            // approved_drug therapeutic-class breakdown) without
-            // changing row height — keeps alignment with the sibling
-            // CategoryBars / PerturbedGenesBars panels.
-            const tooltipLines: string[] = [r.label];
-            if (r.topTerms.length > 0) {
-              tooltipLines.push(
-                "",
-                `Top terms (${r.topTerms.length}):`,
-                ...r.topTerms
-                  .slice(0, 10)
-                  .map(
-                    (t) =>
-                      `  • ${t.label} — ${t.count.toLocaleString()} experiments`,
-                  ),
-              );
-            }
-            if (r.subBuckets.length > 0) {
-              tooltipLines.push(
-                "",
-                `Therapeutic-class breakdown (${r.subBuckets.length}):`,
-                ...r.subBuckets.map(
-                  (b) =>
-                    `  • ${b.label} — ${b.count.toLocaleString()} experiments`,
-                ),
-              );
-            }
-            return (
-              <li
-                key={r.key}
-                className="px-4 py-0.5 grid grid-cols-[6.5rem_minmax(0,1fr)_max-content] items-center gap-2 text-xs"
-                title={tooltipLines.join("\n")}
-              >
-                <span className="text-stone-800 truncate">{r.label}</span>
-                <div className="h-1.5 bg-stone-200 relative overflow-hidden">
-                  <div
-                    className="absolute inset-y-0 left-0 bg-blue-700"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <span className="text-right tabular-nums text-stone-900 font-medium whitespace-nowrap">
-                  {r.count.toLocaleString()}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <div className="px-4 py-3 text-stone-500 text-xs">
-          pending /stats/home refresh
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PerturbedGenesBars({ s }: { s: GemmaSummary }) {
-  // Middle-third bar chart: top perturbed genes by number of
-  // experiments. Source: /stats/home.topPerturbedGenes (filed in
-  // HOME_PAGE_PERTURBED_GENES_2026_05_25.md — not yet shipped).
-  // Until the field lands the panel renders a placeholder so the
-  // 3-col layout has visual mass and the page communicates the
-  // intent. Empty-state header line keeps the slot honest.
-  // Cap at 10 to match the sibling panels in the row — all three
-  // render the same row count so the bottoms line up. The reviewer: "make
-  // it all fit and line up well".
-  const rows = s.topPerturbedGenes.slice(0, 10);
-  const ready = rows.length > 0;
-  const max = Math.max(1, ...rows.map((r) => r.numberOfExpressionExperiments));
-  return (
-    <div className="bg-stone-100">
-      <div className="px-4 py-1.5 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600 flex items-baseline justify-between gap-2">
-        <span className="text-stone-900 font-semibold">
-          Top genes perturbed
-        </span>
-        <span
-          className="text-stone-500 normal-case tracking-normal text-[11px] truncate"
-          title="Top perturbed genes by number of experiments they're annotated in as a perturbation target (knockouts, knockdowns, overexpression)."
-        >
-          experiments
-        </span>
-      </div>
-      {ready ? (
-        <ul>
-          {rows.map((r) => {
-            const pct = Math.max(
-              0.5,
-              (r.numberOfExpressionExperiments / max) * 100,
-            );
-            return (
-              <li
-                key={`${r.geneSymbol}-${r.taxon ?? ""}`}
-                className="px-4 py-0.5 grid grid-cols-[6.5rem_minmax(0,1fr)_max-content] items-center gap-2 text-xs"
-              >
-                <span
-                  className="text-stone-800 truncate font-medium italic"
-                  title={r.taxon ? `${r.geneSymbol} (${r.taxon})` : r.geneSymbol}
-                >
-                  {r.geneSymbol}
-                </span>
-                <div className="h-1.5 bg-stone-200 relative overflow-hidden">
-                  <div
-                    className="absolute inset-y-0 left-0 bg-blue-700"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <span className="text-right tabular-nums text-stone-900 font-medium whitespace-nowrap">
-                  {r.numberOfExpressionExperiments.toLocaleString()}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <div className="px-4 py-3 text-stone-500 text-xs">
-          pending /stats/home field
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CategoryBar({
-  label,
-  count,
-  max,
-}: {
-  label: string;
-  count: number;
-  max: number;
-}) {
-  const pct = Math.max(0.5, (count / max) * 100);
-  return (
-    <li className="px-4 py-0.5 grid grid-cols-[6.5rem_minmax(0,1fr)_max-content] items-center gap-2 text-xs">
-      <span className="text-stone-800 truncate" title={label}>
-        {label}
-      </span>
-      <div className="h-1.5 bg-stone-200 relative overflow-hidden">
-        <div
-          className="absolute inset-y-0 left-0 bg-blue-700"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="text-right tabular-nums text-stone-900 font-medium whitespace-nowrap">
-        {count.toLocaleString()}
-      </span>
-    </li>
-  );
-}
-
-
-function TaxonBreakdown({ rows }: { rows: TaxonRow[] }) {
-  return (
-    <div className="bg-stone-100">
-      <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
-        Datasets by taxon
-      </div>
-      <table className="w-full text-sm">
-        <tbody>
-          {rows.map((t) => (
-            <tr key={t.name} className="border-t border-stone-200 first:border-t-0">
-              <td className="px-5 py-2 text-stone-800">{t.name}</td>
-              <td className="px-5 py-2 text-right tabular-nums font-semibold text-stone-950">
-                {fmtCount(t.total, "full", t.total === null)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function TechnologyBreakdown({
-  rows,
-  totalCells,
-}: {
-  rows: TechnologyRow[];
-  totalCells: number | null;
-}) {
-  const isLoading = rows.length === 0;
-  // Format totalCells in millions for the Single-cell row footnote.
-  // The number is a sum across all SC BioAssays; rendering raw would
-  // dwarf the EE count visually. Show "· 12.3M cells" only when we
-  // have a real number.
-  const cellsLabel =
-    totalCells !== null && totalCells > 0
-      ? `${(totalCells / 1_000_000).toFixed(totalCells >= 10_000_000 ? 0 : 1)}M cells`
-      : null;
-  return (
-    <div className="bg-stone-100">
-      <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
-        Samples by technology
-      </div>
-      <table className="w-full text-sm">
-        <tbody>
-          {isLoading ? (
-            <tr>
-              <td className="px-5 py-2 text-stone-400">…</td>
-              <td className="px-5 py-2 text-right text-stone-400">…</td>
-            </tr>
-          ) : (
-            rows.map((r) => (
-              <tr key={r.label} className="border-t border-stone-200 first:border-t-0">
-                <td className="px-5 py-2 text-stone-800">
-                  {r.label}
-                  {r.label === "Single-cell" && cellsLabel ? (
-                    <span className="ml-2 text-[11px] text-stone-500">
-                      · {cellsLabel}
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-5 py-2 text-right tabular-nums font-semibold text-stone-950">
-                  {fmtCount(r.count)}
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 /** User-facing annotation categories to surface as chips in the
  *  Recently-updated card. Anything not in this set is dropped —
  *  Gemma's annotation surface includes a lot of bookkeeping
@@ -779,18 +315,39 @@ const RECENT_CARD_ANNOTATION_CATEGORIES = new Set([
   "biological sex",
 ]);
 
-function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
-  // One-at-a-time card showing the most recently updated experiment.
-  // Cycles through the top-50 every 5 s. Hover pauses;
+function RecentActivityCard({
+  items,
+  updatedThisWeek,
+  added,
+  updatedSince,
+}: {
+  items: RecentDataset[];
+  updatedThisWeek: number | null;
+  added: GemmaSummary["added"];
+  updatedSince: string;
+}) {
+  // Corpus activity for the week on top — each figure links to the
+  // set it counts, not to a general listing — and one recently
+  // updated experiment as a worked example below.
+  //
+  // The example cycles through the top-50 every 5 s. Hover pauses;
   // prefers-reduced-motion locks on item 0. Annotation chips fetched
   // lazily for the current experiment via /datasets/{id}/annotations
   // — React Query caches per id so re-visiting one is free.
   const [idx, setIdx] = useState(0);
   const [paused, setPaused] = useState(false);
+  // Once someone works the arrows the rotation stops for good — having
+  // the card move on 5 s after a deliberate click is the opposite of
+  // what that click asked for.
+  const [steered, setSteered] = useState(false);
   const ready = items.length > 0;
+  const step = (d: number) => {
+    setSteered(true);
+    setIdx((i) => (i + d + items.length) % Math.max(1, items.length));
+  };
 
   useEffect(() => {
-    if (!ready || paused) return;
+    if (!ready || paused || steered) return;
     if (typeof window !== "undefined" && window.matchMedia) {
       const m = window.matchMedia("(prefers-reduced-motion: reduce)");
       if (m.matches) return;
@@ -800,7 +357,7 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
       5000,
     );
     return () => window.clearInterval(t);
-  }, [ready, paused, items.length]);
+  }, [ready, paused, steered, items.length]);
 
   const current = ready ? items[idx % items.length] : null;
 
@@ -815,16 +372,23 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
   const chips = useMemo(() => {
     const rows = annsQ.data?.data ?? [];
     const seen = new Set<string>();
-    const out: Array<{ category: string; term: string }> = [];
+    const out: Array<{ category: string; term: string; uri: string | null }> = [];
     for (const a of rows) {
+      // The category an annotation is SERVING, which is what Gemma
+      // reports per annotation — not what the term is ontologically.
       const cat = (a.className ?? "").trim().toLowerCase();
       if (!RECENT_CARD_ANNOTATION_CATEGORIES.has(cat)) continue;
       const term = (a.termName ?? "").trim();
       if (!term) continue;
+      // Baseline / reference levels say nothing about what the study
+      // is: every controlled design carries "reference subject role"
+      // and "wild type genotype", so they crowded out the terms that
+      // actually distinguish one experiment from the next.
+      if (isBaselineTerm(term, a.termUri)) continue;
       const key = `${cat}|${term.toLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ category: cat, term });
+      out.push({ category: cat, term, uri: a.termUri ?? null });
       if (out.length >= 5) break;
     }
     return out;
@@ -837,7 +401,7 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
       onMouseLeave={() => setPaused(false)}
     >
       <div className="flex items-baseline justify-between gap-3 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300">
-        <span className="text-stone-900 font-semibold">Recently updated</span>
+        <span className="text-stone-900 font-semibold">Recent activity</span>
         <Link
           to="/browser"
           search={{ sort: "-lastUpdated" }}
@@ -846,26 +410,79 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
           see all →
         </Link>
       </div>
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-3 border-b border-stone-300">
+        <WeekStat
+          count={updatedThisWeek}
+          noun="updated this week"
+          to="/browser"
+          search={{ sort: "-lastUpdated", updatedSince }}
+        />
+        {/* Plain text, no link: /datasets can't be filtered on a
+            creation date, so there is nothing to send a click to. The
+            window is whichever one the server found something in —
+            "added since 2025-08-21" today, narrowing to a week on its
+            own once loading resumes. */}
+        {added ? (
+          <WeekStat
+            count={added.count}
+            noun={`added since ${shortDate(added.since)}`}
+          />
+        ) : null}
+      </div>
+      {/* Caption the example. Without it the dataset below reads as
+          "the" recently updated dataset rather than one of many. The
+          arrows say the rest out loud — the card used to rotate on its
+          own with nothing on screen offering a way to steer it. */}
+      <div className="flex items-center justify-between gap-3 px-5 pt-3 pb-1 text-[10px] uppercase tracking-[0.2em] text-stone-500">
+        <span>Recently updated</span>
+        {ready ? (
+          <span className="flex items-center gap-1">
+            <StepButton
+              label="Previous dataset"
+              onClick={() => step(-1)}
+              glyph="←"
+            />
+            <span className="tabular-nums normal-case tracking-normal text-[10px] text-stone-400 w-[4.5rem] text-center">
+              {(idx % items.length) + 1} of {items.length}
+            </span>
+            <StepButton
+              label="Next dataset"
+              onClick={() => step(1)}
+              glyph="→"
+            />
+          </span>
+        ) : null}
+      </div>
       {current ? (
-        <Link
-          key={current.id}
-          to="/dataset/$id"
-          params={{ id: current.shortName }}
-          title={`${current.shortName} — ${current.name}`}
-          className="block px-5 py-3 text-stone-900 hover:bg-stone-50 hover:no-underline transition-opacity duration-500"
-        >
-          <div className="text-xs font-semibold leading-snug line-clamp-2 min-h-[2.4em]">
+        // Only the title navigates. The whole card used to be one
+        // anchor, so the annotation chips and the accession — neither
+        // of which goes anywhere — lit up on hover and swallowed any
+        // attempt to select the text.
+        <div key={current.id} className="px-5 py-3 text-stone-900">
+          <Link
+            to="/dataset/$id"
+            params={{ id: current.shortName }}
+            title={`${current.shortName} — ${current.name}`}
+            className="block text-xs font-semibold leading-snug line-clamp-2 min-h-[2.4em] text-stone-900 hover:text-blue-700 hover:underline"
+          >
             {cleanExperimentTitle(current.name)}
-          </div>
+          </Link>
           <div className="mt-1.5 flex flex-wrap content-start gap-1 h-[3.2em] overflow-hidden">
             {chips.map((c) => (
-              <span
+              <Link
                 key={`${c.category}-${c.term}`}
-                className="inline-flex items-center text-[10px] leading-none px-1.5 py-0.5 border border-stone-400 text-stone-800"
-                title={c.category}
+                to="/browser"
+                search={
+                  c.uri
+                    ? { annotationUri: c.uri, annotationLabel: c.term }
+                    : undefined
+                }
+                title={`${c.category} — browse experiments annotated with ${c.term}`}
+                style={{ backgroundColor: categoryTint(c.category) }}
+                className="inline-flex items-center text-[10px] leading-none px-1.5 py-0.5 border border-stone-400 text-stone-800 hover:border-stone-900 hover:no-underline"
               >
                 {c.term}
-              </span>
+              </Link>
             ))}
           </div>
           <div className="mt-2 text-[10px] text-stone-500 inline-flex items-baseline gap-2">
@@ -877,13 +494,105 @@ function RecentlyUpdatedCard({ items }: { items: RecentDataset[] }) {
               </>
             ) : null}
           </div>
-        </Link>
+        </div>
       ) : (
         <div className="px-5 py-4 text-stone-500 text-xs italic">
           loading…
         </div>
       )}
     </div>
+  );
+}
+
+/** "22 Aug 2025" — the window label on the added-datasets stat.
+ *  Rendered in UTC because the server resolves `since` from the
+ *  snapshot's `generatedAt`: read in a western timezone, a
+ *  small-hours UTC boundary lands on the previous day and the label
+ *  stops naming the window it actually counts. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** Stable per-category tint, so the same category is the same colour
+ *  on every card and a reader learns the palette rather than re-reading
+ *  each chip. Deterministic from the label — the categories that reach
+ *  here are a fixed whitelist, so a hash gives every one its own hue
+ *  without a hand-maintained colour table to fall out of step. */
+function categoryTint(category: string): string | undefined {
+  const idx = [...RECENT_CARD_ANNOTATION_CATEGORIES].indexOf(category);
+  return tintForIndex(idx);
+}
+
+/** Arrow control for stepping the recently-updated card. */
+function StepButton({
+  label,
+  glyph,
+  onClick,
+}: {
+  label: string;
+  glyph: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="px-1 leading-none text-stone-500 hover:text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-600"
+    >
+      {glyph}
+    </button>
+  );
+}
+
+/** One linked activity figure: the count, then the noun it counts.
+ *  Renders a dash while the count is still in flight so the row keeps
+ *  its shape instead of popping in. */
+function WeekStat({
+  count,
+  noun,
+  to,
+  search,
+}: {
+  count: number | null;
+  noun: string;
+  /** Omitted when no filter can reproduce the figure — the stat then
+   *  renders as plain text rather than as a link that goes nowhere
+   *  useful. */
+  to?: string;
+  search?: Record<string, string>;
+}) {
+  const body = (
+    <>
+      <span className="text-lg font-semibold tabular-nums text-stone-950">
+        {count === null ? "—" : count.toLocaleString()}
+      </span>{" "}
+      <span className="text-[11px] text-stone-600">datasets {noun}</span>
+    </>
+  );
+  // A plain inline span, not inline-flex: flex makes the space between
+  // the number and its noun a zero-width item, so the two ran together
+  // as "1,192datasets added".
+  if (count === null || !to) return <span>{body}</span>;
+  return (
+    <Link
+      to={to}
+      search={search}
+      className="inline-flex items-baseline hover:no-underline group"
+    >
+      <span className="group-hover:text-blue-700">{body}</span>
+      <span className="ml-1 text-[11px] text-stone-400 group-hover:text-blue-700">
+        →
+      </span>
+    </Link>
   );
 }
 
@@ -1255,42 +964,5 @@ function StatBlock({
     );
   }
   return <div className={baseCls}>{body}</div>;
-}
-
-/** Small ``i`` glyph next to a tile label — hoverable affordance
- *  for the explanation. Wrapped in the shared Tooltip component
- *  (60ms open delay, portal-mounted, stone-900 bubble) instead of
- *  the browser-default ``title=`` which has a ~700ms open delay
- *  The reviewer (and everyone) finds frustrating. Sized to match the 10px
- *  label text so it doesn't compete visually.
- *  No ``cursor-help`` — that yields the macOS circle-with-question-
- *  mark cursor which the reviewer (correctly) flagged as visual noise.
- *  The (i) glyph + bubble tooltip is affordance enough. */
-function InfoBadge({
-  hint,
-  ariaLabel,
-}: {
-  /** Tooltip body. Accept ReactNode so callers can pass a rich
-   *  layout (e.g. a small ranked list) for tiles that benefit from
-   *  structured content. */
-  hint: React.ReactNode;
-  /** Plain-text fallback for screen readers + aria. Required when
-   *  ``hint`` is a node; ignored otherwise. */
-  ariaLabel?: string;
-}) {
-  const a11y =
-    ariaLabel ?? (typeof hint === "string" ? hint : "more info");
-  return (
-    <Tooltip label={hint}>
-      <span
-        role="img"
-        aria-label={a11y}
-        tabIndex={0}
-        className="ml-1.5 inline-flex items-center justify-center w-3 h-3 rounded-full border border-stone-400 text-stone-500 text-[8px] leading-none select-none normal-case tracking-normal font-medium hover:border-stone-700 hover:text-stone-800 focus:outline-none focus:ring-1 focus:ring-stone-600"
-      >
-        i
-      </span>
-    </Tooltip>
-  );
 }
 

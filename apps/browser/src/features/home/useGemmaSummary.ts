@@ -25,6 +25,14 @@ import type { Dataset, PaginatedResponse, Taxon } from "@/lib/types";
 
 const BASE = "/rest/v2";
 
+/** Start of the "this week" window, as a plain ``YYYY-MM-DD`` the
+ *  Gemma filter parser widens to midnight UTC. Kept date-granular on
+ *  purpose: a timestamp would change every render and churn the
+ *  React Query cache key, where a date only rolls over once a day. */
+const UPDATED_SINCE = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  .toISOString()
+  .slice(0, 10);
+
 /** One ontology term that exemplifies a treatment subcategory. Ships
  *  ranked-by-count under each ``treatmentSubcategories[].topTerms``
  *  so the home page can show "e.g. dexamethasone, doxycycline, JQ1"
@@ -60,6 +68,19 @@ interface TreatmentSubcategoryWire {
    *  class). Empty for every other bucket. Recursive type for future
    *  nesting; today the children carry empty ``subBuckets``. */
   subBuckets?: TreatmentSubcategoryWire[];
+}
+
+/** One trailing-window count of datasets created in Gemma. Several
+ *  windows ship at once because a fixed 7-day figure would read a
+ *  permanent zero: nothing has been created in the last 90 days, and
+ *  the most recent public dataset dates to 2026-05-12. ``since`` is
+ *  resolved server-side from the snapshot's ``generatedAt``, so the
+ *  figure can be labelled with it verbatim rather than recomputing a
+ *  date against a snapshot that may be a day old. */
+interface DatasetsAddedWindowWire {
+  days: number;
+  since: string;
+  count: number;
 }
 
 /** ``/stats/home`` v2 payload — the agents-side full landed wishlist. Mirrors
@@ -137,6 +158,9 @@ interface HomeStatsWire {
     taxon: string | null;
     numberOfExpressionExperiments: number;
   }>;
+  /** Datasets created in Gemma over several trailing windows.
+   *  Undefined on snapshots that predate the field. */
+  datasetsAdded?: DatasetsAddedWindowWire[];
   recentExperiments: Array<{
     id: number;
     shortName: string;
@@ -165,6 +189,10 @@ export interface TaxonRow {
 export interface TechnologyRow {
   label: string;
   count: number;
+  /** ``/browser/$preset`` slug that reproduces this row's slice of the
+   *  corpus. Carried on the row so charts don't have to match on the
+   *  display label to work out where a click should go. */
+  preset: string;
 }
 
 export interface RecentDataset {
@@ -291,8 +319,22 @@ export interface GemmaSummary {
   }>;
   recentDatasets: RecentDataset[];
   snapshotAt: string | null;
+  /** Datasets whose ``lastUpdated`` falls inside the last 7 days. */
   updatedThisWeek: number | null;
-  newThisWeek: number | null;
+  /** The ``YYYY-MM-DD`` that ``updatedThisWeek`` counts from — hand it
+   *  to the browser page so the linked list is the same set. */
+  updatedSince: string;
+  /** Datasets **added to Gemma** — the shortest trailing window whose
+   *  count isn't zero, or null when every window is zero or the field
+   *  hasn't shipped.
+   *
+   *  Deliberately not "made public": Gemma records no publication
+   *  date. ``MakePublicEvent`` / ``DatasetPublishedEvent`` exist as
+   *  types but have never fired (0 occurrences across ~5,000 sampled
+   *  audit events), so creation — the ``action='C'`` audit row, which
+   *  every dataset has — is the only signal there is, and "added" is
+   *  the strongest claim it supports. */
+  added: { count: number; since: string; days: number } | null;
   isLoading: boolean;
   isError: boolean;
 }
@@ -315,9 +357,17 @@ function rollUpFromSamplesByTech(samplesByTech: {
   microarray: number | null;
 }): TechnologyRow[] {
   return [
-    { label: "RNA-seq", count: samplesByTech.rnaSeq ?? 0 },
-    { label: "Microarray", count: samplesByTech.microarray ?? 0 },
-    { label: "Single-cell", count: samplesByTech.singleCell ?? 0 },
+    { label: "RNA-seq", count: samplesByTech.rnaSeq ?? 0, preset: "rnaseq" },
+    {
+      label: "Microarray",
+      count: samplesByTech.microarray ?? 0,
+      preset: "microarray",
+    },
+    {
+      label: "Single-cell",
+      count: samplesByTech.singleCell ?? 0,
+      preset: "scrnaseq",
+    },
   ]
     .filter((r) => r.count > 0)
     .sort((a, b) => b.count - a.count);
@@ -427,6 +477,17 @@ export function useGemmaSummary(): GemmaSummary {
     retry: false,
   });
 
+  // "Updated this week" — a real corpus-wide count, not a tally of the
+  // recent-datasets page. The earlier version counted how many of the
+  // top-50 ``sort=-lastUpdated`` rows fell inside the window, which
+  // silently saturated at 50 (the true figure is in the hundreds).
+  const updatedThisWeekQ = useNumericCount(
+    `${BASE}/datasets/count?filter=${encodeURIComponent(
+      `lastUpdated > ${UPDATED_SINCE}`,
+    )}`,
+    `datasets-updated-since-${UPDATED_SINCE}`,
+  );
+
   // Annotation counts — single global as a fallback when
   // /stats/home isn't deployed. v2 snapshot carries
   // ontologyTermCount + byAnnotationCategory + drugCount +
@@ -513,13 +574,18 @@ export function useGemmaSummary(): GemmaSummary {
     recentDatasets = [];
   }
 
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const updatedThisWeek =
-    recentDatasets.length > 0
-      ? recentDatasets.filter(
-          (d) => d.lastUpdated && Date.parse(d.lastUpdated) >= sevenDaysAgo,
-        ).length
-      : null;
+
+  // Shortest window that actually has something in it. Rendering a
+  // fixed 7-day figure would show a permanent 0 today; this narrows on
+  // its own to "N added this week" once loading resumes, with no UI
+  // change.
+  const added = (() => {
+    const windows = (wire?.datasetsAdded ?? [])
+      .filter((w) => w.count > 0)
+      .sort((a, b) => a.days - b.days);
+    const w = windows[0];
+    return w ? { count: w.count, since: w.since, days: w.days } : null;
+  })();
 
   // isLoading collapses to true while every relevant query is
   // still pending. Each tile's local "loading" gate keys off
@@ -585,8 +651,9 @@ export function useGemmaSummary(): GemmaSummary {
     topPerturbedGenes: wire?.topPerturbedGenes ?? [],
     recentDatasets,
     snapshotAt: wire?.generatedAt ?? null,
-    updatedThisWeek,
-    newThisWeek: updatedThisWeek,
+    updatedThisWeek: updatedThisWeekQ.data ?? null,
+    updatedSince: UPDATED_SINCE,
+    added,
     isLoading,
     isError: false,
   };

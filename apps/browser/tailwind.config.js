@@ -13,11 +13,27 @@
 
 /** @type {import('tailwindcss').Config} */
 export default {
+  // Class-gated, matching apps/curation. Without this, Tailwind 3
+  // defaults to `media`, so every `dark:` utility in this app and in
+  // the shared packages (PanelCard's plot background, the annotation
+  // checkbox fill) fired off the OS `prefers-color-scheme: dark` —
+  // black plot panels and checkboxes on an otherwise light page,
+  // since the `--skin-*` chrome tokens in index.css have no dark
+  // branch. This app has no theme toggle, so nothing puts `dark` on
+  // <html> and the site stays light everywhere.
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
         gemma: {
+          // Page background. The CSS var has always been there; the
+          // token was not, so every `bg-gemma-bg` in the app compiled
+          // to nothing — 19 of them, across page backgrounds, zebra
+          // rows, hover states and two sticky table headers. The
+          // Platforms header was the visible one: transparent, so the
+          // rows scrolled underneath and printed on top of it.
+          bg: "rgb(var(--skin-bg) / <alpha-value>)",
           ink: "rgb(var(--skin-ink) / <alpha-value>)",
           subtle: "rgb(var(--skin-subtle) / <alpha-value>)",
           grid: "rgb(var(--skin-grid) / <alpha-value>)",

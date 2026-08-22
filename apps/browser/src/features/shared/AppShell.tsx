@@ -13,15 +13,27 @@ export function AppShell({ children }: { children: ReactNode }) {
   });
   const onHome = pathname === "/";
 
-  // ``min-h-screen`` + flex-col + ``flex-1`` on main = sticky footer
-  // pattern. Previously ``h-full``, which relies on the parent
-  // (#root / body / html) being set to 100% — none of them are, so
-  // on short pages (e.g. the Datasets table when the viewport is
-  // tall) the shell collapsed to content height and the Footer
-  // floated mid-screen. ``min-h-screen`` pins the shell to at least
-  // the viewport, content can still grow past it.
+  // ``h-screen`` — the shell is exactly one viewport and does not
+  // grow. The AppBar and Footer are siblings of ``main`` at fixed
+  // height, so they stay put and the page scrolls between them
+  // rather than carrying the chrome off the top and bottom.
+  //
+  // Was ``min-h-screen``, which let the whole document scroll: on a
+  // long dataset page the nav and the build stamp both disappeared,
+  // and on the Browser you could lose the pager. (Before that it was
+  // ``h-full``, which relies on #root / body / html being 100% —
+  // none of them are — so short pages collapsed to content height
+  // and the Footer floated mid-screen.)
+  //
+  // ``overflow-hidden`` on the shell so nothing escapes the viewport.
+  // ``main`` itself does NOT scroll: every page already owns its own
+  // scroller — ``h-full overflow-auto`` (Home, Dataset, Gene,
+  // Platform detail) or ``flex-1 min-h-0`` (Browser, Platforms). A
+  // scrollbar on ``main`` competes with theirs, and on Platforms it
+  // broke the sticky table header, which then scrolled with the rows
+  // and landed on top of the first one.
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col h-screen overflow-hidden">
       {onHome ? null : <AppBar />}
       {/* ``flex flex-col`` so children using ``flex-1`` (e.g. the
           BrowserPage's results table + pager column) can fill

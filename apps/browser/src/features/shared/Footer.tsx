@@ -101,7 +101,7 @@ export function Footer() {
 
   return (
     <footer
-      className="flex items-center gap-3 px-3 py-1 text-[11px] border-t border-gemma-grid bg-surface text-gemma-subtle flex-wrap"
+      className="shrink-0 flex items-center gap-3 px-3 py-1 text-[11px] border-t border-gemma-grid bg-surface text-gemma-subtle flex-wrap"
       style={{ flex: "0 0 auto" }}
     >
       <span className="inline-flex items-center gap-1">

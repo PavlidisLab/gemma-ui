@@ -93,7 +93,8 @@ export function SidePanel({
             body={
               "Free-text search runs against dataset titles, descriptions, and annotated terms." +
               "\nFilters narrow the same corpus by taxon, platform / technology, and ontology annotations." +
-              "\nAll filters compose as AND; multi-pick within a section is OR."
+              "\nAll filters compose as AND; multi-pick within a section is OR." +
+              "\nA term matches only where it is annotated under the category you picked it from — not merely somewhere in the dataset."
             }
           />
         </h2>

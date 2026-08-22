@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "version": "0.11.0",
-  "description": "Gemma user-facing frontends — apps/curation (curator workflow) + apps/browser (public browse/search).",
+  "description": "Gemma user-facing frontends \u2014 apps/curation (curator workflow) + apps/browser (public browse/search).",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -23,6 +23,8 @@
     "lint": "eslint apps packages",
     "lint:fix": "eslint apps packages --fix",
     "test:curation": "npm --workspace gemma-curation-ui run test",
+    "test:browser": "npm --workspace gembrow run test",
+    "test": "npm run test:curation && npm run test:browser",
     "prepare": "husky"
   },
   "dependencies": {

@@ -59,12 +59,12 @@ export const GENERAL_INFO = {
     title: "What Gemma is",
     accent: "orange", // identity colour, matches the favicon
     /** One-line essence — rendered large + bold at the top. */
-    lead: "Curated and re-analysed gene-expression data — human, mouse, and rat.",
+    lead: "Curated and re-analyzed gene-expression data — human, mouse, and rat.",
     /** Supporting paragraphs, rendered as separate <p> elements
      *  so each idea has its own block of breathing room. */
     body: [
-      "A repository of public gene-expression studies, re-analysed end-to-end so the data is actually usable for meta-analysis.",
-      "We re-process raw sequencing and array data, then harmonise sample-level annotations against community ontologies.",
+      "A repository of public gene-expression studies, re-analyzed end-to-end so the data is actually usable for meta-analysis.",
+      "We re-process raw sequencing and array data, then harmonize sample-level annotations against community ontologies.",
       "Results are published through this website, a REST API, and the gemma.R / gemmapy clients.",
     ],
   },
@@ -76,9 +76,9 @@ export const GENERAL_INFO = {
      *  reference table, not a wall of text. */
     items: [
       { lead: "Datasets",    body: "Microarray, RNA-seq, single-cell — re-processed." },
-      { lead: "Annotations", body: "Harmonised to MONDO, EFO, UBERON, CL, CHEBI." },
+      { lead: "Annotations", body: "Harmonized to MONDO, EFO, UBERON, CL, CHEBI, etc." },
       { lead: "Analyses",    body: "Pre-computed DEA contrasts." },
-      { lead: "Quality",     body: "GEEQ scores and provenance." },
+      { lead: "Quality",     body: "QC reports and provenance." },
       { lead: "Coverage",    body: "Human, mouse, rat." },
     ],
   },
@@ -91,7 +91,6 @@ export const GENERAL_INFO = {
       { tag: "REST", label: "REST API", hint: "programmatic queries", href: "https://gemma.msl.ubc.ca/resources/restapidocs/", external: true },
       { tag: "R", label: "gemma.R", hint: "R client", href: "https://github.com/PavlidisLab/gemma.R", external: true },
       { tag: "PY", label: "gemmapy", hint: "Python client", href: "https://github.com/PavlidisLab/gemmapy", external: true },
-      { tag: "MCP", label: "gemma-mcp", hint: "AI-agent server", href: "https://github.com/PavlidisLab/gemma-mcp", external: true },
       { tag: "DOC", label: "Documentation", hint: "guides + reference", href: "https://pavlidislab.github.io/Gemma/", external: true },
     ],
   },

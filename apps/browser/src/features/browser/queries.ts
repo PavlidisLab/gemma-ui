@@ -59,6 +59,9 @@ export function useCategories(opts: {
   query?: string;
   filter: string[][];
   applyExclusions: boolean;
+  /** See CategoriesArgs.keepCategories — a category the visitor has
+   *  selected stays in the facet so its count is real. */
+  keepCategories?: string[];
   gid?: string;
 }) {
   return useQuery({
