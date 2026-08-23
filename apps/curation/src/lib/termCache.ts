@@ -34,11 +34,20 @@ interface StoredEntry {
   data: AnnotationTermDetail;
 }
 
+// What's stored is the PARSE OUTPUT, and a within-TTL entry seeds
+// ``initialDataUpdatedAt`` — so it counts as fresh and suppresses the
+// refetch. A change to how a payload is parsed therefore does not
+// reach a curator who has opened that term in the last 24h, and no
+// amount of reloading helps: the fix is to retire the generation.
+//
 // v2 (2026-06-21): term-detail shape grew ``parents: TermRef[]`` (was
 // ``string[]``), plus ``synonyms`` / ``alternativeIds`` /
-// ``ontologyVersion``. Bumping the prefix retires v1 entries so a
-// stale ``parents: string[]`` record can't reach the new render.
-const KEY_PREFIX = "gemma.termCache.v2";
+// ``ontologyVersion``. Bumping the prefix retired v1 entries so a
+// stale ``parents: string[]`` record couldn't reach the new render.
+// v3 (2026-08-23): ``normalizeSynonyms`` moved the recognisable names
+// ahead of the nomenclature and deduped the IUPAC string ChEBI ships
+// twice — both at parse time, so a v2 entry pins the old order.
+const KEY_PREFIX = "gemma.termCache.v3";
 
 function storageKey(source: TermSource, uri: string): string {
   return `${KEY_PREFIX}:${source}:${uri}`;
