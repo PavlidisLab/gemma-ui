@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   dedupeCandidates,
+  isSystematicName,
+  normalizeSynonyms,
   orderCandidatesByTaxon,
   parseGemmaChildren,
   parseGemmaTerm,
@@ -395,5 +397,147 @@ describe("dedupeCandidates", () => {
       example_usage: { experiment_short_name: "GSE1", kind: "factor_value" } as never,
     });
     expect(dedupeCandidates([bare, enriched])[0].example_usage).not.toBeNull();
+  });
+});
+
+/**
+ * Synonym ordering — the recognisable name has to survive the card's
+ * character budget.
+ *
+ * The payloads here are verbatim from
+ * ``gemma2/rest/v2/annotations/term`` and OLS4, fetched 2026-08-23.
+ */
+const PEVONEDISTAT_IUPAC =
+  "[(1S,2S,4R)-4-{4-[(1S)-2,3-dihydro-1H-inden-1-ylamino]-7H-pyrrolo" +
+  "[2,3-d]pyrimidin-7-yl}-2-hydroxycyclopentyl]methyl sulfamate";
+const PEVONEDISTAT_IUPAC_ALT =
+  "[(1S,2S,4R)-4-[4-[[(1S)-2,3-dihydro-1H-inden-1-yl]amino]pyrrolo" +
+  "[2,3-d]pyrimidin-7-yl]-2-hydroxy-cyclopentyl]methyl sulfamate";
+
+describe("normalizeSynonyms", () => {
+  it("floats the recognisable names ahead of the nomenclature", () => {
+    // Gemma's own order: the IUPAC name leads, MLN4924 is sixth.
+    const out = normalizeSynonyms(
+      [
+        { value: PEVONEDISTAT_IUPAC, type: "exact_synonym" },
+        { value: "pevonedistatum", type: "related_synonym" },
+        { value: "pevonedistat", type: "related_synonym" },
+        { value: "MLN-4924", type: "related_synonym" },
+        { value: PEVONEDISTAT_IUPAC, type: "related_synonym" },
+        { value: "MLN4924", type: "related_synonym" },
+        { value: PEVONEDISTAT_IUPAC_ALT, type: "related_synonym" },
+        { value: "MLN 4924", type: "related_synonym" },
+      ],
+      "pevonedistat",
+    );
+    expect(out.map((s) => s.value)).toEqual([
+      // Source order inside the group — only the grouping is ours.
+      "pevonedistatum",
+      "MLN-4924",
+      "MLN4924",
+      "MLN 4924",
+      PEVONEDISTAT_IUPAC,
+      PEVONEDISTAT_IUPAC_ALT,
+    ]);
+    // The label repeat is gone, and so is the IUPAC name Gemma shipped
+    // twice under two scopes — it was counted twice in the "(+N more)".
+    expect(out).toHaveLength(6);
+  });
+
+  it("leaves a list with no systematic names in source order", () => {
+    const out = normalizeSynonyms(
+      [
+        { value: "cerebral ischemia", type: "exact_synonym" },
+        { value: "brain infarction", type: "exact_synonym" },
+        { value: "cerebral infarct", type: "related_synonym" },
+      ],
+      "cerebral infarction",
+    );
+    expect(out.map((s) => s.value)).toEqual([
+      "cerebral ischemia",
+      "brain infarction",
+      "cerebral infarct",
+    ]);
+  });
+
+  it("keeps the scope of each surviving synonym", () => {
+    const out = normalizeSynonyms(
+      [
+        { value: PEVONEDISTAT_IUPAC, type: "exact_synonym" },
+        { value: "MLN4924", type: "related_synonym" },
+      ],
+      "pevonedistat",
+    );
+    expect(out.map((s) => s.type)).toEqual(["related_synonym", "exact_synonym"]);
+  });
+});
+
+describe("isSystematicName", () => {
+  it("catches substituent nomenclature", () => {
+    expect(isSystematicName(PEVONEDISTAT_IUPAC)).toBe(true);
+    expect(
+      isSystematicName(
+        "4-[(4-methylpiperazin-1-yl)methyl]-N-[4-methyl-3-[(4-pyridin-3-" +
+          "ylpyrimidin-2-yl)amino]phenyl]benzamide",
+      ),
+    ).toBe(true);
+    expect(
+      isSystematicName("N-(2-chloroethyl)-N'-cyclohexyl-N-nitrosourea"),
+    ).toBe(true);
+  });
+
+  it("leaves short names alone even when they carry the same shape", () => {
+    // Length AND shape: these read fine and are what a curator says.
+    expect(isSystematicName("MLN4924")).toBe(false);
+    expect(isSystematicName("5-HT")).toBe(false);
+    expect(isSystematicName("1,25-dihydroxyvitamin D3")).toBe(false);
+    expect(isSystematicName("interleukin-1, beta")).toBe(false);
+  });
+
+  it("leaves a long ordinary name alone", () => {
+    expect(
+      isSystematicName("chronic obstructive pulmonary disease exacerbation"),
+    ).toBe(false);
+    expect(
+      isSystematicName("acute myeloid leukemia with maturation (AML M2)"),
+    ).toBe(false);
+  });
+});
+
+describe("parseGemmaTerm / parseOlsSynonyms — both paths order alike", () => {
+  const CHEBI = "http://purl.obolibrary.org/obo/CHEBI_145535";
+  const gemma = parseGemmaTerm(
+    {
+      uri: CHEBI,
+      label: "pevonedistat",
+      definition: "A pyrrolopyrimidine …",
+      parents: [],
+      synonyms: [
+        { value: PEVONEDISTAT_IUPAC, type: "exact_synonym" },
+        { value: "MLN4924", type: "related_synonym" },
+      ],
+    },
+    CHEBI,
+  );
+  const ols = parseOlsSynonyms(
+    {
+      synonyms: [PEVONEDISTAT_IUPAC, "MLN4924"],
+      obo_synonym: [
+        { name: PEVONEDISTAT_IUPAC, scope: "hasExactSynonym" },
+        { name: "MLN4924", scope: "hasRelatedSynonym" },
+      ],
+    },
+    "pevonedistat",
+  );
+
+  it("puts MLN4924 first from the Gemma payload", () => {
+    expect(gemma?.synonyms.map((s) => s.value)).toEqual([
+      "MLN4924",
+      PEVONEDISTAT_IUPAC,
+    ]);
+  });
+
+  it("puts MLN4924 first from the OLS side-fetch", () => {
+    expect(ols.map((s) => s.value)).toEqual(["MLN4924", PEVONEDISTAT_IUPAC]);
   });
 });

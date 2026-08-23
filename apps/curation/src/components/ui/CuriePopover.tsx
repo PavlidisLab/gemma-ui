@@ -315,8 +315,15 @@ const MAX_SHOWN_CHILDREN = 4;
  *  glance; `imatinib` carries six IUPAC names of ninety characters each
  *  and NONE of them does — they filled nine lines above the definition
  *  and buried `STI 571`, which is the one a human would recognise.
- *  Budgeting characters caps the second case after one entry and leaves
- *  the first nearly intact, in the order the source gave them. */
+ *  Budgeting characters leaves the first case nearly intact, in the
+ *  order the source gave them.
+ *
+ *  Which names are left to spend it on is `normalizeSynonyms`' call —
+ *  it puts the recognisable ones first — so the budget's remaining job
+ *  is to stop before a systematic name wraps the line: an entry that
+ *  doesn't fit ends the list rather than overrunning it. The first
+ *  entry is exempt, or a term whose every synonym is a 125-character
+ *  IUPAC name shows a line that names nothing. */
 const SYNONYM_CHAR_BUDGET = 110;
 
 /** Parents, before the tail collapses. A CHEBI compound has fifteen —
@@ -660,13 +667,16 @@ export function CuriePopoverBody({
             {detail.source === "ncbi" ? "aliases: " : "synonyms: "}
           </span>
           {(() => {
-            // Order preserved; the budget decides where to stop.
+            // Order is `normalizeSynonyms`'; the budget decides where
+            // to stop.
             let spent = 0;
-            const shown = detail.synonyms.filter((s) => {
-              if (spent > SYNONYM_CHAR_BUDGET) return false;
-              spent += (s.value ?? "").length + 2;
-              return true;
-            });
+            const shown: typeof detail.synonyms = [];
+            for (const s of detail.synonyms) {
+              const cost = (s.value ?? "").length + 2;
+              if (shown.length > 0 && spent + cost > SYNONYM_CHAR_BUDGET) break;
+              shown.push(s);
+              spent += cost;
+            }
             const more = detail.synonyms.length - shown.length;
             return (
               <>

@@ -343,6 +343,63 @@ export interface TermSynonym {
   type: string;
 }
 
+/** Length at which a synonym stops reading as a name and starts reading
+ *  as nomenclature. The shape markers below also appear in short names
+ *  humans do use (`5-HT`, `IL-1, beta`, `1,25-dihydroxyvitamin D3`), so
+ *  the gate is length AND shape — shape alone demotes the very strings
+ *  this is meant to surface. */
+const SYSTEMATIC_NAME_MIN_LENGTH = 40;
+
+/** The syntax of substituent nomenclature: a bracketed group, or a
+ *  locant bound to the fragment it numbers (`2,3-dihydro`, `7-yl`).
+ *  Structural predicates, not a vocabulary list — a list would need
+ *  every ChEBI spelling and would still miss the next one. */
+const SYSTEMATIC_NAME_MARKERS: RegExp[] = [/[[\]{}]/, /\d[,-][a-z0-9]/i];
+
+/** Does this synonym read as chemical nomenclature rather than as a name
+ *  a curator would say?
+ *
+ *  ChEBI ships the IUPAC name as the `exact_synonym` and the codes a
+ *  human recognises as `related_synonym`s, in that order: CHEBI:145535
+ *  (pevonedistat) leads with a 125-character sulfamate and keeps
+ *  `MLN4924` in seventh place. Left in source order the card spends its
+ *  whole synonyms line on the nomenclature. */
+export function isSystematicName(value: string): boolean {
+  const v = value.trim();
+  if (v.length < SYSTEMATIC_NAME_MIN_LENGTH) return false;
+  return SYSTEMATIC_NAME_MARKERS.some((re) => re.test(v));
+}
+
+/** Trim, drop the entry that just repeats the primary label, dedupe
+ *  case-insensitively, then float the recognisable names ahead of the
+ *  nomenclature.
+ *
+ *  Source order is preserved inside each group, so a term with no
+ *  systematic names comes out exactly as it went in. The dedupe is not
+ *  cosmetic on the Gemma path: CHEBI:145535 ships the same IUPAC string
+ *  twice, once scoped exact and once related, and both were counted.
+ */
+export function normalizeSynonyms(
+  raw: TermSynonym[],
+  label: string,
+): TermSynonym[] {
+  const labelKey = label.trim().toLowerCase();
+  const seen = new Set<string>();
+  const kept: TermSynonym[] = [];
+  for (const s of raw) {
+    const value = (s.value ?? "").trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (key === labelKey || seen.has(key)) continue;
+    seen.add(key);
+    kept.push({ value, type: s.type ?? "" });
+  }
+  return [
+    ...kept.filter((s) => !isSystematicName(s.value)),
+    ...kept.filter((s) => isSystematicName(s.value)),
+  ];
+}
+
 /** Cellosaurus-backed metadata Gemma ships on ``/annotations/term`` for
  *  CVCL rows (live on gemma2 + frink since 2026-08-11). Every field here
  *  is a catalogue assertion, not a curation — ``lib/derivedFacts.ts``
@@ -504,13 +561,13 @@ export function parseGemmaTerm(
         )
         .filter((p) => !!p.label)
     : [];
-  // Synonyms ship as ``{value, type}`` (GemBro 2026-06-21). Drop the
-  // synonym that just repeats the primary label — it's redundant on the
-  // card. Tolerate a bare-string shape and OLS-style ``{name, scope}``.
+  // Synonyms ship as ``{value, type}`` (GemBro 2026-06-21). Tolerate a
+  // bare-string shape and OLS-style ``{name, scope}``; the label repeat,
+  // the dupes and the display order are ``normalizeSynonyms``'.
   const synRaw = (r.synonyms ?? []) as unknown[];
   const synonyms: TermSynonym[] = Array.isArray(synRaw)
-    ? synRaw
-        .map((s): TermSynonym => {
+    ? normalizeSynonyms(
+        synRaw.map((s): TermSynonym => {
           if (typeof s === "string") return { value: s, type: "" };
           const o = s as {
             value?: unknown;
@@ -531,11 +588,9 @@ export function parseGemmaTerm(
                 ? o.scope
                 : "";
           return { value, type };
-        })
-        .filter(
-          (s) =>
-            !!s.value && s.value.trim().toLowerCase() !== label.trim().toLowerCase(),
-        )
+        }),
+        label,
+      )
     : [];
   const altRaw = (r.alternative_ids ?? r.alternativeIds ?? []) as unknown[];
   const alternativeIds = Array.isArray(altRaw)
@@ -933,26 +988,19 @@ function parseOlsTerm(
 
 /** Extract synonyms from an OLS4 term record. OLS ships plain-string
  *  ``synonyms`` and scoped ``obo_synonym`` objects (``{name, scope}``);
- *  merge both, dedupe case-insensitively, and drop the one that just
- *  repeats the primary label. */
+ *  merge both, then hand the label repeat, the dedupe and the display
+ *  order to ``normalizeSynonyms`` so this path and the Gemma one agree.
+ */
 export function parseOlsSynonyms(
   t: Record<string, unknown>,
   label: string,
 ): TermSynonym[] {
-  const out: TermSynonym[] = [];
-  const seen = new Set<string>();
-  const labelKey = label.trim().toLowerCase();
-  const push = (value: string, type: string) => {
-    const v = value.trim();
-    if (!v) return;
-    const key = v.toLowerCase();
-    if (key === labelKey || seen.has(key)) return;
-    seen.add(key);
-    out.push({ value: v, type });
-  };
+  const raw: TermSynonym[] = [];
   const plain = t.synonyms;
   if (Array.isArray(plain)) {
-    for (const s of plain) if (typeof s === "string") push(s, "");
+    for (const s of plain) {
+      if (typeof s === "string") raw.push({ value: s, type: "" });
+    }
   }
   const obo = t.obo_synonym;
   if (Array.isArray(obo)) {
@@ -960,11 +1008,14 @@ export function parseOlsSynonyms(
       if (!s || typeof s !== "object") continue;
       const o = s as { name?: unknown; scope?: unknown };
       if (typeof o.name === "string") {
-        push(o.name, typeof o.scope === "string" ? o.scope : "");
+        raw.push({
+          value: o.name,
+          type: typeof o.scope === "string" ? o.scope : "",
+        });
       }
     }
   }
-  return out;
+  return normalizeSynonyms(raw, label);
 }
 
 const OLS_SYNONYMS_KEY = (uri: string | null) =>
