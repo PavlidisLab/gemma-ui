@@ -355,7 +355,10 @@ export function StatementEditor({
             which, so the second one carries a word. */}
         <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
           shapes
-          <GuidelinePopup snippet={STATEMENT_TEMPLATE_GUIDELINE} size="sm" />
+          {/* `lg`, where the predicate popup beside it is `sm`: this
+              snippet is the shape catalogue plus its worked cases, and
+              at 288px the shapes wrapped mid-triple. */}
+          <GuidelinePopup snippet={STATEMENT_TEMPLATE_GUIDELINE} size="lg" />
         </span>
       </span>
 

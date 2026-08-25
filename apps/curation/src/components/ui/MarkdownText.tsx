@@ -60,6 +60,7 @@
 import type { JSX } from "react";
 import { cn } from "@/lib/cn";
 import {
+  parseInline,
   parseMarkdown,
   type Align,
   type Block,
@@ -120,6 +121,30 @@ function renderInline(nodes: InlineNode[], keyPrefix: string): JSX.Element[] {
         );
     }
   });
+}
+
+/**
+ * Inline-only Markdown — code spans, emphasis, links, no block
+ * structure at all.
+ *
+ * NOT a new `MARKDOWN_SURFACE`, deliberately. That union gates the
+ * BLOCK renderer over prose someone ELSE authored, where offering
+ * headings and tables invites the author to decorate a claim. This
+ * renders one string of our own in-repo copy — `lib/guidelines.ts`,
+ * whose backticked shapes and URIs were reaching the popover as
+ * literal backtick characters.
+ *
+ * A caller that wants headings or lists wants `<MarkdownText/>` and a
+ * decision about the union, not this.
+ */
+export function InlineMarkdown({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}): JSX.Element {
+  return <span className={className}>{renderInline(parseInline(text), "il")}</span>;
 }
 
 const ALIGN_CLASS: Record<Exclude<Align, null>, string> = {
