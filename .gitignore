@@ -21,3 +21,7 @@ playwright-report/
 # Local backup snapshots — large, local-only, never for git.
 *.bak/
 *.bak.*/
+
+# Gemma REST API spec, pulled down for reference when wiring endpoints.
+# Regenerable from the running server; not ours to version.
+openapi.json
