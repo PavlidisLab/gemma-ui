@@ -267,10 +267,11 @@ function Hero({ platform: p }: { platform: Platform }) {
  * mapping loaded, and the track text is the server's, not ours.
  *
  * The URL handed to UCSC has to be absolute and reachable from
- * outside; `gemmaUrl` returns the path unresolved when no base is
- * configured, so the track is only attached once it is a real URL.
- * Position is always set, so a link without a track still lands
- * somewhere useful.
+ * outside, which is `publicGemmaUrl` and emphatically not `gemmaUrl` —
+ * see the note there. It returns EMPTY when there is no base we can
+ * honestly claim is public, and the track is attached only when the
+ * result is a real http(s) URL. Position is always set, so a link
+ * without a track still lands somewhere useful.
  */
 function ucscUrl(
   b: NonNullable<GeneMappingSummary["blatResult"]>,
