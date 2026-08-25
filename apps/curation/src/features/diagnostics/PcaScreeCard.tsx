@@ -15,6 +15,7 @@ import {
   PanelLoading,
   PanelError,
   ScreeChart,
+  MAX_LOADED_PC,
   GeneRowsTable,
   type GeneRow,
 } from "@gemma/diagnostics";
@@ -38,7 +39,19 @@ export function PcaScreeCard({
       <PanelEmpty reason="No PCA available (HTTP 404 or empty variances). Either this dataset's SVDResult hasn't been computed, or the dataset has too few samples." />
     );
   } else {
-    body = <ScreeChart variances={data.variances} onBarClick={setOpenPc} />;
+    // Only the first MAX_LOADED_PC bars open a popup — Gemma persists
+    // loadings for those components alone, and `/svd/loadings?pc=6`
+    // answers 200 with an empty row list rather than an error, so the
+    // popup opened onto "No SVD loadings available for this experiment
+    // yet." That named the wrong cause: the experiment has loadings,
+    // just not for that component.
+    body = (
+      <ScreeChart
+        variances={data.variances}
+        onBarClick={setOpenPc}
+        maxClickablePc={MAX_LOADED_PC}
+      />
+    );
   }
 
   return (
@@ -48,7 +61,9 @@ export function PcaScreeCard({
         footer={
           data?.variances ? (
             <>
-              <span>click a bar → top-loaded genes on that PC</span>
+              <span>
+                click a bar (PC1–{MAX_LOADED_PC}) → top-loaded genes on that PC
+              </span>
               <span className="ml-auto">
                 <a
                   href={`/rest/v2/datasets/${experimentId}/svd`}
