@@ -9,7 +9,14 @@ import { getMyself } from "@/api/endpoints";
 import { HelpHint } from "@/features/shared/HelpHint";
 import { fallbackTaxa } from "@/lib/gemmaConfig";
 import { emptySearchSettings } from "@/lib/types";
+import type { SearchSettings } from "@/lib/types";
 import { generateFilter, generateFilterDescription, generateFilterSummary } from "@/lib/filter";
+import {
+  decodeSearchSettings,
+  encodeSearchSettings,
+  isEmptySettings,
+} from "./shareLink";
+import { SHOW_GEEQ } from "@/lib/geeq";
 import { SidePanel } from "./SidePanel";
 import { ResultsTable } from "./ResultsTable";
 import { Pager } from "./Pager";
@@ -41,6 +48,11 @@ export function BrowserPage() {
       makeInitialSettings({
         query: url.query,
         preset: url.preset,
+        categoryUri: url.categoryUri,
+        categoryLabel: url.categoryLabel,
+        annotationUri: url.annotationUri,
+        annotationLabel: url.annotationLabel,
+        shared: url.shared ? decodeSearchSettings(url.shared) ?? undefined : undefined,
       }),
   );
 
@@ -48,18 +60,28 @@ export function BrowserPage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  // Seed sort from ``?sort=`` if present (e.g. "Recently updated →
-  // see all" lands with ``?sort=-lastUpdated``). Default falls back
+  // Seed sort from ``?sort=`` if present (e.g. the home page's
+  // recent-activity "see all" lands with ``?sort=-lastUpdated``).
+  // Default falls back
   // to the legacy "-id" so direct ``/browser`` navigation is
   // unchanged. Initial-only — user column-sorts don't write back.
   const [sort, setSort] = useState<string | undefined>(url.sort ?? "-id");
+  // ``?updatedSince=YYYY-MM-DD`` (the home page's "N updated this
+  // week" stat) ANDs one extra clause onto the generated filter. Held
+  // in state, not read live off the URL, so the chip's × can drop it
+  // without a navigation.
+  const [updatedSince, setUpdatedSince] = useState(url.updatedSince);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showSnippet, setShowSnippet] = useState(false);
 
   const me = useQuery({ queryKey: ["me"], queryFn: ({ signal }) => getMyself(signal) });
   const gid = me.data?.group;
 
-  const filter = useMemo(() => generateFilter(settings), [settings]);
+  const filter = useMemo(() => {
+    const f = generateFilter(settings);
+    if (updatedSince) f.push([`lastUpdated > ${updatedSince}`]);
+    return f;
+  }, [settings, updatedSince]);
 
   const browsing: BrowsingOptions = useMemo(
     () => ({
@@ -77,12 +99,52 @@ export function BrowserPage() {
   const datasets = useDatasets(browsing);
   const taxa = useTaxa({ query: settings.query, filter, gid });
   const platforms = usePlatforms({ query: settings.query, filter, gid });
+  // A selected category is never excluded from its own facet — see
+  // CategoriesArgs.keepCategories. Sorted so the query key is stable
+  // across re-orderings of the same selection.
+  const keepCategories = useMemo(
+    () =>
+      settings.categories
+        .map((c) => c.classUri)
+        .filter((u): u is string => !!u)
+        .sort(),
+    [settings.categories],
+  );
+
   const categories = useCategories({
     query: settings.query,
     filter,
     applyExclusions: !settings.ignoreExcludedTerms,
+    keepCategories,
     gid,
   });
+
+  // Fill in platforms that arrived as bare ids.
+  //
+  // A shared link and the platform page's "open in browser" both encode
+  // platforms as ids only — `decodeSearchSettings` returns `[{id: 1}]`
+  // and the selectors are supposed to match on id and supply the label.
+  // They match, but nothing supplied the label: the filter chip read
+  // "#1" and the side panel could not tell which technology group the
+  // platform belonged to, so it couldn't open it either. Swap in the
+  // full record once the facet list arrives.
+  //
+  // An id with no match is LEFT ALONE, not dropped — it is still a live
+  // filter clause, and silently discarding it would change the results
+  // the visitor was linked to.
+  useEffect(() => {
+    const list = platforms.data?.data;
+    if (!list?.length) return;
+    if (settings.platforms.length === 0) return;
+    if (settings.platforms.every((p) => p.shortName || p.name)) return;
+    const byId = new Map(list.map((p) => [p.id, p]));
+    const hydrated = settings.platforms.map((p) =>
+      p.shortName || p.name ? p : (byId.get(p.id) ?? p),
+    );
+    if (hydrated.some((p, i) => p !== settings.platforms[i])) {
+      dispatch({ type: "setPlatforms", value: hydrated });
+    }
+  }, [platforms.data, settings.platforms]);
 
   // Seed initial taxon once taxa are loaded
   useEffect(() => {
@@ -97,11 +159,25 @@ export function BrowserPage() {
         preset: url.preset,
         initialTaxon: url.initialTaxon,
         taxa: taxa.data.data,
+        categoryUri: url.categoryUri,
+        categoryLabel: url.categoryLabel,
+        annotationUri: url.annotationUri,
+        annotationLabel: url.annotationLabel,
+        shared: url.shared ? decodeSearchSettings(url.shared) ?? undefined : undefined,
       });
       dispatch({ type: "load", value: seeded });
       seededTaxonRef.current = true;
     }
-  }, [url.query, url.initialTaxon, url.preset, taxa.data?.data]);
+  }, [
+    url.query,
+    url.initialTaxon,
+    url.preset,
+    url.categoryUri,
+    url.categoryLabel,
+    url.annotationUri,
+    url.annotationLabel,
+    taxa.data?.data,
+  ]);
 
   // Reset page on filter/query changes
   useEffect(() => {
@@ -178,7 +254,9 @@ export function BrowserPage() {
                 "Each row is one Gemma expression dataset." +
                 "\nClick a row to expand: full description, ontology annotations, and outbound links to Gemma / GEO." +
                 "\nClick an annotation chip to add it to your filters; click the column header to sort." +
-                "\nThe colored dot is the GEEQ quality score (green / amber / red)."
+                (SHOW_GEEQ
+                  ? "\nThe colored dot is the GEEQ quality score (green / amber / red)."
+                  : "")
               }
             />
           </h2>
@@ -187,7 +265,21 @@ export function BrowserPage() {
               {filterSummary}
             </div>
           ) : null}
+          {updatedSince ? (
+            <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border border-gemma-grid bg-surface-sunk text-gemma-ink shrink-0">
+              Updated since {updatedSince}
+              <button
+                type="button"
+                onClick={() => setUpdatedSince(undefined)}
+                aria-label="Clear the updated-since filter"
+                className="text-gemma-subtle hover:text-gemma-ink leading-none"
+              >
+                ×
+              </button>
+            </span>
+          ) : null}
           <div className="flex-1" />
+          <CopyLinkButton settings={settings} sort={sort} />
           {expanded.size > 0 ? (
             <button onClick={() => setExpanded(new Set())} className="btn btn-ghost text-xs">
               Collapse all
@@ -263,6 +355,64 @@ export function BrowserPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * "Copy link" — writes a URL that reproduces the current search and
+ * filters.
+ *
+ * There isn't one to copy from the address bar: the Browser keeps
+ * SearchSettings out of the URL on purpose, so that typing doesn't
+ * navigate. This serialises the state on demand instead (see
+ * shareLink.ts) and hands back a link that seeds it on arrival.
+ *
+ * `sort` rides along as its own param because it lives in page state
+ * rather than in SearchSettings, and `?sort=` was already understood.
+ */
+function CopyLinkButton({
+  settings,
+  sort,
+}: {
+  settings: SearchSettings;
+  sort?: string;
+}) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  useEffect(() => {
+    if (state === "idle") return;
+    const t = window.setTimeout(() => setState("idle"), 1800);
+    return () => window.clearTimeout(t);
+  }, [state]);
+
+  async function copy() {
+    const params = new URLSearchParams();
+    if (!isEmptySettings(settings)) params.set("s", encodeSearchSettings(settings));
+    if (sort) params.set("sort", sort);
+    const qs = params.toString();
+    const url = `${window.location.origin}/browser${qs ? `?${qs}` : ""}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setState("copied");
+    } catch {
+      // Clipboard access can be refused (permissions, insecure origin).
+      // Say so rather than pretending it worked.
+      setState("failed");
+    }
+  }
+
+  return (
+    <button
+      onClick={copy}
+      className="btn btn-ghost text-xs"
+      title="Copy a link that reproduces this search and its filters"
+    >
+      {state === "copied"
+        ? "Link copied"
+        : state === "failed"
+          ? "Copy failed"
+          : "Copy link"}
+    </button>
   );
 }
 

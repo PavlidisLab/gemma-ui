@@ -17,14 +17,36 @@ const TEXT = "#1f2937";
 
 export const MAX_SCREE_BARS = 10;
 
+/**
+ * The last PC whose probe loadings Gemma keeps.
+ *
+ * `SVDServiceImpl.MAX_NUM_COMPONENTS_TO_PERSIST = 5` — the SVD itself
+ * reports a variance per component (64 of them on GSE194059), but only
+ * the first five have their loadings written to the database. Asking
+ * for more is not an error: `/svd/loadings?pc=6` answers 200 with
+ * `rows: []`, which is indistinguishable at the call site from a
+ * dataset that has no loadings at all.
+ *
+ * Persistence is `min(5, components)`, so a dataset with fewer
+ * components stores fewer — but it also has fewer bars, so the bar
+ * count already bounds that case and a flat 5 is right here.
+ */
+export const MAX_LOADED_PC = 5;
+
 export function ScreeChart({
   variances,
   onBarClick,
+  maxClickablePc,
 }: {
   /** Fraction-of-variance per PC, 0-indexed. Sliced to MAX_SCREE_BARS. */
   variances: number[];
   /** PC index (1-based) clicked. */
   onBarClick?: (pc: number) => void;
+  /** Last PC that can be clicked. Bars past it are drawn, because the
+   *  variance is real and worth reading, but they carry no pointer, no
+   *  hover and no handler — and their tooltip says why. Omit to leave
+   *  every bar clickable. See MAX_LOADED_PC. */
+  maxClickablePc?: number;
 }) {
   const shown = variances.slice(0, MAX_SCREE_BARS);
   const { ref, width, height } = useContainerSize<SVGSVGElement>();
@@ -70,7 +92,9 @@ export function ScreeChart({
         const x = padL + i * (barW + barGap);
         const barH = innerH * (v / max);
         const y = padT + innerH - barH;
-        const clickable = onBarClick !== undefined;
+        const beyondLoadings =
+          maxClickablePc !== undefined && i + 1 > maxClickablePc;
+        const clickable = onBarClick !== undefined && !beyondLoadings;
         return (
           <g
             key={i}
@@ -80,6 +104,10 @@ export function ScreeChart({
             <title>
               {`PC${i + 1}: ${(v * 100).toFixed(1)}% variance${
                 clickable ? " — click for top-loaded probes" : ""
+              }${
+                beyondLoadings
+                  ? ` — loadings are stored only for PC1–${maxClickablePc}`
+                  : ""
               }`}
             </title>
             <rect

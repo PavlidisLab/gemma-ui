@@ -21,6 +21,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { getAllPlatforms, getPlatformElementCount } from "@/api/endpoints";
 import type { Platform } from "@/lib/types";
+import { isSupportedTaxon } from "@/lib/gemmaConfig";
 import { manufacturerOf, manufacturerCounts } from "./manufacturer";
 
 type SortKey =
@@ -41,7 +42,15 @@ export function PlatformsPage() {
     queryKey: ["platforms", "all"],
     queryFn: ({ signal }) => getAllPlatforms({}, signal),
   });
-  const all = platformsQ.data?.data ?? [];
+  // Human / mouse / rat only. Gemma curates three taxa; the other 45 in
+  // /taxa carry 16 platforms between them and not one has an experiment
+  // on it. Filtered here rather than in the row predicate below so the
+  // facet counts — which are deliberately computed off the full list —
+  // don't offer a Taxon row that can never produce a result.
+  const all = useMemo(
+    () => (platformsQ.data?.data ?? []).filter((p) => isSupportedTaxon(p.taxon)),
+    [platformsQ.data],
+  );
 
   // Filter facet state — independent sets so toggling one doesn't
   // disturb the others. Empty set = no filter on that axis (default).

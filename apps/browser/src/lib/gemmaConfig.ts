@@ -50,6 +50,56 @@ export function gemmaUrl(path: string): string {
   return baseUrl + path;
 }
 
+/**
+ * A Gemma URL for someone ELSE to fetch — a genome browser loading a
+ * custom track, say. Empty string when we have no base we can honestly
+ * claim is reachable from outside; callers drop the feature rather than
+ * hand out a link that times out.
+ *
+ * 🛑 Not `gemmaUrl`. That resolves to whatever this app talks to, which
+ * is an internal address as often as not: UCSC was handed
+ * `http://frink.msl.ubc.ca:8080/rest/v2/...` and answered "connection
+ * timed out: either the server is offline or a firewall between UCSC
+ * and the server blocks the connection". Reachable from the dev box is
+ * not reachable from the internet, and the two had been the same
+ * string.
+ *
+ * Order:
+ *  1. `VITE_GEMMA_PUBLIC_URL` — say it outright, ends all guessing.
+ *  2. This page's own origin, when it is `https:` and not loopback. In
+ *     production the app is served from the public Gemma, so its
+ *     origin IS the public base, with nothing to configure.
+ *  3. The configured base, but only when it is `https:`. A heuristic,
+ *     and named as one: it separates `https://gemma2.msl.ubc.ca` from
+ *     `http://frink.msl.ubc.ca:8080` in the dev setups we have, and it
+ *     will be wrong for a public plain-http host. Set the var there.
+ */
+export function publicGemmaUrl(path: string): string {
+  const explicit = import.meta.env.VITE_GEMMA_PUBLIC_URL;
+  if (explicit) return String(explicit).replace(/\/+$/, "") + path;
+
+  // `https:` is the same signal rule 3 applies to the configured base,
+  // and it has to be applied here too. Excluding loopback alone was
+  // narrower than "unless we're on a dev host" claimed: a Vite dev
+  // server started with `--host` is reached at `http://192.168.x.x:5183`
+  // or at the box's own hostname, neither of which is loopback, so the
+  // origin sailed through and UCSC was handed an address only the
+  // office can reach — the very failure this function exists to stop.
+  // Loopback stays excluded for the rare dev setup terminating TLS
+  // locally.
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  if (
+    /^https:\/\//i.test(origin) &&
+    !/^https:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|$)/i.test(origin)
+  ) {
+    return origin + path;
+  }
+
+  if (/^https:\/\//i.test(baseUrl)) return baseUrl + path;
+  return "";
+}
+
 /** Legacy Gemma gene page — works for both NCBI-id and Gemma-internal
  *  id. Prefer the NCBI id when known: it's stable across taxa and
  *  rebuilds, and the URL is shareable. Returns null when neither id
@@ -284,3 +334,34 @@ export const fallbackTaxa: Taxon[] = [
   { id: 2, commonName: "mouse", scientificName: "Mus musculus" },
   { id: 3, commonName: "rat",   scientificName: "Rattus norvegicus" },
 ];
+
+/**
+ * The taxa this UI shows platforms for.
+ *
+ * `/taxa` lists 48 — everything a sequence was ever imported against,
+ * down to `synthetic construct` and `Homo sapiens/Mus musculus
+ * xenograft` — but Gemma curates three. The other 45 carry 16 platforms
+ * between them and NOT ONE has an experiment on it (measured on
+ * gemma2 2026-08-24: 670 platforms, 654 across human / mouse / rat).
+ *
+ * Kept separate from `fallbackTaxa` above despite listing the same
+ * three: that one is "what to show until /taxa answers", this one is
+ * "what belongs in the catalogue at all". Extending one should not
+ * quietly move the other.
+ *
+ * Ids, not names. Only these three carry a `commonName` — every other
+ * taxon has null — so a name check has to fall back to the scientific
+ * name, and `Rattus rattus` (id 79) sits one letter away from the rat
+ * this app means.
+ */
+export const SUPPORTED_TAXON_IDS: ReadonlySet<number> = new Set([1, 2, 3]);
+
+/** True when a record's taxon is one this UI covers. Falls back to the
+ *  scientific name when no id came down. */
+export function isSupportedTaxon(
+  t: { id?: number | null; scientificName?: string | null } | null | undefined,
+): boolean {
+  if (!t) return false;
+  if (t.id != null) return SUPPORTED_TAXON_IDS.has(t.id);
+  return fallbackTaxa.some((f) => f.scientificName === t.scientificName);
+}

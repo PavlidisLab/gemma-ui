@@ -2,8 +2,14 @@
 # Critical-test gate. Runs on every commit; fails the commit if the
 # regression tests don't pass.
 #
-# Scope: ``tsc --noEmit`` PLUS vitest unit + render tests (fast — ~5 s)
-# PLUS the ``@critical``-tagged Playwright specs.
+# Scope, per app: ``tsc --noEmit`` PLUS vitest unit + render tests
+# (fast — ~5 s) PLUS, for apps/curation, the ``@critical``-tagged
+# Playwright specs.
+#
+# apps/browser joined the gate on 2026-08-22. It had a test file
+# (``src/lib/baseline.test.ts``) and no runner to execute it, so
+# nothing in that app had ever been checked by anything but a human
+# looking at it.
 #
 # Typecheck is first because it is the cheapest and because vitest
 # STRIPS types rather than checking them — a broken cast in a test
@@ -31,7 +37,21 @@
 # Husky runs this with `sh`, and Linux `/bin/sh` doesn't have `pipefail`.
 set -eu
 
-cd apps/curation
+repo_root=$(pwd)
+
+# ─── apps/browser ────────────────────────────────────────────────
+# Cheap (~7 s): typecheck plus pure-function unit tests. No DOM, no
+# Playwright — see apps/browser/vitest.config.ts.
+cd "$repo_root/apps/browser"
+
+echo "[pre-commit] browser: tsc --noEmit"
+npx tsc -p tsconfig.app.json --noEmit
+
+echo "[pre-commit] browser: vitest run"
+npx vitest run --silent
+
+# ─── apps/curation ───────────────────────────────────────────────
+cd "$repo_root/apps/curation"
 
 echo "[pre-commit] tsc --noEmit"
 npx tsc -p tsconfig.app.json --noEmit

@@ -11,12 +11,17 @@
 // Microarray and Other have no subgroups and fall back to listing the
 // individual platforms under each.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import type { AnnotationTerm, Platform, CategoryWithChildren } from "@/lib/types";
 import { TECH_SUBGROUPS, TOP_TECHNOLOGY_TYPES } from "@/lib/platformConstants";
 import { formatNumber } from "@/lib/utils";
 
 const ASSAY_CATEGORY_URI = "http://purl.obolibrary.org/obo/OBI_0000070";
+
+/** Unselected platform rows drawn under an expanded group. Selected
+ *  ones are drawn regardless — see `visiblePlatforms`. */
+const PLATFORM_ROW_CAP = 40;
 
 interface Props {
   platforms: Platform[];
@@ -49,6 +54,30 @@ export function TechnologyTypeSelector({
   const [open, setOpen] = useState<Record<string, boolean>>({ RNA_SEQ: true });
 
   const selectedPlatformIds = new Set(selectedPlatforms.map((p) => p.id));
+
+  // Open whichever group holds a selected platform. Without this a
+  // visitor arriving on a platform filter — from the platform page's
+  // "open in browser", or a shared link — sees a collapsed Microarray
+  // row, nothing ticked anywhere, and a result count that looks
+  // unexplained. The selection was applied; it just had nowhere to
+  // show.
+  const selectedGroupKey = [...selectedPlatformIds].sort().join(",");
+  useEffect(() => {
+    if (selectedPlatforms.length === 0) return;
+    const holders = TOP_TECHNOLOGY_TYPES.filter(([, , tts]) =>
+      selectedPlatforms.some((p) => p.technologyType && tts.includes(p.technologyType)),
+    ).map(([id]) => id);
+    if (holders.length === 0) return;
+    setOpen((prev) => {
+      if (holders.every((h) => prev[h])) return prev;
+      const next = { ...prev };
+      for (const h of holders) next[h] = true;
+      return next;
+    });
+    // Keyed on the id set rather than the array identity, which is new
+    // on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGroupKey]);
   const selectedTechSet = new Set(selectedTechnologyTypes);
   const selectedAnnotUris = new Set(
     selectedTechAnnotations.map((a) => a.termUri).filter(Boolean) as string[],
@@ -135,6 +164,22 @@ export function TechnologyTypeSelector({
     return "partial";
   }
 
+  /** The child rows to draw for a group: everything selected, then the
+   *  rest up to the cap. A selected platform is always present. */
+  function visiblePlatforms(groupPlatforms: Platform[]): Platform[] {
+    const picked = groupPlatforms.filter((p) => selectedPlatformIds.has(p.id));
+    const rest = groupPlatforms.filter((p) => !selectedPlatformIds.has(p.id));
+    return [...picked, ...rest.slice(0, PLATFORM_ROW_CAP)];
+  }
+
+  /** How many individually-picked platforms sit under a group. Shown on
+   *  the collapsed row so a selection is never invisible. */
+  function selectedInGroup(g: { tts: readonly string[] }): number {
+    return selectedPlatforms.filter(
+      (p) => p.technologyType && g.tts.includes(p.technologyType),
+    ).length;
+  }
+
   function togglePlatform(p: Platform) {
     if (disabled) return;
     const next = selectedPlatformIds.has(p.id)
@@ -217,6 +262,10 @@ export function TechnologyTypeSelector({
           const state = groupState(g);
           const isOpen = !!open[g.id];
           const hasSubgroups = (g.subgroups?.length ?? 0) > 0;
+          // Once each: both scan a list, and both were being called
+          // three times per group per render.
+          const nSelected = selectedInGroup(g);
+          const visible = visiblePlatforms(g.platforms);
           return (
             <li key={g.id} className="py-0.5">
               <div className="flex items-center gap-2">
@@ -230,12 +279,33 @@ export function TechnologyTypeSelector({
                   onChange={() => toggleGroup(g)}
                   className="h-3.5 w-3.5 accent-gemma-accent"
                 />
+                {/* Chevron, matching the Annotations rows. The label
+                    was already a toggle, but with nothing to say so —
+                    Microarray looked like a leaf and its platform list
+                    was unreachable unless you happened to click the
+                    word. */}
                 <button
                   type="button"
                   onClick={() => setOpen({ ...open, [g.id]: !isOpen })}
-                  className="flex-1 text-left truncate hover:text-gemma-accent"
+                  className="flex-1 text-left truncate hover:text-gemma-accent flex items-center gap-1"
+                  title={
+                    hasSubgroups
+                      ? `${g.name} — expand for assay types`
+                      : `${g.name} — expand for individual platforms`
+                  }
                 >
-                  {g.name}
+                  <ChevronRight
+                    className={`h-3 w-3 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
+                  />
+                  <span className="truncate">{g.name}</span>
+                  {nSelected > 0 ? (
+                    <span
+                      className="text-[10px] text-gemma-accent font-medium tabular-nums"
+                      title={`${nSelected} selected`}
+                    >
+                      ·{nSelected}
+                    </span>
+                  ) : null}
                 </button>
                 <span className="text-gemma-subtle text-xs tabular-nums">{formatNumber(g.count)}</span>
               </div>
@@ -267,7 +337,12 @@ export function TechnologyTypeSelector({
                       })
                     : (
                       <>
-                        {g.platforms.slice(0, 40).map((p) => (
+                        {/* Selected platforms first, and never cut by
+                            the cap below: arriving on a filter for a
+                            platform that sorts 200th would otherwise
+                            show an unticked list under a group that
+                            says nothing is selected. */}
+                        {visible.map((p) => (
                           <li key={p.id} className="flex items-center gap-2 py-0.5">
                             <input
                               type="checkbox"
@@ -284,9 +359,9 @@ export function TechnologyTypeSelector({
                             </span>
                           </li>
                         ))}
-                        {g.platforms.length > 40 ? (
+                        {g.platforms.length > visible.length ? (
                           <li className="text-xs text-gemma-subtle py-0.5">
-                            + {g.platforms.length - 40} more
+                            + {g.platforms.length - visible.length} more
                           </li>
                         ) : null}
                       </>

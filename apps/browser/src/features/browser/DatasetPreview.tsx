@@ -8,6 +8,7 @@ import { titleCase } from "title-case";
 import { Plus, Minus, ExternalLink, AlertOctagon, ArrowRight } from "lucide-react";
 import { marked } from "marked";
 import { getDatasetAnnotations } from "@/api/endpoints";
+import { SHOW_GEEQ } from "@/lib/geeq";
 import { HelpHint } from "@/features/shared/HelpHint";
 import type {
   AnnotationTerm,
@@ -164,7 +165,7 @@ export function DatasetPreview({
     return { mainTerms: main, grouped: groupedObj };
   }, [terms]);
 
-  const quality = dataset.geeq?.publicQualityScore;
+  const quality = SHOW_GEEQ ? dataset.geeq?.publicQualityScore : undefined;
   const accession = dataset.accession?.accession;
   const isGeo = !!accession && /^GSE/i.test(accession);
   const geoUrl = isGeo
@@ -197,7 +198,7 @@ export function DatasetPreview({
             </span>
             <HelpHint
               label="GEEQ quality score"
-              body="Gemma's public quality score (GEEQ) reflects experimental design + data-suitability heuristics. Green ≥ 0.45 · amber > 0.1 · red ≤ 0.1."
+              body="Gemma's public quality score (GEEQ) reflects how clean the data is — outliers, replicate behaviour, batch effects. Green ≥ 0.45 · amber > 0.1 · red ≤ 0.1."
             />
           </span>
         ) : null}

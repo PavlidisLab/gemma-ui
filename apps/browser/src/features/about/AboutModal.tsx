@@ -3,10 +3,16 @@
 // terms/conditions at https://pavlidislab.github.io/Gemma/terms.html
 //
 // Presented as a scrollable modal (opened from the AppBar's "About"
-// tab) rather than a standalone /about route — same backdrop-click /
-// Esc dismissal convention as LoginModal.
+// tab) rather than a standalone /about route. Chrome comes from the
+// shared <Modal> shell.
+//
+// Section order puts what a visitor most often came for first — how
+// to cite, how to get at the data programmatically, what they're
+// allowed to do with it, and who to write to. The genome / annotation
+// source versions are reference material and sit last.
 
-import { useEffect } from "react";
+import { mslLogo, ubcLogo } from "@gemma/assets";
+import { Modal } from "@/features/shared/Modal";
 
 export function AboutModal({
   open,
@@ -15,233 +21,225 @@ export function AboutModal({
   open: boolean;
   onClose: () => void;
 }) {
-  // Esc closes.
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center px-4 py-8"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="About Gemma"
-    >
-      <div
-        className="bg-surface rounded-lg shadow-2xl w-full max-w-3xl max-h-full flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-6 py-3 border-b border-gemma-grid shrink-0">
-          <h1 className="text-lg font-semibold tracking-tight text-gemma-ink">
-            About Gemma
-          </h1>
-          <button
-            type="button"
-            className="text-gemma-subtle hover:text-gemma-ink text-xl leading-none bg-transparent border-none cursor-pointer p-0"
-            onClick={onClose}
-            aria-label="close"
-          >
-            ×
-          </button>
-        </div>
+    <Modal open={open} onClose={onClose} title="About Gemma">
+      <div className="space-y-8">
+        <header>
+          <p className="text-sm text-gemma-ink leading-relaxed">
+            Gemma is a web site, database and a set of tools for the meta-analysis,
+            re-use and sharing of gene expression profiling data. Gemma contains data
+            from thousands of public studies, referencing thousands of published papers.
+            Users can search, access and visualize the data and differential expression
+            results. For more information, see the{" "}
+            <a
+              href="https://pavlidislab.github.io/Gemma/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-gemma-accent hover:underline"
+            >
+              help and documentation ↗
+            </a>.
+          </p>
+          {/* The "(credits ↗)" parenthetical pointed at
+              pavlidislab.github.io/Gemma/credits.html, which 404s.
+              Credits and funding come back here once there's a page to
+              send people to. */}
+          <p className="mt-2 text-sm text-gemma-ink">
+            Gemma was developed by the Pavlidis group at UBC.
+          </p>
+        </header>
 
-        <div className="overflow-y-auto px-6 py-6 space-y-8">
-          <header>
-            <p className="text-sm text-gemma-ink leading-relaxed">
-              Gemma is a web site, database and a set of tools for the meta-analysis,
-              re-use and sharing of gene expression profiling data. Gemma contains data
-              from thousands of public studies, referencing thousands of published papers.
-              Users can search, access and visualize the data and differential expression
-              results. For more information, see the{" "}
+        <Section title="How to cite">
+          <p>To cite Gemma, please use:</p>
+          <blockquote className="border-l-2 border-gemma-grid pl-4 text-gemma-ink text-sm">
+            Lim N., et al., Curation of over 10,000 transcriptomic studies to enable data
+            reuse. <em>Database</em>, 2021.{" "}
+            <a
+              href="https://doi.org/10.1093/database/baab006"
+              target="_blank"
+              rel="noreferrer"
+              className="text-gemma-accent hover:underline"
+            >
+              link ↗
+            </a>
+          </blockquote>
+        </Section>
+
+        <Section title="Programmatic access">
+          <p>
+            Gemma exposes a full REST API at{" "}
+            <code className="text-[12px] px-1 py-0.5 rounded bg-surface-sunk border border-gemma-grid font-mono text-gemma-ink">
+              /rest/v2/
+            </code>.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3 mt-3">
+            <APICard
+              name="REST API docs"
+              blurb="Interactive Swagger UI for all endpoints."
+              href="https://gemma.msl.ubc.ca/resources/restapidocs/"
+            />
+            <APICard
+              name="gemma.R"
+              blurb="Bioconductor R package for programmatic access."
+              href="https://bioconductor.org/packages/gemma.R"
+            />
+            <APICard
+              name="gemmapy"
+              blurb="Python package wrapping the Gemma REST API."
+              href="https://pypi.org/project/gemmapy/"
+            />
+          </div>
+        </Section>
+
+        <Section title="Licenses">
+          <div className="space-y-2">
+            <LicenseRow
+              subject="Source code"
+              license="Apache 2.0"
+              href="https://www.apache.org/licenses/LICENSE-2.0"
+            />
+            <LicenseRow
+              subject="Gene expression data"
+              license="Original provider's license; GEO data is unrestricted by default. Otherwise CC BY."
+              href="https://creativecommons.org/licenses/by/4.0/"
+            />
+            <LicenseRow
+              subject="Annotations & analysis results"
+              license="CC BY-NC. Commercial use requires contacting Gemma."
+              href="https://creativecommons.org/licenses/by-nc/4.0/"
+            />
+          </div>
+          <p className="text-xs text-gemma-subtle mt-3">
+            Full terms:{" "}
+            <a
+              href="https://pavlidislab.github.io/Gemma/terms.html"
+              target="_blank"
+              rel="noreferrer"
+              className="text-gemma-accent hover:underline"
+            >
+              pavlidislab.github.io/Gemma/terms.html ↗
+            </a>
+          </p>
+        </Section>
+
+        <Section title="Contact">
+          <div className="bg-white border border-gemma-grid rounded-md p-4 flex items-center gap-5">
+            {/* Both marks at a shared optical height, each linking to
+                its institution. mslLogo is a 150x91 transparent export
+                — anything much past h-12 softens it (see
+                packages/assets). The alt text doubles as the link's
+                accessible name, so it names the institution rather
+                than describing the artwork. */}
+            <div className="flex items-center gap-4 shrink-0">
               <a
-                href="https://pavlidislab.github.io/Gemma/"
+                href="https://www.msl.ubc.ca"
                 target="_blank"
                 rel="noreferrer"
-                className="text-gemma-accent hover:underline"
+                title="Michael Smith Laboratories"
+                className="shrink-0 hover:opacity-75 transition-opacity"
               >
-                help and documentation ↗
-              </a>.
-            </p>
-            <p className="mt-2 text-sm text-gemma-ink">
-              Gemma was developed by the Pavlidis group at UBC (
-              <a
-                href="https://pavlidislab.github.io/Gemma/credits.html"
-                target="_blank"
-                rel="noreferrer"
-                className="text-gemma-accent hover:underline"
-              >
-                credits ↗
+                <img
+                  src={mslLogo}
+                  alt="Michael Smith Laboratories"
+                  className="h-11 w-auto"
+                />
               </a>
-              ).
-            </p>
-          </header>
-
-          <Section title="How to cite">
-            <p>To cite Gemma, please use:</p>
-            <blockquote className="border-l-2 border-gemma-grid pl-4 text-gemma-ink text-sm">
-              Lim N., et al., Curation of over 10,000 transcriptomic studies to enable data
-              reuse. <em>Database</em>, 2021.{" "}
+              <span className="w-px self-stretch bg-gemma-grid" aria-hidden />
               <a
-                href="https://doi.org/10.1093/database/baab006"
+                href="https://www.ubc.ca"
                 target="_blank"
                 rel="noreferrer"
-                className="text-gemma-accent hover:underline"
+                title="University of British Columbia"
+                className="shrink-0 hover:opacity-75 transition-opacity"
               >
-                link ↗
+                <img
+                  src={ubcLogo}
+                  alt="University of British Columbia"
+                  className="h-11 w-auto"
+                />
               </a>
-            </blockquote>
-          </Section>
-
-          <Section title="Genome and annotation sources">
-            <p>
-              Gemma's expression platform and gene annotations are powered by:
-            </p>
-            <div className="space-y-4 mt-2">
-              <GenomeSource
-                id="hg38"
-                label="Genome Reference Consortium Human GRCh38.p13 (GCA_000001405.28)"
-                assemblyHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.39/"
-                release="GRCh38.p13"
-                releaseHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.39/"
-                lastUpdated="6/30/2022"
-                annotations={[
-                  { label: "hg38 annotations", version: "GRCh38.p13", versionHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/", updated: "6/30/2022", linkHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/" },
-                  { label: "hg38 RNA-Seq annotations", version: "110", versionHref: "https://ftp.ensembl.org/pub/release-110/", updated: "1/17/2023", linkHref: "https://ftp.ensembl.org/pub/release-110/" },
-                ]}
-              />
-              <GenomeSource
-                id="mm39"
-                label="Genome Reference Consortium Mouse Build 39 (GCA_000001635.9) GRCm39"
-                assemblyHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001635.9/"
-                release="GRCm39"
-                releaseHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001635.9/"
-                lastUpdated="6/30/2022"
-                annotations={[
-                  { label: "mm39 annotations", version: "GRCm39", versionHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/635/GCA_000001635.9_GRCm39/", updated: "6/30/2022", linkHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/635/GCA_000001635.9_GRCm39/" },
-                  { label: "mm39 RNA-Seq annotations", version: "109", versionHref: "https://ftp.ensembl.org/pub/release-109/", updated: "1/17/2023", linkHref: "https://ftp.ensembl.org/pub/release-109/" },
-                ]}
-              />
-              <GenomeSource
-                id="rn7"
-                label="Wellcome Sanger Institute mRatBN7.2"
-                assemblyHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_015227675.2/"
-                release="mRatBN7.2"
-                releaseHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_015227675.2/"
-                lastUpdated="6/30/2022"
-                annotations={[
-                  { label: "rn7 annotations", version: "mRatBN7.2", versionHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/015/227/675/GCF_015227675.2_mRatBN7.2/", updated: "6/30/2022", linkHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/015/227/675/GCF_015227675.2_mRatBN7.2/" },
-                  { label: "rn7 RNA-Seq annotations", version: "108", versionHref: "https://ftp.ensembl.org/pub/release-108/", updated: "1/13/2023", linkHref: "https://ftp.ensembl.org/pub/release-108/" },
-                ]}
-              />
-              <OtherSource
-                id="Gene"
-                label="NCBI Gene"
-                href="https://www.ncbi.nlm.nih.gov/gene"
-                updated="9/28/2023"
-              />
-              <OtherSource
-                id="Go"
-                label="GO terms (from NCBI Gene)"
-                href="https://geneontology.org"
-                updated="5/4/2024"
-              />
             </div>
-          </Section>
-
-          <Section title="Programmatic access">
-            <p>
-              Gemma exposes a full REST API at{" "}
-              <code className="text-[12px] px-1 py-0.5 rounded bg-surface-sunk border border-gemma-grid font-mono text-gemma-ink">
-                /rest/v2/
-              </code>.
-            </p>
-            <div className="grid sm:grid-cols-2 gap-3 mt-3">
-              <APICard
-                name="REST API docs"
-                blurb="Interactive Swagger UI for all endpoints."
-                href="https://gemma.msl.ubc.ca/resources/restapidocs/"
-              />
-              <APICard
-                name="gemma.R"
-                blurb="Bioconductor R package for programmatic access."
-                href="https://bioconductor.org/packages/gemma.R"
-              />
-              <APICard
-                name="gemmapy"
-                blurb="Python package wrapping the Gemma REST API."
-                href="https://pypi.org/project/gemmapy/"
-              />
-              <APICard
-                name="gemma-mcp"
-                blurb="MCP server — lets Claude search Gemma, fetch expression, and run DE."
-                href="https://github.com/PavlidisLab/gemma-mcp"
-                internal="/mcp"
-              />
-            </div>
-          </Section>
-
-          <Section title="Licenses">
-            <div className="space-y-2">
-              <LicenseRow
-                subject="Source code"
-                license="Apache 2.0"
-                href="https://www.apache.org/licenses/LICENSE-2.0"
-              />
-              <LicenseRow
-                subject="Gene expression data"
-                license="Original provider's license; GEO data is unrestricted by default. Otherwise CC BY."
-                href="https://creativecommons.org/licenses/by/4.0/"
-              />
-              <LicenseRow
-                subject="Annotations & analysis results"
-                license="CC BY-NC. Commercial use requires contacting Gemma."
-                href="https://creativecommons.org/licenses/by-nc/4.0/"
-              />
-            </div>
-            <p className="text-xs text-gemma-subtle mt-3">
-              Full terms:{" "}
-              <a
-                href="https://pavlidislab.github.io/Gemma/terms.html"
-                target="_blank"
-                rel="noreferrer"
-                className="text-gemma-accent hover:underline"
-              >
-                pavlidislab.github.io/Gemma/terms.html ↗
-              </a>
-            </p>
-          </Section>
-
-          <Section title="Contact">
-            <p>
-              Gemma is developed and maintained by the{" "}
+            <div className="min-w-0 text-sm leading-relaxed">
               <a
                 href="https://pavlab.msl.ubc.ca"
                 target="_blank"
                 rel="noreferrer"
-                className="text-gemma-accent hover:underline"
+                className="font-semibold text-gemma-accent hover:underline"
               >
                 Pavlidis Lab ↗
-              </a>{" "}
-              at the Michael Smith Laboratories and Department of Psychiatry,
-              University of British Columbia, Vancouver, Canada.
-            </p>
-            <div className="flex flex-wrap gap-3 mt-3">
-              <ContactLink label="Lab website" href="https://pavlab.msl.ubc.ca" />
-              <ContactLink label="GitHub" href="https://github.com/PavlidisLab" />
-              <ContactLink label="Email" href="mailto:pavlab-info@msl.ubc.ca" />
+              </a>
+              <div className="text-gemma-subtle text-[13px]">
+                Michael Smith Laboratories &amp; Department of Psychiatry
+              </div>
+              <div className="text-gemma-subtle text-[13px]">
+                University of British Columbia · Vancouver, Canada
+              </div>
             </div>
-          </Section>
-        </div>
+          </div>
+          <div className="flex flex-wrap gap-3 mt-3">
+            <ContactLink label="Lab website" href="https://pavlab.msl.ubc.ca" />
+            <ContactLink label="GitHub" href="https://github.com/PavlidisLab" />
+            <ContactLink label="Email" href="mailto:pavlab-info@msl.ubc.ca" />
+          </div>
+        </Section>
+        <Section title="Genome and annotation sources">
+          <p>
+            Gemma's expression platform and gene annotations are powered by:
+          </p>
+          <div className="space-y-4 mt-2">
+            <GenomeSource
+              id="hg38"
+              label="Genome Reference Consortium Human GRCh38.p13 (GCA_000001405.28)"
+              assemblyHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.39/"
+              release="GRCh38.p13"
+              releaseHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001405.39/"
+              lastUpdated="6/30/2022"
+              annotations={[
+                { label: "hg38 annotations", version: "GRCh38.p13", versionHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/", updated: "6/30/2022", linkHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.28_GRCh38.p13/" },
+                { label: "hg38 RNA-Seq annotations", version: "110", versionHref: "https://ftp.ensembl.org/pub/release-110/", updated: "1/17/2023", linkHref: "https://ftp.ensembl.org/pub/release-110/" },
+              ]}
+            />
+            <GenomeSource
+              id="mm39"
+              label="Genome Reference Consortium Mouse Build 39 (GCA_000001635.9) GRCm39"
+              assemblyHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001635.9/"
+              release="GRCm39"
+              releaseHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000001635.9/"
+              lastUpdated="6/30/2022"
+              annotations={[
+                { label: "mm39 annotations", version: "GRCm39", versionHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/635/GCA_000001635.9_GRCm39/", updated: "6/30/2022", linkHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/635/GCA_000001635.9_GRCm39/" },
+                { label: "mm39 RNA-Seq annotations", version: "109", versionHref: "https://ftp.ensembl.org/pub/release-109/", updated: "1/17/2023", linkHref: "https://ftp.ensembl.org/pub/release-109/" },
+              ]}
+            />
+            <GenomeSource
+              id="rn7"
+              label="Wellcome Sanger Institute mRatBN7.2"
+              assemblyHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_015227675.2/"
+              release="mRatBN7.2"
+              releaseHref="https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_015227675.2/"
+              lastUpdated="6/30/2022"
+              annotations={[
+                { label: "rn7 annotations", version: "mRatBN7.2", versionHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/015/227/675/GCF_015227675.2_mRatBN7.2/", updated: "6/30/2022", linkHref: "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/015/227/675/GCF_015227675.2_mRatBN7.2/" },
+                { label: "rn7 RNA-Seq annotations", version: "108", versionHref: "https://ftp.ensembl.org/pub/release-108/", updated: "1/13/2023", linkHref: "https://ftp.ensembl.org/pub/release-108/" },
+              ]}
+            />
+            <OtherSource
+              id="Gene"
+              label="NCBI Gene"
+              href="https://www.ncbi.nlm.nih.gov/gene"
+              updated="9/28/2023"
+            />
+            <OtherSource
+              id="Go"
+              label="GO terms (from NCBI Gene)"
+              href="https://geneontology.org"
+              updated="5/4/2024"
+            />
+          </div>
+        </Section>
+
       </div>
-    </div>
+    </Modal>
   );
 }
 
