@@ -334,3 +334,34 @@ export const fallbackTaxa: Taxon[] = [
   { id: 2, commonName: "mouse", scientificName: "Mus musculus" },
   { id: 3, commonName: "rat",   scientificName: "Rattus norvegicus" },
 ];
+
+/**
+ * The taxa this UI shows platforms for.
+ *
+ * `/taxa` lists 48 — everything a sequence was ever imported against,
+ * down to `synthetic construct` and `Homo sapiens/Mus musculus
+ * xenograft` — but Gemma curates three. The other 45 carry 16 platforms
+ * between them and NOT ONE has an experiment on it (measured on
+ * gemma2 2026-08-24: 670 platforms, 654 across human / mouse / rat).
+ *
+ * Kept separate from `fallbackTaxa` above despite listing the same
+ * three: that one is "what to show until /taxa answers", this one is
+ * "what belongs in the catalogue at all". Extending one should not
+ * quietly move the other.
+ *
+ * Ids, not names. Only these three carry a `commonName` — every other
+ * taxon has null — so a name check has to fall back to the scientific
+ * name, and `Rattus rattus` (id 79) sits one letter away from the rat
+ * this app means.
+ */
+export const SUPPORTED_TAXON_IDS: ReadonlySet<number> = new Set([1, 2, 3]);
+
+/** True when a record's taxon is one this UI covers. Falls back to the
+ *  scientific name when no id came down. */
+export function isSupportedTaxon(
+  t: { id?: number | null; scientificName?: string | null } | null | undefined,
+): boolean {
+  if (!t) return false;
+  if (t.id != null) return SUPPORTED_TAXON_IDS.has(t.id);
+  return fallbackTaxa.some((f) => f.scientificName === t.scientificName);
+}
