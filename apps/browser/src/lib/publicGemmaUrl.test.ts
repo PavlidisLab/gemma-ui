@@ -61,6 +61,31 @@ describe("publicGemmaUrl", () => {
     expect(publicGemmaUrl(PATH)).toBe("https://gemma2.msl.ubc.ca" + PATH);
   });
 
+  it("refuses a dev server reached over the network, not just loopback", async () => {
+    // `npm run dev -- --host`, opened from another machine. Not
+    // loopback, so an origin check that only excluded localhost let
+    // this through — and UCSC cannot reach a LAN address any more than
+    // it could reach frink.
+    for (const origin of [
+      "http://192.168.1.50:5183",
+      "http://dev-box.msl.ubc.ca:5183",
+    ]) {
+      const { publicGemmaUrl } = await load({
+        baseUrl: "http://frink.msl.ubc.ca:8080",
+        origin,
+      });
+      expect(publicGemmaUrl(PATH)).toBe("");
+    }
+  });
+
+  it("falls through to the configured base when served over https on loopback", async () => {
+    const { publicGemmaUrl } = await load({
+      baseUrl: "https://gemma2.msl.ubc.ca",
+      origin: "https://localhost:5183",
+    });
+    expect(publicGemmaUrl(PATH)).toBe("https://gemma2.msl.ubc.ca" + PATH);
+  });
+
   it("lets an explicit public URL override everything", async () => {
     const { publicGemmaUrl } = await load({
       baseUrl: "http://frink.msl.ubc.ca:8080",
