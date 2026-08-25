@@ -102,6 +102,15 @@ export interface TriggerProposalBody {
    *  the feedback as a strong override. Backwards compatible —
    *  agents predating the field ignore it. */
   prior_feedback?: string | null;
+  /** When the preboarding carries no GEO-linked publication, look one
+   *  up via pub_finder and use it for the rest of the run. Agent
+   *  default true; omit to take it. */
+  find_pub_if_missing?: boolean;
+  /** Ablation flag — strip every publication id, skip pub_finder and
+   *  skip biolit, so the proposer sees only the per-sample data.
+   *  Provenance records ``id_source='withheld'``. This is the switch
+   *  for measuring the proposer without a paper carrying it. */
+  withhold_publication?: boolean;
 }
 
 /**

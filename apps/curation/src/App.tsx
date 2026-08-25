@@ -65,6 +65,7 @@ import {
 } from "@/api/agentSchema";
 import {
   AgentRunDialog,
+  defaultRunKind,
   type AgentRunRequest,
 } from "@/components/AgentRunDialog";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -932,7 +933,13 @@ function MainGrid({
   // Open the unified dialog. The strip's single button calls this;
   // the dialog gathers tier / scope / notes / etc and calls back into
   // ``submitAgentRun``.
-  function openAgentRunDialog(kind: "proposal" | "audit") {
+  // Curated FACTORS, not tags — the agent's design gate tests exactly
+  // this (``preboarding_has_existing_factors``) to decide whether a
+  // proposal is allowed to land, so the dialog's recommendation and the
+  // gate's behaviour come off one signal instead of two.
+  const hasCuratedFactors = (draft?.factors?.length ?? 0) > 0;
+
+  function openAgentRunDialog(kind?: "proposal" | "audit") {
     // Standing-proposal detection was wired through the legacy
     // pendingProposals count; with that surface hidden, we default
     // every run to ``fresh``. The dialog still allows the curator
@@ -940,7 +947,10 @@ function MainGrid({
     // proposer service decides whether to redo internally. A
     // follow-up can re-derive ``redo`` from kind=proposal
     // CurationReview presence.
-    setAgentRunDialog({ kind, mode: "fresh" });
+    setAgentRunDialog({
+      kind: kind ?? defaultRunKind(hasCuratedFactors),
+      mode: "fresh",
+    });
   }
 
   function submitAgentRun(req: AgentRunRequest) {
@@ -956,21 +966,35 @@ function MainGrid({
       draft?.experiment_short_name ||
       draft?.external_source?.accession ||
       String(experimentId);
+    // Only what the curator chose goes on the wire. An option left
+    // alone is omitted rather than restated, so the agent's own default
+    // is what runs and can change without a UI edit.
+    const refresh_cache = req.refresh_cache || req.mode === "redo";
     if (req.kind === "proposal") {
-      // No tier / scope from the UI — the agent runs with its default
-      // configuration. Redo forces a fresh pass; fresh trusts the
-      // proposer's cache behavior.
       proposeStream.start(accession, {
+        // Always blind. The design gate hard-drops a proposal over
+        // existing curated factors unless allow_overwrite is passed,
+        // which this dialog deliberately does not offer — so stripping
+        // first is what makes a proposal land at all.
         fresh_preboarding: true,
-        refresh_cache: req.mode === "redo",
+        refresh_cache,
+        ...(req.tier ? { tier: req.tier } : {}),
+        ...(req.withhold_publication ? { withhold_publication: true } : {}),
       });
       // A proposer run's result lands in the Proposal-review view — put
       // the curator there so they see the progress + the proposal.
       setSidebarView("proposalReview");
     } else {
       auditStream.start(accession, {
-        refresh_cache: req.mode === "redo",
+        refresh_cache,
+        ...(req.tier ? { tier: req.tier } : {}),
+        // Never an empty array — the server 400s on one. The dialog
+        // already omits it, this is the second gate.
+        ...(req.scope && req.scope.length > 0 ? { scope: req.scope } : {}),
       });
+      // Same courtesy the proposal path gets: an audit the curator just
+      // fired should be the thing they are looking at.
+      setSidebarView("audit");
     }
     setAgentRunDialog(null);
   }
@@ -1236,7 +1260,9 @@ function MainGrid({
                 Shown on both views so proposing is always one click
                 away. */}
             <AgentRunButton
+              defaultKind={defaultRunKind(hasCuratedFactors)}
               proposeRunning={proposeStream.status === "running"}
+              auditRunning={auditStream.status === "running"}
               agentDown={servicesHealth.data?.agent === "down"}
               onRequest={openAgentRunDialog}
             />
@@ -1330,6 +1356,7 @@ function MainGrid({
         kind={agentRunDialog?.kind ?? "proposal"}
         mode={agentRunDialog?.mode ?? "fresh"}
         experimentShortName={draft?.experiment_short_name || String(experimentId)}
+        hasCuratedFactors={hasCuratedFactors}
         agentStatus={servicesHealth.data?.agent ?? "unknown"}
         busy={
           (agentRunDialog?.kind === "proposal" &&
@@ -1347,23 +1374,34 @@ function MainGrid({
 }
 
 /** Primary agent-run button in the sidebar header strip. Always offers
- *  **Propose…** — the meaningful first step on an experiment: generate
- *  the annotations. (Audit stays reachable through the dialog; it isn't
- *  the primary action while the curation flow starts from a proposal.)
- *  Disabled when the agent is down or a proposer run is already in
- *  flight. */
+ *  Opens the run dialog on whichever run leads for this experiment —
+ *  **Audit…** where curated factors already exist, **Propose…** where
+ *  they don't. The label names the run it will open on rather than a
+ *  fixed one, because the dialog it opens lets the curator switch and a
+ *  button promising the other thing would be the only misleading part.
+ *  Disabled when the agent is down or that run is already in flight. */
 function AgentRunButton({
+  defaultKind,
   proposeRunning,
+  auditRunning,
   agentDown,
   onRequest,
 }: {
+  defaultKind: "proposal" | "audit";
   proposeRunning: boolean;
+  auditRunning: boolean;
   agentDown: boolean;
   onRequest: (kind: "proposal" | "audit") => void;
 }) {
-  const kind = "proposal" as const;
-  const running = proposeRunning;
-  const label = running ? "proposing…" : "Propose…";
+  const kind = defaultKind;
+  const running = kind === "audit" ? auditRunning : proposeRunning;
+  const label = running
+    ? kind === "audit"
+      ? "auditing…"
+      : "proposing…"
+    : kind === "audit"
+      ? "Audit…"
+      : "Propose…";
   const disabled = running || agentDown;
   const title = agentDown
     ? "Agent service is unreachable — start it to enable runs"
