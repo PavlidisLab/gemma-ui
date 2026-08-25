@@ -20,7 +20,7 @@ export {
   HEATMAP_LEGEND_ZONE_PX,
 } from "./PanelCard";
 
-export { ScreeChart, MAX_SCREE_BARS } from "./ScreeChart";
+export { ScreeChart, MAX_SCREE_BARS, MAX_LOADED_PC } from "./ScreeChart";
 
 export { MvScatter, type MvScatterData } from "./MvScatter";
 

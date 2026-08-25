@@ -17,6 +17,7 @@ import {
   PanelLoading,
   PanelError,
   ScreeChart,
+  MAX_LOADED_PC,
 } from "@gemma/diagnostics";
 import { getDatasetSvd, getPcLoadings } from "@/api/endpoints";
 import { geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
@@ -39,7 +40,19 @@ export function PcaScreeCard({ datasetId }: { datasetId: number }) {
       <PanelEmpty reason="No PCA available. Either this dataset's SVDResult hasn't been computed, or the dataset has too few samples." />
     );
   } else {
-    body = <ScreeChart variances={data.variances} onBarClick={setOpenPc} />;
+    // Only the first MAX_LOADED_PC bars open a popup. Gemma persists
+    // loadings for those components alone, and `/svd/loadings?pc=6`
+    // answers 200 with `rows: []` rather than an error — so the popup
+    // opened onto "No SVD loadings available for this dataset yet.",
+    // which named the wrong cause: the dataset has loadings, just not
+    // for that component.
+    body = (
+      <ScreeChart
+        variances={data.variances}
+        onBarClick={setOpenPc}
+        maxClickablePc={MAX_LOADED_PC}
+      />
+    );
   }
 
   return (
@@ -49,7 +62,9 @@ export function PcaScreeCard({ datasetId }: { datasetId: number }) {
         footer={
           data?.variances ? (
             <>
-              <span>click a bar → top-loaded probes on that PC</span>
+              <span>
+                click a bar (PC1–{MAX_LOADED_PC}) → top-loaded probes on that PC
+              </span>
               <span className="ml-auto">
                 <a
                   href={`/rest/v2/datasets/${datasetId}/svd`}
