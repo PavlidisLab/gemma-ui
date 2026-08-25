@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   useAnnotationSearch,
+  annotationSearchMessage,
   type AnnotationCandidate,
 } from "@/api/annotations";
 import { useFindTerm, type TermCandidate } from "@/api/findTerm";
@@ -207,7 +208,11 @@ export function OntologyTermPicker({
   // Debounce the query to avoid spamming the endpoint on every key.
   const debounced = useDebouncedValue(draft, 150);
 
-  const { data: candidates = [], isFetching } = useAnnotationSearch(
+  const {
+    data: candidates = [],
+    isFetching,
+    error: searchError,
+  } = useAnnotationSearch(
     debounced,
     category,
     // This dropdown is the one surface that renders the "e.g. …" rare-
@@ -539,6 +544,14 @@ export function OntologyTermPicker({
           ) : isFetching ? (
             <li className="px-2 py-1 text-slate-400 italic">
               searching catalog…
+            </li>
+          ) : searchError ? (
+            /* Ahead of the no-matches line on purpose: a search that
+               FAILED and a search that found nothing are different
+               answers, and only one of them means the term isn't
+               there. */
+            <li className="px-2 py-1 text-amber-800 dark:text-amber-300">
+              {annotationSearchMessage(searchError)}
             </li>
           ) : draft.trim() && !showKeepCurrent ? (
             <li className="px-2 py-1 text-slate-500 italic">

@@ -20,7 +20,10 @@
  * experiment.
  */
 import { useState } from "react";
-import { useAnnotationSearch } from "@/api/annotations";
+import {
+  useAnnotationSearch,
+  annotationSearchMessage,
+} from "@/api/annotations";
 import { useFindTerm, type TermCandidate } from "@/api/findTerm";
 import { CategoryPicker } from "@/features/design/CategoryPicker";
 import { CurieLink } from "@/components/ui/CurieLink";
@@ -34,7 +37,11 @@ export function OntologyLookup() {
   const [category, setCategory] = useState<string | null>(null);
 
   const debounced = useDebouncedValue(query, 150);
-  const { data: candidates = [], isFetching } = useAnnotationSearch(
+  const {
+    data: candidates = [],
+    isFetching,
+    error: searchError,
+  } = useAnnotationSearch(
     debounced,
     category,
     // No ``includeExampleUsage``: that enrichment is a batched reverse
@@ -169,6 +176,12 @@ export function OntologyLookup() {
               </ul>
             ) : isFetching ? (
               <p className="text-xs text-slate-400 italic py-1">searching…</p>
+            ) : searchError ? (
+              /* A failed search is not an absent term — same ordering
+                 as OntologyTermPicker's dropdown. */
+              <p className="text-xs text-amber-800 dark:text-amber-300 py-1">
+                {annotationSearchMessage(searchError)}
+              </p>
             ) : query.trim() ? (
               <p className="text-xs text-slate-500 italic py-1">
                 no catalog matches for "{query.trim()}"

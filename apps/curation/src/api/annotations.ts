@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api } from "./client";
+import { api, ApiError } from "./client";
 import { curieToUrl, ncbiGeneIdFromUri, ncbiGeneUrl } from "@/lib/curie";
 import { taxonSortPriority } from "@/lib/taxon";
 import { readTermCache, writeTermCache } from "@/lib/termCache";
@@ -54,6 +54,34 @@ export interface AnnotationExampleUsage {
   second_object: string | null;
   second_object_uri: string | null;
   source_experiment_id: number | null;
+}
+
+/**
+ * What to tell a curator when the catalog search fails.
+ *
+ * Gemma's Lucene parser treats UPPERCASE `AND` / `OR` / `NOT` as
+ * operators, so a GEO characteristic pasted in verbatim —
+ * `TUMOUR OR NORMAL` — is a parse error. It answered 500 until gemma2
+ * `8b76ee195c` (2026-08-25) and answers `400 Invalid search query: …`
+ * now. Either way the picker rendered an empty dropdown, which reads
+ * as "no such term" for a term that exists.
+ *
+ * The server's own sentence is precise about WHAT failed and silent on
+ * why, so a 400 gets the operator hint appended — that is the fix the
+ * curator can act on. Lowercasing is genuinely enough: `cell or` is
+ * 200, `cell OR` is 400.
+ *
+ * Exported for test.
+ */
+export function annotationSearchMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 400) {
+      const detail = err.detail || "Invalid search query.";
+      return `${detail} — AND, OR and NOT in capitals are search operators. Lowercase them, or put a term on both sides.`;
+    }
+    return err.detail || err.message;
+  }
+  return err instanceof Error ? err.message : "Catalog search failed.";
 }
 
 const KEY = (

@@ -48,12 +48,35 @@ export function bearerToken(): string {
 /** Extract the most useful error text from a non-OK response.
  *  Tries JSON ``{detail}`` first (FastAPI's idiom), falls back to
  *  the raw text. Returns ``""`` on parse failure. */
+/**
+ * Pull the human-readable reason out of an error body.
+ *
+ * TWO backends answer through this one client and they shape errors
+ * differently. local_api is FastAPI — `{"detail": "..."}`. Gemma REST
+ * wraps its own — `{"apiVersion", "buildInfo", "error": {"code",
+ * "message"}}`.
+ *
+ * Only the FastAPI shape was recognised, so every Gemma error fell
+ * through to `JSON.stringify(body)` and the caller was handed the whole
+ * envelope, buildInfo and all, with the one useful sentence buried in
+ * it. `/annotations/search` began returning `400 Invalid search query:
+ * cell OR` on 2026-08-25 (gemma2 `8b76ee195c`), which is the first
+ * Gemma error worth showing a curator verbatim.
+ */
 async function readErrorBody(r: Response): Promise<string> {
   try {
     const body = await r.clone().json();
     if (body && typeof body === "object" && "detail" in body) {
       const d = (body as { detail: unknown }).detail;
       return typeof d === "string" ? d : JSON.stringify(d);
+    }
+    if (body && typeof body === "object" && "error" in body) {
+      const e = (body as { error: unknown }).error;
+      if (e && typeof e === "object" && "message" in e) {
+        const m = (e as { message: unknown }).message;
+        if (typeof m === "string" && m) return m;
+      }
+      return typeof e === "string" ? e : JSON.stringify(e);
     }
     return JSON.stringify(body);
   } catch {
