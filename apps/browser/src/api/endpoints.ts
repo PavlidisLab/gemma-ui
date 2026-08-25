@@ -17,8 +17,7 @@ import type {
   Taxon,
   User,
 } from "@/lib/types";
-
-const BASE = "/rest/v2";
+import { apiBase as BASE } from "./base";
 
 /* --------------------- requests --------------------- */
 

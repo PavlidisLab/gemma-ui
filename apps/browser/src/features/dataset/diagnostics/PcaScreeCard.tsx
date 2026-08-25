@@ -21,6 +21,7 @@ import {
 } from "@gemma/diagnostics";
 import { getDatasetSvd, getPcLoadings } from "@/api/endpoints";
 import { geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
+import { restUrl } from "@/api/base";
 
 export function PcaScreeCard({ datasetId }: { datasetId: number }) {
   const { data, isLoading, error } = useQuery({
@@ -67,7 +68,7 @@ export function PcaScreeCard({ datasetId }: { datasetId: number }) {
               </span>
               <span className="ml-auto">
                 <a
-                  href={`/rest/v2/datasets/${datasetId}/svd`}
+                  href={restUrl(`/datasets/${datasetId}/svd`)}
                   className="text-blue-700 dark:text-blue-300 hover:underline"
                   download
                   title="raw SVD JSON (eigenvalues + per-PC scores)"

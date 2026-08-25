@@ -19,6 +19,7 @@ import {
   sampleCorrelationCellPx,
 } from "@gemma/diagnostics";
 import { getDatasetSampleCorrelation } from "@/api/endpoints";
+import { restUrl } from "@/api/base";
 
 export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
   const { data, isLoading, error } = useQuery({
@@ -105,7 +106,7 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
             ) : null}
             <span className="ml-auto">
               <a
-                href={`/rest/v2/datasets/${datasetId}/sample-correlation?format=tsv`}
+                href={restUrl(`/datasets/${datasetId}/sample-correlation?format=tsv`)}
                 className="text-blue-700 dark:text-blue-300 hover:underline"
                 download
                 title="raw matrix as TSV"

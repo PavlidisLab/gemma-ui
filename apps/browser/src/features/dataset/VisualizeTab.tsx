@@ -33,6 +33,7 @@ import {
 import type { AnnotationSearchResult } from "@/lib/types";
 import type { Dataset, QuantitationType } from "@/lib/types";
 import { useDebounced } from "@/lib/useDebounced";
+import { restUrl } from "@/api/base";
 
 const GENES_HASH_KEY = "genes";
 const LS_PREFIX = "gemma-visualize-genes:";
@@ -1528,7 +1529,7 @@ async function resolveGeneIds(
     // placeholder on empty/error so the selection survives a cold load.
     let resolved: Gene | undefined;
     try {
-      const r = await fetch(`/rest/v2/genes/${shareId}`).then((res) =>
+      const r = await fetch(restUrl(`/genes/${shareId}`)).then((res) =>
         res.json(),
       );
       resolved = r?.data?.[0] as Gene | undefined;

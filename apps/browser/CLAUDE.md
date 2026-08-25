@@ -36,6 +36,51 @@ GEMMA_BASE_URL=http://localhost:9080    # local Gemma 2.0 server
 Use port **9080** for a local Gemma 2.0 Java server — **not 8080** which
 is reserved for the curation mock (run by `gemma-curation-agents/run_mock.sh`).
 
+The dev server proxies `/rest/*` there, so client code fetches relative
+`/rest/v2/...` paths and the browser sees them as same-origin — no
+CORS, despite the port difference. **A production build has no such
+proxy:** whatever serves `dist/` must answer the API on the same origin
+too, at whatever prefix `VITE_GEMMA_API_URL` names (see Deployment).
+
+Client code never hardcodes the API root — it goes through `apiBase` /
+`restUrl` in `src/api/base.ts`. A literal `/rest/v2/...` in a fetch is
+a bug: it breaks the moment the API sits at any other prefix.
+
+## Deployment
+
+The build is plain static files — no Tomcat, no container, no server
+runtime. Publish with:
+
+```sh
+scripts/deploy-browser.sh --dry-run   # show what would change
+scripts/deploy-browser.sh             # build + rsync --delete
+```
+
+Nothing about a specific target lives in the app source or in that
+script. Config comes from `.env.production` — one file per deployment,
+holding public URLs only, never secrets:
+
+| Var | Drives |
+|---|---|
+| `VITE_BASE_PATH` | Vite's `base` — the sub-path the app is mounted at, baked into every asset URL. Unset = origin root |
+| `VITE_GEMMA_API_URL` | `src/api/base.ts` — the REST root. Unset = `/rest/v2` same-origin, which is right whenever the app is served from the Gemma host itself |
+| `VITE_GEMMA_BASE_URL` | absolute origin for links a *human* follows or copies: legacy JSP pages, gemmapy/curl snippets. Never a proxy prefix |
+| `DEPLOY_DEST` | where `deploy-browser.sh` publishes to |
+
+Two things that bite:
+
+- **The app must be same-origin with the API.** Gemma's Tomcat CORS
+  filter allow-lists exactly one origin — its own — and 403s the
+  preflight from anywhere else. Serving the app from the Gemma host
+  makes this free. Serving it from any other host means standing up a
+  reverse proxy that strips `Origin`, then pointing
+  `VITE_GEMMA_API_URL` at that proxy's prefix. There is no
+  configuration that makes a plain cross-origin call work.
+- **A wrong `base` fails loudly and late.** The build emits
+  root-absolute asset URLs that 404 under a sub-path mount. The deploy
+  script greps `dist/index.html` for the expected prefix and refuses
+  rather than shipping it.
+
 ## Routing: the app uses hash routing
 
 URLs are **`…/#/dataset/123`**, not `…/dataset/123`.

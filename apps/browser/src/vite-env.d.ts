@@ -2,6 +2,9 @@
 
 interface ImportMetaEnv {
   readonly VITE_GEMMA_BASE_URL?: string;
+  /** REST API root — see src/api/base.ts. Defaults to /rest/v2. */
+  readonly VITE_GEMMA_API_URL?: string;
+  readonly VITE_CURATION_URL?: string;
 }
 
 interface ImportMeta {

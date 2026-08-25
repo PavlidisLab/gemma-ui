@@ -4,6 +4,7 @@
 import { useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import { apiGet } from "@/api/client";
+import { restUrl } from "@/api/base";
 import { compressFilter, downloadAs, formatNumber } from "@/lib/utils";
 import type { Dataset, PaginatedResponse } from "@/lib/types";
 import type { BrowsingOptions } from "./queries";
@@ -59,7 +60,7 @@ export function DownloadButton({ total, browsing, filterDescription }: Props) {
 
       // run sequentially to be polite; backend handles concurrent fine but no need
       for (const offset of offsets) {
-        const r = await apiGet<PaginatedResponse<Dataset>>("/rest/v2/datasets", {
+        const r = await apiGet<PaginatedResponse<Dataset>>(restUrl("/datasets"), {
           signal: ctl.signal,
           params: {
             filter,
