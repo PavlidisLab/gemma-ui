@@ -262,6 +262,10 @@ export function TechnologyTypeSelector({
           const state = groupState(g);
           const isOpen = !!open[g.id];
           const hasSubgroups = (g.subgroups?.length ?? 0) > 0;
+          // Once each: both scan a list, and both were being called
+          // three times per group per render.
+          const nSelected = selectedInGroup(g);
+          const visible = visiblePlatforms(g.platforms);
           return (
             <li key={g.id} className="py-0.5">
               <div className="flex items-center gap-2">
@@ -294,12 +298,12 @@ export function TechnologyTypeSelector({
                     className={`h-3 w-3 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
                   />
                   <span className="truncate">{g.name}</span>
-                  {selectedInGroup(g) > 0 ? (
+                  {nSelected > 0 ? (
                     <span
                       className="text-[10px] text-gemma-accent font-medium tabular-nums"
-                      title={`${selectedInGroup(g)} selected`}
+                      title={`${nSelected} selected`}
                     >
-                      ·{selectedInGroup(g)}
+                      ·{nSelected}
                     </span>
                   ) : null}
                 </button>
@@ -338,7 +342,7 @@ export function TechnologyTypeSelector({
                             platform that sorts 200th would otherwise
                             show an unticked list under a group that
                             says nothing is selected. */}
-                        {visiblePlatforms(g.platforms).map((p) => (
+                        {visible.map((p) => (
                           <li key={p.id} className="flex items-center gap-2 py-0.5">
                             <input
                               type="checkbox"
@@ -355,9 +359,9 @@ export function TechnologyTypeSelector({
                             </span>
                           </li>
                         ))}
-                        {g.platforms.length > visiblePlatforms(g.platforms).length ? (
+                        {g.platforms.length > visible.length ? (
                           <li className="text-xs text-gemma-subtle py-0.5">
-                            + {g.platforms.length - visiblePlatforms(g.platforms).length} more
+                            + {g.platforms.length - visible.length} more
                           </li>
                         ) : null}
                       </>
