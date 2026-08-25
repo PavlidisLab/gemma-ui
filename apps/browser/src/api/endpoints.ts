@@ -406,12 +406,13 @@ export interface MappedGene {
  * segment 404s, so a name-addressed call fails for exactly the probes
  * that are most interesting.
  *
- * ⚠️ Returns [] on every probe measured 2026-08-22 — the endpoint
- * answers 200 but omits `geneMappingSummaries` entirely, including for
- * probes that demonstrably map to a gene through the sibling `/genes`
- * call (GPL96 `1007_s_at` → DDR1), and on a merge target as well as a
- * mergee. Asked about in the platform-page handoff. Wired anyway: the
- * moment the field is populated this lights up with no further change.
+ * This returned [] on every probe when it was first wired: the endpoint
+ * answered 200 but omitted `geneMappingSummaries` entirely, because the
+ * field was computed on each request and then dropped by an
+ * `@JsonIgnore` predating the endpoint. Fixed server-side on
+ * `9f8e063748` (2026-08-22) and populated since — GPL96 `1007_s_at`
+ * reports five alignments, one on chromosome 6 and four on alt contigs
+ * of the same locus. `[]` now means what it says.
  */
 export async function getElementAlignments(
   platformId: number | string,
