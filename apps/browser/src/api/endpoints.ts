@@ -4,7 +4,7 @@
 
 import { apiGet, type Params } from "./client";
 import { compressFilter, compressArg } from "@/lib/utils";
-import { negativeCategoryClause } from "@/lib/filter";
+import { negativeCategoryClause, quoteIfNecessary } from "@/lib/filter";
 import { excludedCategories, excludedTerms } from "@/lib/gemmaConfig";
 import type {
   AnnotationSearchResult,
@@ -314,9 +314,21 @@ export interface PlatformElementsArgs {
  * (2026-08-22) across every filtered endpoint, so the workaround is
  * gone and a full name is searched as typed: `name like 1007_s_at`
  * returns that probe.
+ *
+ * The value goes through `quoteIfNecessary`, the same quoter every
+ * other clause in the app uses. Emitting it bare 400d the moment the
+ * query held a space, a paren or a comma — `name like foo bar` is a
+ * parse error, `name like "foo bar"` is not — and the elements section
+ * has no error branch, so a two-word search either read as "No probes
+ * match" or left the previous page's rows sitting there.
  */
 export function elementNameFilter(query: string): string {
-  return `name like ${query.trim().replace(/[%'"]/g, "")}`;
+  // `%` is the one character still stripped rather than quoted: the
+  // server escapes it into a literal percent sign, so passing one
+  // through can only produce a confusing zero. Quotes are no longer
+  // stripped — the grammar escapes them, and altering what someone
+  // typed is worse than searching for it.
+  return `name like ${quoteIfNecessary(query.trim().replace(/%/g, ""))}`;
 }
 
 /** Datasets-on-this-platform — paginated. Goes through the standard

@@ -36,11 +36,28 @@ describe("elementNameFilter", () => {
     }
   });
 
-  it("strips quotes rather than letting them reach the filter parser", () => {
-    expect(elementNameFilter(`AF'FX"`)).toBe("name like AFFX");
-  });
-
   it("trims, so a trailing space doesn't become part of the prefix", () => {
     expect(elementNameFilter("  AFFX  ")).toBe("name like AFFX");
+  });
+
+  // Measured on gemma2: `name like foo bar` → 400, `name like "foo bar"`
+  // → 200. The value used to be emitted bare, so a two-word search was
+  // a parse error rather than an empty result.
+  it("quotes an interior space instead of emitting a parse error", () => {
+    expect(elementNameFilter("foo bar")).toBe('name like "foo bar"');
+  });
+
+  it("quotes the other characters the grammar reserves", () => {
+    // FilterArg.g4: STRING is ~[()," ], so each of these has to be
+    // quoted rather than passed through.
+    expect(elementNameFilter("a(b")).toBe('name like "a(b"');
+    expect(elementNameFilter("a,b")).toBe('name like "a,b"');
+    expect(elementNameFilter('a"b')).toBe('name like "a\\"b"');
+  });
+
+  it("leaves a name the grammar accepts unquoted", () => {
+    // Hyphens, underscores, dots and apostrophes are all plain CHARs.
+    expect(elementNameFilter("AFFX-BioB-3_at")).toBe("name like AFFX-BioB-3_at");
+    expect(elementNameFilter("AF'FX")).toBe("name like AF'FX");
   });
 });

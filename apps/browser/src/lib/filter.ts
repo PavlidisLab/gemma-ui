@@ -26,7 +26,11 @@ export function capitalizeFirstLetter(str: string): string {
     .join(" ");
 }
 
-function quoteIfNecessary(s: string): string {
+/** Quote a value for the Gemma filter grammar when it carries anything
+ *  `STRING` can't hold. Exported because every filter clause built
+ *  anywhere in the app needs it — `elementNameFilter` shipped without
+ *  it and 400d on any probe search containing a space. */
+export function quoteIfNecessary(s: string): string {
   if (s.match(/[(), "]/) || s.length === 0) {
     // FilterArg.g4: `CHAR_IN_QUOTE: CHAR | [(), ] | '\\"'` — a quote
     // inside a quoted string escapes as \" . This used to substitute a
