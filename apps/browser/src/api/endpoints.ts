@@ -2,7 +2,7 @@
 //
 // Mirrors the actions registered in legacy-vue/src/store/modules/vapi.js.
 
-import { apiGet, type Params } from "./client";
+import { apiGet, ApiError, type Params } from "./client";
 import { compressFilter, compressArg } from "@/lib/utils";
 import { negativeCategoryClause, quoteIfNecessary } from "@/lib/filter";
 import { excludedCategories, excludedTerms } from "@/lib/gemmaConfig";
@@ -628,6 +628,36 @@ export async function getDatasetById(
  * does not hold — the counts are populated, and they are what pulls
  * the useful term up.
  */
+/**
+ * What to tell someone when an annotation search fails.
+ *
+ * Gemma's Lucene parser treats UPPERCASE `AND` / `OR` / `NOT` as
+ * operators, so typing `tumour OR normal` is a parse error rather than
+ * a search. It answered 500 until gemma2 `8b76ee195c` (2026-08-25) and
+ * answers `400 Invalid search query: …` now — but the selector renders
+ * a failed search and an empty one identically, so either way the term
+ * simply looks absent.
+ *
+ * The server names WHAT failed and not why, so a 400 gets the operator
+ * hint appended. Lowercasing really is the fix: `cell or` is 200,
+ * `cell OR` is 400.
+ *
+ * Sibling of the curation app's `annotationSearchMessage`. Kept
+ * per-app rather than promoted: same failure, different vocabulary for
+ * different readers, and one string helper is not worth a shared
+ * package.
+ */
+export function annotationSearchMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 400) {
+      const detail = err.detail || "Invalid search query.";
+      return `${detail} — AND, OR and NOT in capitals are search operators. Lowercase them, or put a term on both sides.`;
+    }
+    return err.detail || err.message;
+  }
+  return err instanceof Error ? err.message : "Search failed.";
+}
+
 export async function searchAnnotations(
   query: string,
   limit = 30,

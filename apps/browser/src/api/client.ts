@@ -34,6 +34,15 @@ async function readErr(r: Response): Promise<string> {
     const body = await r.clone().json();
     if (body && typeof body === "object" && "error" in body) {
       const e = (body as { error: unknown }).error;
+      // Gemma's envelope is `{error: {code, message}}`. Stringifying
+      // the object handed the caller `{"code":400,"message":"..."}` —
+      // the sentence is in there, wrapped in JSON nobody should have to
+      // read. `/annotations/search` started returning a message worth
+      // showing verbatim on 2026-08-25 (gemma2 `8b76ee195c`).
+      if (e && typeof e === "object" && "message" in e) {
+        const m = (e as { message: unknown }).message;
+        if (typeof m === "string" && m) return m;
+      }
       return typeof e === "string" ? e : JSON.stringify(e);
     }
     return JSON.stringify(body);

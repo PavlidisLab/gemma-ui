@@ -24,6 +24,7 @@ import { HeatmapWidget, type HeatmapPayload } from "@gemma/heatmap";
 import {
   searchGenes,
   searchGoTerms,
+  annotationSearchMessage,
   getGoTermGenes,
   getHeatmapData,
   getDatasetQuantitationTypes,
@@ -597,6 +598,12 @@ function GenePickerByGo({
             {termsQ.isFetching ? (
               <div className="px-3 py-2 text-xs text-slate-500 italic">
                 searching GO terms…
+              </div>
+            ) : termsQ.isError ? (
+              /* Ahead of "no GO terms match": a search that failed has
+                 not established that the term is absent. */
+              <div className="px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                {annotationSearchMessage(termsQ.error)}
               </div>
             ) : matches.length === 0 ? (
               <div className="px-3 py-2 text-xs text-slate-500 italic">
