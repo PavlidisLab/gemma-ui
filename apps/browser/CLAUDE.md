@@ -36,6 +36,45 @@ GEMMA_BASE_URL=http://localhost:9080    # local Gemma 2.0 server
 Use port **9080** for a local Gemma 2.0 Java server — **not 8080** which
 is reserved for the curation mock (run by `gemma-curation-agents/run_mock.sh`).
 
+## Routing: the app uses hash routing
+
+URLs are **`…/#/dataset/123`**, not `…/dataset/123`.
+
+Not a preference — a workaround for servers we don't control. Deployed
+as static files, a request for `/dataset/123` looks to the web server
+like a request for a *file* of that name and 404s before any JS runs.
+The cure is one directive telling the server to fall back to
+`index.html` — Apache's `FallbackResource`, nginx's `try_files` — and
+where this app is hosted we can't install it. The fragment is never
+sent to the server, so hash routing sidesteps the problem entirely:
+every route resolves against `index.html`, the one URL the server
+reliably serves.
+
+Consequences worth knowing before touching routing code:
+
+- **No `basepath` on the router.** The fragment is its own path
+  universe starting at `/`; a sub-path mount is not part of it.
+  `createHashHistory` re-attaches the prefix by keeping the live
+  `window.location.pathname`. Setting `basepath` would make the router
+  hunt for `#/<mount>/browser` and match nothing.
+- **`window.location.search` is empty.** Query params live *inside* the
+  fragment. Read them from router state
+  (`useRouterState(s => s.location.search)`), never from
+  `window.location` — that's what `useUrlInitial` does.
+- **The fragment is shared.** The Visualize tab keeps its gene
+  selection there as a second `#`: `#/dataset/9#genes=1,2`. See
+  `splitFragment` in `VisualizeTab.tsx`.
+- **Never hand-roll an app URL.** Build share links through the router
+  (`buildLocation().publicHref` + `history.createHref`) and in-app
+  links with `<Link to>`, never a raw `<a href="/platforms">` — those
+  skip both the mount prefix and the `#`.
+
+`src/lib/hashRouting.test.ts` pins all of the above.
+
+**To undo once a fallback directive is available:** drop `history:`
+from `createRouter` and run that test file — it documents what
+changes. Everything else already works in both modes.
+
 ## Where things live
 
 | Area | Path |

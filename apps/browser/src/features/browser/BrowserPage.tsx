@@ -2,7 +2,7 @@
 // chips, paging, and the code-snippet / download actions.
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronUp, Code2 } from "lucide-react";
 import { getMyself } from "@/api/endpoints";
@@ -377,6 +377,7 @@ function CopyLinkButton({
   settings: SearchSettings;
   sort?: string;
 }) {
+  const router = useRouter();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
 
   useEffect(() => {
@@ -386,11 +387,20 @@ function CopyLinkButton({
   }, [state]);
 
   async function copy() {
-    const params = new URLSearchParams();
-    if (!isEmptySettings(settings)) params.set("s", encodeSearchSettings(settings));
-    if (sort) params.set("sort", sort);
-    const qs = params.toString();
-    const url = `${window.location.origin}/browser${qs ? `?${qs}` : ""}`;
+    const search: Record<string, string> = {};
+    if (!isEmptySettings(settings)) search.s = encodeSearchSettings(settings);
+    if (sort) search.sort = sort;
+    // Build through the router, not by hand. `publicHref` carries the
+    // basepath and `history.createHref` applies the active history's
+    // shape — which under hash routing means /gemmaui/#/browser?s=…
+    // A hand-rolled `origin + "/browser"` misses both: it was already
+    // dropping the /gemmaui mount point before hash routing, so every
+    // copied link 404'd.
+    const built = router.buildLocation({ to: "/browser", search });
+    const url = new URL(
+      router.history.createHref(built.publicHref),
+      window.location.origin,
+    ).toString();
     try {
       await navigator.clipboard.writeText(url);
       setState("copied");

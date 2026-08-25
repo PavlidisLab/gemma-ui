@@ -1394,12 +1394,37 @@ function shareIdOf(g: Gene): number {
   return g.ncbiId ?? g.id;
 }
 
+/**
+ * Split the fragment into the router's part and ours.
+ *
+ * The app runs on hash routing (see main.tsx), so the fragment already
+ * carries the route: ``#/dataset/123``. TanStack's hash history
+ * reserves everything after a *second* ``#`` for application use, so
+ * the two coexist as ``#/dataset/123#genes=1,2``. Under plain browser
+ * history (dev, and prod again if Apache ever grows a
+ * `FallbackResource`) there is no route part and the whole fragment is
+ * ours.
+ *
+ * Telling the cases apart: a route always starts with ``/``, and
+ * ``genes=…`` never does. Getting this wrong is not cosmetic — the
+ * previous version rebuilt the URL as ``pathname + search + "#genes=…"``,
+ * which under hash routing drops the route on the floor and sends a
+ * refresh to the home page.
+ */
+export function splitFragment(raw: string): { route: string; params: string } {
+  const frag = raw.replace(/^#/, "");
+  if (!frag.startsWith("/")) return { route: "", params: frag };
+  const i = frag.indexOf("#");
+  return i === -1
+    ? { route: frag, params: "" }
+    : { route: frag.slice(0, i), params: frag.slice(i + 1) };
+}
+
 function readGeneIdsFromHash(): number[] | null {
   if (typeof window === "undefined") return null;
-  const hash = window.location.hash.replace(/^#/, "");
-  if (!hash) return null;
-  const params = new URLSearchParams(hash);
-  const raw = params.get(GENES_HASH_KEY);
+  const { params } = splitFragment(window.location.hash);
+  if (!params) return null;
+  const raw = new URLSearchParams(params).get(GENES_HASH_KEY);
   if (!raw) return null;
   return raw
     .split(",")
@@ -1409,19 +1434,30 @@ function readGeneIdsFromHash(): number[] | null {
 
 function writeGeneIdsToHash(ids: number[]): void {
   if (typeof window === "undefined") return;
-  const hash = window.location.hash.replace(/^#/, "");
-  const params = new URLSearchParams(hash);
+  const { route, params } = splitFragment(window.location.hash);
+  const p = new URLSearchParams(params);
   if (ids.length === 0) {
-    params.delete(GENES_HASH_KEY);
+    p.delete(GENES_HASH_KEY);
   } else {
-    params.set(GENES_HASH_KEY, ids.join(","));
+    p.set(GENES_HASH_KEY, ids.join(","));
   }
-  const next = params.toString();
-  const newUrl =
-    window.location.pathname +
-    window.location.search +
-    (next ? "#" + next : "");
-  window.history.replaceState({}, "", newUrl);
+  const next = p.toString();
+  // Rebuilt route-first so the router still sees its path. Kept on
+  // ``replaceState`` rather than ``router.navigate`` deliberately: a
+  // gene pick is not a navigation, and routing it through the router
+  // would re-render this whole heatmap page on every checkbox.
+  const frag = route
+    ? next
+      ? `#${route}#${next}`
+      : `#${route}`
+    : next
+      ? `#${next}`
+      : "";
+  window.history.replaceState(
+    {},
+    "",
+    window.location.pathname + window.location.search + frag,
+  );
 }
 
 function readGeneIdsFromStorage(key: string): number[] | null {
