@@ -9,6 +9,13 @@ export { default as gemmaLogo } from "./images/logo/gemma-logo.png";
 export { default as gemmaLogoText } from "./images/logo/gemma-logo-text.png";
 export { default as ubcLogo } from "./images/logo/ubc-logo.png";
 
+// Candidate replacement mark (three rows, flat sections) — wired into the
+// browser AppBar so it can be judged in place. Unlike the logos above this
+// is SVG with no .xcf: it is generated, and its source is the script that
+// draws it, not a bitmap editor. It is a MARK ONLY — there is no wordmark
+// cut of it, so any surface using it sets the word "Gemma" in type.
+export { default as gemmaMarkAmber } from "./images/logo/gemma-mark-amber.svg";
+
 // MSL (Michael Smith Laboratories) — the "M" mark, navy #000A3E with an
 // orange #F36E34 triangle. These SUPPLEMENT the UBC logo; they do not
 // replace it, so `ubcLogo` stays wherever it already is.

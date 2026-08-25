@@ -24,7 +24,7 @@ import { getDatasetAnnotations } from "@/api/endpoints";
 import { LoginModal } from "@/features/shared/LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
-import { gemmaLogoText, ubcLogo } from "@gemma/assets";
+import { gemmaMarkAmber, ubcLogo } from "@gemma/assets";
 import { isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex } from "@/lib/valueTint";
 import { InfoBadge, Panel } from "../panels";
@@ -609,36 +609,38 @@ function WeekStat({
  * Visual area is a placeholder slot — a small decorative grid
  * standing in until design ships the real element.
  */
-// Rendered height of the Gemma wordmark, and the share of that image
-// that is transparent padding below the letters. gemma-logo-text.png
-// is 1350×371 with the "Gemma" baseline measured at y≈293, so ~21% of
-// the height sits empty beneath the glyphs.
+// Masthead brand: the mark plus the word set in type. It replaced
+// gemma-logo-text.png, which baked mark and wordmark into one raster.
 //
-// The brand row aligns on `last baseline`: flexbox aligns the tagline's
-// LAST line's baseline to the <img>'s baseline, which for a replaced
-// element is its bottom edge (y = height). That puts the tagline
-// baseline at the padded image bottom, ~21% below the wordmark
-// baseline. Nudge the tagline UP by that same fraction of the rendered
-// height so the two baselines coincide. Working baseline-to-baseline
-// (not box edges) sidesteps the tagline's own line-box descent — the
-// earlier margin-on-`items-end` version aligned the span's box bottom,
-// leaving its text baseline floating above the wordmark.
+// That raster carried ~21% transparent padding below the letters, and the
+// old MASTHEAD_LOGO_BASELINE_PAD existed solely to cancel it — an <img>
+// has no baseline, so flexbox used its bottom edge and the tagline sat
+// that 21% too low. With the word as real text there is no padding to
+// cancel; what has to be cancelled instead is the font's own descent.
 //
-// `last baseline` (not `baseline`) matters once the tagline wraps: at
-// higher zoom the row narrows and the tagline breaks onto 2+ lines.
-// First-baseline alignment would pin line 1 and let the rest spill
-// DOWN past the wordmark; anchoring the last line instead keeps the
-// bottom line locked to the wordmark baseline and stacks earlier lines
-// upward. Expressed as a ratio of the logo height, so it holds at any
-// size or zoom.
-const MASTHEAD_LOGO_HEIGHT = 60;
-const MASTHEAD_LOGO_BASELINE_PAD = (371 - 293) / 371; // ≈0.210
-// Below-baseline descent of the masthead caption text (Inter, the
-// `leading-none` tagline/controls). Lifting the text by the pad alone
-// lands its box BOTTOM on the wordmark baseline; the visible baseline
-// sits one descent above that, so we settle the text back down by the
-// descent to put the baseline itself on the line. ≈0.2em at these sizes.
-const MASTHEAD_TEXT_DESCENT = 2;
+// The row still aligns `items-end` (that is what pins the UBC logo to the
+// masthead rule), so every box bottom-aligns and the wordmark's visible
+// baseline sits one descent above the row bottom. Lift the tagline by that
+// descent, then settle it back by its own, and the two baselines meet.
+// Expressed as ratios so it holds at any size or zoom.
+//
+// `last baseline` on the tagline row still matters once it wraps: at higher
+// zoom the row narrows and the tagline breaks onto 2+ lines, and anchoring
+// the last line keeps the bottom line on the wordmark baseline while earlier
+// lines stack upward.
+const MASTHEAD_WORDMARK_SIZE = 46;
+const MASTHEAD_MARK_HEIGHT = 46;
+const MASTHEAD_TAGLINE_SIZE = 10;
+// Share of a `leading-none` line box that sits below the text baseline.
+// MEASURED in-browser at 0.1196 (zero-height inline-block probe against the
+// rendered wordmark), not taken from font metrics — a guessed 0.22 left the
+// tagline 4.1px high. Both the wordmark and the tagline are the same face,
+// so the two descents differ only by font size and cancel cleanly:
+//   wordmark baseline = rowBottom - SIZE*d
+//   tagline  baseline = rowBottom - margin - TAGLINE*d
+// Equating gives margin = (SIZE - TAGLINE) * d, with no fudge term. The old
+// raster version needed one because an <img> has no baseline at all.
+const MASTHEAD_LINE_DESCENT = 0.1196;
 
 function Masthead() {
   const me = useMe();
@@ -655,12 +657,28 @@ function Masthead() {
           the whole text row is lifted by the wordmark's baseline pad so
           that shared line coincides with the printed "Gemma" baseline. */}
       <div className="flex items-end gap-3 flex-wrap">
-        <img
-          src={gemmaLogoText}
-          alt="GEMMA"
-          style={{ height: MASTHEAD_LOGO_HEIGHT }}
-          className="block w-auto"
-        />
+        {/* Mark + typed wordmark. There is no wordmark-only cut of the
+            mark, so the word is set in the UI face; the mark is nudged up
+            by the wordmark's descent so its bottom rides the same baseline
+            the letters sit on. */}
+        <div className="flex items-end gap-3">
+          <img
+            src={gemmaMarkAmber}
+            alt=""
+            style={{
+              height: MASTHEAD_MARK_HEIGHT,
+              // Drop the mark so its bottom edge rides the wordmark baseline.
+              marginBottom: MASTHEAD_WORDMARK_SIZE * MASTHEAD_LINE_DESCENT,
+            }}
+            className="block w-auto"
+          />
+          <span
+            className="block font-semibold tracking-tight text-stone-950 leading-none"
+            style={{ fontSize: MASTHEAD_WORDMARK_SIZE }}
+          >
+            Gemma
+          </span>
+        </div>
 
         <div
           className="flex-1 min-w-0 flex items-baseline gap-6 leading-none"
@@ -669,8 +687,8 @@ function Masthead() {
             // baseline: lift by the wordmark's under-glyph pad, then
             // settle back down by the text's own descent.
             marginBottom:
-              MASTHEAD_LOGO_HEIGHT * MASTHEAD_LOGO_BASELINE_PAD -
-              MASTHEAD_TEXT_DESCENT,
+              (MASTHEAD_WORDMARK_SIZE - MASTHEAD_TAGLINE_SIZE) *
+              MASTHEAD_LINE_DESCENT,
           }}
         >
           <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600 leading-none">
