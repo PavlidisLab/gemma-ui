@@ -27,6 +27,8 @@ import {
 } from "@/api/tickets";
 import { navigate } from "@/routes";
 import { CreateScreeningTicketModal } from "@/features/tickets/CreateScreeningTicketModal";
+import { CreateReviewTicketModal } from "@/features/tickets/CreateReviewTicketModal";
+import { useGemmaMode } from "@/lib/gemmaMode";
 import { OntologyLookup } from "./OntologyLookup";
 import { formatFiledDate } from "@/features/tickets/ticketPills";
 import { ExperimentQuickSearch } from "./ExperimentQuickSearch";
@@ -220,6 +222,11 @@ export function CuratorDashboard({
   );
   const [sort, setSort] = useState<DashboardSort>(() => readInitialSort());
   const [showCreateScreening, setShowCreateScreening] = useState(false);
+  const [showImportExperiment, setShowImportExperiment] = useState(false);
+  // Importing an experiment copies Gemma into the local store. In
+  // remote mode the experiment IS the source, so the affordance has
+  // nothing to do and is hidden rather than disabled.
+  const { mode } = useGemmaMode();
 
   // Persist filter selection to URL + localStorage. URL wins on
   // bookmarks; localStorage is the soft default for a fresh tab.
@@ -409,11 +416,30 @@ export function CuratorDashboard({
             {/* Create a screening ticket — a plain-language "decide
                 yes/no on datasets" task. The only ticket-create entry
                 point in the app today. */}
+            {/* Import one experiment from Gemma and open a review
+                ticket on it. Local mode only — see the mode note
+                above. Neutral fill, not the blue one: the screening
+                button stays the header's single primary action. */}
+            {mode === "local" ? (
+              <button
+                type="button"
+                onClick={() => setShowImportExperiment(true)}
+                title="Import an experiment from Gemma into this local store and open a review ticket on it"
+                className="ml-auto text-xs px-2.5 py-1 rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                + Import experiment
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setShowCreateScreening(true)}
               title="Create a screening ticket — describe in plain language what datasets to review yes/no"
-              className="ml-auto text-xs px-2.5 py-1 rounded bg-blue-700 text-white hover:bg-blue-800"
+              className={cn(
+                "text-xs px-2.5 py-1 rounded bg-blue-700 text-white hover:bg-blue-800",
+                // Only claims the gap when the import button isn't
+                // there to claim it first.
+                mode === "local" ? "" : "ml-auto",
+              )}
             >
               + New screening ticket
             </button>
@@ -515,6 +541,15 @@ export function CuratorDashboard({
         onClose={() => setShowCreateScreening(false)}
         onCreated={(ticket) => {
           setShowCreateScreening(false);
+          navigate(`#/tickets/${ticket.id}`);
+        }}
+      />
+
+      <CreateReviewTicketModal
+        open={showImportExperiment}
+        onClose={() => setShowImportExperiment(false)}
+        onCreated={(ticket) => {
+          setShowImportExperiment(false);
           navigate(`#/tickets/${ticket.id}`);
         }}
       />

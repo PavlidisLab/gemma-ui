@@ -366,6 +366,50 @@ export function useCreateTicket() {
   });
 }
 
+/** Body for ``POST /rest/v2/tickets/from-accession`` — pull an
+ *  experiment out of Gemma and open a ticket over it in one call.
+ *
+ *  ``type`` / ``flow`` / ``strip_curation`` are deliberately NOT sent.
+ *  The route already defaults them to ``REVIEW`` / ``review`` /
+ *  ``false``, which is exactly what this surface wants, and the Python
+ *  side owns the wire (see the repo CLAUDE.md cross-repo note). Sending
+ *  our own copy would be a second definition of the same default, free
+ *  to drift.
+ *
+ *  ``accession`` takes what ``import_into_mock`` takes — a GEO
+ *  accession (``GSE12345``) or a numeric Gemma experiment id. */
+export interface TicketFromAccessionBody {
+  accession: string;
+  title?: string;
+  body?: string;
+}
+
+/** Mutation hook for importing an experiment and opening a review
+ *  ticket on it.
+ *
+ *  🛑 LOCAL MODE ONLY. The import half copies Gemma into the local
+ *  store; against the real Gemma you curate the database directly and
+ *  there is nothing to import. The route doesn't guard this itself —
+ *  callers gate on ``useGemmaMode().mode === "local"``, the same rule
+ *  every other re-import affordance follows.
+ *
+ *  Failures are the import's, and no ticket is opened when one fires:
+ *  404 for an accession Gemma doesn't have, 502 for an upstream Gemma
+ *  error. Both reach the caller as ``ApiError`` — a ticket pointing at
+ *  an experiment that failed to import looks like work waiting rather
+ *  than an error, which is why the server declines to make one. */
+export function useCreateTicketFromAccession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: TicketFromAccessionBody) => {
+      return await api.post<Ticket>("/rest/v2/tickets/from-accession", body);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tickets", "mine"] });
+    },
+  });
+}
+
 /** Tickets the current curator should see as "work to do" — open
  *  or in-progress. The real REST surface will scope by assignee +
  *  permissions; the local-api currently returns every open/in-progress
