@@ -3,7 +3,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { GEMMA_1_LABEL, useGemma1Url } from "./gemma1";
 import { curationUrl } from "@/lib/appLinks";
-import { LoginModal } from "./LoginModal";
+import { LoginModal, SIGN_IN_BUTTON_COLOR } from "./LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "./SearchBox";
 import { gemmaMarkAmber } from "@gemma/assets";
@@ -144,7 +144,7 @@ function AuthControls({
     <button
       type="button"
       onClick={onSignIn}
-      className="text-sm px-2.5 py-1 rounded border bg-gemma-accent text-white hover:bg-gemma-accent hover:no-underline border-transparent"
+      className={`text-sm px-2.5 py-1 rounded border border-transparent hover:no-underline ${SIGN_IN_BUTTON_COLOR}`}
       title="sign in to Gemma"
     >
       Sign in

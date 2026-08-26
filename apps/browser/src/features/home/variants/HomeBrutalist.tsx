@@ -21,7 +21,10 @@ import { Link } from "@tanstack/react-router";
 import { GENERAL_INFO } from "../copy";
 import { useMe, useLogout } from "@/api/auth";
 import { getDatasetAnnotations } from "@/api/endpoints";
-import { LoginModal } from "@/features/shared/LoginModal";
+import {
+  LoginModal,
+  SIGN_IN_BUTTON_COLOR,
+} from "@/features/shared/LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import { gemmaMarkAmber, ubcLogo } from "@gemma/assets";
@@ -726,7 +729,7 @@ function Masthead() {
                 // padding (mirrors `py-1`) so, in the shared baseline row,
                 // its padded box doesn't drag the tagline's baseline up off
                 // the wordmark. Visual padding is unchanged.
-                className="text-[12px] leading-none -mb-1 px-2.5 py-1 rounded bg-stone-900 text-stone-50 hover:bg-stone-800"
+                className={`text-[12px] leading-none -mb-1 px-2.5 py-1 rounded ${SIGN_IN_BUTTON_COLOR}`}
               >
                 Sign in
               </button>

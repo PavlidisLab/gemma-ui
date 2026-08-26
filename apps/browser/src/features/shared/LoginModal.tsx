@@ -16,6 +16,28 @@ import { useEffect, useState } from "react";
 import { useLogin } from "@/api/auth";
 import { ApiError } from "@/api/client";
 
+/**
+ * Fill + hover for every "Sign in" affordance in the app.
+ *
+ * Signing in is ONE action, so it wears one colour wherever it is offered:
+ * the home masthead, the AppBar on every other route, the admin gate's CTA,
+ * and this dialog's submit. They used to disagree — the masthead was
+ * stone-900 while the AppBar was `bg-gemma-accent` and the other two were
+ * `bg-blue-600`, so the same button changed colour as you moved between
+ * routes, and clicking a black pill opened a dialog with a blue one.
+ *
+ * Black, not the accent: `--skin-accent` is blue-700 and the brutalist home
+ * design reserves the accent for hover affordances only (see HomeBrutalist's
+ * header), so a solid accent-filled button was already off-intent.
+ *
+ * COLOUR ONLY — size, padding and layout stay at the call site, because the
+ * four buttons are legitimately different shapes (a chrome pill, a baseline-
+ * aligned masthead pill, a full-width CTA, a dialog submit). Disabled states
+ * stay local too, for the same reason.
+ */
+export const SIGN_IN_BUTTON_COLOR =
+  "bg-stone-900 text-stone-50 hover:bg-stone-800";
+
 export function LoginModal({
   open,
   onClose,
@@ -146,7 +168,7 @@ export function LoginModal({
           <button
             type="submit"
             disabled={!username || !password || login.isPending}
-            className="text-sm px-3 py-1.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-500 dark:disabled:bg-slate-700"
+            className={`text-sm px-3 py-1.5 rounded font-medium ${SIGN_IN_BUTTON_COLOR} disabled:bg-slate-200 disabled:text-slate-500 dark:disabled:bg-slate-700`}
           >
             {login.isPending ? "Signing in…" : "Sign in"}
           </button>
