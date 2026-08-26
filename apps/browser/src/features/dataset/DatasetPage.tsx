@@ -40,6 +40,10 @@ import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
+import {
+  assayKindLabel,
+  technologyTypeLabel,
+} from "@/lib/platformConstants";
 import { SHOW_GEEQ } from "@/lib/geeq";
 import { capitalizeFirstLetter } from "@/lib/filter";
 import type {
@@ -191,6 +195,21 @@ function Banner({
   // STRING, so it was always `undefined` and the link never rendered.
   // The type declared the object shape, so nothing caught it.
   const source = datasetSource(dataset);
+  // What KIND of data, and on what. Same query key as the tab below,
+  // so react-query serves both from one request rather than two.
+  const platformsQ = useQuery({
+    queryKey: ["datasetPlatforms", dataset.id],
+    queryFn: ({ signal }) => getDatasetPlatforms(dataset.id, signal),
+    staleTime: 30 * 60_000,
+  });
+  const platforms = platformsQ.data ?? [];
+  // The dataset's own curated `assay` annotation first. The platform's
+  // technologyType is the fallback and a poor one: Gemma maps
+  // sequencing onto generic gene-list platforms, so ordinary RNA-seq
+  // reports GENELIST, which the tech vocabulary labels "Other".
+  const kind =
+    assayKindLabel(dataset.characteristics) ??
+    technologyTypeLabel(platforms[0]?.technologyType);
   const geeq = dataset.geeq;
   const gemma1Url = useGemma1Url(
     `/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`,
@@ -221,6 +240,24 @@ function Banner({
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
+            {kind ? <span className="text-slate-800">{kind}</span> : null}
+            {platforms.length === 1 ? (
+              <Link
+                to="/platforms/$shortName"
+                params={{ shortName: platforms[0].shortName ?? String(platforms[0].id) }}
+                className="text-sky-700 hover:underline"
+                title={platforms[0].name ?? undefined}
+              >
+                {platforms[0].shortName ?? platforms[0].name}
+              </Link>
+            ) : platforms.length > 1 ? (
+              // Multi-platform datasets exist (merged / re-run on a
+              // second array). Naming one of them would be a lie about
+              // the other, so say the count and let the tab list them.
+              <span title={platforms.map((p) => p.shortName ?? p.name).join(", ")}>
+                {platforms.length} platforms
+              </span>
+            ) : null}
             {dataset.lastUpdated ? (
               /* This is `curationDetails.lastUpdated` — verified
                  identical on the wire — so it moves when ANY audit

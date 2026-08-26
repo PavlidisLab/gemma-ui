@@ -16,6 +16,54 @@ export const TOP_TECHNOLOGY_TYPES: TopTechGroup[] = [
   ["OTHER", "Other", OTHER_TECHNOLOGY_TYPES] as const,
 ];
 
+/** Category URI for the assay annotation — the one that says whether a
+ *  dataset is bulk RNA-seq, single-cell, single-nucleus, or an array. */
+export const ASSAY_CATEGORY_URI = "http://purl.obolibrary.org/obo/OBI_0000070";
+
+/**
+ * What KIND of data a dataset holds, for a reader.
+ *
+ * 🛑 Not the platform's `technologyType`. Gemma maps sequencing data
+ * onto generic gene-list platforms, so a perfectly ordinary RNA-seq
+ * dataset reports `GENELIST` — which this file's own
+ * `TOP_TECHNOLOGY_TYPES` labels "Other". Telling a reader their
+ * bulk RNA-seq experiment is "Other" is worse than saying nothing.
+ *
+ * The dataset's own `assay` characteristic is the honest answer and is
+ * already curated: `bulk RNA-seq assay` (OBI_0003090), single cell
+ * (OBI_0002631), single nucleus (OBI_0003109) — the same three URIs
+ * `TECH_ADDITIONS` above uses to split the platform selector.
+ *
+ * Returns null when the dataset carries no assay annotation, so the
+ * caller can fall back to the platform's type rather than assert.
+ */
+export function assayKindLabel(
+  characteristics: Array<{ category?: string | null; categoryUri?: string | null; value?: string | null }> | null | undefined,
+): string | null {
+  for (const c of characteristics ?? []) {
+    const isAssay =
+      c.categoryUri === ASSAY_CATEGORY_URI ||
+      (c.category ?? "").trim().toLowerCase() === "assay";
+    if (!isAssay) continue;
+    const v = (c.value ?? "").trim();
+    if (v) return v;
+  }
+  return null;
+}
+
+/** Friendly name for a raw platform technology type — `SEQUENCING` →
+ *  "RNA-Seq". Used only as the fallback when a dataset has no assay
+ *  annotation; see `assayKindLabel` for why it is not the first
+ *  choice. */
+export function technologyTypeLabel(raw: string | null | undefined): string | null {
+  const t = (raw ?? "").trim().toUpperCase();
+  if (!t) return null;
+  for (const [, label, members] of TOP_TECHNOLOGY_TYPES) {
+    if (members.includes(t)) return label;
+  }
+  return null;
+}
+
 /**
  * Annotation-driven additions to the technology-type tree.
  * Each entry maps a category-URI → term-URI → { parent: tech-type }.
