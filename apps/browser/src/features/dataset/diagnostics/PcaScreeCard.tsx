@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { HeatmapWidget, buildGeneRowLabel } from "@gemma/heatmap";
+import { HeatmapWidget, probeRowLabel } from "@gemma/heatmap";
 import type { HeatmapData } from "@gemma/heatmap";
 import {
   PanelCard,
@@ -188,30 +188,21 @@ function PcLoadingsPopup({
     const sampleScores = sampleEntries.map(([, s]) => s);
     // Inline label columns: [gene symbol(s), gene official name(s)].
     // Probe id is intentionally NOT inline — only the tooltip
-    // surfaces it (along with the gene links). When the gene isn't
-    // mapped, the symbol column falls back to the probe name so the
-    // row still has a visible identifier.
+    // surfaces it (along with the gene links).
     //
-    // Labels go through the same buildGeneRowLabel the expression
-    // heatmap uses, so a probe mapping to several genes names all of
-    // them (``A;B``) here too instead of just the first. No search
-    // drives this view — it's the top loadings on a PC, not a gene
-    // query — so the empty ``queried`` set is right: every mapped
-    // gene is named and no row is marked non-specific.
-    const rowLabelColumns = data.rows.map((r, i) => {
-      const { labelSymbol, labelName } = buildGeneRowLabel(r.genes ?? []);
-      return [
-        labelSymbol ||
-          r.designElementName ||
-          (r.designElementId != null
-            ? `probe ${r.designElementId}`
-            : `row ${i + 1}`),
-        labelName,
-      ];
-    });
-    const rowLabels = rowLabelColumns.map((cols) =>
-      cols.filter(Boolean).join(" · "),
-    );
+    // ``probeRowLabel`` is the same function the expression heatmap
+    // labels its gutter with, so a probe reads identically on both:
+    // all matched genes named (``A;B``) rather than just the first,
+    // and the same fallback to the probe's own name when it maps to
+    // nothing. No search drives this view — it's the top loadings on a
+    // PC, not a gene query — so the default empty ``queried`` set is
+    // right: every mapped gene is named, no row marked non-specific.
+    const labels = data.rows.map((r) => probeRowLabel(r));
+    const rowLabelColumns = labels.map((l) => [l.symbol, l.name]);
+    // Symbol alone, matching the expression heatmap — this is what the
+    // TSV export and the cell-hover title use, and the two heatmaps
+    // shouldn't format the same probe two different ways.
+    const rowLabels = labels.map((l) => l.symbol);
     const values: (number | null)[][] = data.rows.map((r) =>
       sampleScores.map((s) => r.loading * s),
     );

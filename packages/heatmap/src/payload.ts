@@ -187,6 +187,77 @@ export function buildGeneRowLabel(
   };
 }
 
+/** What a heatmap row needs to carry for the gutter to label it.
+ *
+ *  Deliberately loose: the expression heatmap feeds it a
+ *  ``HeatmapPayloadRow`` (parallel symbol/name arrays, plus the
+ *  pre-resolved overrides its wire adapter computes), the PC-loadings
+ *  popup feeds it a raw ``/svd/loadings`` row (a ``genes`` array and
+ *  nothing else). Both satisfy this shape. */
+export interface ProbeRowLabelSource {
+  genes?: HeatmapRowGene[] | null;
+  geneSymbols?: string[];
+  geneNames?: string[];
+  labelSymbol?: string;
+  labelName?: string;
+  designElementName?: string | null;
+  designElementId?: number | null;
+}
+
+/** The gutter's two columns for one row. */
+export interface ProbeRowLabel {
+  /** Emphasised primary column — the gene symbol(s), falling back to
+   *  the probe's own identity when it maps to nothing nameable. */
+  symbol: string;
+  /** Secondary column — the gene name(s). Empty when unknown; the
+   *  gutter drops the column entirely when no row has one. */
+  name: string;
+}
+
+/**
+ * The single owner of what a heatmap row's gutter says.
+ *
+ * Every heatmap that labels rows by probe→gene goes through here — the
+ * Expression tab, the DE top-genes pop-out, the PC-loadings popup — so
+ * the same probe reads the same way on all of them. It had drifted
+ * before this existed: two fallback ladders, and two different ideas
+ * of the one-line form used for the TSV export.
+ *
+ * The ladder, in order:
+ *   1. ``labelSymbol`` — a caller that already resolved the label,
+ *      because it knows something this function can't. The Visualize
+ *      tab is the case: only it knows which genes were *searched for*,
+ *      which decides both which to name and whether to mark the row.
+ *   2. the genes on the row, via ``buildGeneRowLabel``.
+ *   3. ``geneSymbols[0]`` — payload rows built before the label
+ *      overrides existed, which set the parallel arrays only.
+ *   4. the probe's name, then its id. A row with no gene is still a
+ *      row and still needs an identifier.
+ *
+ * ``||`` throughout, never ``??``: a gene with no official symbol on
+ * file arrives as the empty string, which is non-nullish, so
+ * coalescing would stop at rung 2 and render a blank gutter.
+ *
+ * Pure.
+ */
+export function probeRowLabel(
+  row: ProbeRowLabelSource,
+  queried: ReadonlySet<number> = new Set(),
+): ProbeRowLabel {
+  const resolved =
+    row.labelSymbol || row.labelName
+      ? { labelSymbol: row.labelSymbol ?? '', labelName: row.labelName ?? '' }
+      : buildGeneRowLabel(row.genes ?? [], queried);
+  return {
+    symbol:
+      resolved.labelSymbol ||
+      row.geneSymbols?.[0] ||
+      row.designElementName ||
+      (row.designElementId != null ? `probe ${row.designElementId}` : ''),
+    name: resolved.labelName || row.geneNames?.[0] || '',
+  };
+}
+
 /** Per-sample numeric source for a continuous factor.
  *
  *  Tries `factor.continuousMeasurements[bioAssayId]` first (recce-favoured

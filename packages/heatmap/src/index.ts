@@ -39,11 +39,14 @@ export type {
   HeatmapPayloadRow,
   HeatmapQuantitationType,
   HeatmapRowGene,
+  ProbeRowLabel,
+  ProbeRowLabelSource,
   OntologyTerm,
   Statement,
 } from './payload';
 export {
   buildGeneRowLabel,
+  probeRowLabel,
   continuousValueOf,
   parseFactorUnit,
   NONSPECIFIC_MARK,

@@ -13,7 +13,11 @@
  * the rule.
  */
 import { describe, it, expect } from "vitest";
-import { buildGeneRowLabel } from "@gemma/heatmap";
+import {
+  buildGeneRowLabel,
+  buildHeatmapDataFromPayload,
+  probeRowLabel,
+} from "@gemma/heatmap";
 
 const g = (id: number, officialSymbol: string, name: string) => ({
   id,
@@ -102,5 +106,133 @@ describe("buildGeneRowLabel", () => {
     expect(
       buildGeneRowLabel([g(1, "A", ""), g(2, "B", "")], new Set()).labelName,
     ).toBe("");
+  });
+});
+
+/**
+ * The two heatmaps must label the same probe the same way.
+ *
+ * They reach the gutter by different routes — the expression heatmap
+ * builds a HeatmapPayload and goes through
+ * `buildHeatmapDataFromPayload`; the PC-loadings popup hand-builds the
+ * v1 `HeatmapData` from `/svd/loadings` rows. Both now defer to
+ * `probeRowLabel`, and these pin that they agree, because a divergence
+ * would otherwise only show up as two heatmaps naming one probe
+ * differently.
+ */
+describe("expression and top-loaded heatmaps agree on a row label", () => {
+  /** As `/svd/loadings` serves it — the PC-loadings popup's input. */
+  const loadingsRow = {
+    designElementId: 156366,
+    designElementName: "95705_s_at",
+    genes: [ACTB, LRRC58],
+  };
+
+  /** The same probe as VisualizeTab's wire adapter builds it. */
+  const payloadRow = {
+    designElementId: loadingsRow.designElementId,
+    designElementName: loadingsRow.designElementName,
+    geneIds: loadingsRow.genes.map((g) => g.id),
+    geneSymbols: loadingsRow.genes.map((g) => g.officialSymbol),
+    geneNames: loadingsRow.genes.map((g) => g.name),
+    ...buildGeneRowLabel(loadingsRow.genes, new Set<number>()),
+  };
+
+  const expressionLabels = () => {
+    const built = buildHeatmapDataFromPayload(
+      {
+        datasetId: 1,
+        matrix: {
+          values: [[1]],
+          rows: 1,
+          cols: 1,
+          quantitationType: {
+            name: "qt",
+            isPreferred: true,
+            isRatio: false,
+            scale: "LOG2",
+          },
+        },
+        rows: [payloadRow],
+        columns: [
+          {
+            bioAssayId: 1,
+            bioMaterialId: 1,
+            name: "s1",
+            outlier: false,
+            factorValueIds: {},
+          },
+        ],
+        factors: [],
+      },
+      { mainGroupingFactorId: null },
+    );
+    return built.data;
+  };
+
+  it("names every mapped gene identically on both", () => {
+    const pca = probeRowLabel(loadingsRow);
+    const expression = expressionLabels();
+    expect(pca.symbol).toBe("Actb;Lrrc58");
+    expect(expression.rowLabels?.[0]).toBe(pca.symbol);
+    expect(expression.rowLabelColumns?.[0]?.[0]).toBe(pca.symbol);
+  });
+
+  it("agrees on the gene-name column too", () => {
+    const pca = probeRowLabel(loadingsRow);
+    expect(expressionLabels().rowLabelColumns?.[0]?.[1]).toBe(pca.name);
+  });
+
+  it("agrees on the probe-name fallback when nothing is mapped", () => {
+    const bare = { ...loadingsRow, genes: [] };
+    const pca = probeRowLabel(bare);
+    expect(pca.symbol).toBe("95705_s_at");
+    // Same row through the payload path.
+    const built = buildHeatmapDataFromPayload(
+      {
+        datasetId: 1,
+        matrix: {
+          values: [[1]],
+          rows: 1,
+          cols: 1,
+          quantitationType: {
+            name: "qt",
+            isPreferred: true,
+            isRatio: false,
+            scale: "LOG2",
+          },
+        },
+        rows: [
+          {
+            designElementId: bare.designElementId,
+            designElementName: bare.designElementName,
+            geneIds: [],
+            geneSymbols: [],
+            geneNames: [],
+          },
+        ],
+        columns: [
+          {
+            bioAssayId: 1,
+            bioMaterialId: 1,
+            name: "s1",
+            outlier: false,
+            factorValueIds: {},
+          },
+        ],
+        factors: [],
+      },
+      { mainGroupingFactorId: null },
+    );
+    expect(built.data.rowLabels?.[0]).toBe(pca.symbol);
+  });
+
+  it("the single-string label is symbol-only on both (it feeds the TSV)", () => {
+    const pca = probeRowLabel(loadingsRow);
+    // Not "Actb;Lrrc58 · actin, beta; …" — the PC-loadings popup used
+    // to join symbol and name here while the expression heatmap did
+    // not, so one probe exported under two different labels.
+    expect(pca.symbol).not.toContain("·");
+    expect(expressionLabels().rowLabels?.[0]).not.toContain("·");
   });
 });

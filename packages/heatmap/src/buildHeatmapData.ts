@@ -11,6 +11,7 @@ import { orderFactorsForDisplay } from './factorOrder';
 import { buildCategoricalStrip } from './strips/categorical';
 import { buildContinuousStrip } from './strips/continuous';
 import type { HeatmapData, AnnotationStrip } from './types';
+import { probeRowLabel } from './payload';
 import type { HeatmapPayload, HeatmapPayloadColumn } from './payload';
 
 export interface BuildOptions {
@@ -59,18 +60,14 @@ export function buildHeatmapDataFromPayload(
       : buildCategoricalStrip(f, cols),
   );
 
-  // Resolved gutter text per row. ``labelSymbol`` / ``labelName`` win
-  // when the caller set them (see HeatmapPayloadRow); otherwise the
-  // first matched gene is the headline. ``||`` not ``??`` on the
-  // fallback chain: a gene with no official symbol on file arrives as
-  // the empty string, which is non-nullish — coalescing would render a
-  // blank gutter instead of falling back to the probe name.
-  const symbolLabels = payload.rows.map(
-    (r) => r.labelSymbol || r.geneSymbols[0] || r.designElementName,
-  );
-  const nameLabels = payload.rows.map(
-    (r) => r.labelName || r.geneNames?.[0] || '',
-  );
+  // Resolved gutter text per row. ``probeRowLabel`` owns the whole
+  // decision — which genes to name and what to fall back to — and is
+  // shared with the surfaces that don't build a HeatmapPayload at all
+  // (the PC-loadings popup), so the same probe reads the same way
+  // everywhere.
+  const rowLabelParts = payload.rows.map((r) => probeRowLabel(r));
+  const symbolLabels = rowLabelParts.map((p) => p.symbol);
+  const nameLabels = rowLabelParts.map((p) => p.name);
 
   // Single-string fallback (TSV download + label tooltip use this).
   const rowLabels = symbolLabels;
