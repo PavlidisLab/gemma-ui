@@ -117,7 +117,7 @@ function stepTone(status: StepStatus): NextTask["tone"] {
   switch (status) {
     case "failed":
       return "urgent";
-    case "needs_attention":
+    case "incomplete":
       return "attention";
     default:
       return "todo";
@@ -140,7 +140,7 @@ function stepVerb(status: StepStatus, label: string, isReviewStep: boolean): str
   switch (status) {
     case "failed":
       return `Fix ${label}`;
-    case "needs_attention":
+    case "incomplete":
       // "Look at Outliers" read awkwardly; bare noun + tone-color
       // already says "this needs attention." Per design review 2026-05-25.
       return label;

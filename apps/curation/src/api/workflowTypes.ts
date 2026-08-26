@@ -34,7 +34,28 @@ export type StepStatus =
   | "not_run"
   | "ok"
   | "failed"
-  | "needs_attention"
+  /**
+   * Started, and a curator still owes it something. NOT "stale".
+   *
+   * Named from what SETS it (`local_api/storage.py`), not from what the
+   * word suggests:
+   *
+   *     design_step  ok if n_factors > 0 else incomplete  "no factors set"
+   *     tags_step    ok if n_tags    > 0 else incomplete  "no tags set"
+   *     audit_step   ok if finalized      else incomplete "pending triage"
+   *
+   * The axis is never-started (`not_run`, the row is absent) vs
+   * started-and-unfinished. It says nothing about whether a derived
+   * analysis still matches its input — that is a DIFFERENT state, does
+   * not exist yet, and would be `stale` when it does.
+   *
+   * 🛑 Was `needs_attention` until 2026-08-26, which collided with the
+   * curator-set `curationDetails.needsAttention` boolean that rides at
+   * the TOP LEVEL of the same response. Two different things, one word,
+   * one document: "a human flagged this dataset" vs "this step is
+   * unfinished". Renamed agent-side; the boolean is untouched.
+   */
+  | "incomplete"
   | "na";
 
 export interface PipelineStep {

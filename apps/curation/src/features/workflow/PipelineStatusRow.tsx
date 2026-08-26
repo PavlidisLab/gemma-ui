@@ -86,7 +86,7 @@ function rowDiscTitle(
     return "review closed but uncommitted local changes remain";
   }
   if (hasLocalDraft) return "uncommitted local changes";
-  if (auditStatus === "needs_attention" || auditStatus === "failed") {
+  if (auditStatus === "incomplete" || auditStatus === "failed") {
     return "review needs attention";
   }
   return "untouched — no review yet";

@@ -126,8 +126,12 @@ function mapGemmaStatus(s: unknown): import("./workflowTypes").StepStatus {
   switch (s) {
     case "ok": return "ok";
     case "failed": return "failed";
+    // Both spellings: legacy rows wrote `needs_attention` as a step
+    // state and still parse. Normalised to the new name on the way in
+    // so nothing downstream carries two.
+    case "incomplete":
     case "needsAttention":
-    case "needs_attention": return "needs_attention";
+    case "needs_attention": return "incomplete";
     case "notApplicable":
     case "not_applicable": return "na";
     case "notRun":
@@ -202,7 +206,7 @@ function adaptPipelineStatus(raw: unknown, id: number | string): ExperimentPipel
 
 function combineSteps(steps: import("./workflowTypes").PipelineStep[]): import("./workflowTypes").PipelineStep {
   const rank: Record<import("./workflowTypes").StepStatus, number> = {
-    failed: 5, needs_attention: 4, not_run: 2, na: 1, ok: 0,
+    failed: 5, incomplete: 4, not_run: 2, na: 1, ok: 0,
   };
   let worst = steps[0] ?? { ...EMPTY_STEP };
   for (const s of steps) if (rank[s.status] > rank[worst.status]) worst = s;
