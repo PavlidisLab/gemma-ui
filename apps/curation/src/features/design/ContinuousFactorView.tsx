@@ -236,12 +236,14 @@ function StripPlot({
   points: { value: number; label?: string; samples: string[] }[];
 }) {
   const W = 600;
-  const H = 148; // 140 + the rug band, so the bars keep their height
+  const H = 156; // 140 + the rug band, so the bars keep their height
   const padX = 32;
   const padTop = 12;
-  const padBottom = 36; // axis + rug + tick labels + x-axis caption
-  /** Height of the rug band under the axis line. */
-  const rugH = 6;
+  const padBottom = 44; // axis + rug + tick labels + x-axis caption
+  /** Height of the rug band under the axis line. Tall enough to read
+   *  as a band of its own rather than fringe on the axis — at 6px the
+   *  ticks were easy to mistake for axis decoration. */
+  const rugH = 12;
   const innerW = W - 2 * padX;
   const innerH = H - padTop - padBottom;
 
@@ -412,8 +414,8 @@ function StripPlot({
                   x2={x}
                   y1={H - padBottom + 1}
                   y2={H - padBottom + 1 + rugH}
-                  stroke="rgb(29 78 216 / 0.45)"
-                  strokeWidth={1}
+                  stroke="rgb(29 78 216 / 0.6)"
+                  strokeWidth={1.5}
                 />
               );
             })
