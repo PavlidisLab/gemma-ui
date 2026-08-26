@@ -56,8 +56,22 @@ export interface AgentRunRequest {
   scope?: AuditScopeItem[];
 }
 
-/** The four the audit's ``scope`` accepts, in the order they run.
- *  ``AuditScopeItem`` is the app's existing spelling of this set. */
+/**
+ * The four scope items that actually DO something, in the order they
+ * run — deliberately shorter than `AuditScopeItem`.
+ *
+ * 🛑 Do not "fix" this by widening it to match the type. The type
+ * describes what the wire accepts; this is what changes the run. The
+ * only scope gates in `agents/audit/pipeline.py` are these four, and
+ * they are also its `_DEFAULT_INCLUDE`.
+ *
+ * `characteristics` is accepted by the server and read by no judge
+ * (Paul, 2026-08-26: not wanted separately for now). `publications`
+ * is not in the agent at all yet. Offering either would be a checkbox
+ * that quietly does nothing, which is worse than the option being
+ * absent — the curator would reasonably conclude the audit had
+ * covered something it never looked at.
+ */
 export const AUDIT_SCOPE_ITEMS: readonly AuditScopeItem[] = [
   "factors",
   "fvs",

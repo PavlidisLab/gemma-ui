@@ -30,9 +30,33 @@ export type AuditTargetKind =
  *  findings — see `AuditReportView`. */
 export type Severity = "ok" | "minor" | "major" | "blocker";
 
-/** Subset-selectable scope so a tags-only or design-only audit
- *  doesn't pay for the whole pipeline. Empty array is rejected by the
- *  server (400). */
+/**
+ * Subset-selectable scope so a tags-only or design-only audit doesn't
+ * pay for the whole pipeline. Empty array is rejected by the server
+ * (400).
+ *
+ * 🛑 **Two of these gate nothing, and that is not an oversight.**
+ * Mirrors the Python enum, which is wider than what the pipeline
+ * reads:
+ *
+ * | item | gates a judge? |
+ * |---|---|
+ * | `factors` · `fvs` · `tags` · `assignments` | yes — and they are the default scope |
+ * | `characteristics` | **no** |
+ * | `publications` | not in the agent yet (companion PR) |
+ *
+ * The only scope gates in `agents/audit/pipeline.py` are the first
+ * four, and `_DEFAULT_INCLUDE` is those same four. `characteristics`
+ * appears elsewhere in the audit code only as a DATA field — the
+ * submitter's per-sample key-value pairs — never as a switch. Paul,
+ * 2026-08-26: *"we don't need characteristics audit separately for
+ * now."*
+ *
+ * So this type describes **what the wire accepts**, not what has an
+ * effect. Anything offering these to a curator must not offer all of
+ * them — see `AUDIT_SCOPE_ITEMS` in `components/AgentRunDialog.tsx`,
+ * which is the shorter list on purpose.
+ */
 export type AuditScopeItem =
   | "factors"
   | "fvs"
